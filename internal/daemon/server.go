@@ -269,10 +269,10 @@ func extractToolNames(toolCalls []provider.ToolCall) []string {
 }
 
 func buildAcknowledgment(plan planning.TaskPlan) string {
-	if plan.Acknowledgment == "" {
+	if plan.Achievement == nil {
 		return ""
 	}
-	if plan.Achievement != nil && plan.Achievement.EtaMinutes > 3 {
+	if plan.Achievement.EtaMinutes > 3 {
 		return fmt.Sprintf("%s (this will take about %d minutes)", plan.Acknowledgment, plan.Achievement.EtaMinutes)
 	}
 	return plan.Acknowledgment
