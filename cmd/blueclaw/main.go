@@ -20,6 +20,7 @@ import (
 	"github.com/blueclaw/blueclaw/internal/container"
 	"github.com/blueclaw/blueclaw/internal/daemon"
 	"github.com/blueclaw/blueclaw/internal/initialize"
+	"github.com/chzyer/readline"
 )
 
 type CLI struct {
@@ -267,15 +268,23 @@ func runREPL(outboxPollInterval time.Duration) error {
 	done := make(chan struct{})
 	go pollOutboxUntilDone(done, outboxPollInterval)
 	defer close(done)
-	scanner := bufio.NewScanner(os.Stdin)
+	historyFile := filepath.Join(configuration.BlueclawDirectory(), "history")
+	readlineInstance, err := readline.NewEx(&readline.Config{
+		Prompt:      "> ",
+		HistoryFile: historyFile,
+	})
+	if err != nil {
+		return fmt.Errorf("initializing readline: %w", err)
+	}
+	defer readlineInstance.Close()
 	var sessionID string
-	fmt.Println("Blueclaw REPL (type 'exit' or Ctrl+D to quit)")
+	fmt.Println("Blueclaw REPL (Ctrl+D to quit)")
 	for {
-		fmt.Print("> ")
-		if !scanner.Scan() {
+		line, readErr := readlineInstance.Readline()
+		if readErr != nil {
 			break
 		}
-		input := strings.TrimSpace(scanner.Text())
+		input := strings.TrimSpace(line)
 		if input == "" {
 			continue
 		}
