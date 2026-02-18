@@ -60,9 +60,7 @@ var requiredDirectories = []string{
 	"public",
 	"public/achievements",
 	"public/tasks",
-	"ipc",
 	"models",
-	"db",
 }
 
 func Run(blueclawDirectory string, reset bool) error {

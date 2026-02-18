@@ -85,8 +85,6 @@ func (manager *Manager) startContainer(executionContext context.Context, contain
 		Name:  containerName,
 		Mounts: []BindMount{
 			{Source: manager.publicDirectory, Target: "/workspace"},
-			{Source: manager.dataDirectory + "/short-term-memory", Target: "/data/short-term-memory"},
-			{Source: manager.dataDirectory + "/long-term-memory", Target: "/data/long-term-memory"},
 			{Source: manager.dataDirectory + "/db", Target: "/data/db"},
 		},
 		NetworkMode: manager.networkMode,
