@@ -173,45 +173,6 @@ func TestLoopUnknownToolReturnsError(t *testing.T) {
 	}
 }
 
-func TestLoopIntermediateContent(t *testing.T) {
-	mockProvider := &mockProvider{
-		responses: []provider.Response{
-			{
-				Message: provider.Message{
-					Role:    "assistant",
-					Content: "뭄바이 날씨를 확인해드릴게요.",
-					ToolCalls: []provider.ToolCall{
-						{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": "weather"}},
-					},
-				},
-				ToolCalls: []provider.ToolCall{
-					{ID: "call-1", Name: "echo", Arguments: map[string]any{"text": "weather"}},
-				},
-			},
-			{Message: provider.Message{Role: "assistant", Content: "날씨 결과입니다."}},
-		},
-	}
-	registry := tool.NewRegistry()
-	registry.Register(&echoTool{})
-	loop := NewLoop(mockProvider, registry)
-	request := provider.Request{
-		SystemPrompt: "test",
-		Messages:     []provider.Message{{Role: "user", Content: "뭄바이 날씨"}},
-	}
-	response, err := loop.Run(context.Background(), request)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(response.IntermediateContent) != 1 {
-		t.Fatalf("expected 1 intermediate content item, got %d", len(response.IntermediateContent))
-	}
-	if response.IntermediateContent[0] != "뭄바이 날씨를 확인해드릴게요." {
-		t.Errorf("unexpected intermediate content: %q", response.IntermediateContent[0])
-	}
-	if response.Message.Content != "날씨 결과입니다." {
-		t.Errorf("unexpected final content: %q", response.Message.Content)
-	}
-}
 
 type cancelOnCallProvider struct {
 	cancel    context.CancelFunc

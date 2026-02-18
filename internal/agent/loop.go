@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/blueclaw/blueclaw/internal/provider"
 	"github.com/blueclaw/blueclaw/internal/tool"
@@ -24,7 +23,6 @@ func NewLoop(llmProvider provider.LLMProvider, toolRegistry *tool.Registry) *Loo
 func (loop *Loop) Run(loopContext context.Context, request provider.Request) (provider.Response, error) {
 	messages := make([]provider.Message, len(request.Messages))
 	copy(messages, request.Messages)
-	var intermediateContent []string
 	for {
 		currentRequest := provider.Request{
 			SystemPrompt:    request.SystemPrompt,
@@ -34,14 +32,10 @@ func (loop *Loop) Run(loopContext context.Context, request provider.Request) (pr
 		}
 		response, err := loop.llmProvider.SendMessage(loopContext, currentRequest)
 		if err != nil {
-			return partialResponse(intermediateContent), nil
+			return partialResponse(), nil
 		}
 		if len(response.ToolCalls) == 0 {
-			response.IntermediateContent = intermediateContent
 			return response, nil
-		}
-		if response.Message.Content != "" {
-			intermediateContent = append(intermediateContent, response.Message.Content)
 		}
 		messages = append(messages, response.Message)
 		messages = append(messages, loop.executeToolCalls(loopContext, response.ToolCalls)...)
@@ -72,11 +66,6 @@ func (loop *Loop) executeToolCall(executionContext context.Context, toolCall pro
 	return provider.Message{Role: "tool", Content: content, ToolCallID: toolCall.ID}
 }
 
-func partialResponse(intermediateContent []string) provider.Response {
-	suffix := "I ran out of time before finishing."
-	content := suffix
-	if len(intermediateContent) > 0 {
-		content = strings.Join(intermediateContent, "\n\n") + "\n\n" + suffix
-	}
-	return provider.Response{Message: provider.Message{Role: "assistant", Content: content}}
+func partialResponse() provider.Response {
+	return provider.Response{Message: provider.Message{Role: "assistant", Content: "I ran out of time before finishing."}}
 }
