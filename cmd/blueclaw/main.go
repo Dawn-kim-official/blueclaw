@@ -13,14 +13,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/alecthomas/kong"
 	"github.com/blueclaw/blueclaw/internal/configuration"
 	"github.com/blueclaw/blueclaw/internal/container"
 	"github.com/blueclaw/blueclaw/internal/daemon"
 	"github.com/blueclaw/blueclaw/internal/initialize"
-	"github.com/chzyer/readline"
 )
 
 type CLI struct {
@@ -174,7 +172,7 @@ func (command *ChatCommand) Run() error {
 	if err != nil {
 		return fmt.Errorf("loading configuration: %w", err)
 	}
-	return runREPL(config.ParsedOutboxPollInterval())
+	return startREPL(config.ParsedOutboxPollInterval())
 }
 
 func (command *TasksCommand) Run() error {
@@ -263,58 +261,6 @@ func sendOneShot(message string) error {
 	return nil
 }
 
-func runREPL(outboxPollInterval time.Duration) error {
-	deliverOutboxMessages()
-	done := make(chan struct{})
-	go pollOutboxUntilDone(done, outboxPollInterval)
-	defer close(done)
-	historyFile := filepath.Join(configuration.BlueclawDirectory(), "history")
-	readlineInstance, err := readline.NewEx(&readline.Config{
-		Prompt:      "> ",
-		HistoryFile: historyFile,
-	})
-	if err != nil {
-		return fmt.Errorf("initializing readline: %w", err)
-	}
-	defer readlineInstance.Close()
-	var sessionID string
-	fmt.Println("Blueclaw REPL (Ctrl+D to quit)")
-	for {
-		line, readErr := readlineInstance.Readline()
-		if readErr != nil {
-			break
-		}
-		input := strings.TrimSpace(line)
-		if input == "" {
-			continue
-		}
-		if input == "exit" || input == "quit" {
-			break
-		}
-		response, err := sendChatMessage(input, sessionID)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			continue
-		}
-		sessionID = response.SessionID
-		fmt.Println(response.Response)
-	}
-	fmt.Println()
-	return nil
-}
-
-func pollOutboxUntilDone(done <-chan struct{}, outboxPollInterval time.Duration) {
-	ticker := time.NewTicker(outboxPollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-done:
-			return
-		case <-ticker.C:
-			deliverOutboxMessages()
-		}
-	}
-}
 
 type chatResponsePayload struct {
 	SessionID string   `json:"sessionID"`
@@ -393,11 +339,11 @@ func sendChatMessage(message string, sessionID string) (chatResponsePayload, err
 	return readChatStream(response.Body)
 }
 
-func deliverOutboxMessages() {
+func collectOutboxMessages() []outboxEntry {
 	client := daemonClient()
 	response, err := client.Get("http://blueclaw/v1/outbox")
 	if err != nil {
-		return
+		return nil
 	}
 	defer response.Body.Close()
 	responseBody, _ := io.ReadAll(response.Body)
@@ -408,18 +354,18 @@ func deliverOutboxMessages() {
 		} `json:"messages"`
 	}
 	if json.Unmarshal(responseBody, &outboxPayload) != nil {
-		return
+		return nil
 	}
 	if len(outboxPayload.Messages) == 0 {
-		return
+		return nil
 	}
-	fmt.Println("--- Pending messages ---")
-	for _, message := range outboxPayload.Messages {
-		fmt.Printf("[%s] %s\n", message.Source, message.Content)
+	entries := make([]outboxEntry, len(outboxPayload.Messages))
+	for index, message := range outboxPayload.Messages {
+		entries[index] = outboxEntry{source: message.Source, content: message.Content}
 	}
-	fmt.Println("------------------------")
 	deleteRequest, _ := http.NewRequest(http.MethodDelete, "http://blueclaw/v1/outbox", nil)
 	client.Do(deleteRequest)
+	return entries
 }
 
 func daemonClient() *http.Client {
