@@ -1,0 +1,193 @@
+openapi: "3.1.0"
+info:
+  title: Blueclaw Daemon API
+  version: "0.1.0"
+  description: |
+    HTTP API exposed by the Blueclaw daemon. Served on both a Unix domain
+    socket (~/.blueclaw/daemon.sock) for the CLI client and a TCP port
+    (default 8080) for external access.
+servers:
+  - url: http://localhost:8080
+    description: TCP listener (external API)
+  - url: http+unix://%2Ftmp%2Fblueclaw%2Fdaemon.sock
+    description: Unix socket (CLI client)
+paths:
+  /v1/chat:
+    post:
+      summary: Send a message and get a response
+      operationId: chat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: Agent response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: LLM provider unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/sessions/{sessionID}:
+    delete:
+      summary: End a session and stop its container
+      operationId: endSession
+      parameters:
+        - name: sessionID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Session ended
+        "404":
+          description: Session not found
+  /v1/tasks:
+    get:
+      summary: List active scheduled jobs
+      operationId: listTasks
+      responses:
+        "200":
+          description: List of scheduled jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TasksResponse"
+  /v1/outbox:
+    get:
+      summary: Get queued proactive messages
+      operationId: getOutbox
+      responses:
+        "200":
+          description: Queued messages from heartbeat and cron jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutboxResponse"
+    delete:
+      summary: Mark all outbox messages as delivered
+      operationId: clearOutbox
+      responses:
+        "204":
+          description: Outbox cleared
+  /v1/health:
+    get:
+      summary: Daemon health check
+      operationId: health
+      responses:
+        "200":
+          description: Daemon is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+components:
+  schemas:
+    ChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: User message text
+        sessionID:
+          type: string
+          description: |
+            Optional session ID for continuing a conversation.
+            If omitted, a new session is created.
+    ChatResponse:
+      type: object
+      properties:
+        sessionID:
+          type: string
+          description: Session ID for follow-up messages
+        response:
+          type: string
+          description: Agent response text
+        toolsUsed:
+          type: array
+          items:
+            type: string
+          description: Names of tools the agent called during this turn
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+        code:
+          type: string
+          description: Machine-readable error code
+    TasksResponse:
+      type: object
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduledTask"
+    ScheduledTask:
+      type: object
+      properties:
+        id:
+          type: string
+        cronExpression:
+          type: string
+        prompt:
+          type: string
+        lastRunAt:
+          type: string
+          format: date-time
+        nextRunAt:
+          type: string
+          format: date-time
+    OutboxResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProactiveMessage"
+    ProactiveMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+          description: '"heartbeat" or "cron:{jobID}"'
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded]
+        embeddingServer:
+          type: string
+          enum: [up, down]
+        containerRuntime:
+          type: string
+          enum: [available, unavailable]
+        activeContainers:
+          type: integer
+        activeSessions:
+          type: integer
