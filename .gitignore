@@ -1,0 +1,25 @@
+# Binaries
+blueclaw
+*.exe
+*.test
+*.out
+
+# Go
+vendor/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env*
+
+# Runtime data
+*.log
+
+# Local Claude Code settings
+.claude/settings.local.json
