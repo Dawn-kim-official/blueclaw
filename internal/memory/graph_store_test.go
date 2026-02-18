@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -313,6 +314,37 @@ func TestGraphStore_SaveEmbedding_And_TopK(t *testing.T) {
 	}
 	if results[0].Title != "embedding test" {
 		t.Errorf("top result: got %q, want %q", results[0].Title, "embedding test")
+	}
+}
+
+func TestGraphStore_Recent_OrderedByRecency(t *testing.T) {
+	store := newTestGraphStore(t)
+	store.Save("old", "content old", MemoryTypeFact, nil)
+	idNew, _ := store.Save("new", "content new", MemoryTypeFact, nil)
+	store.IncrementRecall(idNew)
+	memories, err := store.Recent(5)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	if len(memories) != 2 {
+		t.Fatalf("expected 2 memories, got %d", len(memories))
+	}
+	if memories[0].Title != "new" {
+		t.Errorf("expected most recently recalled first, got %q", memories[0].Title)
+	}
+}
+
+func TestGraphStore_Recent_RespectsLimit(t *testing.T) {
+	store := newTestGraphStore(t)
+	for i := range 5 {
+		store.Save(fmt.Sprintf("mem%d", i), "content", MemoryTypeFact, nil)
+	}
+	memories, err := store.Recent(3)
+	if err != nil {
+		t.Fatalf("Recent: %v", err)
+	}
+	if len(memories) != 3 {
+		t.Errorf("expected 3 memories, got %d", len(memories))
 	}
 }
 

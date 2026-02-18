@@ -3,7 +3,6 @@ package tool
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/blueclaw/blueclaw/internal/memory"
 )
@@ -43,23 +42,31 @@ func (tool *RecallTool) Execute(executionContext context.Context, arguments map[
 		return Result{Error: "query is required"}, nil
 	}
 	if tool.embedding == nil {
-		return Result{Error: "memory search unavailable: embedding service not configured"}, nil
+		return tool.recallByRecency()
 	}
 	queryEmbedding, err := tool.embedding.Generate(executionContext, query)
 	if err != nil {
-		return Result{Error: fmt.Sprintf("memory search unavailable: %v", err)}, nil
+		return tool.recallByRecency()
 	}
 	hits, err := tool.graphStore.TopK(queryEmbedding, tool.topK)
 	if err != nil {
-		return Result{Error: fmt.Sprintf("memory search failed: %v", err)}, nil
+		return emptyRecallResult()
 	}
 	if len(hits) == 0 {
 		return emptyRecallResult()
 	}
-	return tool.buildRecallResult(hits)
+	return tool.buildResult(hits, "search")
 }
 
-func (tool *RecallTool) buildRecallResult(hits []memory.Memory) (Result, error) {
+func (tool *RecallTool) recallByRecency() (Result, error) {
+	memories, err := tool.graphStore.Recent(tool.topK)
+	if err != nil || len(memories) == 0 {
+		return emptyRecallResult()
+	}
+	return tool.buildResult(memories, "recent")
+}
+
+func (tool *RecallTool) buildResult(hits []memory.Memory, source string) (Result, error) {
 	seen := make(map[int64]bool)
 	results := make([]recallResult, 0, len(hits))
 	for _, hit := range hits {
@@ -71,7 +78,7 @@ func (tool *RecallTool) buildRecallResult(hits []memory.Memory) (Result, error) 
 			Title:   hit.Title,
 			Content: hit.Content,
 			Type:    string(hit.Type),
-			Source:  "search",
+			Source:  source,
 		})
 		tool.updateRecallState(hit)
 		neighbors, err := tool.graphStore.Neighbors(hit.ID)

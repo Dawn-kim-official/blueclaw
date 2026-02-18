@@ -36,6 +36,23 @@ func TestRecallTool_NoMatches_ReturnsEmpty(t *testing.T) {
 	}
 }
 
+func TestRecallTool_FallsBackToRecencyWhenEmbeddingUnavailable(t *testing.T) {
+	graphStore := newTestGraphStore(t)
+	graphStore.Save("user name", "Lee", memory.MemoryTypeFact, nil)
+	recallTool := NewRecallTool(graphStore, nil, 5)
+	result, err := recallTool.Execute(context.Background(), map[string]any{"query": "what is my name"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if result.Error != "" {
+		t.Errorf("unexpected error: %s", result.Error)
+	}
+	titles := extractTitles(t, result.Output)
+	if !titleInSlice(titles, "user name") {
+		t.Errorf("expected 'user name' in recency fallback results, got %v", titles)
+	}
+}
+
 func TestRecallTool_NeighborIncluded(t *testing.T) {
 	graphStore := newTestGraphStore(t)
 	embed := &fixedEmbedding{value: 0.5}

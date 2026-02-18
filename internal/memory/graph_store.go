@@ -250,6 +250,20 @@ func (store *GraphStore) SaveEmbedding(id int64, embedding []float32) error {
 	return transaction.Commit()
 }
 
+func (store *GraphStore) Recent(limit int) ([]Memory, error) {
+	rows, err := store.database.Query(`
+		SELECT id, type, title, content, recall_count, expires_at, created_at, last_recalled_at
+		FROM memories
+		ORDER BY COALESCE(last_recalled_at, created_at) DESC, id DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fetching recent memories: %w", err)
+	}
+	defer rows.Close()
+	return scanMemories(rows)
+}
+
 func (store *GraphStore) TopK(queryEmbedding []float32, k int) ([]Memory, error) {
 	queryJSON, err := json.Marshal(queryEmbedding)
 	if err != nil {
