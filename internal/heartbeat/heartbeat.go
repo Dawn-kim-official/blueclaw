@@ -23,11 +23,12 @@ type Service struct {
 	blueclawDirectory string
 	agentRunner       agent.Runner
 	outbox            *outbox.Outbox
+	cleanupFn         func() error
 	stopChannel       chan struct{}
 	resetChannel      chan struct{}
 }
 
-func NewService(interval time.Duration, minimumInterval time.Duration, maximumInterval time.Duration, blueclawDirectory string, agentRunner agent.Runner, messageOutbox *outbox.Outbox) *Service {
+func NewService(interval time.Duration, minimumInterval time.Duration, maximumInterval time.Duration, blueclawDirectory string, agentRunner agent.Runner, messageOutbox *outbox.Outbox, cleanupFn func() error) *Service {
 	return &Service{
 		interval:          interval,
 		minimumInterval:   minimumInterval,
@@ -35,6 +36,7 @@ func NewService(interval time.Duration, minimumInterval time.Duration, maximumIn
 		blueclawDirectory: blueclawDirectory,
 		agentRunner:       agentRunner,
 		outbox:            messageOutbox,
+		cleanupFn:         cleanupFn,
 		stopChannel:       make(chan struct{}),
 		resetChannel:      make(chan struct{}, 1),
 	}
@@ -123,7 +125,17 @@ func isHeartbeatSuppressed(response provider.Response) bool {
 	return false
 }
 
+func (service *Service) runCleanup() {
+	if service.cleanupFn == nil {
+		return
+	}
+	if err := service.cleanupFn(); err != nil {
+		log.Printf("heartbeat: memory cleanup failed: %v", err)
+	}
+}
+
 func (service *Service) executeHeartbeat(activeInterval time.Duration) {
+	service.runCleanup()
 	heartbeatPath := filepath.Join(service.blueclawDirectory, "HEARTBEAT.md")
 	promptContent, err := os.ReadFile(heartbeatPath)
 	if err != nil {

@@ -34,7 +34,7 @@ type Daemon struct {
 	containerManager *container.Manager
 	embeddingClient  *memory.EmbeddingClient
 	sidecar          *memory.SidecarProcess
-	searchIndex      *memory.SearchIndex
+	graphStore       *memory.GraphStore
 	heartbeatService *heartbeat.Service
 	schedulerService *scheduler.Service
 	outbox           *outbox.Outbox
@@ -74,14 +74,17 @@ func Start(config configuration.Configuration) error {
 	}
 	embeddingClient := memory.NewEmbeddingClient(config.EmbeddingPort)
 	databasePath := filepath.Join(blueclawDirectory, "db", "memory.db")
-	searchIndex, err := memory.NewSearchIndex(databasePath)
+	graphStore, err := memory.NewGraphStore(databasePath)
 	if err != nil {
-		return fmt.Errorf("opening search index: %w", err)
+		return fmt.Errorf("opening graph store: %w", err)
 	}
-	store := memory.NewStore(blueclawDirectory)
+	if cleanupErr := graphStore.CleanupExpired(); cleanupErr != nil {
+		log.Printf("warning: startup memory cleanup failed: %v", cleanupErr)
+	}
 	toolRegistry := tool.NewRegistry()
-	toolRegistry.Register(tool.NewRememberTool(store, searchIndex, embeddingClient))
-	toolRegistry.Register(tool.NewRecallTool(store, searchIndex, embeddingClient, config.MemoryTopK))
+	toolRegistry.Register(tool.NewRememberTool(graphStore, embeddingClient))
+	toolRegistry.Register(tool.NewRecallTool(graphStore, embeddingClient, config.MemoryTopK))
+	toolRegistry.Register(tool.NewConnectTool(graphStore))
 	toolRegistry.Register(tool.NewReadFileTool(publicDirectory))
 	toolRegistry.Register(tool.NewWriteFileTool(publicDirectory))
 	toolRegistry.Register(tool.NewEditFileTool(publicDirectory))
@@ -97,7 +100,7 @@ func Start(config configuration.Configuration) error {
 		config.ParsedHeartbeatInterval(),
 		config.ParsedMinHeartbeatInterval(),
 		config.ParsedMaxHeartbeatInterval(),
-		blueclawDirectory, nil, messageOutbox,
+		blueclawDirectory, nil, messageOutbox, graphStore.CleanupExpired,
 	)
 	containerManager := container.NewManager(
 		containerRuntime, config.ContainerImage, config.ContainerNetworkMode,
@@ -121,7 +124,7 @@ func Start(config configuration.Configuration) error {
 		containerManager: containerManager,
 		embeddingClient:  embeddingClient,
 		sidecar:          sidecar,
-		searchIndex:      searchIndex,
+		graphStore:       graphStore,
 		heartbeatService: heartbeatService,
 		schedulerService: schedulerService,
 		outbox:           messageOutbox,
@@ -141,7 +144,7 @@ func (daemon *Daemon) run(blueclawDirectory string) error {
 		go daemon.sidecar.HealthCheckLoop(daemon.embeddingClient)
 	}
 	defer daemon.sidecar.Stop()
-	defer daemon.searchIndex.Close()
+	defer daemon.graphStore.Close()
 	daemon.heartbeatService.Start()
 	defer daemon.heartbeatService.Stop()
 	daemon.schedulerService.Start()
