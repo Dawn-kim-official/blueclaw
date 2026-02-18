@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/blueclaw/blueclaw/internal/memory"
 )
@@ -42,14 +43,17 @@ func (tool *RecallTool) Execute(executionContext context.Context, arguments map[
 		return Result{Error: "query is required"}, nil
 	}
 	if tool.embedding == nil {
-		return emptyRecallResult()
+		return Result{Error: "memory search unavailable: embedding service not configured"}, nil
 	}
 	queryEmbedding, err := tool.embedding.Generate(executionContext, query)
 	if err != nil {
-		return emptyRecallResult()
+		return Result{Error: fmt.Sprintf("memory search unavailable: %v", err)}, nil
 	}
 	hits, err := tool.graphStore.TopK(queryEmbedding, tool.topK)
-	if err != nil || len(hits) == 0 {
+	if err != nil {
+		return Result{Error: fmt.Sprintf("memory search failed: %v", err)}, nil
+	}
+	if len(hits) == 0 {
 		return emptyRecallResult()
 	}
 	return tool.buildRecallResult(hits)

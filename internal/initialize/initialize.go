@@ -54,8 +54,6 @@ const defaultHeartbeatMarkdown = `Use recall to check for anything with upcoming
 `
 
 var requiredDirectories = []string{
-	"short-term-memory",
-	"long-term-memory",
 	"sessions",
 	"cron",
 	"outbox",

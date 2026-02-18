@@ -20,7 +20,7 @@ func TestRecallTool_MissingQuery(t *testing.T) {
 }
 
 func TestRecallTool_NoMatches_ReturnsEmpty(t *testing.T) {
-	tool := NewRecallTool(newTestGraphStore(t), nil, 5)
+	tool := NewRecallTool(newTestGraphStore(t), &fixedEmbedding{value: 0.5}, 5)
 	result, err := tool.Execute(context.Background(), map[string]any{"query": "anything"})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
