@@ -1,5 +1,5 @@
 # Binaries
-blueclaw
+/blueclaw
 *.exe
 *.test
 *.out

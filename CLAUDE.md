@@ -66,6 +66,8 @@ Project governance is defined in `.specify/memory/constitution.md` (v1.1.0). The
 ## Active Technologies
 - Go 1.22+ + kong (CLI), go-cron (scheduling), yaml.v3 (config), docker/client (containers), mattn/go-sqlite3 + sqlite-vec-go-bindings (vector storage) (001-cli-api-prototype)
 - SQLite + sqlite-vec (`~/.blueclaw/memory.db`), Markdown files (memories), JSON files (sessions, cron jobs, outbox) (001-cli-api-prototype)
+- Go 1.22+ + mattn/go-sqlite3 (CGo), sqlite-vec (vendored C files) (001-graph-memory)
+- SQLite — `~/.blueclaw/db/memory.db` (single file, three tables) (001-graph-memory)
 
 ## Recent Changes
 - 001-cli-api-prototype: Added Go 1.22+ + kong (CLI), go-cron (scheduling), yaml.v3 (config), docker/client (containers), mattn/go-sqlite3 + sqlite-vec-go-bindings (vector storage)
