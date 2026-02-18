@@ -151,16 +151,34 @@ func (sidecar *SidecarProcess) Stop() {
 }
 
 func (sidecar *SidecarProcess) HealthCheckLoop(client *EmbeddingClient) {
+	sidecar.waitUntilReady(client)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	time.Sleep(3 * time.Second)
 	for {
 		select {
 		case <-sidecar.shutdownSignal:
 			return
 		case <-ticker.C:
-			available := sidecar.checkHealth()
-			client.SetAvailable(available)
+			client.SetAvailable(sidecar.checkHealth())
+		}
+	}
+}
+
+func (sidecar *SidecarProcess) waitUntilReady(client *EmbeddingClient) {
+	retryTicker := time.NewTicker(1 * time.Second)
+	defer retryTicker.Stop()
+	timeout := time.After(30 * time.Second)
+	for {
+		select {
+		case <-sidecar.shutdownSignal:
+			return
+		case <-timeout:
+			return
+		case <-retryTicker.C:
+			if sidecar.checkHealth() {
+				client.SetAvailable(true)
+				return
+			}
 		}
 	}
 }
