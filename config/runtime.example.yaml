@@ -1,5 +1,24 @@
 {
   "baseURL": "http://127.0.0.1:8080",
+  "languageModel": {
+    "defaultProvider": "openRouter",
+    "fallbackProvider": "liteRTLM",
+    "openRouter": {
+      "baseURL": "https://openrouter.ai/api/v1/chat/completions",
+      "modelName": "openai/gpt-4.1-mini",
+      "requireParameters": true,
+      "enableResponseHealing": true
+    },
+    "liteRTLM": {
+      "wrapperPath": "/usr/local/bin/blueclaw-litert-wrapper",
+      "wrapperArguments": [
+        "--stdio"
+      ],
+      "modelPath": "/workspace/.blueclaw/models/gemma-3n-E2B-it-int4.litertlm",
+      "backend": "cpu",
+      "constraintProvider": "llguidance"
+    }
+  },
   "firecracker": {
     "firecrackerPath": "/usr/local/bin/firecracker",
     "jailerPath": "/usr/local/bin/jailer",

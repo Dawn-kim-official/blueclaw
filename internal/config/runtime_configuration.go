@@ -8,6 +8,7 @@ import (
 type RuntimeConfiguration struct {
 	BaseURL       string                      `json:"baseURL"`
 	AgentProfiles []AgentProfileConfiguration `json:"agentProfiles"`
+	LanguageModel LanguageModelConfiguration  `json:"languageModel"`
 	Firecracker   FirecrackerConfiguration    `json:"firecracker"`
 	Bridge        BridgeConfiguration         `json:"bridge"`
 	MCPServers    []MCPServerConfiguration    `json:"mcpServers"`
@@ -26,6 +27,28 @@ type MCPServerConfiguration struct {
 	Command   string   `json:"command"`
 	Arguments []string `json:"arguments"`
 	Endpoint  string   `json:"endpoint"`
+}
+
+type LanguageModelConfiguration struct {
+	DefaultProvider  string                  `json:"defaultProvider"`
+	FallbackProvider string                  `json:"fallbackProvider"`
+	OpenRouter       OpenRouterConfiguration `json:"openRouter"`
+	LiteRTLM         LiteRTLMConfiguration   `json:"liteRTLM"`
+}
+
+type OpenRouterConfiguration struct {
+	BaseURL               string `json:"baseURL"`
+	ModelName             string `json:"modelName"`
+	RequireParameters     bool   `json:"requireParameters"`
+	EnableResponseHealing bool   `json:"enableResponseHealing"`
+}
+
+type LiteRTLMConfiguration struct {
+	WrapperPath        string   `json:"wrapperPath"`
+	WrapperArguments   []string `json:"wrapperArguments"`
+	ModelPath          string   `json:"modelPath"`
+	Backend            string   `json:"backend"`
+	ConstraintProvider string   `json:"constraintProvider"`
 }
 
 type FirecrackerConfiguration struct {

@@ -11,6 +11,23 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	runtimeConfigurationPath := filepath.Join(workspacePath, "runtime.json")
 	runtimeConfigurationDocument := `{
   "baseURL": "http://127.0.0.1:8080",
+  "languageModel": {
+    "defaultProvider": "openRouter",
+    "fallbackProvider": "liteRTLM",
+    "openRouter": {
+      "baseURL": "https://openrouter.ai/api/v1/chat/completions",
+      "modelName": "openai/gpt-4.1-mini",
+      "requireParameters": true,
+      "enableResponseHealing": true
+    },
+    "liteRTLM": {
+      "wrapperPath": "/usr/local/bin/blueclaw-litert-wrapper",
+      "wrapperArguments": ["--stdio"],
+      "modelPath": "/models/gemma-3n.litertlm",
+      "backend": "cpu",
+      "constraintProvider": "llguidance"
+    }
+  },
   "firecracker": {
     "firecrackerPath": "/usr/bin/firecracker",
     "jailerPath": "/usr/bin/jailer",
@@ -58,5 +75,11 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Bridge.ListenAddress != "127.0.0.1:7778" {
 		t.Fatalf("expected bridge listen address to match, got %q", runtimeConfiguration.Bridge.ListenAddress)
+	}
+	if runtimeConfiguration.LanguageModel.DefaultProvider != "openRouter" {
+		t.Fatalf("expected default language model provider to match, got %q", runtimeConfiguration.LanguageModel.DefaultProvider)
+	}
+	if runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider != "llguidance" {
+		t.Fatalf("expected litert-lm constraint provider to match, got %q", runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider)
 	}
 }
