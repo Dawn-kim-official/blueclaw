@@ -15,6 +15,14 @@ const (
 	TaskStatusCancelled        TaskStatus = "cancelled"
 )
 
+type TaskScheduleKind string
+
+const (
+	TaskScheduleKindOnce     TaskScheduleKind = "once"
+	TaskScheduleKindInterval TaskScheduleKind = "interval"
+	TaskScheduleKindCron     TaskScheduleKind = "cron"
+)
+
 type TaskRun struct {
 	TaskRunID               string     `json:"taskRunID"`
 	RequesterPersonID       string     `json:"requesterPersonID"`
@@ -65,4 +73,22 @@ type TaskSession struct {
 	TaskSessionID string    `json:"taskSessionID"`
 	PersonID      string    `json:"personID"`
 	ExpiresAt     time.Time `json:"expiresAt"`
+}
+
+type TaskSchedule struct {
+	TaskScheduleID   string           `json:"taskScheduleID"`
+	CreatorPersonID  string           `json:"creatorPersonID"`
+	Name             string           `json:"name"`
+	Prompt           string           `json:"prompt"`
+	AgentProfileName string           `json:"agentProfileName"`
+	Kind             TaskScheduleKind `json:"kind"`
+	RunAt            *time.Time       `json:"runAt"`
+	IntervalSecond   int              `json:"intervalSecond"`
+	CronExpression   string           `json:"cronExpression"`
+	NextRunAt        *time.Time       `json:"nextRunAt"`
+	LastRunAt        *time.Time       `json:"lastRunAt"`
+	LastTaskRunID    string           `json:"lastTaskRunID"`
+	IsPaused         bool             `json:"isPaused"`
+	CreatedAt        time.Time        `json:"createdAt"`
+	UpdatedAt        time.Time        `json:"updatedAt"`
 }

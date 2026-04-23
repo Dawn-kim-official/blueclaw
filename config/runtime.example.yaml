@@ -139,6 +139,7 @@
     "allowInteractiveShell": true
   },
   "scheduler": {
-    "retentionCheckIntervalMinute": 60
+    "retentionCheckIntervalMinute": 60,
+    "taskSchedulePollIntervalSecond": 30
   }
 }

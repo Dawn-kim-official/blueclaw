@@ -50,7 +50,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "mode": "native"
   },
   "scheduler": {
-    "retentionCheckIntervalMinute": 60
+    "retentionCheckIntervalMinute": 60,
+    "taskSchedulePollIntervalSecond": 30
   }
 }`
 
@@ -81,5 +82,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider != "llguidance" {
 		t.Fatalf("expected litert-lm constraint provider to match, got %q", runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider)
+	}
+	if runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond != 30 {
+		t.Fatalf("expected task schedule poll interval to match, got %d", runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond)
 	}
 }

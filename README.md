@@ -13,6 +13,7 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 - `Mattermost` is self-hosted inside `InternKim`
 - `Mattermost` is an `InternKim`-native internal service, separate from the isolated `Blueclaw` guest
 - `Blueclaw` stores policy, memory, task state, backups, and artifacts on persistent workspace storage
+- `Blueclaw` supports one-time, interval, and cron-based scheduled task execution
 - `Blueclaw` may ask the user's main computer to open a browser instance when a flow requires direct user login or approval
 - `Blueclaw` is configured and operated from the user's main computer through `SSH` and `HTTP API`
 - the primary deployment model is `Blueclaw inside a long-lived Firecracker guest with only workspace mounted from the host`
@@ -63,6 +64,7 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 - the bridge can launch a browser window or tab on the main computer
 - login-required flows stay user-mediated instead of trying to bypass authentication
 - `Blueclaw` can pause a task, ask for login or approval, and resume after the bridge reports completion
+- scheduled automation should create new task runs instead of bypassing the task engine
 
 ## Control Plane
 

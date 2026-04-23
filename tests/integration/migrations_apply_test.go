@@ -12,7 +12,7 @@ func TestMigrationsApplyList(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected migrations to load: %v", errorValue)
 	}
-	if len(migrationPaths) != 7 {
-		t.Fatalf("expected 7 migration files, got %d", len(migrationPaths))
+	if len(migrationPaths) != 8 {
+		t.Fatalf("expected 8 migration files, got %d", len(migrationPaths))
 	}
 }
