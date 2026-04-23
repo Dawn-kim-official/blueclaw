@@ -16,6 +16,7 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 - `Blueclaw` may ask the user's main computer to open a browser instance when a flow requires direct user login or approval
 - `Blueclaw` is configured and operated from the user's main computer through `SSH` and `HTTP API`
 - the primary deployment model is `Blueclaw inside a long-lived Firecracker guest with only workspace mounted from the host`
+- the primary development lab uses `macOS host -> Tart ARM Linux VM -> Firecracker -> Blueclaw`
 
 ## Architecture Picture
 
@@ -120,3 +121,13 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 
 - this README captures the current architecture picture
 - it is intentionally a working design note, not a final product contract
+
+## Development Lab
+
+- the default development lane uses a single `M4 + macOS 15+` host
+- the host acts as the main computer for companion, browser, and operator access
+- `Tart` provides the ARM Linux virtual machine that simulates `InternKim`
+- `Firecracker` runs inside that Linux virtual machine
+- `Blueclaw` runs only inside the `Firecracker` guest
+- `Mattermost` stays outside the guest and inside the Linux virtual machine
+- `Docker` and `Apple container` are not part of this lab topology

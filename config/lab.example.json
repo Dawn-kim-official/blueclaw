@@ -1,0 +1,34 @@
+{
+  "host": {
+    "mode": "single-mac",
+    "companion": {
+      "listenAddress": "127.0.0.1:7780",
+      "callbackBaseURL": "http://127.0.0.1:7780/callback"
+    }
+  },
+  "vm": {
+    "tart": {
+      "binaryPath": "tart",
+      "name": "blueclaw-dev",
+      "image": "ghcr.io/cirruslabs/ubuntu:latest",
+      "nestedEnabled": true,
+      "cpuCount": 6,
+      "memoryMiB": 8192,
+      "diskGiB": 80
+    },
+    "mattermost": {
+      "listenAddress": "127.0.0.1:8065"
+    },
+    "sharedWorkspacePath": "/Users/me/Developer/work/blueclaw/lab/workspace",
+    "mountDirectoryPath": "/mnt/shared",
+    "sshUsername": "admin",
+    "sshPassword": "admin"
+  },
+  "firecracker": {
+    "binaryPath": "/usr/local/bin/firecracker",
+    "kernelImagePath": "/opt/blueclaw/vmlinux.bin",
+    "rootfsImagePath": "/opt/blueclaw/rootfs.ext4",
+    "workspaceImagePath": "/opt/blueclaw/workspace.ext4",
+    "vsockCID": 52
+  }
+}
