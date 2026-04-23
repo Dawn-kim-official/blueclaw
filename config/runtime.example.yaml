@@ -1,5 +1,23 @@
 {
   "baseURL": "http://127.0.0.1:8080",
+  "firecracker": {
+    "firecrackerPath": "/usr/local/bin/firecracker",
+    "jailerPath": "/usr/local/bin/jailer",
+    "kernelImagePath": "/opt/blueclaw/vmlinux.bin",
+    "rootfsImagePath": "/opt/blueclaw/rootfs.ext4",
+    "workspaceImagePath": "/var/lib/blueclaw/workspace.ext4",
+    "vcpuCount": 4,
+    "memoryMiB": 8192,
+    "vsockCID": 52,
+    "healthPortOrService": "8080",
+    "logDirectoryPath": "/var/log/blueclaw-supervisor"
+  },
+  "bridge": {
+    "mode": "localAgent",
+    "authMode": "sshKeyReuse",
+    "authorizedPublicKeysPath": "/var/lib/blueclaw/authorized_companions",
+    "listenAddress": "127.0.0.1:7778"
+  },
   "agentProfiles": [
     {
       "name": "planner",
@@ -22,9 +40,8 @@
     }
   ],
   "terminal": {
-    "mode": "sandbox",
-    "sandboxProvider": "bubblewrap",
-    "workspaceRootPath": "./workspace",
+    "mode": "native",
+    "workspaceRootPath": "/workspace",
     "allowedExecutableNames": [
       "bash",
       "sh",
@@ -99,7 +116,7 @@
       "/srv"
     ],
     "timeoutSecond": 120,
-    "allowNetwork": false,
+    "allowNetwork": true,
     "allowInteractiveShell": true
   },
   "scheduler": {
