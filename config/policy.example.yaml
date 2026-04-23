@@ -1,0 +1,35 @@
+{
+  "people": [
+    {
+      "personID": "00000000-0000-0000-0000-000000000001",
+      "displayName": "Blueclaw Admin",
+      "emails": [
+        "admin@example.com"
+      ],
+      "securityLevelName": "admin",
+      "securityLevelRank": 100,
+      "grantedClasses": [
+        "internal",
+        "executive"
+      ],
+      "isAdmin": true
+    }
+  ],
+  "channels": [
+    {
+      "platform": "slack",
+      "externalConversationID": "C123456",
+      "conversationType": "channel",
+      "displayName": "general",
+      "defaultSecurityLevelRank": 10,
+      "defaultRequiredClasses": [
+        "internal"
+      ],
+      "isCollectEnabled": true,
+      "isReplyEnabled": true
+    }
+  ],
+  "retention": {
+    "rawEventDays": 60
+  }
+}

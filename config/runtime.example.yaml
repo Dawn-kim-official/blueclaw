@@ -1,0 +1,108 @@
+{
+  "baseURL": "http://127.0.0.1:8080",
+  "agentProfiles": [
+    {
+      "name": "planner",
+      "allowedToolNames": [
+        "mcp.workspace.list"
+      ]
+    },
+    {
+      "name": "researcher",
+      "allowedToolNames": [
+        "mcp.workspace.read"
+      ]
+    }
+  ],
+  "mcpServers": [
+    {
+      "name": "workspace",
+      "transport": "stdio",
+      "command": "blueclaw-mcp-workspace"
+    }
+  ],
+  "terminal": {
+    "mode": "sandbox",
+    "sandboxProvider": "bubblewrap",
+    "workspaceRootPath": "./workspace",
+    "allowedExecutableNames": [
+      "bash",
+      "sh",
+      "git",
+      "glab",
+      "rg",
+      "find",
+      "ls",
+      "cat",
+      "sed",
+      "awk",
+      "grep",
+      "mkdir",
+      "touch",
+      "cp",
+      "mv",
+      "rm",
+      "tar",
+      "gzip",
+      "bun",
+      "go"
+    ],
+    "deniedExecutableNames": [
+      "sudo",
+      "su",
+      "doas",
+      "pkexec",
+      "mount",
+      "umount",
+      "systemctl",
+      "service",
+      "apt",
+      "apt-get",
+      "dpkg",
+      "yum",
+      "dnf",
+      "apk",
+      "pacman",
+      "snap",
+      "flatpak",
+      "rpm",
+      "modprobe",
+      "insmod",
+      "shutdown",
+      "reboot",
+      "halt",
+      "poweroff",
+      "useradd",
+      "userdel",
+      "usermod",
+      "groupadd",
+      "groupdel",
+      "passwd",
+      "chpasswd",
+      "visudo",
+      "iptables",
+      "nft",
+      "sysctl"
+    ],
+    "deniedPathPrefixes": [
+      "/etc",
+      "/root",
+      "/boot",
+      "/sys",
+      "/proc",
+      "/dev",
+      "/run",
+      "/var/lib",
+      "/var/run",
+      "/usr",
+      "/opt",
+      "/srv"
+    ],
+    "timeoutSecond": 120,
+    "allowNetwork": false,
+    "allowInteractiveShell": true
+  },
+  "scheduler": {
+    "retentionCheckIntervalMinute": 60
+  }
+}

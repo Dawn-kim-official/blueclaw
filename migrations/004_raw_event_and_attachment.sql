@@ -1,0 +1,43 @@
+CREATE TABLE IF NOT EXISTS raw_event (
+  raw_event_id uuid PRIMARY KEY,
+  platform text NOT NULL,
+  conversation_id uuid NOT NULL REFERENCES conversation(conversation_id),
+  sender_platform_account_id uuid REFERENCES platform_account(platform_account_id),
+  sender_person_id uuid REFERENCES person(person_id),
+  external_message_id text NOT NULL,
+  external_thread_root_message_id text,
+  event_type text NOT NULL,
+  content_ciphertext bytea NOT NULL,
+  encryption_key_version smallint NOT NULL,
+  content_sha256 bytea NOT NULL,
+  security_level_rank smallint NOT NULL,
+  required_classes text[] NOT NULL DEFAULT '{}',
+  occurred_at timestamptz NOT NULL,
+  ingested_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  is_deleted boolean NOT NULL DEFAULT false,
+  UNIQUE (platform, conversation_id, external_message_id)
+);
+
+CREATE TABLE IF NOT EXISTS attachment (
+  attachment_id uuid PRIMARY KEY,
+  raw_event_id uuid NOT NULL REFERENCES raw_event(raw_event_id) ON DELETE CASCADE,
+  external_file_id text,
+  file_name text,
+  mime_type text,
+  file_size_bytes bigint,
+  object_storage_provider text NOT NULL,
+  object_storage_key text NOT NULL,
+  object_sha256 bytea NOT NULL,
+  extraction_engine text NOT NULL,
+  extraction_status text NOT NULL,
+  extracted_text_ciphertext bytea,
+  extracted_description_ciphertext bytea,
+  encryption_key_version smallint,
+  extracted_sha256 bytea,
+  security_level_rank smallint NOT NULL,
+  required_classes text[] NOT NULL DEFAULT '{}',
+  occurred_at timestamptz NOT NULL,
+  extracted_at timestamptz,
+  expires_at timestamptz NOT NULL
+);
