@@ -11,6 +11,7 @@ type RuntimeConfiguration struct {
 	LanguageModel LanguageModelConfiguration  `json:"languageModel"`
 	Firecracker   FirecrackerConfiguration    `json:"firecracker"`
 	Bridge        BridgeConfiguration         `json:"bridge"`
+	Connectors    ConnectorConfiguration      `json:"connectors"`
 	MCPServers    []MCPServerConfiguration    `json:"mcpServers"`
 	Terminal      TerminalConfiguration       `json:"terminal"`
 	Scheduler     SchedulerConfiguration      `json:"scheduler"`
@@ -69,6 +70,21 @@ type BridgeConfiguration struct {
 	AuthMode                 string `json:"authMode"`
 	AuthorizedPublicKeysPath string `json:"authorizedPublicKeysPath"`
 	ListenAddress            string `json:"listenAddress"`
+}
+
+type ConnectorConfiguration struct {
+	Mattermost MattermostConnectorConfiguration `json:"mattermost"`
+	Slack      SlackConnectorConfiguration      `json:"slack"`
+}
+
+type MattermostConnectorConfiguration struct {
+	BaseURL      string `json:"baseURL"`
+	BotTokenPath string `json:"botTokenPath"`
+}
+
+type SlackConnectorConfiguration struct {
+	BaseURL      string `json:"baseURL"`
+	BotTokenPath string `json:"botTokenPath"`
 }
 
 type TerminalConfiguration struct {

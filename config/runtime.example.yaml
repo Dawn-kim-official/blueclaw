@@ -37,6 +37,16 @@
     "authorizedPublicKeysPath": "/var/lib/blueclaw/authorized_companions",
     "listenAddress": "127.0.0.1:7778"
   },
+  "connectors": {
+    "mattermost": {
+      "baseURL": "http://localhost:8065",
+      "botTokenPath": "/root/.internkim/env/bot-token"
+    },
+    "slack": {
+      "baseURL": "https://slack.com/api",
+      "botTokenPath": "/root/.internkim/secrets/slack-bot-token"
+    }
+  },
   "agentProfiles": [
     {
       "name": "planner",

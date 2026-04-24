@@ -46,6 +46,16 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "authorizedPublicKeysPath": "/var/lib/blueclaw/authorized_companions",
     "listenAddress": "127.0.0.1:7778"
   },
+  "connectors": {
+    "mattermost": {
+      "baseURL": "http://localhost:8065",
+      "botTokenPath": "/run/secrets/mattermost-token"
+    },
+    "slack": {
+      "baseURL": "https://slack.com/api",
+      "botTokenPath": "/run/secrets/slack-token"
+    }
+  },
   "terminal": {
     "mode": "native"
   },
@@ -76,6 +86,12 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Bridge.ListenAddress != "127.0.0.1:7778" {
 		t.Fatalf("expected bridge listen address to match, got %q", runtimeConfiguration.Bridge.ListenAddress)
+	}
+	if runtimeConfiguration.Connectors.Mattermost.BotTokenPath != "/run/secrets/mattermost-token" {
+		t.Fatalf("expected mattermost token path to match, got %q", runtimeConfiguration.Connectors.Mattermost.BotTokenPath)
+	}
+	if runtimeConfiguration.Connectors.Slack.BaseURL != "https://slack.com/api" {
+		t.Fatalf("expected slack base url to match, got %q", runtimeConfiguration.Connectors.Slack.BaseURL)
 	}
 	if runtimeConfiguration.LanguageModel.DefaultProvider != "openRouter" {
 		t.Fatalf("expected default language model provider to match, got %q", runtimeConfiguration.LanguageModel.DefaultProvider)

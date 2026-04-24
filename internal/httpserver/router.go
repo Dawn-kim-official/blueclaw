@@ -23,6 +23,8 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer.HandleFunc("GET /admin/api/policy", routerDependencies.PolicyHandler.HandleGetPolicy)
 	multiplexer.HandleFunc("POST /admin/api/policy/validate", routerDependencies.PolicyHandler.HandleValidatePolicy)
 	multiplexer.HandleFunc("POST /admin/api/policy/save", routerDependencies.PolicyHandler.HandleSavePolicy)
+	multiplexer.HandleFunc("POST /admin/api/people/invite", routerDependencies.PolicyHandler.HandleInvitePerson)
+	multiplexer.HandleFunc("DELETE /admin/api/people", routerDependencies.PolicyHandler.HandleRemovePerson)
 	multiplexer.HandleFunc("GET /admin/api/audit", routerDependencies.AuditHandler.HandleListAudit)
 	multiplexer.HandleFunc("GET /admin/api/task", routerDependencies.TaskMonitorHandler.HandleListTaskRun)
 	multiplexer.HandleFunc("GET /admin/api/task/detail", routerDependencies.TaskMonitorHandler.HandleGetTaskRun)

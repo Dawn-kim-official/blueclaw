@@ -1,8 +1,12 @@
 package adminapi
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"blueclaw/internal/policy"
 )
@@ -14,6 +18,15 @@ type PolicyHandler struct {
 	PolicyWatcher *policy.PolicyWatcher
 	Validator     policy.PolicyValidator
 	AuditHandler  *AuditHandler
+}
+
+type invitePersonRequest struct {
+	Email             string   `json:"email"`
+	DisplayName       string   `json:"displayName"`
+	IsAdmin           bool     `json:"isAdmin"`
+	SecurityLevelName string   `json:"securityLevelName"`
+	SecurityLevelRank int      `json:"securityLevelRank"`
+	GrantedClasses    []string `json:"grantedClasses"`
 }
 
 func (policyHandler PolicyHandler) HandleGetPolicy(responseWriter http.ResponseWriter, request *http.Request) {
@@ -67,6 +80,205 @@ func (policyHandler PolicyHandler) HandleSavePolicy(responseWriter http.Response
 	policyHandler.PolicyWatcher.ReloadPolicyDocument(policyDocument)
 	policyHandler.AuditHandler.RecordPolicySave(backupPath)
 	writeJSON(responseWriter, http.StatusOK, map[string]string{"backupPath": backupPath})
+}
+
+func (policyHandler PolicyHandler) HandleInvitePerson(responseWriter http.ResponseWriter, request *http.Request) {
+	var inviteRequest invitePersonRequest
+	errorValue := json.NewDecoder(request.Body).Decode(&inviteRequest)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+
+	policyDocument, personPolicy, backupPath, errorValue := policyHandler.invitePerson(inviteRequest)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), statusCodeForPolicyMutationError(errorValue))
+		return
+	}
+
+	policyHandler.PolicyWatcher.ReloadPolicyDocument(policyDocument)
+	if backupPath != "" {
+		policyHandler.AuditHandler.RecordPolicySave(backupPath)
+	}
+	writeJSON(responseWriter, http.StatusOK, personPolicy)
+}
+
+func (policyHandler PolicyHandler) HandleRemovePerson(responseWriter http.ResponseWriter, request *http.Request) {
+	email := normalizeEmail(request.URL.Query().Get("email"))
+	personID := strings.TrimSpace(request.URL.Query().Get("personID"))
+	policyDocument, backupPath, errorValue := policyHandler.removePerson(email, personID)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), statusCodeForPolicyMutationError(errorValue))
+		return
+	}
+
+	policyHandler.PolicyWatcher.ReloadPolicyDocument(policyDocument)
+	policyHandler.AuditHandler.RecordPolicySave(backupPath)
+	writeJSON(responseWriter, http.StatusOK, map[string]bool{"isRemoved": true})
+}
+
+func (policyHandler PolicyHandler) invitePerson(inviteRequest invitePersonRequest) (policy.PolicyDocument, policy.PersonPolicy, string, error) {
+	email := normalizeEmail(inviteRequest.Email)
+	if email == "" {
+		return policy.PolicyDocument{}, policy.PersonPolicy{}, "", errors.New("email is required")
+	}
+
+	policyDocument, errorValue := policyHandler.PolicyLoader.LoadPolicyDocument(policyHandler.PolicyPath)
+	if errorValue != nil {
+		return policy.PolicyDocument{}, policy.PersonPolicy{}, "", errorValue
+	}
+
+	for _, personPolicy := range policyDocument.People {
+		if personHasEmail(personPolicy, email) {
+			return policyDocument, personPolicy, "", nil
+		}
+	}
+
+	personPolicy := createInvitedPersonPolicy(inviteRequest, email)
+	policyDocument.People = append(policyDocument.People, personPolicy)
+	backupPath, errorValue := policyHandler.savePolicyDocument(policyDocument)
+	if errorValue != nil {
+		return policy.PolicyDocument{}, policy.PersonPolicy{}, "", errorValue
+	}
+
+	return policyDocument, personPolicy, backupPath, nil
+}
+
+func (policyHandler PolicyHandler) removePerson(email string, personID string) (policy.PolicyDocument, string, error) {
+	if email == "" && personID == "" {
+		return policy.PolicyDocument{}, "", errors.New("email or personID is required")
+	}
+
+	policyDocument, errorValue := policyHandler.PolicyLoader.LoadPolicyDocument(policyHandler.PolicyPath)
+	if errorValue != nil {
+		return policy.PolicyDocument{}, "", errorValue
+	}
+
+	filteredPeople := make([]policy.PersonPolicy, 0, len(policyDocument.People))
+	isRemoved := false
+	for _, personPolicy := range policyDocument.People {
+		if shouldRemovePerson(personPolicy, email, personID) {
+			if personPolicy.IsAdmin {
+				return policy.PolicyDocument{}, "", errors.New("cannot remove admin person")
+			}
+			isRemoved = true
+			continue
+		}
+		filteredPeople = append(filteredPeople, personPolicy)
+	}
+	if !isRemoved {
+		return policy.PolicyDocument{}, "", errors.New("person not found")
+	}
+
+	policyDocument.People = filteredPeople
+	backupPath, errorValue := policyHandler.savePolicyDocument(policyDocument)
+	if errorValue != nil {
+		return policy.PolicyDocument{}, "", errorValue
+	}
+
+	return policyDocument, backupPath, nil
+}
+
+func (policyHandler PolicyHandler) savePolicyDocument(policyDocument policy.PolicyDocument) (string, error) {
+	errorValue := policyHandler.Validator.ValidatePolicyDocument(policyDocument)
+	if errorValue != nil {
+		return "", errorValue
+	}
+
+	backupPath, _ := policyHandler.PolicySaver.BackupPolicyDocument(policyHandler.PolicyPath)
+	errorValue = policyHandler.PolicySaver.SavePolicyDocumentAtomically(policyHandler.PolicyPath, policyDocument)
+	if errorValue != nil {
+		return "", errorValue
+	}
+
+	return backupPath, nil
+}
+
+func createInvitedPersonPolicy(inviteRequest invitePersonRequest, email string) policy.PersonPolicy {
+	securityLevelName := strings.TrimSpace(inviteRequest.SecurityLevelName)
+	securityLevelRank := inviteRequest.SecurityLevelRank
+	grantedClasses := append([]string{}, inviteRequest.GrantedClasses...)
+	if inviteRequest.IsAdmin {
+		securityLevelName = "admin"
+		securityLevelRank = 100
+		grantedClasses = []string{"internal", "executive"}
+	}
+	if securityLevelName == "" {
+		securityLevelName = "member"
+	}
+	if securityLevelRank == 0 {
+		securityLevelRank = 10
+	}
+	if len(grantedClasses) == 0 {
+		grantedClasses = []string{"internal"}
+	}
+
+	return policy.PersonPolicy{
+		PersonID:          newPersonID(),
+		DisplayName:       displayNameForInvite(inviteRequest.DisplayName, email),
+		Emails:            []string{email},
+		SecurityLevelName: securityLevelName,
+		SecurityLevelRank: securityLevelRank,
+		GrantedClasses:    grantedClasses,
+		IsAdmin:           inviteRequest.IsAdmin,
+	}
+}
+
+func displayNameForInvite(displayName string, email string) string {
+	trimmedDisplayName := strings.TrimSpace(displayName)
+	if trimmedDisplayName != "" {
+		return trimmedDisplayName
+	}
+
+	localPart, _, isEmail := strings.Cut(email, "@")
+	if isEmail && localPart != "" {
+		return localPart
+	}
+
+	return email
+}
+
+func personHasEmail(personPolicy policy.PersonPolicy, email string) bool {
+	for _, personEmail := range personPolicy.Emails {
+		if normalizeEmail(personEmail) == email {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldRemovePerson(personPolicy policy.PersonPolicy, email string, personID string) bool {
+	if personID != "" && personPolicy.PersonID == personID {
+		return true
+	}
+	if email == "" {
+		return false
+	}
+	return personHasEmail(personPolicy, email)
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func newPersonID() string {
+	identifierBytes := make([]byte, 16)
+	_, errorValue := rand.Read(identifierBytes)
+	if errorValue != nil {
+		return "00000000000000000000000000000000"
+	}
+	return hex.EncodeToString(identifierBytes)
+}
+
+func statusCodeForPolicyMutationError(errorValue error) int {
+	switch errorValue.Error() {
+	case "email is required", "email or personID is required", "cannot remove admin person":
+		return http.StatusBadRequest
+	case "person not found":
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 func writeJSON(responseWriter http.ResponseWriter, statusCode int, value any) {
