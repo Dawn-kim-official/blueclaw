@@ -1,6 +1,7 @@
 package httpserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -74,7 +75,7 @@ func (mattermostEventHandler *MattermostEventHandler) HandleMattermostEvent(resp
 		return
 	}
 
-	result, errorValue := mattermostEventHandler.processMattermostEvent(event)
+	result, errorValue := mattermostEventHandler.processMattermostEvent(request.Context(), event)
 	if errorValue != nil {
 		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
 		return
@@ -84,7 +85,7 @@ func (mattermostEventHandler *MattermostEventHandler) HandleMattermostEvent(resp
 	writeJSONResponse(responseWriter, http.StatusOK, result)
 }
 
-func (mattermostEventHandler *MattermostEventHandler) processMattermostEvent(event mattermost.Event) (MattermostEventResult, error) {
+func (mattermostEventHandler *MattermostEventHandler) processMattermostEvent(ctx context.Context, event mattermost.Event) (MattermostEventResult, error) {
 	botUserID, errorValue := mattermostEventHandler.resolveBotUserID()
 	if errorValue == nil && botUserID != "" && event.UserID == botUserID {
 		return MattermostEventResult{IsIgnored: true, Reason: "self"}, nil
@@ -95,8 +96,9 @@ func (mattermostEventHandler *MattermostEventHandler) processMattermostEvent(eve
 		return MattermostEventResult{}, errorValue
 	}
 
+	isDirectMessage := mattermostEventHandler.resolveEventIsDirectMessage(event)
 	replyRootID := event.RootID
-	if replyRootID == "" {
+	if replyRootID == "" && !isDirectMessage {
 		replyRootID = event.PostID
 	}
 
@@ -123,6 +125,10 @@ func (mattermostEventHandler *MattermostEventHandler) processMattermostEvent(eve
 	}
 
 	reply := "Working on it: " + taskRun.TaskRunID
+	generatedReply, errorValue := mattermostEventHandler.AgentKernel.GenerateReply(ctx, event.Message)
+	if errorValue == nil {
+		reply = generatedReply
+	}
 	result := MattermostEventResult{
 		IsAllowed: true,
 		TaskRunID: taskRun.TaskRunID,
@@ -136,6 +142,15 @@ func (mattermostEventHandler *MattermostEventHandler) processMattermostEvent(eve
 	result.ReplyPostID = replyPostID
 
 	return result, nil
+}
+
+func (mattermostEventHandler *MattermostEventHandler) resolveEventIsDirectMessage(event mattermost.Event) bool {
+	if event.IsDirectMessage() {
+		return true
+	}
+
+	channelType, errorValue := mattermostEventHandler.PostClient.ResolveChannelType(event.ConversationID)
+	return errorValue == nil && (mattermost.Event{ChannelType: channelType}).IsDirectMessage()
 }
 
 func (mattermostEventHandler *MattermostEventHandler) resolveBotUserID() (string, error) {

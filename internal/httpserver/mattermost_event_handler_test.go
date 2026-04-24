@@ -2,22 +2,23 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/connectors/mattermost"
 	"blueclaw/internal/identity"
+	"blueclaw/internal/llm"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/task"
 )
 
 func TestMattermostEventHandlerAllowsInvitedUserAndDeduplicates(t *testing.T) {
-	handler, taskRunService, postedMessages := newTestMattermostEventHandler(t, "invited@example.com")
+	handler, taskRunService, postedPosts := newTestMattermostEventHandler(t, "invited@example.com")
 
 	result := submitMattermostEvent(t, handler, mattermost.Event{
 		UserID:         "mattermost-user",
@@ -29,14 +30,17 @@ func TestMattermostEventHandlerAllowsInvitedUserAndDeduplicates(t *testing.T) {
 	if !result.IsAllowed {
 		t.Fatalf("expected invited event to be allowed: %+v", result)
 	}
-	if !strings.HasPrefix(result.Reply, "Working on it: ") {
-		t.Fatalf("expected deterministic ack reply, got %q", result.Reply)
+	if result.Reply != "Mattermost model reply" {
+		t.Fatalf("expected language model reply, got %q", result.Reply)
 	}
 	if len(taskRunService.ListTaskRun()) != 1 {
 		t.Fatalf("expected one task run, got %d", len(taskRunService.ListTaskRun()))
 	}
-	if len(*postedMessages) != 1 {
-		t.Fatalf("expected one reply post, got %d", len(*postedMessages))
+	if len(*postedPosts) != 1 {
+		t.Fatalf("expected one reply post, got %d", len(*postedPosts))
+	}
+	if (*postedPosts)[0].RootID != "post-1" {
+		t.Fatalf("expected channel root reply to become a thread reply, got root %q", (*postedPosts)[0].RootID)
 	}
 
 	duplicateResult := submitMattermostEvent(t, handler, mattermost.Event{
@@ -52,13 +56,13 @@ func TestMattermostEventHandlerAllowsInvitedUserAndDeduplicates(t *testing.T) {
 	if len(taskRunService.ListTaskRun()) != 1 {
 		t.Fatalf("expected duplicate to keep one task run, got %d", len(taskRunService.ListTaskRun()))
 	}
-	if len(*postedMessages) != 1 {
-		t.Fatalf("expected duplicate to keep one reply post, got %d", len(*postedMessages))
+	if len(*postedPosts) != 1 {
+		t.Fatalf("expected duplicate to keep one reply post, got %d", len(*postedPosts))
 	}
 }
 
 func TestMattermostEventHandlerRejectsUninvitedUser(t *testing.T) {
-	handler, taskRunService, postedMessages := newTestMattermostEventHandler(t, "someone-else@example.com")
+	handler, taskRunService, postedPosts := newTestMattermostEventHandler(t, "someone-else@example.com")
 
 	result := submitMattermostEvent(t, handler, mattermost.Event{
 		UserID:         "mattermost-user",
@@ -79,16 +83,37 @@ func TestMattermostEventHandlerRejectsUninvitedUser(t *testing.T) {
 	if len(taskRunService.ListTaskRun()) != 0 {
 		t.Fatalf("expected no task runs, got %d", len(taskRunService.ListTaskRun()))
 	}
-	if len(*postedMessages) != 1 {
-		t.Fatalf("expected one rejection reply post, got %d", len(*postedMessages))
+	if len(*postedPosts) != 1 {
+		t.Fatalf("expected one rejection reply post, got %d", len(*postedPosts))
 	}
 }
 
-func newTestMattermostEventHandler(t *testing.T, invitedEmail string) (*MattermostEventHandler, *task.TaskRunService, *[]string) {
+func TestMattermostEventHandlerRepliesToDirectMessageWithoutThreadRoot(t *testing.T) {
+	handler, _, postedPosts := newTestMattermostEventHandler(t, "invited@example.com")
+
+	result := submitMattermostEvent(t, handler, mattermost.Event{
+		UserID:         "mattermost-user",
+		ConversationID: "direct-channel-1",
+		PostID:         "direct-post-1",
+		Message:        "dm help",
+	})
+
+	if !result.IsAllowed {
+		t.Fatalf("expected direct message to be allowed: %+v", result)
+	}
+	if len(*postedPosts) != 1 {
+		t.Fatalf("expected one direct reply post, got %d", len(*postedPosts))
+	}
+	if (*postedPosts)[0].RootID != "" {
+		t.Fatalf("expected direct message reply without thread root, got %q", (*postedPosts)[0].RootID)
+	}
+}
+
+func newTestMattermostEventHandler(t *testing.T, invitedEmail string) (*MattermostEventHandler, *task.TaskRunService, *[]testMattermostPost) {
 	t.Helper()
 
-	postedMessages := []string{}
-	httpClient := &http.Client{Transport: testMattermostRoundTripper{postedMessages: &postedMessages}}
+	postedPosts := []testMattermostPost{}
+	httpClient := &http.Client{Transport: testMattermostRoundTripper{postedPosts: &postedPosts}}
 
 	policyDocument := policy.PolicyDocument{
 		People: []policy.PersonPolicy{
@@ -105,6 +130,9 @@ func newTestMattermostEventHandler(t *testing.T, invitedEmail string) (*Mattermo
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskStepService := task.NewTaskStepService()
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
+	agentKernel.UseLanguageModelProvider(staticReplyLanguageModelProvider{
+		content: `{"reply":"Mattermost model reply"}`,
+	})
 	userProfileClient := mattermost.UserProfileClient{
 		BaseURL:    "http://mattermost.test",
 		BotToken:   "bot-token",
@@ -122,7 +150,7 @@ func newTestMattermostEventHandler(t *testing.T, invitedEmail string) (*Mattermo
 		agentKernel,
 		userProfileClient,
 		postClient,
-	), taskRunService, &postedMessages
+	), taskRunService, &postedPosts
 }
 
 func submitMattermostEvent(t *testing.T, handler *MattermostEventHandler, event mattermost.Event) MattermostEventResult {
@@ -148,7 +176,13 @@ func submitMattermostEvent(t *testing.T, handler *MattermostEventHandler, event 
 }
 
 type testMattermostRoundTripper struct {
-	postedMessages *[]string
+	postedPosts *[]testMattermostPost
+}
+
+type testMattermostPost struct {
+	ChannelID string
+	RootID    string
+	Message   string
 }
 
 func (roundTripper testMattermostRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -163,6 +197,8 @@ func (roundTripper testMattermostRoundTripper) RoundTrip(request *http.Request) 
 			"email":    "invited@example.com",
 			"username": "invited",
 		}
+	case request.Method == http.MethodGet && request.URL.Path == "/api/v4/channels/direct-channel-1":
+		responseBody = map[string]string{"type": "D"}
 	case request.Method == http.MethodPost && request.URL.Path == "/api/v4/posts":
 		statusCode = http.StatusCreated
 		roundTripper.recordPostMessage(request)
@@ -187,10 +223,32 @@ func (roundTripper testMattermostRoundTripper) RoundTrip(request *http.Request) 
 
 func (roundTripper testMattermostRoundTripper) recordPostMessage(request *http.Request) {
 	var postRequest struct {
-		Message string `json:"message"`
+		ChannelID string `json:"channel_id"`
+		RootID    string `json:"root_id"`
+		Message   string `json:"message"`
 	}
 	if errorValue := json.NewDecoder(request.Body).Decode(&postRequest); errorValue != nil {
 		return
 	}
-	*roundTripper.postedMessages = append(*roundTripper.postedMessages, postRequest.Message)
+	*roundTripper.postedPosts = append(*roundTripper.postedPosts, testMattermostPost{
+		ChannelID: postRequest.ChannelID,
+		RootID:    postRequest.RootID,
+		Message:   postRequest.Message,
+	})
+}
+
+type staticReplyLanguageModelProvider struct {
+	content string
+}
+
+func (languageModelProvider staticReplyLanguageModelProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	_ = responseContext
+	_ = prompt
+	return languageModelProvider.content, nil
+}
+
+func (languageModelProvider staticReplyLanguageModelProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	_ = responseContext
+	_ = structuredResponseRequest
+	return llm.StructuredResponse{Content: languageModelProvider.content}, nil
 }

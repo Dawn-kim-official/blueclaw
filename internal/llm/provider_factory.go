@@ -2,6 +2,7 @@ package llm
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 
 	"blueclaw/internal/config"
@@ -14,7 +15,7 @@ func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 		APIKey:                apiKey,
 		RequireParameters:     runtimeConfiguration.LanguageModel.OpenRouter.RequireParameters,
 		EnableResponseHealing: runtimeConfiguration.LanguageModel.OpenRouter.EnableResponseHealing,
-		HTTPClient:            nil,
+		HTTPClient:            http.DefaultClient,
 	}
 
 	liteRTLMClient := LiteRTLMClient{

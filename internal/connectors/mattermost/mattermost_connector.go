@@ -130,6 +130,38 @@ func (postClient PostClient) CreatePost(conversationID string, rootID string, me
 	return postResponse.ID, nil
 }
 
+func (postClient PostClient) ResolveChannelType(conversationID string) (string, error) {
+	httpClient := postClient.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	requestURL := strings.TrimRight(postClient.BaseURL, "/") + "/api/v4/channels/" + conversationID
+	request, errorValue := http.NewRequest(http.MethodGet, requestURL, nil)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	request.Header.Set("Authorization", "Bearer "+postClient.BotToken)
+
+	response, errorValue := httpClient.Do(request)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", errors.New("mattermost channel lookup failed")
+	}
+
+	var channelResponse struct {
+		Type string `json:"type"`
+	}
+	errorValue = json.NewDecoder(response.Body).Decode(&channelResponse)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return channelResponse.Type, nil
+}
+
 func (userProfileClient UserProfileClient) ResolveBotUserID() (string, error) {
 	httpClient := userProfileClient.HTTPClient
 	if httpClient == nil {

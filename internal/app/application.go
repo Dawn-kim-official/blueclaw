@@ -14,6 +14,7 @@ import (
 	"blueclaw/internal/connectors/mattermost"
 	"blueclaw/internal/httpserver"
 	"blueclaw/internal/identity"
+	"blueclaw/internal/llm"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
 	"blueclaw/internal/task"
@@ -40,6 +41,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	sessionService := auth.NewSessionService()
 	taskAuthService := task.NewTaskAuthService(magicLinkService, sessionService, taskRunService)
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
+	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
+	if languageModelProvider != nil {
+		agentKernel.UseLanguageModelProvider(languageModelProvider)
+	}
 	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	mattermostBotToken := readSecretFile(runtimeConfiguration.Connectors.Mattermost.BotTokenPath)
 	mattermostUserProfileClient := mattermost.UserProfileClient{
@@ -104,6 +109,69 @@ func readSecretFile(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(secretBytes))
+}
+
+func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) llm.LanguageModelProvider {
+	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
+	if strings.TrimSpace(languageModelConfiguration.LanguageModel.DefaultProvider) == "" {
+		return nil
+	}
+
+	languageModelProvider, errorValue := llm.NewConfiguredLanguageModelProvider(
+		languageModelConfiguration,
+		os.Getenv("OPENROUTER_API_KEY"),
+	)
+	if errorValue != nil {
+		return nil
+	}
+
+	return languageModelProvider
+}
+
+func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.RuntimeConfiguration) config.RuntimeConfiguration {
+	if strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) != "" {
+		return runtimeConfiguration
+	}
+
+	if hasOpenRouterConfiguration(runtimeConfiguration) {
+		runtimeConfiguration.LanguageModel.DefaultProvider = "openRouter"
+		if strings.TrimSpace(runtimeConfiguration.LanguageModel.FallbackProvider) == "" && hasLiteRTLMConfiguration(runtimeConfiguration) {
+			runtimeConfiguration.LanguageModel.FallbackProvider = "liteRTLM"
+		}
+		return runtimeConfiguration
+	}
+
+	if hasLiteRTLMConfiguration(runtimeConfiguration) {
+		runtimeConfiguration.LanguageModel.DefaultProvider = "liteRTLM"
+	}
+
+	return runtimeConfiguration
+}
+
+func hasOpenRouterConfiguration(runtimeConfiguration config.RuntimeConfiguration) bool {
+	return firstNonEmpty(
+		runtimeConfiguration.LanguageModel.OpenRouter.ModelName,
+		runtimeConfiguration.LanguageModel.OpenRouter.BaseURL,
+		os.Getenv("OPENROUTER_API_KEY"),
+	) != ""
+}
+
+func hasLiteRTLMConfiguration(runtimeConfiguration config.RuntimeConfiguration) bool {
+	return firstNonEmpty(
+		runtimeConfiguration.LanguageModel.LiteRTLM.WrapperPath,
+		runtimeConfiguration.LanguageModel.LiteRTLM.ModelPath,
+	) != ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+
+	return ""
 }
 
 func (application *Application) Start() error {
