@@ -19,11 +19,23 @@ func NewIdentityService(policyProjection policy.PolicyProjection) *IdentityServi
 		personIDByPlatformAccountKey: map[string]string{},
 	}
 
+	identityService.reloadPolicyProjection(policyProjection)
+
+	return identityService
+}
+
+func (identityService *IdentityService) ReloadPolicyProjection(policyProjection policy.PolicyProjection) {
+	identityService.mutex.Lock()
+	defer identityService.mutex.Unlock()
+	identityService.reloadPolicyProjection(policyProjection)
+}
+
+func (identityService *IdentityService) reloadPolicyProjection(policyProjection policy.PolicyProjection) {
+	identityService.personIDByEmail = map[string]string{}
+	identityService.personIDByPlatformAccountKey = map[string]string{}
 	for email, personID := range policyProjection.PersonIDByEmail {
 		identityService.personIDByEmail[email] = personID
 	}
-
-	return identityService
 }
 
 func (identityService *IdentityService) ResolvePersonIDByEmail(email string) (string, bool) {

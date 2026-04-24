@@ -1,6 +1,7 @@
 package mattermost
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,6 +29,12 @@ type UserIdentityResolver interface {
 }
 
 type UserProfileClient struct {
+	BaseURL    string
+	BotToken   string
+	HTTPClient *http.Client
+}
+
+type PostClient struct {
 	BaseURL    string
 	BotToken   string
 	HTTPClient *http.Client
@@ -79,6 +86,80 @@ func (connector *Connector) SendDirectReply(conversationID string, message strin
 
 func (connector *Connector) SendChannelReply(conversationID string, message string) string {
 	return conversationID + ":" + message
+}
+
+func (postClient PostClient) CreatePost(conversationID string, rootID string, message string) (string, error) {
+	httpClient := postClient.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	body, errorValue := json.Marshal(map[string]string{
+		"channel_id": conversationID,
+		"root_id":    rootID,
+		"message":    message,
+	})
+	if errorValue != nil {
+		return "", errorValue
+	}
+
+	requestURL := strings.TrimRight(postClient.BaseURL, "/") + "/api/v4/posts"
+	request, errorValue := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(body))
+	if errorValue != nil {
+		return "", errorValue
+	}
+	request.Header.Set("Authorization", "Bearer "+postClient.BotToken)
+	request.Header.Set("Content-Type", "application/json")
+
+	response, errorValue := httpClient.Do(request)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", errors.New("mattermost post creation failed")
+	}
+
+	var postResponse struct {
+		ID string `json:"id"`
+	}
+	errorValue = json.NewDecoder(response.Body).Decode(&postResponse)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return postResponse.ID, nil
+}
+
+func (userProfileClient UserProfileClient) ResolveBotUserID() (string, error) {
+	httpClient := userProfileClient.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	requestURL := strings.TrimRight(userProfileClient.BaseURL, "/") + "/api/v4/users/me"
+	request, errorValue := http.NewRequest(http.MethodGet, requestURL, nil)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	request.Header.Set("Authorization", "Bearer "+userProfileClient.BotToken)
+
+	response, errorValue := httpClient.Do(request)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", errors.New("mattermost bot lookup failed")
+	}
+
+	var userProfile struct {
+		ID string `json:"id"`
+	}
+	errorValue = json.NewDecoder(response.Body).Decode(&userProfile)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return userProfile.ID, nil
 }
 
 func (userProfileClient UserProfileClient) ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error) {

@@ -12,12 +12,13 @@ import (
 )
 
 type PolicyHandler struct {
-	PolicyPath    string
-	PolicyLoader  policy.PolicyLoader
-	PolicySaver   policy.PolicySaver
-	PolicyWatcher *policy.PolicyWatcher
-	Validator     policy.PolicyValidator
-	AuditHandler  *AuditHandler
+	PolicyPath     string
+	PolicyLoader   policy.PolicyLoader
+	PolicySaver    policy.PolicySaver
+	PolicyWatcher  *policy.PolicyWatcher
+	Validator      policy.PolicyValidator
+	AuditHandler   *AuditHandler
+	OnPolicyReload func(policy.PolicyDocument)
 }
 
 type invitePersonRequest struct {
@@ -78,6 +79,7 @@ func (policyHandler PolicyHandler) HandleSavePolicy(responseWriter http.Response
 	}
 
 	policyHandler.PolicyWatcher.ReloadPolicyDocument(policyDocument)
+	policyHandler.notifyPolicyReload(policyDocument)
 	policyHandler.AuditHandler.RecordPolicySave(backupPath)
 	writeJSON(responseWriter, http.StatusOK, map[string]string{"backupPath": backupPath})
 }
@@ -97,6 +99,7 @@ func (policyHandler PolicyHandler) HandleInvitePerson(responseWriter http.Respon
 	}
 
 	policyHandler.PolicyWatcher.ReloadPolicyDocument(policyDocument)
+	policyHandler.notifyPolicyReload(policyDocument)
 	if backupPath != "" {
 		policyHandler.AuditHandler.RecordPolicySave(backupPath)
 	}
@@ -113,8 +116,15 @@ func (policyHandler PolicyHandler) HandleRemovePerson(responseWriter http.Respon
 	}
 
 	policyHandler.PolicyWatcher.ReloadPolicyDocument(policyDocument)
+	policyHandler.notifyPolicyReload(policyDocument)
 	policyHandler.AuditHandler.RecordPolicySave(backupPath)
 	writeJSON(responseWriter, http.StatusOK, map[string]bool{"isRemoved": true})
+}
+
+func (policyHandler PolicyHandler) notifyPolicyReload(policyDocument policy.PolicyDocument) {
+	if policyHandler.OnPolicyReload != nil {
+		policyHandler.OnPolicyReload(policyDocument)
+	}
 }
 
 func (policyHandler PolicyHandler) invitePerson(inviteRequest invitePersonRequest) (policy.PolicyDocument, policy.PersonPolicy, string, error) {

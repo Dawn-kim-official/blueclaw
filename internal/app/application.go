@@ -4,12 +4,16 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 
 	"blueclaw/internal/adminapi"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/auth"
 	"blueclaw/internal/config"
+	"blueclaw/internal/connectors/mattermost"
 	"blueclaw/internal/httpserver"
+	"blueclaw/internal/identity"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
 	"blueclaw/internal/task"
@@ -23,6 +27,8 @@ type Application struct {
 func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath string) *Application {
 	policyLoader := policy.PolicyLoader{}
 	policyDocument, _ := policyLoader.LoadPolicyDocument(policyPath)
+	policyProjectionService := policy.PolicyProjectionService{}
+	identityService := identity.NewIdentityService(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
 	policyWatcher := &policy.PolicyWatcher{}
 	policyWatcher.ReloadPolicyDocument(policyDocument)
 
@@ -33,8 +39,14 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	magicLinkService := auth.NewMagicLinkService()
 	sessionService := auth.NewSessionService()
 	taskAuthService := task.NewTaskAuthService(magicLinkService, sessionService, taskRunService)
-	_ = agent.NewAgentKernel(taskRunService, taskStepService)
+	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
+	mattermostBotToken := readSecretFile(runtimeConfiguration.Connectors.Mattermost.BotTokenPath)
+	mattermostUserProfileClient := mattermost.UserProfileClient{
+		BaseURL:  runtimeConfiguration.Connectors.Mattermost.BaseURL,
+		BotToken: mattermostBotToken,
+	}
+	mattermostConnector := mattermost.NewConnectorWithIdentityResolver(mattermostUserProfileClient)
 
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
 		PolicyHandler: adminapi.PolicyHandler{
@@ -44,6 +56,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			PolicyWatcher: policyWatcher,
 			Validator:     policy.PolicyValidator{},
 			AuditHandler:  auditHandler,
+			OnPolicyReload: func(policyDocument policy.PolicyDocument) {
+				identityService.ReloadPolicyProjection(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
+			},
 		},
 		AuditHandler: auditHandler,
 		TaskMonitorHandler: adminapi.TaskMonitorHandler{
@@ -63,6 +78,16 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		SSEHandler: httpserver.SSEHandler{
 			TaskEventService: taskEventService,
 		},
+		MattermostEventHandler: httpserver.NewMattermostEventHandler(
+			mattermostConnector,
+			identityService,
+			agentKernel,
+			mattermostUserProfileClient,
+			mattermost.PostClient{
+				BaseURL:  runtimeConfiguration.Connectors.Mattermost.BaseURL,
+				BotToken: mattermostBotToken,
+			},
+		),
 	})
 
 	return &Application{
@@ -71,6 +96,14 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			Handler: router,
 		},
 	}
+}
+
+func readSecretFile(path string) string {
+	secretBytes, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(secretBytes))
 }
 
 func (application *Application) Start() error {
