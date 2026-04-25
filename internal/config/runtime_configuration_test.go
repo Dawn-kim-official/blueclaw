@@ -49,7 +49,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
   "connectors": {
     "mattermost": {
       "baseURL": "http://localhost:8065",
-      "botTokenPath": "/run/secrets/mattermost-token"
+      "botTokenPath": "/run/secrets/mattermost-token",
+      "webSocketURL": "ws://localhost:8065/api/v4/websocket"
     },
     "slack": {
       "baseURL": "https://slack.com/api",
@@ -58,6 +59,10 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
   },
   "terminal": {
     "mode": "native"
+  },
+  "logging": {
+    "directoryPath": "/workspace/.blueclaw/logs",
+    "retentionDays": 7
   },
   "scheduler": {
     "retentionCheckIntervalMinute": 60,
@@ -90,6 +95,9 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Connectors.Mattermost.BotTokenPath != "/run/secrets/mattermost-token" {
 		t.Fatalf("expected mattermost token path to match, got %q", runtimeConfiguration.Connectors.Mattermost.BotTokenPath)
 	}
+	if runtimeConfiguration.Connectors.Mattermost.WebSocketURL != "ws://localhost:8065/api/v4/websocket" {
+		t.Fatalf("expected mattermost websocket url to match, got %q", runtimeConfiguration.Connectors.Mattermost.WebSocketURL)
+	}
 	if runtimeConfiguration.Connectors.Slack.BaseURL != "https://slack.com/api" {
 		t.Fatalf("expected slack base url to match, got %q", runtimeConfiguration.Connectors.Slack.BaseURL)
 	}
@@ -98,6 +106,9 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider != "llguidance" {
 		t.Fatalf("expected litert-lm constraint provider to match, got %q", runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider)
+	}
+	if runtimeConfiguration.Logging.RetentionDays != 7 {
+		t.Fatalf("expected log retention to match, got %d", runtimeConfiguration.Logging.RetentionDays)
 	}
 	if runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond != 30 {
 		t.Fatalf("expected task schedule poll interval to match, got %d", runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond)

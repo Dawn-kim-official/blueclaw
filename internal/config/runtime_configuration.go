@@ -12,6 +12,7 @@ type RuntimeConfiguration struct {
 	Firecracker   FirecrackerConfiguration    `json:"firecracker"`
 	Bridge        BridgeConfiguration         `json:"bridge"`
 	Connectors    ConnectorConfiguration      `json:"connectors"`
+	Logging       LoggingConfiguration        `json:"logging"`
 	MCPServers    []MCPServerConfiguration    `json:"mcpServers"`
 	Terminal      TerminalConfiguration       `json:"terminal"`
 	Scheduler     SchedulerConfiguration      `json:"scheduler"`
@@ -80,11 +81,17 @@ type ConnectorConfiguration struct {
 type MattermostConnectorConfiguration struct {
 	BaseURL      string `json:"baseURL"`
 	BotTokenPath string `json:"botTokenPath"`
+	WebSocketURL string `json:"webSocketURL"`
 }
 
 type SlackConnectorConfiguration struct {
 	BaseURL      string `json:"baseURL"`
 	BotTokenPath string `json:"botTokenPath"`
+}
+
+type LoggingConfiguration struct {
+	DirectoryPath string `json:"directoryPath"`
+	RetentionDays int    `json:"retentionDays"`
 }
 
 type TerminalConfiguration struct {

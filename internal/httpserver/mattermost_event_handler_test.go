@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/connectors/mattermost"
@@ -18,7 +21,7 @@ import (
 )
 
 func TestMattermostEventHandlerAllowsInvitedUserAndDeduplicates(t *testing.T) {
-	handler, taskRunService, postedPosts := newTestMattermostEventHandler(t, "invited@example.com")
+	handler, taskRunService, postedPosts, typingEvents := newTestMattermostEventHandler(t, "invited@example.com")
 
 	result := submitMattermostEvent(t, handler, mattermost.Event{
 		UserID:         "mattermost-user",
@@ -42,6 +45,12 @@ func TestMattermostEventHandlerAllowsInvitedUserAndDeduplicates(t *testing.T) {
 	if (*postedPosts)[0].RootID != "post-1" {
 		t.Fatalf("expected channel root reply to become a thread reply, got root %q", (*postedPosts)[0].RootID)
 	}
+	if len(*typingEvents) == 0 {
+		t.Fatal("expected typing indicator to be published")
+	}
+	if (*typingEvents)[0].ParentID != "post-1" {
+		t.Fatalf("expected channel root typing parent to match post id, got %q", (*typingEvents)[0].ParentID)
+	}
 
 	duplicateResult := submitMattermostEvent(t, handler, mattermost.Event{
 		UserID:         "mattermost-user",
@@ -59,10 +68,13 @@ func TestMattermostEventHandlerAllowsInvitedUserAndDeduplicates(t *testing.T) {
 	if len(*postedPosts) != 1 {
 		t.Fatalf("expected duplicate to keep one reply post, got %d", len(*postedPosts))
 	}
+	if len(*typingEvents) != 1 {
+		t.Fatalf("expected duplicate to keep one typing event, got %d", len(*typingEvents))
+	}
 }
 
 func TestMattermostEventHandlerRejectsUninvitedUser(t *testing.T) {
-	handler, taskRunService, postedPosts := newTestMattermostEventHandler(t, "someone-else@example.com")
+	handler, taskRunService, postedPosts, typingEvents := newTestMattermostEventHandler(t, "someone-else@example.com")
 
 	result := submitMattermostEvent(t, handler, mattermost.Event{
 		UserID:         "mattermost-user",
@@ -86,10 +98,13 @@ func TestMattermostEventHandlerRejectsUninvitedUser(t *testing.T) {
 	if len(*postedPosts) != 1 {
 		t.Fatalf("expected one rejection reply post, got %d", len(*postedPosts))
 	}
+	if len(*typingEvents) != 0 {
+		t.Fatalf("expected no typing event for rejected user, got %d", len(*typingEvents))
+	}
 }
 
 func TestMattermostEventHandlerRepliesToDirectMessageWithoutThreadRoot(t *testing.T) {
-	handler, _, postedPosts := newTestMattermostEventHandler(t, "invited@example.com")
+	handler, _, postedPosts, typingEvents := newTestMattermostEventHandler(t, "invited@example.com")
 
 	result := submitMattermostEvent(t, handler, mattermost.Event{
 		UserID:         "mattermost-user",
@@ -107,13 +122,66 @@ func TestMattermostEventHandlerRepliesToDirectMessageWithoutThreadRoot(t *testin
 	if (*postedPosts)[0].RootID != "" {
 		t.Fatalf("expected direct message reply without thread root, got %q", (*postedPosts)[0].RootID)
 	}
+	if len(*typingEvents) == 0 {
+		t.Fatal("expected typing indicator to be published")
+	}
+	if (*typingEvents)[0].ParentID != "" {
+		t.Fatalf("expected direct message typing without parent id, got %q", (*typingEvents)[0].ParentID)
+	}
 }
 
-func newTestMattermostEventHandler(t *testing.T, invitedEmail string) (*MattermostEventHandler, *task.TaskRunService, *[]testMattermostPost) {
+func TestMattermostEventHandlerUsesThreadRootForThreadReplyAndTyping(t *testing.T) {
+	handler, _, postedPosts, typingEvents := newTestMattermostEventHandler(t, "invited@example.com")
+
+	result := submitMattermostEvent(t, handler, mattermost.Event{
+		UserID:         "mattermost-user",
+		ConversationID: "channel-1",
+		PostID:         "reply-post-1",
+		RootID:         "thread-root-1",
+		Message:        "thread help",
+	})
+
+	if !result.IsAllowed {
+		t.Fatalf("expected thread message to be allowed: %+v", result)
+	}
+	if (*postedPosts)[0].RootID != "thread-root-1" {
+		t.Fatalf("expected thread reply root to match root id, got %q", (*postedPosts)[0].RootID)
+	}
+	if (*typingEvents)[0].ParentID != "thread-root-1" {
+		t.Fatalf("expected thread typing parent to match root id, got %q", (*typingEvents)[0].ParentID)
+	}
+}
+
+func TestMattermostEventHandlerLogsLLMFailureAndUsesFallbackReply(t *testing.T) {
+	handler, _, postedPosts, _ := newTestMattermostEventHandler(t, "invited@example.com")
+	logBuffer := &strings.Builder{}
+	handler.Logger = slog.New(slog.NewJSONHandler(logWriter{builder: logBuffer}, nil))
+	handler.AgentKernel.UseLanguageModelProvider(failingLanguageModelProvider{})
+
+	result := submitMattermostEvent(t, handler, mattermost.Event{
+		UserID:         "mattermost-user",
+		ConversationID: "channel-1",
+		PostID:         "post-llm-fail",
+		Message:        "please help",
+	})
+
+	if result.Reason == "reply_failed" {
+		t.Fatalf("expected fallback reply to be sent: %+v", result)
+	}
+	if !strings.HasPrefix((*postedPosts)[0].Message, "Working on it: ") {
+		t.Fatalf("expected fallback reply, got %q", (*postedPosts)[0].Message)
+	}
+	if !strings.Contains(logBuffer.String(), "mattermost.llm.failed") {
+		t.Fatal("expected llm failure to be logged")
+	}
+}
+
+func newTestMattermostEventHandler(t *testing.T, invitedEmail string) (*MattermostEventHandler, *task.TaskRunService, *[]testMattermostPost, *[]testTypingEvent) {
 	t.Helper()
 
 	postedPosts := []testMattermostPost{}
-	httpClient := &http.Client{Transport: testMattermostRoundTripper{postedPosts: &postedPosts}}
+	typingEvents := []testTypingEvent{}
+	httpClient := &http.Client{Transport: testMattermostRoundTripper{postedPosts: &postedPosts, typingEvents: &typingEvents}}
 
 	policyDocument := policy.PolicyDocument{
 		People: []policy.PersonPolicy{
@@ -144,13 +212,16 @@ func newTestMattermostEventHandler(t *testing.T, invitedEmail string) (*Mattermo
 		HTTPClient: httpClient,
 	}
 
-	return NewMattermostEventHandler(
+	handler := NewMattermostEventHandler(
 		mattermost.NewConnectorWithIdentityResolver(userProfileClient),
 		identityService,
 		agentKernel,
 		userProfileClient,
 		postClient,
-	), taskRunService, &postedPosts
+	)
+	handler.TypingInterval = time.Hour
+	handler.TypingTimeout = time.Hour
+	return handler, taskRunService, &postedPosts, &typingEvents
 }
 
 func submitMattermostEvent(t *testing.T, handler *MattermostEventHandler, event mattermost.Event) MattermostEventResult {
@@ -176,13 +247,19 @@ func submitMattermostEvent(t *testing.T, handler *MattermostEventHandler, event 
 }
 
 type testMattermostRoundTripper struct {
-	postedPosts *[]testMattermostPost
+	postedPosts  *[]testMattermostPost
+	typingEvents *[]testTypingEvent
 }
 
 type testMattermostPost struct {
 	ChannelID string
 	RootID    string
 	Message   string
+}
+
+type testTypingEvent struct {
+	ChannelID string
+	ParentID  string
 }
 
 func (roundTripper testMattermostRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -199,6 +276,8 @@ func (roundTripper testMattermostRoundTripper) RoundTrip(request *http.Request) 
 		}
 	case request.Method == http.MethodGet && request.URL.Path == "/api/v4/channels/direct-channel-1":
 		responseBody = map[string]string{"type": "D"}
+	case request.Method == http.MethodPost && request.URL.Path == "/api/v4/users/bot-user/typing":
+		roundTripper.recordTypingEvent(request)
 	case request.Method == http.MethodPost && request.URL.Path == "/api/v4/posts":
 		statusCode = http.StatusCreated
 		roundTripper.recordPostMessage(request)
@@ -219,6 +298,20 @@ func (roundTripper testMattermostRoundTripper) RoundTrip(request *http.Request) 
 		Body:       io.NopCloser(bytes.NewReader(body)),
 		Request:    request,
 	}, nil
+}
+
+func (roundTripper testMattermostRoundTripper) recordTypingEvent(request *http.Request) {
+	var typingRequest struct {
+		ChannelID string `json:"channel_id"`
+		ParentID  string `json:"parent_id"`
+	}
+	if errorValue := json.NewDecoder(request.Body).Decode(&typingRequest); errorValue != nil {
+		return
+	}
+	*roundTripper.typingEvents = append(*roundTripper.typingEvents, testTypingEvent{
+		ChannelID: typingRequest.ChannelID,
+		ParentID:  typingRequest.ParentID,
+	})
 }
 
 func (roundTripper testMattermostRoundTripper) recordPostMessage(request *http.Request) {
@@ -251,4 +344,26 @@ func (languageModelProvider staticReplyLanguageModelProvider) GenerateStructured
 	_ = responseContext
 	_ = structuredResponseRequest
 	return llm.StructuredResponse{Content: languageModelProvider.content}, nil
+}
+
+type failingLanguageModelProvider struct{}
+
+func (failingLanguageModelProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	_ = responseContext
+	_ = prompt
+	return "", io.ErrUnexpectedEOF
+}
+
+func (failingLanguageModelProvider) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	_ = responseContext
+	_ = structuredResponseRequest
+	return llm.StructuredResponse{}, io.ErrUnexpectedEOF
+}
+
+type logWriter struct {
+	builder *strings.Builder
+}
+
+func (writer logWriter) Write(document []byte) (int, error) {
+	return writer.builder.Write(document)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -117,7 +118,8 @@ func (postClient PostClient) CreatePost(conversationID string, rootID string, me
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", errors.New("mattermost post creation failed")
+		responseDocument, _ := io.ReadAll(response.Body)
+		return "", errors.New("mattermost post creation failed: " + string(responseDocument))
 	}
 
 	var postResponse struct {
@@ -128,6 +130,45 @@ func (postClient PostClient) CreatePost(conversationID string, rootID string, me
 		return "", errorValue
 	}
 	return postResponse.ID, nil
+}
+
+func (postClient PostClient) PublishTyping(userID string, conversationID string, parentID string) error {
+	httpClient := postClient.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+
+	body := map[string]string{
+		"channel_id": conversationID,
+	}
+	if strings.TrimSpace(parentID) != "" {
+		body["parent_id"] = parentID
+	}
+
+	document, errorValue := json.Marshal(body)
+	if errorValue != nil {
+		return errorValue
+	}
+
+	requestURL := strings.TrimRight(postClient.BaseURL, "/") + "/api/v4/users/" + userID + "/typing"
+	request, errorValue := http.NewRequest(http.MethodPost, requestURL, bytes.NewReader(document))
+	if errorValue != nil {
+		return errorValue
+	}
+	request.Header.Set("Authorization", "Bearer "+postClient.BotToken)
+	request.Header.Set("Content-Type", "application/json")
+
+	response, errorValue := httpClient.Do(request)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		responseDocument, _ := io.ReadAll(response.Body)
+		return errors.New("mattermost typing publish failed: " + string(responseDocument))
+	}
+
+	return nil
 }
 
 func (postClient PostClient) ResolveChannelType(conversationID string) (string, error) {

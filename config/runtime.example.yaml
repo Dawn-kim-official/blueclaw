@@ -40,12 +40,17 @@
   "connectors": {
     "mattermost": {
       "baseURL": "http://localhost:8065",
-      "botTokenPath": "/root/.internkim/env/bot-token"
+      "botTokenPath": "/root/.internkim/env/bot-token",
+      "webSocketURL": "ws://localhost:8065/api/v4/websocket"
     },
     "slack": {
       "baseURL": "https://slack.com/api",
       "botTokenPath": "/root/.internkim/secrets/slack-bot-token"
     }
+  },
+  "logging": {
+    "directoryPath": "/workspace/.blueclaw/logs",
+    "retentionDays": 7
   },
   "agentProfiles": [
     {
