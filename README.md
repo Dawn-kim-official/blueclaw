@@ -9,9 +9,11 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 - `Blueclaw` runs on `InternKim` as a long-lived daemon
 - `InternKim` is reachable remotely through `Cloudflare Tunnel`
 - remote admin access is expected to sit behind `Cloudflare Tunnel` with `Google OAuth`
-- `Blueclaw` connects outbound to `Slack`
+- `Slack` uses an Events API HTTP callback into `Blueclaw` and outbound Slack Web API calls for replies
 - `Mattermost` is self-hosted inside `InternKim`
 - `Mattermost` is an `InternKim`-native internal service, separate from the isolated `Blueclaw` guest
+- `Mattermost` uses a local WebSocket listener for realtime ingress and HTTP API calls for typing and replies
+- `Signal` is scaffolded behind the same connector contract but remains disabled for production in v1
 - `Blueclaw` stores policy, memory, task state, backups, and artifacts on persistent workspace storage
 - `Blueclaw` supports one-time, interval, and cron-based scheduled task execution
 - `Blueclaw` may ask the user's main computer to open a browser instance when a flow requires direct user login or approval
@@ -77,11 +79,50 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 
 ## Messaging Plane
 
-- `Slack` is an outbound external integration from `InternKim`
+- `Slack` is an external integration from `InternKim`
+- Slack ingress uses the Events API callback at `/connectors/slack/events`
+- Slack replies use the Slack Web API, currently `chat.postMessage`
+- Slack Socket Mode is not the v1 production baseline, but the connector transport model can add it later
 - `Mattermost` is self-hosted inside `InternKim`
 - `Mattermost` is an internal service separate from the isolated `Blueclaw` guest
 - `Blueclaw` connects to the local `Mattermost` service over the internal appliance network boundary
+- Mattermost ingress uses WebSocket `posted` events, with `/connectors/mattermost/events` kept as an HTTP-compatible path
+- Mattermost typing indicators are emitted while Blueclaw is generating a reply or running tools
+- Slack does not provide the same typing indicator API, so Slack typing is a no-op in v1
+- all connector ingress flows normalize into the same `ConnectorRuntime`
+- platform adapters only parse payloads, resolve identity, publish typing or presence when supported, and send replies
+- duplicate suppression, self-message suppression, invited-email authorization, task creation, LLM reply generation, fallback replies, and structured logs are shared by the connector core
 - the messaging plane and the control plane should stay separated
+
+## Connector Configuration
+
+Runtime connector configuration is read from `runtime.json` or `runtime.yaml` through the same schema.
+
+```json
+{
+  "connectors": {
+    "mattermost": {
+      "baseURL": "http://localhost:8065",
+      "botTokenPath": "/run/secrets/mattermost-token",
+      "webSocketURL": "ws://localhost:8065/api/v4/websocket"
+    },
+    "slack": {
+      "baseURL": "https://slack.com/api",
+      "botTokenPath": "/run/secrets/slack-token",
+      "signingSecretPath": "/run/secrets/slack-signing-secret"
+    },
+    "signal": {
+      "enabled": false
+    }
+  }
+}
+```
+
+- Mattermost `webSocketURL` can be omitted when it can be derived from `baseURL`
+- Slack `signingSecretPath` enables request signature verification for Events API callbacks
+- `signal.enabled=true` is rejected in v1 because the adapter is scaffolded but not production-enabled
+- connector logs use `connector.<platform>.<stage>` event names
+- persistent logs default to `/workspace/.blueclaw/logs` and are retained for 7 days unless configured otherwise
 
 ## Migration Goal
 

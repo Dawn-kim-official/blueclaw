@@ -24,3 +24,9 @@ go run ./cmd/blueclaw-lab --configuration config/lab.example.json scenario-slack
 go run ./cmd/blueclaw-lab --configuration config/lab.example.json scenario-browser-handoff
 go run ./cmd/blueclaw-lab --configuration config/lab.example.json vm-down
 ```
+
+Connector scenarios should exercise the unified connector runtime rather than platform-specific handler shortcuts.
+
+- `scenario-mattermost` covers Mattermost-style receive and reply paths
+- `scenario-slack` covers Slack Events API-style receive and Slack Web API-style reply paths
+- future Socket Mode or Signal receivers should be added as `ConnectorTransport` implementations without changing the connector core
