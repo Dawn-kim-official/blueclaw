@@ -12,29 +12,20 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	runtimeConfigurationDocument := `{
   "baseURL": "http://127.0.0.1:8080",
   "capability": {
+    "transport": "unix",
     "socketPath": "/run/internkim/capability.sock",
-    "endpoint": "http://internkim/v1/capabilities"
+    "endpoint": "http://internkim",
+    "vsockCID": 52,
+    "vsockPort": 7000
   },
   "languageModel": {
     "defaultProvider": "capability",
-    "fallbackProvider": "liteRTLM",
+    "fallbackProvider": "",
     "capability": {
-      "modelName": "openai/gpt-4.1-mini",
+      "model": "openai/gpt-4.1-mini",
+      "executionMode": "auto",
       "requireParameters": true,
       "enableResponseHealing": true
-    },
-    "openRouter": {
-      "baseURL": "https://openrouter.ai/api/v1/chat/completions",
-      "modelName": "openai/gpt-4.1-mini",
-      "requireParameters": true,
-      "enableResponseHealing": true
-    },
-    "liteRTLM": {
-      "wrapperPath": "/usr/local/bin/blueclaw-litert-wrapper",
-      "wrapperArguments": ["--stdio"],
-      "modelPath": "/models/gemma-3n.litertlm",
-      "backend": "cpu",
-      "constraintProvider": "llguidance"
     }
   },
   "firecracker": {
@@ -57,8 +48,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
   },
   "connectors": {
     "mattermost": {
-      "baseURL": "http://localhost:8065",
-      "webSocketURL": "ws://localhost:8065/api/v4/websocket"
+      "baseURL": "http://localhost:8065"
     },
     "slack": {
       "baseURL": "https://slack.com/api"
@@ -105,8 +95,11 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Capability.SocketPath != "/run/internkim/capability.sock" {
 		t.Fatalf("expected capability socket path to match, got %q", runtimeConfiguration.Capability.SocketPath)
 	}
-	if runtimeConfiguration.Connectors.Mattermost.WebSocketURL != "ws://localhost:8065/api/v4/websocket" {
-		t.Fatalf("expected mattermost websocket url to match, got %q", runtimeConfiguration.Connectors.Mattermost.WebSocketURL)
+	if runtimeConfiguration.Capability.Transport != "unix" {
+		t.Fatalf("expected capability transport to match, got %q", runtimeConfiguration.Capability.Transport)
+	}
+	if runtimeConfiguration.Capability.VSockPort != 7000 {
+		t.Fatalf("expected capability vsock port to match, got %d", runtimeConfiguration.Capability.VSockPort)
 	}
 	if runtimeConfiguration.Connectors.Slack.BaseURL != "https://slack.com/api" {
 		t.Fatalf("expected slack base url to match, got %q", runtimeConfiguration.Connectors.Slack.BaseURL)
@@ -117,11 +110,11 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.LanguageModel.DefaultProvider != "capability" {
 		t.Fatalf("expected default language model provider to match, got %q", runtimeConfiguration.LanguageModel.DefaultProvider)
 	}
-	if runtimeConfiguration.LanguageModel.Capability.ModelName != "openai/gpt-4.1-mini" {
-		t.Fatalf("expected capability model name to match, got %q", runtimeConfiguration.LanguageModel.Capability.ModelName)
+	if runtimeConfiguration.LanguageModel.Capability.Model != "openai/gpt-4.1-mini" {
+		t.Fatalf("expected capability model to match, got %q", runtimeConfiguration.LanguageModel.Capability.Model)
 	}
-	if runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider != "llguidance" {
-		t.Fatalf("expected litert-lm constraint provider to match, got %q", runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider)
+	if runtimeConfiguration.LanguageModel.Capability.ExecutionMode != "auto" {
+		t.Fatalf("expected capability execution mode to match, got %q", runtimeConfiguration.LanguageModel.Capability.ExecutionMode)
 	}
 	if runtimeConfiguration.Logging.RetentionDays != 7 {
 		t.Fatalf("expected log retention to match, got %d", runtimeConfiguration.Logging.RetentionDays)

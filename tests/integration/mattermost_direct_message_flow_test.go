@@ -34,17 +34,15 @@ func TestMattermostDirectMessageFlow(t *testing.T) {
 
 func TestMattermostEventLinksInvitedEmail(t *testing.T) {
 	identityService := newMattermostIdentityService("person-1", "lee@example.com")
-	connector := mattermost.NewConnectorWithIdentityResolver(mattermostStaticIdentityResolver{email: "lee@example.com"})
+	connectorRuntime := newIntegrationConnectorRuntime(identityService)
+	adapter := mattermost.NewAdapter(mattermostStaticIdentityResolver{email: "lee@example.com"}, &mattermostIntegrationConversationClient{})
 
-	authorizationResult, errorValue := connector.AuthorizeEvent(mattermost.Event{UserID: "user-1"}, identityService)
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, mattermostInboundEvent("post-1", "user-1"))
 	if errorValue != nil {
 		t.Fatalf("expected authorization to succeed: %v", errorValue)
 	}
-	if !authorizationResult.IsAllowed {
+	if result.TaskRunID == "" {
 		t.Fatal("expected invited user to be allowed")
-	}
-	if authorizationResult.PersonID != "person-1" {
-		t.Fatalf("expected person ID to match, got %s", authorizationResult.PersonID)
 	}
 
 	personID, isFound := identityService.ResolvePersonIDByPlatformAccount("mattermost", "user-1")
@@ -55,17 +53,19 @@ func TestMattermostEventLinksInvitedEmail(t *testing.T) {
 
 func TestMattermostEventRejectsUninvitedEmail(t *testing.T) {
 	identityService := newMattermostIdentityService("person-1", "lee@example.com")
-	connector := mattermost.NewConnectorWithIdentityResolver(mattermostStaticIdentityResolver{email: "stranger@example.com"})
+	conversationClient := &mattermostIntegrationConversationClient{}
+	connectorRuntime := newIntegrationConnectorRuntime(identityService)
+	adapter := mattermost.NewAdapter(mattermostStaticIdentityResolver{email: "stranger@example.com"}, conversationClient)
 
-	authorizationResult, errorValue := connector.AuthorizeEvent(mattermost.Event{UserID: "user-2"}, identityService)
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, mattermostInboundEvent("post-2", "user-2"))
 	if errorValue != nil {
 		t.Fatalf("expected authorization to complete: %v", errorValue)
 	}
-	if authorizationResult.IsAllowed {
+	if result.TaskRunID != "" {
 		t.Fatal("expected uninvited user to be rejected")
 	}
-	if authorizationResult.Reply != mattermost.NotInvitedReply {
-		t.Fatalf("expected not invited reply, got %q", authorizationResult.Reply)
+	if conversationClient.lastMessage != mattermost.NotInvitedReply {
+		t.Fatalf("expected not invited reply, got %q", conversationClient.lastMessage)
 	}
 }
 
@@ -85,9 +85,12 @@ func (mattermostStaticIdentityResolver mattermostStaticIdentityResolver) Resolve
 	return "bot-1", nil
 }
 
-type mattermostIntegrationConversationClient struct{}
+type mattermostIntegrationConversationClient struct {
+	lastMessage string
+}
 
-func (client *mattermostIntegrationConversationClient) CreatePost(string, string, string) (string, error) {
+func (client *mattermostIntegrationConversationClient) CreatePost(_ string, _ string, message string) (string, error) {
+	client.lastMessage = message
 	return "reply-post-1", nil
 }
 
@@ -115,4 +118,17 @@ func newMattermostIdentityService(personID string, email string) *identity.Ident
 	}
 	policyProjection := policy.PolicyProjectionService{}.ReplacePolicyProjectionTransactionally(policyDocument)
 	return identity.NewIdentityService(policyProjection)
+}
+
+func mattermostInboundEvent(messageID string, senderUserID string) connectors.PlatformInboundEvent {
+	return connectors.PlatformInboundEvent{
+		Platform:       "mattermost",
+		Source:         "test",
+		EventID:        messageID,
+		ConversationID: "channel-1",
+		MessageID:      messageID,
+		SenderUserID:   senderUserID,
+		ChannelType:    "D",
+		Text:           "hello",
+	}
 }

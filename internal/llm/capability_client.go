@@ -10,12 +10,14 @@ import (
 type CapabilityClient struct {
 	Client                capability.Client
 	ModelName             string
+	ExecutionMode         string
 	RequireParameters     bool
 	EnableResponseHealing bool
 }
 
 type capabilityCompletionRequest struct {
-	ModelName              string                  `json:"modelName"`
+	Model                  string                  `json:"model"`
+	ExecutionMode          string                  `json:"executionMode"`
 	Messages               []Message               `json:"messages"`
 	StructuredOutputSchema capabilitySchemaRequest `json:"structuredOutputSchema"`
 	RequireParameters      bool                    `json:"requireParameters"`
@@ -29,9 +31,10 @@ type capabilitySchemaRequest struct {
 }
 
 type capabilityCompletionResponse struct {
-	ProviderName string `json:"providerName"`
-	ModelName    string `json:"modelName"`
-	Content      string `json:"content"`
+	ProviderName    string `json:"provider"`
+	ModelName       string `json:"model"`
+	Content         string `json:"content"`
+	SelectedBackend string `json:"selectedBackend"`
 }
 
 func (client CapabilityClient) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
@@ -60,8 +63,9 @@ func (client CapabilityClient) GenerateResponse(responseContext context.Context,
 
 func (client CapabilityClient) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest StructuredResponseRequest) (StructuredResponse, error) {
 	request := capabilityCompletionRequest{
-		ModelName: strings.TrimSpace(client.ModelName),
-		Messages:  append([]Message{}, structuredResponseRequest.Messages...),
+		Model:         strings.TrimSpace(client.ModelName),
+		ExecutionMode: firstCapabilityValue(client.ExecutionMode, "auto"),
+		Messages:      append([]Message{}, structuredResponseRequest.Messages...),
 		StructuredOutputSchema: capabilitySchemaRequest{
 			Name:               structuredResponseRequest.StructuredOutputSchema.Name,
 			Document:           structuredResponseRequest.StructuredOutputSchema.Document,
@@ -72,7 +76,7 @@ func (client CapabilityClient) GenerateStructuredResponse(responseContext contex
 	}
 
 	var response capabilityCompletionResponse
-	errorValue := client.Client.Call(responseContext, "llm.complete", request, &response)
+	errorValue := client.Client.Post(responseContext, "/v1/llm/structured", request, &response)
 	if errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}

@@ -20,8 +20,11 @@ type RuntimeConfiguration struct {
 }
 
 type CapabilityConfiguration struct {
+	Transport  string `json:"transport"`
 	SocketPath string `json:"socketPath"`
 	Endpoint   string `json:"endpoint"`
+	VSockCID   uint32 `json:"vsockCID"`
+	VSockPort  uint32 `json:"vsockPort"`
 }
 
 type AgentProfileConfiguration struct {
@@ -41,29 +44,13 @@ type LanguageModelConfiguration struct {
 	DefaultProvider  string                               `json:"defaultProvider"`
 	FallbackProvider string                               `json:"fallbackProvider"`
 	Capability       CapabilityLanguageModelConfiguration `json:"capability"`
-	OpenRouter       OpenRouterConfiguration              `json:"openRouter"`
-	LiteRTLM         LiteRTLMConfiguration                `json:"liteRTLM"`
 }
 
 type CapabilityLanguageModelConfiguration struct {
-	ModelName             string `json:"modelName"`
+	Model                 string `json:"model"`
+	ExecutionMode         string `json:"executionMode"`
 	RequireParameters     bool   `json:"requireParameters"`
 	EnableResponseHealing bool   `json:"enableResponseHealing"`
-}
-
-type OpenRouterConfiguration struct {
-	BaseURL               string `json:"baseURL"`
-	ModelName             string `json:"modelName"`
-	RequireParameters     bool   `json:"requireParameters"`
-	EnableResponseHealing bool   `json:"enableResponseHealing"`
-}
-
-type LiteRTLMConfiguration struct {
-	WrapperPath        string   `json:"wrapperPath"`
-	WrapperArguments   []string `json:"wrapperArguments"`
-	ModelPath          string   `json:"modelPath"`
-	Backend            string   `json:"backend"`
-	ConstraintProvider string   `json:"constraintProvider"`
 }
 
 type FirecrackerConfiguration struct {
@@ -93,8 +80,7 @@ type ConnectorConfiguration struct {
 }
 
 type MattermostConnectorConfiguration struct {
-	BaseURL      string `json:"baseURL"`
-	WebSocketURL string `json:"webSocketURL"`
+	BaseURL string `json:"baseURL"`
 }
 
 type SlackConnectorConfiguration struct {

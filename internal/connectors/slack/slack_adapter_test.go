@@ -3,16 +3,15 @@ package slack
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"io"
 	"net/http"
 	"testing"
 
 	"blueclaw/internal/connectors"
+	"blueclaw/internal/identity"
 )
 
 func TestAdapterRespondsToURLVerificationChallenge(t *testing.T) {
-	adapter := NewAdapter(UserProfileClient{}, PostClient{}, "")
+	adapter := NewAdapter(fakeSlackIdentityClient{}, fakeSlackConversationClient{})
 	request := newSlackRequest([]byte(`{"type":"url_verification","challenge":"challenge-value"}`))
 
 	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)
@@ -29,7 +28,7 @@ func TestAdapterRespondsToURLVerificationChallenge(t *testing.T) {
 }
 
 func TestAdapterNormalizesSlackEventCallback(t *testing.T) {
-	adapter := NewAdapter(UserProfileClient{}, PostClient{}, "")
+	adapter := NewAdapter(fakeSlackIdentityClient{}, fakeSlackConversationClient{})
 	request := newSlackRequest([]byte(`{
 		"type":"event_callback",
 		"event_id":"event-1",
@@ -65,41 +64,8 @@ func TestAdapterNormalizesSlackEventCallback(t *testing.T) {
 	}
 }
 
-func TestPostClientSendsThreadReplyAndReportsSlackErrors(t *testing.T) {
-	var requestDocument map[string]string
-	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.URL.Path != "/chat.postMessage" {
-			return testHTTPResponse(http.StatusNotFound, `not found`), nil
-		}
-		_ = json.NewDecoder(request.Body).Decode(&requestDocument)
-		return testHTTPResponse(http.StatusOK, `{"ok":true,"ts":"reply-ts"}`), nil
-	})}
-
-	postClient := PostClient{BaseURL: "http://slack.test", BotToken: "token", HTTPClient: httpClient}
-	dispatchID, errorValue := postClient.CreateMessage("channel-1", "root-ts", "hello")
-	if errorValue != nil {
-		t.Fatalf("expected slack post: %v", errorValue)
-	}
-
-	if dispatchID != "reply-ts" {
-		t.Fatalf("expected slack timestamp dispatch id, got %q", dispatchID)
-	}
-	if requestDocument["thread_ts"] != "root-ts" {
-		t.Fatalf("expected thread timestamp, got %q", requestDocument["thread_ts"])
-	}
-
-	errorHTTPClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		return testHTTPResponse(http.StatusOK, `{"ok":false,"error":"channel_not_found"}`), nil
-	})}
-	errorPostClient := PostClient{BaseURL: "http://slack.test", BotToken: "token", HTTPClient: errorHTTPClient}
-	_, errorValue = errorPostClient.CreateMessage("missing", "", "hello")
-	if errorValue == nil {
-		t.Fatal("expected slack error")
-	}
-}
-
 func TestAdapterResolvesSlackConversationKind(t *testing.T) {
-	adapter := NewAdapter(UserProfileClient{}, PostClient{}, "")
+	adapter := NewAdapter(fakeSlackIdentityClient{}, fakeSlackConversationClient{})
 
 	conversationKind, errorValue := adapter.ResolveConversationKind(context.Background(), connectors.PlatformInboundEvent{
 		ConversationID: "D123",
@@ -118,16 +84,23 @@ func newSlackRequest(payload []byte) *http.Request {
 	return request
 }
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
+type fakeSlackIdentityClient struct{}
 
-func (roundTrip roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
-	return roundTrip(request)
+func (client fakeSlackIdentityClient) ResolveBotUserID() (string, error) {
+	return "bot-user", nil
 }
 
-func testHTTPResponse(statusCode int, body string) *http.Response {
-	return &http.Response{
-		StatusCode: statusCode,
-		Body:       io.NopCloser(bytes.NewReader([]byte(body))),
-		Header:     make(http.Header),
-	}
+func (client fakeSlackIdentityClient) ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error) {
+	return identity.PlatformAccountIdentity{
+		Platform:       "slack",
+		ExternalUserID: externalUserID,
+		Email:          "user@example.com",
+		DisplayName:    "User",
+	}, nil
+}
+
+type fakeSlackConversationClient struct{}
+
+func (client fakeSlackConversationClient) CreateMessage(conversationID string, parentID string, message string) (string, error) {
+	return "reply-ts", nil
 }

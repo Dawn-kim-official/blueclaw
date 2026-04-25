@@ -126,28 +126,29 @@ Blueclaw replies use the configured language model before falling back to a shor
 
 ```json
 {
+  "capability": {
+    "transport": "unix",
+    "socketPath": "/run/internkim/capability.sock",
+    "endpoint": "http://internkim",
+    "vsockCID": 52,
+    "vsockPort": 7000
+  },
   "languageModel": {
     "defaultProvider": "capability",
-    "fallbackProvider": "liteRTLM",
+    "fallbackProvider": "",
     "capability": {
-      "modelName": "openai/gpt-4.1-mini",
+      "model": "openai/gpt-4.1-mini",
+      "executionMode": "auto",
       "requireParameters": true,
       "enableResponseHealing": true
-    },
-    "liteRTLM": {
-      "wrapperPath": "/usr/local/bin/blueclaw-litert-wrapper",
-      "wrapperArguments": ["--stdio"],
-      "modelPath": "/workspace/.blueclaw/models/gemma-3n-E2B-it-int4.litertlm",
-      "backend": "cpu",
-      "constraintProvider": "llguidance"
     }
   }
 }
 ```
 
-- Blueclaw calls the InternKim capability socket for hosted language model access
-- OpenRouter keys are never passed to Blueclaw as config, environment, argv, or readable files
-- `fallbackProvider=liteRTLM` keeps local fallback available when the OpenRouter call fails
+- Blueclaw calls the InternKim capability boundary for hosted language model access
+- OpenRouter keys and LiteRT model paths/backends are never passed to Blueclaw as config, environment, argv, or readable files
+- InternKim owns local/remote provider selection behind `executionMode=auto`
 - if both providers fail, the connector sends a short model-configuration failure reply and writes the detailed error to the persistent log
 
 ## Migration Goal

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -12,38 +13,36 @@ import (
 )
 
 type Client struct {
+	Transport  string
 	SocketPath string
 	Endpoint   string
+	VSockCID   uint32
+	VSockPort  uint32
 	HTTPClient *http.Client
 }
 
-type requestDocument struct {
-	Operation string `json:"operation"`
-	Payload   any    `json:"payload"`
-}
-
-func NewClient(socketPath string, endpoint string) Client {
+func NewClient(transport string, socketPath string, endpoint string, vsockCID uint32, vsockPort uint32) Client {
 	return Client{
+		Transport:  strings.TrimSpace(transport),
 		SocketPath: strings.TrimSpace(socketPath),
 		Endpoint:   strings.TrimSpace(endpoint),
+		VSockCID:   vsockCID,
+		VSockPort:  vsockPort,
 	}
 }
 
-func (client Client) Call(ctx context.Context, operation string, payload any, responseValue any) error {
-	if strings.TrimSpace(operation) == "" {
-		return errors.New("capability operation is empty")
+func (client Client) Post(ctx context.Context, path string, payload any, responseValue any) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("capability path is empty")
 	}
 
-	document, errorValue := json.Marshal(requestDocument{
-		Operation: operation,
-		Payload:   payload,
-	})
+	document, errorValue := json.Marshal(payload)
 	if errorValue != nil {
 		return errorValue
 	}
 
 	httpClient := client.httpClient()
-	endpoint := client.endpoint()
+	endpoint := client.endpoint(path)
 	request, errorValue := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(document))
 	if errorValue != nil {
 		return errorValue
@@ -56,7 +55,12 @@ func (client Client) Call(ctx context.Context, operation string, payload any, re
 	}
 	defer httpResponse.Body.Close()
 	if httpResponse.StatusCode < 200 || httpResponse.StatusCode >= 300 {
-		return errors.New("capability operation failed: " + httpResponse.Status)
+		responseDocument, _ := io.ReadAll(httpResponse.Body)
+		errorMessage := strings.TrimSpace(string(responseDocument))
+		if errorMessage == "" {
+			errorMessage = httpResponse.Status
+		}
+		return errors.New("capability operation failed: " + errorMessage)
 	}
 	if responseValue == nil {
 		return nil
@@ -69,11 +73,17 @@ func (client Client) httpClient() *http.Client {
 	if client.HTTPClient != nil {
 		return client.HTTPClient
 	}
+	if client.transport() == "http" {
+		return &http.Client{Timeout: 120 * time.Second}
+	}
 	socketPath := client.socketPath()
 	return &http.Client{
 		Timeout: 120 * time.Second,
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, network string, address string) (net.Conn, error) {
+				if client.transport() == "vsock" {
+					return nil, errors.New("capability vsock transport is not available in this build")
+				}
 				dialer := net.Dialer{}
 				return dialer.DialContext(ctx, "unix", socketPath)
 			},
@@ -81,11 +91,12 @@ func (client Client) httpClient() *http.Client {
 	}
 }
 
-func (client Client) endpoint() string {
+func (client Client) endpoint(path string) string {
+	baseEndpoint := "http://internkim"
 	if strings.TrimSpace(client.Endpoint) != "" {
-		return client.Endpoint
+		baseEndpoint = strings.TrimRight(client.Endpoint, "/")
 	}
-	return "http://internkim/v1/capabilities"
+	return baseEndpoint + "/" + strings.TrimLeft(path, "/")
 }
 
 func (client Client) socketPath() string {
@@ -93,4 +104,11 @@ func (client Client) socketPath() string {
 		return client.SocketPath
 	}
 	return "/run/internkim/capability.sock"
+}
+
+func (client Client) transport() string {
+	if strings.TrimSpace(client.Transport) != "" {
+		return strings.TrimSpace(client.Transport)
+	}
+	return "unix"
 }

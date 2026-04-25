@@ -2,19 +2,17 @@ package slack
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/identity"
 )
+
+const NotInvitedReply = "This Intern Kim has not invited your account yet. Ask the administrator for access."
 
 type BotIdentityClient interface {
 	ResolveBotUserID() (string, error)
@@ -29,15 +27,13 @@ type Adapter struct {
 	EventParser        EventParser
 	BotIdentityClient  BotIdentityClient
 	ConversationClient ConversationClient
-	SigningSecret      string
 }
 
-func NewAdapter(botIdentityClient BotIdentityClient, conversationClient ConversationClient, signingSecret string) Adapter {
+func NewAdapter(botIdentityClient BotIdentityClient, conversationClient ConversationClient) Adapter {
 	return Adapter{
 		EventParser:        EventParser{},
 		BotIdentityClient:  botIdentityClient,
 		ConversationClient: conversationClient,
-		SigningSecret:      strings.TrimSpace(signingSecret),
 	}
 }
 
@@ -48,9 +44,6 @@ func (adapter Adapter) Name() string {
 func (adapter Adapter) ParseHTTPEvent(_ context.Context, request *http.Request) (connectors.HTTPParseResult, error) {
 	payload, errorValue := io.ReadAll(request.Body)
 	if errorValue != nil {
-		return connectors.HTTPParseResult{}, errorValue
-	}
-	if errorValue := adapter.verifySignature(request, payload); errorValue != nil {
 		return connectors.HTTPParseResult{}, errorValue
 	}
 
@@ -127,36 +120,6 @@ func (adapter Adapter) convertEvent(eventEnvelope EventEnvelope) connectors.Plat
 		RawReceivedAt:  time.Now(),
 		IsBotMessage:   event.IsBotMessage(),
 	}
-}
-
-func (adapter Adapter) verifySignature(request *http.Request, payload []byte) error {
-	if strings.TrimSpace(adapter.SigningSecret) == "" {
-		return nil
-	}
-
-	timestamp := request.Header.Get("X-Slack-Request-Timestamp")
-	signature := request.Header.Get("X-Slack-Signature")
-	if strings.TrimSpace(timestamp) == "" || strings.TrimSpace(signature) == "" {
-		return errors.New("slack signature headers are required")
-	}
-
-	timestampSeconds, errorValue := strconv.ParseInt(timestamp, 10, 64)
-	if errorValue != nil {
-		return errors.New("slack signature timestamp is invalid")
-	}
-	if time.Since(time.Unix(timestampSeconds, 0)) > 5*time.Minute {
-		return errors.New("slack signature timestamp is too old")
-	}
-
-	messageAuthenticationCode := hmac.New(sha256.New, []byte(adapter.SigningSecret))
-	_, _ = messageAuthenticationCode.Write([]byte("v0:" + timestamp + ":"))
-	_, _ = messageAuthenticationCode.Write(payload)
-	expectedSignature := "v0=" + hex.EncodeToString(messageAuthenticationCode.Sum(nil))
-	if !hmac.Equal([]byte(expectedSignature), []byte(signature)) {
-		return errors.New("slack signature mismatch")
-	}
-
-	return nil
 }
 
 func (adapter Adapter) parser() EventParser {

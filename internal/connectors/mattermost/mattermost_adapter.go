@@ -11,6 +11,8 @@ import (
 	"blueclaw/internal/identity"
 )
 
+const NotInvitedReply = "This Intern Kim has not invited your account yet. Ask the administrator for access."
+
 type BotIdentityClient interface {
 	ResolveBotUserID() (string, error)
 	ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error)

@@ -21,7 +21,7 @@ func TestSlackDirectMessageFlow(t *testing.T) {
 		t.Fatalf("expected conversation ID to match, got %s", event.ConversationID)
 	}
 
-	adapter := slack.NewAdapter(slackStaticIdentityResolver{email: "lee@example.com"}, slackIntegrationConversationClient{}, "")
+	adapter := slack.NewAdapter(slackStaticIdentityResolver{email: "lee@example.com"}, &slackIntegrationConversationClient{})
 	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID}, "hi")
 	if errorValue != nil {
 		t.Fatalf("expected reply to be sent: %v", errorValue)
@@ -33,17 +33,15 @@ func TestSlackDirectMessageFlow(t *testing.T) {
 
 func TestSlackEventLinksInvitedEmail(t *testing.T) {
 	identityService := newSlackIdentityService("person-1", "lee@example.com")
-	connector := slack.NewConnectorWithIdentityResolver(slackStaticIdentityResolver{email: "lee@example.com"})
+	connectorRuntime := newIntegrationConnectorRuntime(identityService)
+	adapter := slack.NewAdapter(slackStaticIdentityResolver{email: "lee@example.com"}, &slackIntegrationConversationClient{})
 
-	authorizationResult, errorValue := connector.AuthorizeEvent(slack.Event{UserID: "U123"}, identityService)
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, slackInboundEvent("event-1", "U123"))
 	if errorValue != nil {
 		t.Fatalf("expected authorization to succeed: %v", errorValue)
 	}
-	if !authorizationResult.IsAllowed {
+	if result.TaskRunID == "" {
 		t.Fatal("expected invited user to be allowed")
-	}
-	if authorizationResult.PersonID != "person-1" {
-		t.Fatalf("expected person ID to match, got %s", authorizationResult.PersonID)
 	}
 
 	personID, isFound := identityService.ResolvePersonIDByPlatformAccount("slack", "U123")
@@ -54,17 +52,19 @@ func TestSlackEventLinksInvitedEmail(t *testing.T) {
 
 func TestSlackEventRejectsUninvitedEmail(t *testing.T) {
 	identityService := newSlackIdentityService("person-1", "lee@example.com")
-	connector := slack.NewConnectorWithIdentityResolver(slackStaticIdentityResolver{email: "stranger@example.com"})
+	conversationClient := slackIntegrationConversationClient{}
+	connectorRuntime := newIntegrationConnectorRuntime(identityService)
+	adapter := slack.NewAdapter(slackStaticIdentityResolver{email: "stranger@example.com"}, &conversationClient)
 
-	authorizationResult, errorValue := connector.AuthorizeEvent(slack.Event{UserID: "U456"}, identityService)
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, slackInboundEvent("event-2", "U456"))
 	if errorValue != nil {
 		t.Fatalf("expected authorization to complete: %v", errorValue)
 	}
-	if authorizationResult.IsAllowed {
+	if result.TaskRunID != "" {
 		t.Fatal("expected uninvited user to be rejected")
 	}
-	if authorizationResult.Reply != slack.NotInvitedReply {
-		t.Fatalf("expected not invited reply, got %q", authorizationResult.Reply)
+	if conversationClient.lastMessage != slack.NotInvitedReply {
+		t.Fatalf("expected not invited reply, got %q", conversationClient.lastMessage)
 	}
 }
 
@@ -84,9 +84,12 @@ func (slackStaticIdentityResolver slackStaticIdentityResolver) ResolveBotUserID(
 	return "bot-1", nil
 }
 
-type slackIntegrationConversationClient struct{}
+type slackIntegrationConversationClient struct {
+	lastMessage string
+}
 
-func (client slackIntegrationConversationClient) CreateMessage(string, string, string) (string, error) {
+func (client *slackIntegrationConversationClient) CreateMessage(_ string, _ string, message string) (string, error) {
+	client.lastMessage = message
 	return "reply-ts", nil
 }
 
@@ -106,4 +109,17 @@ func newSlackIdentityService(personID string, email string) *identity.IdentitySe
 	}
 	policyProjection := policy.PolicyProjectionService{}.ReplacePolicyProjectionTransactionally(policyDocument)
 	return identity.NewIdentityService(policyProjection)
+}
+
+func slackInboundEvent(messageID string, senderUserID string) connectors.PlatformInboundEvent {
+	return connectors.PlatformInboundEvent{
+		Platform:       "slack",
+		Source:         "test",
+		EventID:        messageID,
+		ConversationID: "D123",
+		MessageID:      messageID,
+		SenderUserID:   senderUserID,
+		ChannelType:    "im",
+		Text:           "hello",
+	}
 }

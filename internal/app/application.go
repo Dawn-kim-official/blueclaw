@@ -69,7 +69,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		agentKernel.UseLanguageModelProvider(languageModelProvider)
 	}
 	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
-	capabilityClient := capability.NewClient(runtimeConfiguration.Capability.SocketPath, runtimeConfiguration.Capability.Endpoint)
+	capabilityClient := capability.NewClient(runtimeConfiguration.Capability.Transport, runtimeConfiguration.Capability.SocketPath, runtimeConfiguration.Capability.Endpoint, runtimeConfiguration.Capability.VSockCID, runtimeConfiguration.Capability.VSockPort)
 	mattermostClient := capabilityconnector.MattermostClient{Client: capabilityClient}
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
@@ -79,7 +79,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.RegisterAdapter(mattermost.NewAdapter(mattermostClient, mattermostClient))
 
 	slackClient := capabilityconnector.SlackClient{Client: capabilityClient}
-	connectorRuntime.RegisterAdapter(slack.NewAdapter(slackClient, slackClient, ""))
+	connectorRuntime.RegisterAdapter(slack.NewAdapter(slackClient, slackClient))
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
@@ -157,22 +157,7 @@ func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.Runtime
 
 	if hasCapabilityConfiguration(runtimeConfiguration) {
 		runtimeConfiguration.LanguageModel.DefaultProvider = "capability"
-		if strings.TrimSpace(runtimeConfiguration.LanguageModel.FallbackProvider) == "" && hasLiteRTLMConfiguration(runtimeConfiguration) {
-			runtimeConfiguration.LanguageModel.FallbackProvider = "liteRTLM"
-		}
 		return runtimeConfiguration
-	}
-
-	if hasOpenRouterConfiguration(runtimeConfiguration) {
-		runtimeConfiguration.LanguageModel.DefaultProvider = "openRouter"
-		if strings.TrimSpace(runtimeConfiguration.LanguageModel.FallbackProvider) == "" && hasLiteRTLMConfiguration(runtimeConfiguration) {
-			runtimeConfiguration.LanguageModel.FallbackProvider = "liteRTLM"
-		}
-		return runtimeConfiguration
-	}
-
-	if hasLiteRTLMConfiguration(runtimeConfiguration) {
-		runtimeConfiguration.LanguageModel.DefaultProvider = "liteRTLM"
 	}
 
 	return runtimeConfiguration
@@ -180,23 +165,11 @@ func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.Runtime
 
 func hasCapabilityConfiguration(runtimeConfiguration config.RuntimeConfiguration) bool {
 	return firstNonEmpty(
-		runtimeConfiguration.LanguageModel.Capability.ModelName,
+		runtimeConfiguration.LanguageModel.Capability.Model,
+		runtimeConfiguration.LanguageModel.Capability.ExecutionMode,
+		runtimeConfiguration.Capability.Transport,
 		runtimeConfiguration.Capability.SocketPath,
 		runtimeConfiguration.Capability.Endpoint,
-	) != ""
-}
-
-func hasOpenRouterConfiguration(runtimeConfiguration config.RuntimeConfiguration) bool {
-	return firstNonEmpty(
-		runtimeConfiguration.LanguageModel.OpenRouter.ModelName,
-		runtimeConfiguration.LanguageModel.OpenRouter.BaseURL,
-	) != ""
-}
-
-func hasLiteRTLMConfiguration(runtimeConfiguration config.RuntimeConfiguration) bool {
-	return firstNonEmpty(
-		runtimeConfiguration.LanguageModel.LiteRTLM.WrapperPath,
-		runtimeConfiguration.LanguageModel.LiteRTLM.ModelPath,
 	) != ""
 }
 

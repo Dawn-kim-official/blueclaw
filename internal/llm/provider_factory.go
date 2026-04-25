@@ -2,7 +2,6 @@ package llm
 
 import (
 	"errors"
-	"net/http"
 	"strings"
 
 	"blueclaw/internal/capability"
@@ -11,28 +10,14 @@ import (
 
 func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) (LanguageModelProvider, error) {
 	capabilityClient := CapabilityClient{
-		Client:                capability.NewClient(runtimeConfiguration.Capability.SocketPath, runtimeConfiguration.Capability.Endpoint),
-		ModelName:             runtimeConfiguration.LanguageModel.Capability.ModelName,
+		Client:                capability.NewClient(runtimeConfiguration.Capability.Transport, runtimeConfiguration.Capability.SocketPath, runtimeConfiguration.Capability.Endpoint, runtimeConfiguration.Capability.VSockCID, runtimeConfiguration.Capability.VSockPort),
+		ModelName:             strings.TrimSpace(runtimeConfiguration.LanguageModel.Capability.Model),
+		ExecutionMode:         runtimeConfiguration.LanguageModel.Capability.ExecutionMode,
 		RequireParameters:     runtimeConfiguration.LanguageModel.Capability.RequireParameters,
 		EnableResponseHealing: runtimeConfiguration.LanguageModel.Capability.EnableResponseHealing,
 	}
-	openRouterClient := OpenRouterClient{
-		BaseURL:               runtimeConfiguration.LanguageModel.OpenRouter.BaseURL,
-		ModelName:             runtimeConfiguration.LanguageModel.OpenRouter.ModelName,
-		RequireParameters:     runtimeConfiguration.LanguageModel.OpenRouter.RequireParameters,
-		EnableResponseHealing: runtimeConfiguration.LanguageModel.OpenRouter.EnableResponseHealing,
-		HTTPClient:            http.DefaultClient,
-	}
 
-	liteRTLMClient := LiteRTLMClient{
-		WrapperPath:        runtimeConfiguration.LanguageModel.LiteRTLM.WrapperPath,
-		WrapperArguments:   append([]string{}, runtimeConfiguration.LanguageModel.LiteRTLM.WrapperArguments...),
-		ModelPath:          runtimeConfiguration.LanguageModel.LiteRTLM.ModelPath,
-		Backend:            runtimeConfiguration.LanguageModel.LiteRTLM.Backend,
-		ConstraintProvider: runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider,
-	}
-
-	defaultProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.DefaultProvider, capabilityClient, openRouterClient, liteRTLMClient)
+	defaultProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.DefaultProvider, capabilityClient)
 	if errorValue != nil {
 		return nil, errorValue
 	}
@@ -41,7 +26,7 @@ func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 		return defaultProvider, nil
 	}
 
-	fallbackProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.FallbackProvider, capabilityClient, openRouterClient, liteRTLMClient)
+	fallbackProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.FallbackProvider, capabilityClient)
 	if errorValue != nil {
 		return nil, errorValue
 	}
@@ -52,14 +37,10 @@ func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 	}, nil
 }
 
-func providerByName(providerName string, capabilityClient CapabilityClient, openRouterClient OpenRouterClient, liteRTLMClient LiteRTLMClient) (LanguageModelProvider, error) {
+func providerByName(providerName string, capabilityClient CapabilityClient) (LanguageModelProvider, error) {
 	switch strings.TrimSpace(providerName) {
 	case "capability":
 		return capabilityClient, nil
-	case "openRouter":
-		return openRouterClient, nil
-	case "liteRTLM":
-		return liteRTLMClient, nil
 	default:
 		return nil, errors.New("language model provider is not supported")
 	}
