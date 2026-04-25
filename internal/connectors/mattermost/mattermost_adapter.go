@@ -47,10 +47,17 @@ func (adapter Adapter) ParseHTTPEvent(_ context.Context, request *http.Request) 
 	}
 
 	event, errorValue := adapter.parser().ParseEvent(payload)
-	if errorValue != nil {
-		return connectors.HTTPParseResult{}, errorValue
+	if errorValue == nil {
+		return connectors.HTTPParseResult{
+			Event:    adapter.convertEvent(event, "http"),
+			HasEvent: strings.TrimSpace(event.PostID) != "",
+		}, nil
 	}
 
+	event, hasEvent, realtimeError := adapter.parser().ParseWebSocketMessage(payload)
+	if realtimeError != nil || !hasEvent {
+		return connectors.HTTPParseResult{}, errorValue
+	}
 	return connectors.HTTPParseResult{
 		Event:    adapter.convertEvent(event, "http"),
 		HasEvent: strings.TrimSpace(event.PostID) != "",
