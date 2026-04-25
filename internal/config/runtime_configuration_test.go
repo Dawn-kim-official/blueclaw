@@ -54,7 +54,11 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     },
     "slack": {
       "baseURL": "https://slack.com/api",
-      "botTokenPath": "/run/secrets/slack-token"
+      "botTokenPath": "/run/secrets/slack-token",
+      "signingSecretPath": "/run/secrets/slack-signing-secret"
+    },
+    "signal": {
+      "enabled": false
     }
   },
   "terminal": {
@@ -100,6 +104,12 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Connectors.Slack.BaseURL != "https://slack.com/api" {
 		t.Fatalf("expected slack base url to match, got %q", runtimeConfiguration.Connectors.Slack.BaseURL)
+	}
+	if runtimeConfiguration.Connectors.Slack.SigningSecretPath != "/run/secrets/slack-signing-secret" {
+		t.Fatalf("expected slack signing secret path to match, got %q", runtimeConfiguration.Connectors.Slack.SigningSecretPath)
+	}
+	if runtimeConfiguration.Connectors.Signal.Enabled {
+		t.Fatal("expected signal connector to be disabled")
 	}
 	if runtimeConfiguration.LanguageModel.DefaultProvider != "openRouter" {
 		t.Fatalf("expected default language model provider to match, got %q", runtimeConfiguration.LanguageModel.DefaultProvider)

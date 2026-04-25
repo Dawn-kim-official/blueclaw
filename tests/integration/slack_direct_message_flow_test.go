@@ -1,8 +1,10 @@
 package integration
 
 import (
+	"context"
 	"testing"
 
+	"blueclaw/internal/connectors"
 	"blueclaw/internal/connectors/slack"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/policy"
@@ -19,10 +21,13 @@ func TestSlackDirectMessageFlow(t *testing.T) {
 		t.Fatalf("expected conversation ID to match, got %s", event.ConversationID)
 	}
 
-	connector := slack.NewConnector()
-	reply := connector.SendDirectReply(event.ConversationID, "hi")
-	if reply == "" {
-		t.Fatal("expected reply to be created")
+	adapter := slack.NewAdapter(slackStaticIdentityResolver{email: "lee@example.com"}, slackIntegrationConversationClient{}, "")
+	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID}, "hi")
+	if errorValue != nil {
+		t.Fatalf("expected reply to be sent: %v", errorValue)
+	}
+	if dispatchID == "" {
+		t.Fatal("expected dispatch id")
 	}
 }
 
@@ -73,6 +78,16 @@ func (slackStaticIdentityResolver slackStaticIdentityResolver) ResolveUserIdenti
 		Email:          slackStaticIdentityResolver.email,
 		DisplayName:    "Slack User",
 	}, nil
+}
+
+func (slackStaticIdentityResolver slackStaticIdentityResolver) ResolveBotUserID() (string, error) {
+	return "bot-1", nil
+}
+
+type slackIntegrationConversationClient struct{}
+
+func (client slackIntegrationConversationClient) CreateMessage(string, string, string) (string, error) {
+	return "reply-ts", nil
 }
 
 func newSlackIdentityService(personID string, email string) *identity.IdentityService {

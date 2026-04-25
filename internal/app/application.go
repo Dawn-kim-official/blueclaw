@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,7 +13,9 @@ import (
 	"blueclaw/internal/agent"
 	"blueclaw/internal/auth"
 	"blueclaw/internal/config"
+	"blueclaw/internal/connectors"
 	"blueclaw/internal/connectors/mattermost"
+	"blueclaw/internal/connectors/slack"
 	"blueclaw/internal/httpserver"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/llm"
@@ -25,12 +28,11 @@ import (
 
 type Application struct {
 	httpServer                    *http.Server
-	mattermostListener            *mattermost.WebSocketListener
+	connectorTransports           []connectors.ConnectorTransport
 	runtimeLogger                 *runtimelogging.PersistentLogger
 	startupError                  error
-	mattermostListenerCancel      context.CancelFunc
+	connectorTransportCancel      context.CancelFunc
 	logRetentionCancel            context.CancelFunc
-	mattermostBaseURL             string
 	languageModelDefaultProvider  string
 	languageModelFallbackProvider string
 }
@@ -39,6 +41,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	runtimeLogger, startupError := runtimelogging.NewPersistentLogger(runtimeConfiguration, time.Now())
 	if startupError != nil {
 		runtimeLogger = runtimelogging.NewDiscardLogger()
+	}
+	if runtimeConfiguration.Connectors.Signal.Enabled && startupError == nil {
+		startupError = errors.New("signal connector is experimental-disabled in v1")
 	}
 	logger := runtimeLogger.Logger
 	policyLoader := policy.PolicyLoader{}
@@ -67,19 +72,29 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		BaseURL:  runtimeConfiguration.Connectors.Mattermost.BaseURL,
 		BotToken: mattermostBotToken,
 	}
-	mattermostConnector := mattermost.NewConnectorWithIdentityResolver(mattermostUserProfileClient)
 	mattermostPostClient := mattermost.PostClient{
 		BaseURL:  runtimeConfiguration.Connectors.Mattermost.BaseURL,
 		BotToken: mattermostBotToken,
 	}
-	mattermostEventHandler := httpserver.NewMattermostEventHandler(
-		mattermostConnector,
+	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
 		agentKernel,
-		mattermostUserProfileClient,
-		mattermostPostClient,
+		logger,
 	)
-	mattermostEventHandler.Logger = logger
+	connectorRuntime.RegisterAdapter(mattermost.NewAdapter(mattermostUserProfileClient, mattermostPostClient))
+
+	slackBotToken := readSecretFile(runtimeConfiguration.Connectors.Slack.BotTokenPath)
+	slackSigningSecret := readSecretFile(runtimeConfiguration.Connectors.Slack.SigningSecretPath)
+	slackUserProfileClient := slack.UserProfileClient{
+		BaseURL:  runtimeConfiguration.Connectors.Slack.BaseURL,
+		BotToken: slackBotToken,
+	}
+	slackPostClient := slack.PostClient{
+		BaseURL:  runtimeConfiguration.Connectors.Slack.BaseURL,
+		BotToken: slackBotToken,
+	}
+	connectorRuntime.RegisterAdapter(slack.NewAdapter(slackUserProfileClient, slackPostClient, slackSigningSecret))
+	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
 		PolicyHandler: adminapi.PolicyHandler{
@@ -111,7 +126,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		SSEHandler: httpserver.SSEHandler{
 			TaskEventService: taskEventService,
 		},
-		MattermostEventHandler: mattermostEventHandler,
+		ConnectorEventHandler: connectorEventHandler,
 	})
 
 	mattermostWebSocketURL := strings.TrimSpace(runtimeConfiguration.Connectors.Mattermost.WebSocketURL)
@@ -119,23 +134,29 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		mattermostWebSocketURL = mattermost.DeriveWebSocketURL(runtimeConfiguration.Connectors.Mattermost.BaseURL)
 	}
 
+	mattermostWebSocketListener := mattermost.NewWebSocketListener(
+		mattermostWebSocketURL,
+		mattermostBotToken,
+		logger,
+		func(ctx context.Context, payload []byte, source string) error {
+			_, errorValue := connectorRuntime.HandleRealtimeEvent(ctx, "mattermost", payload, source)
+			return errorValue
+		},
+	)
+	connectorTransports := []connectors.ConnectorTransport{
+		connectors.NewHTTPWebhookTransport("mattermost-http-webhook", "mattermost"),
+		connectors.NewHTTPWebhookTransport("slack-events-api", "slack"),
+		mattermostWebSocketListener,
+	}
+
 	return &Application{
 		httpServer: &http.Server{
 			Addr:    deriveListenAddress(runtimeConfiguration.BaseURL),
 			Handler: router,
 		},
-		mattermostListener: mattermost.NewWebSocketListener(
-			mattermostWebSocketURL,
-			mattermostBotToken,
-			logger,
-			func(ctx context.Context, event mattermost.Event, source string) error {
-				_, errorValue := mattermostEventHandler.HandleMattermostEventValue(ctx, event, source)
-				return errorValue
-			},
-		),
+		connectorTransports:           connectorTransports,
 		runtimeLogger:                 runtimeLogger,
 		startupError:                  startupError,
-		mattermostBaseURL:             runtimeConfiguration.Connectors.Mattermost.BaseURL,
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 	}
@@ -217,15 +238,13 @@ func (application *Application) Start() error {
 		return application.startupError
 	}
 	application.startLogRetentionLoop()
-	application.startMattermostListener()
+	application.startConnectorTransports()
 	application.runtimeLogger.Logger.Info(
 		"application.started",
 		"listenAddress",
 		application.httpServer.Addr,
-		"mattermostWebSocketEnabled",
-		application.mattermostListener != nil && strings.TrimSpace(application.mattermostListener.URL) != "",
-		"mattermostBaseURL",
-		application.mattermostBaseURL,
+		"connectorTransports",
+		strings.Join(application.connectorTransportNames(), ","),
 		"languageModelDefaultProvider",
 		application.languageModelDefaultProvider,
 		"languageModelFallbackProvider",
@@ -237,8 +256,8 @@ func (application *Application) Start() error {
 }
 
 func (application *Application) Shutdown(ctx context.Context) error {
-	if application.mattermostListenerCancel != nil {
-		application.mattermostListenerCancel()
+	if application.connectorTransportCancel != nil {
+		application.connectorTransportCancel()
 	}
 	if application.logRetentionCancel != nil {
 		application.logRetentionCancel()
@@ -251,14 +270,32 @@ func (application *Application) Shutdown(ctx context.Context) error {
 	return closeErrorValue
 }
 
-func (application *Application) startMattermostListener() {
-	if application.mattermostListener == nil || application.mattermostListenerCancel != nil {
+func (application *Application) startConnectorTransports() {
+	if len(application.connectorTransports) == 0 || application.connectorTransportCancel != nil {
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	application.mattermostListenerCancel = cancel
-	go application.mattermostListener.Start(ctx)
+	application.connectorTransportCancel = cancel
+	for _, connectorTransport := range application.connectorTransports {
+		transport := connectorTransport
+		application.runtimeLogger.Logger.Info(
+			"connector."+transport.Platform()+".transport.registered",
+			"name",
+			transport.Name(),
+			"platform",
+			transport.Platform(),
+		)
+		go transport.Start(ctx)
+	}
+}
+
+func (application *Application) connectorTransportNames() []string {
+	transportNames := make([]string, 0, len(application.connectorTransports))
+	for _, connectorTransport := range application.connectorTransports {
+		transportNames = append(transportNames, connectorTransport.Platform()+":"+connectorTransport.Name())
+	}
+	return transportNames
 }
 
 func (application *Application) startLogRetentionLoop() {

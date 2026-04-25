@@ -76,6 +76,7 @@ type BridgeConfiguration struct {
 type ConnectorConfiguration struct {
 	Mattermost MattermostConnectorConfiguration `json:"mattermost"`
 	Slack      SlackConnectorConfiguration      `json:"slack"`
+	Signal     SignalConnectorConfiguration     `json:"signal"`
 }
 
 type MattermostConnectorConfiguration struct {
@@ -85,8 +86,13 @@ type MattermostConnectorConfiguration struct {
 }
 
 type SlackConnectorConfiguration struct {
-	BaseURL      string `json:"baseURL"`
-	BotTokenPath string `json:"botTokenPath"`
+	BaseURL           string `json:"baseURL"`
+	BotTokenPath      string `json:"botTokenPath"`
+	SigningSecretPath string `json:"signingSecretPath"`
+}
+
+type SignalConnectorConfiguration struct {
+	Enabled bool `json:"enabled"`
 }
 
 type LoggingConfiguration struct {

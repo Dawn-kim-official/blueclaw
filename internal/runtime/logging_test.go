@@ -25,7 +25,7 @@ func TestPersistentLoggerWritesJSONLogFile(t *testing.T) {
 	}
 	defer persistentLogger.Close()
 
-	persistentLogger.Logger.Info("mattermost.ingress.received", slog.String("token", "redacted"))
+	persistentLogger.Logger.Info("connector.mattermost.ingress.received", slog.String("token", "redacted"))
 
 	document, errorValue := os.ReadFile(filepath.Join(logDirectoryPath, "blueclaw-2026-04-25.jsonl"))
 	if errorValue != nil {
@@ -37,7 +37,7 @@ func TestPersistentLoggerWritesJSONLogFile(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected json log record: %v", errorValue)
 	}
-	if logRecord["msg"] != "mattermost.ingress.received" {
+	if logRecord["msg"] != "connector.mattermost.ingress.received" {
 		t.Fatalf("expected log message, got %v", logRecord["msg"])
 	}
 	if strings.Contains(string(document), "bot-token") {

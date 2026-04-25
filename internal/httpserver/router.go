@@ -9,13 +9,13 @@ import (
 )
 
 type RouterDependencies struct {
-	PolicyHandler          adminapi.PolicyHandler
-	AuditHandler           *adminapi.AuditHandler
-	TaskMonitorHandler     adminapi.TaskMonitorHandler
-	TaskInboxHandler       userapi.TaskInboxHandler
-	TaskActionHandler      userapi.TaskActionHandler
-	SSEHandler             SSEHandler
-	MattermostEventHandler *MattermostEventHandler
+	PolicyHandler         adminapi.PolicyHandler
+	AuditHandler          *adminapi.AuditHandler
+	TaskMonitorHandler    adminapi.TaskMonitorHandler
+	TaskInboxHandler      userapi.TaskInboxHandler
+	TaskActionHandler     userapi.TaskActionHandler
+	SSEHandler            SSEHandler
+	ConnectorEventHandler *ConnectorEventHandler
 }
 
 func NewRouter(routerDependencies RouterDependencies) http.Handler {
@@ -34,8 +34,9 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer.HandleFunc("GET /tasks/api/detail", routerDependencies.TaskInboxHandler.HandleGetOwnTaskRun)
 	multiplexer.HandleFunc("POST /tasks/api/cancel", routerDependencies.TaskActionHandler.HandleCancelOwnTaskRun)
 	multiplexer.HandleFunc("GET /tasks/api/events", routerDependencies.SSEHandler.HandleTaskEventStream)
-	if routerDependencies.MattermostEventHandler != nil {
-		multiplexer.HandleFunc("POST /connectors/mattermost/events", routerDependencies.MattermostEventHandler.HandleMattermostEvent)
+	if routerDependencies.ConnectorEventHandler != nil {
+		multiplexer.HandleFunc("POST /connectors/mattermost/events", routerDependencies.ConnectorEventHandler.HandleConnectorEvent("mattermost"))
+		multiplexer.HandleFunc("POST /connectors/slack/events", routerDependencies.ConnectorEventHandler.HandleConnectorEvent("slack"))
 	}
 
 	if _, errorValue := os.Stat("web/admin"); errorValue == nil {

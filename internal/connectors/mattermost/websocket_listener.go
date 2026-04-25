@@ -23,12 +23,12 @@ type WebSocketListener struct {
 	URL          string
 	BotToken     string
 	Logger       *slog.Logger
-	EventHandler func(context.Context, Event, string) error
+	EventHandler func(context.Context, []byte, string) error
 	dialTimeout  time.Duration
 	backoff      time.Duration
 }
 
-func NewWebSocketListener(webSocketURL string, botToken string, logger *slog.Logger, eventHandler func(context.Context, Event, string) error) *WebSocketListener {
+func NewWebSocketListener(webSocketURL string, botToken string, logger *slog.Logger, eventHandler func(context.Context, []byte, string) error) *WebSocketListener {
 	return &WebSocketListener{
 		URL:          webSocketURL,
 		BotToken:     botToken,
@@ -37,6 +37,14 @@ func NewWebSocketListener(webSocketURL string, botToken string, logger *slog.Log
 		dialTimeout:  10 * time.Second,
 		backoff:      time.Second,
 	}
+}
+
+func (listener *WebSocketListener) Name() string {
+	return "mattermost-websocket"
+}
+
+func (listener *WebSocketListener) Platform() string {
+	return "mattermost"
 }
 
 func DeriveWebSocketURL(baseURL string) string {
@@ -59,7 +67,7 @@ func DeriveWebSocketURL(baseURL string) string {
 func (listener *WebSocketListener) Start(ctx context.Context) {
 	logger := listener.logger()
 	if strings.TrimSpace(listener.URL) == "" || strings.TrimSpace(listener.BotToken) == "" || listener.EventHandler == nil {
-		logger.Warn("mattermost.websocket.disabled")
+		logger.Warn("connector.mattermost.transport.disabled")
 		return
 	}
 
@@ -71,7 +79,7 @@ func (listener *WebSocketListener) Start(ctx context.Context) {
 	for ctx.Err() == nil {
 		errorValue := listener.runOnce(ctx)
 		if errorValue != nil && ctx.Err() == nil {
-			logger.Warn("mattermost.websocket.disconnected", slog.String("error", errorValue.Error()), slog.Duration("backoff", backoff))
+			logger.Warn("connector.mattermost.transport.disconnected", slog.String("error", errorValue.Error()), slog.Duration("backoff", backoff))
 		}
 
 		timer := time.NewTimer(backoff)
@@ -99,24 +107,15 @@ func (listener *WebSocketListener) runOnce(ctx context.Context) error {
 		return errorValue
 	}
 
-	listener.logger().Info("mattermost.websocket.connected")
-	eventParser := EventParser{}
+	listener.logger().Info("connector.mattermost.transport.connected")
 	for ctx.Err() == nil {
 		payload, errorValue := readWebSocketFrame(connection, reader)
 		if errorValue != nil {
 			return errorValue
 		}
-		event, isPostedEvent, errorValue := eventParser.ParseWebSocketMessage(payload)
+		errorValue = listener.EventHandler(ctx, payload, "websocket")
 		if errorValue != nil {
-			listener.logger().Warn("mattermost.websocket.malformed_event", slog.String("error", errorValue.Error()))
-			continue
-		}
-		if !isPostedEvent {
-			continue
-		}
-		errorValue = listener.EventHandler(ctx, event, "websocket")
-		if errorValue != nil {
-			listener.logger().Error("mattermost.websocket.event_failed", slog.String("postID", event.PostID), slog.String("error", errorValue.Error()))
+			listener.logger().Error("connector.mattermost.realtime.failed", slog.String("error", errorValue.Error()))
 		}
 	}
 

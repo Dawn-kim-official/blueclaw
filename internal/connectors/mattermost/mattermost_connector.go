@@ -52,10 +52,6 @@ func NewConnectorWithIdentityResolver(userIdentityResolver UserIdentityResolver)
 	}
 }
 
-func (connector *Connector) StartListening() error {
-	return nil
-}
-
 func (connector *Connector) AuthorizeEvent(event Event, identityService *identity.IdentityService) (AuthorizationResult, error) {
 	personID, isFound := identityService.ResolvePersonIDByPlatformAccount("mattermost", event.UserID)
 	if isFound {
@@ -79,14 +75,6 @@ func (connector *Connector) AuthorizeEvent(event Event, identityService *identit
 	}
 
 	return AuthorizationResult{IsAllowed: true, PersonID: personID}, nil
-}
-
-func (connector *Connector) SendDirectReply(conversationID string, message string) string {
-	return conversationID + ":" + message
-}
-
-func (connector *Connector) SendChannelReply(conversationID string, message string) string {
-	return conversationID + ":" + message
 }
 
 func (postClient PostClient) CreatePost(conversationID string, rootID string, message string) (string, error) {

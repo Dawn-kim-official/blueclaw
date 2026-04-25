@@ -1,8 +1,10 @@
 package integration
 
 import (
+	"context"
 	"testing"
 
+	"blueclaw/internal/connectors"
 	"blueclaw/internal/connectors/mattermost"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/policy"
@@ -19,10 +21,14 @@ func TestMattermostDirectMessageFlow(t *testing.T) {
 		t.Fatalf("expected conversation ID to match, got %s", event.ConversationID)
 	}
 
-	connector := mattermost.NewConnector()
-	reply := connector.SendDirectReply(event.ConversationID, "hi")
-	if reply == "" {
-		t.Fatal("expected reply to be created")
+	conversationClient := &mattermostIntegrationConversationClient{}
+	adapter := mattermost.NewAdapter(mattermostStaticIdentityResolver{email: "lee@example.com"}, conversationClient)
+	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID}, "hi")
+	if errorValue != nil {
+		t.Fatalf("expected reply to be sent: %v", errorValue)
+	}
+	if dispatchID == "" {
+		t.Fatal("expected dispatch id")
 	}
 }
 
@@ -73,6 +79,24 @@ func (mattermostStaticIdentityResolver mattermostStaticIdentityResolver) Resolve
 		Email:          mattermostStaticIdentityResolver.email,
 		DisplayName:    "Mattermost User",
 	}, nil
+}
+
+func (mattermostStaticIdentityResolver mattermostStaticIdentityResolver) ResolveBotUserID() (string, error) {
+	return "bot-1", nil
+}
+
+type mattermostIntegrationConversationClient struct{}
+
+func (client *mattermostIntegrationConversationClient) CreatePost(string, string, string) (string, error) {
+	return "reply-post-1", nil
+}
+
+func (client *mattermostIntegrationConversationClient) PublishTyping(string, string, string) error {
+	return nil
+}
+
+func (client *mattermostIntegrationConversationClient) ResolveChannelType(string) (string, error) {
+	return "D", nil
 }
 
 func newMattermostIdentityService(personID string, email string) *identity.IdentityService {
