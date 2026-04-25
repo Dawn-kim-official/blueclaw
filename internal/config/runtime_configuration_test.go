@@ -11,13 +11,21 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	runtimeConfigurationPath := filepath.Join(workspacePath, "runtime.json")
 	runtimeConfigurationDocument := `{
   "baseURL": "http://127.0.0.1:8080",
+  "capability": {
+    "socketPath": "/run/internkim/capability.sock",
+    "endpoint": "http://internkim/v1/capabilities"
+  },
   "languageModel": {
-    "defaultProvider": "openRouter",
+    "defaultProvider": "capability",
     "fallbackProvider": "liteRTLM",
+    "capability": {
+      "modelName": "openai/gpt-4.1-mini",
+      "requireParameters": true,
+      "enableResponseHealing": true
+    },
     "openRouter": {
       "baseURL": "https://openrouter.ai/api/v1/chat/completions",
       "modelName": "openai/gpt-4.1-mini",
-      "apiKeyPath": "/run/secrets/openrouter-api-key",
       "requireParameters": true,
       "enableResponseHealing": true
     },
@@ -50,13 +58,10 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
   "connectors": {
     "mattermost": {
       "baseURL": "http://localhost:8065",
-      "botTokenPath": "/run/secrets/mattermost-token",
       "webSocketURL": "ws://localhost:8065/api/v4/websocket"
     },
     "slack": {
-      "baseURL": "https://slack.com/api",
-      "botTokenPath": "/run/secrets/slack-token",
-      "signingSecretPath": "/run/secrets/slack-signing-secret"
+      "baseURL": "https://slack.com/api"
     },
     "signal": {
       "enabled": false
@@ -97,8 +102,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Bridge.ListenAddress != "127.0.0.1:7778" {
 		t.Fatalf("expected bridge listen address to match, got %q", runtimeConfiguration.Bridge.ListenAddress)
 	}
-	if runtimeConfiguration.Connectors.Mattermost.BotTokenPath != "/run/secrets/mattermost-token" {
-		t.Fatalf("expected mattermost token path to match, got %q", runtimeConfiguration.Connectors.Mattermost.BotTokenPath)
+	if runtimeConfiguration.Capability.SocketPath != "/run/internkim/capability.sock" {
+		t.Fatalf("expected capability socket path to match, got %q", runtimeConfiguration.Capability.SocketPath)
 	}
 	if runtimeConfiguration.Connectors.Mattermost.WebSocketURL != "ws://localhost:8065/api/v4/websocket" {
 		t.Fatalf("expected mattermost websocket url to match, got %q", runtimeConfiguration.Connectors.Mattermost.WebSocketURL)
@@ -106,17 +111,14 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Connectors.Slack.BaseURL != "https://slack.com/api" {
 		t.Fatalf("expected slack base url to match, got %q", runtimeConfiguration.Connectors.Slack.BaseURL)
 	}
-	if runtimeConfiguration.Connectors.Slack.SigningSecretPath != "/run/secrets/slack-signing-secret" {
-		t.Fatalf("expected slack signing secret path to match, got %q", runtimeConfiguration.Connectors.Slack.SigningSecretPath)
-	}
 	if runtimeConfiguration.Connectors.Signal.Enabled {
 		t.Fatal("expected signal connector to be disabled")
 	}
-	if runtimeConfiguration.LanguageModel.DefaultProvider != "openRouter" {
+	if runtimeConfiguration.LanguageModel.DefaultProvider != "capability" {
 		t.Fatalf("expected default language model provider to match, got %q", runtimeConfiguration.LanguageModel.DefaultProvider)
 	}
-	if runtimeConfiguration.LanguageModel.OpenRouter.APIKeyPath != "/run/secrets/openrouter-api-key" {
-		t.Fatalf("expected openrouter api key path to match, got %q", runtimeConfiguration.LanguageModel.OpenRouter.APIKeyPath)
+	if runtimeConfiguration.LanguageModel.Capability.ModelName != "openai/gpt-4.1-mini" {
+		t.Fatalf("expected capability model name to match, got %q", runtimeConfiguration.LanguageModel.Capability.ModelName)
 	}
 	if runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider != "llguidance" {
 		t.Fatalf("expected litert-lm constraint provider to match, got %q", runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider)

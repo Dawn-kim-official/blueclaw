@@ -5,15 +5,16 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	"blueclaw/internal/adminapi"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/auth"
+	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
+	capabilityconnector "blueclaw/internal/connectors/capability"
 	"blueclaw/internal/connectors/mattermost"
 	"blueclaw/internal/connectors/slack"
 	"blueclaw/internal/httpserver"
@@ -68,33 +69,17 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		agentKernel.UseLanguageModelProvider(languageModelProvider)
 	}
 	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
-	mattermostBotToken := readSecretFile(runtimeConfiguration.Connectors.Mattermost.BotTokenPath)
-	mattermostUserProfileClient := mattermost.UserProfileClient{
-		BaseURL:  runtimeConfiguration.Connectors.Mattermost.BaseURL,
-		BotToken: mattermostBotToken,
-	}
-	mattermostPostClient := mattermost.PostClient{
-		BaseURL:  runtimeConfiguration.Connectors.Mattermost.BaseURL,
-		BotToken: mattermostBotToken,
-	}
+	capabilityClient := capability.NewClient(runtimeConfiguration.Capability.SocketPath, runtimeConfiguration.Capability.Endpoint)
+	mattermostClient := capabilityconnector.MattermostClient{Client: capabilityClient}
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
 		agentKernel,
 		logger,
 	)
-	connectorRuntime.RegisterAdapter(mattermost.NewAdapter(mattermostUserProfileClient, mattermostPostClient))
+	connectorRuntime.RegisterAdapter(mattermost.NewAdapter(mattermostClient, mattermostClient))
 
-	slackBotToken := readSecretFile(runtimeConfiguration.Connectors.Slack.BotTokenPath)
-	slackSigningSecret := readSecretFile(runtimeConfiguration.Connectors.Slack.SigningSecretPath)
-	slackUserProfileClient := slack.UserProfileClient{
-		BaseURL:  runtimeConfiguration.Connectors.Slack.BaseURL,
-		BotToken: slackBotToken,
-	}
-	slackPostClient := slack.PostClient{
-		BaseURL:  runtimeConfiguration.Connectors.Slack.BaseURL,
-		BotToken: slackBotToken,
-	}
-	connectorRuntime.RegisterAdapter(slack.NewAdapter(slackUserProfileClient, slackPostClient, slackSigningSecret))
+	slackClient := capabilityconnector.SlackClient{Client: capabilityClient}
+	connectorRuntime.RegisterAdapter(slack.NewAdapter(slackClient, slackClient, ""))
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
@@ -130,24 +115,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		ConnectorEventHandler: connectorEventHandler,
 	})
 
-	mattermostWebSocketURL := strings.TrimSpace(runtimeConfiguration.Connectors.Mattermost.WebSocketURL)
-	if mattermostWebSocketURL == "" {
-		mattermostWebSocketURL = mattermost.DeriveWebSocketURL(runtimeConfiguration.Connectors.Mattermost.BaseURL)
-	}
-
-	mattermostWebSocketListener := mattermost.NewWebSocketListener(
-		mattermostWebSocketURL,
-		mattermostBotToken,
-		logger,
-		func(ctx context.Context, payload []byte, source string) error {
-			_, errorValue := connectorRuntime.HandleRealtimeEvent(ctx, "mattermost", payload, source)
-			return errorValue
-		},
-	)
 	connectorTransports := []connectors.ConnectorTransport{
 		connectors.NewHTTPWebhookTransport("mattermost-http-webhook", "mattermost"),
 		connectors.NewHTTPWebhookTransport("slack-events-api", "slack"),
-		mattermostWebSocketListener,
 	}
 
 	return &Application{
@@ -164,14 +134,6 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 }
 
-func readSecretFile(path string) string {
-	secretBytes, errorValue := os.ReadFile(path)
-	if errorValue != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(secretBytes))
-}
-
 func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) llm.LanguageModelProvider {
 	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	if strings.TrimSpace(languageModelConfiguration.LanguageModel.DefaultProvider) == "" {
@@ -180,7 +142,6 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 
 	languageModelProvider, errorValue := llm.NewConfiguredLanguageModelProvider(
 		languageModelConfiguration,
-		resolveOpenRouterAPIKey(languageModelConfiguration),
 	)
 	if errorValue != nil {
 		return nil
@@ -189,16 +150,16 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 	return languageModelProvider
 }
 
-func resolveOpenRouterAPIKey(runtimeConfiguration config.RuntimeConfiguration) string {
-	apiKey := readSecretFile(runtimeConfiguration.LanguageModel.OpenRouter.APIKeyPath)
-	if apiKey != "" {
-		return apiKey
-	}
-	return os.Getenv("OPENROUTER_API_KEY")
-}
-
 func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.RuntimeConfiguration) config.RuntimeConfiguration {
 	if strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) != "" {
+		return runtimeConfiguration
+	}
+
+	if hasCapabilityConfiguration(runtimeConfiguration) {
+		runtimeConfiguration.LanguageModel.DefaultProvider = "capability"
+		if strings.TrimSpace(runtimeConfiguration.LanguageModel.FallbackProvider) == "" && hasLiteRTLMConfiguration(runtimeConfiguration) {
+			runtimeConfiguration.LanguageModel.FallbackProvider = "liteRTLM"
+		}
 		return runtimeConfiguration
 	}
 
@@ -217,11 +178,18 @@ func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.Runtime
 	return runtimeConfiguration
 }
 
+func hasCapabilityConfiguration(runtimeConfiguration config.RuntimeConfiguration) bool {
+	return firstNonEmpty(
+		runtimeConfiguration.LanguageModel.Capability.ModelName,
+		runtimeConfiguration.Capability.SocketPath,
+		runtimeConfiguration.Capability.Endpoint,
+	) != ""
+}
+
 func hasOpenRouterConfiguration(runtimeConfiguration config.RuntimeConfiguration) bool {
 	return firstNonEmpty(
 		runtimeConfiguration.LanguageModel.OpenRouter.ModelName,
 		runtimeConfiguration.LanguageModel.OpenRouter.BaseURL,
-		os.Getenv("OPENROUTER_API_KEY"),
 	) != ""
 }
 

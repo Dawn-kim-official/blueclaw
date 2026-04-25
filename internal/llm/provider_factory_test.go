@@ -12,7 +12,7 @@ func TestConfiguredOpenRouterProviderUsesDefaultHTTPClient(t *testing.T) {
 	runtimeConfiguration.LanguageModel.DefaultProvider = "openRouter"
 	runtimeConfiguration.LanguageModel.OpenRouter.ModelName = "openai/gpt-4.1-mini"
 
-	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration, "test-key")
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue != nil {
 		t.Fatalf("expected provider to be created: %v", errorValue)
 	}

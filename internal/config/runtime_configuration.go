@@ -7,6 +7,7 @@ import (
 
 type RuntimeConfiguration struct {
 	BaseURL       string                      `json:"baseURL"`
+	Capability    CapabilityConfiguration     `json:"capability"`
 	AgentProfiles []AgentProfileConfiguration `json:"agentProfiles"`
 	LanguageModel LanguageModelConfiguration  `json:"languageModel"`
 	Firecracker   FirecrackerConfiguration    `json:"firecracker"`
@@ -16,6 +17,11 @@ type RuntimeConfiguration struct {
 	MCPServers    []MCPServerConfiguration    `json:"mcpServers"`
 	Terminal      TerminalConfiguration       `json:"terminal"`
 	Scheduler     SchedulerConfiguration      `json:"scheduler"`
+}
+
+type CapabilityConfiguration struct {
+	SocketPath string `json:"socketPath"`
+	Endpoint   string `json:"endpoint"`
 }
 
 type AgentProfileConfiguration struct {
@@ -32,16 +38,22 @@ type MCPServerConfiguration struct {
 }
 
 type LanguageModelConfiguration struct {
-	DefaultProvider  string                  `json:"defaultProvider"`
-	FallbackProvider string                  `json:"fallbackProvider"`
-	OpenRouter       OpenRouterConfiguration `json:"openRouter"`
-	LiteRTLM         LiteRTLMConfiguration   `json:"liteRTLM"`
+	DefaultProvider  string                               `json:"defaultProvider"`
+	FallbackProvider string                               `json:"fallbackProvider"`
+	Capability       CapabilityLanguageModelConfiguration `json:"capability"`
+	OpenRouter       OpenRouterConfiguration              `json:"openRouter"`
+	LiteRTLM         LiteRTLMConfiguration                `json:"liteRTLM"`
+}
+
+type CapabilityLanguageModelConfiguration struct {
+	ModelName             string `json:"modelName"`
+	RequireParameters     bool   `json:"requireParameters"`
+	EnableResponseHealing bool   `json:"enableResponseHealing"`
 }
 
 type OpenRouterConfiguration struct {
 	BaseURL               string `json:"baseURL"`
 	ModelName             string `json:"modelName"`
-	APIKeyPath            string `json:"apiKeyPath"`
 	RequireParameters     bool   `json:"requireParameters"`
 	EnableResponseHealing bool   `json:"enableResponseHealing"`
 }
@@ -82,14 +94,11 @@ type ConnectorConfiguration struct {
 
 type MattermostConnectorConfiguration struct {
 	BaseURL      string `json:"baseURL"`
-	BotTokenPath string `json:"botTokenPath"`
 	WebSocketURL string `json:"webSocketURL"`
 }
 
 type SlackConnectorConfiguration struct {
-	BaseURL           string `json:"baseURL"`
-	BotTokenPath      string `json:"botTokenPath"`
-	SigningSecretPath string `json:"signingSecretPath"`
+	BaseURL string `json:"baseURL"`
 }
 
 type SignalConnectorConfiguration struct {

@@ -1,12 +1,20 @@
 {
   "baseURL": "http://127.0.0.1:8080",
+  "capability": {
+    "socketPath": "/run/internkim/capability.sock",
+    "endpoint": "http://internkim/v1/capabilities"
+  },
   "languageModel": {
-    "defaultProvider": "openRouter",
+    "defaultProvider": "capability",
     "fallbackProvider": "liteRTLM",
+    "capability": {
+      "modelName": "openai/gpt-4.1-mini",
+      "requireParameters": true,
+      "enableResponseHealing": true
+    },
     "openRouter": {
       "baseURL": "https://openrouter.ai/api/v1/chat/completions",
       "modelName": "openai/gpt-4.1-mini",
-      "apiKeyPath": "/root/.internkim/secrets/openrouter-api-key",
       "requireParameters": true,
       "enableResponseHealing": true
     },
@@ -40,14 +48,10 @@
   },
   "connectors": {
     "mattermost": {
-      "baseURL": "http://localhost:8065",
-      "botTokenPath": "/root/.internkim/env/bot-token",
-      "webSocketURL": "ws://localhost:8065/api/v4/websocket"
+      "baseURL": "http://localhost:8065"
     },
     "slack": {
-      "baseURL": "https://slack.com/api",
-      "botTokenPath": "/root/.internkim/secrets/slack-bot-token",
-      "signingSecretPath": "/root/.internkim/secrets/slack-signing-secret"
+      "baseURL": "https://slack.com/api"
     },
     "signal": {
       "enabled": false

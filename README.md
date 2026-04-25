@@ -102,14 +102,10 @@ Runtime connector configuration is read from `runtime.json` or `runtime.yaml` th
 {
   "connectors": {
     "mattermost": {
-      "baseURL": "http://localhost:8065",
-      "botTokenPath": "/run/secrets/mattermost-token",
-      "webSocketURL": "ws://localhost:8065/api/v4/websocket"
+      "baseURL": "http://localhost:8065"
     },
     "slack": {
-      "baseURL": "https://slack.com/api",
-      "botTokenPath": "/run/secrets/slack-token",
-      "signingSecretPath": "/run/secrets/slack-signing-secret"
+      "baseURL": "https://slack.com/api"
     },
     "signal": {
       "enabled": false
@@ -118,8 +114,8 @@ Runtime connector configuration is read from `runtime.json` or `runtime.yaml` th
 }
 ```
 
-- Mattermost `webSocketURL` can be omitted when it can be derived from `baseURL`
-- Slack `signingSecretPath` enables request signature verification for Events API callbacks
+- Mattermost and Slack platform secrets are owned by the InternKim capability boundary
+- InternKim sidecars verify platform ingress and forward normalized events to Blueclaw
 - `signal.enabled=true` is rejected in v1 because the adapter is scaffolded but not production-enabled
 - connector logs use `connector.<platform>.<stage>` event names
 - persistent logs default to `/workspace/.blueclaw/logs` and are retained for 7 days unless configured otherwise
@@ -131,12 +127,10 @@ Blueclaw replies use the configured language model before falling back to a shor
 ```json
 {
   "languageModel": {
-    "defaultProvider": "openRouter",
+    "defaultProvider": "capability",
     "fallbackProvider": "liteRTLM",
-    "openRouter": {
-      "baseURL": "https://openrouter.ai/api/v1/chat/completions",
+    "capability": {
       "modelName": "openai/gpt-4.1-mini",
-      "apiKeyPath": "/run/secrets/openrouter-api-key",
       "requireParameters": true,
       "enableResponseHealing": true
     },
@@ -151,8 +145,8 @@ Blueclaw replies use the configured language model before falling back to a shor
 }
 ```
 
-- `openRouter.apiKeyPath` is preferred on the appliance because secrets are file-backed there
-- `OPENROUTER_API_KEY` remains a development fallback when `apiKeyPath` is empty
+- Blueclaw calls the InternKim capability socket for hosted language model access
+- OpenRouter keys are never passed to Blueclaw as config, environment, argv, or readable files
 - `fallbackProvider=liteRTLM` keeps local fallback available when the OpenRouter call fails
 - if both providers fail, the connector sends a short model-configuration failure reply and writes the detailed error to the persistent log
 
