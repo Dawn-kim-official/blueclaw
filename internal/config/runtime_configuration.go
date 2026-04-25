@@ -41,6 +41,7 @@ type LanguageModelConfiguration struct {
 type OpenRouterConfiguration struct {
 	BaseURL               string `json:"baseURL"`
 	ModelName             string `json:"modelName"`
+	APIKeyPath            string `json:"apiKeyPath"`
 	RequireParameters     bool   `json:"requireParameters"`
 	EnableResponseHealing bool   `json:"enableResponseHealing"`
 }

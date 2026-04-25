@@ -35,6 +35,7 @@ type Application struct {
 	logRetentionCancel            context.CancelFunc
 	languageModelDefaultProvider  string
 	languageModelFallbackProvider string
+	languageModelConfigured       bool
 }
 
 func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath string) *Application {
@@ -159,6 +160,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		startupError:                  startupError,
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
+		languageModelConfigured:       languageModelProvider != nil,
 	}
 }
 
@@ -178,13 +180,21 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 
 	languageModelProvider, errorValue := llm.NewConfiguredLanguageModelProvider(
 		languageModelConfiguration,
-		os.Getenv("OPENROUTER_API_KEY"),
+		resolveOpenRouterAPIKey(languageModelConfiguration),
 	)
 	if errorValue != nil {
 		return nil
 	}
 
 	return languageModelProvider
+}
+
+func resolveOpenRouterAPIKey(runtimeConfiguration config.RuntimeConfiguration) string {
+	apiKey := readSecretFile(runtimeConfiguration.LanguageModel.OpenRouter.APIKeyPath)
+	if apiKey != "" {
+		return apiKey
+	}
+	return os.Getenv("OPENROUTER_API_KEY")
 }
 
 func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.RuntimeConfiguration) config.RuntimeConfiguration {
@@ -249,6 +259,8 @@ func (application *Application) Start() error {
 		application.languageModelDefaultProvider,
 		"languageModelFallbackProvider",
 		application.languageModelFallbackProvider,
+		"languageModelConfigured",
+		application.languageModelConfigured,
 		"logDirectoryPath",
 		application.runtimeLogger.DirectoryPath(),
 	)

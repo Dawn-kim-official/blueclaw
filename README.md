@@ -124,6 +124,38 @@ Runtime connector configuration is read from `runtime.json` or `runtime.yaml` th
 - connector logs use `connector.<platform>.<stage>` event names
 - persistent logs default to `/workspace/.blueclaw/logs` and are retained for 7 days unless configured otherwise
 
+## Language Model Configuration
+
+Blueclaw replies use the configured language model before falling back to a short failure message.
+
+```json
+{
+  "languageModel": {
+    "defaultProvider": "openRouter",
+    "fallbackProvider": "liteRTLM",
+    "openRouter": {
+      "baseURL": "https://openrouter.ai/api/v1/chat/completions",
+      "modelName": "openai/gpt-4.1-mini",
+      "apiKeyPath": "/run/secrets/openrouter-api-key",
+      "requireParameters": true,
+      "enableResponseHealing": true
+    },
+    "liteRTLM": {
+      "wrapperPath": "/usr/local/bin/blueclaw-litert-wrapper",
+      "wrapperArguments": ["--stdio"],
+      "modelPath": "/workspace/.blueclaw/models/gemma-3n-E2B-it-int4.litertlm",
+      "backend": "cpu",
+      "constraintProvider": "llguidance"
+    }
+  }
+}
+```
+
+- `openRouter.apiKeyPath` is preferred on the appliance because secrets are file-backed there
+- `OPENROUTER_API_KEY` remains a development fallback when `apiKeyPath` is empty
+- `fallbackProvider=liteRTLM` keeps local fallback available when the OpenRouter call fails
+- if both providers fail, the connector sends a short model-configuration failure reply and writes the detailed error to the persistent log
+
 ## Migration Goal
 
 - teams already using `Slack` should be able to adopt `Blueclaw` without losing their historical collaboration context

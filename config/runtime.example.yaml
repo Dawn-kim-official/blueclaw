@@ -6,6 +6,7 @@
     "openRouter": {
       "baseURL": "https://openrouter.ai/api/v1/chat/completions",
       "modelName": "openai/gpt-4.1-mini",
+      "apiKeyPath": "/root/.internkim/secrets/openrouter-api-key",
       "requireParameters": true,
       "enableResponseHealing": true
     },
@@ -45,7 +46,11 @@
     },
     "slack": {
       "baseURL": "https://slack.com/api",
-      "botTokenPath": "/root/.internkim/secrets/slack-bot-token"
+      "botTokenPath": "/root/.internkim/secrets/slack-bot-token",
+      "signingSecretPath": "/root/.internkim/secrets/slack-signing-secret"
+    },
+    "signal": {
+      "enabled": false
     }
   },
   "logging": {

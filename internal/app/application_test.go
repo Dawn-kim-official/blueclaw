@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,6 +23,25 @@ func TestResolveLanguageModelProviderDefaultsToOpenRouterWhenConfigured(t *testi
 	}
 	if _, isOpenRouterProvider := languageModelProvider.(llm.OpenRouterClient); !isOpenRouterProvider {
 		t.Fatalf("expected openrouter provider, got %T", languageModelProvider)
+	}
+}
+
+func TestResolveLanguageModelProviderReadsOpenRouterAPIKeyPath(t *testing.T) {
+	secretPath := filepath.Join(t.TempDir(), "openrouter-api-key")
+	if errorValue := os.WriteFile(secretPath, []byte("file-secret\n"), 0o600); errorValue != nil {
+		t.Fatalf("expected secret file to be written: %v", errorValue)
+	}
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.OpenRouter.ModelName = "openai/gpt-4.1-mini"
+	runtimeConfiguration.LanguageModel.OpenRouter.APIKeyPath = secretPath
+
+	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
+	openRouterClient, isOpenRouterProvider := languageModelProvider.(llm.OpenRouterClient)
+	if !isOpenRouterProvider {
+		t.Fatalf("expected openrouter provider, got %T", languageModelProvider)
+	}
+	if openRouterClient.APIKey != "file-secret" {
+		t.Fatalf("expected api key from file, got %q", openRouterClient.APIKey)
 	}
 }
 

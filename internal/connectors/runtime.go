@@ -238,7 +238,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	}
 
 	connectorRuntime.logger.Info("connector."+platform+".task.created", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
-	reply := "Working on it: " + taskRun.TaskRunID
+	reply := "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
 	stopTyping := connectorRuntime.startTyping(ctx, adapter, botUserID, replyTarget)
 	defer stopTyping()
 

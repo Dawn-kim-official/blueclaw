@@ -17,6 +17,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "openRouter": {
       "baseURL": "https://openrouter.ai/api/v1/chat/completions",
       "modelName": "openai/gpt-4.1-mini",
+      "apiKeyPath": "/run/secrets/openrouter-api-key",
       "requireParameters": true,
       "enableResponseHealing": true
     },
@@ -113,6 +114,9 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.LanguageModel.DefaultProvider != "openRouter" {
 		t.Fatalf("expected default language model provider to match, got %q", runtimeConfiguration.LanguageModel.DefaultProvider)
+	}
+	if runtimeConfiguration.LanguageModel.OpenRouter.APIKeyPath != "/run/secrets/openrouter-api-key" {
+		t.Fatalf("expected openrouter api key path to match, got %q", runtimeConfiguration.LanguageModel.OpenRouter.APIKeyPath)
 	}
 	if runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider != "llguidance" {
 		t.Fatalf("expected litert-lm constraint provider to match, got %q", runtimeConfiguration.LanguageModel.LiteRTLM.ConstraintProvider)

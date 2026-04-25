@@ -97,7 +97,7 @@ func TestConnectorRuntimeUsesFallbackReplyWhenLanguageModelFails(t *testing.T) {
 	if len(adapter.sentReplies) != 1 {
 		t.Fatalf("expected one reply, got %d", len(adapter.sentReplies))
 	}
-	if adapter.sentReplies[0].message != "Working on it: "+result.TaskRunID {
+	if adapter.sentReplies[0].message != "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed." {
 		t.Fatalf("expected fallback reply, got %q", adapter.sentReplies[0].message)
 	}
 }
