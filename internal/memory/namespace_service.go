@@ -12,9 +12,11 @@ const DefaultWorkspaceID = "default"
 
 func UserNamespace(personID string) MemoryNamespace {
 	return MemoryNamespace{
-		NamespaceID:   "user:" + strings.TrimSpace(personID),
-		ScopeType:     ScopeTypeUser,
-		ScopePersonID: strings.TrimSpace(personID),
+		NamespaceID:       "user:" + strings.TrimSpace(personID),
+		ScopeType:         ScopeTypeUser,
+		ScopePersonID:     strings.TrimSpace(personID),
+		RequiredClasses:   []string{},
+		SecurityLevelRank: 0,
 	}
 }
 

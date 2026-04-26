@@ -332,7 +332,7 @@ def memory_fact(namespace: dict[str, Any], namespace_id: str, fact_id: str, cont
         "content": content,
         "score": 0,
         "sourceEpisodeID": fact_id,
-        "validAt": "",
+        "validAt": zero_time(),
         "securityLevelRank": namespace.get("securityLevelRank", 0),
         "requiredClasses": namespace.get("requiredClasses", []),
     }
@@ -375,7 +375,11 @@ def parse_datetime(value: str | None) -> datetime:
 def serialize_datetime(value: Any) -> str:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc).isoformat()
-    return ""
+    return zero_time()
+
+
+def zero_time() -> str:
+    return "0001-01-01T00:00:00Z"
 
 
 class RequestHandler(BaseHTTPRequestHandler):
