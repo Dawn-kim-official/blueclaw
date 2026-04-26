@@ -19,6 +19,7 @@ from graphiti_core.graph_queries import get_fulltext_indices
 from graphiti_core.llm_client.client import LLMClient
 from graphiti_core.llm_client.config import LLMConfig, ModelSize
 from graphiti_core.nodes import EpisodeType
+from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_RRF
 import requests_unixsocket
 
 
@@ -153,11 +154,12 @@ class GraphitiMemoryService:
             namespace_id = namespace["namespaceID"]
             await self.graphiti.add_episode(
                 name=graphiti_group_id(episode_id + ":" + namespace_id),
-                episode_body=episode_body,
+                episode_body=episode_body_for_namespace(namespace, sender_person_id, prompt),
                 source=EpisodeType.message,
                 source_description=source_reference,
                 reference_time=occurred_at,
                 group_id=graphiti_group_id(namespace_id),
+                custom_extraction_instructions=extraction_instructions_for_namespace(namespace, sender_person_id),
             )
         return {"episodeID": episode_id, "namespaceCount": len(namespaces)}
 
@@ -183,12 +185,53 @@ class GraphitiMemoryService:
                         "requiredClasses": namespace.get("requiredClasses", []),
                     }
                 )
+            if len(facts) < limit:
+                search_results = await self.graphiti.search_(
+                    query=query,
+                    config=COMBINED_HYBRID_SEARCH_RRF,
+                    group_ids=[graphiti_group_id(namespace_id)],
+                )
+                facts.extend(facts_from_search_results(search_results, namespace, limit-len(facts)))
+            if len(facts) == 0:
+                episodes = await self.graphiti.retrieve_episodes(
+                    datetime.now(timezone.utc),
+                    last_n=limit,
+                    group_ids=[graphiti_group_id(namespace_id)],
+                    source=EpisodeType.message,
+                )
+                facts.extend(facts_from_episodes(episodes, namespace, limit))
         return {"facts": facts[:limit]}
 
 
 def graphiti_group_id(namespace_id: str) -> str:
     digest = hashlib.sha256(namespace_id.encode("utf-8")).hexdigest()[:24]
     return "bc_" + digest
+
+
+def episode_body_for_namespace(namespace: dict[str, Any], sender_person_id: str, prompt: str) -> str:
+    if namespace.get("scopeType") == "user":
+        return (
+            "Blueclaw user "
+            + sender_person_id
+            + " made this first-person statement. Interpret first-person pronouns as Blueclaw user "
+            + sender_person_id
+            + ": "
+            + prompt
+        )
+    return sender_person_id + ": " + prompt
+
+
+def extraction_instructions_for_namespace(namespace: dict[str, Any], sender_person_id: str) -> str:
+    if namespace.get("scopeType") == "user":
+        return (
+            "For this user namespace, extract durable facts about Blueclaw user "
+            + sender_person_id
+            + ". Treat first-person pronouns such as I, me, my, 내, 나, 저, 제 as this same user. "
+            + "If the user states their name or preferred name, create a fact that this Blueclaw user's name is that value."
+        )
+    if namespace.get("scopeType") == "workspace":
+        return "Extract durable company, team, policy, project, process, and operational facts only."
+    return "Extract durable facts that are only useful inside this conversation context."
 
 
 async def ensure_kuzu_fulltext_indexes(graph_driver: KuzuDriver):
@@ -198,6 +241,55 @@ async def ensure_kuzu_fulltext_indexes(graph_driver: KuzuDriver):
         except Exception as error:
             if "already exists" not in str(error).lower():
                 raise
+
+
+def facts_from_search_results(search_results: Any, namespace: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    facts: list[dict[str, Any]] = []
+    namespace_id = namespace["namespaceID"]
+    for episode in getattr(search_results, "episodes", []):
+        content = str(getattr(episode, "content", "") or "").strip()
+        if content == "":
+            continue
+        facts.append(memory_fact(namespace, namespace_id, getattr(episode, "uuid", ""), content, "episode"))
+        if len(facts) >= limit:
+            return facts
+    for node in getattr(search_results, "nodes", []):
+        name = str(getattr(node, "name", "") or "").strip()
+        summary = str(getattr(node, "summary", "") or "").strip()
+        content = " ".join(value for value in [name, summary] if value)
+        if content == "":
+            continue
+        facts.append(memory_fact(namespace, namespace_id, getattr(node, "uuid", ""), content, "node"))
+        if len(facts) >= limit:
+            return facts
+    return facts
+
+
+def facts_from_episodes(episodes: list[Any], namespace: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    facts: list[dict[str, Any]] = []
+    namespace_id = namespace["namespaceID"]
+    for episode in episodes:
+        content = str(getattr(episode, "content", "") or "").strip()
+        if content == "":
+            continue
+        facts.append(memory_fact(namespace, namespace_id, getattr(episode, "uuid", ""), content, "episode"))
+        if len(facts) >= limit:
+            break
+    return facts
+
+
+def memory_fact(namespace: dict[str, Any], namespace_id: str, fact_id: str, content: str, source_kind: str) -> dict[str, Any]:
+    return {
+        "factID": source_kind + ":" + fact_id,
+        "scopeType": namespace.get("scopeType", ""),
+        "namespaceID": namespace_id,
+        "content": content,
+        "score": 0,
+        "sourceEpisodeID": fact_id,
+        "validAt": "",
+        "securityLevelRank": namespace.get("securityLevelRank", 0),
+        "requiredClasses": namespace.get("requiredClasses", []),
+    }
 
 
 def post_json(url: str, request_document: dict[str, Any]) -> dict[str, Any]:
