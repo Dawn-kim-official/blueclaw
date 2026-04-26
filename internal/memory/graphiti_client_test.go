@@ -63,6 +63,17 @@ func TestGraphitiClientSearchesFacts(t *testing.T) {
 	}
 }
 
+func TestGraphitiClientDefaultTimeoutAllowsGraphitiStartupLatency(t *testing.T) {
+	client := NewGraphitiClient("http://graphiti-memoryd", 0)
+	httpClient, isHTTPClient := client.HTTPClient.(*http.Client)
+	if !isHTTPClient {
+		t.Fatalf("expected standard HTTP client, got %T", client.HTTPClient)
+	}
+	if httpClient.Timeout != 60*time.Second {
+		t.Fatalf("expected 60 second timeout, got %s", httpClient.Timeout)
+	}
+}
+
 type fakeGraphitiHTTPClient struct {
 	handler func(*http.Request) (*http.Response, error)
 }

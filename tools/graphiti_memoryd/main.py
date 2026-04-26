@@ -170,6 +170,16 @@ class GraphitiMemoryService:
         facts: list[dict[str, Any]] = []
         for namespace in namespaces:
             namespace_id = namespace["namespaceID"]
+            if namespace.get("scopeType") == "user":
+                episodes = await self.graphiti.retrieve_episodes(
+                    datetime.now(timezone.utc),
+                    last_n=limit,
+                    group_ids=[graphiti_group_id(namespace_id)],
+                    source=EpisodeType.message,
+                )
+                facts.extend(facts_from_episodes(episodes, namespace, limit - len(facts)))
+            if len(facts) >= limit:
+                continue
             results = await self.graphiti.search(query=query, group_ids=[graphiti_group_id(namespace_id)], num_results=limit)
             for result in results:
                 facts.append(
@@ -266,6 +276,8 @@ def facts_from_search_results(search_results: Any, namespace: dict[str, Any], li
 
 
 def facts_from_episodes(episodes: list[Any], namespace: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    if limit <= 0:
+        return []
     facts: list[dict[str, Any]] = []
     namespace_id = namespace["namespaceID"]
     for episode in episodes:

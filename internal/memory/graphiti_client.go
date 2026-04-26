@@ -32,7 +32,7 @@ func NewGraphitiClient(endpoint string, timeout time.Duration) GraphitiClient {
 		cleanEndpoint = DefaultGraphitiEndpoint
 	}
 	if timeout <= 0 {
-		timeout = 10 * time.Second
+		timeout = 60 * time.Second
 	}
 	return GraphitiClient{
 		Endpoint:   cleanEndpoint,
