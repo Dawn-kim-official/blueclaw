@@ -14,14 +14,12 @@ import (
 const NotInvitedReply = "This Intern Kim has not invited your account yet. Ask the administrator for access."
 
 type BotIdentityClient interface {
-	ResolveBotUserID() (string, error)
 	ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error)
 }
 
 type ConversationClient interface {
 	CreatePost(conversationID string, rootID string, message string) (string, error)
 	PublishTyping(userID string, conversationID string, parentID string) error
-	ResolveChannelType(conversationID string) (string, error)
 }
 
 type Adapter struct {
@@ -79,31 +77,20 @@ func (adapter Adapter) ResolveIdentity(_ context.Context, senderUserID string) (
 	return adapter.BotIdentityClient.ResolveUserIdentity(senderUserID)
 }
 
-func (adapter Adapter) ResolveBotUserID(context.Context) (string, error) {
-	return adapter.BotIdentityClient.ResolveBotUserID()
+func (adapter Adapter) StartProgress(_ context.Context, replyTarget connectors.ReplyTarget) error {
+	return adapter.ConversationClient.PublishTyping("", replyTarget.ConversationID, replyTarget.ReplyTargetID)
 }
 
-func (adapter Adapter) ResolveConversationKind(_ context.Context, event connectors.PlatformInboundEvent) (connectors.ConversationKind, error) {
-	channelType := strings.TrimSpace(event.ChannelType)
-	if channelType == "" {
-		resolvedChannelType, errorValue := adapter.ConversationClient.ResolveChannelType(event.ConversationID)
-		if errorValue != nil {
-			return connectors.ConversationKind{}, errorValue
-		}
-		channelType = resolvedChannelType
-	}
-
-	return connectors.ConversationKind{
-		IsDirect: strings.EqualFold(channelType, "D"),
-	}, nil
-}
-
-func (adapter Adapter) PublishTyping(_ context.Context, botUserID string, replyTarget connectors.ReplyTarget) error {
-	return adapter.ConversationClient.PublishTyping(botUserID, replyTarget.ConversationID, replyTarget.ParentID)
+func (adapter Adapter) StopProgress(context.Context, connectors.ReplyTarget) error {
+	return nil
 }
 
 func (adapter Adapter) SendReply(_ context.Context, replyTarget connectors.ReplyTarget, message string) (string, error) {
-	return adapter.ConversationClient.CreatePost(replyTarget.ConversationID, replyTarget.ParentID, message)
+	return adapter.ConversationClient.CreatePost(replyTarget.ConversationID, replyTarget.ReplyTargetID, message)
+}
+
+func (adapter Adapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {
+	return connectors.VisibleContext{}, nil
 }
 
 func (adapter Adapter) NotInvitedReply() string {
@@ -114,16 +101,12 @@ func (adapter Adapter) convertEvent(event Event, source string) connectors.Platf
 	return connectors.PlatformInboundEvent{
 		Platform:       adapter.Name(),
 		Source:         source,
-		EventID:        event.EventName,
 		ConversationID: event.ConversationID,
 		MessageID:      event.PostID,
-		ReplyParentID:  event.PostID,
-		RootMessageID:  event.RootID,
-		SenderUserID:   event.UserID,
-		ChannelType:    event.ChannelType,
-		Text:           event.Message,
+		SenderID:       event.UserID,
+		ReplyTargetID:  firstNonEmpty(event.RootID, event.PostID),
+		Prompt:         event.Message,
 		RawReceivedAt:  time.Now(),
-		IsBotMessage:   strings.TrimSpace(event.Type) != "",
 	}
 }
 
@@ -132,4 +115,14 @@ func (adapter Adapter) parser() EventParser {
 		return EventParser{}
 	}
 	return adapter.EventParser
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
 }

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,12 +13,10 @@ import (
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
-	capabilityconnector "blueclaw/internal/connectors/capability"
-	"blueclaw/internal/connectors/mattermost"
-	"blueclaw/internal/connectors/slack"
 	"blueclaw/internal/httpserver"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	runtimelogging "blueclaw/internal/runtime"
 	"blueclaw/internal/security"
@@ -44,9 +41,6 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if startupError != nil {
 		runtimeLogger = runtimelogging.NewDiscardLogger()
 	}
-	if runtimeConfiguration.Connectors.Signal.Enabled && startupError == nil {
-		startupError = errors.New("signal connector is experimental-disabled in v1")
-	}
 	logger := runtimeLogger.Logger
 	policyLoader := policy.PolicyLoader{}
 	policyDocument, _ := policyLoader.LoadPolicyDocument(policyPath)
@@ -69,17 +63,17 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		agentKernel.UseLanguageModelProvider(languageModelProvider)
 	}
 	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
-	capabilityClient := capability.NewClient(runtimeConfiguration.Capability.Transport, runtimeConfiguration.Capability.SocketPath, runtimeConfiguration.Capability.Endpoint, runtimeConfiguration.Capability.VSockCID, runtimeConfiguration.Capability.VSockPort)
-	mattermostClient := capabilityconnector.MattermostClient{Client: capabilityClient}
+	memoryService := &memory.MemoryService{}
+	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
 		agentKernel,
 		logger,
 	)
-	connectorRuntime.RegisterAdapter(mattermost.NewAdapter(mattermostClient, mattermostClient))
-
-	slackClient := capabilityconnector.SlackClient{Client: capabilityClient}
-	connectorRuntime.RegisterAdapter(slack.NewAdapter(slackClient, slackClient))
+	connectorRuntime.UseMemoryService(memoryService)
+	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("mattermost", capabilityClient))
+	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("slack", capabilityClient))
+	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("signal", capabilityClient))
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
@@ -116,8 +110,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	})
 
 	connectorTransports := []connectors.ConnectorTransport{
-		connectors.NewHTTPWebhookTransport("mattermost-http-webhook", "mattermost"),
-		connectors.NewHTTPWebhookTransport("slack-events-api", "slack"),
+		connectors.NewHTTPWebhookTransport("mattermost-internal-ingress", "mattermost"),
+		connectors.NewHTTPWebhookTransport("slack-internal-ingress", "slack"),
+		connectors.NewHTTPWebhookTransport("signal-internal-ingress", "signal"),
 	}
 
 	return &Application{
@@ -132,6 +127,14 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 		languageModelConfigured:       languageModelProvider != nil,
 	}
+}
+
+func newCapabilityClient(runtimeConfiguration config.RuntimeConfiguration) capability.Client {
+	return capability.NewClient(capability.Configuration{
+		Endpoint:       runtimeConfiguration.Capabilities.Endpoint,
+		UnixSocketPath: runtimeConfiguration.Capabilities.UnixSocketPath,
+		Timeout:        time.Duration(runtimeConfiguration.Capabilities.TimeoutSecond) * time.Second,
+	})
 }
 
 func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) llm.LanguageModelProvider {
@@ -151,37 +154,9 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 }
 
 func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.RuntimeConfiguration) config.RuntimeConfiguration {
-	if strings.TrimSpace(runtimeConfiguration.LanguageModel.DefaultProvider) != "" {
-		return runtimeConfiguration
-	}
-
-	if hasCapabilityConfiguration(runtimeConfiguration) {
-		runtimeConfiguration.LanguageModel.DefaultProvider = "capability"
-		return runtimeConfiguration
-	}
-
+	runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
+	runtimeConfiguration.LanguageModel.FallbackProvider = ""
 	return runtimeConfiguration
-}
-
-func hasCapabilityConfiguration(runtimeConfiguration config.RuntimeConfiguration) bool {
-	return firstNonEmpty(
-		runtimeConfiguration.LanguageModel.Capability.Model,
-		runtimeConfiguration.LanguageModel.Capability.ExecutionMode,
-		runtimeConfiguration.Capability.Transport,
-		runtimeConfiguration.Capability.SocketPath,
-		runtimeConfiguration.Capability.Endpoint,
-	) != ""
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		trimmedValue := strings.TrimSpace(value)
-		if trimmedValue != "" {
-			return trimmedValue
-		}
-	}
-
-	return ""
 }
 
 func (application *Application) Start() error {

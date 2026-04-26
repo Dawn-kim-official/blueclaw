@@ -39,7 +39,7 @@ func TestFallbackLanguageModelProviderUsesFallbackAfterPrimaryFailure(t *testing
 		FallbackProvider: staticLanguageModelProvider{
 			response: StructuredResponse{
 				ProviderName: "litert-lm",
-				ModelName:    "/models/gemma-3n.litertlm",
+				ModelName:    "/models/gemma-4-E4B-it.litertlm",
 				Content:      `{"answer":"fallback"}`,
 			},
 		},

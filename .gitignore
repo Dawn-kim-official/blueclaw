@@ -2,3 +2,4 @@
 .factory/
 __pycache__/
 *.pyc
+default.profraw

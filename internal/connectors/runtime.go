@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,28 +12,37 @@ import (
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/identity"
+	"blueclaw/internal/memory"
 )
 
 type PlatformInboundEvent struct {
-	Platform       string
-	Source         string
-	EventID        string
-	ConversationID string
-	MessageID      string
-	ReplyParentID  string
-	RootMessageID  string
-	SenderUserID   string
-	ChannelType    string
-	Text           string
-	RawReceivedAt  time.Time
-	IsBotMessage   bool
+	Platform       string                 `json:"-"`
+	Source         string                 `json:"-"`
+	ConversationID string                 `json:"conversationID"`
+	MessageID      string                 `json:"messageID"`
+	SenderID       string                 `json:"senderID"`
+	ReplyTargetID  string                 `json:"replyTargetID"`
+	Prompt         string                 `json:"prompt"`
+	Context        VisibleContext         `json:"context"`
+	RawReceivedAt  time.Time              `json:"-"`
+	LegacyFields   map[string]interface{} `json:"-"`
 }
 
 type ReplyTarget struct {
-	ConversationID string
-	ParentID       string
-	IsDirect       bool
-	DedupeKey      string
+	ConversationID string `json:"conversationID"`
+	ReplyTargetID  string `json:"replyTargetID"`
+	DedupeKey      string `json:"dedupeKey"`
+}
+
+type VisibleContext struct {
+	Messages      []VisibleContextMessage `json:"messages"`
+	HasMoreBefore bool                    `json:"hasMoreBefore"`
+	HistoryCursor string                  `json:"historyCursor"`
+}
+
+type VisibleContextMessage struct {
+	Speaker string `json:"speaker"`
+	Text    string `json:"text"`
 }
 
 type HTTPParseResult struct {
@@ -62,15 +72,11 @@ type PlatformAdapter interface {
 	ParseHTTPEvent(context.Context, *http.Request) (HTTPParseResult, error)
 	ParseRealtimeEvent(context.Context, []byte, string) (PlatformInboundEvent, bool, error)
 	ResolveIdentity(context.Context, string) (identity.PlatformAccountIdentity, error)
-	ResolveBotUserID(context.Context) (string, error)
-	ResolveConversationKind(context.Context, PlatformInboundEvent) (ConversationKind, error)
-	PublishTyping(context.Context, string, ReplyTarget) error
+	StartProgress(context.Context, ReplyTarget) error
+	StopProgress(context.Context, ReplyTarget) error
 	SendReply(context.Context, ReplyTarget, string) (string, error)
+	FetchHistory(context.Context, string, int) (VisibleContext, error)
 	NotInvitedReply() string
-}
-
-type ConversationKind struct {
-	IsDirect bool
 }
 
 type ConnectorTransport interface {
@@ -82,14 +88,12 @@ type ConnectorTransport interface {
 type ConnectorRuntime struct {
 	identityService *identity.IdentityService
 	agentKernel     *agent.AgentKernel
+	memoryService   *memory.MemoryService
 	logger          *slog.Logger
-	typingInterval  time.Duration
-	typingTimeout   time.Duration
 
 	mutex             sync.Mutex
 	adapterByPlatform map[string]PlatformAdapter
 	processedResults  map[string]ConnectorRuntimeResult
-	botUserByPlatform map[string]string
 }
 
 func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
@@ -101,11 +105,8 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		identityService:   identityService,
 		agentKernel:       agentKernel,
 		logger:            logger,
-		typingInterval:    4 * time.Second,
-		typingTimeout:     90 * time.Second,
 		adapterByPlatform: map[string]PlatformAdapter{},
 		processedResults:  map[string]ConnectorRuntimeResult{},
-		botUserByPlatform: map[string]string{},
 	}
 }
 
@@ -116,9 +117,8 @@ func (connectorRuntime *ConnectorRuntime) RegisterAdapter(adapter PlatformAdapte
 	connectorRuntime.adapterByPlatform[adapter.Name()] = adapter
 }
 
-func (connectorRuntime *ConnectorRuntime) UseTypingTiming(interval time.Duration, timeout time.Duration) {
-	connectorRuntime.typingInterval = interval
-	connectorRuntime.typingTimeout = timeout
+func (connectorRuntime *ConnectorRuntime) UseMemoryService(memoryService *memory.MemoryService) {
+	connectorRuntime.memoryService = memoryService
 }
 
 func (connectorRuntime *ConnectorRuntime) HandleHTTPEvent(ctx context.Context, platform string, request *http.Request) (ConnectorRuntimeResult, *HTTPResponse, error) {
@@ -166,9 +166,30 @@ func (connectorRuntime *ConnectorRuntime) HandleRealtimeEvent(ctx context.Contex
 }
 
 func (connectorRuntime *ConnectorRuntime) HandleInboundEvent(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (ConnectorRuntimeResult, error) {
+	event.Platform = adapter.Name()
 	if strings.TrimSpace(event.MessageID) == "" {
 		connectorRuntime.logger.Warn("connector."+adapter.Name()+".ingress.malformed", slog.String("source", event.Source), slog.String("reason", "missing_message_id"))
 		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "missing_message_id"}, nil
+	}
+	if strings.TrimSpace(event.ConversationID) == "" {
+		connectorRuntime.logger.Warn("connector."+adapter.Name()+".ingress.malformed", slog.String("source", event.Source), slog.String("reason", "missing_conversation_id"))
+		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "missing_conversation_id"}, nil
+	}
+	if strings.TrimSpace(event.SenderID) == "" {
+		connectorRuntime.logger.Warn("connector."+adapter.Name()+".ingress.malformed", slog.String("source", event.Source), slog.String("reason", "missing_sender_id"))
+		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "missing_sender_id"}, nil
+	}
+	if strings.TrimSpace(event.ReplyTargetID) == "" {
+		connectorRuntime.logger.Warn("connector."+adapter.Name()+".ingress.malformed", slog.String("source", event.Source), slog.String("reason", "missing_reply_target_id"))
+		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "missing_reply_target_id"}, nil
+	}
+	if strings.TrimSpace(event.Prompt) == "" {
+		connectorRuntime.logger.Warn("connector."+adapter.Name()+".ingress.malformed", slog.String("source", event.Source), slog.String("reason", "missing_prompt"))
+		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "missing_prompt"}, nil
+	}
+	if event.Context.HasMoreBefore && strings.TrimSpace(event.Context.HistoryCursor) == "" {
+		connectorRuntime.logger.Warn("connector."+adapter.Name()+".ingress.malformed", slog.String("source", event.Source), slog.String("reason", "missing_history_cursor"))
+		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "missing_history_cursor"}, nil
 	}
 
 	eventKey := event.DedupeKey()
@@ -192,22 +213,12 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	connectorRuntime.logger.Info(
 		"connector."+platform+".ingress.received",
 		slog.String("source", event.Source),
-		slog.String("eventID", event.EventID),
 		slog.String("messageID", event.MessageID),
-		slog.String("channelID", event.ConversationID),
-		slog.String("rootID", event.RootMessageID),
-		slog.String("userID", event.SenderUserID),
-		slog.String("channelType", event.ChannelType),
+		slog.String("conversationID", event.ConversationID),
+		slog.String("senderID", event.SenderID),
+		slog.String("replyTargetID", event.ReplyTargetID),
+		slog.Bool("hasMoreBefore", event.Context.HasMoreBefore),
 	)
-
-	botUserID, errorValue := connectorRuntime.resolveBotUserID(ctx, adapter)
-	if errorValue != nil {
-		connectorRuntime.logger.Warn("connector."+platform+".bot.lookup_failed", slog.String("error", errorValue.Error()))
-	}
-	if event.IsBotMessage || botUserID != "" && event.SenderUserID == botUserID {
-		connectorRuntime.logger.Info("connector."+platform+".event.suppressed", slog.String("reason", "self"), slog.String("messageID", event.MessageID))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "self"}, nil
-	}
 
 	replyTarget, errorValue := connectorRuntime.buildReplyTarget(ctx, adapter, event)
 	if errorValue != nil {
@@ -231,7 +242,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	}
 
 	connectorRuntime.logger.Info("connector."+platform+".auth.allowed", slog.String("messageID", event.MessageID), slog.String("personID", personID))
-	taskRun, errorValue := connectorRuntime.agentKernel.HandleInboundMessage(personID, event.ConversationID, event.Text)
+	taskRun, errorValue := connectorRuntime.agentKernel.HandleInboundMessage(personID, event.ConversationID, event.Prompt)
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".task.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
 		return ConnectorRuntimeResult{}, errorValue
@@ -239,11 +250,12 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 
 	connectorRuntime.logger.Info("connector."+platform+".task.created", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
 	reply := "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
-	stopTyping := connectorRuntime.startTyping(ctx, adapter, botUserID, replyTarget)
-	defer stopTyping()
+	stopProgress := connectorRuntime.startProgress(ctx, adapter, replyTarget)
+	defer stopProgress()
 
 	connectorRuntime.logger.Info("connector."+platform+".llm.started", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
-	generatedReply, errorValue := connectorRuntime.agentKernel.GenerateReply(ctx, event.Text)
+	memoryRecords := connectorRuntime.searchAccessibleMemory(personID)
+	generatedReply, errorValue := connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), memoryRecords)
 	if errorValue == nil {
 		reply = generatedReply
 		connectorRuntime.logger.Info("connector."+platform+".llm.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
@@ -262,112 +274,55 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRun.TaskRunID, ReplyDispatchID: dispatchID}, nil
 }
 
+func (connectorRuntime *ConnectorRuntime) searchAccessibleMemory(personID string) []memory.MemoryRecord {
+	if connectorRuntime.memoryService == nil {
+		return nil
+	}
+	return connectorRuntime.memoryService.SearchAccessibleMemory(personID)
+}
+
 func (connectorRuntime *ConnectorRuntime) authorizeSender(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (string, bool, error) {
-	personID, isFound := connectorRuntime.identityService.ResolvePersonIDByPlatformAccount(adapter.Name(), event.SenderUserID)
+	personID, isFound := connectorRuntime.identityService.ResolvePersonIDByPlatformAccount(adapter.Name(), event.SenderID)
 	if isFound {
 		return personID, true, nil
 	}
 
-	platformAccountIdentity, errorValue := adapter.ResolveIdentity(ctx, event.SenderUserID)
+	platformAccountIdentity, errorValue := adapter.ResolveIdentity(ctx, event.SenderID)
 	if errorValue != nil {
 		return "", false, errorValue
 	}
 	platformAccountIdentity.Platform = adapter.Name()
-	platformAccountIdentity.ExternalUserID = event.SenderUserID
+	platformAccountIdentity.ExternalUserID = event.SenderID
 	connectorRuntime.identityService.RememberPlatformAccount(platformAccountIdentity)
 
-	personID, isFound = connectorRuntime.identityService.ResolvePersonIDByPlatformAccount(adapter.Name(), event.SenderUserID)
+	personID, isFound = connectorRuntime.identityService.ResolvePersonIDByPlatformAccount(adapter.Name(), event.SenderID)
 	return personID, isFound, nil
 }
 
 func (connectorRuntime *ConnectorRuntime) buildReplyTarget(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (ReplyTarget, error) {
-	conversationKind, errorValue := adapter.ResolveConversationKind(ctx, event)
-	if errorValue != nil {
-		return ReplyTarget{}, errorValue
-	}
-
-	parentID := event.RootMessageID
-	if parentID == "" && !conversationKind.IsDirect {
-		parentID = firstNonEmpty(event.ReplyParentID, event.MessageID)
-	}
+	_ = ctx
+	_ = adapter
 
 	return ReplyTarget{
 		ConversationID: event.ConversationID,
-		ParentID:       parentID,
-		IsDirect:       conversationKind.IsDirect,
+		ReplyTargetID:  event.ReplyTargetID,
 		DedupeKey:      event.DedupeKey(),
 	}, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) startTyping(ctx context.Context, adapter PlatformAdapter, botUserID string, replyTarget ReplyTarget) func() {
+func (connectorRuntime *ConnectorRuntime) startProgress(ctx context.Context, adapter PlatformAdapter, replyTarget ReplyTarget) func() {
 	platform := adapter.Name()
-	if botUserID == "" {
-		connectorRuntime.logger.Warn("connector."+platform+".typing.skipped", slog.String("reason", "missing_bot_user_id"), slog.String("conversationID", replyTarget.ConversationID))
-		return func() {}
+	connectorRuntime.logger.Info("connector."+platform+".progress.started", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID))
+	if errorValue := adapter.StartProgress(ctx, replyTarget); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".progress.start_failed", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID), slog.String("error", errorValue.Error()))
 	}
-
-	typingContext, cancel := context.WithCancel(ctx)
-	connectorRuntime.logger.Info("connector."+platform+".typing.started", slog.String("conversationID", replyTarget.ConversationID), slog.String("parentID", replyTarget.ParentID))
-	connectorRuntime.publishTyping(typingContext, adapter, botUserID, replyTarget)
-	go connectorRuntime.publishTypingUntilDone(typingContext, adapter, botUserID, replyTarget)
 
 	return func() {
-		cancel()
-		connectorRuntime.logger.Info("connector."+platform+".typing.stopped", slog.String("conversationID", replyTarget.ConversationID), slog.String("parentID", replyTarget.ParentID))
-	}
-}
-
-func (connectorRuntime *ConnectorRuntime) publishTypingUntilDone(ctx context.Context, adapter PlatformAdapter, botUserID string, replyTarget ReplyTarget) {
-	typingInterval := connectorRuntime.typingInterval
-	if typingInterval <= 0 {
-		typingInterval = 4 * time.Second
-	}
-	typingTimeout := connectorRuntime.typingTimeout
-	if typingTimeout <= 0 {
-		typingTimeout = 90 * time.Second
-	}
-
-	deadline := time.NewTimer(typingTimeout)
-	defer deadline.Stop()
-	ticker := time.NewTicker(typingInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-deadline.C:
-			return
-		case <-ticker.C:
-			connectorRuntime.publishTyping(ctx, adapter, botUserID, replyTarget)
+		if errorValue := adapter.StopProgress(ctx, replyTarget); errorValue != nil {
+			connectorRuntime.logger.Warn("connector."+platform+".progress.stop_failed", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID), slog.String("error", errorValue.Error()))
 		}
+		connectorRuntime.logger.Info("connector."+platform+".progress.stopped", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID))
 	}
-}
-
-func (connectorRuntime *ConnectorRuntime) publishTyping(ctx context.Context, adapter PlatformAdapter, botUserID string, replyTarget ReplyTarget) {
-	errorValue := adapter.PublishTyping(ctx, botUserID, replyTarget)
-	if errorValue != nil {
-		connectorRuntime.logger.Warn("connector."+adapter.Name()+".typing.failed", slog.String("conversationID", replyTarget.ConversationID), slog.String("parentID", replyTarget.ParentID), slog.String("error", errorValue.Error()))
-	}
-}
-
-func (connectorRuntime *ConnectorRuntime) resolveBotUserID(ctx context.Context, adapter PlatformAdapter) (string, error) {
-	connectorRuntime.mutex.Lock()
-	botUserID := connectorRuntime.botUserByPlatform[adapter.Name()]
-	connectorRuntime.mutex.Unlock()
-	if botUserID != "" {
-		return botUserID, nil
-	}
-
-	resolvedBotUserID, errorValue := adapter.ResolveBotUserID(ctx)
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	connectorRuntime.mutex.Lock()
-	connectorRuntime.botUserByPlatform[adapter.Name()] = resolvedBotUserID
-	connectorRuntime.mutex.Unlock()
-	return resolvedBotUserID, nil
 }
 
 func (connectorRuntime *ConnectorRuntime) findAdapter(platform string) (PlatformAdapter, error) {
@@ -398,22 +353,60 @@ func (connectorRuntime *ConnectorRuntime) rememberProcessedResult(eventKey strin
 
 func (event PlatformInboundEvent) DedupeKey() string {
 	messageID := strings.TrimSpace(event.MessageID)
-	if messageID == "" {
-		messageID = strings.TrimSpace(event.EventID)
-	}
 	conversationID := strings.TrimSpace(event.ConversationID)
-	if conversationID == "" {
-		return event.Platform + ":" + messageID
-	}
 	return event.Platform + ":" + conversationID + ":" + messageID
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		trimmedValue := strings.TrimSpace(value)
-		if trimmedValue != "" {
-			return trimmedValue
-		}
+func (event *PlatformInboundEvent) UnmarshalJSON(document []byte) error {
+	type platformInboundEvent PlatformInboundEvent
+	var parsedEvent platformInboundEvent
+	if errorValue := json.Unmarshal(document, &parsedEvent); errorValue != nil {
+		return errorValue
 	}
-	return ""
+
+	var rawFields map[string]interface{}
+	if errorValue := json.Unmarshal(document, &rawFields); errorValue == nil {
+		parsedEvent.LegacyFields = rawFields
+	}
+
+	if strings.TrimSpace(parsedEvent.Prompt) == "" {
+		parsedEvent.Prompt = stringField(rawFields, "text")
+	}
+	if strings.TrimSpace(parsedEvent.SenderID) == "" {
+		parsedEvent.SenderID = stringField(rawFields, "senderUserID")
+	}
+
+	*event = PlatformInboundEvent(parsedEvent)
+	return nil
+}
+
+func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContext {
+	messages := make([]agent.VisibleContextMessage, 0, len(visibleContext.Messages))
+	for _, message := range visibleContext.Messages {
+		messages = append(messages, agent.VisibleContextMessage{
+			Speaker: message.Speaker,
+			Text:    message.Text,
+		})
+	}
+
+	return agent.VisibleContext{
+		Messages:      messages,
+		HasMoreBefore: visibleContext.HasMoreBefore,
+		HistoryCursor: visibleContext.HistoryCursor,
+	}
+}
+
+func stringField(fields map[string]interface{}, name string) string {
+	if fields == nil {
+		return ""
+	}
+	value, isFound := fields[name]
+	if !isFound {
+		return ""
+	}
+	stringValue, isString := value.(string)
+	if !isString {
+		return ""
+	}
+	return strings.TrimSpace(stringValue)
 }

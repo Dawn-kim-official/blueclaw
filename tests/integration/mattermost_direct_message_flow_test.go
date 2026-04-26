@@ -23,7 +23,7 @@ func TestMattermostDirectMessageFlow(t *testing.T) {
 
 	conversationClient := &mattermostIntegrationConversationClient{}
 	adapter := mattermost.NewAdapter(mattermostStaticIdentityResolver{email: "lee@example.com"}, conversationClient)
-	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID}, "hi")
+	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: "reply-target-1"}, "hi")
 	if errorValue != nil {
 		t.Fatalf("expected reply to be sent: %v", errorValue)
 	}
@@ -81,13 +81,7 @@ func (mattermostStaticIdentityResolver mattermostStaticIdentityResolver) Resolve
 	}, nil
 }
 
-func (mattermostStaticIdentityResolver mattermostStaticIdentityResolver) ResolveBotUserID() (string, error) {
-	return "bot-1", nil
-}
-
-type mattermostIntegrationConversationClient struct {
-	lastMessage string
-}
+type mattermostIntegrationConversationClient struct{}
 
 func (client *mattermostIntegrationConversationClient) CreatePost(_ string, _ string, message string) (string, error) {
 	client.lastMessage = message
@@ -96,10 +90,6 @@ func (client *mattermostIntegrationConversationClient) CreatePost(_ string, _ st
 
 func (client *mattermostIntegrationConversationClient) PublishTyping(string, string, string) error {
 	return nil
-}
-
-func (client *mattermostIntegrationConversationClient) ResolveChannelType(string) (string, error) {
-	return "D", nil
 }
 
 func newMattermostIdentityService(personID string, email string) *identity.IdentityService {

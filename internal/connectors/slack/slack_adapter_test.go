@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"blueclaw/internal/connectors"
 	"blueclaw/internal/identity"
 )
 
@@ -56,26 +55,11 @@ func TestAdapterNormalizesSlackEventCallback(t *testing.T) {
 	if parseResult.Event.MessageID != "client-message-1" {
 		t.Fatalf("expected client message id, got %q", parseResult.Event.MessageID)
 	}
-	if parseResult.Event.ReplyParentID != "111.222" {
-		t.Fatalf("expected slack timestamp reply parent id, got %q", parseResult.Event.ReplyParentID)
+	if parseResult.Event.ReplyTargetID != "111.222" {
+		t.Fatalf("expected slack timestamp reply target id, got %q", parseResult.Event.ReplyTargetID)
 	}
-	if parseResult.Event.ChannelType != "im" {
-		t.Fatalf("expected channel type, got %q", parseResult.Event.ChannelType)
-	}
-}
-
-func TestAdapterResolvesSlackConversationKind(t *testing.T) {
-	adapter := NewAdapter(fakeSlackIdentityClient{}, fakeSlackConversationClient{})
-
-	conversationKind, errorValue := adapter.ResolveConversationKind(context.Background(), connectors.PlatformInboundEvent{
-		ConversationID: "D123",
-		ChannelType:    "im",
-	})
-	if errorValue != nil {
-		t.Fatalf("expected conversation kind: %v", errorValue)
-	}
-	if !conversationKind.IsDirect {
-		t.Fatal("expected direct conversation")
+	if parseResult.Event.Prompt != "hello" {
+		t.Fatalf("expected prompt, got %q", parseResult.Event.Prompt)
 	}
 }
 
@@ -85,10 +69,6 @@ func newSlackRequest(payload []byte) *http.Request {
 }
 
 type fakeSlackIdentityClient struct{}
-
-func (client fakeSlackIdentityClient) ResolveBotUserID() (string, error) {
-	return "bot-user", nil
-}
 
 func (client fakeSlackIdentityClient) ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error) {
 	return identity.PlatformAccountIdentity{

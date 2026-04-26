@@ -2,15 +2,17 @@ package connectors
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
-	"time"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/task"
 )
@@ -40,26 +42,11 @@ func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
 	if len(adapter.sentReplies) != 1 {
 		t.Fatalf("expected one reply, got %d", len(adapter.sentReplies))
 	}
-	if len(adapter.typingTargets) != 1 {
-		t.Fatalf("expected one immediate typing event, got %d", len(adapter.typingTargets))
+	if len(adapter.progressStarts) != 1 {
+		t.Fatalf("expected one progress start, got %d", len(adapter.progressStarts))
 	}
-}
-
-func TestConnectorRuntimeSuppressesSelfMessage(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
-	event := testInboundEvent("message-1")
-	event.SenderUserID = "bot-user"
-
-	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
-	if errorValue != nil {
-		t.Fatalf("expected self message to be ignored: %v", errorValue)
-	}
-
-	if !result.Ignored || result.Reason != "self" {
-		t.Fatalf("expected self suppression, got %+v", result)
-	}
-	if len(adapter.sentReplies) != 0 {
-		t.Fatalf("expected no reply, got %d", len(adapter.sentReplies))
+	if len(adapter.progressStops) != 1 {
+		t.Fatalf("expected one progress stop, got %d", len(adapter.progressStops))
 	}
 }
 
@@ -102,39 +89,128 @@ func TestConnectorRuntimeUsesFallbackReplyWhenLanguageModelFails(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeRoutesDirectChannelRootAndThread(t *testing.T) {
+func TestConnectorRuntimeUsesOpaqueReplyTarget(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "reply"})
+	event := testInboundEvent("message-1")
+	event.ReplyTargetID = "opaque-reply-target"
 
-	directEvent := testInboundEvent("direct-message")
-	directEvent.ConversationID = "direct-1"
-	directEvent.ChannelType = "direct"
-	channelRootEvent := testInboundEvent("channel-root")
-	channelRootEvent.ConversationID = "channel-1"
-	channelRootEvent.ChannelType = "channel"
-	threadEvent := testInboundEvent("thread-message")
-	threadEvent.ConversationID = "channel-1"
-	threadEvent.ChannelType = "channel"
-	threadEvent.RootMessageID = "root-1"
-
-	_, _ = connectorRuntime.HandleInboundEvent(context.Background(), adapter, directEvent)
-	_, _ = connectorRuntime.HandleInboundEvent(context.Background(), adapter, channelRootEvent)
-	_, _ = connectorRuntime.HandleInboundEvent(context.Background(), adapter, threadEvent)
-
-	if adapter.sentReplies[0].target.ParentID != "" {
-		t.Fatalf("expected direct reply without parent, got %q", adapter.sentReplies[0].target.ParentID)
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
 	}
-	if adapter.sentReplies[1].target.ParentID != "channel-root" {
-		t.Fatalf("expected channel root reply to create thread, got %q", adapter.sentReplies[1].target.ParentID)
+
+	if adapter.sentReplies[0].target.ReplyTargetID != "opaque-reply-target" {
+		t.Fatalf("expected opaque reply target, got %q", adapter.sentReplies[0].target.ReplyTargetID)
 	}
-	if adapter.sentReplies[2].target.ParentID != "root-1" {
-		t.Fatalf("expected thread reply to use root, got %q", adapter.sentReplies[2].target.ParentID)
+}
+
+func TestConnectorRuntimeInjectsRequesterMemoryIntoLanguageModel(t *testing.T) {
+	languageModel := &recordingLanguageModel{reply: "기억했습니다"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	memoryService := &memory.MemoryService{}
+	memoryService.StoreDerivedMemory(memory.MemoryRecord{
+		ScopePersonID:     "person-1",
+		ContentCiphertext: []byte("사용자는 Graphiti 메모리 설계를 선택했다."),
+	})
+	connectorRuntime.UseMemoryService(memoryService)
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+
+	if len(languageModel.request.Messages) < 2 {
+		t.Fatalf("expected memory context message, got %+v", languageModel.request.Messages)
+	}
+	if !strings.Contains(languageModel.request.Messages[1].Content, "Graphiti 메모리 설계") {
+		t.Fatalf("expected requester memory in model context, got %q", languageModel.request.Messages[1].Content)
+	}
+}
+
+func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
+	languageModel := &recordingLanguageModel{reply: "맥락 확인"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testInboundEvent("message-1")
+	event.Context = VisibleContext{
+		Messages: []VisibleContextMessage{
+			{Speaker: "admin", Text: "이전 메시지"},
+		},
+		HasMoreBefore: true,
+		HistoryCursor: "cursor-1",
+	}
+	memoryService := &memory.MemoryService{}
+	memoryService.StoreDerivedMemory(memory.MemoryRecord{
+		ScopePersonID:     "person-1",
+		ContentCiphertext: []byte("사용자는 간결한 설계를 선호한다."),
+	})
+	connectorRuntime.UseMemoryService(memoryService)
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+
+	if len(languageModel.request.Messages) != 4 {
+		t.Fatalf("expected system, visible context, memory, prompt messages, got %d", len(languageModel.request.Messages))
+	}
+	if !strings.Contains(languageModel.request.Messages[1].Content, "admin: 이전 메시지") {
+		t.Fatalf("expected visible context first, got %q", languageModel.request.Messages[1].Content)
+	}
+	if !strings.Contains(languageModel.request.Messages[1].Content, "conversation.history") {
+		t.Fatalf("expected history availability, got %q", languageModel.request.Messages[1].Content)
+	}
+	if !strings.Contains(languageModel.request.Messages[2].Content, "간결한 설계") {
+		t.Fatalf("expected memory second, got %q", languageModel.request.Messages[2].Content)
+	}
+	if languageModel.request.Messages[3].Content != event.Prompt {
+		t.Fatalf("expected prompt last, got %q", languageModel.request.Messages[3].Content)
+	}
+}
+
+func TestConnectorRuntimeRejectsMissingHistoryCursorWhenMoreContextExists(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
+	event := testInboundEvent("message-1")
+	event.Context.HasMoreBefore = true
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected malformed event to be ignored: %v", errorValue)
+	}
+	if !result.Ignored || result.Reason != "missing_history_cursor" {
+		t.Fatalf("expected missing history cursor rejection, got %+v", result)
+	}
+}
+
+func TestPlatformInboundEventOnlyUsesTextAndSenderCompatibilityAliases(t *testing.T) {
+	var event PlatformInboundEvent
+	errorValue := json.Unmarshal([]byte(`{
+		"conversationID":"conversation-1",
+		"messageID":"message-1",
+		"senderUserID":"sender-1",
+		"text":"hello",
+		"rootMessageID":"root-1",
+		"replyParentID":"parent-1"
+	}`), &event)
+	if errorValue != nil {
+		t.Fatalf("expected compatibility event to decode: %v", errorValue)
+	}
+
+	if event.SenderID != "sender-1" {
+		t.Fatalf("expected sender compatibility alias, got %q", event.SenderID)
+	}
+	if event.Prompt != "hello" {
+		t.Fatalf("expected text compatibility alias, got %q", event.Prompt)
+	}
+	if event.ReplyTargetID != "" {
+		t.Fatalf("expected no reply target inference, got %q", event.ReplyTargetID)
 	}
 }
 
 type testAdapter struct {
-	senderEmail   string
-	sentReplies   []testReply
-	typingTargets []ReplyTarget
+	senderEmail    string
+	sentReplies    []testReply
+	progressStarts []ReplyTarget
+	progressStops  []ReplyTarget
 }
 
 type testReply struct {
@@ -163,22 +239,23 @@ func (adapter *testAdapter) ResolveIdentity(context.Context, string) (identity.P
 	}, nil
 }
 
-func (adapter *testAdapter) ResolveBotUserID(context.Context) (string, error) {
-	return "bot-user", nil
+func (adapter *testAdapter) StartProgress(_ context.Context, target ReplyTarget) error {
+	adapter.progressStarts = append(adapter.progressStarts, target)
+	return nil
 }
 
-func (adapter *testAdapter) ResolveConversationKind(_ context.Context, event PlatformInboundEvent) (ConversationKind, error) {
-	return ConversationKind{IsDirect: event.ChannelType == "direct"}, nil
-}
-
-func (adapter *testAdapter) PublishTyping(_ context.Context, _ string, target ReplyTarget) error {
-	adapter.typingTargets = append(adapter.typingTargets, target)
+func (adapter *testAdapter) StopProgress(_ context.Context, target ReplyTarget) error {
+	adapter.progressStops = append(adapter.progressStops, target)
 	return nil
 }
 
 func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, message string) (string, error) {
 	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: message})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
+}
+
+func (adapter *testAdapter) FetchHistory(context.Context, string, int) (VisibleContext, error) {
+	return VisibleContext{}, nil
 }
 
 func (adapter *testAdapter) NotInvitedReply() string {
@@ -201,6 +278,20 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(context.Contex
 	return llm.StructuredResponse{Content: `{"reply":"` + languageModel.reply + `"}`}, nil
 }
 
+type recordingLanguageModel struct {
+	reply   string
+	request llm.StructuredResponseRequest
+}
+
+func (languageModel *recordingLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return languageModel.reply, nil
+}
+
+func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.request = structuredResponseRequest
+	return llm.StructuredResponse{Content: `{"reply":"` + languageModel.reply + `"}`}, nil
+}
+
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {
 	t.Helper()
 
@@ -213,7 +304,6 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	agentKernel.UseLanguageModelProvider(languageModel)
 
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
-	connectorRuntime.UseTypingTiming(time.Hour, time.Hour)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter
@@ -223,11 +313,10 @@ func testInboundEvent(messageID string) PlatformInboundEvent {
 	return PlatformInboundEvent{
 		Platform:       "test",
 		Source:         "test",
-		EventID:        messageID,
 		ConversationID: "direct-1",
 		MessageID:      messageID,
-		SenderUserID:   "sender-user",
-		ChannelType:    "direct",
-		Text:           "hello",
+		SenderID:       "sender-user",
+		ReplyTargetID:  "reply-target-1",
+		Prompt:         "hello",
 	}
 }

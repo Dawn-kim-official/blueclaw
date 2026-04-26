@@ -15,7 +15,6 @@ import (
 const NotInvitedReply = "This Intern Kim has not invited your account yet. Ask the administrator for access."
 
 type BotIdentityClient interface {
-	ResolveBotUserID() (string, error)
 	ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error)
 }
 
@@ -81,23 +80,20 @@ func (adapter Adapter) ResolveIdentity(_ context.Context, senderUserID string) (
 	return adapter.BotIdentityClient.ResolveUserIdentity(senderUserID)
 }
 
-func (adapter Adapter) ResolveBotUserID(context.Context) (string, error) {
-	return adapter.BotIdentityClient.ResolveBotUserID()
+func (adapter Adapter) StartProgress(context.Context, connectors.ReplyTarget) error {
+	return nil
 }
 
-func (adapter Adapter) ResolveConversationKind(_ context.Context, event connectors.PlatformInboundEvent) (connectors.ConversationKind, error) {
-	channelType := strings.ToLower(strings.TrimSpace(event.ChannelType))
-	return connectors.ConversationKind{
-		IsDirect: channelType == "im" || strings.HasPrefix(strings.TrimSpace(event.ConversationID), "D"),
-	}, nil
-}
-
-func (adapter Adapter) PublishTyping(context.Context, string, connectors.ReplyTarget) error {
+func (adapter Adapter) StopProgress(context.Context, connectors.ReplyTarget) error {
 	return nil
 }
 
 func (adapter Adapter) SendReply(_ context.Context, replyTarget connectors.ReplyTarget, message string) (string, error) {
-	return adapter.ConversationClient.CreateMessage(replyTarget.ConversationID, replyTarget.ParentID, message)
+	return adapter.ConversationClient.CreateMessage(replyTarget.ConversationID, replyTarget.ReplyTargetID, message)
+}
+
+func (adapter Adapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {
+	return connectors.VisibleContext{}, nil
 }
 
 func (adapter Adapter) NotInvitedReply() string {
@@ -109,19 +105,25 @@ func (adapter Adapter) convertEvent(eventEnvelope EventEnvelope) connectors.Plat
 	return connectors.PlatformInboundEvent{
 		Platform:       adapter.Name(),
 		Source:         "http",
-		EventID:        eventEnvelope.EventID,
 		ConversationID: event.ConversationID,
 		MessageID:      event.StableMessageID(eventEnvelope.EventID),
-		ReplyParentID:  event.Timestamp,
-		RootMessageID:  event.RootMessageID(),
-		SenderUserID:   event.UserID,
-		ChannelType:    event.ChannelType,
-		Text:           event.Text,
+		SenderID:       event.UserID,
+		ReplyTargetID:  firstNonEmpty(event.RootMessageID(), event.Timestamp),
+		Prompt:         event.Text,
 		RawReceivedAt:  time.Now(),
-		IsBotMessage:   event.IsBotMessage(),
 	}
 }
 
 func (adapter Adapter) parser() EventParser {
 	return adapter.EventParser
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
 }

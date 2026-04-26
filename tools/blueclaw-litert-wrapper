@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+from blueclaw_litert_wrapper import main
+
+raise SystemExit(main())

@@ -9,11 +9,11 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 - `Blueclaw` runs on `InternKim` as a long-lived daemon
 - `InternKim` is reachable remotely through `Cloudflare Tunnel`
 - remote admin access is expected to sit behind `Cloudflare Tunnel` with `Google OAuth`
-- `Slack` uses an Events API HTTP callback into `Blueclaw` and outbound Slack Web API calls for replies
+- `InternKim` connector sidecars own Slack, Mattermost, and Signal platform credentials
+- `Blueclaw` receives normalized connector events from `InternKim` and never stores platform tokens
 - `Mattermost` is self-hosted inside `InternKim`
 - `Mattermost` is an `InternKim`-native internal service, separate from the isolated `Blueclaw` guest
-- `Mattermost` uses a local WebSocket listener for realtime ingress and HTTP API calls for typing and replies
-- `Signal` is scaffolded behind the same connector contract but remains disabled for production in v1
+- `Mattermost` realtime WebSocket ingress, Slack Events API or Socket Mode, and Signal sessions run outside Blueclaw behind the capability boundary
 - `Blueclaw` stores policy, memory, task state, backups, and artifacts on persistent workspace storage
 - `Blueclaw` supports one-time, interval, and cron-based scheduled task execution
 - `Blueclaw` may ask the user's main computer to open a browser instance when a flow requires direct user login or approval
@@ -34,6 +34,7 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
   |  Cloudflare Tunnel                |
   |  headless host OS                 |
   |    - tiny supervisor              |
+  |    - capability sidecars          |
   |    - workspace volume             |
   |    - self-hosted Mattermost       |
   |                                   |
@@ -79,34 +80,32 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 
 ## Messaging Plane
 
-- `Slack` is an external integration from `InternKim`
-- Slack ingress uses the Events API callback at `/connectors/slack/events`
-- Slack replies use the Slack Web API, currently `chat.postMessage`
-- Slack Socket Mode is not the v1 production baseline, but the connector transport model can add it later
+- `InternKim` owns Slack Events API or Socket Mode, Mattermost WebSocket, Signal sessions, platform tokens, and platform API calls
+- `Blueclaw` exposes `/connectors/{platform}/events` as a normalized internal ingress endpoint for `InternKim` sidecars
+- `Slack`, `Mattermost`, and `Signal` events enter Blueclaw through the same `ConnectorRuntime`
+- Blueclaw keeps idempotency, invited-email authorization, task creation, progress orchestration, LLM reply decisions, and structured logs
 - `Mattermost` is self-hosted inside `InternKim`
 - `Mattermost` is an internal service separate from the isolated `Blueclaw` guest
-- `Blueclaw` connects to the local `Mattermost` service over the internal appliance network boundary
-- Mattermost ingress uses WebSocket `posted` events, with `/connectors/mattermost/events` kept as an HTTP-compatible path
-- Mattermost typing indicators are emitted while Blueclaw is generating a reply or running tools
-- Slack does not provide the same typing indicator API, so Slack typing is a no-op in v1
-- all connector ingress flows normalize into the same `ConnectorRuntime`
-- platform adapters only parse payloads, resolve identity, publish typing or presence when supported, and send replies
-- duplicate suppression, self-message suppression, invited-email authorization, task creation, LLM reply generation, fallback replies, and structured logs are shared by the connector core
+- `InternKim` capability endpoints perform identity lookup, optional progress publication, reply send, and history fetch
+- Slack typing is represented as optional InternKim progress, not as a Blueclaw platform API call
+- InternKim sidecars suppress bot/self messages before forwarding events
+- duplicate suppression, invited-email authorization, task creation, LLM reply generation, fallback replies, and structured logs remain shared by the connector core
 - the messaging plane and the control plane should stay separated
 
 ## Connector Configuration
 
-Runtime connector configuration is read from `runtime.json` or `runtime.yaml` through the same schema.
+Runtime connector configuration is secretless. Blueclaw does not read Slack, Mattermost, or Signal tokens.
 
 ```json
 {
+  "capabilities": {
+    "endpoint": "http://127.0.0.1:7781",
+    "unixSocketPath": "/run/internkim/capability.sock",
+    "timeoutSecond": 15
+  },
   "connectors": {
-    "mattermost": {
-      "baseURL": "http://localhost:8065"
-    },
-    "slack": {
-      "baseURL": "https://slack.com/api"
-    },
+    "mattermost": {},
+    "slack": {},
     "signal": {
       "enabled": false
     }
@@ -114,42 +113,61 @@ Runtime connector configuration is read from `runtime.json` or `runtime.yaml` th
 }
 ```
 
-- Mattermost and Slack platform secrets are owned by the InternKim capability boundary
-- InternKim sidecars verify platform ingress and forward normalized events to Blueclaw
-- `signal.enabled=true` is rejected in v1 because the adapter is scaffolded but not production-enabled
+- `/connectors/mattermost/events`, `/connectors/slack/events`, and `/connectors/signal/events` accept normalized events from InternKim sidecars
+- platform request signatures, bot tokens, WebSocket credentials, Signal session secrets, and platform reply credentials stay in InternKim sidecars
+- Blueclaw capability adapters call `POST /v1/platform/{platform}/identity.resolve`, `reply.send`, and `history.fetch`; `progress.start` and `progress.stop` are optional
+- inbound bodies use opaque `conversationID`, `messageID`, `senderID`, `replyTargetID`, `prompt`, and recent `context.messages`
 - connector logs use `connector.<platform>.<stage>` event names
 - persistent logs default to `/workspace/.blueclaw/logs` and are retained for 7 days unless configured otherwise
 
-## Language Model Configuration
-
-Blueclaw replies use the configured language model before falling back to a short failure message.
+Minimal normalized event body:
 
 ```json
 {
-  "capability": {
-    "transport": "unix",
-    "socketPath": "/run/internkim/capability.sock",
-    "endpoint": "http://internkim",
-    "vsockCID": 52,
-    "vsockPort": 7000
+  "conversationID": "opaque-conversation-id",
+  "messageID": "opaque-message-id",
+  "senderID": "opaque-sender-id",
+  "replyTargetID": "opaque-reply-target-id",
+  "prompt": "current user message",
+  "context": {
+    "messages": [
+      {
+        "speaker": "admin",
+        "text": "previous visible message"
+      }
+    ],
+    "hasMoreBefore": true,
+    "historyCursor": "opaque-history-cursor"
+  }
+}
+```
+
+## Language Model Configuration
+
+Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter keys, LiteRT-LM model runtime, local GPU selection, and provider fallback policy are owned by InternKim capability services.
+
+```json
+{
+  "capabilities": {
+    "endpoint": "http://127.0.0.1:7781",
+    "unixSocketPath": "/run/internkim/capability.sock",
+    "timeoutSecond": 15
   },
   "languageModel": {
-    "defaultProvider": "capability",
-    "fallbackProvider": "",
+    "defaultProvider": "capabilityLLM",
     "capability": {
-      "model": "openai/gpt-4.1-mini",
-      "executionMode": "auto",
-      "requireParameters": true,
-      "enableResponseHealing": true
+      "model": "gemma-4-E4B-it",
+      "executionMode": "auto"
     }
   }
 }
 ```
 
-- Blueclaw calls the InternKim capability boundary for hosted language model access
-- OpenRouter keys and LiteRT model paths/backends are never passed to Blueclaw as config, environment, argv, or readable files
-- InternKim owns local/remote provider selection behind `executionMode=auto`
-- if both providers fail, the connector sends a short model-configuration failure reply and writes the detailed error to the persistent log
+- Blueclaw sends only `model`, `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`
+- Blueclaw never adds an `Authorization` header for LLM capability calls
+- `executionMode` is `local`, `remote`, or `auto`; InternKim decides whether that maps to OpenRouter, LiteRT-LM, Jetson GPU, or another provider
+- `tools/blueclaw-litert-wrapper` is kept as an InternKim-side reference utility, not as a Blueclaw product runtime dependency
+- if the capability LLM endpoint fails, the connector sends a short model-configuration failure reply and writes the detailed error to the persistent log
 
 ## Migration Goal
 

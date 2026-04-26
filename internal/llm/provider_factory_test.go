@@ -6,13 +6,10 @@ import (
 	"blueclaw/internal/config"
 )
 
-func TestConfiguredProviderUsesCapabilityBoundary(t *testing.T) {
+func TestConfiguredProviderUsesCapabilityLLMByDefault(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.Capability.Transport = "unix"
-	runtimeConfiguration.Capability.SocketPath = "/run/internkim/capability.sock"
-	runtimeConfiguration.Capability.Endpoint = "http://internkim"
-	runtimeConfiguration.LanguageModel.DefaultProvider = "capability"
-	runtimeConfiguration.LanguageModel.Capability.Model = "openai/gpt-4.1-mini"
+	runtimeConfiguration.Capabilities.Endpoint = "http://127.0.0.1:7781"
+	runtimeConfiguration.LanguageModel.Capability.Model = "gemma-4-E4B-it"
 	runtimeConfiguration.LanguageModel.Capability.ExecutionMode = "auto"
 
 	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
@@ -20,24 +17,35 @@ func TestConfiguredProviderUsesCapabilityBoundary(t *testing.T) {
 		t.Fatalf("expected provider to be created: %v", errorValue)
 	}
 
-	capabilityClient, isCapabilityProvider := languageModelProvider.(CapabilityClient)
-	if !isCapabilityProvider {
-		t.Fatalf("expected capability provider, got %T", languageModelProvider)
+	capabilityLLMClient, isCapabilityLLMProvider := languageModelProvider.(CapabilityLLMClient)
+	if !isCapabilityLLMProvider {
+		t.Fatalf("expected capability llm provider, got %T", languageModelProvider)
 	}
-	if capabilityClient.ModelName != "openai/gpt-4.1-mini" {
-		t.Fatalf("expected capability model, got %q", capabilityClient.ModelName)
+	if capabilityLLMClient.ModelName != "gemma-4-E4B-it" {
+		t.Fatalf("expected capability model, got %q", capabilityLLMClient.ModelName)
 	}
-	if capabilityClient.ExecutionMode != "auto" {
-		t.Fatalf("expected capability execution mode, got %q", capabilityClient.ExecutionMode)
+	if capabilityLLMClient.ExecutionMode != "auto" {
+		t.Fatalf("expected capability execution mode, got %q", capabilityLLMClient.ExecutionMode)
 	}
 }
 
-func TestConfiguredProviderRejectsDirectSecretProviders(t *testing.T) {
+func TestConfiguredProviderRejectsDirectOpenRouterProductPath(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.LanguageModel.DefaultProvider = "openRouter"
 
 	_, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
 	if errorValue == nil {
-		t.Fatal("expected direct provider to be rejected")
+		t.Fatal("expected direct openrouter provider to be unsupported")
+	}
+}
+
+func TestConfiguredProviderRejectsProductFallback(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.DefaultProvider = "capabilityLLM"
+	runtimeConfiguration.LanguageModel.FallbackProvider = "liteRTLM"
+
+	_, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue == nil {
+		t.Fatal("expected product fallback provider to be unsupported")
 	}
 }

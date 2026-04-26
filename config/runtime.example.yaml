@@ -1,20 +1,15 @@
 {
   "baseURL": "http://127.0.0.1:8080",
-  "capability": {
-    "transport": "unix",
-    "socketPath": "/run/internkim/capability.sock",
-    "endpoint": "http://internkim",
-    "vsockCID": 52,
-    "vsockPort": 7000
+  "capabilities": {
+    "endpoint": "http://127.0.0.1:7781",
+    "unixSocketPath": "/run/internkim/capability.sock",
+    "timeoutSecond": 15
   },
   "languageModel": {
-    "defaultProvider": "capability",
-    "fallbackProvider": "",
+    "defaultProvider": "capabilityLLM",
     "capability": {
-      "model": "openai/gpt-4.1-mini",
-      "executionMode": "auto",
-      "requireParameters": true,
-      "enableResponseHealing": true
+      "model": "gemma-4-E4B-it",
+      "executionMode": "auto"
     }
   },
   "firecracker": {
@@ -36,12 +31,8 @@
     "listenAddress": "127.0.0.1:7778"
   },
   "connectors": {
-    "mattermost": {
-      "baseURL": "http://localhost:8065"
-    },
-    "slack": {
-      "baseURL": "https://slack.com/api"
-    },
+    "mattermost": {},
+    "slack": {},
     "signal": {
       "enabled": false
     }

@@ -61,15 +61,11 @@ func (adapter Adapter) ResolveIdentity(context.Context, string) (identity.Platfo
 	return identity.PlatformAccountIdentity{}, errors.New("signal connector is experimental-disabled in v1")
 }
 
-func (adapter Adapter) ResolveBotUserID(context.Context) (string, error) {
-	return "", nil
+func (adapter Adapter) StartProgress(context.Context, connectors.ReplyTarget) error {
+	return nil
 }
 
-func (adapter Adapter) ResolveConversationKind(_ context.Context, event connectors.PlatformInboundEvent) (connectors.ConversationKind, error) {
-	return connectors.ConversationKind{IsDirect: strings.EqualFold(event.ChannelType, "direct")}, nil
-}
-
-func (adapter Adapter) PublishTyping(context.Context, string, connectors.ReplyTarget) error {
+func (adapter Adapter) StopProgress(context.Context, connectors.ReplyTarget) error {
 	return nil
 }
 
@@ -77,26 +73,23 @@ func (adapter Adapter) SendReply(context.Context, connectors.ReplyTarget, string
 	return "", errors.New("signal connector is experimental-disabled in v1")
 }
 
+func (adapter Adapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {
+	return connectors.VisibleContext{}, errors.New("signal connector is experimental-disabled in v1")
+}
+
 func (adapter Adapter) NotInvitedReply() string {
 	return NotInvitedReply
 }
 
 func (adapter Adapter) convertEvent(event Event, source string) connectors.PlatformInboundEvent {
-	channelType := "direct"
-	if event.IsGroup {
-		channelType = "group"
-	}
-
 	return connectors.PlatformInboundEvent{
 		Platform:       adapter.Name(),
 		Source:         source,
-		EventID:        event.EventID,
 		ConversationID: event.ConversationID,
 		MessageID:      event.MessageID,
-		ReplyParentID:  event.MessageID,
-		SenderUserID:   event.SenderUserID,
-		ChannelType:    channelType,
-		Text:           event.Text,
+		SenderID:       event.SenderUserID,
+		ReplyTargetID:  event.MessageID,
+		Prompt:         event.Text,
 		RawReceivedAt:  time.Now(),
 	}
 }

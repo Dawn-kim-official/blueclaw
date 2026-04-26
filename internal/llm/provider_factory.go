@@ -3,21 +3,14 @@ package llm
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 )
 
 func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) (LanguageModelProvider, error) {
-	capabilityClient := CapabilityClient{
-		Client:                capability.NewClient(runtimeConfiguration.Capability.Transport, runtimeConfiguration.Capability.SocketPath, runtimeConfiguration.Capability.Endpoint, runtimeConfiguration.Capability.VSockCID, runtimeConfiguration.Capability.VSockPort),
-		ModelName:             strings.TrimSpace(runtimeConfiguration.LanguageModel.Capability.Model),
-		ExecutionMode:         runtimeConfiguration.LanguageModel.Capability.ExecutionMode,
-		RequireParameters:     runtimeConfiguration.LanguageModel.Capability.RequireParameters,
-		EnableResponseHealing: runtimeConfiguration.LanguageModel.Capability.EnableResponseHealing,
-	}
-
-	defaultProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.DefaultProvider, capabilityClient)
+	defaultProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.DefaultProvider, runtimeConfiguration)
 	if errorValue != nil {
 		return nil, errorValue
 	}
@@ -26,22 +19,34 @@ func NewConfiguredLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 		return defaultProvider, nil
 	}
 
-	fallbackProvider, errorValue := providerByName(runtimeConfiguration.LanguageModel.FallbackProvider, capabilityClient)
-	if errorValue != nil {
-		return nil, errorValue
-	}
-
-	return FallbackLanguageModelProvider{
-		PrimaryProvider:  defaultProvider,
-		FallbackProvider: fallbackProvider,
-	}, nil
+	return nil, errors.New("language model fallback is owned by InternKim capability runtime")
 }
 
-func providerByName(providerName string, capabilityClient CapabilityClient) (LanguageModelProvider, error) {
+func providerByName(providerName string, runtimeConfiguration config.RuntimeConfiguration) (LanguageModelProvider, error) {
 	switch strings.TrimSpace(providerName) {
-	case "capability":
-		return capabilityClient, nil
+	case "capabilityLLM", "capability", "":
+		return newCapabilityLLMClient(runtimeConfiguration), nil
 	default:
 		return nil, errors.New("language model provider is not supported")
 	}
+}
+
+func newCapabilityLLMClient(runtimeConfiguration config.RuntimeConfiguration) CapabilityLLMClient {
+	return CapabilityLLMClient{
+		CapabilityClient: capability.NewClient(capability.Configuration{
+			Endpoint:       runtimeConfiguration.Capabilities.Endpoint,
+			UnixSocketPath: runtimeConfiguration.Capabilities.UnixSocketPath,
+			Timeout:        time.Duration(runtimeConfiguration.Capabilities.TimeoutSecond) * time.Second,
+		}),
+		ModelName:     capabilityModelName(runtimeConfiguration),
+		ExecutionMode: runtimeConfiguration.LanguageModel.Capability.ExecutionMode,
+	}
+}
+
+func capabilityModelName(runtimeConfiguration config.RuntimeConfiguration) string {
+	modelName := strings.TrimSpace(runtimeConfiguration.LanguageModel.Capability.Model)
+	if modelName == "" {
+		return "default"
+	}
+	return modelName
 }

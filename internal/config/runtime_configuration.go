@@ -7,7 +7,7 @@ import (
 
 type RuntimeConfiguration struct {
 	BaseURL       string                      `json:"baseURL"`
-	Capability    CapabilityConfiguration     `json:"capability"`
+	Capabilities  CapabilityConfiguration     `json:"capabilities"`
 	AgentProfiles []AgentProfileConfiguration `json:"agentProfiles"`
 	LanguageModel LanguageModelConfiguration  `json:"languageModel"`
 	Firecracker   FirecrackerConfiguration    `json:"firecracker"`
@@ -20,11 +20,9 @@ type RuntimeConfiguration struct {
 }
 
 type CapabilityConfiguration struct {
-	Transport  string `json:"transport"`
-	SocketPath string `json:"socketPath"`
-	Endpoint   string `json:"endpoint"`
-	VSockCID   uint32 `json:"vsockCID"`
-	VSockPort  uint32 `json:"vsockPort"`
+	Endpoint       string `json:"endpoint"`
+	UnixSocketPath string `json:"unixSocketPath"`
+	TimeoutSecond  int    `json:"timeoutSecond"`
 }
 
 type AgentProfileConfiguration struct {
@@ -43,14 +41,30 @@ type MCPServerConfiguration struct {
 type LanguageModelConfiguration struct {
 	DefaultProvider  string                               `json:"defaultProvider"`
 	FallbackProvider string                               `json:"fallbackProvider"`
-	Capability       CapabilityLanguageModelConfiguration `json:"capability"`
+	Capability       LanguageModelCapabilityConfiguration `json:"capability"`
+	OpenRouter       OpenRouterConfiguration              `json:"openRouter"`
+	LiteRTLM         LiteRTLMConfiguration                `json:"liteRTLM"`
 }
 
-type CapabilityLanguageModelConfiguration struct {
-	Model                 string `json:"model"`
-	ExecutionMode         string `json:"executionMode"`
+type LanguageModelCapabilityConfiguration struct {
+	Model         string `json:"model"`
+	ExecutionMode string `json:"executionMode"`
+}
+
+type OpenRouterConfiguration struct {
+	BaseURL               string `json:"baseURL"`
+	ModelName             string `json:"modelName"`
 	RequireParameters     bool   `json:"requireParameters"`
 	EnableResponseHealing bool   `json:"enableResponseHealing"`
+}
+
+type LiteRTLMConfiguration struct {
+	WrapperPath        string   `json:"wrapperPath"`
+	WrapperArguments   []string `json:"wrapperArguments"`
+	ModelPath          string   `json:"modelPath"`
+	BackendPreference  []string `json:"backendPreference"`
+	AllowCPUFallback   bool     `json:"allowCPUFallback"`
+	ConstraintProvider string   `json:"constraintProvider"`
 }
 
 type FirecrackerConfiguration struct {
