@@ -51,6 +51,10 @@ func (taskRunService *TaskRunService) CreateTaskRun(requesterPersonID string, or
 	return taskRun
 }
 
+func (taskRunService *TaskRunService) AppendTaskEvent(taskRunID string, name string, body string) {
+	taskRunService.taskEventService.AppendTaskEvent(taskRunID, name, body)
+}
+
 func (taskRunService *TaskRunService) AdvanceTaskRun(taskRunID string, currentAgentProfileName string) (TaskRun, error) {
 	taskRunService.mutex.Lock()
 	defer taskRunService.mutex.Unlock()

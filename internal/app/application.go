@@ -85,6 +85,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if database.SQL != nil {
 		memoryService.UseRepository(postgres.NewMemoryRecordRepository(database))
 	}
+	memoryExtractor := memory.NewMemoryExtractionService(languageModelProvider, memoryService)
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	connectorRuntime := connectors.NewConnectorRuntime(
@@ -93,6 +94,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		logger,
 	)
 	connectorRuntime.UseMemoryService(memoryService)
+	connectorRuntime.UseMemoryExtractor(memoryExtractor)
 	connectorRuntime.UseIngressGate(backupCoordinator)
 	if database.SQL != nil {
 		connectorRuntime.UseEventRepository(postgres.NewRawEventRepository(database))
@@ -191,7 +193,7 @@ func buildBackupManifest(runtimeConfiguration config.RuntimeConfiguration, datab
 	return backup.Manifest{
 		ContractVersion: 1,
 		BlueclawVersion: "main",
-		SchemaVersion:   "010_backup_runtime_contract",
+		SchemaVersion:   "011_scoped_memory_source_metadata",
 		PersistentDataRoots: []string{
 			"/workspace/.blueclaw",
 			runtimeConfiguration.Terminal.WorkspaceRootPath,

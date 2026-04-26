@@ -167,6 +167,53 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
+	languageModel := &memoryAwareLanguageModel{}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	memoryService := &memory.MemoryService{}
+	connectorRuntime.UseMemoryService(memoryService)
+	connectorRuntime.UseMemoryExtractor(memory.NewMemoryExtractionService(languageModel, memoryService))
+
+	channelEvent := testInboundEvent("message-1")
+	channelEvent.ConversationID = "channel-1"
+	channelEvent.Prompt = "내 이름은 민수야"
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, channelEvent)
+	if errorValue != nil {
+		t.Fatalf("expected channel memory event to process: %v", errorValue)
+	}
+
+	directEvent := testInboundEvent("message-2")
+	directEvent.ConversationID = "dm-1"
+	directEvent.Prompt = "내 이름 뭐야?"
+	_, errorValue = connectorRuntime.HandleInboundEvent(context.Background(), adapter, directEvent)
+	if errorValue != nil {
+		t.Fatalf("expected direct memory recall event to process: %v", errorValue)
+	}
+
+	if !strings.Contains(languageModel.lastReplyRequest.Messages[1].Content, "민수") {
+		t.Fatalf("expected user memory from channel in direct reply context, got %+v", languageModel.lastReplyRequest.Messages)
+	}
+}
+
+func TestConnectorRuntimeDoesNotShareUserMemoryWithOtherPerson(t *testing.T) {
+	memoryService := &memory.MemoryService{}
+	memoryService.StoreDerivedMemory(memory.MemoryRecord{
+		ScopeType:         memory.ScopeTypeUser,
+		ScopePersonID:     "person-1",
+		ContentCiphertext: []byte("사용자의 이름은 민수다."),
+	})
+
+	records := memoryService.SearchMemory(memory.MemorySearchRequest{
+		ReaderPersonID:          "person-2",
+		ReaderSecurityLevelRank: 100,
+		ReaderGrantedClasses:    []string{"internal"},
+		ConversationID:          "dm-2",
+	})
+	if len(records) != 0 {
+		t.Fatalf("expected person-2 not to read person-1 user memory, got %d", len(records))
+	}
+}
+
 func TestConnectorRuntimeRejectsMissingHistoryCursorWhenMoreContextExists(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
 	event := testInboundEvent("message-1")
@@ -292,11 +339,34 @@ func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ contex
 	return llm.StructuredResponse{Content: `{"reply":"` + languageModel.reply + `"}`}, nil
 }
 
+type memoryAwareLanguageModel struct {
+	lastReplyRequest llm.StructuredResponseRequest
+}
+
+func (languageModel *memoryAwareLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "ok", nil
+}
+
+func (languageModel *memoryAwareLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_memory_extraction" {
+		userMessage := structuredResponseRequest.Messages[len(structuredResponseRequest.Messages)-1].Content
+		if strings.Contains(userMessage, "이름은 민수") {
+			return llm.StructuredResponse{Content: `{"candidates":[{"scopeType":"user","subjectPersonID":"","title":"name","memoryType":"profile","content":"사용자의 이름은 민수다.","confidence":0.95,"securityLevelRank":0,"requiredClasses":[]}]}`}, nil
+		}
+		return llm.StructuredResponse{Content: `{"candidates":[]}`}, nil
+	}
+	languageModel.lastReplyRequest = structuredResponseRequest
+	return llm.StructuredResponse{Content: `{"reply":"ok"}`}, nil
+}
+
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {
 	t.Helper()
 
 	identityService := identity.NewIdentityService(policy.PolicyProjection{
 		PersonIDByEmail: map[string]string{"invited@example.com": "person-1"},
+		PersonAccessByPersonID: map[string]policy.PersonAccess{
+			"person-1": {PersonID: "person-1", SecurityLevelRank: 100, GrantedClasses: []string{"internal", "finance"}},
+		},
 	})
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)

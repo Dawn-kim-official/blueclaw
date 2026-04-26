@@ -15,8 +15,8 @@ func TestMigrationsApplyList(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected migrations to load: %v", errorValue)
 	}
-	if len(migrationPaths) != 10 {
-		t.Fatalf("expected 10 migration files, got %d", len(migrationPaths))
+	if len(migrationPaths) != 11 {
+		t.Fatalf("expected 11 migration files, got %d", len(migrationPaths))
 	}
 }
 
@@ -33,6 +33,25 @@ func TestMinimalConversationContractMigrationStoresReplayFields(t *testing.T) {
 		"visible_context_sha256 bytea",
 		"has_more_before boolean NOT NULL DEFAULT false",
 		"history_cursor text",
+	}
+	for _, requiredField := range requiredFields {
+		if !strings.Contains(migrationText, requiredField) {
+			t.Fatalf("expected migration to include %q", requiredField)
+		}
+	}
+}
+
+func TestScopedMemoryMigrationStoresSourceMetadata(t *testing.T) {
+	migrationDocument, errorValue := os.ReadFile(filepath.Join("../../migrations", "011_scoped_memory_source_metadata.sql"))
+	if errorValue != nil {
+		t.Fatalf("expected scoped memory migration to load: %v", errorValue)
+	}
+
+	migrationText := string(migrationDocument)
+	requiredFields := []string{
+		"source_platform text",
+		"source_message_id text",
+		"memory_record_scope_lookup_idx",
 	}
 	for _, requiredField := range requiredFields {
 		if !strings.Contains(migrationText, requiredField) {

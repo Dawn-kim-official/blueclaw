@@ -36,6 +36,10 @@ func (agentKernel *AgentKernel) HandleInboundMessage(requesterPersonID string, o
 	return agentKernel.RunTask(requesterPersonID, originConversationID, prompt)
 }
 
+func (agentKernel *AgentKernel) AppendTaskEvent(taskRunID string, name string, body string) {
+	agentKernel.taskRunService.AppendTaskEvent(taskRunID, name, body)
+}
+
 func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, prompt string) (string, error) {
 	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
 }
@@ -152,19 +156,40 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 }
 
 func buildMemoryContext(memoryRecords []memory.MemoryRecord) string {
-	memoryDescriptions := []string{}
+	userMemoryDescriptions := []string{}
+	workspaceMemoryDescriptions := []string{}
+	conversationMemoryDescriptions := []string{}
 	for _, memoryRecord := range memoryRecords {
 		memoryDescription := strings.TrimSpace(string(memoryRecord.ContentCiphertext))
-		if memoryDescription != "" {
-			memoryDescriptions = append(memoryDescriptions, "- "+memoryDescription)
+		if memoryDescription == "" {
+			continue
+		}
+		switch memoryRecord.ScopeType {
+		case memory.ScopeTypeWorkspace:
+			workspaceMemoryDescriptions = append(workspaceMemoryDescriptions, "- "+memoryDescription)
+		case memory.ScopeTypeConversation:
+			conversationMemoryDescriptions = append(conversationMemoryDescriptions, "- "+memoryDescription)
+		default:
+			userMemoryDescriptions = append(userMemoryDescriptions, "- "+memoryDescription)
 		}
 	}
 
-	if len(memoryDescriptions) == 0 {
+	sections := []string{}
+	if len(userMemoryDescriptions) > 0 {
+		sections = append(sections, "User-space memory for this requester:\n"+strings.Join(userMemoryDescriptions, "\n"))
+	}
+	if len(workspaceMemoryDescriptions) > 0 {
+		sections = append(sections, "Accessible workspace memory:\n"+strings.Join(workspaceMemoryDescriptions, "\n"))
+	}
+	if len(conversationMemoryDescriptions) > 0 {
+		sections = append(sections, "Current conversation memory:\n"+strings.Join(conversationMemoryDescriptions, "\n"))
+	}
+
+	if len(sections) == 0 {
 		return ""
 	}
 
-	return "Relevant Blueclaw memory for this requester:\n" + strings.Join(memoryDescriptions, "\n")
+	return strings.Join(sections, "\n\n")
 }
 
 func (agentKernel *AgentKernel) RunTask(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {

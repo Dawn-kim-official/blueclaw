@@ -15,6 +15,8 @@ type PlatformAccountRepository interface {
 type IdentityService struct {
 	mutex                        sync.RWMutex
 	personIDByEmail              map[string]string
+	personAccessByPersonID       map[string]policy.PersonAccess
+	channelByCompositeKey        map[string]policy.ChannelPolicy
 	personIDByPlatformAccountKey map[string]string
 	platformAccountRepository    PlatformAccountRepository
 }
@@ -22,6 +24,8 @@ type IdentityService struct {
 func NewIdentityService(policyProjection policy.PolicyProjection) *IdentityService {
 	identityService := &IdentityService{
 		personIDByEmail:              map[string]string{},
+		personAccessByPersonID:       map[string]policy.PersonAccess{},
+		channelByCompositeKey:        map[string]policy.ChannelPolicy{},
 		personIDByPlatformAccountKey: map[string]string{},
 	}
 
@@ -46,9 +50,21 @@ func (identityService *IdentityService) ReloadPolicyProjection(policyProjection 
 
 func (identityService *IdentityService) reloadPolicyProjection(policyProjection policy.PolicyProjection) {
 	identityService.personIDByEmail = map[string]string{}
+	identityService.personAccessByPersonID = map[string]policy.PersonAccess{}
+	identityService.channelByCompositeKey = map[string]policy.ChannelPolicy{}
 	identityService.personIDByPlatformAccountKey = map[string]string{}
 	for email, personID := range policyProjection.PersonIDByEmail {
 		identityService.personIDByEmail[email] = personID
+	}
+	for personID, personAccess := range policyProjection.PersonAccessByPersonID {
+		identityService.personAccessByPersonID[personID] = policy.PersonAccess{
+			PersonID:          personAccess.PersonID,
+			SecurityLevelRank: personAccess.SecurityLevelRank,
+			GrantedClasses:    append([]string{}, personAccess.GrantedClasses...),
+		}
+	}
+	for compositeKey, channelPolicy := range policyProjection.ChannelByCompositeKey {
+		identityService.channelByCompositeKey[compositeKey] = channelPolicy
 	}
 }
 
@@ -71,6 +87,26 @@ func (identityService *IdentityService) ResolvePersonIDByPlatformAccount(platfor
 func (identityService *IdentityService) IsApprovedInternalEmail(email string) bool {
 	_, isFound := identityService.ResolvePersonIDByEmail(email)
 	return isFound
+}
+
+func (identityService *IdentityService) ResolvePersonAccess(personID string) policy.PersonAccess {
+	identityService.mutex.RLock()
+	defer identityService.mutex.RUnlock()
+
+	personAccess, isFound := identityService.personAccessByPersonID[personID]
+	if !isFound {
+		return policy.PersonAccess{PersonID: personID}
+	}
+	personAccess.GrantedClasses = append([]string{}, personAccess.GrantedClasses...)
+	return personAccess
+}
+
+func (identityService *IdentityService) ResolveConversationPolicy(platform string, conversationID string) (policy.ChannelPolicy, bool) {
+	identityService.mutex.RLock()
+	defer identityService.mutex.RUnlock()
+
+	channelPolicy, isFound := identityService.channelByCompositeKey[platform+":"+conversationID]
+	return channelPolicy, isFound
 }
 
 func (identityService *IdentityService) RememberPlatformAccount(platformAccountIdentity PlatformAccountIdentity) {
