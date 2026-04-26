@@ -18,7 +18,9 @@ type AgentKernel struct {
 	taskStepService     *task.TaskStepService
 	taskArtifactService *task.TaskArtifactService
 	languageModel       llm.LanguageModelProvider
+	intakeLanguageModel llm.LanguageModelProvider
 	turnOptions         TurnOptions
+	intakeOptions       IntakeOptions
 }
 
 func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
@@ -43,6 +45,14 @@ func (agentKernel *AgentKernel) UseTaskArtifactService(taskArtifactService *task
 
 func (agentKernel *AgentKernel) UseTurnOptions(turnOptions TurnOptions) {
 	agentKernel.turnOptions = normalizeTurnOptions(turnOptions)
+}
+
+func (agentKernel *AgentKernel) UseIntakeLanguageModelProvider(languageModel llm.LanguageModelProvider) {
+	agentKernel.intakeLanguageModel = languageModel
+}
+
+func (agentKernel *AgentKernel) UseIntakeOptions(intakeOptions IntakeOptions) {
+	agentKernel.intakeOptions = normalizeIntakeOptions(intakeOptions)
 }
 
 func (agentKernel *AgentKernel) HandleInboundMessage(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
@@ -98,14 +108,52 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 }
 
 func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request AgentTurnRequest) (AgentTurnResult, error) {
+	return agentKernel.RunAgentRequest(responseContext, AgentRequest{
+		RequesterPersonID: request.RequesterPersonID,
+		ConversationID:    request.ConversationID,
+		Prompt:            request.Prompt,
+		VisibleContext:    request.VisibleContext,
+		MemoryFacts:       request.MemoryFacts,
+		ToolRegistry:      request.ToolRegistry,
+	})
+}
+
+func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
+	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
+	intakeDecision := intakePlanner.Plan(responseContext, request)
+	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
+		return agentKernel.completeIntakeOnlyRequest(request, intakeDecision, task.TaskStatusWaitingUserInput)
+	}
+	if intakeDecision.Classification == IntakeClassificationUnsupported {
+		return agentKernel.completeIntakeOnlyRequest(request, intakeDecision, task.TaskStatusBlocked)
+	}
+
+	turnRequest := AgentTurnRequest{
+		RequesterPersonID: request.RequesterPersonID,
+		ConversationID:    request.ConversationID,
+		Prompt:            request.Prompt,
+		VisibleContext:    request.VisibleContext,
+		MemoryFacts:       request.MemoryFacts,
+		ToolRegistry:      request.ToolRegistry,
+	}
+	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
+	if intakeDecision.Classification == IntakeClassificationQuickReply {
+		turnRequest.ToolRegistry = nil
+		turnOptions.MaxIterations = 1
+	}
+
 	agentTurnRunner := NewAgentTurnRunner(
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
 		agentKernel.taskArtifactService,
 		agentKernel.languageModel,
-		agentKernel.turnOptions,
+		turnOptions,
 	)
-	return agentTurnRunner.RunTurn(responseContext, request)
+	result, errorValue := agentTurnRunner.RunTurn(responseContext, turnRequest)
+	if result.TaskRun.TaskRunID != "" {
+		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+	}
+	return result, errorValue
 }
 
 type VisibleContext struct {
@@ -242,4 +290,36 @@ func (agentKernel *AgentKernel) RunTask(requesterPersonID string, originConversa
 
 func (agentKernel *AgentKernel) ResumeTask(taskRunID string) (task.TaskRun, error) {
 	return agentKernel.taskRunService.ResumeTaskRun(taskRunID)
+}
+
+func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus) (AgentTurnResult, error) {
+	taskRun := agentKernel.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+	finalReply := strings.TrimSpace(intakeDecision.UserFacingReply)
+	if finalReply == "" {
+		finalReply = defaultUserFacingReply(intakeDecision.Classification)
+	}
+	if finalReply == "" {
+		finalReply = "I cannot complete that within the current execution boundary."
+	}
+	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, status, intakeDecision.Reason)
+	if errorValue != nil {
+		return AgentTurnResult{}, errorValue
+	}
+	blockedTaskRun.Result = finalReply
+	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: finalReply}, nil
+}
+
+func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {
+	baseOptions := normalizeTurnOptions(agentKernel.turnOptions)
+	if intakeDecision.MaxIterationsPerRequest > 0 && intakeDecision.MaxIterationsPerRequest < baseOptions.MaxIterations {
+		baseOptions.MaxIterations = intakeDecision.MaxIterationsPerRequest
+	}
+	if intakeDecision.MaxToolCallsPerRequest > 0 && intakeDecision.MaxToolCallsPerRequest < baseOptions.MaxToolCalls {
+		baseOptions.MaxToolCalls = intakeDecision.MaxToolCallsPerRequest
+	}
+	if intakeDecision.MaxWallClockSecond > 0 && intakeDecision.MaxWallClockSecond < baseOptions.WallClockSecond {
+		baseOptions.WallClockSecond = intakeDecision.MaxWallClockSecond
+	}
+	return baseOptions
 }

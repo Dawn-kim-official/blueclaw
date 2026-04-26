@@ -44,9 +44,17 @@ type MCPServerConfiguration struct {
 }
 
 type AgentConfiguration struct {
-	MaxIterations      int `json:"maxIterations"`
-	TurnTimeoutSecond  int `json:"turnTimeoutSecond"`
-	ToolResultMaxBytes int `json:"toolResultMaxBytes"`
+	Intake                  AgentIntakeConfiguration `json:"intake"`
+	MaxIterationsPerRequest int                      `json:"maxIterationsPerRequest"`
+	MaxToolCallsPerRequest  int                      `json:"maxToolCallsPerRequest"`
+	MaxWallClockSecond      int                      `json:"maxWallClockSecond"`
+	ToolResultMaxBytes      int                      `json:"toolResultMaxBytes"`
+}
+
+type AgentIntakeConfiguration struct {
+	Enabled       bool   `json:"enabled"`
+	Model         string `json:"model"`
+	ExecutionMode string `json:"executionMode"`
 }
 
 type LanguageModelConfiguration struct {

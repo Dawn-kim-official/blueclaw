@@ -54,8 +54,14 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "timeoutSecond": 15
   },
   "agent": {
-    "maxIterations": 8,
-    "turnTimeoutSecond": 120,
+    "intake": {
+      "enabled": true,
+      "model": "local/gemma-4-E4B-it-litert-lm",
+      "executionMode": "local"
+    },
+    "maxIterationsPerRequest": 8,
+    "maxToolCallsPerRequest": 8,
+    "maxWallClockSecond": 120,
     "toolResultMaxBytes": 32768
   },
   "agentProfiles": [
@@ -163,11 +169,23 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Memory.GraphitiKuzuPath != "/workspace/.blueclaw/graphiti/kuzu" {
 		t.Fatalf("expected graphiti kuzu path to match, got %q", runtimeConfiguration.Memory.GraphitiKuzuPath)
 	}
-	if runtimeConfiguration.Agent.MaxIterations != 8 {
-		t.Fatalf("expected agent max iterations to match, got %d", runtimeConfiguration.Agent.MaxIterations)
+	if !runtimeConfiguration.Agent.Intake.Enabled {
+		t.Fatal("expected agent intake to be enabled")
 	}
-	if runtimeConfiguration.Agent.TurnTimeoutSecond != 120 {
-		t.Fatalf("expected agent turn timeout to match, got %d", runtimeConfiguration.Agent.TurnTimeoutSecond)
+	if runtimeConfiguration.Agent.Intake.Model != "local/gemma-4-E4B-it-litert-lm" {
+		t.Fatalf("expected agent intake model to match, got %q", runtimeConfiguration.Agent.Intake.Model)
+	}
+	if runtimeConfiguration.Agent.Intake.ExecutionMode != "local" {
+		t.Fatalf("expected agent intake execution mode to match, got %q", runtimeConfiguration.Agent.Intake.ExecutionMode)
+	}
+	if runtimeConfiguration.Agent.MaxIterationsPerRequest != 8 {
+		t.Fatalf("expected agent max iterations to match, got %d", runtimeConfiguration.Agent.MaxIterationsPerRequest)
+	}
+	if runtimeConfiguration.Agent.MaxToolCallsPerRequest != 8 {
+		t.Fatalf("expected agent max tool calls to match, got %d", runtimeConfiguration.Agent.MaxToolCallsPerRequest)
+	}
+	if runtimeConfiguration.Agent.MaxWallClockSecond != 120 {
+		t.Fatalf("expected agent wall clock budget to match, got %d", runtimeConfiguration.Agent.MaxWallClockSecond)
 	}
 	if runtimeConfiguration.Agent.ToolResultMaxBytes != 32768 {
 		t.Fatalf("expected agent tool result limit to match, got %d", runtimeConfiguration.Agent.ToolResultMaxBytes)

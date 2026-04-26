@@ -30,6 +30,25 @@ func TestResolveLanguageModelProviderDefaultsToCapabilityLLM(t *testing.T) {
 	}
 }
 
+func TestResolveIntakeLanguageModelProviderUsesLocalCapabilityModel(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Agent.Intake.Enabled = true
+	runtimeConfiguration.Agent.Intake.Model = "local/gemma-4-E4B-it-litert-lm"
+	runtimeConfiguration.Agent.Intake.ExecutionMode = "local"
+
+	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration))
+	capabilityLLMClient, isCapabilityProvider := languageModelProvider.(llm.CapabilityLLMClient)
+	if !isCapabilityProvider {
+		t.Fatalf("expected capability intake provider, got %T", languageModelProvider)
+	}
+	if capabilityLLMClient.ModelName != "local/gemma-4-E4B-it-litert-lm" {
+		t.Fatalf("expected local intake model, got %q", capabilityLLMClient.ModelName)
+	}
+	if capabilityLLMClient.ExecutionMode != "local" {
+		t.Fatalf("expected local intake execution mode, got %q", capabilityLLMClient.ExecutionMode)
+	}
+}
+
 func TestNewApplicationRegistersSecretlessConnectorTransports(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.Logging.DirectoryPath = t.TempDir()

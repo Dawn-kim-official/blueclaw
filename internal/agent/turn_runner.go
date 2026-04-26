@@ -14,10 +14,12 @@ import (
 )
 
 const DefaultFallbackReply = "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
+const DefaultBudgetExceededReply = "I stopped because this request exceeded the current execution budget. Please narrow the request and try again."
 
 type TurnOptions struct {
 	MaxIterations      int
-	TurnTimeoutSecond  int
+	MaxToolCalls       int
+	WallClockSecond    int
 	ToolResultMaxBytes int
 }
 
@@ -77,8 +79,14 @@ func normalizeTurnOptions(options TurnOptions) TurnOptions {
 	if options.MaxIterations <= 0 {
 		options.MaxIterations = 8
 	}
-	if options.TurnTimeoutSecond <= 0 {
-		options.TurnTimeoutSecond = 120
+	if options.MaxToolCalls < 0 {
+		options.MaxToolCalls = 0
+	}
+	if options.MaxToolCalls == 0 {
+		options.MaxToolCalls = 8
+	}
+	if options.WallClockSecond <= 0 {
+		options.WallClockSecond = 120
 	}
 	if options.ToolResultMaxBytes <= 0 {
 		options.ToolResultMaxBytes = 32768
@@ -91,7 +99,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		return AgentTurnResult{}, errors.New("language model provider is not configured")
 	}
 
-	turnContext, cancel := context.WithTimeout(ctx, time.Duration(agentTurnRunner.options.TurnTimeoutSecond)*time.Second)
+	turnContext, cancel := context.WithTimeout(ctx, time.Duration(agentTurnRunner.options.WallClockSecond)*time.Second)
 	defer cancel()
 
 	taskRun := agentTurnRunner.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
@@ -101,6 +109,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 
 	observations := []turnObservation{}
+	toolCallCount := 0
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterations; iteration++ {
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
@@ -108,6 +117,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, observations)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
+			if errors.Is(actionError, context.DeadlineExceeded) {
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum wall clock exceeded")
+			}
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, "llm action failed: "+actionError.Error())
 		}
 
@@ -126,14 +138,29 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
 			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply}, nil
 		case "call_tool":
+			toolCallCount++
+			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
+			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, actionDocument.ToolInput)
 			observations = append(observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
+			toolCallCount++
+			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
+			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, "conversation.history", actionDocument.ToolInput)
 			observations = append(observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "fetch_history", observation.Content)
 		case "search_memory":
+			toolCallCount++
+			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
+			}
 			toolInput := actionDocument.ToolInput
 			if len(toolInput) == 0 {
 				toolInput = MarshalToolInput(map[string]string{"query": firstNonEmptyString(actionDocument.Query, request.Prompt)})
@@ -152,7 +179,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 	}
 
-	return agentTurnRunner.failTurn(taskRun.TaskRunID, "maximum agent iterations exceeded")
+	return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum agent iterations exceeded")
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation) (turnActionDocument, error) {
@@ -257,6 +284,12 @@ func (agentTurnRunner *AgentTurnRunner) appendEvent(taskRunID string, name strin
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, reason string) (AgentTurnResult, error) {
 	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
 	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: DefaultFallbackReply}, nil
+}
+
+func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, reason string) (AgentTurnResult, error) {
+	agentTurnRunner.appendEvent(taskRunID, "agent.budget_stop", reason)
+	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
+	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: DefaultBudgetExceededReply}, nil
 }
 
 func marshalEventBody(value any) string {

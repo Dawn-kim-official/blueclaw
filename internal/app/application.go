@@ -80,10 +80,16 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
+	agentKernel.UseIntakeOptions(deriveAgentIntakeOptions(runtimeConfiguration))
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
 	if languageModelProvider != nil {
 		agentKernel.UseLanguageModelProvider(languageModelProvider)
+	}
+	capabilityClient := newCapabilityClient(runtimeConfiguration)
+	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, capabilityClient)
+	if intakeLanguageModelProvider != nil {
+		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
 	}
 	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	memoryService := &memory.MemoryService{}
@@ -96,7 +102,6 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	memoryScopeRouter := memory.NewMemoryScopeRouter(languageModelProvider, runtimeConfiguration.Memory.WorkspaceID)
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
-	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	mcpRegistry := mcp.NewMcpRegistry()
 	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
 	connectorRuntime := connectors.NewConnectorRuntime(
@@ -181,9 +186,19 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 
 func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
 	return agent.TurnOptions{
-		MaxIterations:      runtimeConfiguration.Agent.MaxIterations,
-		TurnTimeoutSecond:  runtimeConfiguration.Agent.TurnTimeoutSecond,
+		MaxIterations:      runtimeConfiguration.Agent.MaxIterationsPerRequest,
+		MaxToolCalls:       runtimeConfiguration.Agent.MaxToolCallsPerRequest,
+		WallClockSecond:    runtimeConfiguration.Agent.MaxWallClockSecond,
 		ToolResultMaxBytes: runtimeConfiguration.Agent.ToolResultMaxBytes,
+	}
+}
+
+func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agent.IntakeOptions {
+	return agent.IntakeOptions{
+		IsEnabled:               runtimeConfiguration.Agent.Intake.Enabled,
+		MaxIterationsPerRequest: runtimeConfiguration.Agent.MaxIterationsPerRequest,
+		MaxToolCallsPerRequest:  runtimeConfiguration.Agent.MaxToolCallsPerRequest,
+		MaxWallClockSecond:      runtimeConfiguration.Agent.MaxWallClockSecond,
 	}
 }
 
@@ -290,6 +305,25 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 	}
 
 	return languageModelProvider
+}
+
+func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client) llm.LanguageModelProvider {
+	if !runtimeConfiguration.Agent.Intake.Enabled {
+		return nil
+	}
+	modelName := strings.TrimSpace(runtimeConfiguration.Agent.Intake.Model)
+	if modelName == "" {
+		modelName = "local/gemma-4-E4B-it-litert-lm"
+	}
+	executionMode := strings.TrimSpace(runtimeConfiguration.Agent.Intake.ExecutionMode)
+	if executionMode == "" {
+		executionMode = "local"
+	}
+	return llm.CapabilityLLMClient{
+		CapabilityClient: capabilityClient,
+		ModelName:        modelName,
+		ExecutionMode:    executionMode,
+	}
 }
 
 func deriveLanguageModelRuntimeConfiguration(runtimeConfiguration config.RuntimeConfiguration) config.RuntimeConfiguration {

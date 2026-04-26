@@ -145,11 +145,39 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected fallback result, got error: %v", errorValue)
 	}
-	if result.FinalReply != DefaultFallbackReply {
-		t.Fatalf("expected fallback reply, got %q", result.FinalReply)
+	if result.FinalReply != DefaultBudgetExceededReply {
+		t.Fatalf("expected budget reply, got %q", result.FinalReply)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
-		t.Fatalf("expected failed task run, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task run, got %s", result.TaskRun.Status)
+	}
+}
+
+func TestAgentTurnRunnerStopsWhenToolBudgetIsExceeded(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 3, MaxToolCalls: 1})
+	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "again"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected budget result, got error: %v", errorValue)
+	}
+	if result.FinalReply != DefaultBudgetExceededReply {
+		t.Fatalf("expected budget reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.budget_stop", "maximum tool calls exceeded") {
+		t.Fatal("expected budget stop event")
 	}
 }
 
