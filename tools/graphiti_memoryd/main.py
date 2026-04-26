@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import sys
+import threading
 import traceback
 import urllib.error
 import urllib.request
@@ -140,14 +141,22 @@ class GraphitiMemoryService:
             embedder=CapabilityEmbedder(capability_endpoint),
             cross_encoder=CapabilityReranker(capability_endpoint),
         )
+        self.operation_lock = threading.Lock()
         asyncio.run(self.graphiti.build_indices_and_constraints())
 
     async def add_episode(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        with self.operation_lock:
+            return await self.add_episode_locked(request_document)
+
+    async def search(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        with self.operation_lock:
+            return await self.search_locked(request_document)
+
+    async def add_episode_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
         episode_id = request_document["episodeID"]
         prompt = request_document["prompt"]
         sender_person_id = request_document["senderPersonID"]
         occurred_at = parse_datetime(request_document.get("occurredAt"))
-        episode_body = sender_person_id + ": " + prompt
         source_reference = request_document.get("sourceReference", "")
         namespaces = request_document.get("namespaces", [])
         for namespace in namespaces:
@@ -163,7 +172,7 @@ class GraphitiMemoryService:
             )
         return {"episodeID": episode_id, "namespaceCount": len(namespaces)}
 
-    async def search(self, request_document: dict[str, Any]) -> dict[str, Any]:
+    async def search_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
         query = request_document.get("Query") or request_document.get("query") or ""
         limit = int(request_document.get("Limit") or request_document.get("limit") or 12)
         namespaces = request_document.get("Namespaces") or request_document.get("namespaces") or []
