@@ -26,7 +26,16 @@ func (taskStepService *TaskStepService) UseRepository(repository TaskStepReposit
 func (taskStepService *TaskStepService) AddTaskStep(taskStep TaskStep) {
 	taskStepService.mutex.Lock()
 	defer taskStepService.mutex.Unlock()
-	taskStepService.taskSteps[taskStep.TaskRunID] = append(taskStepService.taskSteps[taskStep.TaskRunID], taskStep)
+	taskSteps := taskStepService.taskSteps[taskStep.TaskRunID]
+	for index, existingTaskStep := range taskSteps {
+		if existingTaskStep.TaskStepID == taskStep.TaskStepID {
+			taskSteps[index] = taskStep
+			taskStepService.taskSteps[taskStep.TaskRunID] = taskSteps
+			_ = taskStepService.saveTaskStep(taskStep)
+			return
+		}
+	}
+	taskStepService.taskSteps[taskStep.TaskRunID] = append(taskSteps, taskStep)
 	_ = taskStepService.saveTaskStep(taskStep)
 }
 

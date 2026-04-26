@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/capability"
 	"blueclaw/internal/identity"
+	"blueclaw/internal/mcp"
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 )
@@ -97,12 +101,16 @@ type ConnectorTransport interface {
 }
 
 type ConnectorRuntime struct {
-	identityService *identity.IdentityService
-	agentKernel     *agent.AgentKernel
-	memoryService   *memory.MemoryService
-	memoryRouter    *memory.MemoryScopeRouter
-	workspaceID     string
-	logger          *slog.Logger
+	identityService     *identity.IdentityService
+	agentKernel         *agent.AgentKernel
+	memoryService       *memory.MemoryService
+	memoryRouter        *memory.MemoryScopeRouter
+	workspaceID         string
+	logger              *slog.Logger
+	mcpRegistry         *mcp.McpRegistry
+	capabilityClient    capability.Client
+	capabilityToolNames []string
+	allowedToolNames    []string
 
 	mutex             sync.Mutex
 	adapterByPlatform map[string]PlatformAdapter
@@ -122,6 +130,7 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		logger:            logger,
 		adapterByPlatform: map[string]PlatformAdapter{},
 		processedResults:  map[string]ConnectorRuntimeResult{},
+		allowedToolNames:  []string{"conversation.history", "memory.search"},
 	}
 }
 
@@ -150,6 +159,23 @@ func (connectorRuntime *ConnectorRuntime) UseEventRepository(eventRepository Con
 
 func (connectorRuntime *ConnectorRuntime) UseIngressGate(ingressGate IngressGate) {
 	connectorRuntime.ingressGate = ingressGate
+}
+
+func (connectorRuntime *ConnectorRuntime) UseMCPRegistry(mcpRegistry *mcp.McpRegistry) {
+	connectorRuntime.mcpRegistry = mcpRegistry
+}
+
+func (connectorRuntime *ConnectorRuntime) UseCapabilityTools(capabilityClient capability.Client, toolNames []string) {
+	connectorRuntime.capabilityClient = capabilityClient
+	connectorRuntime.capabilityToolNames = trimNonEmptyStrings(toolNames)
+}
+
+func (connectorRuntime *ConnectorRuntime) UseAllowedToolNames(allowedToolNames []string) {
+	trimmedToolNames := trimNonEmptyStrings(allowedToolNames)
+	if len(trimmedToolNames) == 0 {
+		trimmedToolNames = []string{"conversation.history", "memory.search"}
+	}
+	connectorRuntime.allowedToolNames = trimmedToolNames
 }
 
 func (connectorRuntime *ConnectorRuntime) HandleHTTPEvent(ctx context.Context, platform string, request *http.Request) (ConnectorRuntimeResult, *HTTPResponse, error) {
@@ -296,41 +322,152 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 
 	connectorRuntime.logger.Info("connector."+platform+".auth.allowed", slog.String("messageID", event.MessageID), slog.String("personID", personID))
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
-	taskRun, errorValue := connectorRuntime.agentKernel.HandleInboundMessage(personID, event.ConversationID, event.Prompt)
-	if errorValue != nil {
-		connectorRuntime.logger.Error("connector."+platform+".task.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		return ConnectorRuntimeResult{}, errorValue
-	}
-
-	connectorRuntime.logger.Info("connector."+platform+".task.created", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
-	reply := "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
+	toolRegistry := connectorRuntime.buildTurnToolRegistry(adapter, event, personID, personAccess)
 	stopProgress := connectorRuntime.startProgress(ctx, adapter, replyTarget)
 	defer stopProgress()
 
-	connectorRuntime.logger.Info("connector."+platform+".llm.started", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
 	memoryFacts, memoryError := connectorRuntime.searchAccessibleMemory(ctx, personID, personAccess, event)
 	if memoryError != nil {
-		connectorRuntime.logger.Warn("connector."+platform+".memory.search_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID), slog.String("error", memoryError.Error()))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "memory.search_failed", memoryError.Error())
-	}
-	generatedReply, errorValue := connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), memoryFacts)
-	if errorValue == nil {
-		reply = generatedReply
-		connectorRuntime.logger.Info("connector."+platform+".llm.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
-	} else {
-		connectorRuntime.logger.Error("connector."+platform+".llm.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID), slog.String("error", errorValue.Error()))
-		connectorRuntime.logger.Warn("connector."+platform+".reply.fallback_used", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
+		connectorRuntime.logger.Warn("connector."+platform+".memory.search_failed", slog.String("messageID", event.MessageID), slog.String("error", memoryError.Error()))
 	}
 
-	dispatchID, errorValue := adapter.SendReply(ctx, replyTarget, reply)
+	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
+	turnResult, errorValue := connectorRuntime.agentKernel.RunTurn(ctx, agent.AgentTurnRequest{
+		RequesterPersonID: personID,
+		ConversationID:    event.ConversationID,
+		Prompt:            event.Prompt,
+		VisibleContext:    event.Context.ToAgentVisibleContext(),
+		MemoryFacts:       memoryFacts,
+		ToolRegistry:      toolRegistry,
+	})
 	if errorValue != nil {
-		connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID), slog.String("error", errorValue.Error()))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRun.TaskRunID, Reason: "reply_failed"}, nil
+		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
+		return ConnectorRuntimeResult{}, errorValue
+	}
+	taskRunID := turnResult.TaskRun.TaskRunID
+	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
+
+	dispatchID, errorValue := adapter.SendReply(ctx, replyTarget, turnResult.FinalReply)
+	if errorValue != nil {
+		connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "reply_failed"}, nil
 	}
 
-	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID), slog.String("replyDispatchID", dispatchID))
-	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRun.TaskRunID)
-	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRun.TaskRunID, ReplyDispatchID: dispatchID}, nil
+	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID))
+	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
+	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *agent.ToolRegistry {
+	toolRegistry := agent.NewToolRegistry(connectorRuntime.allowedToolNames)
+	toolRegistry.RegisterTool(agent.ToolDefinition{
+		Name:        "conversation.history",
+		Description: "Fetch earlier visible messages for this conversation using the opaque history cursor.",
+	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+		var input struct {
+			HistoryCursor string `json:"historyCursor"`
+			Limit         int    `json:"limit"`
+			Direction     string `json:"direction"`
+		}
+		if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
+			return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		}
+		historyCursor := strings.TrimSpace(input.HistoryCursor)
+		if historyCursor == "" {
+			historyCursor = event.Context.HistoryCursor
+		}
+		if historyCursor == "" {
+			return agent.ToolResult{Content: "history cursor is unavailable", IsError: true}, nil
+		}
+		limit := input.Limit
+		if limit <= 0 || limit > 50 {
+			limit = 20
+		}
+		visibleContext, errorValue := adapter.FetchHistory(toolContext, historyCursor, limit)
+		if errorValue != nil {
+			return agent.ToolResult{}, errorValue
+		}
+		return agent.ToolResult{Content: marshalConnectorToolResult(visibleContext)}, nil
+	})
+	toolRegistry.RegisterTool(agent.ToolDefinition{
+		Name:        "memory.search",
+		Description: "Search Blueclaw graph memory allowed for this requester and conversation.",
+	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+		var input struct {
+			Query string `json:"query"`
+		}
+		if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
+			return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		}
+		query := strings.TrimSpace(input.Query)
+		if query == "" {
+			query = event.Prompt
+		}
+		searchEvent := event
+		searchEvent.Prompt = query
+		memoryFacts, errorValue := connectorRuntime.searchAccessibleMemory(toolContext, personID, personAccess, searchEvent)
+		if errorValue != nil {
+			return agent.ToolResult{}, errorValue
+		}
+		return agent.ToolResult{Content: marshalConnectorToolResult(memoryFacts)}, nil
+	})
+	if connectorRuntime.mcpRegistry != nil {
+		for _, toolDefinition := range connectorRuntime.mcpRegistry.ListTool() {
+			mcpToolDefinition := toolDefinition
+			toolRegistry.RegisterTool(agent.ToolDefinition{
+				Name:        mcpToolDefinition.Name,
+				Description: "MCP tool from " + mcpToolDefinition.ServerName,
+			}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+				output, errorValue := connectorRuntime.mcpRegistry.InvokeTool(toolContext, mcp.Invocation{
+					ServerName: mcpToolDefinition.ServerName,
+					ToolName:   mcpToolDefinition.Name,
+					Input:      string(toolInvocation.Input),
+				})
+				if errorValue != nil {
+					return agent.ToolResult{}, errorValue
+				}
+				return agent.ToolResult{Content: output}, nil
+			})
+		}
+	}
+	for _, capabilityToolName := range connectorRuntime.capabilityToolNames {
+		toolName := capabilityToolName
+		toolRegistry.RegisterTool(agent.ToolDefinition{
+			Name:        toolName,
+			Description: "InternKim capability tool",
+		}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+			var response struct {
+				Content string `json:"content"`
+				IsError bool   `json:"isError"`
+			}
+			request := map[string]any{"input": json.RawMessage(toolInvocation.Input)}
+			errorValue := connectorRuntime.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", request, &response)
+			if errorValue != nil {
+				return agent.ToolResult{}, errorValue
+			}
+			return agent.ToolResult{Content: response.Content, IsError: response.IsError}, nil
+		})
+	}
+	return toolRegistry
+}
+
+func marshalConnectorToolResult(value any) string {
+	document, errorValue := json.Marshal(value)
+	if errorValue != nil {
+		return fmt.Sprint(value)
+	}
+	return string(document)
+}
+
+func trimNonEmptyStrings(values []string) []string {
+	trimmedValues := []string{}
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			trimmedValues = append(trimmedValues, trimmedValue)
+		}
+	}
+	return trimmedValues
 }
 
 func (connectorRuntime *ConnectorRuntime) searchAccessibleMemory(ctx context.Context, personID string, personAccess policy.PersonAccess, event PlatformInboundEvent) ([]memory.MemoryFact, error) {

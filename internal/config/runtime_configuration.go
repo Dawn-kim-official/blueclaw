@@ -14,6 +14,7 @@ type RuntimeConfiguration struct {
 	Bridge        BridgeConfiguration         `json:"bridge"`
 	Database      DatabaseConfiguration       `json:"database"`
 	Memory        MemoryConfiguration         `json:"memory"`
+	Agent         AgentConfiguration          `json:"agent"`
 	Connectors    ConnectorConfiguration      `json:"connectors"`
 	Logging       LoggingConfiguration        `json:"logging"`
 	MCPServers    []MCPServerConfiguration    `json:"mcpServers"`
@@ -22,9 +23,10 @@ type RuntimeConfiguration struct {
 }
 
 type CapabilityConfiguration struct {
-	Endpoint       string `json:"endpoint"`
-	UnixSocketPath string `json:"unixSocketPath"`
-	TimeoutSecond  int    `json:"timeoutSecond"`
+	Endpoint       string   `json:"endpoint"`
+	UnixSocketPath string   `json:"unixSocketPath"`
+	TimeoutSecond  int      `json:"timeoutSecond"`
+	ToolNames      []string `json:"toolNames"`
 }
 
 type AgentProfileConfiguration struct {
@@ -38,6 +40,13 @@ type MCPServerConfiguration struct {
 	Command   string   `json:"command"`
 	Arguments []string `json:"arguments"`
 	Endpoint  string   `json:"endpoint"`
+	ToolNames []string `json:"toolNames"`
+}
+
+type AgentConfiguration struct {
+	MaxIterations      int `json:"maxIterations"`
+	TurnTimeoutSecond  int `json:"turnTimeoutSecond"`
+	ToolResultMaxBytes int `json:"toolResultMaxBytes"`
 }
 
 type LanguageModelConfiguration struct {

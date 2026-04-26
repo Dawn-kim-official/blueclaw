@@ -169,6 +169,35 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T) {
+	languageModel := &connectorSequenceLanguageModel{contents: []string{
+		`{"action":"fetch_history","toolInput":{"limit":20}}`,
+		`{"action":"final_reply","finalReply":"이전 대화를 확인했습니다"}`,
+	}}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testInboundEvent("message-1")
+	event.Context.HasMoreBefore = true
+	event.Context.HistoryCursor = "cursor-1"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+
+	if result.TaskRunID == "" {
+		t.Fatal("expected task run id")
+	}
+	if len(adapter.historyCursors) != 1 || adapter.historyCursors[0] != "cursor-1" {
+		t.Fatalf("expected history fetch with cursor, got %+v", adapter.historyCursors)
+	}
+	if len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected one final reply, got %d", len(adapter.sentReplies))
+	}
+	if adapter.sentReplies[0].message != "이전 대화를 확인했습니다" {
+		t.Fatalf("expected final reply, got %q", adapter.sentReplies[0].message)
+	}
+}
+
 func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -275,6 +304,7 @@ type testAdapter struct {
 	sentReplies    []testReply
 	progressStarts []ReplyTarget
 	progressStops  []ReplyTarget
+	historyCursors []string
 }
 
 type testReply struct {
@@ -318,8 +348,11 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, mes
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
 
-func (adapter *testAdapter) FetchHistory(context.Context, string, int) (VisibleContext, error) {
-	return VisibleContext{}, nil
+func (adapter *testAdapter) FetchHistory(_ context.Context, historyCursor string, _ int) (VisibleContext, error) {
+	adapter.historyCursors = append(adapter.historyCursors, historyCursor)
+	return VisibleContext{
+		Messages: []VisibleContextMessage{{Speaker: "admin", Text: "older message"}},
+	}, nil
 }
 
 func (adapter *testAdapter) NotInvitedReply() string {
@@ -354,6 +387,24 @@ func (languageModel *recordingLanguageModel) GenerateResponse(context.Context, s
 func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.request = structuredResponseRequest
 	return llm.StructuredResponse{Content: `{"reply":"` + languageModel.reply + `"}`}, nil
+}
+
+type connectorSequenceLanguageModel struct {
+	contents []string
+	requests []llm.StructuredResponseRequest
+}
+
+func (languageModel *connectorSequenceLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (languageModel *connectorSequenceLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.requests = append(languageModel.requests, structuredResponseRequest)
+	index := len(languageModel.requests) - 1
+	if index >= len(languageModel.contents) {
+		index = len(languageModel.contents) - 1
+	}
+	return llm.StructuredResponse{Content: languageModel.contents[index]}, nil
 }
 
 type staticScopeLanguageModel struct {

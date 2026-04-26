@@ -17,6 +17,7 @@ import (
 	"blueclaw/internal/httpserver"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/mcp"
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	runtimelogging "blueclaw/internal/runtime"
@@ -65,16 +66,20 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	auditHandler := adminapi.NewAuditHandler()
 	taskEventService := task.NewTaskEventService()
 	taskStepService := task.NewTaskStepService()
+	taskArtifactService := task.NewTaskArtifactService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	if database.SQL != nil {
 		taskEventService.UseRepository(postgres.NewTaskEventRepository(database))
 		taskStepService.UseRepository(postgres.NewTaskStepRepository(database))
+		taskArtifactService.UseRepository(postgres.NewTaskArtifactRepository(database))
 		taskRunService.UseRepository(postgres.NewTaskRunRepository(database))
 	}
 	magicLinkService := auth.NewMagicLinkService()
 	sessionService := auth.NewSessionService()
 	taskAuthService := task.NewTaskAuthService(magicLinkService, sessionService, taskRunService)
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
+	agentKernel.UseTaskArtifactService(taskArtifactService)
+	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
 	if languageModelProvider != nil {
@@ -92,11 +97,16 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	memoryScopeRouter := memory.NewMemoryScopeRouter(languageModelProvider, runtimeConfiguration.Memory.WorkspaceID)
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
+	mcpRegistry := mcp.NewMcpRegistry()
+	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
 		agentKernel,
 		logger,
 	)
+	connectorRuntime.UseMCPRegistry(mcpRegistry)
+	connectorRuntime.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
+	connectorRuntime.UseAllowedToolNames(deriveAllowedToolNames(runtimeConfiguration))
 	connectorRuntime.UseMemoryService(memoryService)
 	connectorRuntime.UseMemoryScopeRouter(memoryScopeRouter)
 	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
@@ -167,6 +177,48 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 		languageModelConfigured:       languageModelProvider != nil,
 	}
+}
+
+func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
+	return agent.TurnOptions{
+		MaxIterations:      runtimeConfiguration.Agent.MaxIterations,
+		TurnTimeoutSecond:  runtimeConfiguration.Agent.TurnTimeoutSecond,
+		ToolResultMaxBytes: runtimeConfiguration.Agent.ToolResultMaxBytes,
+	}
+}
+
+func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []string {
+	allowedToolNameByName := map[string]bool{
+		"conversation.history": true,
+		"memory.search":        true,
+	}
+	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
+		for _, allowedToolName := range agentProfile.AllowedToolNames {
+			trimmedToolName := strings.TrimSpace(allowedToolName)
+			if trimmedToolName != "" {
+				allowedToolNameByName[trimmedToolName] = true
+			}
+		}
+	}
+	for _, mcpServer := range runtimeConfiguration.MCPServers {
+		for _, toolName := range mcpServer.ToolNames {
+			trimmedToolName := strings.TrimSpace(toolName)
+			if trimmedToolName != "" {
+				allowedToolNameByName[trimmedToolName] = true
+			}
+		}
+	}
+	for _, toolName := range runtimeConfiguration.Capabilities.ToolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName != "" {
+			allowedToolNameByName[trimmedToolName] = true
+		}
+	}
+	allowedToolNames := []string{}
+	for allowedToolName := range allowedToolNameByName {
+		allowedToolNames = append(allowedToolNames, allowedToolName)
+	}
+	return allowedToolNames
 }
 
 func openRuntimeDatabase(runtimeConfiguration config.RuntimeConfiguration) (postgres.Database, error) {

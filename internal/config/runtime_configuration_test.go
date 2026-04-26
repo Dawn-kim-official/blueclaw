@@ -14,7 +14,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
   "capabilities": {
     "endpoint": "http://127.0.0.1:7781",
     "unixSocketPath": "/run/internkim/capability.sock",
-    "timeoutSecond": 15
+    "timeoutSecond": 15,
+    "toolNames": ["google.search"]
   },
   "languageModel": {
     "defaultProvider": "capabilityLLM",
@@ -52,6 +53,25 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "graphitiKuzuPath": "/workspace/.blueclaw/graphiti/kuzu",
     "timeoutSecond": 15
   },
+  "agent": {
+    "maxIterations": 8,
+    "turnTimeoutSecond": 120,
+    "toolResultMaxBytes": 32768
+  },
+  "agentProfiles": [
+    {
+      "name": "default",
+      "allowedToolNames": ["conversation.history", "memory.search", "echo"]
+    }
+  ],
+  "mcpServers": [
+    {
+      "name": "echo",
+      "transport": "stdio",
+      "command": "/bin/echo",
+      "toolNames": ["echo"]
+    }
+  ],
   "connectors": {
     "mattermost": {
       "baseURL": "http://localhost:8065"
@@ -107,6 +127,9 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Capabilities.TimeoutSecond != 15 {
 		t.Fatalf("expected capability timeout to match, got %d", runtimeConfiguration.Capabilities.TimeoutSecond)
 	}
+	if runtimeConfiguration.Capabilities.ToolNames[0] != "google.search" {
+		t.Fatalf("expected capability tool names to match, got %+v", runtimeConfiguration.Capabilities.ToolNames)
+	}
 	if runtimeConfiguration.Connectors.Slack.BaseURL != "https://slack.com/api" {
 		t.Fatalf("expected slack base url to match, got %q", runtimeConfiguration.Connectors.Slack.BaseURL)
 	}
@@ -139,6 +162,21 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Memory.GraphitiKuzuPath != "/workspace/.blueclaw/graphiti/kuzu" {
 		t.Fatalf("expected graphiti kuzu path to match, got %q", runtimeConfiguration.Memory.GraphitiKuzuPath)
+	}
+	if runtimeConfiguration.Agent.MaxIterations != 8 {
+		t.Fatalf("expected agent max iterations to match, got %d", runtimeConfiguration.Agent.MaxIterations)
+	}
+	if runtimeConfiguration.Agent.TurnTimeoutSecond != 120 {
+		t.Fatalf("expected agent turn timeout to match, got %d", runtimeConfiguration.Agent.TurnTimeoutSecond)
+	}
+	if runtimeConfiguration.Agent.ToolResultMaxBytes != 32768 {
+		t.Fatalf("expected agent tool result limit to match, got %d", runtimeConfiguration.Agent.ToolResultMaxBytes)
+	}
+	if len(runtimeConfiguration.AgentProfiles) != 1 || runtimeConfiguration.AgentProfiles[0].AllowedToolNames[2] != "echo" {
+		t.Fatalf("expected agent profile tool allowlist to load, got %+v", runtimeConfiguration.AgentProfiles)
+	}
+	if len(runtimeConfiguration.MCPServers) != 1 || runtimeConfiguration.MCPServers[0].ToolNames[0] != "echo" {
+		t.Fatalf("expected mcp tool names to load, got %+v", runtimeConfiguration.MCPServers)
 	}
 	if runtimeConfiguration.Logging.RetentionDays != 7 {
 		t.Fatalf("expected log retention to match, got %d", runtimeConfiguration.Logging.RetentionDays)

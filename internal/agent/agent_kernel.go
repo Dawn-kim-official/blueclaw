@@ -12,24 +12,37 @@ import (
 )
 
 type AgentKernel struct {
-	planCompiler       PlanCompiler
-	subagentDispatcher SubagentDispatcher
-	taskRunService     *task.TaskRunService
-	taskStepService    *task.TaskStepService
-	languageModel      llm.LanguageModelProvider
+	planCompiler        PlanCompiler
+	subagentDispatcher  SubagentDispatcher
+	taskRunService      *task.TaskRunService
+	taskStepService     *task.TaskStepService
+	taskArtifactService *task.TaskArtifactService
+	languageModel       llm.LanguageModelProvider
+	turnOptions         TurnOptions
 }
 
 func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
 	return &AgentKernel{
-		planCompiler:       PlanCompiler{},
-		subagentDispatcher: SubagentDispatcher{},
-		taskRunService:     taskRunService,
-		taskStepService:    taskStepService,
+		planCompiler:        PlanCompiler{},
+		subagentDispatcher:  SubagentDispatcher{},
+		taskRunService:      taskRunService,
+		taskStepService:     taskStepService,
+		taskArtifactService: task.NewTaskArtifactService(),
 	}
 }
 
 func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel llm.LanguageModelProvider) {
 	agentKernel.languageModel = languageModel
+}
+
+func (agentKernel *AgentKernel) UseTaskArtifactService(taskArtifactService *task.TaskArtifactService) {
+	if taskArtifactService != nil {
+		agentKernel.taskArtifactService = taskArtifactService
+	}
+}
+
+func (agentKernel *AgentKernel) UseTurnOptions(turnOptions TurnOptions) {
+	agentKernel.turnOptions = normalizeTurnOptions(turnOptions)
 }
 
 func (agentKernel *AgentKernel) HandleInboundMessage(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
@@ -84,6 +97,17 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 	return reply, nil
 }
 
+func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request AgentTurnRequest) (AgentTurnResult, error) {
+	agentTurnRunner := NewAgentTurnRunner(
+		agentKernel.taskRunService,
+		agentKernel.taskStepService,
+		agentKernel.taskArtifactService,
+		agentKernel.languageModel,
+		agentKernel.turnOptions,
+	)
+	return agentTurnRunner.RunTurn(responseContext, request)
+}
+
 type VisibleContext struct {
 	Messages      []VisibleContextMessage
 	HasMoreBefore bool
@@ -96,6 +120,10 @@ type VisibleContextMessage struct {
 }
 
 func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
+	return buildReplyMessages(prompt, visibleContext, memoryFacts)
+}
+
+func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",

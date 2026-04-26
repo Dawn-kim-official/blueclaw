@@ -32,6 +32,7 @@ func (mcpRegistry *McpRegistry) LoadServerDefinition(configurations []config.MCP
 			Command:   configuration.Command,
 			Arguments: configuration.Arguments,
 			Endpoint:  configuration.Endpoint,
+			ToolNames: configuration.ToolNames,
 		}
 	}
 }
