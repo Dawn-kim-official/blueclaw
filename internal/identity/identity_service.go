@@ -7,10 +7,16 @@ import (
 	"blueclaw/internal/policy"
 )
 
+type PlatformAccountRepository interface {
+	UpsertPlatformAccount(PlatformAccountIdentity) error
+	ListPlatformAccount() ([]PlatformAccountIdentity, error)
+}
+
 type IdentityService struct {
 	mutex                        sync.RWMutex
 	personIDByEmail              map[string]string
 	personIDByPlatformAccountKey map[string]string
+	platformAccountRepository    PlatformAccountRepository
 }
 
 func NewIdentityService(policyProjection policy.PolicyProjection) *IdentityService {
@@ -24,10 +30,18 @@ func NewIdentityService(policyProjection policy.PolicyProjection) *IdentityServi
 	return identityService
 }
 
+func (identityService *IdentityService) UsePlatformAccountRepository(repository PlatformAccountRepository) {
+	identityService.mutex.Lock()
+	defer identityService.mutex.Unlock()
+	identityService.platformAccountRepository = repository
+	identityService.reloadPlatformAccounts()
+}
+
 func (identityService *IdentityService) ReloadPolicyProjection(policyProjection policy.PolicyProjection) {
 	identityService.mutex.Lock()
 	defer identityService.mutex.Unlock()
 	identityService.reloadPolicyProjection(policyProjection)
+	identityService.reloadPlatformAccounts()
 }
 
 func (identityService *IdentityService) reloadPolicyProjection(policyProjection policy.PolicyProjection) {
@@ -70,4 +84,36 @@ func (identityService *IdentityService) RememberPlatformAccount(platformAccountI
 	}
 
 	identityService.personIDByPlatformAccountKey[platformAccountIdentity.Platform+":"+platformAccountIdentity.ExternalUserID] = personID
+	platformAccountIdentity.PersonID = personID
+	_ = identityService.savePlatformAccount(platformAccountIdentity)
+}
+
+func (identityService *IdentityService) reloadPlatformAccounts() {
+	if identityService.platformAccountRepository == nil {
+		return
+	}
+	platformAccounts, errorValue := identityService.platformAccountRepository.ListPlatformAccount()
+	if errorValue != nil {
+		return
+	}
+	for _, platformAccount := range platformAccounts {
+		personID := platformAccount.PersonID
+		if personID == "" && platformAccount.Email != "" {
+			resolvedPersonID, isFound := identityService.personIDByEmail[strings.ToLower(strings.TrimSpace(platformAccount.Email))]
+			if isFound {
+				personID = resolvedPersonID
+			}
+		}
+		if personID == "" {
+			continue
+		}
+		identityService.personIDByPlatformAccountKey[platformAccount.Platform+":"+platformAccount.ExternalUserID] = personID
+	}
+}
+
+func (identityService *IdentityService) savePlatformAccount(platformAccountIdentity PlatformAccountIdentity) error {
+	if identityService.platformAccountRepository == nil {
+		return nil
+	}
+	return identityService.platformAccountRepository.UpsertPlatformAccount(platformAccountIdentity)
 }

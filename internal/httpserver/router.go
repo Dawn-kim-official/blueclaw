@@ -12,6 +12,7 @@ type RouterDependencies struct {
 	PolicyHandler         adminapi.PolicyHandler
 	AuditHandler          *adminapi.AuditHandler
 	TaskMonitorHandler    adminapi.TaskMonitorHandler
+	BackupHandler         adminapi.BackupHandler
 	TaskInboxHandler      userapi.TaskInboxHandler
 	TaskActionHandler     userapi.TaskActionHandler
 	SSEHandler            SSEHandler
@@ -29,6 +30,9 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer.HandleFunc("GET /admin/api/audit", routerDependencies.AuditHandler.HandleListAudit)
 	multiplexer.HandleFunc("GET /admin/api/task", routerDependencies.TaskMonitorHandler.HandleListTaskRun)
 	multiplexer.HandleFunc("GET /admin/api/task/detail", routerDependencies.TaskMonitorHandler.HandleGetTaskRun)
+	multiplexer.HandleFunc("GET /admin/api/backup/manifest", routerDependencies.BackupHandler.HandleManifest)
+	multiplexer.HandleFunc("POST /admin/api/backup/prepare", routerDependencies.BackupHandler.HandlePrepare)
+	multiplexer.HandleFunc("POST /admin/api/backup/complete", routerDependencies.BackupHandler.HandleComplete)
 
 	multiplexer.HandleFunc("GET /tasks/api/list", routerDependencies.TaskInboxHandler.HandleListOwnTaskRun)
 	multiplexer.HandleFunc("GET /tasks/api/detail", routerDependencies.TaskInboxHandler.HandleGetOwnTaskRun)

@@ -15,8 +15,6 @@ import (
 func TestResolveLanguageModelProviderDefaultsToCapabilityLLM(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "must-not-be-read")
 	runtimeConfiguration := config.RuntimeConfiguration{}
-	runtimeConfiguration.LanguageModel.OpenRouter.ModelName = "openai/gpt-4.1-mini"
-	runtimeConfiguration.LanguageModel.LiteRTLM.WrapperPath = "/usr/local/bin/blueclaw-litert-wrapper"
 	runtimeConfiguration.LanguageModel.Capability.Model = "gemma-4-E4B-it"
 
 	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)

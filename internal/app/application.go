@@ -10,6 +10,7 @@ import (
 	"blueclaw/internal/adminapi"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/auth"
+	"blueclaw/internal/backup"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
@@ -20,6 +21,7 @@ import (
 	"blueclaw/internal/policy"
 	runtimelogging "blueclaw/internal/runtime"
 	"blueclaw/internal/security"
+	"blueclaw/internal/store/postgres"
 	"blueclaw/internal/task"
 	"blueclaw/internal/userapi"
 )
@@ -28,6 +30,7 @@ type Application struct {
 	httpServer                    *http.Server
 	connectorTransports           []connectors.ConnectorTransport
 	runtimeLogger                 *runtimelogging.PersistentLogger
+	database                      postgres.Database
 	startupError                  error
 	connectorTransportCancel      context.CancelFunc
 	logRetentionCancel            context.CancelFunc
@@ -42,10 +45,20 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		runtimeLogger = runtimelogging.NewDiscardLogger()
 	}
 	logger := runtimeLogger.Logger
+	database, databaseError := openRuntimeDatabase(runtimeConfiguration)
+	if databaseError != nil && startupError == nil {
+		startupError = databaseError
+	}
 	policyLoader := policy.PolicyLoader{}
 	policyDocument, _ := policyLoader.LoadPolicyDocument(policyPath)
+	if database.SQL != nil {
+		_ = postgres.NewPersonRepository(database).UpsertPeople(policyDocument)
+	}
 	policyProjectionService := policy.PolicyProjectionService{}
 	identityService := identity.NewIdentityService(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
+	if database.SQL != nil {
+		identityService.UsePlatformAccountRepository(postgres.NewPlatformAccountRepository(database))
+	}
 	policyWatcher := &policy.PolicyWatcher{}
 	policyWatcher.ReloadPolicyDocument(policyDocument)
 
@@ -53,6 +66,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	taskEventService := task.NewTaskEventService()
 	taskStepService := task.NewTaskStepService()
 	taskRunService := task.NewTaskRunService(taskEventService)
+	if database.SQL != nil {
+		taskEventService.UseRepository(postgres.NewTaskEventRepository(database))
+		taskStepService.UseRepository(postgres.NewTaskStepRepository(database))
+		taskRunService.UseRepository(postgres.NewTaskRunRepository(database))
+	}
 	magicLinkService := auth.NewMagicLinkService()
 	sessionService := auth.NewSessionService()
 	taskAuthService := task.NewTaskAuthService(magicLinkService, sessionService, taskRunService)
@@ -64,6 +82,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	memoryService := &memory.MemoryService{}
+	if database.SQL != nil {
+		memoryService.UseRepository(postgres.NewMemoryRecordRepository(database))
+	}
+	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
@@ -71,6 +93,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		logger,
 	)
 	connectorRuntime.UseMemoryService(memoryService)
+	connectorRuntime.UseIngressGate(backupCoordinator)
+	if database.SQL != nil {
+		connectorRuntime.UseEventRepository(postgres.NewRawEventRepository(database))
+	}
 	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("mattermost", capabilityClient))
 	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("slack", capabilityClient))
 	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("signal", capabilityClient))
@@ -85,6 +111,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			Validator:     policy.PolicyValidator{},
 			AuditHandler:  auditHandler,
 			OnPolicyReload: func(policyDocument policy.PolicyDocument) {
+				if database.SQL != nil {
+					_ = postgres.NewPersonRepository(database).UpsertPeople(policyDocument)
+				}
 				identityService.ReloadPolicyProjection(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
 			},
 		},
@@ -93,6 +122,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskRunService:   taskRunService,
 			TaskStepService:  taskStepService,
 			TaskEventService: taskEventService,
+		},
+		BackupHandler: adminapi.BackupHandler{
+			Coordinator: backupCoordinator,
 		},
 		TaskInboxHandler: userapi.TaskInboxHandler{
 			TaskRunService:  taskRunService,
@@ -122,10 +154,50 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		},
 		connectorTransports:           connectorTransports,
 		runtimeLogger:                 runtimeLogger,
+		database:                      database,
 		startupError:                  startupError,
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 		languageModelConfigured:       languageModelProvider != nil,
+	}
+}
+
+func openRuntimeDatabase(runtimeConfiguration config.RuntimeConfiguration) (postgres.Database, error) {
+	if strings.TrimSpace(runtimeConfiguration.Database.ConnectionString) == "" {
+		return postgres.Database{}, nil
+	}
+	database, errorValue := postgres.OpenDatabase(runtimeConfiguration.Database.ConnectionString)
+	if errorValue != nil {
+		return postgres.Database{}, errorValue
+	}
+	migrationDirectoryPath := strings.TrimSpace(runtimeConfiguration.Database.MigrationDirectoryPath)
+	if migrationDirectoryPath == "" {
+		migrationDirectoryPath = "migrations"
+	}
+	if errorValue := (postgres.MigrationRunner{MigrationDirectoryPath: migrationDirectoryPath}).ApplyMigrations(context.Background(), database); errorValue != nil {
+		_ = database.Close()
+		return postgres.Database{}, errorValue
+	}
+	return database, nil
+}
+
+func buildBackupManifest(runtimeConfiguration config.RuntimeConfiguration, database postgres.Database) backup.Manifest {
+	databaseKind := "none"
+	requiredArtifacts := []string{"policy", "workspace"}
+	if database.SQL != nil {
+		databaseKind = "postgres"
+		requiredArtifacts = append(requiredArtifacts, "blueclaw-postgres-dump")
+	}
+	return backup.Manifest{
+		ContractVersion: 1,
+		BlueclawVersion: "main",
+		SchemaVersion:   "010_backup_runtime_contract",
+		PersistentDataRoots: []string{
+			"/workspace/.blueclaw",
+			runtimeConfiguration.Terminal.WorkspaceRootPath,
+		},
+		DatabaseKind:            databaseKind,
+		RequiredBackupArtifacts: requiredArtifacts,
 	}
 }
 
@@ -192,10 +264,14 @@ func (application *Application) Shutdown(ctx context.Context) error {
 	}
 	errorValue := application.httpServer.Shutdown(ctx)
 	closeErrorValue := application.runtimeLogger.Close()
+	databaseCloseError := application.database.Close()
 	if errorValue != nil {
 		return errorValue
 	}
-	return closeErrorValue
+	if closeErrorValue != nil {
+		return closeErrorValue
+	}
+	return databaseCloseError
 }
 
 func (application *Application) startConnectorTransports() {

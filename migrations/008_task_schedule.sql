@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS task_schedule (
-  task_schedule_id uuid PRIMARY KEY,
-  creator_person_id uuid REFERENCES person(person_id),
+  task_schedule_id text PRIMARY KEY,
+  creator_person_id text REFERENCES person(person_id),
   name text NOT NULL,
   prompt text NOT NULL,
   agent_profile_name text NOT NULL,
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS task_schedule (
   cron_expression text,
   next_run_at timestamptz,
   last_run_at timestamptz,
-  last_task_run_id uuid REFERENCES task_run(task_run_id),
+  last_task_run_id text REFERENCES task_run(task_run_id),
   is_paused boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL,

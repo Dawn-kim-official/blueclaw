@@ -1,9 +1,9 @@
 CREATE TABLE IF NOT EXISTS raw_event (
-  raw_event_id uuid PRIMARY KEY,
+  raw_event_id text PRIMARY KEY,
   platform text NOT NULL,
-  conversation_id uuid NOT NULL REFERENCES conversation(conversation_id),
-  sender_platform_account_id uuid REFERENCES platform_account(platform_account_id),
-  sender_person_id uuid REFERENCES person(person_id),
+  conversation_id text NOT NULL REFERENCES conversation(conversation_id),
+  sender_platform_account_id text REFERENCES platform_account(platform_account_id),
+  sender_person_id text REFERENCES person(person_id),
   external_message_id text NOT NULL,
   external_thread_root_message_id text,
   event_type text NOT NULL,
@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS raw_event (
 );
 
 CREATE TABLE IF NOT EXISTS attachment (
-  attachment_id uuid PRIMARY KEY,
-  raw_event_id uuid NOT NULL REFERENCES raw_event(raw_event_id) ON DELETE CASCADE,
+  attachment_id text PRIMARY KEY,
+  raw_event_id text NOT NULL REFERENCES raw_event(raw_event_id) ON DELETE CASCADE,
   external_file_id text,
   file_name text,
   mime_type text,

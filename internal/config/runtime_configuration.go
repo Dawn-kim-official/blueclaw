@@ -12,6 +12,7 @@ type RuntimeConfiguration struct {
 	LanguageModel LanguageModelConfiguration  `json:"languageModel"`
 	Firecracker   FirecrackerConfiguration    `json:"firecracker"`
 	Bridge        BridgeConfiguration         `json:"bridge"`
+	Database      DatabaseConfiguration       `json:"database"`
 	Connectors    ConnectorConfiguration      `json:"connectors"`
 	Logging       LoggingConfiguration        `json:"logging"`
 	MCPServers    []MCPServerConfiguration    `json:"mcpServers"`
@@ -42,29 +43,11 @@ type LanguageModelConfiguration struct {
 	DefaultProvider  string                               `json:"defaultProvider"`
 	FallbackProvider string                               `json:"fallbackProvider"`
 	Capability       LanguageModelCapabilityConfiguration `json:"capability"`
-	OpenRouter       OpenRouterConfiguration              `json:"openRouter"`
-	LiteRTLM         LiteRTLMConfiguration                `json:"liteRTLM"`
 }
 
 type LanguageModelCapabilityConfiguration struct {
 	Model         string `json:"model"`
 	ExecutionMode string `json:"executionMode"`
-}
-
-type OpenRouterConfiguration struct {
-	BaseURL               string `json:"baseURL"`
-	ModelName             string `json:"modelName"`
-	RequireParameters     bool   `json:"requireParameters"`
-	EnableResponseHealing bool   `json:"enableResponseHealing"`
-}
-
-type LiteRTLMConfiguration struct {
-	WrapperPath        string   `json:"wrapperPath"`
-	WrapperArguments   []string `json:"wrapperArguments"`
-	ModelPath          string   `json:"modelPath"`
-	BackendPreference  []string `json:"backendPreference"`
-	AllowCPUFallback   bool     `json:"allowCPUFallback"`
-	ConstraintProvider string   `json:"constraintProvider"`
 }
 
 type FirecrackerConfiguration struct {
@@ -85,6 +68,12 @@ type BridgeConfiguration struct {
 	AuthMode                 string `json:"authMode"`
 	AuthorizedPublicKeysPath string `json:"authorizedPublicKeysPath"`
 	ListenAddress            string `json:"listenAddress"`
+}
+
+type DatabaseConfiguration struct {
+	Driver                 string `json:"driver"`
+	ConnectionString       string `json:"connectionString"`
+	MigrationDirectoryPath string `json:"migrationDirectoryPath"`
 }
 
 type ConnectorConfiguration struct {

@@ -1,10 +1,10 @@
 CREATE TABLE IF NOT EXISTS platform_account (
-  platform_account_id uuid PRIMARY KEY,
+  platform_account_id text PRIMARY KEY,
   platform text NOT NULL,
   external_user_id text NOT NULL,
   email citext,
   display_name text NOT NULL,
-  person_id uuid REFERENCES person(person_id),
+  person_id text REFERENCES person(person_id),
   is_approved_internal boolean NOT NULL DEFAULT false,
   last_seen_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS platform_account (
 );
 
 CREATE TABLE IF NOT EXISTS conversation (
-  conversation_id uuid PRIMARY KEY,
+  conversation_id text PRIMARY KEY,
   platform text NOT NULL,
   external_conversation_id text NOT NULL,
   conversation_type text NOT NULL,

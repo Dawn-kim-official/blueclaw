@@ -21,21 +21,6 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "capability": {
       "model": "gemma-4-E4B-it",
       "executionMode": "auto"
-    },
-    "openRouter": {
-      "baseURL": "https://openrouter.ai/api/v1/chat/completions",
-      "modelName": "openai/gpt-4.1-mini",
-      "apiKeyPath": "/run/secrets/openrouter-api-key",
-      "requireParameters": true,
-      "enableResponseHealing": true
-    },
-    "liteRTLM": {
-      "wrapperPath": "/usr/local/bin/blueclaw-litert-wrapper",
-      "wrapperArguments": ["--stdio"],
-      "modelPath": "/models/gemma-4-E4B-it.litertlm",
-      "backendPreference": ["gpu"],
-      "allowCPUFallback": false,
-      "constraintProvider": "llguidance"
     }
   },
   "firecracker": {
@@ -55,6 +40,11 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "authMode": "sshKeyReuse",
     "authorizedPublicKeysPath": "/var/lib/blueclaw/authorized_companions",
     "listenAddress": "127.0.0.1:7778"
+  },
+  "database": {
+    "driver": "postgres",
+    "connectionString": "postgres://blueclaw@/blueclaw?host=/var/run/postgresql&sslmode=disable",
+    "migrationDirectoryPath": "/workspace/.blueclaw/migrations"
   },
   "connectors": {
     "mattermost": {
@@ -129,14 +119,11 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.LanguageModel.Capability.ExecutionMode != "auto" {
 		t.Fatalf("expected capability execution mode to match, got %q", runtimeConfiguration.LanguageModel.Capability.ExecutionMode)
 	}
-	if runtimeConfiguration.LanguageModel.LiteRTLM.ModelPath != "/models/gemma-4-E4B-it.litertlm" {
-		t.Fatalf("expected litert-lm model path to match, got %q", runtimeConfiguration.LanguageModel.LiteRTLM.ModelPath)
+	if runtimeConfiguration.Database.Driver != "postgres" {
+		t.Fatalf("expected database driver to match, got %q", runtimeConfiguration.Database.Driver)
 	}
-	if len(runtimeConfiguration.LanguageModel.LiteRTLM.BackendPreference) != 1 || runtimeConfiguration.LanguageModel.LiteRTLM.BackendPreference[0] != "gpu" {
-		t.Fatalf("expected litert-lm backend preference to prefer gpu, got %v", runtimeConfiguration.LanguageModel.LiteRTLM.BackendPreference)
-	}
-	if runtimeConfiguration.LanguageModel.LiteRTLM.AllowCPUFallback {
-		t.Fatal("expected litert-lm cpu fallback to be disabled")
+	if runtimeConfiguration.Database.MigrationDirectoryPath != "/workspace/.blueclaw/migrations" {
+		t.Fatalf("expected migration directory to match, got %q", runtimeConfiguration.Database.MigrationDirectoryPath)
 	}
 	if runtimeConfiguration.Logging.RetentionDays != 7 {
 		t.Fatalf("expected log retention to match, got %d", runtimeConfiguration.Logging.RetentionDays)

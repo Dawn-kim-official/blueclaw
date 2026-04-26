@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS person (
-  person_id uuid PRIMARY KEY,
+  person_id text PRIMARY KEY,
   display_name text NOT NULL,
   security_level_name text NOT NULL,
   security_level_rank smallint NOT NULL,
@@ -10,15 +10,15 @@ CREATE TABLE IF NOT EXISTS person (
 );
 
 CREATE TABLE IF NOT EXISTS person_email (
-  person_email_id uuid PRIMARY KEY,
-  person_id uuid NOT NULL REFERENCES person(person_id) ON DELETE CASCADE,
+  person_email_id text PRIMARY KEY,
+  person_id text NOT NULL REFERENCES person(person_id) ON DELETE CASCADE,
   email citext NOT NULL UNIQUE,
   is_primary boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS policy_channel_rule (
-  policy_channel_rule_id uuid PRIMARY KEY,
+  policy_channel_rule_id text PRIMARY KEY,
   platform text NOT NULL,
   external_conversation_id text NOT NULL,
   conversation_type text NOT NULL,

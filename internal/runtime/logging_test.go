@@ -26,11 +26,15 @@ func TestPersistentLoggerWritesJSONLogFile(t *testing.T) {
 	defer persistentLogger.Close()
 
 	persistentLogger.Logger.Info("connector.mattermost.ingress.received", slog.String("token", "redacted"))
-
-	document, errorValue := os.ReadFile(filepath.Join(logDirectoryPath, "blueclaw-2026-04-25.jsonl"))
-	if errorValue != nil {
-		t.Fatalf("expected log file: %v", errorValue)
+	if errorValue := persistentLogger.Close(); errorValue != nil {
+		t.Fatalf("expected logger close: %v", errorValue)
 	}
+
+	matches, errorValue := filepath.Glob(filepath.Join(logDirectoryPath, "blueclaw-*.jsonl"))
+	if errorValue != nil {
+		t.Fatalf("expected log glob: %v", errorValue)
+	}
+	document := readNonEmptyLogDocument(t, matches)
 
 	var logRecord map[string]any
 	errorValue = json.Unmarshal(document, &logRecord)
@@ -43,6 +47,21 @@ func TestPersistentLoggerWritesJSONLogFile(t *testing.T) {
 	if strings.Contains(string(document), "bot-token") {
 		t.Fatal("expected log not to include secret values")
 	}
+}
+
+func readNonEmptyLogDocument(t *testing.T, matches []string) []byte {
+	t.Helper()
+	for _, match := range matches {
+		document, errorValue := os.ReadFile(match)
+		if errorValue != nil {
+			t.Fatalf("expected log file: %v", errorValue)
+		}
+		if len(strings.TrimSpace(string(document))) > 0 {
+			return document
+		}
+	}
+	t.Fatalf("expected non-empty log file")
+	return nil
 }
 
 func TestPersistentLoggerDeletesFilesOlderThanRetention(t *testing.T) {

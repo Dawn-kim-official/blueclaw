@@ -15,6 +15,15 @@ import (
 	"blueclaw/internal/memory"
 )
 
+type IngressGate interface {
+	IsPaused() bool
+}
+
+type ConnectorEventRepository interface {
+	TryInsertConnectorEvent(PlatformInboundEvent) (bool, ConnectorRuntimeResult, error)
+	SaveConnectorResult(PlatformInboundEvent, ConnectorRuntimeResult) error
+}
+
 type PlatformInboundEvent struct {
 	Platform       string                 `json:"-"`
 	Source         string                 `json:"-"`
@@ -94,6 +103,8 @@ type ConnectorRuntime struct {
 	mutex             sync.Mutex
 	adapterByPlatform map[string]PlatformAdapter
 	processedResults  map[string]ConnectorRuntimeResult
+	eventRepository   ConnectorEventRepository
+	ingressGate       IngressGate
 }
 
 func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
@@ -119,6 +130,14 @@ func (connectorRuntime *ConnectorRuntime) RegisterAdapter(adapter PlatformAdapte
 
 func (connectorRuntime *ConnectorRuntime) UseMemoryService(memoryService *memory.MemoryService) {
 	connectorRuntime.memoryService = memoryService
+}
+
+func (connectorRuntime *ConnectorRuntime) UseEventRepository(eventRepository ConnectorEventRepository) {
+	connectorRuntime.eventRepository = eventRepository
+}
+
+func (connectorRuntime *ConnectorRuntime) UseIngressGate(ingressGate IngressGate) {
+	connectorRuntime.ingressGate = ingressGate
 }
 
 func (connectorRuntime *ConnectorRuntime) HandleHTTPEvent(ctx context.Context, platform string, request *http.Request) (ConnectorRuntimeResult, *HTTPResponse, error) {
@@ -167,6 +186,9 @@ func (connectorRuntime *ConnectorRuntime) HandleRealtimeEvent(ctx context.Contex
 
 func (connectorRuntime *ConnectorRuntime) HandleInboundEvent(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (ConnectorRuntimeResult, error) {
 	event.Platform = adapter.Name()
+	if connectorRuntime.ingressGate != nil && connectorRuntime.ingressGate.IsPaused() {
+		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "backup_prepare_active"}, nil
+	}
 	if strings.TrimSpace(event.MessageID) == "" {
 		connectorRuntime.logger.Warn("connector."+adapter.Name()+".ingress.malformed", slog.String("source", event.Source), slog.String("reason", "missing_message_id"))
 		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "missing_message_id"}, nil
@@ -193,6 +215,25 @@ func (connectorRuntime *ConnectorRuntime) HandleInboundEvent(ctx context.Context
 	}
 
 	eventKey := event.DedupeKey()
+	if connectorRuntime.eventRepository != nil {
+		isDuplicate, result, errorValue := connectorRuntime.eventRepository.TryInsertConnectorEvent(event)
+		if errorValue != nil {
+			return ConnectorRuntimeResult{}, errorValue
+		}
+		if isDuplicate {
+			result.Handled = true
+			result.Platform = adapter.Name()
+			result.Duplicate = true
+			connectorRuntime.logger.Info("connector."+adapter.Name()+".event.suppressed", slog.String("source", event.Source), slog.String("reason", "duplicate"), slog.String("messageID", event.MessageID))
+			return result, nil
+		}
+		result, errorValue = connectorRuntime.processInboundEvent(ctx, adapter, event)
+		if errorValue != nil {
+			return ConnectorRuntimeResult{}, errorValue
+		}
+		_ = connectorRuntime.eventRepository.SaveConnectorResult(event, result)
+		return result, nil
+	}
 	if result, isFound := connectorRuntime.findProcessedResult(eventKey); isFound {
 		result.Duplicate = true
 		connectorRuntime.logger.Info("connector."+adapter.Name()+".event.suppressed", slog.String("source", event.Source), slog.String("reason", "duplicate"), slog.String("messageID", event.MessageID))

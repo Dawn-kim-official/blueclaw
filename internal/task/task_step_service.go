@@ -2,9 +2,15 @@ package task
 
 import "sync"
 
+type TaskStepRepository interface {
+	InsertTaskStep(TaskStep) error
+	ListTaskStep(string) ([]TaskStep, error)
+}
+
 type TaskStepService struct {
-	mutex     sync.RWMutex
-	taskSteps map[string][]TaskStep
+	mutex      sync.RWMutex
+	taskSteps  map[string][]TaskStep
+	repository TaskStepRepository
 }
 
 func NewTaskStepService() *TaskStepService {
@@ -13,14 +19,32 @@ func NewTaskStepService() *TaskStepService {
 	}
 }
 
+func (taskStepService *TaskStepService) UseRepository(repository TaskStepRepository) {
+	taskStepService.repository = repository
+}
+
 func (taskStepService *TaskStepService) AddTaskStep(taskStep TaskStep) {
 	taskStepService.mutex.Lock()
 	defer taskStepService.mutex.Unlock()
 	taskStepService.taskSteps[taskStep.TaskRunID] = append(taskStepService.taskSteps[taskStep.TaskRunID], taskStep)
+	_ = taskStepService.saveTaskStep(taskStep)
 }
 
 func (taskStepService *TaskStepService) ListTaskStep(taskRunID string) []TaskStep {
+	if taskStepService.repository != nil {
+		taskSteps, errorValue := taskStepService.repository.ListTaskStep(taskRunID)
+		if errorValue == nil {
+			return taskSteps
+		}
+	}
 	taskStepService.mutex.RLock()
 	defer taskStepService.mutex.RUnlock()
 	return append([]TaskStep{}, taskStepService.taskSteps[taskRunID]...)
+}
+
+func (taskStepService *TaskStepService) saveTaskStep(taskStep TaskStep) error {
+	if taskStepService.repository == nil {
+		return nil
+	}
+	return taskStepService.repository.InsertTaskStep(taskStep)
 }

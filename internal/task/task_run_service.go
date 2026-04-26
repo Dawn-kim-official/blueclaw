@@ -6,10 +6,18 @@ import (
 	"time"
 )
 
+type TaskRunRepository interface {
+	SaveTaskRun(TaskRun) error
+	FindTaskRun(string) (TaskRun, bool, error)
+	ListTaskRun() ([]TaskRun, error)
+	ListTaskRunByPersonID(string) ([]TaskRun, error)
+}
+
 type TaskRunService struct {
 	mutex            sync.RWMutex
 	taskRuns         map[string]TaskRun
 	taskEventService *TaskEventService
+	repository       TaskRunRepository
 }
 
 func NewTaskRunService(taskEventService *TaskEventService) *TaskRunService {
@@ -17,6 +25,10 @@ func NewTaskRunService(taskEventService *TaskEventService) *TaskRunService {
 		taskRuns:         map[string]TaskRun{},
 		taskEventService: taskEventService,
 	}
+}
+
+func (taskRunService *TaskRunService) UseRepository(repository TaskRunRepository) {
+	taskRunService.repository = repository
 }
 
 func (taskRunService *TaskRunService) CreateTaskRun(requesterPersonID string, originConversationID string, prompt string) TaskRun {
@@ -33,6 +45,7 @@ func (taskRunService *TaskRunService) CreateTaskRun(requesterPersonID string, or
 	taskRunService.mutex.Lock()
 	taskRunService.taskRuns[taskRun.TaskRunID] = taskRun
 	taskRunService.mutex.Unlock()
+	_ = taskRunService.saveTaskRun(taskRun)
 
 	taskRunService.taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.created", prompt)
 	return taskRun
@@ -42,7 +55,7 @@ func (taskRunService *TaskRunService) AdvanceTaskRun(taskRunID string, currentAg
 	taskRunService.mutex.Lock()
 	defer taskRunService.mutex.Unlock()
 
-	taskRun, isFound := taskRunService.taskRuns[taskRunID]
+	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
 	if !isFound {
 		return TaskRun{}, errors.New("task run not found")
 	}
@@ -51,6 +64,7 @@ func (taskRunService *TaskRunService) AdvanceTaskRun(taskRunID string, currentAg
 	taskRun.CurrentAgentProfileName = currentAgentProfileName
 	taskRun.UpdatedAt = time.Now()
 	taskRunService.taskRuns[taskRunID] = taskRun
+	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.running", currentAgentProfileName)
 	return taskRun, nil
 }
@@ -59,7 +73,7 @@ func (taskRunService *TaskRunService) PauseTaskRun(taskRunID string, status Task
 	taskRunService.mutex.Lock()
 	defer taskRunService.mutex.Unlock()
 
-	taskRun, isFound := taskRunService.taskRuns[taskRunID]
+	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
 	if !isFound {
 		return TaskRun{}, errors.New("task run not found")
 	}
@@ -68,6 +82,7 @@ func (taskRunService *TaskRunService) PauseTaskRun(taskRunID string, status Task
 	taskRun.FailureReason = reason
 	taskRun.UpdatedAt = time.Now()
 	taskRunService.taskRuns[taskRunID] = taskRun
+	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.paused", reason)
 	return taskRun, nil
 }
@@ -80,7 +95,7 @@ func (taskRunService *TaskRunService) CancelTaskRun(taskRunID string, requesterP
 	taskRunService.mutex.Lock()
 	defer taskRunService.mutex.Unlock()
 
-	taskRun, isFound := taskRunService.taskRuns[taskRunID]
+	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
 	if !isFound {
 		return TaskRun{}, errors.New("task run not found")
 	}
@@ -94,6 +109,7 @@ func (taskRunService *TaskRunService) CancelTaskRun(taskRunID string, requesterP
 	taskRun.Status = TaskStatusCancelled
 	taskRun.UpdatedAt = time.Now()
 	taskRunService.taskRuns[taskRunID] = taskRun
+	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.cancelled", requesterPersonID)
 	return taskRun, nil
 }
@@ -102,7 +118,7 @@ func (taskRunService *TaskRunService) CompleteTaskRun(taskRunID string, result s
 	taskRunService.mutex.Lock()
 	defer taskRunService.mutex.Unlock()
 
-	taskRun, isFound := taskRunService.taskRuns[taskRunID]
+	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
 	if !isFound {
 		return TaskRun{}, errors.New("task run not found")
 	}
@@ -111,11 +127,18 @@ func (taskRunService *TaskRunService) CompleteTaskRun(taskRunID string, result s
 	taskRun.Result = result
 	taskRun.UpdatedAt = time.Now()
 	taskRunService.taskRuns[taskRunID] = taskRun
+	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.completed", result)
 	return taskRun, nil
 }
 
 func (taskRunService *TaskRunService) FindTaskRun(taskRunID string) (TaskRun, bool) {
+	if taskRunService.repository != nil {
+		taskRun, isFound, errorValue := taskRunService.repository.FindTaskRun(taskRunID)
+		if errorValue == nil {
+			return taskRun, isFound
+		}
+	}
 	taskRunService.mutex.RLock()
 	defer taskRunService.mutex.RUnlock()
 
@@ -124,6 +147,12 @@ func (taskRunService *TaskRunService) FindTaskRun(taskRunID string) (TaskRun, bo
 }
 
 func (taskRunService *TaskRunService) ListTaskRun() []TaskRun {
+	if taskRunService.repository != nil {
+		taskRuns, errorValue := taskRunService.repository.ListTaskRun()
+		if errorValue == nil {
+			return taskRuns
+		}
+	}
 	taskRunService.mutex.RLock()
 	defer taskRunService.mutex.RUnlock()
 
@@ -136,6 +165,12 @@ func (taskRunService *TaskRunService) ListTaskRun() []TaskRun {
 }
 
 func (taskRunService *TaskRunService) ListTaskRunByPersonID(personID string) []TaskRun {
+	if taskRunService.repository != nil {
+		taskRuns, errorValue := taskRunService.repository.ListTaskRunByPersonID(personID)
+		if errorValue == nil {
+			return taskRuns
+		}
+	}
 	taskRuns := []TaskRun{}
 	for _, taskRun := range taskRunService.ListTaskRun() {
 		if taskRun.RequesterPersonID == personID {
@@ -143,4 +178,24 @@ func (taskRunService *TaskRunService) ListTaskRunByPersonID(personID string) []T
 		}
 	}
 	return taskRuns
+}
+
+func (taskRunService *TaskRunService) saveTaskRun(taskRun TaskRun) error {
+	if taskRunService.repository == nil {
+		return nil
+	}
+	return taskRunService.repository.SaveTaskRun(taskRun)
+}
+
+func (taskRunService *TaskRunService) findTaskRunForMutation(taskRunID string) (TaskRun, bool) {
+	taskRun, isFound := taskRunService.taskRuns[taskRunID]
+	if isFound || taskRunService.repository == nil {
+		return taskRun, isFound
+	}
+	taskRun, isFound, errorValue := taskRunService.repository.FindTaskRun(taskRunID)
+	if errorValue != nil || !isFound {
+		return TaskRun{}, false
+	}
+	taskRunService.taskRuns[taskRunID] = taskRun
+	return taskRun, true
 }
