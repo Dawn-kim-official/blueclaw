@@ -100,7 +100,8 @@ type ConnectorRuntime struct {
 	identityService *identity.IdentityService
 	agentKernel     *agent.AgentKernel
 	memoryService   *memory.MemoryService
-	memoryExtractor *memory.MemoryExtractionService
+	memoryRouter    *memory.MemoryScopeRouter
+	workspaceID     string
 	logger          *slog.Logger
 
 	mutex             sync.Mutex
@@ -135,8 +136,12 @@ func (connectorRuntime *ConnectorRuntime) UseMemoryService(memoryService *memory
 	connectorRuntime.memoryService = memoryService
 }
 
-func (connectorRuntime *ConnectorRuntime) UseMemoryExtractor(memoryExtractor *memory.MemoryExtractionService) {
-	connectorRuntime.memoryExtractor = memoryExtractor
+func (connectorRuntime *ConnectorRuntime) UseMemoryScopeRouter(memoryRouter *memory.MemoryScopeRouter) {
+	connectorRuntime.memoryRouter = memoryRouter
+}
+
+func (connectorRuntime *ConnectorRuntime) UseWorkspaceID(workspaceID string) {
+	connectorRuntime.workspaceID = strings.TrimSpace(workspaceID)
 }
 
 func (connectorRuntime *ConnectorRuntime) UseEventRepository(eventRepository ConnectorEventRepository) {
@@ -303,8 +308,12 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	defer stopProgress()
 
 	connectorRuntime.logger.Info("connector."+platform+".llm.started", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
-	memoryRecords := connectorRuntime.searchAccessibleMemory(personID, personAccess, event)
-	generatedReply, errorValue := connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), memoryRecords)
+	memoryFacts, memoryError := connectorRuntime.searchAccessibleMemory(ctx, personID, personAccess, event)
+	if memoryError != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".memory.search_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID), slog.String("error", memoryError.Error()))
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "memory.search_failed", memoryError.Error())
+	}
+	generatedReply, errorValue := connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, event.Prompt, event.Context.ToAgentVisibleContext(), memoryFacts)
 	if errorValue == nil {
 		reply = generatedReply
 		connectorRuntime.logger.Info("connector."+platform+".llm.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
@@ -320,25 +329,28 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	}
 
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID), slog.String("replyDispatchID", dispatchID))
-	connectorRuntime.extractMemory(ctx, platform, personID, personAccess, event, taskRun.TaskRunID)
+	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRun.TaskRunID)
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRun.TaskRunID, ReplyDispatchID: dispatchID}, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) searchAccessibleMemory(personID string, personAccess policy.PersonAccess, event PlatformInboundEvent) []memory.MemoryRecord {
+func (connectorRuntime *ConnectorRuntime) searchAccessibleMemory(ctx context.Context, personID string, personAccess policy.PersonAccess, event PlatformInboundEvent) ([]memory.MemoryFact, error) {
 	if connectorRuntime.memoryService == nil {
-		return nil
+		return nil, nil
 	}
-	return connectorRuntime.memoryService.SearchMemory(memory.MemorySearchRequest{
+	namespaces := connectorRuntime.accessibleNamespaces(personID, personAccess, event)
+	return connectorRuntime.memoryService.SearchMemory(ctx, memory.MemorySearchRequest{
+		Query:                     event.Prompt,
 		ReaderPersonID:            personID,
 		ReaderSecurityLevelRank:   personAccess.SecurityLevelRank,
 		ReaderGrantedClasses:      personAccess.GrantedClasses,
 		ConversationID:            event.ConversationID,
 		AccessibleConversationIDs: []string{event.ConversationID},
+		Namespaces:                namespaces,
 	})
 }
 
-func (connectorRuntime *ConnectorRuntime) extractMemory(ctx context.Context, platform string, personID string, personAccess policy.PersonAccess, event PlatformInboundEvent, taskRunID string) {
-	if connectorRuntime.memoryExtractor == nil {
+func (connectorRuntime *ConnectorRuntime) ingestMemory(ctx context.Context, platform string, personID string, personAccess policy.PersonAccess, event PlatformInboundEvent, taskRunID string) {
+	if connectorRuntime.memoryService == nil || connectorRuntime.memoryRouter == nil {
 		return
 	}
 	defaultSecurityLevelRank := personAccess.SecurityLevelRank
@@ -347,23 +359,56 @@ func (connectorRuntime *ConnectorRuntime) extractMemory(ctx context.Context, pla
 		defaultSecurityLevelRank = channelPolicy.DefaultSecurityLevelRank
 		defaultRequiredClasses = append([]string{}, channelPolicy.DefaultRequiredClasses...)
 	}
-	records, errorValue := connectorRuntime.memoryExtractor.ExtractAndStore(ctx, memory.MemoryExtractionInput{
+	route, errorValue := connectorRuntime.memoryRouter.Route(ctx, memory.ScopeRouteInput{
 		PersonID:                 personID,
 		Prompt:                   event.Prompt,
 		ConversationID:           event.ConversationID,
-		SourcePlatform:           platform,
-		SourceMessageID:          event.MessageID,
+		WorkspaceID:              connectorRuntime.workspaceID,
 		DefaultSecurityLevelRank: defaultSecurityLevelRank,
 		DefaultRequiredClasses:   defaultRequiredClasses,
 	})
 	if errorValue != nil {
-		connectorRuntime.logger.Warn("connector."+platform+".memory.extraction_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.extraction_failed", errorValue.Error())
+		connectorRuntime.logger.Warn("connector."+platform+".memory.scope_route_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.scope_route_failed", errorValue.Error())
+		route = memory.ScopeRoute{Namespaces: connectorRuntime.accessibleNamespaces(personID, personAccess, event)}
+	}
+
+	episode := memory.MemoryEpisode{
+		EpisodeID:       event.DedupeKey(),
+		Platform:        platform,
+		MessageID:       event.MessageID,
+		ConversationID:  event.ConversationID,
+		SenderPersonID:  personID,
+		Prompt:          event.Prompt,
+		OccurredAt:      event.RawReceivedAt,
+		Namespaces:      route.Namespaces,
+		Source:          "message",
+		SourceReference: event.ReplyTargetID,
+	}
+	if episode.OccurredAt.IsZero() {
+		episode.OccurredAt = time.Now().UTC()
+	}
+	errorValue = connectorRuntime.memoryService.AddEpisode(ctx, episode)
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".memory.ingestion_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_failed", errorValue.Error())
 		return
 	}
-	if len(records) > 0 {
-		connectorRuntime.logger.Info("connector."+platform+".memory.stored", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int("count", len(records)))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.stored", strconv.Itoa(len(records)))
+	connectorRuntime.logger.Info("connector."+platform+".memory.episode_ingested", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int("namespaceCount", len(route.Namespaces)))
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.episode_ingested", strconv.Itoa(len(route.Namespaces)))
+}
+
+func (connectorRuntime *ConnectorRuntime) accessibleNamespaces(personID string, personAccess policy.PersonAccess, event PlatformInboundEvent) []memory.MemoryNamespace {
+	conversationSecurityLevelRank := personAccess.SecurityLevelRank
+	conversationRequiredClasses := append([]string{}, personAccess.GrantedClasses...)
+	if channelPolicy, isFound := connectorRuntime.identityService.ResolveConversationPolicy(event.Platform, event.ConversationID); isFound {
+		conversationSecurityLevelRank = channelPolicy.DefaultSecurityLevelRank
+		conversationRequiredClasses = append([]string{}, channelPolicy.DefaultRequiredClasses...)
+	}
+	return []memory.MemoryNamespace{
+		memory.UserNamespace(personID),
+		memory.WorkspaceNamespace(connectorRuntime.workspaceID, personAccess.SecurityLevelRank, personAccess.GrantedClasses),
+		memory.ConversationNamespace(event.ConversationID, conversationSecurityLevelRank, conversationRequiredClasses),
 	}
 }
 

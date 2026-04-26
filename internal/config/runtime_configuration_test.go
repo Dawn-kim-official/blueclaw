@@ -46,6 +46,12 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "connectionString": "postgres://blueclaw@/blueclaw?host=/var/run/postgresql&sslmode=disable",
     "migrationDirectoryPath": "/workspace/.blueclaw/migrations"
   },
+  "memory": {
+    "workspaceID": "acme",
+    "graphitiEndpoint": "http://127.0.0.1:7791",
+    "graphitiKuzuPath": "/workspace/.blueclaw/graphiti/kuzu",
+    "timeoutSecond": 15
+  },
   "connectors": {
     "mattermost": {
       "baseURL": "http://localhost:8065"
@@ -124,6 +130,15 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Database.MigrationDirectoryPath != "/workspace/.blueclaw/migrations" {
 		t.Fatalf("expected migration directory to match, got %q", runtimeConfiguration.Database.MigrationDirectoryPath)
+	}
+	if runtimeConfiguration.Memory.WorkspaceID != "acme" {
+		t.Fatalf("expected memory workspace id to match, got %q", runtimeConfiguration.Memory.WorkspaceID)
+	}
+	if runtimeConfiguration.Memory.GraphitiEndpoint != "http://127.0.0.1:7791" {
+		t.Fatalf("expected graphiti endpoint to match, got %q", runtimeConfiguration.Memory.GraphitiEndpoint)
+	}
+	if runtimeConfiguration.Memory.GraphitiKuzuPath != "/workspace/.blueclaw/graphiti/kuzu" {
+		t.Fatalf("expected graphiti kuzu path to match, got %q", runtimeConfiguration.Memory.GraphitiKuzuPath)
 	}
 	if runtimeConfiguration.Logging.RetentionDays != 7 {
 		t.Fatalf("expected log retention to match, got %d", runtimeConfiguration.Logging.RetentionDays)

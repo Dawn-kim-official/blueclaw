@@ -15,8 +15,8 @@ func TestMigrationsApplyList(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected migrations to load: %v", errorValue)
 	}
-	if len(migrationPaths) != 11 {
-		t.Fatalf("expected 11 migration files, got %d", len(migrationPaths))
+	if len(migrationPaths) != 12 {
+		t.Fatalf("expected 12 migration files, got %d", len(migrationPaths))
 	}
 }
 
@@ -52,6 +52,26 @@ func TestScopedMemoryMigrationStoresSourceMetadata(t *testing.T) {
 		"source_platform text",
 		"source_message_id text",
 		"memory_record_scope_lookup_idx",
+	}
+	for _, requiredField := range requiredFields {
+		if !strings.Contains(migrationText, requiredField) {
+			t.Fatalf("expected migration to include %q", requiredField)
+		}
+	}
+}
+
+func TestGraphitiMemoryMigrationStoresMirrorMetadata(t *testing.T) {
+	migrationDocument, errorValue := os.ReadFile(filepath.Join("../../migrations", "012_graphiti_memory_metadata.sql"))
+	if errorValue != nil {
+		t.Fatalf("expected graphiti memory migration to load: %v", errorValue)
+	}
+
+	migrationText := string(migrationDocument)
+	requiredFields := []string{
+		"graphiti_namespace",
+		"graphiti_episode",
+		"namespace_document jsonb",
+		"UNIQUE (source_platform, source_message_id)",
 	}
 	for _, requiredField := range requiredFields {
 		if !strings.Contains(migrationText, requiredField) {

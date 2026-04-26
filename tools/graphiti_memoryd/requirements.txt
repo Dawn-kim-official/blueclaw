@@ -1,0 +1,2 @@
+graphiti-core[kuzu]
+requests-unixsocket

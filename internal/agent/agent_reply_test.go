@@ -37,9 +37,9 @@ func TestAgentKernelInjectsMemoryIntoStructuredReplyRequest(t *testing.T) {
 	_, errorValue := agentKernel.GenerateReplyWithMemory(
 		context.Background(),
 		"저번에 뭐 부탁했지?",
-		[]memory.MemoryRecord{
+		[]memory.MemoryFact{
 			{
-				ContentCiphertext: []byte("사용자는 매터모스트 DM 답장 디버깅을 부탁했다."),
+				Content: "사용자는 매터모스트 DM 답장 디버깅을 부탁했다.",
 			},
 		},
 	)
@@ -73,8 +73,8 @@ func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 			HasMoreBefore: true,
 			HistoryCursor: "cursor-1",
 		},
-		[]memory.MemoryRecord{
-			{ContentCiphertext: []byte("사용자는 redundancy 없는 설계를 선호한다.")},
+		[]memory.MemoryFact{
+			{Content: "사용자는 redundancy 없는 설계를 선호한다."},
 		},
 	)
 	if errorValue != nil {

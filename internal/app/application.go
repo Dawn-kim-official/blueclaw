@@ -82,10 +82,14 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(memory.NewGraphitiClient(
+		runtimeConfiguration.Memory.GraphitiEndpoint,
+		time.Duration(runtimeConfiguration.Memory.TimeoutSecond)*time.Second,
+	))
 	if database.SQL != nil {
-		memoryService.UseRepository(postgres.NewMemoryRecordRepository(database))
+		memoryService.UseMirror(postgres.NewGraphitiMemoryRepository(database))
 	}
-	memoryExtractor := memory.NewMemoryExtractionService(languageModelProvider, memoryService)
+	memoryScopeRouter := memory.NewMemoryScopeRouter(languageModelProvider, runtimeConfiguration.Memory.WorkspaceID)
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	connectorRuntime := connectors.NewConnectorRuntime(
@@ -94,7 +98,8 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		logger,
 	)
 	connectorRuntime.UseMemoryService(memoryService)
-	connectorRuntime.UseMemoryExtractor(memoryExtractor)
+	connectorRuntime.UseMemoryScopeRouter(memoryScopeRouter)
+	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
 	connectorRuntime.UseIngressGate(backupCoordinator)
 	if database.SQL != nil {
 		connectorRuntime.UseEventRepository(postgres.NewRawEventRepository(database))
@@ -193,14 +198,22 @@ func buildBackupManifest(runtimeConfiguration config.RuntimeConfiguration, datab
 	return backup.Manifest{
 		ContractVersion: 1,
 		BlueclawVersion: "main",
-		SchemaVersion:   "011_scoped_memory_source_metadata",
+		SchemaVersion:   "012_graphiti_memory_metadata",
 		PersistentDataRoots: []string{
 			"/workspace/.blueclaw",
+			graphitiKuzuPath(runtimeConfiguration),
 			runtimeConfiguration.Terminal.WorkspaceRootPath,
 		},
 		DatabaseKind:            databaseKind,
 		RequiredBackupArtifacts: requiredArtifacts,
 	}
+}
+
+func graphitiKuzuPath(runtimeConfiguration config.RuntimeConfiguration) string {
+	if strings.TrimSpace(runtimeConfiguration.Memory.GraphitiKuzuPath) != "" {
+		return strings.TrimSpace(runtimeConfiguration.Memory.GraphitiKuzuPath)
+	}
+	return "/workspace/.blueclaw/graphiti/kuzu"
 }
 
 func newCapabilityClient(runtimeConfiguration config.RuntimeConfiguration) capability.Client {

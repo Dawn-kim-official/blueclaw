@@ -169,6 +169,17 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 - `tools/blueclaw-litert-wrapper` is kept as an InternKim-side reference utility, not as a Blueclaw product runtime dependency
 - if the capability LLM endpoint fails, the connector sends a short model-configuration failure reply and writes the detailed error to the persistent log
 
+## Graphiti Memory
+
+Blueclaw uses Graphiti as the product memory engine through the `graphiti-memoryd` sidecar. Blueclaw owns identity, policy, ACL namespace selection, and prompt assembly; Graphiti owns episode ingestion, temporal graph extraction, Kuzu persistence, and hybrid graph search.
+
+- `graphiti-memoryd` runs from `tools/graphiti-memoryd` with `graphiti-core[kuzu]`
+- Kuzu data defaults to `/workspace/.blueclaw/graphiti/kuzu`
+- accepted connector events are ingested as Graphiti episodes into `user:*` and `conversation:*` namespaces
+- workspace/business knowledge is additionally routed into `workspace:*` namespaces by `MemoryScopeRouter`
+- Postgres stores only Graphiti namespace and episode mirror metadata, not canonical memory blobs
+- Graphiti LLM, embedding, and rerank calls use InternKim capability endpoints and receive no provider secrets
+
 ## Migration Goal
 
 - teams already using `Slack` should be able to adopt `Blueclaw` without losing their historical collaboration context

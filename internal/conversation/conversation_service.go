@@ -14,7 +14,7 @@ func NewConversationService() *ConversationService {
 	}
 }
 
-func (conversationService *ConversationService) GenerateReply(prompt string, memoryRecords []memory.MemoryRecord) string {
-	replyContext := conversationService.replyContextBuilder.BuildReplyContext(prompt, memoryRecords)
+func (conversationService *ConversationService) GenerateReply(prompt string, memoryFacts []memory.MemoryFact) string {
+	replyContext := conversationService.replyContextBuilder.BuildReplyContext(prompt, memoryFacts)
 	return conversationService.replyGenerator.GenerateReply(replyContext)
 }

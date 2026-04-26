@@ -13,10 +13,10 @@ type ReplyContext struct {
 
 type ReplyContextBuilder struct{}
 
-func (replyContextBuilder ReplyContextBuilder) BuildReplyContext(prompt string, memoryRecords []memory.MemoryRecord) ReplyContext {
+func (replyContextBuilder ReplyContextBuilder) BuildReplyContext(prompt string, memoryFacts []memory.MemoryFact) ReplyContext {
 	memoryDescriptions := []string{}
-	for _, memoryRecord := range memoryRecords {
-		memoryDescriptions = append(memoryDescriptions, string(memoryRecord.ContentCiphertext))
+	for _, memoryFact := range memoryFacts {
+		memoryDescriptions = append(memoryDescriptions, memoryFact.Content)
 	}
 
 	return ReplyContext{

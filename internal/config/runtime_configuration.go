@@ -13,6 +13,7 @@ type RuntimeConfiguration struct {
 	Firecracker   FirecrackerConfiguration    `json:"firecracker"`
 	Bridge        BridgeConfiguration         `json:"bridge"`
 	Database      DatabaseConfiguration       `json:"database"`
+	Memory        MemoryConfiguration         `json:"memory"`
 	Connectors    ConnectorConfiguration      `json:"connectors"`
 	Logging       LoggingConfiguration        `json:"logging"`
 	MCPServers    []MCPServerConfiguration    `json:"mcpServers"`
@@ -74,6 +75,13 @@ type DatabaseConfiguration struct {
 	Driver                 string `json:"driver"`
 	ConnectionString       string `json:"connectionString"`
 	MigrationDirectoryPath string `json:"migrationDirectoryPath"`
+}
+
+type MemoryConfiguration struct {
+	WorkspaceID      string `json:"workspaceID"`
+	GraphitiEndpoint string `json:"graphitiEndpoint"`
+	GraphitiKuzuPath string `json:"graphitiKuzuPath"`
+	TimeoutSecond    int    `json:"timeoutSecond"`
 }
 
 type ConnectorConfiguration struct {

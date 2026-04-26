@@ -44,11 +44,11 @@ func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, p
 	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
 }
 
-func (agentKernel *AgentKernel) GenerateReplyWithMemory(responseContext context.Context, prompt string, memoryRecords []memory.MemoryRecord) (string, error) {
-	return agentKernel.GenerateReplyWithContext(responseContext, prompt, VisibleContext{}, memoryRecords)
+func (agentKernel *AgentKernel) GenerateReplyWithMemory(responseContext context.Context, prompt string, memoryFacts []memory.MemoryFact) (string, error) {
+	return agentKernel.GenerateReplyWithContext(responseContext, prompt, VisibleContext{}, memoryFacts)
 }
 
-func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context.Context, prompt string, visibleContext VisibleContext, memoryRecords []memory.MemoryRecord) (string, error) {
+func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context.Context, prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) (string, error) {
 	if agentKernel.languageModel == nil {
 		return "", errors.New("language model provider is not configured")
 	}
@@ -56,7 +56,7 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
 		responseContext,
 		llm.StructuredResponseRequest{
-			Messages: agentKernel.buildReplyMessages(prompt, visibleContext, memoryRecords),
+			Messages: agentKernel.buildReplyMessages(prompt, visibleContext, memoryFacts),
 			StructuredOutputSchema: llm.StructuredOutputSchema{
 				Name:               "blueclaw_reply",
 				Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
@@ -95,7 +95,7 @@ type VisibleContextMessage struct {
 	Text    string
 }
 
-func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryRecords []memory.MemoryRecord) []llm.Message {
+func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",
@@ -111,7 +111,7 @@ func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext
 		})
 	}
 
-	memoryContext := buildMemoryContext(memoryRecords)
+	memoryContext := buildMemoryContext(memoryFacts)
 	if memoryContext != "" {
 		messages = append(messages, llm.Message{
 			Role:    "system",
@@ -155,16 +155,16 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 	return "Recent visible conversation context:\n" + strings.Join(contextLines, "\n") + "\n" + historyLine
 }
 
-func buildMemoryContext(memoryRecords []memory.MemoryRecord) string {
+func buildMemoryContext(memoryFacts []memory.MemoryFact) string {
 	userMemoryDescriptions := []string{}
 	workspaceMemoryDescriptions := []string{}
 	conversationMemoryDescriptions := []string{}
-	for _, memoryRecord := range memoryRecords {
-		memoryDescription := strings.TrimSpace(string(memoryRecord.ContentCiphertext))
+	for _, memoryFact := range memoryFacts {
+		memoryDescription := strings.TrimSpace(memoryFact.Content)
 		if memoryDescription == "" {
 			continue
 		}
-		switch memoryRecord.ScopeType {
+		switch memoryFact.ScopeType {
 		case memory.ScopeTypeWorkspace:
 			workspaceMemoryDescriptions = append(workspaceMemoryDescriptions, "- "+memoryDescription)
 		case memory.ScopeTypeConversation:

@@ -108,9 +108,10 @@ func TestConnectorRuntimeInjectsRequesterMemoryIntoLanguageModel(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "기억했습니다"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	memoryService := &memory.MemoryService{}
-	memoryService.StoreDerivedMemory(memory.MemoryRecord{
-		ScopePersonID:     "person-1",
-		ContentCiphertext: []byte("사용자는 Graphiti 메모리 설계를 선택했다."),
+	memoryService.StoreMemoryFact(memory.MemoryFact{
+		ScopeType:   memory.ScopeTypeUser,
+		NamespaceID: "user:person-1",
+		Content:     "사용자는 Graphiti 메모리 설계를 선택했다.",
 	})
 	connectorRuntime.UseMemoryService(memoryService)
 
@@ -139,9 +140,10 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 		HistoryCursor: "cursor-1",
 	}
 	memoryService := &memory.MemoryService{}
-	memoryService.StoreDerivedMemory(memory.MemoryRecord{
-		ScopePersonID:     "person-1",
-		ContentCiphertext: []byte("사용자는 간결한 설계를 선호한다."),
+	memoryService.StoreMemoryFact(memory.MemoryFact{
+		ScopeType:   memory.ScopeTypeUser,
+		NamespaceID: "user:person-1",
+		Content:     "사용자는 간결한 설계를 선호한다.",
 	})
 	connectorRuntime.UseMemoryService(memoryService)
 
@@ -168,11 +170,17 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 }
 
 func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
-	languageModel := &memoryAwareLanguageModel{}
+	languageModel := &recordingLanguageModel{reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	graphStore := &fakeGraphMemoryStore{
+		facts: []memory.MemoryFact{
+			{ScopeType: memory.ScopeTypeUser, NamespaceID: "user:person-1", Content: "사용자의 이름은 민수다."},
+		},
+	}
 	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(graphStore)
 	connectorRuntime.UseMemoryService(memoryService)
-	connectorRuntime.UseMemoryExtractor(memory.NewMemoryExtractionService(languageModel, memoryService))
+	connectorRuntime.UseMemoryScopeRouter(memory.NewMemoryScopeRouter(staticScopeLanguageModel{content: `{"storeWorkspace":false,"securityLevelRank":0,"requiredClasses":[]}`}, "default"))
 
 	channelEvent := testInboundEvent("message-1")
 	channelEvent.ConversationID = "channel-1"
@@ -190,25 +198,34 @@ func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
 		t.Fatalf("expected direct memory recall event to process: %v", errorValue)
 	}
 
-	if !strings.Contains(languageModel.lastReplyRequest.Messages[1].Content, "민수") {
-		t.Fatalf("expected user memory from channel in direct reply context, got %+v", languageModel.lastReplyRequest.Messages)
+	if len(graphStore.episodes) != 2 {
+		t.Fatalf("expected Graphiti episode ingestion for both messages, got %d", len(graphStore.episodes))
+	}
+	if !containsEpisodeNamespace(graphStore.episodes[0], "user:person-1") {
+		t.Fatalf("expected user namespace ingestion, got %+v", graphStore.episodes[0].Namespaces)
+	}
+	if !strings.Contains(languageModel.request.Messages[1].Content, "민수") {
+		t.Fatalf("expected user memory from graph search in direct reply context, got %+v", languageModel.request.Messages)
 	}
 }
 
 func TestConnectorRuntimeDoesNotShareUserMemoryWithOtherPerson(t *testing.T) {
 	memoryService := &memory.MemoryService{}
-	memoryService.StoreDerivedMemory(memory.MemoryRecord{
-		ScopeType:         memory.ScopeTypeUser,
-		ScopePersonID:     "person-1",
-		ContentCiphertext: []byte("사용자의 이름은 민수다."),
+	memoryService.StoreMemoryFact(memory.MemoryFact{
+		ScopeType:   memory.ScopeTypeUser,
+		NamespaceID: "user:person-1",
+		Content:     "사용자의 이름은 민수다.",
 	})
 
-	records := memoryService.SearchMemory(memory.MemorySearchRequest{
+	records, errorValue := memoryService.SearchMemory(context.Background(), memory.MemorySearchRequest{
 		ReaderPersonID:          "person-2",
 		ReaderSecurityLevelRank: 100,
 		ReaderGrantedClasses:    []string{"internal"},
-		ConversationID:          "dm-2",
+		Namespaces:              []memory.MemoryNamespace{memory.UserNamespace("person-2")},
 	})
+	if errorValue != nil {
+		t.Fatalf("expected memory search to succeed: %v", errorValue)
+	}
 	if len(records) != 0 {
 		t.Fatalf("expected person-2 not to read person-1 user memory, got %d", len(records))
 	}
@@ -339,24 +356,50 @@ func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ contex
 	return llm.StructuredResponse{Content: `{"reply":"` + languageModel.reply + `"}`}, nil
 }
 
-type memoryAwareLanguageModel struct {
-	lastReplyRequest llm.StructuredResponseRequest
+type staticScopeLanguageModel struct {
+	content string
 }
 
-func (languageModel *memoryAwareLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "ok", nil
+func (languageModel staticScopeLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
 }
 
-func (languageModel *memoryAwareLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_memory_extraction" {
-		userMessage := structuredResponseRequest.Messages[len(structuredResponseRequest.Messages)-1].Content
-		if strings.Contains(userMessage, "이름은 민수") {
-			return llm.StructuredResponse{Content: `{"candidates":[{"scopeType":"user","subjectPersonID":"","title":"name","memoryType":"profile","content":"사용자의 이름은 민수다.","confidence":0.95,"securityLevelRank":0,"requiredClasses":[]}]}`}, nil
-		}
-		return llm.StructuredResponse{Content: `{"candidates":[]}`}, nil
+func (languageModel staticScopeLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_memory_scope_route" {
+		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
-	languageModel.lastReplyRequest = structuredResponseRequest
 	return llm.StructuredResponse{Content: `{"reply":"ok"}`}, nil
+}
+
+type fakeGraphMemoryStore struct {
+	episodes []memory.MemoryEpisode
+	facts    []memory.MemoryFact
+}
+
+func (store *fakeGraphMemoryStore) AddEpisode(_ context.Context, episode memory.MemoryEpisode) error {
+	store.episodes = append(store.episodes, episode)
+	return nil
+}
+
+func (store *fakeGraphMemoryStore) SearchFacts(_ context.Context, request memory.MemorySearchRequest) ([]memory.MemoryFact, error) {
+	facts := []memory.MemoryFact{}
+	for _, fact := range store.facts {
+		for _, namespace := range request.Namespaces {
+			if fact.NamespaceID == namespace.NamespaceID {
+				facts = append(facts, fact)
+			}
+		}
+	}
+	return facts, nil
+}
+
+func containsEpisodeNamespace(episode memory.MemoryEpisode, namespaceID string) bool {
+	for _, namespace := range episode.Namespaces {
+		if namespace.NamespaceID == namespaceID {
+			return true
+		}
+	}
+	return false
 }
 
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {

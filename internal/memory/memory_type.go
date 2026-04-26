@@ -34,3 +34,37 @@ type MemoryRecord struct {
 	RequiredClasses      []string  `json:"requiredClasses"`
 	UpdatedAt            time.Time `json:"updatedAt"`
 }
+
+type MemoryNamespace struct {
+	NamespaceID         string   `json:"namespaceID"`
+	ScopeType           string   `json:"scopeType"`
+	ScopePersonID       string   `json:"scopePersonID,omitempty"`
+	ScopeConversationID string   `json:"scopeConversationID,omitempty"`
+	SecurityLevelRank   int      `json:"securityLevelRank"`
+	RequiredClasses     []string `json:"requiredClasses"`
+}
+
+type MemoryEpisode struct {
+	EpisodeID       string            `json:"episodeID"`
+	Platform        string            `json:"platform"`
+	MessageID       string            `json:"messageID"`
+	ConversationID  string            `json:"conversationID"`
+	SenderPersonID  string            `json:"senderPersonID"`
+	Prompt          string            `json:"prompt"`
+	OccurredAt      time.Time         `json:"occurredAt"`
+	Namespaces      []MemoryNamespace `json:"namespaces"`
+	Source          string            `json:"source"`
+	SourceReference string            `json:"sourceReference"`
+}
+
+type MemoryFact struct {
+	FactID            string    `json:"factID"`
+	ScopeType         string    `json:"scopeType"`
+	NamespaceID       string    `json:"namespaceID"`
+	Content           string    `json:"content"`
+	Score             float64   `json:"score"`
+	SourceEpisodeID   string    `json:"sourceEpisodeID"`
+	ValidAt           time.Time `json:"validAt"`
+	SecurityLevelRank int       `json:"securityLevelRank"`
+	RequiredClasses   []string  `json:"requiredClasses"`
+}

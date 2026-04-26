@@ -1,65 +1,90 @@
 package memory
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
-func TestMemoryServiceSeparatesUserWorkspaceAndConversationScopes(t *testing.T) {
+func TestMemoryServiceSeparatesUserWorkspaceAndConversationNamespaces(t *testing.T) {
 	memoryService := &MemoryService{}
-	memoryService.StoreDerivedMemory(MemoryRecord{
-		ScopeType:         ScopeTypeUser,
-		ScopePersonID:     "person-1",
-		ContentCiphertext: []byte("사용자의 이름은 민수다."),
+	memoryService.StoreMemoryFact(MemoryFact{
+		ScopeType:   ScopeTypeUser,
+		NamespaceID: "user:person-1",
+		Content:     "사용자의 이름은 민수다.",
 	})
-	memoryService.StoreDerivedMemory(MemoryRecord{
+	memoryService.StoreMemoryFact(MemoryFact{
 		ScopeType:         ScopeTypeWorkspace,
-		ContentCiphertext: []byte("회사 법인카드는 재무팀만 쓴다."),
+		NamespaceID:       WorkspaceNamespace("default", 50, []string{"finance"}).NamespaceID,
+		Content:           "회사 법인카드는 재무팀만 쓴다.",
 		SecurityLevelRank: 50,
 		RequiredClasses:   []string{"finance"},
 	})
-	memoryService.StoreDerivedMemory(MemoryRecord{
-		ScopeType:           ScopeTypeConversation,
-		ScopeConversationID: "channel-1",
-		ContentCiphertext:   []byte("이 채널은 릴리즈 회의용이다."),
-		SecurityLevelRank:   10,
-		RequiredClasses:     []string{"internal"},
+	memoryService.StoreMemoryFact(MemoryFact{
+		ScopeType:         ScopeTypeConversation,
+		NamespaceID:       ConversationNamespace("channel-1", 10, []string{"internal"}).NamespaceID,
+		Content:           "이 채널은 릴리즈 회의용이다.",
+		SecurityLevelRank: 10,
+		RequiredClasses:   []string{"internal"},
 	})
 
-	personOneRecords := memoryService.SearchMemory(MemorySearchRequest{
+	personOneFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
 		ReaderPersonID:          "person-1",
 		ReaderSecurityLevelRank: 100,
 		ReaderGrantedClasses:    []string{"internal", "finance"},
-		ConversationID:          "channel-1",
+		Namespaces: []MemoryNamespace{
+			UserNamespace("person-1"),
+			WorkspaceNamespace("default", 50, []string{"finance"}),
+			ConversationNamespace("channel-1", 10, []string{"internal"}),
+		},
 	})
-	if len(personOneRecords) != 3 {
-		t.Fatalf("expected user, workspace, and conversation memory, got %d", len(personOneRecords))
+	if errorValue != nil {
+		t.Fatalf("expected search to succeed: %v", errorValue)
+	}
+	if len(personOneFacts) != 3 {
+		t.Fatalf("expected user, workspace, and conversation memory, got %d", len(personOneFacts))
 	}
 
-	personTwoRecords := memoryService.SearchMemory(MemorySearchRequest{
+	personTwoFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
 		ReaderPersonID:          "person-2",
 		ReaderSecurityLevelRank: 100,
 		ReaderGrantedClasses:    []string{"internal", "finance"},
-		ConversationID:          "channel-1",
+		Namespaces: []MemoryNamespace{
+			UserNamespace("person-2"),
+			WorkspaceNamespace("default", 50, []string{"finance"}),
+			ConversationNamespace("channel-1", 10, []string{"internal"}),
+		},
 	})
-	if containsMemory(personTwoRecords, "사용자의 이름은 민수다.") {
+	if errorValue != nil {
+		t.Fatalf("expected search to succeed: %v", errorValue)
+	}
+	if containsMemory(personTwoFacts, "사용자의 이름은 민수다.") {
 		t.Fatal("expected other user not to read person-1 user memory")
 	}
 
-	lowAccessRecords := memoryService.SearchMemory(MemorySearchRequest{
+	lowAccessFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
 		ReaderPersonID:          "person-1",
 		ReaderSecurityLevelRank: 10,
 		ReaderGrantedClasses:    []string{"internal"},
-		ConversationID:          "channel-2",
+		Namespaces: []MemoryNamespace{
+			UserNamespace("person-1"),
+			WorkspaceNamespace("default", 50, []string{"finance"}),
+			ConversationNamespace("channel-2", 10, []string{"internal"}),
+		},
 	})
-	if containsMemory(lowAccessRecords, "회사 법인카드는 재무팀만 쓴다.") {
+	if errorValue != nil {
+		t.Fatalf("expected search to succeed: %v", errorValue)
+	}
+	if containsMemory(lowAccessFacts, "회사 법인카드는 재무팀만 쓴다.") {
 		t.Fatal("expected workspace memory to respect security classes")
 	}
-	if containsMemory(lowAccessRecords, "이 채널은 릴리즈 회의용이다.") {
+	if containsMemory(lowAccessFacts, "이 채널은 릴리즈 회의용이다.") {
 		t.Fatal("expected conversation memory to stay in its conversation")
 	}
 }
 
-func containsMemory(memoryRecords []MemoryRecord, content string) bool {
-	for _, memoryRecord := range memoryRecords {
-		if string(memoryRecord.ContentCiphertext) == content {
+func containsMemory(memoryFacts []MemoryFact, content string) bool {
+	for _, memoryFact := range memoryFacts {
+		if memoryFact.Content == content {
 			return true
 		}
 	}
