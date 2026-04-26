@@ -1,7 +1,9 @@
 import asyncio
+import hashlib
 import json
 import os
 import sys
+import traceback
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -11,7 +13,9 @@ from typing import Any
 from graphiti_core import Graphiti
 from graphiti_core.cross_encoder.client import CrossEncoderClient
 from graphiti_core.driver.kuzu_driver import KuzuDriver
+from graphiti_core.driver.driver import GraphProvider
 from graphiti_core.embedder.client import EmbedderClient, EmbedderConfig
+from graphiti_core.graph_queries import get_fulltext_indices
 from graphiti_core.llm_client.client import LLMClient
 from graphiti_core.llm_client.config import LLMConfig, ModelSize
 from graphiti_core.nodes import EpisodeType
@@ -32,11 +36,16 @@ class CapabilityLLMClient(LLMClient):
         model_size: ModelSize = ModelSize.medium,
     ) -> dict[str, Any]:
         schema = response_model.model_json_schema() if response_model else None
+        schema_name = getattr(response_model, "__name__", "graphiti_response") if response_model else "graphiti_response"
         request_document = {
             "model": self.model_name,
-            "executionMode": "auto",
+            "executionMode": os.environ.get("BLUECLAW_GRAPHITI_EXECUTION_MODE", "auto"),
             "messages": [dump_message(message) for message in messages],
-            "structuredOutputSchema": schema,
+            "structuredOutputSchema": {
+                "name": schema_name,
+                "document": schema,
+                "isStrictlyEnforced": True,
+            },
             "maxTokens": max_tokens,
         }
         response_document = await asyncio.to_thread(
@@ -119,9 +128,11 @@ class GraphitiMemoryService:
     def __init__(self):
         capability_endpoint = os.environ.get("INTERNKIM_CAPABILITY_ENDPOINT", "http+unix://%2Frun%2Finternkim%2Fcapability.sock")
         kuzu_path = os.environ.get("BLUECLAW_GRAPHITI_KUZU_PATH", "/workspace/.blueclaw/graphiti/kuzu")
-        model = os.environ.get("BLUECLAW_GRAPHITI_MODEL", "gemma-4-E4B-it")
+        model = os.environ.get("BLUECLAW_GRAPHITI_MODEL", "google/gemini-3-flash-preview")
         os.makedirs(os.path.dirname(kuzu_path), exist_ok=True)
         graph_driver = KuzuDriver(db=kuzu_path)
+        graph_driver._database = ""
+        asyncio.run(ensure_kuzu_fulltext_indexes(graph_driver))
         self.graphiti = Graphiti(
             graph_driver=graph_driver,
             llm_client=CapabilityLLMClient(capability_endpoint, model),
@@ -139,13 +150,14 @@ class GraphitiMemoryService:
         source_reference = request_document.get("sourceReference", "")
         namespaces = request_document.get("namespaces", [])
         for namespace in namespaces:
+            namespace_id = namespace["namespaceID"]
             await self.graphiti.add_episode(
-                name=episode_id + ":" + namespace["namespaceID"],
+                name=graphiti_group_id(episode_id + ":" + namespace_id),
                 episode_body=episode_body,
                 source=EpisodeType.message,
                 source_description=source_reference,
                 reference_time=occurred_at,
-                group_id=namespace["namespaceID"],
+                group_id=graphiti_group_id(namespace_id),
             )
         return {"episodeID": episode_id, "namespaceCount": len(namespaces)}
 
@@ -156,7 +168,7 @@ class GraphitiMemoryService:
         facts: list[dict[str, Any]] = []
         for namespace in namespaces:
             namespace_id = namespace["namespaceID"]
-            results = await self.graphiti.search(query=query, group_ids=[namespace_id], num_results=limit)
+            results = await self.graphiti.search(query=query, group_ids=[graphiti_group_id(namespace_id)], num_results=limit)
             for result in results:
                 facts.append(
                     {
@@ -172,6 +184,20 @@ class GraphitiMemoryService:
                     }
                 )
         return {"facts": facts[:limit]}
+
+
+def graphiti_group_id(namespace_id: str) -> str:
+    digest = hashlib.sha256(namespace_id.encode("utf-8")).hexdigest()[:24]
+    return "bc_" + digest
+
+
+async def ensure_kuzu_fulltext_indexes(graph_driver: KuzuDriver):
+    for query in get_fulltext_indices(GraphProvider.KUZU):
+        try:
+            await graph_driver.execute_query(query)
+        except Exception as error:
+            if "already exists" not in str(error).lower():
+                raise
 
 
 def post_json(url: str, request_document: dict[str, Any]) -> dict[str, Any]:
@@ -235,7 +261,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 return
             self.write_json(200, response_document)
         except Exception as error:
-            self.write_json(500, {"error": str(error)})
+            traceback.print_exc()
+            self.write_json(500, {"error": str(error), "traceback": traceback.format_exc()})
 
     def read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
