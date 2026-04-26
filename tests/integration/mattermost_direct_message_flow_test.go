@@ -81,7 +81,9 @@ func (mattermostStaticIdentityResolver mattermostStaticIdentityResolver) Resolve
 	}, nil
 }
 
-type mattermostIntegrationConversationClient struct{}
+type mattermostIntegrationConversationClient struct {
+	lastMessage string
+}
 
 func (client *mattermostIntegrationConversationClient) CreatePost(_ string, _ string, message string) (string, error) {
 	client.lastMessage = message
@@ -114,11 +116,10 @@ func mattermostInboundEvent(messageID string, senderUserID string) connectors.Pl
 	return connectors.PlatformInboundEvent{
 		Platform:       "mattermost",
 		Source:         "test",
-		EventID:        messageID,
 		ConversationID: "channel-1",
 		MessageID:      messageID,
-		SenderUserID:   senderUserID,
-		ChannelType:    "D",
-		Text:           "hello",
+		SenderID:       senderUserID,
+		ReplyTargetID:  "reply-target-" + messageID,
+		Prompt:         "hello",
 	}
 }

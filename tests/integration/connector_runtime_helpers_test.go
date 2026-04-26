@@ -2,7 +2,6 @@ package integration
 
 import (
 	"context"
-	"time"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/connectors"
@@ -27,6 +26,5 @@ func newIntegrationConnectorRuntime(identityService *identity.IdentityService) *
 	agentKernel.UseLanguageModelProvider(integrationLanguageModel{})
 
 	connectorRuntime := connectors.NewConnectorRuntime(identityService, agentKernel, nil)
-	connectorRuntime.UseTypingTiming(time.Hour, time.Hour)
 	return connectorRuntime
 }

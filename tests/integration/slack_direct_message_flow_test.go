@@ -21,7 +21,7 @@ func TestSlackDirectMessageFlow(t *testing.T) {
 		t.Fatalf("expected conversation ID to match, got %s", event.ConversationID)
 	}
 
-	adapter := slack.NewAdapter(slackStaticIdentityResolver{email: "lee@example.com"}, slackIntegrationConversationClient{}, "")
+	adapter := slack.NewAdapter(slackStaticIdentityResolver{email: "lee@example.com"}, &slackIntegrationConversationClient{})
 	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: "reply-target-1"}, "hi")
 	if errorValue != nil {
 		t.Fatalf("expected reply to be sent: %v", errorValue)
@@ -80,7 +80,9 @@ func (slackStaticIdentityResolver slackStaticIdentityResolver) ResolveUserIdenti
 	}, nil
 }
 
-type slackIntegrationConversationClient struct{}
+type slackIntegrationConversationClient struct {
+	lastMessage string
+}
 
 func (client *slackIntegrationConversationClient) CreateMessage(_ string, _ string, message string) (string, error) {
 	client.lastMessage = message
@@ -109,11 +111,10 @@ func slackInboundEvent(messageID string, senderUserID string) connectors.Platfor
 	return connectors.PlatformInboundEvent{
 		Platform:       "slack",
 		Source:         "test",
-		EventID:        messageID,
 		ConversationID: "D123",
 		MessageID:      messageID,
-		SenderUserID:   senderUserID,
-		ChannelType:    "im",
-		Text:           "hello",
+		SenderID:       senderUserID,
+		ReplyTargetID:  "reply-target-" + messageID,
+		Prompt:         "hello",
 	}
 }
