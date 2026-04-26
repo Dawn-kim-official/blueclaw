@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import os
+import shutil
 import sys
 import threading
 import traceback
@@ -132,7 +133,7 @@ class GraphitiMemoryService:
         kuzu_path = os.environ.get("BLUECLAW_GRAPHITI_KUZU_PATH", "/workspace/.blueclaw/graphiti/kuzu")
         model = os.environ.get("BLUECLAW_GRAPHITI_MODEL", "google/gemini-3-flash-preview")
         os.makedirs(os.path.dirname(kuzu_path), exist_ok=True)
-        graph_driver = KuzuDriver(db=kuzu_path)
+        graph_driver = create_kuzu_driver(kuzu_path)
         graph_driver._database = ""
         asyncio.run(ensure_kuzu_fulltext_indexes(graph_driver))
         self.graphiti = Graphiti(
@@ -225,6 +226,30 @@ class GraphitiMemoryService:
 def graphiti_group_id(namespace_id: str) -> str:
     digest = hashlib.sha256(namespace_id.encode("utf-8")).hexdigest()[:24]
     return "bc_" + digest
+
+
+def create_kuzu_driver(kuzu_path: str) -> KuzuDriver:
+    try:
+        return KuzuDriver(db=kuzu_path)
+    except Exception as error:
+        if not is_kuzu_open_corruption(error):
+            raise
+        quarantine_kuzu_store(kuzu_path)
+        return KuzuDriver(db=kuzu_path)
+
+
+def is_kuzu_open_corruption(error: Exception) -> bool:
+    message = str(error).lower()
+    return "unordered_map::at" in message or ("metadata" in message and "wal" in message)
+
+
+def quarantine_kuzu_store(kuzu_path: str):
+    suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    for path in [kuzu_path, kuzu_path + ".wal"]:
+        if not os.path.exists(path):
+            continue
+        quarantine_path = path + ".corrupt." + suffix
+        shutil.move(path, quarantine_path)
 
 
 def episode_body_for_namespace(namespace: dict[str, Any], sender_person_id: str, prompt: str) -> str:
