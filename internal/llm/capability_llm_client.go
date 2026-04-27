@@ -22,6 +22,14 @@ type capabilityStructuredResponseRequestDocument struct {
 	StructuredOutputSchema capabilityStructuredOutputSchema `json:"structuredOutputSchema"`
 }
 
+type capabilityTextResponseRequestDocument struct {
+	Model                 string    `json:"model"`
+	ExecutionMode         string    `json:"executionMode"`
+	Messages              []Message `json:"messages"`
+	RequireParameters     bool      `json:"requireParameters"`
+	EnableResponseHealing bool      `json:"enableResponseHealing"`
+}
+
 type capabilityStructuredOutputSchema struct {
 	Name               string          `json:"name"`
 	Document           json.RawMessage `json:"document"`
@@ -36,27 +44,29 @@ type capabilityStructuredResponseDocument struct {
 }
 
 func (capabilityLLMClient CapabilityLLMClient) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
-	structuredResponse, errorValue := capabilityLLMClient.GenerateStructuredResponse(
+	if capabilityLLMClient.CapabilityClient.HTTPClient == nil {
+		return "", errors.New("capability llm http client is not configured")
+	}
+
+	var responseDocument capabilityStructuredResponseDocument
+	errorValue := capabilityLLMClient.CapabilityClient.PostJSON(
 		responseContext,
-		StructuredResponseRequest{
-			Messages: []Message{
-				{
-					Role:    "user",
-					Content: prompt,
-				},
-			},
-			StructuredOutputSchema: StructuredOutputSchema{
-				Name:               "plain_text_response",
-				Document:           `{"type":"object","properties":{"content":{"type":"string"}},"required":["content"],"additionalProperties":false}`,
-				IsStrictlyEnforced: true,
-			},
+		"/v1/llm/text",
+		capabilityTextResponseRequestDocument{
+			Model:         capabilityLLMClient.ModelName,
+			ExecutionMode: capabilityLLMClient.executionMode(),
+			Messages: []Message{{
+				Role:    "user",
+				Content: prompt,
+			}},
 		},
+		&responseDocument,
 	)
 	if errorValue != nil {
 		return "", errorValue
 	}
 
-	return structuredResponse.Content, nil
+	return responseDocument.Content, nil
 }
 
 func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(responseContext context.Context, structuredResponseRequest StructuredResponseRequest) (StructuredResponse, error) {

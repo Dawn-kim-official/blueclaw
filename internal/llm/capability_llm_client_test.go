@@ -82,6 +82,45 @@ func TestCapabilityLLMClientReturnsCapabilityError(t *testing.T) {
 	}
 }
 
+func TestCapabilityLLMClientGenerateResponseUsesTextEndpoint(t *testing.T) {
+	var receivedDocument capabilityTextResponseRequestDocument
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/v1/llm/text" {
+			t.Fatalf("expected text llm path, got %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "" {
+			t.Fatalf("expected no authorization header, got %q", request.Header.Get("Authorization"))
+		}
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected request document to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma","content":"plain reply","selectedBackend":"cpu"}`), nil
+	}}
+
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName:     "gemma",
+		ExecutionMode: "local",
+	}
+
+	response, errorValue := client.GenerateResponse(context.Background(), "hello")
+	if errorValue != nil {
+		t.Fatalf("expected text response: %v", errorValue)
+	}
+	if response != "plain reply" {
+		t.Fatalf("expected plain text response, got %q", response)
+	}
+	if receivedDocument.Model != "gemma" || receivedDocument.ExecutionMode != "local" {
+		t.Fatalf("expected model and execution mode, got %+v", receivedDocument)
+	}
+	if len(receivedDocument.Messages) != 1 || receivedDocument.Messages[0].Content != "hello" {
+		t.Fatalf("expected prompt message, got %+v", receivedDocument.Messages)
+	}
+}
+
 type fakeCapabilityHTTPClient struct {
 	handler func(*http.Request) (*http.Response, error)
 }
