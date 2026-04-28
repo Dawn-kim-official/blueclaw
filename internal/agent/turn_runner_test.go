@@ -99,11 +99,16 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"final_reply","finalReply":"browser tool is unavailable"}`,
+		`{"action":"call_tool","toolName":"memory.search","toolInput":{}}`,
+		`{"action":"final_reply","finalReply":"still no screenshot"}`,
 		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"observed"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"browser.screenshot"})
+	toolRegistry := NewToolRegistry([]string{"browser.screenshot", "memory.search"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `[]`}, nil
+	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: `{"devicePath":"/tmp/internkim-companion-files/screenshot.png"}`,
@@ -128,6 +133,9 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_required", "browser.screenshot") {
 		t.Fatal("expected tool requirement event")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.memory.search.result", "[]") {
+		t.Fatal("expected memory search observation before screenshot")
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].DevicePath != "/tmp/internkim-companion-files/screenshot.png" {
 		t.Fatalf("expected screenshot attachment, got %+v", result.Attachments)
@@ -239,6 +247,7 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.open","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
 		`{"action":"final_reply","finalReply":"opened"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -261,8 +270,8 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	if result.FinalReply != "opened" {
 		t.Fatalf("expected opened reply, got %q", result.FinalReply)
 	}
-	if navigateCallCount != 0 {
-		t.Fatalf("expected malformed navigate input not to invoke tool, got %d calls", navigateCallCount)
+	if navigateCallCount != 1 {
+		t.Fatalf("expected only valid navigate input to invoke tool, got %d calls", navigateCallCount)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "url") {
 		t.Fatal("expected malformed browser navigate event")

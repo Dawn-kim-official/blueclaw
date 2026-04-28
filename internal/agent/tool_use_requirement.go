@@ -56,6 +56,9 @@ func missingToolUseRequirement(requirements []toolUseRequirement, observations [
 
 func hasObservedToolPrefix(observations []turnObservation, toolPrefix string) bool {
 	for _, observation := range observations {
+		if observation.IsError {
+			continue
+		}
 		if strings.HasPrefix(strings.TrimSpace(observation.Tool), toolPrefix) {
 			return true
 		}
@@ -65,6 +68,9 @@ func hasObservedToolPrefix(observations []turnObservation, toolPrefix string) bo
 
 func hasObservedToolName(observations []turnObservation, toolName string) bool {
 	for _, observation := range observations {
+		if observation.IsError {
+			continue
+		}
 		if strings.TrimSpace(observation.Tool) == toolName {
 			return true
 		}
