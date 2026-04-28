@@ -24,12 +24,12 @@ type BudgetProfile struct {
 }
 
 var budgetProfiles = []BudgetProfile{
-	{BudgetClass: BudgetClassFiveMinutes, Duration: 5 * time.Minute, MaxIterations: 4, MaxToolCalls: 4},
-	{BudgetClass: BudgetClassTenMinutes, Duration: 10 * time.Minute, MaxIterations: 8, MaxToolCalls: 8},
-	{BudgetClass: BudgetClassThirtyMinutes, Duration: 30 * time.Minute, MaxIterations: 16, MaxToolCalls: 16},
-	{BudgetClass: BudgetClassOneHour, Duration: time.Hour, MaxIterations: 24, MaxToolCalls: 32},
-	{BudgetClass: BudgetClassSixHours, Duration: 6 * time.Hour, MaxIterations: 48, MaxToolCalls: 96},
-	{BudgetClass: BudgetClassHalfDay, Duration: 12 * time.Hour, MaxIterations: 96, MaxToolCalls: 192},
+	{BudgetClass: BudgetClassFiveMinutes, Duration: 5 * time.Minute, MaxIterations: 16, MaxToolCalls: 24},
+	{BudgetClass: BudgetClassTenMinutes, Duration: 10 * time.Minute, MaxIterations: 32, MaxToolCalls: 48},
+	{BudgetClass: BudgetClassThirtyMinutes, Duration: 30 * time.Minute, MaxIterations: 96, MaxToolCalls: 144},
+	{BudgetClass: BudgetClassOneHour, Duration: time.Hour, MaxIterations: 192, MaxToolCalls: 288},
+	{BudgetClass: BudgetClassSixHours, Duration: 6 * time.Hour, MaxIterations: 512, MaxToolCalls: 1024},
+	{BudgetClass: BudgetClassHalfDay, Duration: 12 * time.Hour, MaxIterations: 1024, MaxToolCalls: 2048},
 }
 
 func NormalizeBudgetClass(value string) BudgetClass {
@@ -97,5 +97,24 @@ func BudgetClassLabel(budgetClass BudgetClass) string {
 		return "half-day"
 	default:
 		return "thirty-minute"
+	}
+}
+
+func BudgetClassKoreanLabel(budgetClass BudgetClass) string {
+	switch NormalizeBudgetClass(string(budgetClass)) {
+	case BudgetClassFiveMinutes:
+		return "5분"
+	case BudgetClassTenMinutes:
+		return "10분"
+	case BudgetClassThirtyMinutes:
+		return "30분"
+	case BudgetClassOneHour:
+		return "1시간"
+	case BudgetClassSixHours:
+		return "6시간"
+	case BudgetClassHalfDay:
+		return "반나절"
+	default:
+		return "30분"
 	}
 }

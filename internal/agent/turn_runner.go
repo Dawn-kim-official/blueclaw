@@ -15,7 +15,6 @@ import (
 
 const DefaultFallbackReply = "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
 const DefaultBudgetExceededReply = "I stopped because this request exceeded the current execution budget. Please narrow the request and try again."
-const DefaultMalformedToolReply = "I could not continue because a browser tool call was missing required input. Please try again with a narrower request."
 
 type TurnOptions struct {
 	MaxIterations      int
@@ -118,7 +117,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	observations := []turnObservation{}
 	toolUseRequirements := deriveToolUseRequirements(request)
 	toolCallCount := 0
-	malformedToolCallCount := 0
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterations; iteration++ {
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
@@ -127,7 +125,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.DeadlineExceeded) {
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum wall clock exceeded")
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum wall clock exceeded")
 			}
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, "llm action failed: "+actionError.Error())
 		}
@@ -153,21 +151,17 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
 			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply}, nil
 		case "call_tool":
-			toolCallCount++
-			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
-			}
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				malformedToolCallCount++
 				observation := turnObservation{Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
 				observations = append(observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
-				if malformedToolCallCount >= 2 {
-					return agentTurnRunner.failMalformedToolCall(taskRun.TaskRunID, observation.Content)
-				}
 				continue
+			}
+			toolCallCount++
+			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum tool calls exceeded")
 			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, actionDocument.ToolInput)
 			observations = append(observations, observation)
@@ -176,7 +170,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			toolCallCount++
 			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum tool calls exceeded")
 			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, "conversation.history", actionDocument.ToolInput)
 			observations = append(observations, observation)
@@ -185,7 +179,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			toolCallCount++
 			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum tool calls exceeded")
 			}
 			toolInput := actionDocument.ToolInput
 			if len(toolInput) == 0 {
@@ -205,7 +199,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 	}
 
-	return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum agent iterations exceeded")
+	return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum agent iterations exceeded")
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation) (turnActionDocument, error) {
@@ -425,13 +419,7 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, reason string
 	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: DefaultFallbackReply}, nil
 }
 
-func (agentTurnRunner *AgentTurnRunner) failMalformedToolCall(taskRunID string, reason string) (AgentTurnResult, error) {
-	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
-	failedTaskRun.Result = DefaultMalformedToolReply
-	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: DefaultMalformedToolReply}, nil
-}
-
-func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, reason string) (AgentTurnResult, error) {
+func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, prompt string, reason string) (AgentTurnResult, error) {
 	body := map[string]any{
 		"budgetClass":     agentTurnRunner.options.BudgetClass,
 		"wallClockSecond": agentTurnRunner.options.WallClockSecond,
@@ -439,7 +427,7 @@ func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, reason s
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.budget_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
-	reply := "I stopped after the " + BudgetClassLabel(agentTurnRunner.options.BudgetClass) + " budget was exceeded. Please narrow the task or approve a larger run."
+	reply := budgetStopReply(prompt, agentTurnRunner.options.BudgetClass)
 	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply}, nil
 }
 
@@ -459,4 +447,20 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func budgetStopReply(prompt string, budgetClass BudgetClass) string {
+	if containsHangul(prompt) {
+		return BudgetClassKoreanLabel(budgetClass) + " 예산을 넘어서 작업을 멈췄습니다. 작업 범위를 줄이거나 더 긴 실행을 승인해 주세요."
+	}
+	return "I stopped after the " + BudgetClassLabel(budgetClass) + " budget was exceeded. Please narrow the task or approve a larger run."
+}
+
+func containsHangul(value string) bool {
+	for _, character := range value {
+		if character >= '\uAC00' && character <= '\uD7A3' {
+			return true
+		}
+	}
+	return false
 }

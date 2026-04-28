@@ -75,7 +75,7 @@ func TestTaskIntakePlannerClampsBrowserControlBudget(t *testing.T) {
 func TestBudgetProfileMapping(t *testing.T) {
 	profile := BudgetProfileForClass(BudgetClassSixHours)
 
-	if profile.MaxIterations != 48 || profile.MaxToolCalls != 96 || profile.Duration.Hours() != 6 {
+	if profile.MaxIterations != 512 || profile.MaxToolCalls != 1024 || profile.Duration.Hours() != 6 {
 		t.Fatalf("expected six hour profile, got %+v", profile)
 	}
 }

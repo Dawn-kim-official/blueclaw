@@ -260,7 +260,7 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerStopsAfterRepeatedMalformedBrowserToolCalls(t *testing.T) {
+func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByBudget(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
@@ -280,16 +280,76 @@ func TestAgentTurnRunnerStopsAfterRepeatedMalformedBrowserToolCalls(t *testing.T
 		ToolRegistry:      toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected malformed fallback result, got error: %v", errorValue)
+		t.Fatalf("expected budget result, got error: %v", errorValue)
 	}
-	if result.FinalReply != DefaultMalformedToolReply {
-		t.Fatalf("expected malformed tool reply, got %q", result.FinalReply)
+	if !strings.Contains(result.FinalReply, "thirty-minute budget") {
+		t.Fatalf("expected budget reply, got %q", result.FinalReply)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
-		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
 	}
 	if fillCallCount != 0 {
 		t.Fatalf("expected malformed fill input not to invoke tool, got %d calls", fillCallCount)
+	}
+}
+
+func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolBudget(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"alpha","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"beta","toolInput":{}}`,
+		`{"action":"final_reply","finalReply":"done"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 4, MaxToolCalls: 2})
+	toolRegistry := NewToolRegistry([]string{"browser.fill", "alpha", "beta"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `{"ok":true}`}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "alpha result"}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "beta"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "beta result"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinalReply != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "browser.fill") {
+		t.Fatal("expected malformed tool event")
+	}
+}
+
+func TestAgentTurnRunnerLocalizesKoreanBudgetReply(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 1})
+	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "again"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "구글에서 검색해줘",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected budget result, got error: %v", errorValue)
+	}
+	if !strings.Contains(result.FinalReply, "30분 예산") {
+		t.Fatalf("expected korean budget reply, got %q", result.FinalReply)
 	}
 }
 
