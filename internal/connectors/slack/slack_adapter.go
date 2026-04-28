@@ -88,8 +88,8 @@ func (adapter Adapter) StopProgress(context.Context, connectors.ReplyTarget) err
 	return nil
 }
 
-func (adapter Adapter) SendReply(_ context.Context, replyTarget connectors.ReplyTarget, message string) (string, error) {
-	return adapter.ConversationClient.CreateMessage(replyTarget.ConversationID, replyTarget.ReplyTargetID, message)
+func (adapter Adapter) SendReply(_ context.Context, replyTarget connectors.ReplyTarget, reply connectors.OutboundReply) (string, error) {
+	return adapter.ConversationClient.CreateMessage(replyTarget.ConversationID, replyTarget.ReplyTargetID, reply.Message)
 }
 
 func (adapter Adapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {

@@ -44,8 +44,9 @@ type AgentTurnRequest struct {
 }
 
 type AgentTurnResult struct {
-	TaskRun    task.TaskRun
-	FinalReply string
+	TaskRun     task.TaskRun
+	FinalReply  string
+	Attachments []FileAttachment
 }
 
 type turnActionDocument struct {
@@ -59,10 +60,11 @@ type turnActionDocument struct {
 }
 
 type turnObservation struct {
-	Action  string `json:"action"`
-	Tool    string `json:"tool,omitempty"`
-	Content string `json:"content"`
-	IsError bool   `json:"isError"`
+	Action      string           `json:"action"`
+	Tool        string           `json:"tool,omitempty"`
+	Content     string           `json:"content"`
+	IsError     bool             `json:"isError"`
+	Attachments []FileAttachment `json:"attachments,omitempty"`
 }
 
 func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel llm.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
@@ -117,6 +119,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	agentTurnRunner.appendInstructionEvent(taskRun.TaskRunID, request)
 
 	observations := []turnObservation{}
+	attachments := []FileAttachment{}
 	toolUseRequirements := deriveToolUseRequirements(request)
 	toolCallCount := 0
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterations; iteration++ {
@@ -151,7 +154,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "final_reply", reply)
 			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
-			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply}, nil
+			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: attachments}, nil
 		case "call_tool":
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
 				observation := turnObservation{Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
@@ -167,6 +170,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, actionDocument.ToolInput)
 			observations = append(observations, observation)
+			attachments = append(attachments, observation.Attachments...)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
 			toolCallCount++
@@ -176,6 +180,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, "conversation.history", actionDocument.ToolInput)
 			observations = append(observations, observation)
+			attachments = append(attachments, observation.Attachments...)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "fetch_history", observation.Content)
 		case "search_memory":
 			toolCallCount++
@@ -189,6 +194,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, "memory.search", toolInput)
 			observations = append(observations, observation)
+			attachments = append(attachments, observation.Attachments...)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "search_memory", observation.Content)
 		case "fail":
 			reason := firstNonEmptyString(actionDocument.Reason, "agent reported failure")
@@ -446,7 +452,11 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, to
 		taskArtifact := agentTurnRunner.taskArtifactService.AddTaskArtifactBody(taskRunID, "tool."+toolName+".result", content)
 		content = content[:agentTurnRunner.options.ToolResultMaxBytes] + "\n[truncated; full result saved as artifact " + taskArtifact.TaskArtifactID + "]"
 	}
-	observation := turnObservation{Action: "call_tool", Tool: toolName, Content: content, IsError: toolResult.IsError}
+	attachments := []FileAttachment{}
+	if !toolResult.IsError {
+		attachments = append(attachments, toolResult.Attachments...)
+	}
+	observation := turnObservation{Action: "call_tool", Tool: toolName, Content: content, IsError: toolResult.IsError, Attachments: attachments}
 	agentTurnRunner.appendEvent(taskRunID, "tool."+toolName+".result", marshalEventBody(observation))
 	return observation
 }

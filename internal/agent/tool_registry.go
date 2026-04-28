@@ -19,9 +19,18 @@ type ToolInvocation struct {
 	Input    json.RawMessage `json:"input"`
 }
 
+type FileAttachment struct {
+	DevicePath  string `json:"devicePath"`
+	Filename    string `json:"filename,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	SizeBytes   int64  `json:"sizeBytes,omitempty"`
+	Title       string `json:"title,omitempty"`
+}
+
 type ToolResult struct {
-	Content string `json:"content"`
-	IsError bool   `json:"isError"`
+	Content     string           `json:"content"`
+	IsError     bool             `json:"isError"`
+	Attachments []FileAttachment `json:"attachments,omitempty"`
 }
 
 type ToolHandler func(context.Context, ToolInvocation) (ToolResult, error)

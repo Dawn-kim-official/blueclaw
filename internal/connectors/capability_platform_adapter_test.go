@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
 )
 
@@ -83,6 +84,9 @@ func TestCapabilityPlatformAdapterUsesCapabilityEndpointsWithoutAuthorization(t 
 			if requestDocument.ReplyTargetID != "reply-target-1" {
 				t.Fatalf("expected reply target id, got %q", requestDocument.ReplyTargetID)
 			}
+			if len(requestDocument.Attachments) != 1 || requestDocument.Attachments[0].DevicePath != "/tmp/internkim-companion-files/screen.png" {
+				t.Fatalf("expected reply attachment, got %+v", requestDocument.Attachments)
+			}
 			return jsonCapabilityResponse(http.StatusOK, `{"dispatchID":"dispatch-1"}`), nil
 		case "/v1/platform/slack/history.fetch":
 			var requestDocument capabilityHistoryRequest
@@ -119,7 +123,13 @@ func TestCapabilityPlatformAdapterUsesCapabilityEndpointsWithoutAuthorization(t 
 	if errorValue := adapter.StopProgress(context.Background(), replyTarget); errorValue != nil {
 		t.Fatalf("expected progress stop: %v", errorValue)
 	}
-	dispatchID, errorValue := adapter.SendReply(context.Background(), replyTarget, "hello")
+	dispatchID, errorValue := adapter.SendReply(context.Background(), replyTarget, OutboundReply{
+		Message: "hello",
+		Attachments: []agent.FileAttachment{{
+			DevicePath: "/tmp/internkim-companion-files/screen.png",
+			Filename:   "screen.png",
+		}},
+	})
 	if errorValue != nil {
 		t.Fatalf("expected reply send: %v", errorValue)
 	}

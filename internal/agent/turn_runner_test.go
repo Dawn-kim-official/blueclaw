@@ -105,7 +105,13 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolRegistry([]string{"browser.screenshot"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: `{"devicePath":"/tmp/screenshot.png"}`}, nil
+		return ToolResult{
+			Content: `{"devicePath":"/tmp/internkim-companion-files/screenshot.png"}`,
+			Attachments: []FileAttachment{{
+				DevicePath: "/tmp/internkim-companion-files/screenshot.png",
+				Filename:   "screenshot.png",
+			}},
+		}, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -123,7 +129,10 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_required", "browser.screenshot") {
 		t.Fatal("expected tool requirement event")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.browser.screenshot.result", "/tmp/screenshot.png") {
+	if len(result.Attachments) != 1 || result.Attachments[0].DevicePath != "/tmp/internkim-companion-files/screenshot.png" {
+		t.Fatalf("expected screenshot attachment, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.browser.screenshot.result", "/tmp/internkim-companion-files/screenshot.png") {
 		t.Fatal("expected browser screenshot observation")
 	}
 }

@@ -49,6 +49,11 @@ type ReplyTarget struct {
 	DedupeKey      string `json:"dedupeKey"`
 }
 
+type OutboundReply struct {
+	Message     string                 `json:"message"`
+	Attachments []agent.FileAttachment `json:"attachments,omitempty"`
+}
+
 type VisibleContext struct {
 	Messages      []VisibleContextMessage `json:"messages"`
 	HasMoreBefore bool                    `json:"hasMoreBefore"`
@@ -89,7 +94,7 @@ type PlatformAdapter interface {
 	ResolveIdentity(context.Context, string) (identity.PlatformAccountIdentity, error)
 	StartProgress(context.Context, ReplyTarget) error
 	StopProgress(context.Context, ReplyTarget) error
-	SendReply(context.Context, ReplyTarget, string) (string, error)
+	SendReply(context.Context, ReplyTarget, OutboundReply) (string, error)
 	FetchHistory(context.Context, string, int) (VisibleContext, error)
 	NotInvitedReply() string
 }
@@ -311,7 +316,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	}
 	if !isAllowed {
 		connectorRuntime.logger.Info("connector."+platform+".auth.rejected", slog.String("messageID", event.MessageID), slog.String("reason", "not_invited"))
-		dispatchID, sendError := adapter.SendReply(ctx, replyTarget, adapter.NotInvitedReply())
+		dispatchID, sendError := adapter.SendReply(ctx, replyTarget, OutboundReply{Message: adapter.NotInvitedReply()})
 		if sendError != nil {
 			connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("error", sendError.Error()))
 			return ConnectorRuntimeResult{Handled: true, Platform: platform, Reason: "not_invited"}, nil
@@ -347,7 +352,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	taskRunID := turnResult.TaskRun.TaskRunID
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
 
-	dispatchID, errorValue := adapter.SendReply(ctx, replyTarget, turnResult.FinalReply)
+	dispatchID, errorValue := adapter.SendReply(ctx, replyTarget, OutboundReply{
+		Message:     turnResult.FinalReply,
+		Attachments: turnResult.Attachments,
+	})
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "reply_failed"}, nil
@@ -452,10 +460,33 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter Platform
 				content = string(response.Result)
 			}
 			isError := response.IsError || response.Status == "error" || response.Status == "denied"
-			return agent.ToolResult{Content: content, IsError: isError}, nil
+			return agent.ToolResult{Content: content, IsError: isError, Attachments: capabilityAttachments(response.Result)}, nil
 		})
 	}
 	return toolRegistry
+}
+
+func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
+	if len(result) == 0 {
+		return nil
+	}
+	var attachment agent.FileAttachment
+	if errorValue := json.Unmarshal(result, &attachment); errorValue == nil && strings.TrimSpace(attachment.DevicePath) != "" {
+		return []agent.FileAttachment{attachment}
+	}
+	var document struct {
+		Attachments []agent.FileAttachment `json:"attachments"`
+	}
+	if errorValue := json.Unmarshal(result, &document); errorValue != nil {
+		return nil
+	}
+	attachments := []agent.FileAttachment{}
+	for _, candidate := range document.Attachments {
+		if strings.TrimSpace(candidate.DevicePath) != "" {
+			attachments = append(attachments, candidate)
+		}
+	}
+	return attachments
 }
 
 func marshalConnectorToolResult(value any) string {

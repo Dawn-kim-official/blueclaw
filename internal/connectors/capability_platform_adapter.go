@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/identity"
 )
@@ -30,8 +31,9 @@ type capabilityProgressRequest struct {
 }
 
 type capabilityReplyRequest struct {
-	ReplyTargetID string `json:"replyTargetID"`
-	Message       string `json:"message"`
+	ReplyTargetID string                 `json:"replyTargetID"`
+	Message       string                 `json:"message"`
+	Attachments   []agent.FileAttachment `json:"attachments,omitempty"`
 }
 
 type capabilityHistoryRequest struct {
@@ -97,11 +99,12 @@ func (adapter CapabilityPlatformAdapter) StopProgress(ctx context.Context, reply
 	return adapter.post(ctx, "progress.stop", capabilityProgressRequest{ReplyTargetID: replyTarget.ReplyTargetID}, nil)
 }
 
-func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTarget ReplyTarget, message string) (string, error) {
+func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTarget ReplyTarget, reply OutboundReply) (string, error) {
 	var response capabilityReplyResponse
 	errorValue := adapter.post(ctx, "reply.send", capabilityReplyRequest{
 		ReplyTargetID: replyTarget.ReplyTargetID,
-		Message:       message,
+		Message:       reply.Message,
+		Attachments:   reply.Attachments,
 	}, &response)
 	if errorValue != nil {
 		return "", errorValue

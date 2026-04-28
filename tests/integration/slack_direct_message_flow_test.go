@@ -22,7 +22,7 @@ func TestSlackDirectMessageFlow(t *testing.T) {
 	}
 
 	adapter := slack.NewAdapter(slackStaticIdentityResolver{email: "lee@example.com"}, &slackIntegrationConversationClient{})
-	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: "reply-target-1"}, "hi")
+	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: "reply-target-1"}, connectors.OutboundReply{Message: "hi"})
 	if errorValue != nil {
 		t.Fatalf("expected reply to be sent: %v", errorValue)
 	}

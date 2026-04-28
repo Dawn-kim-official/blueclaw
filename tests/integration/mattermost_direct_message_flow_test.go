@@ -23,7 +23,7 @@ func TestMattermostDirectMessageFlow(t *testing.T) {
 
 	conversationClient := &mattermostIntegrationConversationClient{}
 	adapter := mattermost.NewAdapter(mattermostStaticIdentityResolver{email: "lee@example.com"}, conversationClient)
-	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: "reply-target-1"}, "hi")
+	dispatchID, errorValue := adapter.SendReply(context.Background(), connectors.ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: "reply-target-1"}, connectors.OutboundReply{Message: "hi"})
 	if errorValue != nil {
 		t.Fatalf("expected reply to be sent: %v", errorValue)
 	}

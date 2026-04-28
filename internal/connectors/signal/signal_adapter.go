@@ -69,7 +69,7 @@ func (adapter Adapter) StopProgress(context.Context, connectors.ReplyTarget) err
 	return nil
 }
 
-func (adapter Adapter) SendReply(context.Context, connectors.ReplyTarget, string) (string, error) {
+func (adapter Adapter) SendReply(context.Context, connectors.ReplyTarget, connectors.OutboundReply) (string, error) {
 	return "", errors.New("signal connector is experimental-disabled in v1")
 }
 

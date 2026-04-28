@@ -215,7 +215,7 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"device","selectedBackend":"device_local","toolName":"browser.snapshot","status":"ok","result":{"url":"https://example.com","snapshotText":"Example"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"device","selectedBackend":"device_local","toolName":"browser.snapshot","status":"ok","result":{"url":"https://example.com","snapshotText":"Example","devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png","sizeBytes":123}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
@@ -233,6 +233,9 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	}
 	if adapter.sentReplies[0].message != "브라우저를 확인했습니다" {
 		t.Fatalf("expected final reply, got %q", adapter.sentReplies[0].message)
+	}
+	if len(adapter.sentReplies[0].attachments) != 1 || adapter.sentReplies[0].attachments[0].DevicePath != "/tmp/internkim-companion-files/screen.png" {
+		t.Fatalf("expected final reply attachment, got %+v", adapter.sentReplies[0].attachments)
 	}
 }
 
@@ -370,8 +373,9 @@ type testAdapter struct {
 }
 
 type testReply struct {
-	target  ReplyTarget
-	message string
+	target      ReplyTarget
+	message     string
+	attachments []agent.FileAttachment
 }
 
 func (adapter *testAdapter) Name() string {
@@ -405,8 +409,8 @@ func (adapter *testAdapter) StopProgress(_ context.Context, target ReplyTarget) 
 	return nil
 }
 
-func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, message string) (string, error) {
-	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: message})
+func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, reply OutboundReply) (string, error) {
+	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, attachments: reply.Attachments})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
 

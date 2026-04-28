@@ -47,7 +47,7 @@ func TestAdapterSendsMattermostDirectAndThreadReplies(t *testing.T) {
 	conversationClient := &testMattermostConversationClient{}
 	adapter := NewAdapter(testMattermostIdentityClient{}, conversationClient)
 
-	_, errorValue := adapter.SendReply(context.Background(), testReplyTarget("direct-1", ""), "direct")
+	_, errorValue := adapter.SendReply(context.Background(), testReplyTarget("direct-1", ""), connectors.OutboundReply{Message: "direct"})
 	if errorValue != nil {
 		t.Fatalf("expected direct send: %v", errorValue)
 	}
@@ -55,7 +55,7 @@ func TestAdapterSendsMattermostDirectAndThreadReplies(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected progress start: %v", errorValue)
 	}
-	_, errorValue = adapter.SendReply(context.Background(), testReplyTarget("channel-1", "root-1"), "thread")
+	_, errorValue = adapter.SendReply(context.Background(), testReplyTarget("channel-1", "root-1"), connectors.OutboundReply{Message: "thread"})
 	if errorValue != nil {
 		t.Fatalf("expected thread send: %v", errorValue)
 	}
