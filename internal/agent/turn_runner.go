@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +16,12 @@ import (
 
 const DefaultFallbackReply = "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
 const DefaultBudgetExceededReply = "I stopped because this request exceeded the current execution budget. Please narrow the request and try again."
+
+var textboxReferencePattern = regexp.MustCompile(`textbox[^\n]*\[ref=(e[0-9]+)\]`)
+var quotedTextPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`'([^']+)'`),
+	regexp.MustCompile(`"([^"]+)"`),
+}
 
 type TurnOptions struct {
 	MaxIterations      int
@@ -155,7 +162,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
 				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
 			}
-			toolInput := agentTurnRunner.normalizeToolInput(taskRun.TaskRunID, actionDocument.ToolName, actionDocument.ToolInput, observations)
+			toolInput := agentTurnRunner.normalizeToolInput(taskRun.TaskRunID, actionDocument, observations)
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, toolInput)
 			observations = append(observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
@@ -283,13 +290,45 @@ func specificToolDescription(toolName string) string {
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, toolName string, toolInput json.RawMessage, observations []turnObservation) json.RawMessage {
-	switch strings.TrimSpace(toolName) {
+func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
+	switch strings.TrimSpace(actionDocument.ToolName) {
+	case "browser.fill":
+		return agentTurnRunner.normalizeBrowserFillInput(taskRunID, actionDocument, observations)
 	case "browser.press":
-		return agentTurnRunner.normalizeBrowserPressInput(taskRunID, toolInput, observations)
+		return agentTurnRunner.normalizeBrowserPressInput(taskRunID, actionDocument.ToolInput, observations)
 	default:
-		return toolInput
+		return actionDocument.ToolInput
 	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) normalizeBrowserFillInput(taskRunID string, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
+	inputDocument := map[string]any{}
+	if len(actionDocument.ToolInput) > 0 {
+		_ = json.Unmarshal(actionDocument.ToolInput, &inputDocument)
+	}
+	if strings.TrimSpace(stringValue(inputDocument["target"])) != "" && strings.TrimSpace(stringValue(inputDocument["text"])) != "" {
+		return actionDocument.ToolInput
+	}
+	if strings.TrimSpace(stringValue(inputDocument["target"])) == "" {
+		if textboxReference := latestTextboxReference(observations); textboxReference != "" {
+			inputDocument["target"] = textboxReference
+		}
+	}
+	if strings.TrimSpace(stringValue(inputDocument["text"])) == "" {
+		if text := firstQuotedText(actionDocument.Reason, actionDocument.Reply); text != "" {
+			inputDocument["text"] = text
+		}
+	}
+	if strings.TrimSpace(stringValue(inputDocument["target"])) == "" || strings.TrimSpace(stringValue(inputDocument["text"])) == "" {
+		return actionDocument.ToolInput
+	}
+	normalizedInput := MarshalToolInput(inputDocument)
+	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_normalized", marshalEventBody(map[string]any{
+		"toolName": "browser.fill",
+		"reason":   "browser.fill input completed from latest browser.observe textbox and action reason",
+		"input":    json.RawMessage(normalizedInput),
+	}))
+	return normalizedInput
 }
 
 func (agentTurnRunner *AgentTurnRunner) normalizeBrowserPressInput(taskRunID string, toolInput json.RawMessage, observations []turnObservation) json.RawMessage {
@@ -329,6 +368,32 @@ func stringValue(value any) string {
 	default:
 		return ""
 	}
+}
+
+func latestTextboxReference(observations []turnObservation) string {
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		if observation.Tool != "browser.observe" || observation.IsError {
+			continue
+		}
+		matches := textboxReferencePattern.FindStringSubmatch(observation.Content)
+		if len(matches) == 2 {
+			return "@" + matches[1]
+		}
+	}
+	return ""
+}
+
+func firstQuotedText(values ...string) string {
+	for _, value := range values {
+		for _, quotedTextPattern := range quotedTextPatterns {
+			matches := quotedTextPattern.FindStringSubmatch(value)
+			if len(matches) == 2 && strings.TrimSpace(matches[1]) != "" {
+				return strings.TrimSpace(matches[1])
+			}
+		}
+	}
+	return ""
 }
 
 func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, toolName string, toolInput json.RawMessage) turnObservation {

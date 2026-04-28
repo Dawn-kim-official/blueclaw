@@ -173,6 +173,45 @@ func TestAgentTurnRunnerNormalizesEmptyBrowserPressAfterFill(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerNormalizesBrowserFillFromObservationAndReason(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"browser.observe","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"browser.fill","toolInput":{},"reason":"Type 'hello world' into the search bar."}`,
+		`{"action":"final_reply","finalReply":"filled"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"browser.observe", "browser.fill"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.observe"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `{"snapshotText":"- textbox \"Google 검색\" [ref=e5]"}`}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+		var inputDocument map[string]string
+		if errorValue := json.Unmarshal(toolInvocation.Input, &inputDocument); errorValue != nil {
+			t.Fatalf("expected normalized fill input: %v", errorValue)
+		}
+		if inputDocument["target"] != "@e5" || inputDocument["text"] != "hello world" {
+			t.Fatalf("expected target and text normalization, got %+v", inputDocument)
+		}
+		return ToolResult{Content: `{"ok":true}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinalReply != "filled" {
+		t.Fatalf("expected filled reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_normalized", "browser.fill") {
+		t.Fatal("expected normalized browser fill event")
+	}
+}
+
 func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"large","toolInput":{}}`,
