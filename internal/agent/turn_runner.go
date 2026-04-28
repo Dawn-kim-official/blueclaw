@@ -22,6 +22,8 @@ var quotedTextPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`'([^']+)'`),
 	regexp.MustCompile(`"([^"]+)"`),
 }
+var koreanSearchBoxTextPattern = regexp.MustCompile(`(?:서치바|검색창|search bar|search box)[^\n]*?에\s+(.+?)(?:라고|치고|입력|검색)`)
+var englishTypeTextPattern = regexp.MustCompile(`(?i)type\s+(.+?)\s+(?:into|in)\s+`)
 
 type TurnOptions struct {
 	MaxIterations      int
@@ -162,7 +164,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
 				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
 			}
-			toolInput := agentTurnRunner.normalizeToolInput(taskRun.TaskRunID, actionDocument, observations)
+			toolInput := agentTurnRunner.normalizeToolInput(taskRun.TaskRunID, request, actionDocument, observations)
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, toolInput)
 			observations = append(observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
@@ -290,10 +292,10 @@ func specificToolDescription(toolName string) string {
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
+func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
 	switch strings.TrimSpace(actionDocument.ToolName) {
 	case "browser.fill":
-		return agentTurnRunner.normalizeBrowserFillInput(taskRunID, actionDocument, observations)
+		return agentTurnRunner.normalizeBrowserFillInput(taskRunID, request, actionDocument, observations)
 	case "browser.press":
 		return agentTurnRunner.normalizeBrowserPressInput(taskRunID, actionDocument.ToolInput, observations)
 	default:
@@ -301,7 +303,7 @@ func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, act
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) normalizeBrowserFillInput(taskRunID string, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
+func (agentTurnRunner *AgentTurnRunner) normalizeBrowserFillInput(taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
 	inputDocument := map[string]any{}
 	if len(actionDocument.ToolInput) > 0 {
 		_ = json.Unmarshal(actionDocument.ToolInput, &inputDocument)
@@ -316,6 +318,8 @@ func (agentTurnRunner *AgentTurnRunner) normalizeBrowserFillInput(taskRunID stri
 	}
 	if strings.TrimSpace(stringValue(inputDocument["text"])) == "" {
 		if text := firstQuotedText(actionDocument.Reason, actionDocument.Reply); text != "" {
+			inputDocument["text"] = text
+		} else if text := textToTypeFromPrompt(request.Prompt); text != "" {
 			inputDocument["text"] = text
 		}
 	}
@@ -391,6 +395,16 @@ func firstQuotedText(values ...string) string {
 			if len(matches) == 2 && strings.TrimSpace(matches[1]) != "" {
 				return strings.TrimSpace(matches[1])
 			}
+		}
+	}
+	return ""
+}
+
+func textToTypeFromPrompt(prompt string) string {
+	for _, pattern := range []*regexp.Regexp{koreanSearchBoxTextPattern, englishTypeTextPattern} {
+		matches := pattern.FindStringSubmatch(prompt)
+		if len(matches) == 2 && strings.TrimSpace(matches[1]) != "" {
+			return strings.TrimSpace(matches[1])
 		}
 	}
 	return ""

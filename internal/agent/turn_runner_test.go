@@ -176,7 +176,7 @@ func TestAgentTurnRunnerNormalizesEmptyBrowserPressAfterFill(t *testing.T) {
 func TestAgentTurnRunnerNormalizesBrowserFillFromObservationAndReason(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.observe","toolInput":{}}`,
-		`{"action":"call_tool","toolName":"browser.fill","toolInput":{},"reason":"Type 'hello world' into the search bar."}`,
+		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"filled"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
