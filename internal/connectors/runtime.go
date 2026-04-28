@@ -437,15 +437,22 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter Platform
 			Description: "InternKim capability tool",
 		}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
 			var response struct {
-				Content string `json:"content"`
-				IsError bool   `json:"isError"`
+				Content string          `json:"content"`
+				IsError bool            `json:"isError"`
+				Status  string          `json:"status"`
+				Result  json.RawMessage `json:"result"`
 			}
 			request := map[string]any{"input": json.RawMessage(toolInvocation.Input)}
 			errorValue := connectorRuntime.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", request, &response)
 			if errorValue != nil {
 				return agent.ToolResult{}, errorValue
 			}
-			return agent.ToolResult{Content: response.Content, IsError: response.IsError}, nil
+			content := strings.TrimSpace(response.Content)
+			if content == "" && len(response.Result) > 0 {
+				content = string(response.Result)
+			}
+			isError := response.IsError || response.Status == "error" || response.Status == "denied"
+			return agent.ToolResult{Content: content, IsError: isError}, nil
 		})
 	}
 	return toolRegistry

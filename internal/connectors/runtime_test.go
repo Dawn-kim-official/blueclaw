@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"testing"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/capability"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/llm"
 	"blueclaw/internal/memory"
@@ -194,6 +196,42 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T)
 		t.Fatalf("expected one final reply, got %d", len(adapter.sentReplies))
 	}
 	if adapter.sentReplies[0].message != "이전 대화를 확인했습니다" {
+		t.Fatalf("expected final reply, got %q", adapter.sentReplies[0].message)
+	}
+}
+
+func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
+	languageModel := &connectorSequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"browser.observe","toolInput":{}}`,
+		`{"action":"final_reply","finalReply":"브라우저를 확인했습니다"}`,
+	}}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "browser.observe"})
+	connectorRuntime.UseCapabilityTools(capability.Client{
+		Endpoint: "http://capability.test",
+		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			if request.URL.Path != "/v1/tools/browser.observe/invoke" {
+				t.Fatalf("unexpected capability path: %s", request.URL.Path)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"device","selectedBackend":"device_local","toolName":"browser.observe","status":"ok","result":{"url":"https://example.com","snapshotText":"Example"}}`)),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+			}, nil
+		}),
+	}, []string{"browser.observe"})
+
+	event := testInboundEvent("message-1")
+	event.Prompt = "open browser and observe"
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected capability tool event to process: %v", errorValue)
+	}
+
+	if len(languageModel.requests) < 2 || !structuredMessagesContain(languageModel.requests[1].Messages, "https://example.com") {
+		t.Fatalf("expected typed capability result to be available as tool observation, got %+v", languageModel.requests)
+	}
+	if adapter.sentReplies[0].message != "브라우저를 확인했습니다" {
 		t.Fatalf("expected final reply, got %q", adapter.sentReplies[0].message)
 	}
 }
@@ -447,6 +485,21 @@ func (store *fakeGraphMemoryStore) SearchFacts(_ context.Context, request memory
 func containsEpisodeNamespace(episode memory.MemoryEpisode, namespaceID string) bool {
 	for _, namespace := range episode.Namespaces {
 		if namespace.NamespaceID == namespaceID {
+			return true
+		}
+	}
+	return false
+}
+
+type testHTTPDoer func(*http.Request) (*http.Response, error)
+
+func (doer testHTTPDoer) Do(request *http.Request) (*http.Response, error) {
+	return doer(request)
+}
+
+func structuredMessagesContain(messages []llm.Message, fragment string) bool {
+	for _, message := range messages {
+		if strings.Contains(message.Content, fragment) {
 			return true
 		}
 	}
