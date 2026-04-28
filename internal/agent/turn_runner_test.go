@@ -212,6 +212,41 @@ func TestAgentTurnRunnerNormalizesBrowserFillFromObservationAndReason(t *testing
 	}
 }
 
+func TestAgentTurnRunnerNormalizesEmptyGoogleNavigate(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"browser.navigate","toolInput":{}}`,
+		`{"action":"final_reply","finalReply":"opened"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"browser.navigate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.navigate"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+		var inputDocument map[string]string
+		if errorValue := json.Unmarshal(toolInvocation.Input, &inputDocument); errorValue != nil {
+			t.Fatalf("expected normalized navigate input: %v", errorValue)
+		}
+		if inputDocument["url"] != "https://www.google.com" {
+			t.Fatalf("expected Google URL normalization, got %+v", inputDocument)
+		}
+		return ToolResult{Content: `{"url":"https://www.google.com"}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinalReply != "opened" {
+		t.Fatalf("expected opened reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_normalized", "browser.navigate") {
+		t.Fatal("expected normalized browser navigate event")
+	}
+}
+
 func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"large","toolInput":{}}`,

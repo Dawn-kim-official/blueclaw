@@ -294,6 +294,8 @@ func specificToolDescription(toolName string) string {
 
 func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
 	switch strings.TrimSpace(actionDocument.ToolName) {
+	case "browser.navigate":
+		return agentTurnRunner.normalizeBrowserNavigateInput(taskRunID, request, actionDocument)
 	case "browser.fill":
 		return agentTurnRunner.normalizeBrowserFillInput(taskRunID, request, actionDocument, observations)
 	case "browser.press":
@@ -301,6 +303,26 @@ func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, req
 	default:
 		return actionDocument.ToolInput
 	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) normalizeBrowserNavigateInput(taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument) json.RawMessage {
+	inputDocument := map[string]any{}
+	if len(actionDocument.ToolInput) > 0 {
+		_ = json.Unmarshal(actionDocument.ToolInput, &inputDocument)
+	}
+	if strings.TrimSpace(stringValue(inputDocument["url"])) != "" {
+		return actionDocument.ToolInput
+	}
+	if !promptLooksLikeGoogleSearch(request.Prompt) {
+		return actionDocument.ToolInput
+	}
+	normalizedInput := MarshalToolInput(map[string]string{"url": "https://www.google.com"})
+	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_normalized", marshalEventBody(map[string]any{
+		"toolName": "browser.navigate",
+		"reason":   "browser.navigate without url defaults to Google for an explicit Google search request",
+		"input":    json.RawMessage(normalizedInput),
+	}))
+	return normalizedInput
 }
 
 func (agentTurnRunner *AgentTurnRunner) normalizeBrowserFillInput(taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
@@ -408,6 +430,12 @@ func textToTypeFromPrompt(prompt string) string {
 		}
 	}
 	return ""
+}
+
+func promptLooksLikeGoogleSearch(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{"google", "구글"}) &&
+		containsAny(normalizedPrompt, []string{"search", "검색", "서치바", "검색창"})
 }
 
 func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, toolName string, toolInput json.RawMessage) turnObservation {
