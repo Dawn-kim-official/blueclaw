@@ -276,12 +276,10 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 
 func specificToolDescription(toolName string) string {
 	switch strings.TrimSpace(toolName) {
-	case "browser.session.start":
-		return `Start or reuse a browser session. Input: {"url":"https://example.com"}.`
-	case "browser.navigate":
-		return `Open a web URL. Input: {"url":"https://www.google.com"}.`
-	case "browser.observe":
-		return `Read the current page. Returns url, title, snapshotText, and interactiveRefs such as @e1. Input: {}.`
+	case "browser.open":
+		return `Open a web URL. Input: "https://www.google.com" or {"url":"https://www.google.com"}.`
+	case "browser.snapshot":
+		return `Read the current page. Returns url, title, snapshotText, and interactiveRefs such as @e1. Input: "-i" or {}.`
 	case "browser.screenshot":
 		return `Capture the current page screenshot. Returns a temporary devicePath, not a local path. Input: {"ttlSeconds":86400}.`
 	case "browser.click":
@@ -301,7 +299,7 @@ func specificToolDescription(toolName string) string {
 
 func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error {
 	switch strings.TrimSpace(toolName) {
-	case "browser.navigate":
+	case "browser.open":
 		return validateRequiredToolInputFields(toolName, toolInput, "url")
 	case "browser.fill":
 		return validateBrowserTargetToolInput(toolName, toolInput, "text")
@@ -339,6 +337,11 @@ func validateBrowserTargetToolInput(toolName string, toolInput json.RawMessage, 
 }
 
 func validateRequiredToolInputFields(toolName string, toolInput json.RawMessage, fieldNames ...string) error {
+	if value, isString := stringToolInput(toolInput); isString {
+		if value != "" {
+			return nil
+		}
+	}
 	inputDocument, errorValue := parseToolInputDocument(toolName, toolInput)
 	if errorValue != nil {
 		return errorValue
@@ -353,6 +356,14 @@ func validateRequiredToolInputFields(toolName string, toolInput json.RawMessage,
 		return errors.New("missing required tool input for " + strings.TrimSpace(toolName) + ": " + strings.Join(missingFieldNames, ", ") + validInputExampleSuffix(toolName))
 	}
 	return nil
+}
+
+func stringToolInput(toolInput json.RawMessage) (string, bool) {
+	var value string
+	if json.Unmarshal(toolInput, &value) != nil {
+		return "", false
+	}
+	return strings.TrimSpace(value), true
 }
 
 func validateBrowserWaitInput(toolInput json.RawMessage) error {
@@ -384,8 +395,8 @@ func toolDefinitionInputSchema(toolDefinition ToolDefinition) json.RawMessage {
 
 func validInputExampleSuffix(toolName string) string {
 	switch strings.TrimSpace(toolName) {
-	case "browser.navigate":
-		return `. Valid input example: {"url":"https://www.google.com"}`
+	case "browser.open":
+		return `. Valid input example: "https://www.google.com"`
 	case "browser.fill":
 		return `. Valid input example: {"target":"@e1","text":"hello world"}`
 	case "browser.click":

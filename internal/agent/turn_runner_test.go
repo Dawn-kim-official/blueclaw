@@ -192,14 +192,14 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.observe","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"filled"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	fillCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"browser.observe", "browser.fill"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.observe"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := NewToolRegistry([]string{"browser.snapshot", "browser.fill"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"snapshotText":"- textbox \"Google 검색\" [ref=e5]"}`}, nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
@@ -229,13 +229,13 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.navigate","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"browser.open","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"opened"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	navigateCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"browser.navigate"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.navigate"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	toolRegistry := NewToolRegistry([]string{"browser.open"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		navigateCallCount++
 		return ToolResult{Content: `{"url":"https://www.google.com"}`}, nil
 	})

@@ -202,24 +202,24 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T)
 
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := &connectorSequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.observe","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"브라우저를 확인했습니다"}`,
 	}}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "browser.observe"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "browser.snapshot"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
-			if request.URL.Path != "/v1/tools/browser.observe/invoke" {
+			if request.URL.Path != "/v1/tools/browser.snapshot/invoke" {
 				t.Fatalf("unexpected capability path: %s", request.URL.Path)
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"provider":"device","selectedBackend":"device_local","toolName":"browser.observe","status":"ok","result":{"url":"https://example.com","snapshotText":"Example"}}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"provider":"device","selectedBackend":"device_local","toolName":"browser.snapshot","status":"ok","result":{"url":"https://example.com","snapshotText":"Example"}}`)),
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"browser.observe"})
+	}, []string{"browser.snapshot"})
 
 	event := testInboundEvent("message-1")
 	event.Prompt = "open browser and observe"

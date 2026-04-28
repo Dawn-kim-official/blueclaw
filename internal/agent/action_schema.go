@@ -109,24 +109,22 @@ func toolInputSchema(toolDefinition ToolDefinition) any {
 
 func specificToolInputSchema(toolName string) json.RawMessage {
 	switch strings.TrimSpace(toolName) {
-	case "browser.session.start":
-		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"additionalProperties":false}`)
-	case "browser.navigate":
-		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","minLength":1}},"required":["url"],"additionalProperties":false}`)
-	case "browser.observe":
-		return json.RawMessage(`{"type":"object","additionalProperties":false}`)
+	case "browser.open":
+		return json.RawMessage(`{"oneOf":[{"type":"string","minLength":1},{"type":"object","properties":{"url":{"type":"string","minLength":1}},"required":["url"],"additionalProperties":false}]}`)
+	case "browser.snapshot":
+		return json.RawMessage(`{"oneOf":[{"type":"string"},{"type":"object","additionalProperties":false}]}`)
 	case "browser.screenshot":
 		return json.RawMessage(`{"type":"object","properties":{"ttlSeconds":{"type":"number"}},"additionalProperties":false}`)
 	case "browser.click":
-		return browserTargetInputSchema(nil)
+		return stringOrObjectSchema(browserTargetInputSchema(nil))
 	case "browser.fill":
 		return browserTargetInputSchema(map[string]any{"text": map[string]any{"type": "string"}})
 	case "browser.select":
 		return browserTargetInputSchema(map[string]any{"value": map[string]any{"type": "string", "minLength": 1}})
 	case "browser.press":
-		return json.RawMessage(`{"type":"object","properties":{"key":{"type":"string","minLength":1}},"required":["key"],"additionalProperties":false}`)
+		return json.RawMessage(`{"oneOf":[{"type":"string","minLength":1},{"type":"object","properties":{"key":{"type":"string","minLength":1}},"required":["key"],"additionalProperties":false}]}`)
 	case "browser.wait":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string","minLength":1},"ref":{"type":"string","minLength":1},"selector":{"type":"string","minLength":1},"milliseconds":{"type":"number"}},"anyOf":[{"required":["target"]},{"required":["ref"]},{"required":["selector"]},{"required":["milliseconds"]}],"additionalProperties":false}`)
+		return json.RawMessage(`{"oneOf":[{"type":"string","minLength":1},{"type":"number"},{"type":"object","properties":{"target":{"type":"string","minLength":1},"ref":{"type":"string","minLength":1},"selector":{"type":"string","minLength":1},"milliseconds":{"type":"number"}},"anyOf":[{"required":["target"]},{"required":["ref"]},{"required":["selector"]},{"required":["milliseconds"]}],"additionalProperties":false}]}`)
 	case "conversation.history":
 		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}},"additionalProperties":false}`)
 	case "memory.search":
@@ -164,6 +162,23 @@ func browserTargetInputSchema(extraProperties map[string]any) json.RawMessage {
 	})
 	if errorValue != nil {
 		return nil
+	}
+	return document
+}
+
+func stringOrObjectSchema(objectSchema json.RawMessage) json.RawMessage {
+	var objectDocument any
+	if json.Unmarshal(objectSchema, &objectDocument) != nil {
+		return objectSchema
+	}
+	document, errorValue := json.Marshal(map[string]any{
+		"oneOf": []any{
+			map[string]any{"type": "string", "minLength": 1},
+			objectDocument,
+		},
+	})
+	if errorValue != nil {
+		return objectSchema
 	}
 	return document
 }

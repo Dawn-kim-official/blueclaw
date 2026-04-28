@@ -59,7 +59,7 @@ func TestTaskIntakePlannerClampsBrowserControlBudget(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"bounded_task","budgetClass":"five_minutes","reason":"browser control","userFacingReply":""}`,
 	}}
-	toolRegistry := NewToolRegistry([]string{"browser.navigate", "browser.screenshot"})
+	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.screenshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
