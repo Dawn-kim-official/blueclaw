@@ -131,7 +131,7 @@ class GraphitiMemoryService:
     def __init__(self):
         capability_endpoint = os.environ.get("INTERNKIM_CAPABILITY_ENDPOINT", "http+unix://%2Frun%2Finternkim%2Fcapability.sock")
         kuzu_path = os.environ.get("BLUECLAW_GRAPHITI_KUZU_PATH", "/workspace/.blueclaw/graphiti/kuzu")
-        model = os.environ.get("BLUECLAW_GRAPHITI_MODEL", "google/gemini-3-flash-preview")
+        model = os.environ.get("BLUECLAW_GRAPHITI_MODEL", "google/gemini-3.1-flash-lite-preview")
         os.makedirs(os.path.dirname(kuzu_path), exist_ok=True)
         graph_driver = create_kuzu_driver(kuzu_path)
         graph_driver._database = ""

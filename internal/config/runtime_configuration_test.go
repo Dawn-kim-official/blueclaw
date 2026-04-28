@@ -21,7 +21,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "defaultProvider": "capabilityLLM",
     "capability": {
       "model": "gemma-4-E4B-it",
-      "executionMode": "auto"
+      "executionMode": "auto",
+      "contextWindowTokens": 1048576
     }
   },
   "firecracker": {
@@ -148,8 +149,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.LanguageModel.Capability.ExecutionMode != "auto" {
 		t.Fatalf("expected capability execution mode to match, got %q", runtimeConfiguration.LanguageModel.Capability.ExecutionMode)
 	}
-	if runtimeConfiguration.LanguageModel.Capability.ExecutionMode != "auto" {
-		t.Fatalf("expected capability execution mode to match, got %q", runtimeConfiguration.LanguageModel.Capability.ExecutionMode)
+	if runtimeConfiguration.LanguageModel.Capability.ContextWindowTokens != 1048576 {
+		t.Fatalf("expected capability context window to match, got %d", runtimeConfiguration.LanguageModel.Capability.ContextWindowTokens)
 	}
 	if runtimeConfiguration.Database.Driver != "postgres" {
 		t.Fatalf("expected database driver to match, got %q", runtimeConfiguration.Database.Driver)

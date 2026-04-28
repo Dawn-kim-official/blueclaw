@@ -62,8 +62,9 @@ type LanguageModelConfiguration struct {
 }
 
 type LanguageModelCapabilityConfiguration struct {
-	Model         string `json:"model"`
-	ExecutionMode string `json:"executionMode"`
+	Model               string `json:"model"`
+	ExecutionMode       string `json:"executionMode"`
+	ContextWindowTokens int    `json:"contextWindowTokens"`
 }
 
 type FirecrackerConfiguration struct {
