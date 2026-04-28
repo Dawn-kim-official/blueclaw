@@ -29,6 +29,25 @@ func TestConfiguredProviderUsesCapabilityLLMByDefault(t *testing.T) {
 	}
 }
 
+func TestConfiguredProviderLeavesCapabilityModelUnsetByDefault(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Capabilities.Endpoint = "http://127.0.0.1:7781"
+	runtimeConfiguration.LanguageModel.Capability.ExecutionMode = "auto"
+
+	languageModelProvider, errorValue := NewConfiguredLanguageModelProvider(runtimeConfiguration)
+	if errorValue != nil {
+		t.Fatalf("expected provider to be created: %v", errorValue)
+	}
+
+	capabilityLLMClient, isCapabilityLLMProvider := languageModelProvider.(CapabilityLLMClient)
+	if !isCapabilityLLMProvider {
+		t.Fatalf("expected capability llm provider, got %T", languageModelProvider)
+	}
+	if capabilityLLMClient.ModelName != "" {
+		t.Fatalf("expected no default model override, got %q", capabilityLLMClient.ModelName)
+	}
+}
+
 func TestConfiguredProviderRejectsDirectOpenRouterProductPath(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.LanguageModel.DefaultProvider = "openRouter"

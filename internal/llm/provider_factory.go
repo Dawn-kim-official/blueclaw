@@ -44,9 +44,5 @@ func newCapabilityLLMClient(runtimeConfiguration config.RuntimeConfiguration) Ca
 }
 
 func capabilityModelName(runtimeConfiguration config.RuntimeConfiguration) string {
-	modelName := strings.TrimSpace(runtimeConfiguration.LanguageModel.Capability.Model)
-	if modelName == "" {
-		return "default"
-	}
-	return modelName
+	return strings.TrimSpace(runtimeConfiguration.LanguageModel.Capability.Model)
 }
