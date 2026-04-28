@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"blueclaw/internal/policy"
 	runtimelogging "blueclaw/internal/runtime"
 	"blueclaw/internal/security"
+	"blueclaw/internal/skill"
 	"blueclaw/internal/store/postgres"
 	"blueclaw/internal/task"
 	"blueclaw/internal/userapi"
@@ -81,6 +84,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
 	agentKernel.UseIntakeOptions(deriveAgentIntakeOptions(runtimeConfiguration))
+	agentKernel.UseInstructionPrompt(loadAgentInstructionPrompt(runtimeConfiguration))
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
 	if languageModelProvider != nil {
@@ -200,6 +204,55 @@ func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) 
 		IsEnabled:          runtimeConfiguration.Agent.Intake.Enabled,
 		DefaultBudgetClass: agent.BudgetClass(runtimeConfiguration.Agent.DefaultBudgetClass),
 	}
+}
+
+func loadAgentInstructionPrompt(runtimeConfiguration config.RuntimeConfiguration) string {
+	parts := []string{}
+	for _, rootPath := range instructionRootPaths(runtimeConfiguration) {
+		if instructionDocument := readInstructionDocument(rootPath); instructionDocument != "" {
+			parts = append(parts, instructionDocument)
+		}
+		if skillPrompt := readSkillPrompt(rootPath); skillPrompt != "" {
+			parts = append(parts, skillPrompt)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func instructionRootPaths(runtimeConfiguration config.RuntimeConfiguration) []string {
+	rootPathByPath := map[string]bool{}
+	rootPaths := []string{}
+	for _, rootPath := range []string{runtimeConfiguration.Terminal.WorkspaceRootPath, "/workspace", "."} {
+		cleanRootPath := strings.TrimSpace(rootPath)
+		if cleanRootPath == "" || rootPathByPath[cleanRootPath] {
+			continue
+		}
+		rootPathByPath[cleanRootPath] = true
+		rootPaths = append(rootPaths, cleanRootPath)
+	}
+	return rootPaths
+}
+
+func readInstructionDocument(rootPath string) string {
+	for _, fileName := range []string{"AGENTS.md", "CLAUDE.md"} {
+		document, errorValue := os.ReadFile(filepath.Join(rootPath, fileName))
+		if errorValue == nil && strings.TrimSpace(string(document)) != "" {
+			return strings.TrimSpace(string(document))
+		}
+	}
+	return ""
+}
+
+func readSkillPrompt(rootPath string) string {
+	skillBundles := []skill.SkillBundle{}
+	skillRegistry := skill.NewSkillRegistry()
+	for _, relativePath := range []string{filepath.Join(".agents", "skills"), "skills"} {
+		discoveredSkillBundles, errorValue := skillRegistry.DiscoverSkill(filepath.Join(rootPath, relativePath))
+		if errorValue == nil {
+			skillBundles = append(skillBundles, discoveredSkillBundles...)
+		}
+	}
+	return strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt(skillBundles))
 }
 
 func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []string {

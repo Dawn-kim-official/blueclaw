@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,6 +47,29 @@ func TestResolveIntakeLanguageModelProviderUsesAutomaticCapabilityModel(t *testi
 	}
 	if capabilityLLMClient.ExecutionMode != "auto" {
 		t.Fatalf("expected automatic intake execution mode, got %q", capabilityLLMClient.ExecutionMode)
+	}
+}
+
+func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
+	workspacePath := t.TempDir()
+	skillDirectoryPath := filepath.Join(workspacePath, ".agents", "skills", "browser")
+	if errorValue := os.MkdirAll(skillDirectoryPath, 0o755); errorValue != nil {
+		t.Fatalf("expected skill directory: %v", errorValue)
+	}
+	if errorValue := os.WriteFile(filepath.Join(workspacePath, "AGENTS.md"), []byte("Use agent-browser for web automation."), 0o600); errorValue != nil {
+		t.Fatalf("expected agents file: %v", errorValue)
+	}
+	if errorValue := os.WriteFile(filepath.Join(skillDirectoryPath, "SKILL.md"), []byte("Run agent-browser snapshot -i after navigation."), 0o600); errorValue != nil {
+		t.Fatalf("expected skill file: %v", errorValue)
+	}
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Terminal.WorkspaceRootPath = workspacePath
+
+	instructionPrompt := loadAgentInstructionPrompt(runtimeConfiguration)
+	for _, expectedFragment := range []string{"Use agent-browser for web automation.", "Run agent-browser snapshot -i after navigation."} {
+		if !strings.Contains(instructionPrompt, expectedFragment) {
+			t.Fatalf("expected instruction prompt to contain %q, got %q", expectedFragment, instructionPrompt)
+		}
 	}
 }
 

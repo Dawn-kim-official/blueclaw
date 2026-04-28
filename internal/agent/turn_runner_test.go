@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -46,6 +45,26 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 	}
 	if len(languageModel.requests) != 3 {
 		t.Fatalf("expected three model calls, got %d", len(languageModel.requests))
+	}
+}
+
+func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"final_reply","finalReply":"done"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+
+	_, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		InstructionPrompt: "Use agent-browser for web automation.",
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if !messagesContain(languageModel.requests[0].Messages, "Use agent-browser for web automation.") {
+		t.Fatal("expected instruction prompt to be injected")
 	}
 }
 
@@ -134,25 +153,20 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerNormalizesEmptyBrowserPressAfterFill(t *testing.T) {
+func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
 		`{"action":"call_tool","toolName":"browser.press","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"searched"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	pressCallCount := 0
 	toolRegistry := NewToolRegistry([]string{"browser.fill", "browser.press"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"ok":true}`}, nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.press"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
-		var inputDocument map[string]string
-		if errorValue := json.Unmarshal(toolInvocation.Input, &inputDocument); errorValue != nil {
-			t.Fatalf("expected normalized press input: %v", errorValue)
-		}
-		if inputDocument["key"] != "Enter" {
-			t.Fatalf("expected Enter key normalization, got %+v", inputDocument)
-		}
+		pressCallCount++
 		return ToolResult{Content: `{"ok":true}`}, nil
 	})
 
@@ -168,30 +182,28 @@ func TestAgentTurnRunnerNormalizesEmptyBrowserPressAfterFill(t *testing.T) {
 	if result.FinalReply != "searched" {
 		t.Fatalf("expected searched reply, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_normalized", "Enter") {
-		t.Fatal("expected normalized tool input event")
+	if pressCallCount != 0 {
+		t.Fatalf("expected malformed press input not to invoke tool, got %d calls", pressCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "browser.press") {
+		t.Fatal("expected malformed browser press event")
 	}
 }
 
-func TestAgentTurnRunnerNormalizesBrowserFillFromObservationAndReason(t *testing.T) {
+func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.observe","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"filled"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	fillCallCount := 0
 	toolRegistry := NewToolRegistry([]string{"browser.observe", "browser.fill"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.observe"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"snapshotText":"- textbox \"Google 검색\" [ref=e5]"}`}, nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
-		var inputDocument map[string]string
-		if errorValue := json.Unmarshal(toolInvocation.Input, &inputDocument); errorValue != nil {
-			t.Fatalf("expected normalized fill input: %v", errorValue)
-		}
-		if inputDocument["target"] != "@e5" || inputDocument["text"] != "hello world" {
-			t.Fatalf("expected target and text normalization, got %+v", inputDocument)
-		}
+		fillCallCount++
 		return ToolResult{Content: `{"ok":true}`}, nil
 	})
 
@@ -207,26 +219,24 @@ func TestAgentTurnRunnerNormalizesBrowserFillFromObservationAndReason(t *testing
 	if result.FinalReply != "filled" {
 		t.Fatalf("expected filled reply, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_normalized", "browser.fill") {
-		t.Fatal("expected normalized browser fill event")
+	if fillCallCount != 0 {
+		t.Fatalf("expected malformed fill input not to invoke tool, got %d calls", fillCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "target, text") {
+		t.Fatal("expected malformed browser fill event")
 	}
 }
 
-func TestAgentTurnRunnerNormalizesEmptyGoogleNavigate(t *testing.T) {
+func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.navigate","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"opened"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	navigateCallCount := 0
 	toolRegistry := NewToolRegistry([]string{"browser.navigate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.navigate"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
-		var inputDocument map[string]string
-		if errorValue := json.Unmarshal(toolInvocation.Input, &inputDocument); errorValue != nil {
-			t.Fatalf("expected normalized navigate input: %v", errorValue)
-		}
-		if inputDocument["url"] != "https://www.google.com" {
-			t.Fatalf("expected Google URL normalization, got %+v", inputDocument)
-		}
+		navigateCallCount++
 		return ToolResult{Content: `{"url":"https://www.google.com"}`}, nil
 	})
 
@@ -242,8 +252,44 @@ func TestAgentTurnRunnerNormalizesEmptyGoogleNavigate(t *testing.T) {
 	if result.FinalReply != "opened" {
 		t.Fatalf("expected opened reply, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_normalized", "browser.navigate") {
-		t.Fatal("expected normalized browser navigate event")
+	if navigateCallCount != 0 {
+		t.Fatalf("expected malformed navigate input not to invoke tool, got %d calls", navigateCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "url") {
+		t.Fatal("expected malformed browser navigate event")
+	}
+}
+
+func TestAgentTurnRunnerStopsAfterRepeatedMalformedBrowserToolCalls(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 4})
+	fillCallCount := 0
+	toolRegistry := NewToolRegistry([]string{"browser.fill"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		fillCallCount++
+		return ToolResult{Content: `{"ok":true}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "fill the search box",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected malformed fallback result, got error: %v", errorValue)
+	}
+	if result.FinalReply != DefaultMalformedToolReply {
+		t.Fatalf("expected malformed tool reply, got %q", result.FinalReply)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
+	}
+	if fillCallCount != 0 {
+		t.Fatalf("expected malformed fill input not to invoke tool, got %d calls", fillCallCount)
 	}
 }
 
@@ -368,6 +414,15 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 func taskEventsContain(taskEvents []task.TaskEvent, name string, bodyFragment string) bool {
 	for _, taskEvent := range taskEvents {
 		if taskEvent.Name == name && strings.Contains(taskEvent.Body, bodyFragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func messagesContain(messages []llm.Message, fragment string) bool {
+	for _, message := range messages {
+		if strings.Contains(message.Content, fragment) {
 			return true
 		}
 	}

@@ -31,6 +31,7 @@ type AgentRequest struct {
 	VisibleContext    VisibleContext
 	MemoryFacts       []memory.MemoryFact
 	ToolRegistry      *ToolRegistry
+	InstructionPrompt string
 }
 
 type IntakeDecision struct {

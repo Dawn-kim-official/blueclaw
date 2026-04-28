@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -16,14 +15,7 @@ import (
 
 const DefaultFallbackReply = "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
 const DefaultBudgetExceededReply = "I stopped because this request exceeded the current execution budget. Please narrow the request and try again."
-
-var textboxReferencePattern = regexp.MustCompile(`textbox[^\n]*\[ref=(e[0-9]+)\]`)
-var quotedTextPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`'([^']+)'`),
-	regexp.MustCompile(`"([^"]+)"`),
-}
-var koreanSearchBoxTextPattern = regexp.MustCompile(`(?:서치바|검색창|search bar|search box)[^\n]*?에\s+(.+?)(?:라고|치고|입력|검색)`)
-var englishTypeTextPattern = regexp.MustCompile(`(?i)type\s+(.+?)\s+(?:into|in)\s+`)
+const DefaultMalformedToolReply = "I could not continue because a browser tool call was missing required input. Please try again with a narrower request."
 
 type TurnOptions struct {
 	MaxIterations      int
@@ -48,6 +40,7 @@ type AgentTurnRequest struct {
 	VisibleContext    VisibleContext
 	MemoryFacts       []memory.MemoryFact
 	ToolRegistry      *ToolRegistry
+	InstructionPrompt string
 }
 
 type AgentTurnResult struct {
@@ -125,6 +118,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	observations := []turnObservation{}
 	toolUseRequirements := deriveToolUseRequirements(request)
 	toolCallCount := 0
+	malformedToolCallCount := 0
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterations; iteration++ {
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
@@ -164,8 +158,18 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
 				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
 			}
-			toolInput := agentTurnRunner.normalizeToolInput(taskRun.TaskRunID, request, actionDocument, observations)
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, toolInput)
+			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
+				malformedToolCallCount++
+				observation := turnObservation{Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
+				observations = append(observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
+				if malformedToolCallCount >= 2 {
+					return agentTurnRunner.failMalformedToolCall(taskRun.TaskRunID, observation.Content)
+				}
+				continue
+			}
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, actionDocument.ToolInput)
 			observations = append(observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
@@ -238,6 +242,13 @@ func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnReque
 		messages[0].Content += "\n\n" + toolDescriptions
 	}
 
+	if strings.TrimSpace(request.InstructionPrompt) != "" {
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: "Workspace and skill instructions:\n" + strings.TrimSpace(request.InstructionPrompt),
+		})
+	}
+
 	if len(observations) > 0 {
 		messages = append(messages, llm.Message{
 			Role:    "system",
@@ -292,150 +303,84 @@ func specificToolDescription(toolName string) string {
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
-	switch strings.TrimSpace(actionDocument.ToolName) {
+func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error {
+	switch strings.TrimSpace(toolName) {
 	case "browser.navigate":
-		return agentTurnRunner.normalizeBrowserNavigateInput(taskRunID, request, actionDocument)
+		return validateRequiredToolInputFields(toolName, toolInput, "url")
 	case "browser.fill":
-		return agentTurnRunner.normalizeBrowserFillInput(taskRunID, request, actionDocument, observations)
+		return validateRequiredToolInputFields(toolName, toolInput, "target", "text")
+	case "browser.click":
+		return validateRequiredToolInputFields(toolName, toolInput, "target")
+	case "browser.select":
+		return validateRequiredToolInputFields(toolName, toolInput, "target", "value")
 	case "browser.press":
-		return agentTurnRunner.normalizeBrowserPressInput(taskRunID, actionDocument.ToolInput, observations)
+		return validateRequiredToolInputFields(toolName, toolInput, "key")
+	case "browser.wait":
+		return validateBrowserWaitInput(toolInput)
 	default:
-		return actionDocument.ToolInput
+		return nil
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) normalizeBrowserNavigateInput(taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument) json.RawMessage {
+func validateRequiredToolInputFields(toolName string, toolInput json.RawMessage, fieldNames ...string) error {
+	inputDocument, errorValue := parseToolInputDocument(toolName, toolInput)
+	if errorValue != nil {
+		return errorValue
+	}
+	missingFieldNames := []string{}
+	for _, fieldName := range fieldNames {
+		if strings.TrimSpace(stringValue(inputDocument[fieldName])) == "" {
+			missingFieldNames = append(missingFieldNames, fieldName)
+		}
+	}
+	if len(missingFieldNames) > 0 {
+		return errors.New("missing required tool input for " + strings.TrimSpace(toolName) + ": " + strings.Join(missingFieldNames, ", "))
+	}
+	return nil
+}
+
+func validateBrowserWaitInput(toolInput json.RawMessage) error {
+	inputDocument, errorValue := parseToolInputDocument("browser.wait", toolInput)
+	if errorValue != nil {
+		return errorValue
+	}
+	if strings.TrimSpace(stringValue(inputDocument["target"])) != "" {
+		return nil
+	}
+	if numberValue(inputDocument["milliseconds"]) > 0 {
+		return nil
+	}
+	return errors.New("missing required tool input for browser.wait: target or milliseconds")
+}
+
+func parseToolInputDocument(toolName string, toolInput json.RawMessage) (map[string]any, error) {
 	inputDocument := map[string]any{}
-	if len(actionDocument.ToolInput) > 0 {
-		_ = json.Unmarshal(actionDocument.ToolInput, &inputDocument)
+	if len(toolInput) == 0 {
+		return inputDocument, nil
 	}
-	if strings.TrimSpace(stringValue(inputDocument["url"])) != "" {
-		return actionDocument.ToolInput
+	if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
+		return nil, errors.New("tool input for " + strings.TrimSpace(toolName) + " is not valid json: " + errorValue.Error())
 	}
-	if !promptLooksLikeGoogleSearch(request.Prompt) {
-		return actionDocument.ToolInput
-	}
-	normalizedInput := MarshalToolInput(map[string]string{"url": "https://www.google.com"})
-	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_normalized", marshalEventBody(map[string]any{
-		"toolName": "browser.navigate",
-		"reason":   "browser.navigate without url defaults to Google for an explicit Google search request",
-		"input":    json.RawMessage(normalizedInput),
-	}))
-	return normalizedInput
-}
-
-func (agentTurnRunner *AgentTurnRunner) normalizeBrowserFillInput(taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) json.RawMessage {
-	inputDocument := map[string]any{}
-	if len(actionDocument.ToolInput) > 0 {
-		_ = json.Unmarshal(actionDocument.ToolInput, &inputDocument)
-	}
-	if strings.TrimSpace(stringValue(inputDocument["target"])) != "" && strings.TrimSpace(stringValue(inputDocument["text"])) != "" {
-		return actionDocument.ToolInput
-	}
-	if strings.TrimSpace(stringValue(inputDocument["target"])) == "" {
-		if textboxReference := latestTextboxReference(observations); textboxReference != "" {
-			inputDocument["target"] = textboxReference
-		}
-	}
-	if strings.TrimSpace(stringValue(inputDocument["text"])) == "" {
-		if text := firstQuotedText(actionDocument.Reason, actionDocument.Reply); text != "" {
-			inputDocument["text"] = text
-		} else if text := textToTypeFromPrompt(request.Prompt); text != "" {
-			inputDocument["text"] = text
-		}
-	}
-	if strings.TrimSpace(stringValue(inputDocument["target"])) == "" || strings.TrimSpace(stringValue(inputDocument["text"])) == "" {
-		return actionDocument.ToolInput
-	}
-	normalizedInput := MarshalToolInput(inputDocument)
-	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_normalized", marshalEventBody(map[string]any{
-		"toolName": "browser.fill",
-		"reason":   "browser.fill input completed from latest browser.observe textbox and action reason",
-		"input":    json.RawMessage(normalizedInput),
-	}))
-	return normalizedInput
-}
-
-func (agentTurnRunner *AgentTurnRunner) normalizeBrowserPressInput(taskRunID string, toolInput json.RawMessage, observations []turnObservation) json.RawMessage {
-	var inputDocument map[string]any
-	if len(toolInput) > 0 {
-		_ = json.Unmarshal(toolInput, &inputDocument)
-	}
-	if strings.TrimSpace(stringValue(inputDocument["key"])) != "" {
-		return toolInput
-	}
-	if !hasSuccessfulToolObservation(observations, "browser.fill") {
-		return toolInput
-	}
-	normalizedInput := MarshalToolInput(map[string]string{"key": "Enter"})
-	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_normalized", marshalEventBody(map[string]any{
-		"toolName": "browser.press",
-		"reason":   "browser.press without key after successful browser.fill defaults to Enter form submission",
-		"input":    json.RawMessage(normalizedInput),
-	}))
-	return normalizedInput
-}
-
-func hasSuccessfulToolObservation(observations []turnObservation, toolName string) bool {
-	for index := len(observations) - 1; index >= 0; index-- {
-		observation := observations[index]
-		if observation.Tool == toolName && !observation.IsError {
-			return true
-		}
-	}
-	return false
+	return inputDocument, nil
 }
 
 func stringValue(value any) string {
-	switch typedValue := value.(type) {
-	case string:
-		return typedValue
-	default:
+	typedValue, isString := value.(string)
+	if !isString {
 		return ""
 	}
+	return typedValue
 }
 
-func latestTextboxReference(observations []turnObservation) string {
-	for index := len(observations) - 1; index >= 0; index-- {
-		observation := observations[index]
-		if observation.Tool != "browser.observe" || observation.IsError {
-			continue
-		}
-		matches := textboxReferencePattern.FindStringSubmatch(observation.Content)
-		if len(matches) == 2 {
-			return "@" + matches[1]
-		}
+func numberValue(value any) float64 {
+	switch typedValue := value.(type) {
+	case float64:
+		return typedValue
+	case int:
+		return float64(typedValue)
+	default:
+		return 0
 	}
-	return ""
-}
-
-func firstQuotedText(values ...string) string {
-	for _, value := range values {
-		for _, quotedTextPattern := range quotedTextPatterns {
-			matches := quotedTextPattern.FindStringSubmatch(value)
-			if len(matches) == 2 && strings.TrimSpace(matches[1]) != "" {
-				return strings.TrimSpace(matches[1])
-			}
-		}
-	}
-	return ""
-}
-
-func textToTypeFromPrompt(prompt string) string {
-	for _, pattern := range []*regexp.Regexp{koreanSearchBoxTextPattern, englishTypeTextPattern} {
-		matches := pattern.FindStringSubmatch(prompt)
-		if len(matches) == 2 && strings.TrimSpace(matches[1]) != "" {
-			return strings.TrimSpace(matches[1])
-		}
-	}
-	return ""
-}
-
-func promptLooksLikeGoogleSearch(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	return containsAny(normalizedPrompt, []string{"google", "구글"}) &&
-		containsAny(normalizedPrompt, []string{"search", "검색", "서치바", "검색창"})
 }
 
 func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, toolName string, toolInput json.RawMessage) turnObservation {
@@ -478,6 +423,12 @@ func (agentTurnRunner *AgentTurnRunner) appendEvent(taskRunID string, name strin
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, reason string) (AgentTurnResult, error) {
 	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
 	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: DefaultFallbackReply}, nil
+}
+
+func (agentTurnRunner *AgentTurnRunner) failMalformedToolCall(taskRunID string, reason string) (AgentTurnResult, error) {
+	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
+	failedTaskRun.Result = DefaultMalformedToolReply
+	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: DefaultMalformedToolReply}, nil
 }
 
 func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, reason string) (AgentTurnResult, error) {

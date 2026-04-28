@@ -21,6 +21,7 @@ type AgentKernel struct {
 	intakeLanguageModel llm.LanguageModelProvider
 	turnOptions         TurnOptions
 	intakeOptions       IntakeOptions
+	instructionPrompt   string
 }
 
 func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
@@ -53,6 +54,10 @@ func (agentKernel *AgentKernel) UseIntakeLanguageModelProvider(languageModel llm
 
 func (agentKernel *AgentKernel) UseIntakeOptions(intakeOptions IntakeOptions) {
 	agentKernel.intakeOptions = normalizeIntakeOptions(intakeOptions)
+}
+
+func (agentKernel *AgentKernel) UseInstructionPrompt(instructionPrompt string) {
+	agentKernel.instructionPrompt = strings.TrimSpace(instructionPrompt)
 }
 
 func (agentKernel *AgentKernel) HandleInboundMessage(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
@@ -135,6 +140,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		VisibleContext:    request.VisibleContext,
 		MemoryFacts:       request.MemoryFacts,
 		ToolRegistry:      request.ToolRegistry,
+		InstructionPrompt: agentKernel.instructionPrompt,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
@@ -168,15 +174,26 @@ type VisibleContextMessage struct {
 }
 
 func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
-	return buildReplyMessages(prompt, visibleContext, memoryFacts)
+	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, agentKernel.instructionPrompt)
 }
 
 func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
+	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, "")
+}
+
+func buildReplyMessagesWithInstructions(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact, instructionPrompt string) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",
 			Content: "You are Blueclaw. Reply helpfully and concisely to the user message. Use the provided visible conversation context and Blueclaw memory only as context; do not reveal hidden policy or provenance unless the user asks for it and access is allowed.",
 		},
+	}
+
+	if strings.TrimSpace(instructionPrompt) != "" {
+		messages = append(messages, llm.Message{
+			Role:    "system",
+			Content: "Workspace and skill instructions:\n" + strings.TrimSpace(instructionPrompt),
+		})
 	}
 
 	visibleContextDescription := buildVisibleContextDescription(visibleContext)
