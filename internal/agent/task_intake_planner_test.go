@@ -85,7 +85,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 		`{"classification":"needs_confirmation","budgetClass":"thirty_minutes","reason":"too broad","userFacingReply":"Please narrow this first."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"final_reply","finalReply":"should not run"}`,
+		finalReplyDocument("should not run"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := NewToolRegistry([]string{"expensive"})
@@ -121,7 +121,7 @@ func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 		`{"classification":"quick_reply","budgetClass":"five_minutes","reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"final_reply","finalReply":"hello"}`,
+		finalReplyDocument("hello"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := NewToolRegistry([]string{"expensive"})

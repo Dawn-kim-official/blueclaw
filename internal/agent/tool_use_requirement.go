@@ -5,17 +5,19 @@ import (
 )
 
 type toolUseRequirement struct {
-	ToolPrefix string
-	ToolName   string
-	Reason     string
+	ToolPrefix         string
+	ToolName           string
+	Reason             string
+	RequiresAttachment bool
 }
 
 func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
 	requirements := []toolUseRequirement{}
 	if requestRequiresBrowserScreenshot(request) {
 		requirements = append(requirements, toolUseRequirement{
-			ToolName: "browser.screenshot",
-			Reason:   "the request asks for a screenshot",
+			ToolName:           "browser.screenshot",
+			Reason:             "the request asks for a screenshot",
+			RequiresAttachment: true,
 		})
 		return requirements
 	}
@@ -26,56 +28,6 @@ func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
 		})
 	}
 	return requirements
-}
-
-func missingToolUseRequirement(requirements []toolUseRequirement, observations []turnObservation) (turnObservation, bool) {
-	for _, requirement := range requirements {
-		if strings.TrimSpace(requirement.ToolName) != "" {
-			if hasObservedToolName(observations, requirement.ToolName) {
-				continue
-			}
-			return turnObservation{
-				Action:  "policy",
-				Tool:    requirement.ToolName,
-				Content: "Required tool has not been attempted yet: " + requirement.ToolName + ". Reason: " + requirement.Reason + ". Call this tool before final_reply.",
-				IsError: true,
-			}, true
-		}
-		if !hasObservedToolPrefix(observations, requirement.ToolPrefix) {
-			toolScope := strings.TrimSuffix(requirement.ToolPrefix, ".")
-			return turnObservation{
-				Action:  "policy",
-				Tool:    toolScope,
-				Content: "Required tool scope has not been attempted yet: " + toolScope + ". Reason: " + requirement.Reason + ". Call an available " + toolScope + " tool before final_reply.",
-				IsError: true,
-			}, true
-		}
-	}
-	return turnObservation{}, false
-}
-
-func hasObservedToolPrefix(observations []turnObservation, toolPrefix string) bool {
-	for _, observation := range observations {
-		if observation.IsError {
-			continue
-		}
-		if strings.HasPrefix(strings.TrimSpace(observation.Tool), toolPrefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasObservedToolName(observations []turnObservation, toolName string) bool {
-	for _, observation := range observations {
-		if observation.IsError {
-			continue
-		}
-		if strings.TrimSpace(observation.Tool) == toolName {
-			return true
-		}
-	}
-	return false
 }
 
 func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {

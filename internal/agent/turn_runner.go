@@ -50,21 +50,38 @@ type AgentTurnResult struct {
 }
 
 type turnActionDocument struct {
-	Action     string          `json:"action"`
-	FinalReply string          `json:"finalReply"`
-	ToolName   string          `json:"toolName"`
-	ToolInput  json.RawMessage `json:"toolInput"`
-	Query      string          `json:"query"`
-	Reason     string          `json:"reason"`
-	Reply      string          `json:"reply"`
+	Action             string                        `json:"action"`
+	FinalReply         string                        `json:"finalReply"`
+	ToolName           string                        `json:"toolName"`
+	ToolInput          json.RawMessage               `json:"toolInput"`
+	Query              string                        `json:"query"`
+	Reason             string                        `json:"reason"`
+	Reply              string                        `json:"reply"`
+	GoalStatus         string                        `json:"goalStatus"`
+	GoalSatisfied      *bool                         `json:"goalSatisfied"`
+	CompletionEvidence []completionEvidenceReference `json:"completionEvidence"`
+	RemainingWork      string                        `json:"remainingWork"`
 }
 
 type turnObservation struct {
-	Action      string           `json:"action"`
-	Tool        string           `json:"tool,omitempty"`
-	Content     string           `json:"content"`
-	IsError     bool             `json:"isError"`
-	Attachments []FileAttachment `json:"attachments,omitempty"`
+	ObservationID string           `json:"observationID"`
+	Action        string           `json:"action"`
+	Tool          string           `json:"tool,omitempty"`
+	Content       string           `json:"content"`
+	IsError       bool             `json:"isError"`
+	Attachments   []FileAttachment `json:"attachments,omitempty"`
+}
+
+type completionEvidenceReference struct {
+	ObservationID   string `json:"observationID"`
+	ToolName        string `json:"toolName"`
+	AttachmentIndex *int   `json:"attachmentIndex,omitempty"`
+}
+
+type completionGateResult struct {
+	IsSatisfied bool
+	Message     string
+	Attachments []FileAttachment
 }
 
 func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel llm.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
@@ -130,7 +147,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.DeadlineExceeded) {
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum wall clock exceeded")
+				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum wall clock exceeded", observations, attachments)
 			}
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, "llm action failed: "+actionError.Error())
 		}
@@ -138,10 +155,17 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
 		case "final_reply":
-			if observation, isMissingRequirement := missingToolUseRequirement(toolUseRequirements, observations); isMissingRequirement {
+			completionGateResult := validateCompletionGate(toolUseRequirements, observations, actionDocument)
+			if !completionGateResult.IsSatisfied {
+				observation := turnObservation{
+					ObservationID: nextObservationID(len(observations) + 1),
+					Action:        "policy",
+					Content:       completionGateResult.Message,
+					IsError:       true,
+				}
 				observations = append(observations, observation)
-				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_required", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool_required", observation.Content)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_required", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "completion_required", observation.Content)
 				continue
 			}
 			reply := strings.TrimSpace(actionDocument.FinalReply)
@@ -154,10 +178,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "final_reply", reply)
 			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
-			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: attachments}, nil
+			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments}, nil
 		case "call_tool":
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				observation := turnObservation{Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
+				observation := turnObservation{ObservationID: nextObservationID(len(observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
 				observations = append(observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
@@ -166,48 +190,48 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			toolCallCount++
 			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum tool calls exceeded")
+				return agentTurnRunner.finalizeOrStopForBudget(turnContext, taskRun.TaskRunID, request, "maximum tool calls exceeded", toolUseRequirements, observations, attachments)
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, actionDocument.ToolInput)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput)
 			observations = append(observations, observation)
-			attachments = append(attachments, observation.Attachments...)
+			attachments = appendObservationAttachments(attachments, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
 			toolCallCount++
 			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum tool calls exceeded")
+				return agentTurnRunner.finalizeOrStopForBudget(turnContext, taskRun.TaskRunID, request, "maximum tool calls exceeded", toolUseRequirements, observations, attachments)
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, "conversation.history", actionDocument.ToolInput)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "conversation.history", actionDocument.ToolInput)
 			observations = append(observations, observation)
-			attachments = append(attachments, observation.Attachments...)
+			attachments = appendObservationAttachments(attachments, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "fetch_history", observation.Content)
 		case "search_memory":
 			toolCallCount++
 			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum tool calls exceeded")
+				return agentTurnRunner.finalizeOrStopForBudget(turnContext, taskRun.TaskRunID, request, "maximum tool calls exceeded", toolUseRequirements, observations, attachments)
 			}
 			toolInput := actionDocument.ToolInput
 			if len(toolInput) == 0 {
 				toolInput = MarshalToolInput(map[string]string{"query": firstNonEmptyString(actionDocument.Query, request.Prompt)})
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, "memory.search", toolInput)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "memory.search", toolInput)
 			observations = append(observations, observation)
-			attachments = append(attachments, observation.Attachments...)
+			attachments = appendObservationAttachments(attachments, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "search_memory", observation.Content)
 		case "fail":
 			reason := firstNonEmptyString(actionDocument.Reason, "agent reported failure")
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, reason)
 		default:
-			observation := turnObservation{Action: "invalid_action", Content: "unknown action: " + actionDocument.Action, IsError: true}
+			observation := turnObservation{ObservationID: nextObservationID(len(observations) + 1), Action: "invalid_action", Content: "unknown action: " + actionDocument.Action, IsError: true}
 			observations = append(observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_action", observation.Content)
 		}
 	}
 
-	return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum agent iterations exceeded")
+	return agentTurnRunner.finalizeOrStopForBudget(turnContext, taskRun.TaskRunID, request, "maximum agent iterations exceeded", toolUseRequirements, observations, attachments)
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation) (turnActionDocument, error) {
@@ -239,7 +263,7 @@ func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnReque
 	return (PromptAssembler{}).BuildTurnMessages(
 		request,
 		observations,
-		"You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed. If a listed tool is needed for the user's request, call it before final_reply.",
+		"You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply only when goalSatisfied is true. Every final_reply must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed.",
 		agentTurnRunner.buildToolDescription(request.ToolRegistry),
 	)
 }
@@ -435,18 +459,18 @@ func numberValue(value any) float64 {
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, toolName string, toolInput json.RawMessage) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, observationID string, toolName string, toolInput json.RawMessage) turnObservation {
 	if toolRegistry == nil {
-		return turnObservation{Action: "call_tool", Tool: toolName, Content: "tool registry was not configured", IsError: true}
+		return turnObservation{ObservationID: observationID, Action: "call_tool", Tool: toolName, Content: "tool registry was not configured", IsError: true}
 	}
 	toolResult, errorValue := toolRegistry.InvokeTool(ctx, ToolInvocation{ToolName: toolName, Input: toolInput})
 	if errorValue != nil {
 		toolResult = ToolResult{Content: errorValue.Error(), IsError: true}
 	}
-	return agentTurnRunner.saveToolObservation(taskRunID, toolName, toolResult)
+	return agentTurnRunner.saveToolObservation(taskRunID, observationID, toolName, toolResult)
 }
 
-func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, toolName string, toolResult ToolResult) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, observationID string, toolName string, toolResult ToolResult) turnObservation {
 	content := toolResult.Content
 	if len(content) > agentTurnRunner.options.ToolResultMaxBytes {
 		taskArtifact := agentTurnRunner.taskArtifactService.AddTaskArtifactBody(taskRunID, "tool."+toolName+".result", content)
@@ -456,7 +480,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, to
 	if !toolResult.IsError {
 		attachments = append(attachments, toolResult.Attachments...)
 	}
-	observation := turnObservation{Action: "call_tool", Tool: toolName, Content: content, IsError: toolResult.IsError, Attachments: attachments}
+	observation := turnObservation{ObservationID: observationID, Action: "call_tool", Tool: toolName, Content: content, IsError: toolResult.IsError, Attachments: attachments}
 	agentTurnRunner.appendEvent(taskRunID, "tool."+toolName+".result", marshalEventBody(observation))
 	return observation
 }
@@ -481,16 +505,276 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, reason string
 	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: DefaultFallbackReply}, nil
 }
 
-func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, prompt string, reason string) (AgentTurnResult, error) {
+func appendObservationAttachments(attachments []FileAttachment, observation turnObservation) []FileAttachment {
+	if observation.IsError || len(observation.Attachments) == 0 {
+		return attachments
+	}
+	nextAttachments := append([]FileAttachment{}, attachments...)
+	if observation.Tool == "browser.screenshot" {
+		nextAttachments = removeBrowserScreenshotAttachments(nextAttachments)
+	}
+	for _, attachment := range observation.Attachments {
+		if strings.TrimSpace(attachment.DevicePath) == "" || hasAttachmentDevicePath(nextAttachments, attachment.DevicePath) {
+			continue
+		}
+		nextAttachments = append(nextAttachments, attachment)
+	}
+	return nextAttachments
+}
+
+func removeBrowserScreenshotAttachments(attachments []FileAttachment) []FileAttachment {
+	filteredAttachments := []FileAttachment{}
+	for _, attachment := range attachments {
+		if strings.HasPrefix(strings.TrimSpace(attachment.Filename), "browser-screenshot-") {
+			continue
+		}
+		filteredAttachments = append(filteredAttachments, attachment)
+	}
+	return filteredAttachments
+}
+
+func hasAttachmentDevicePath(attachments []FileAttachment, devicePath string) bool {
+	normalizedDevicePath := strings.TrimSpace(devicePath)
+	for _, attachment := range attachments {
+		if strings.TrimSpace(attachment.DevicePath) == normalizedDevicePath {
+			return true
+		}
+	}
+	return false
+}
+
+func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForBudget(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment) (AgentTurnResult, error) {
+	if ctx.Err() == nil && completionRequirementsHaveEvidence(requirements, observations) {
+		if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, requirements, observations); isFinalized {
+			return result, nil
+		}
+	}
+	return agentTurnRunner.stopForBudget(taskRunID, request.Prompt, reason, observations, attachments)
+}
+
+func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) (AgentTurnResult, bool) {
+	actionDocument, errorValue := agentTurnRunner.finalizerAction(ctx, request, observations)
+	if errorValue != nil {
+		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_failed", marshalEventBody(map[string]string{"error": errorValue.Error()}))
+		return AgentTurnResult{}, false
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_action", marshalEventBody(actionDocument))
+	if strings.TrimSpace(actionDocument.Action) != "final_reply" {
+		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "finalizer did not return final_reply"}))
+		return AgentTurnResult{}, false
+	}
+	completionGateResult := validateCompletionGate(requirements, observations, actionDocument)
+	if !completionGateResult.IsSatisfied {
+		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
+		return AgentTurnResult{}, false
+	}
+	reply := strings.TrimSpace(actionDocument.FinalReply)
+	if reply == "" {
+		reply = strings.TrimSpace(actionDocument.Reply)
+	}
+	if reply == "" {
+		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "empty final reply"}))
+		return AgentTurnResult{}, false
+	}
+	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments}, true
+}
+
+func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation) (turnActionDocument, error) {
+	messages := agentTurnRunner.buildTurnMessages(request, observations)
+	messages = append(messages, llm.Message{
+		Role:    "system",
+		Content: "The execution budget is ending. Do not call tools. If the goal is satisfied by successful observations, return final_reply with goalSatisfied=true and cite the completionEvidence. If the goal is not satisfied, return fail.",
+	})
+	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+		Messages: messages,
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               "blueclaw_agent_turn_finalizer",
+			Document:           finalizerActionSchema(),
+			IsStrictlyEnforced: true,
+		},
+	})
+	if errorValue != nil {
+		return turnActionDocument{}, errorValue
+	}
+	var actionDocument turnActionDocument
+	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &actionDocument); errorValue != nil {
+		return turnActionDocument{}, errorValue
+	}
+	return actionDocument, nil
+}
+
+func completionRequirementsHaveEvidence(requirements []toolUseRequirement, observations []turnObservation) bool {
+	if len(requirements) == 0 {
+		return false
+	}
+	for _, requirement := range requirements {
+		if matchingCompletionObservations(requirement, observations) == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, prompt string, reason string, observations []turnObservation, attachments []FileAttachment) (AgentTurnResult, error) {
 	body := map[string]any{
-		"budgetClass":     agentTurnRunner.options.BudgetClass,
-		"wallClockSecond": agentTurnRunner.options.WallClockSecond,
-		"reason":          reason,
+		"budgetClass":      agentTurnRunner.options.BudgetClass,
+		"wallClockSecond":  agentTurnRunner.options.WallClockSecond,
+		"reason":           reason,
+		"attachmentCount":  len(attachments),
+		"observationCount": len(observations),
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.budget_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
 	reply := budgetStopReply(prompt, agentTurnRunner.options.BudgetClass)
 	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply}, nil
+}
+
+func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) completionGateResult {
+	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
+		return completionGateResult{Message: "final_reply requires goalSatisfied=true"}
+	}
+	if strings.TrimSpace(actionDocument.GoalStatus) != "" && strings.TrimSpace(actionDocument.GoalStatus) != "satisfied" {
+		return completionGateResult{Message: "final_reply requires goalStatus=satisfied"}
+	}
+	attachments, errorValue := validateCompletionEvidence(requirements, observations, actionDocument.CompletionEvidence)
+	if errorValue != nil {
+		return completionGateResult{Message: errorValue.Error()}
+	}
+	return completionGateResult{IsSatisfied: true, Attachments: attachments}
+}
+
+func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
+	if len(requirements) == 0 {
+		return collectReferencedAttachments(observations, references)
+	}
+	attachments := collectReferenceAttachments(observations, references)
+	for _, requirement := range requirements {
+		matchingReferences := completionReferencesForRequirement(requirement, observations, references)
+		if len(matchingReferences) == 0 {
+			return nil, errors.New("completionEvidence must cite successful observation for " + requirementLabel(requirement))
+		}
+		if !requirement.RequiresAttachment {
+			continue
+		}
+		requirementAttachments := collectReferenceAttachments(observations, matchingReferences)
+		if len(requirementAttachments) == 0 {
+			return nil, errors.New("completionEvidence for " + requirementLabel(requirement) + " must include an attachment")
+		}
+	}
+	return attachments, nil
+}
+
+func collectReferencedAttachments(observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
+	attachments := []FileAttachment{}
+	for _, reference := range references {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if !isFound {
+			return nil, errors.New("completionEvidence references an unknown or failed observation")
+		}
+		attachments = appendUniqueAttachments(attachments, attachmentsForReference(observation, reference))
+	}
+	return attachments, nil
+}
+
+func completionReferencesForRequirement(requirement toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) []completionEvidenceReference {
+	matchingReferences := []completionEvidenceReference{}
+	for _, reference := range references {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if !isFound {
+			continue
+		}
+		if requirementMatchesObservation(requirement, observation) {
+			matchingReferences = append(matchingReferences, reference)
+		}
+	}
+	return matchingReferences
+}
+
+func matchingCompletionObservations(requirement toolUseRequirement, observations []turnObservation) []turnObservation {
+	matchingObservations := []turnObservation{}
+	for _, observation := range observations {
+		if observation.IsError || !requirementMatchesObservation(requirement, observation) {
+			continue
+		}
+		if requirement.RequiresAttachment && len(observation.Attachments) == 0 {
+			continue
+		}
+		matchingObservations = append(matchingObservations, observation)
+	}
+	return matchingObservations
+}
+
+func requirementMatchesObservation(requirement toolUseRequirement, observation turnObservation) bool {
+	toolName := strings.TrimSpace(observation.Tool)
+	if strings.TrimSpace(requirement.ToolName) != "" {
+		return toolName == strings.TrimSpace(requirement.ToolName)
+	}
+	if strings.TrimSpace(requirement.ToolPrefix) != "" {
+		return strings.HasPrefix(toolName, strings.TrimSpace(requirement.ToolPrefix))
+	}
+	return false
+}
+
+func findSuccessfulObservation(observations []turnObservation, reference completionEvidenceReference) (turnObservation, bool) {
+	for _, observation := range observations {
+		if observation.IsError {
+			continue
+		}
+		if strings.TrimSpace(observation.ObservationID) != strings.TrimSpace(reference.ObservationID) {
+			continue
+		}
+		if strings.TrimSpace(observation.Tool) != strings.TrimSpace(reference.ToolName) {
+			continue
+		}
+		return observation, true
+	}
+	return turnObservation{}, false
+}
+
+func collectReferenceAttachments(observations []turnObservation, references []completionEvidenceReference) []FileAttachment {
+	attachments := []FileAttachment{}
+	for _, reference := range references {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if !isFound {
+			continue
+		}
+		attachments = appendUniqueAttachments(attachments, attachmentsForReference(observation, reference))
+	}
+	return attachments
+}
+
+func attachmentsForReference(observation turnObservation, reference completionEvidenceReference) []FileAttachment {
+	if reference.AttachmentIndex == nil {
+		return observation.Attachments
+	}
+	index := *reference.AttachmentIndex
+	if index < 0 || index >= len(observation.Attachments) {
+		return nil
+	}
+	return []FileAttachment{observation.Attachments[index]}
+}
+
+func appendUniqueAttachments(attachments []FileAttachment, candidates []FileAttachment) []FileAttachment {
+	nextAttachments := append([]FileAttachment{}, attachments...)
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.DevicePath) == "" || hasAttachmentDevicePath(nextAttachments, candidate.DevicePath) {
+			continue
+		}
+		nextAttachments = append(nextAttachments, candidate)
+	}
+	return nextAttachments
+}
+
+func requirementLabel(requirement toolUseRequirement) string {
+	if strings.TrimSpace(requirement.ToolName) != "" {
+		return strings.TrimSpace(requirement.ToolName)
+	}
+	return strings.TrimSpace(requirement.ToolPrefix)
+}
+
+func nextObservationID(index int) string {
+	return fmt.Sprintf("obs-%03d", index)
 }
 
 func marshalEventBody(value any) string {

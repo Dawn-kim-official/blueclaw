@@ -30,11 +30,15 @@ func finalReplyActionSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":     enumStringSchema("final_reply"),
-			"finalReply": stringSchema(),
-			"reply":      stringSchema(),
+			"action":             enumStringSchema("final_reply"),
+			"finalReply":         stringSchema(),
+			"reply":              stringSchema(),
+			"goalStatus":         enumValuesStringSchema([]string{"satisfied"}),
+			"goalSatisfied":      booleanSchema(),
+			"completionEvidence": completionEvidenceSchema(),
+			"remainingWork":      stringSchema(),
 		},
-		"required":             []string{"action"},
+		"required":             []string{"action", "goalStatus", "goalSatisfied", "completionEvidence"},
 		"additionalProperties": false,
 	}
 }
@@ -43,9 +47,12 @@ func fetchHistoryActionSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":    enumStringSchema("fetch_history"),
-			"toolInput": objectSchema(),
-			"reason":    stringSchema(),
+			"action":        enumStringSchema("fetch_history"),
+			"toolInput":     objectSchema(),
+			"reason":        stringSchema(),
+			"goalStatus":    enumValuesStringSchema([]string{"in_progress", "blocked"}),
+			"goalSatisfied": booleanSchema(),
+			"remainingWork": stringSchema(),
 		},
 		"required":             []string{"action"},
 		"additionalProperties": false,
@@ -56,9 +63,12 @@ func searchMemoryActionSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action": enumStringSchema("search_memory"),
-			"query":  stringSchema(),
-			"reason": stringSchema(),
+			"action":        enumStringSchema("search_memory"),
+			"query":         stringSchema(),
+			"reason":        stringSchema(),
+			"goalStatus":    enumValuesStringSchema([]string{"in_progress", "blocked"}),
+			"goalSatisfied": booleanSchema(),
+			"remainingWork": stringSchema(),
 		},
 		"required":             []string{"action"},
 		"additionalProperties": false,
@@ -69,8 +79,11 @@ func failActionSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action": enumStringSchema("fail"),
-			"reason": stringSchema(),
+			"action":        enumStringSchema("fail"),
+			"reason":        stringSchema(),
+			"goalStatus":    enumValuesStringSchema([]string{"blocked"}),
+			"goalSatisfied": booleanSchema(),
+			"remainingWork": stringSchema(),
 		},
 		"required":             []string{"action", "reason"},
 		"additionalProperties": false,
@@ -81,10 +94,13 @@ func callToolActionSchema(toolDefinition ToolDefinition) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":    enumStringSchema("call_tool"),
-			"toolName":  enumStringSchema(toolDefinition.Name),
-			"toolInput": toolInputSchema(toolDefinition),
-			"reason":    stringSchema(),
+			"action":        enumStringSchema("call_tool"),
+			"toolName":      enumStringSchema(toolDefinition.Name),
+			"toolInput":     toolInputSchema(toolDefinition),
+			"reason":        stringSchema(),
+			"goalStatus":    enumValuesStringSchema([]string{"in_progress", "blocked"}),
+			"goalSatisfied": booleanSchema(),
+			"remainingWork": stringSchema(),
 		},
 		"required":             []string{"action", "toolName", "toolInput"},
 		"additionalProperties": false,
@@ -138,14 +154,46 @@ func enumStringSchema(value string) map[string]any {
 	return map[string]any{"type": "string", "enum": []string{value}}
 }
 
+func enumValuesStringSchema(values []string) map[string]any {
+	return map[string]any{"type": "string", "enum": values}
+}
+
 func stringSchema() map[string]any {
 	return map[string]any{"type": "string"}
+}
+
+func booleanSchema() map[string]any {
+	return map[string]any{"type": "boolean"}
 }
 
 func objectSchema() map[string]any {
 	return map[string]any{"type": "object"}
 }
 
+func completionEvidenceSchema() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"observationID":   stringSchema(),
+				"toolName":        stringSchema(),
+				"attachmentIndex": map[string]any{"type": "number"},
+			},
+			"required":             []string{"observationID", "toolName"},
+			"additionalProperties": false,
+		},
+	}
+}
+
 func fallbackActionSchema() string {
-	return `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","call_tool","fetch_history","search_memory","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"query":{"type":"string"},"reason":{"type":"string"},"reply":{"type":"string"}},"required":["action"],"additionalProperties":false}`
+	return `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","call_tool","fetch_history","search_memory","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"query":{"type":"string"},"reason":{"type":"string"},"reply":{"type":"string"},"goalStatus":{"type":"string"},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action"],"additionalProperties":false}`
+}
+
+func finalizerActionSchema() string {
+	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finalReplyActionSchema(), failActionSchema()}})
+	if errorValue != nil {
+		return fallbackActionSchema()
+	}
+	return string(document)
 }

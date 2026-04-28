@@ -154,27 +154,24 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 
-	if len(languageModel.request.Messages) != 5 {
-		t.Fatalf("expected system, tools, visible context, memory, prompt messages, got %d", len(languageModel.request.Messages))
-	}
 	if !strings.Contains(languageModel.request.Messages[1].Content, "conversation.history") {
 		t.Fatalf("expected tool context first, got %q", languageModel.request.Messages[1].Content)
 	}
-	if !strings.Contains(languageModel.request.Messages[2].Content, "admin: 이전 메시지") {
-		t.Fatalf("expected visible context before memory, got %q", languageModel.request.Messages[2].Content)
+	visibleContextIndex := messageIndex(languageModel.request.Messages, "admin: 이전 메시지")
+	memoryIndex := messageIndex(languageModel.request.Messages, "간결한 설계")
+	promptIndex := messageIndex(languageModel.request.Messages, event.Prompt)
+	if visibleContextIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
+		t.Fatalf("expected visible context, memory, and prompt messages, got %+v", languageModel.request.Messages)
 	}
-	if !strings.Contains(languageModel.request.Messages[3].Content, "간결한 설계") {
-		t.Fatalf("expected memory after visible context, got %q", languageModel.request.Messages[3].Content)
-	}
-	if languageModel.request.Messages[4].Content != event.Prompt {
-		t.Fatalf("expected prompt last, got %q", languageModel.request.Messages[4].Content)
+	if !(visibleContextIndex < memoryIndex && memoryIndex < promptIndex) {
+		t.Fatalf("expected visible context before memory before prompt, got visible=%d memory=%d prompt=%d", visibleContextIndex, memoryIndex, promptIndex)
 	}
 }
 
 func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T) {
 	languageModel := &connectorSequenceLanguageModel{contents: []string{
 		`{"action":"fetch_history","toolInput":{"limit":20}}`,
-		`{"action":"final_reply","finalReply":"이전 대화를 확인했습니다"}`,
+		connectorFinalReplyWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
 	}}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-1")
@@ -203,7 +200,7 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T)
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := &connectorSequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
-		`{"action":"final_reply","finalReply":"브라우저를 확인했습니다"}`,
+		connectorFinalReplyWithEvidence("브라우저를 확인했습니다", "obs-001", "browser.snapshot", 0),
 	}}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "browser.snapshot"})
@@ -438,7 +435,7 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(context.Contex
 	if languageModel.errorValue != nil {
 		return llm.StructuredResponse{}, languageModel.errorValue
 	}
-	return llm.StructuredResponse{Content: `{"reply":"` + languageModel.reply + `"}`}, nil
+	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
 }
 
 type recordingLanguageModel struct {
@@ -452,7 +449,7 @@ func (languageModel *recordingLanguageModel) GenerateResponse(context.Context, s
 
 func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.request = structuredResponseRequest
-	return llm.StructuredResponse{Content: `{"reply":"` + languageModel.reply + `"}`}, nil
+	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
 }
 
 type connectorSequenceLanguageModel struct {
@@ -485,7 +482,7 @@ func (languageModel staticScopeLanguageModel) GenerateStructuredResponse(_ conte
 	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_memory_scope_route" {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
-	return llm.StructuredResponse{Content: `{"reply":"ok"}`}, nil
+	return llm.StructuredResponse{Content: connectorFinalReply("ok")}, nil
 }
 
 type fakeGraphMemoryStore struct {
@@ -532,6 +529,23 @@ func structuredMessagesContain(messages []llm.Message, fragment string) bool {
 		}
 	}
 	return false
+}
+
+func messageIndex(messages []llm.Message, fragment string) int {
+	for index, message := range messages {
+		if strings.Contains(message.Content, fragment) {
+			return index
+		}
+	}
+	return -1
+}
+
+func connectorFinalReply(reply string) string {
+	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finalReply":` + strconv.Quote(reply) + `}`
+}
+
+func connectorFinalReplyWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {
+	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}],"finalReply":` + strconv.Quote(reply) + `}`
 }
 
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {
