@@ -198,7 +198,7 @@ func (connectorRuntime *ConnectorRuntime) HandleHTTPEvent(ctx context.Context, p
 
 	parseResult.Event.Platform = platform
 	parseResult.Event.Source = "http"
-	result, errorValue := connectorRuntime.HandleInboundEvent(ctx, adapter, parseResult.Event)
+	result, errorValue := connectorRuntime.HandleInboundEvent(detachedConnectorContext(ctx), adapter, parseResult.Event)
 	return result, nil, errorValue
 }
 
@@ -475,6 +475,13 @@ func trimNonEmptyStrings(values []string) []string {
 		}
 	}
 	return trimmedValues
+}
+
+func detachedConnectorContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(ctx)
 }
 
 func (connectorRuntime *ConnectorRuntime) searchAccessibleMemory(ctx context.Context, personID string, personAccess policy.PersonAccess, event PlatformInboundEvent) ([]memory.MemoryFact, error) {

@@ -236,6 +236,29 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeDetachesHTTPEventFromCanceledRequestContext(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	request, errorValue := http.NewRequest(http.MethodPost, "/connectors/test/events", strings.NewReader(`{}`))
+	if errorValue != nil {
+		t.Fatalf("expected request: %v", errorValue)
+	}
+	ctx, cancel := context.WithCancel(request.Context())
+	cancel()
+	request = request.WithContext(ctx)
+	adapter.httpParseResult = HTTPParseResult{
+		HasEvent: true,
+		Event:    testInboundEvent("message-http"),
+	}
+
+	result, _, errorValue := connectorRuntime.HandleHTTPEvent(request.Context(), adapter.Name(), request)
+	if errorValue != nil {
+		t.Fatalf("expected detached http event to process: %v", errorValue)
+	}
+	if result.TaskRunID == "" {
+		t.Fatalf("expected task run result, got %+v", result)
+	}
+}
+
 func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -338,11 +361,12 @@ func TestPlatformInboundEventOnlyUsesTextAndSenderCompatibilityAliases(t *testin
 }
 
 type testAdapter struct {
-	senderEmail    string
-	sentReplies    []testReply
-	progressStarts []ReplyTarget
-	progressStops  []ReplyTarget
-	historyCursors []string
+	senderEmail     string
+	httpParseResult HTTPParseResult
+	sentReplies     []testReply
+	progressStarts  []ReplyTarget
+	progressStops   []ReplyTarget
+	historyCursors  []string
 }
 
 type testReply struct {
@@ -355,7 +379,7 @@ func (adapter *testAdapter) Name() string {
 }
 
 func (adapter *testAdapter) ParseHTTPEvent(context.Context, *http.Request) (HTTPParseResult, error) {
-	return HTTPParseResult{}, nil
+	return adapter.httpParseResult, nil
 }
 
 func (adapter *testAdapter) ParseRealtimeEvent(context.Context, []byte, string) (PlatformInboundEvent, bool, error) {
