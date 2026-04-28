@@ -155,7 +155,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
 				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, "maximum tool calls exceeded")
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, actionDocument.ToolInput)
+			toolInput := agentTurnRunner.normalizeToolInput(taskRun.TaskRunID, actionDocument.ToolName, actionDocument.ToolInput, observations)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, actionDocument.ToolName, toolInput)
 			observations = append(observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
@@ -277,6 +278,54 @@ func specificToolDescription(toolName string) string {
 		return `Press a key. Input: {"key":"Enter"}.`
 	case "browser.wait":
 		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
+	default:
+		return ""
+	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) normalizeToolInput(taskRunID string, toolName string, toolInput json.RawMessage, observations []turnObservation) json.RawMessage {
+	switch strings.TrimSpace(toolName) {
+	case "browser.press":
+		return agentTurnRunner.normalizeBrowserPressInput(taskRunID, toolInput, observations)
+	default:
+		return toolInput
+	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) normalizeBrowserPressInput(taskRunID string, toolInput json.RawMessage, observations []turnObservation) json.RawMessage {
+	var inputDocument map[string]any
+	if len(toolInput) > 0 {
+		_ = json.Unmarshal(toolInput, &inputDocument)
+	}
+	if strings.TrimSpace(stringValue(inputDocument["key"])) != "" {
+		return toolInput
+	}
+	if !hasSuccessfulToolObservation(observations, "browser.fill") {
+		return toolInput
+	}
+	normalizedInput := MarshalToolInput(map[string]string{"key": "Enter"})
+	agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_normalized", marshalEventBody(map[string]any{
+		"toolName": "browser.press",
+		"reason":   "browser.press without key after successful browser.fill defaults to Enter form submission",
+		"input":    json.RawMessage(normalizedInput),
+	}))
+	return normalizedInput
+}
+
+func hasSuccessfulToolObservation(observations []turnObservation, toolName string) bool {
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		if observation.Tool == toolName && !observation.IsError {
+			return true
+		}
+	}
+	return false
+}
+
+func stringValue(value any) string {
+	switch typedValue := value.(type) {
+	case string:
+		return typedValue
 	default:
 		return ""
 	}

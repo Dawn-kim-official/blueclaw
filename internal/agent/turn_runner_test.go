@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -79,13 +80,13 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"final_reply","finalReply":"browser tool is unavailable"}`,
-		`{"action":"call_tool","toolName":"browser.observe","toolInput":{}}`,
+		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
 		`{"action":"final_reply","finalReply":"observed"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"browser.observe"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.observe"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: `{"snapshotText":"Example"}`}, nil
+	toolRegistry := NewToolRegistry([]string{"browser.screenshot"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `{"devicePath":"/tmp/screenshot.png"}`}, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -100,11 +101,11 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	if result.FinalReply != "observed" {
 		t.Fatalf("expected final reply after tool use, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_required", "Required tool scope") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_required", "browser.screenshot") {
 		t.Fatal("expected tool requirement event")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.browser.observe.result", "Example") {
-		t.Fatal("expected browser tool observation")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.browser.screenshot.result", "/tmp/screenshot.png") {
+		t.Fatal("expected browser screenshot observation")
 	}
 }
 
@@ -130,6 +131,45 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	}
 	if result.FinalReply != "handled failure" {
 		t.Fatalf("expected final reply after failure, got %q", result.FinalReply)
+	}
+}
+
+func TestAgentTurnRunnerNormalizesEmptyBrowserPressAfterFill(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
+		`{"action":"call_tool","toolName":"browser.press","toolInput":{}}`,
+		`{"action":"final_reply","finalReply":"searched"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"browser.fill", "browser.press"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `{"ok":true}`}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.press"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+		var inputDocument map[string]string
+		if errorValue := json.Unmarshal(toolInvocation.Input, &inputDocument); errorValue != nil {
+			t.Fatalf("expected normalized press input: %v", errorValue)
+		}
+		if inputDocument["key"] != "Enter" {
+			t.Fatalf("expected Enter key normalization, got %+v", inputDocument)
+		}
+		return ToolResult{Content: `{"ok":true}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinalReply != "searched" {
+		t.Fatalf("expected searched reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_normalized", "Enter") {
+		t.Fatal("expected normalized tool input event")
 	}
 }
 
