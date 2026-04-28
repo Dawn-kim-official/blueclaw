@@ -33,13 +33,14 @@ type AgentTurnRunner struct {
 }
 
 type AgentTurnRequest struct {
-	RequesterPersonID string
-	ConversationID    string
-	Prompt            string
-	VisibleContext    VisibleContext
-	MemoryFacts       []memory.MemoryFact
-	ToolRegistry      *ToolRegistry
-	InstructionPrompt string
+	RequesterPersonID  string
+	ConversationID     string
+	Prompt             string
+	VisibleContext     VisibleContext
+	MemoryFacts        []memory.MemoryFact
+	ToolRegistry       *ToolRegistry
+	InstructionPrompt  string
+	InstructionSources []InstructionSource
 }
 
 type AgentTurnResult struct {
@@ -113,6 +114,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	if errorValue == nil {
 		taskRun = runningTaskRun
 	}
+	agentTurnRunner.appendInstructionEvent(taskRun.TaskRunID, request)
 
 	observations := []turnObservation{}
 	toolUseRequirements := deriveToolUseRequirements(request)
@@ -207,7 +209,7 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request 
 		Messages: agentTurnRunner.buildTurnMessages(request, observations),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
-			Document:           `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","call_tool","fetch_history","search_memory","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"query":{"type":"string"},"reason":{"type":"string"},"reply":{"type":"string"}},"required":["action"],"additionalProperties":false}`,
+			Document:           agentTurnRunner.buildActionSchema(request.ToolRegistry),
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -228,28 +230,12 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request 
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnRequest, observations []turnObservation) []llm.Message {
-	messages := buildReplyMessages(request.Prompt, request.VisibleContext, request.MemoryFacts)
-	messages[0].Content = "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed. If a listed tool is needed for the user's request, call it before final_reply."
-
-	toolDescriptions := agentTurnRunner.buildToolDescription(request.ToolRegistry)
-	if toolDescriptions != "" {
-		messages[0].Content += "\n\n" + toolDescriptions
-	}
-
-	if strings.TrimSpace(request.InstructionPrompt) != "" {
-		messages = append(messages, llm.Message{
-			Role:    "system",
-			Content: "Workspace and skill instructions:\n" + strings.TrimSpace(request.InstructionPrompt),
-		})
-	}
-
-	if len(observations) > 0 {
-		messages = append(messages, llm.Message{
-			Role:    "system",
-			Content: "Tool observations so far:\n" + marshalEventBody(observations),
-		})
-	}
-	return messages
+	return (PromptAssembler{}).BuildTurnMessages(
+		request,
+		observations,
+		"You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed. If a listed tool is needed for the user's request, call it before final_reply.",
+		agentTurnRunner.buildToolDescription(request.ToolRegistry),
+	)
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolRegistry) string {
@@ -267,9 +253,25 @@ func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolR
 		if strings.TrimSpace(description) != "" {
 			line += ": " + strings.TrimSpace(description)
 		}
+		if inputSchema := toolDefinitionInputSchema(toolDefinition); len(inputSchema) > 0 {
+			line += " Input schema: " + strings.TrimSpace(string(inputSchema))
+		}
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string, request AgentTurnRequest) {
+	body := map[string]any{
+		"sourceCount": len(request.InstructionSources),
+		"sources":     request.InstructionSources,
+	}
+	if strings.TrimSpace(request.InstructionPrompt) == "" {
+		body["status"] = "empty"
+	} else {
+		body["status"] = "loaded"
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.instructions_loaded", marshalEventBody(body))
 }
 
 func specificToolDescription(toolName string) string {
@@ -302,11 +304,11 @@ func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error 
 	case "browser.navigate":
 		return validateRequiredToolInputFields(toolName, toolInput, "url")
 	case "browser.fill":
-		return validateRequiredToolInputFields(toolName, toolInput, "target", "text")
+		return validateBrowserTargetToolInput(toolName, toolInput, "text")
 	case "browser.click":
-		return validateRequiredToolInputFields(toolName, toolInput, "target")
+		return validateBrowserTargetToolInput(toolName, toolInput)
 	case "browser.select":
-		return validateRequiredToolInputFields(toolName, toolInput, "target", "value")
+		return validateBrowserTargetToolInput(toolName, toolInput, "value")
 	case "browser.press":
 		return validateRequiredToolInputFields(toolName, toolInput, "key")
 	case "browser.wait":
@@ -314,6 +316,26 @@ func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error 
 	default:
 		return nil
 	}
+}
+
+func validateBrowserTargetToolInput(toolName string, toolInput json.RawMessage, fieldNames ...string) error {
+	inputDocument, errorValue := parseToolInputDocument(toolName, toolInput)
+	if errorValue != nil {
+		return errorValue
+	}
+	missingFieldNames := []string{}
+	if firstNonEmptyString(stringValue(inputDocument["target"]), stringValue(inputDocument["ref"]), stringValue(inputDocument["selector"])) == "" {
+		missingFieldNames = append(missingFieldNames, "target/ref/selector")
+	}
+	for _, fieldName := range fieldNames {
+		if strings.TrimSpace(stringValue(inputDocument[fieldName])) == "" {
+			missingFieldNames = append(missingFieldNames, fieldName)
+		}
+	}
+	if len(missingFieldNames) > 0 {
+		return errors.New("missing required tool input for " + strings.TrimSpace(toolName) + ": " + strings.Join(missingFieldNames, ", ") + validInputExampleSuffix(toolName))
+	}
+	return nil
 }
 
 func validateRequiredToolInputFields(toolName string, toolInput json.RawMessage, fieldNames ...string) error {
@@ -328,7 +350,7 @@ func validateRequiredToolInputFields(toolName string, toolInput json.RawMessage,
 		}
 	}
 	if len(missingFieldNames) > 0 {
-		return errors.New("missing required tool input for " + strings.TrimSpace(toolName) + ": " + strings.Join(missingFieldNames, ", "))
+		return errors.New("missing required tool input for " + strings.TrimSpace(toolName) + ": " + strings.Join(missingFieldNames, ", ") + validInputExampleSuffix(toolName))
 	}
 	return nil
 }
@@ -341,10 +363,42 @@ func validateBrowserWaitInput(toolInput json.RawMessage) error {
 	if strings.TrimSpace(stringValue(inputDocument["target"])) != "" {
 		return nil
 	}
+	if strings.TrimSpace(stringValue(inputDocument["ref"])) != "" {
+		return nil
+	}
+	if strings.TrimSpace(stringValue(inputDocument["selector"])) != "" {
+		return nil
+	}
 	if numberValue(inputDocument["milliseconds"]) > 0 {
 		return nil
 	}
 	return errors.New("missing required tool input for browser.wait: target or milliseconds")
+}
+
+func toolDefinitionInputSchema(toolDefinition ToolDefinition) json.RawMessage {
+	if len(toolDefinition.InputSchema) > 0 {
+		return toolDefinition.InputSchema
+	}
+	return specificToolInputSchema(toolDefinition.Name)
+}
+
+func validInputExampleSuffix(toolName string) string {
+	switch strings.TrimSpace(toolName) {
+	case "browser.navigate":
+		return `. Valid input example: {"url":"https://www.google.com"}`
+	case "browser.fill":
+		return `. Valid input example: {"target":"@e1","text":"hello world"}`
+	case "browser.click":
+		return `. Valid input example: {"target":"@e1"}`
+	case "browser.select":
+		return `. Valid input example: {"target":"@e1","value":"option"}`
+	case "browser.press":
+		return `. Valid input example: {"key":"Enter"}`
+	case "browser.wait":
+		return `. Valid input example: {"target":"@e1"} or {"milliseconds":1000}`
+	default:
+		return ""
+	}
 }
 
 func parseToolInputDocument(toolName string, toolInput json.RawMessage) (map[string]any, error) {

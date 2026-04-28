@@ -9,8 +9,9 @@ import (
 )
 
 type ToolDefinition struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
 }
 
 type ToolInvocation struct {

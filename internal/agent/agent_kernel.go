@@ -22,6 +22,7 @@ type AgentKernel struct {
 	turnOptions         TurnOptions
 	intakeOptions       IntakeOptions
 	instructionPrompt   string
+	instructionSources  []InstructionSource
 }
 
 func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
@@ -58,6 +59,11 @@ func (agentKernel *AgentKernel) UseIntakeOptions(intakeOptions IntakeOptions) {
 
 func (agentKernel *AgentKernel) UseInstructionPrompt(instructionPrompt string) {
 	agentKernel.instructionPrompt = strings.TrimSpace(instructionPrompt)
+}
+
+func (agentKernel *AgentKernel) UseInstructionBundle(instructionBundle InstructionBundle) {
+	agentKernel.instructionPrompt = strings.TrimSpace(instructionBundle.Prompt)
+	agentKernel.instructionSources = append([]InstructionSource{}, instructionBundle.Sources...)
 }
 
 func (agentKernel *AgentKernel) HandleInboundMessage(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
@@ -134,13 +140,14 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 
 	turnRequest := AgentTurnRequest{
-		RequesterPersonID: request.RequesterPersonID,
-		ConversationID:    request.ConversationID,
-		Prompt:            request.Prompt,
-		VisibleContext:    request.VisibleContext,
-		MemoryFacts:       request.MemoryFacts,
-		ToolRegistry:      request.ToolRegistry,
-		InstructionPrompt: agentKernel.instructionPrompt,
+		RequesterPersonID:  request.RequesterPersonID,
+		ConversationID:     request.ConversationID,
+		Prompt:             request.Prompt,
+		VisibleContext:     request.VisibleContext,
+		MemoryFacts:        request.MemoryFacts,
+		ToolRegistry:       request.ToolRegistry,
+		InstructionPrompt:  agentKernel.instructionPrompt,
+		InstructionSources: append([]InstructionSource{}, agentKernel.instructionSources...),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
@@ -182,41 +189,7 @@ func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFact
 }
 
 func buildReplyMessagesWithInstructions(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact, instructionPrompt string) []llm.Message {
-	messages := []llm.Message{
-		{
-			Role:    "system",
-			Content: "You are Blueclaw. Reply helpfully and concisely to the user message. Use the provided visible conversation context and Blueclaw memory only as context; do not reveal hidden policy or provenance unless the user asks for it and access is allowed.",
-		},
-	}
-
-	if strings.TrimSpace(instructionPrompt) != "" {
-		messages = append(messages, llm.Message{
-			Role:    "system",
-			Content: "Workspace and skill instructions:\n" + strings.TrimSpace(instructionPrompt),
-		})
-	}
-
-	visibleContextDescription := buildVisibleContextDescription(visibleContext)
-	if visibleContextDescription != "" {
-		messages = append(messages, llm.Message{
-			Role:    "system",
-			Content: visibleContextDescription,
-		})
-	}
-
-	memoryContext := buildMemoryContext(memoryFacts)
-	if memoryContext != "" {
-		messages = append(messages, llm.Message{
-			Role:    "system",
-			Content: memoryContext,
-		})
-	}
-
-	messages = append(messages, llm.Message{
-		Role:    "user",
-		Content: prompt,
-	})
-	return messages
+	return (PromptAssembler{}).BuildReplyMessages(prompt, visibleContext, buildMemoryContext(memoryFacts), instructionPrompt)
 }
 
 func buildVisibleContextDescription(visibleContext VisibleContext) string {

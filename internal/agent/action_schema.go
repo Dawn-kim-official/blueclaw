@@ -1,0 +1,185 @@
+package agent
+
+import (
+	"encoding/json"
+	"strings"
+)
+
+func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolRegistry) string {
+	var variants []any
+	variants = append(variants,
+		finalReplyActionSchema(),
+		fetchHistoryActionSchema(),
+		searchMemoryActionSchema(),
+		failActionSchema(),
+	)
+	if toolRegistry != nil {
+		for _, toolDefinition := range toolRegistry.ListToolDefinitions() {
+			variants = append(variants, callToolActionSchema(toolDefinition))
+		}
+	}
+
+	document, errorValue := json.Marshal(map[string]any{"oneOf": variants})
+	if errorValue != nil {
+		return fallbackActionSchema()
+	}
+	return string(document)
+}
+
+func finalReplyActionSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action":     enumStringSchema("final_reply"),
+			"finalReply": stringSchema(),
+			"reply":      stringSchema(),
+		},
+		"required":             []string{"action"},
+		"additionalProperties": false,
+	}
+}
+
+func fetchHistoryActionSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action":    enumStringSchema("fetch_history"),
+			"toolInput": objectSchema(),
+			"reason":    stringSchema(),
+		},
+		"required":             []string{"action"},
+		"additionalProperties": false,
+	}
+}
+
+func searchMemoryActionSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action": enumStringSchema("search_memory"),
+			"query":  stringSchema(),
+			"reason": stringSchema(),
+		},
+		"required":             []string{"action"},
+		"additionalProperties": false,
+	}
+}
+
+func failActionSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action": enumStringSchema("fail"),
+			"reason": stringSchema(),
+		},
+		"required":             []string{"action", "reason"},
+		"additionalProperties": false,
+	}
+}
+
+func callToolActionSchema(toolDefinition ToolDefinition) map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action":    enumStringSchema("call_tool"),
+			"toolName":  enumStringSchema(toolDefinition.Name),
+			"toolInput": toolInputSchema(toolDefinition),
+			"reason":    stringSchema(),
+		},
+		"required":             []string{"action", "toolName", "toolInput"},
+		"additionalProperties": false,
+	}
+}
+
+func toolInputSchema(toolDefinition ToolDefinition) any {
+	if len(toolDefinition.InputSchema) > 0 {
+		var schema any
+		if json.Unmarshal(toolDefinition.InputSchema, &schema) == nil {
+			return schema
+		}
+	}
+	if schema := specificToolInputSchema(toolDefinition.Name); len(schema) > 0 {
+		var document any
+		if json.Unmarshal(schema, &document) == nil {
+			return document
+		}
+	}
+	return objectSchema()
+}
+
+func specificToolInputSchema(toolName string) json.RawMessage {
+	switch strings.TrimSpace(toolName) {
+	case "browser.session.start":
+		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"additionalProperties":false}`)
+	case "browser.navigate":
+		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","minLength":1}},"required":["url"],"additionalProperties":false}`)
+	case "browser.observe":
+		return json.RawMessage(`{"type":"object","additionalProperties":false}`)
+	case "browser.screenshot":
+		return json.RawMessage(`{"type":"object","properties":{"ttlSeconds":{"type":"number"}},"additionalProperties":false}`)
+	case "browser.click":
+		return browserTargetInputSchema(nil)
+	case "browser.fill":
+		return browserTargetInputSchema(map[string]any{"text": map[string]any{"type": "string"}})
+	case "browser.select":
+		return browserTargetInputSchema(map[string]any{"value": map[string]any{"type": "string", "minLength": 1}})
+	case "browser.press":
+		return json.RawMessage(`{"type":"object","properties":{"key":{"type":"string","minLength":1}},"required":["key"],"additionalProperties":false}`)
+	case "browser.wait":
+		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string","minLength":1},"ref":{"type":"string","minLength":1},"selector":{"type":"string","minLength":1},"milliseconds":{"type":"number"}},"anyOf":[{"required":["target"]},{"required":["ref"]},{"required":["selector"]},{"required":["milliseconds"]}],"additionalProperties":false}`)
+	case "conversation.history":
+		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}},"additionalProperties":false}`)
+	case "memory.search":
+		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"additionalProperties":false}`)
+	default:
+		return nil
+	}
+}
+
+func browserTargetInputSchema(extraProperties map[string]any) json.RawMessage {
+	properties := map[string]any{
+		"target":   map[string]any{"type": "string", "minLength": 1},
+		"ref":      map[string]any{"type": "string", "minLength": 1},
+		"selector": map[string]any{"type": "string", "minLength": 1},
+	}
+	requiredVariants := []any{
+		map[string]any{"required": []string{"target"}},
+		map[string]any{"required": []string{"ref"}},
+		map[string]any{"required": []string{"selector"}},
+	}
+	for propertyName, propertySchema := range extraProperties {
+		properties[propertyName] = propertySchema
+		for index, requiredVariant := range requiredVariants {
+			variant := requiredVariant.(map[string]any)
+			required := append([]string{}, variant["required"].([]string)...)
+			required = append(required, propertyName)
+			requiredVariants[index] = map[string]any{"required": required}
+		}
+	}
+	document, errorValue := json.Marshal(map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"anyOf":                requiredVariants,
+		"additionalProperties": false,
+	})
+	if errorValue != nil {
+		return nil
+	}
+	return document
+}
+
+func enumStringSchema(value string) map[string]any {
+	return map[string]any{"type": "string", "enum": []string{value}}
+}
+
+func stringSchema() map[string]any {
+	return map[string]any{"type": "string"}
+}
+
+func objectSchema() map[string]any {
+	return map[string]any{"type": "object"}
+}
+
+func fallbackActionSchema() string {
+	return `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","call_tool","fetch_history","search_memory","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"query":{"type":"string"},"reason":{"type":"string"},"reply":{"type":"string"}},"required":["action"],"additionalProperties":false}`
+}

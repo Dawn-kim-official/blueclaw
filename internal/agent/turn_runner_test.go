@@ -222,7 +222,7 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	if fillCallCount != 0 {
 		t.Fatalf("expected malformed fill input not to invoke tool, got %d calls", fillCallCount)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "target, text") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "target/ref/selector, text") {
 		t.Fatal("expected malformed browser fill event")
 	}
 }

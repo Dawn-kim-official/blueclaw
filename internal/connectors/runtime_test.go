@@ -125,8 +125,8 @@ func TestConnectorRuntimeInjectsRequesterMemoryIntoLanguageModel(t *testing.T) {
 	if len(languageModel.request.Messages) < 2 {
 		t.Fatalf("expected memory context message, got %+v", languageModel.request.Messages)
 	}
-	if !strings.Contains(languageModel.request.Messages[1].Content, "Graphiti 메모리 설계") {
-		t.Fatalf("expected requester memory in model context, got %q", languageModel.request.Messages[1].Content)
+	if !structuredMessagesContain(languageModel.request.Messages, "Graphiti 메모리 설계") {
+		t.Fatalf("expected requester memory in model context, got %+v", languageModel.request.Messages)
 	}
 }
 
@@ -154,20 +154,20 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 
-	if len(languageModel.request.Messages) != 4 {
-		t.Fatalf("expected system, visible context, memory, prompt messages, got %d", len(languageModel.request.Messages))
-	}
-	if !strings.Contains(languageModel.request.Messages[1].Content, "admin: 이전 메시지") {
-		t.Fatalf("expected visible context first, got %q", languageModel.request.Messages[1].Content)
+	if len(languageModel.request.Messages) != 5 {
+		t.Fatalf("expected system, tools, visible context, memory, prompt messages, got %d", len(languageModel.request.Messages))
 	}
 	if !strings.Contains(languageModel.request.Messages[1].Content, "conversation.history") {
-		t.Fatalf("expected history availability, got %q", languageModel.request.Messages[1].Content)
+		t.Fatalf("expected tool context first, got %q", languageModel.request.Messages[1].Content)
 	}
-	if !strings.Contains(languageModel.request.Messages[2].Content, "간결한 설계") {
-		t.Fatalf("expected memory second, got %q", languageModel.request.Messages[2].Content)
+	if !strings.Contains(languageModel.request.Messages[2].Content, "admin: 이전 메시지") {
+		t.Fatalf("expected visible context before memory, got %q", languageModel.request.Messages[2].Content)
 	}
-	if languageModel.request.Messages[3].Content != event.Prompt {
-		t.Fatalf("expected prompt last, got %q", languageModel.request.Messages[3].Content)
+	if !strings.Contains(languageModel.request.Messages[3].Content, "간결한 설계") {
+		t.Fatalf("expected memory after visible context, got %q", languageModel.request.Messages[3].Content)
+	}
+	if languageModel.request.Messages[4].Content != event.Prompt {
+		t.Fatalf("expected prompt last, got %q", languageModel.request.Messages[4].Content)
 	}
 }
 

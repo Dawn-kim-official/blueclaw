@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/url"
 	"os"
@@ -84,7 +86,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
 	agentKernel.UseIntakeOptions(deriveAgentIntakeOptions(runtimeConfiguration))
-	agentKernel.UseInstructionPrompt(loadAgentInstructionPrompt(runtimeConfiguration))
+	agentKernel.UseInstructionBundle(loadAgentInstructionBundle(runtimeConfiguration))
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
 	if languageModelProvider != nil {
@@ -207,16 +209,40 @@ func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) 
 }
 
 func loadAgentInstructionPrompt(runtimeConfiguration config.RuntimeConfiguration) string {
+	return loadAgentInstructionBundle(runtimeConfiguration).Prompt
+}
+
+func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration) agent.InstructionBundle {
 	parts := []string{}
+	sources := []agent.InstructionSource{}
+	includedSkillByName := map[string]bool{}
 	for _, rootPath := range instructionRootPaths(runtimeConfiguration) {
-		if instructionDocument := readInstructionDocument(rootPath); instructionDocument != "" {
+		if instructionDocument, instructionSource := readInstructionDocument(rootPath); instructionDocument != "" {
 			parts = append(parts, instructionDocument)
+			sources = append(sources, instructionSource)
 		}
-		if skillPrompt := readSkillPrompt(rootPath); skillPrompt != "" {
+		skillPrompt, skillSources := readSkillPrompt(rootPath)
+		for _, source := range skillSources {
+			if strings.TrimSpace(source.SkillName) != "" {
+				includedSkillByName[source.SkillName] = true
+			}
+			sources = append(sources, source)
+		}
+		if skillPrompt != "" {
 			parts = append(parts, skillPrompt)
 		}
 	}
-	return strings.Join(parts, "\n\n")
+	if !includedSkillByName["agent-browser"] {
+		sources = append(sources, agent.InstructionSource{
+			Path:      ".agents/skills/agent-browser/SKILL.md",
+			SkillName: "agent-browser",
+			Missing:   true,
+		})
+	}
+	return agent.InstructionBundle{
+		Prompt:  strings.Join(parts, "\n\n"),
+		Sources: sources,
+	}
 }
 
 func instructionRootPaths(runtimeConfiguration config.RuntimeConfiguration) []string {
@@ -233,26 +259,44 @@ func instructionRootPaths(runtimeConfiguration config.RuntimeConfiguration) []st
 	return rootPaths
 }
 
-func readInstructionDocument(rootPath string) string {
+func readInstructionDocument(rootPath string) (string, agent.InstructionSource) {
 	for _, fileName := range []string{"AGENTS.md", "CLAUDE.md"} {
-		document, errorValue := os.ReadFile(filepath.Join(rootPath, fileName))
+		path := filepath.Join(rootPath, fileName)
+		document, errorValue := os.ReadFile(path)
 		if errorValue == nil && strings.TrimSpace(string(document)) != "" {
-			return strings.TrimSpace(string(document))
+			return strings.TrimSpace(string(document)), instructionSource(path, "", document)
 		}
 	}
-	return ""
+	return "", agent.InstructionSource{}
 }
 
-func readSkillPrompt(rootPath string) string {
+func readSkillPrompt(rootPath string) (string, []agent.InstructionSource) {
 	skillBundles := []skill.SkillBundle{}
+	sources := []agent.InstructionSource{}
 	skillRegistry := skill.NewSkillRegistry()
 	for _, relativePath := range []string{filepath.Join(".agents", "skills"), "skills"} {
 		discoveredSkillBundles, errorValue := skillRegistry.DiscoverSkill(filepath.Join(rootPath, relativePath))
 		if errorValue == nil {
 			skillBundles = append(skillBundles, discoveredSkillBundles...)
+			for _, skillBundle := range discoveredSkillBundles {
+				document, readError := os.ReadFile(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"))
+				if readError == nil {
+					sources = append(sources, instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document))
+				}
+			}
 		}
 	}
-	return strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt(skillBundles))
+	return strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt(skillBundles)), sources
+}
+
+func instructionSource(path string, skillName string, document []byte) agent.InstructionSource {
+	hash := sha256.Sum256(document)
+	return agent.InstructionSource{
+		Path:      path,
+		SkillName: skillName,
+		ByteSize:  len(document),
+		SHA256:    hex.EncodeToString(hash[:]),
+	}
 }
 
 func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []string {
