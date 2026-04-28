@@ -33,7 +33,6 @@ func TestResolveLanguageModelProviderDefaultsToCapabilityLLM(t *testing.T) {
 func TestResolveIntakeLanguageModelProviderUsesAutomaticCapabilityModel(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.Agent.Intake.Enabled = true
-	runtimeConfiguration.Agent.Intake.Model = "local/gemma-4-E4B-it-litert-lm"
 	runtimeConfiguration.Agent.Intake.ExecutionMode = "auto"
 
 	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration))
@@ -41,8 +40,8 @@ func TestResolveIntakeLanguageModelProviderUsesAutomaticCapabilityModel(t *testi
 	if !isCapabilityProvider {
 		t.Fatalf("expected capability intake provider, got %T", languageModelProvider)
 	}
-	if capabilityLLMClient.ModelName != "local/gemma-4-E4B-it-litert-lm" {
-		t.Fatalf("expected local intake model, got %q", capabilityLLMClient.ModelName)
+	if capabilityLLMClient.ModelName != "" {
+		t.Fatalf("expected provider-neutral intake model, got %q", capabilityLLMClient.ModelName)
 	}
 	if capabilityLLMClient.ExecutionMode != "auto" {
 		t.Fatalf("expected automatic intake execution mode, got %q", capabilityLLMClient.ExecutionMode)

@@ -156,14 +156,13 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
   "languageModel": {
     "defaultProvider": "capabilityLLM",
     "capability": {
-      "model": "gemma-4-E4B-it",
       "executionMode": "auto"
     }
   }
 }
 ```
 
-- Blueclaw sends only `model`, `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`
+- Blueclaw sends `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`; `model` is an optional override, not a default runtime requirement
 - Blueclaw never adds an `Authorization` header for LLM capability calls
 - `executionMode` is `local`, `remote`, or `auto`; InternKim decides whether that maps to OpenRouter, LiteRT-LM, Jetson GPU, or another provider
 - `tools/blueclaw-litert-wrapper` is kept as an InternKim-side reference utility, not as a Blueclaw product runtime dependency

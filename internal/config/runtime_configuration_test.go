@@ -56,7 +56,6 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
   "agent": {
     "intake": {
       "enabled": true,
-      "model": "local/gemma-4-E4B-it-litert-lm",
       "executionMode": "auto"
     },
     "defaultBudgetClass": "thirty_minutes",
@@ -170,8 +169,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if !runtimeConfiguration.Agent.Intake.Enabled {
 		t.Fatal("expected agent intake to be enabled")
 	}
-	if runtimeConfiguration.Agent.Intake.Model != "local/gemma-4-E4B-it-litert-lm" {
-		t.Fatalf("expected agent intake model to match, got %q", runtimeConfiguration.Agent.Intake.Model)
+	if runtimeConfiguration.Agent.Intake.Model != "" {
+		t.Fatalf("expected agent intake model to remain optional, got %q", runtimeConfiguration.Agent.Intake.Model)
 	}
 	if runtimeConfiguration.Agent.Intake.ExecutionMode != "auto" {
 		t.Fatalf("expected agent intake execution mode to match, got %q", runtimeConfiguration.Agent.Intake.ExecutionMode)

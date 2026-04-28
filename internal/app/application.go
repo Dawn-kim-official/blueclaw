@@ -312,9 +312,6 @@ func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 		return nil
 	}
 	modelName := strings.TrimSpace(runtimeConfiguration.Agent.Intake.Model)
-	if modelName == "" {
-		modelName = "local/gemma-4-E4B-it-litert-lm"
-	}
 	executionMode := strings.TrimSpace(runtimeConfiguration.Agent.Intake.ExecutionMode)
 	if executionMode == "" {
 		executionMode = "auto"

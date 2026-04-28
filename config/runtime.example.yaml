@@ -8,7 +8,6 @@
   "languageModel": {
     "defaultProvider": "capabilityLLM",
     "capability": {
-      "model": "gemma-4-E4B-it",
       "executionMode": "auto"
     }
   },
@@ -44,7 +43,6 @@
   "agent": {
     "intake": {
       "enabled": true,
-      "model": "local/gemma-4-E4B-it-litert-lm",
       "executionMode": "auto"
     },
     "defaultBudgetClass": "thirty_minutes",

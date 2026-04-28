@@ -16,14 +16,14 @@ type CapabilityLLMClient struct {
 }
 
 type capabilityStructuredResponseRequestDocument struct {
-	Model                  string                           `json:"model"`
+	Model                  string                           `json:"model,omitempty"`
 	ExecutionMode          string                           `json:"executionMode"`
 	Messages               []Message                        `json:"messages"`
 	StructuredOutputSchema capabilityStructuredOutputSchema `json:"structuredOutputSchema"`
 }
 
 type capabilityTextResponseRequestDocument struct {
-	Model                 string    `json:"model"`
+	Model                 string    `json:"model,omitempty"`
 	ExecutionMode         string    `json:"executionMode"`
 	Messages              []Message `json:"messages"`
 	RequireParameters     bool      `json:"requireParameters"`
