@@ -76,6 +76,38 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"final_reply","finalReply":"browser tool is unavailable"}`,
+		`{"action":"call_tool","toolName":"browser.observe","toolInput":{}}`,
+		`{"action":"final_reply","finalReply":"observed"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"browser.observe"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.observe"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `{"snapshotText":"Example"}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected browser tool requirement to recover: %v", errorValue)
+	}
+	if result.FinalReply != "observed" {
+		t.Fatalf("expected final reply after tool use, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_required", "Required tool scope") {
+		t.Fatal("expected tool requirement event")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.browser.observe.result", "Example") {
+		t.Fatal("expected browser tool observation")
+	}
+}
+
 func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"unstable","toolInput":{}}`,

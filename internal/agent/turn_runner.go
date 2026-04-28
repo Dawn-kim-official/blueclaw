@@ -114,6 +114,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 
 	observations := []turnObservation{}
+	toolUseRequirements := deriveToolUseRequirements(request)
 	toolCallCount := 0
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterations; iteration++ {
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
@@ -131,6 +132,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
 		case "final_reply":
+			if observation, isMissingRequirement := missingToolUseRequirement(toolUseRequirements, observations); isMissingRequirement {
+				observations = append(observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_required", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool_required", observation.Content)
+				continue
+			}
 			reply := strings.TrimSpace(actionDocument.FinalReply)
 			if reply == "" {
 				reply = strings.TrimSpace(actionDocument.Reply)
@@ -214,7 +221,7 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request 
 
 func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnRequest, observations []turnObservation) []llm.Message {
 	messages := buildReplyMessages(request.Prompt, request.VisibleContext, request.MemoryFacts)
-	messages[0].Content = "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
+	messages[0].Content = "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed. If a listed tool is needed for the user's request, call it before final_reply."
 
 	toolDescriptions := agentTurnRunner.buildToolDescription(request.ToolRegistry)
 	if toolDescriptions != "" {
@@ -241,12 +248,38 @@ func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolR
 	lines := []string{"Available tools:"}
 	for _, toolDefinition := range toolDefinitions {
 		line := "- " + toolDefinition.Name
-		if strings.TrimSpace(toolDefinition.Description) != "" {
-			line += ": " + strings.TrimSpace(toolDefinition.Description)
+		description := firstNonEmptyString(specificToolDescription(toolDefinition.Name), toolDefinition.Description)
+		if strings.TrimSpace(description) != "" {
+			line += ": " + strings.TrimSpace(description)
 		}
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func specificToolDescription(toolName string) string {
+	switch strings.TrimSpace(toolName) {
+	case "browser.session.start":
+		return `Start or reuse a browser session. Input: {"url":"https://example.com"}.`
+	case "browser.navigate":
+		return `Open a web URL. Input: {"url":"https://www.google.com"}.`
+	case "browser.observe":
+		return `Read the current page. Returns url, title, snapshotText, and interactiveRefs such as @e1. Input: {}.`
+	case "browser.screenshot":
+		return `Capture the current page screenshot. Returns a temporary devicePath, not a local path. Input: {"ttlSeconds":86400}.`
+	case "browser.click":
+		return `Click an element by observe ref or selector. Input: {"target":"@e1"} or {"selector":"button[type=submit]"}.`
+	case "browser.fill":
+		return `Fill an input by observe ref or selector. Input: {"target":"@e1","text":"hello world"}.`
+	case "browser.select":
+		return `Select an option. Input: {"target":"@e1","value":"option"}.`
+	case "browser.press":
+		return `Press a key. Input: {"key":"Enter"}.`
+	case "browser.wait":
+		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
+	default:
+		return ""
+	}
 }
 
 func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, toolName string, toolInput json.RawMessage) turnObservation {
