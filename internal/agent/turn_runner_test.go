@@ -260,6 +260,38 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	}
 }
 
+func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
+	runner := NewAgentTurnRunner(nil, nil, nil, nil, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.click", "browser.fill", "browser.select", "browser.wait"})
+	for _, toolName := range []string{"browser.open", "browser.click", "browser.fill", "browser.select", "browser.wait"} {
+		toolRegistry.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolResult{}, nil
+		})
+	}
+	schemaDocument := runner.buildActionSchema(toolRegistry)
+
+	if strings.Contains(schemaDocument, "anyOf") {
+		t.Fatalf("expected browser action schema to avoid anyOf, got %s", schemaDocument)
+	}
+	if strings.Contains(schemaDocument, `"toolInput":{"oneOf"`) {
+		t.Fatalf("expected browser tool inputs to avoid oneOf unions, got %s", schemaDocument)
+	}
+	if strings.Contains(schemaDocument, `{"type":"string","minLength":1}`) {
+		t.Fatalf("expected browser tool inputs to avoid string shortcut branches, got %s", schemaDocument)
+	}
+	for _, fragment := range []string{
+		`"toolName":{"enum":["browser.open"],"type":"string"}`,
+		`"required":["url"]`,
+		`"required":["text"]`,
+		`"required":["value"]`,
+		`"properties":{"milliseconds":{"type":"number"},"ref":{"type":"string"},"selector":{"type":"string"},"target":{"type":"string"}}`,
+	} {
+		if !strings.Contains(schemaDocument, fragment) {
+			t.Fatalf("expected action schema to include %q, got %s", fragment, schemaDocument)
+		}
+	}
+}
+
 func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByBudget(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,

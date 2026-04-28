@@ -277,9 +277,9 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 func specificToolDescription(toolName string) string {
 	switch strings.TrimSpace(toolName) {
 	case "browser.open":
-		return `Open a web URL. Input: "https://www.google.com" or {"url":"https://www.google.com"}.`
+		return `Open a web URL. Input: {"url":"https://www.google.com"}.`
 	case "browser.snapshot":
-		return `Read the current page. Returns url, title, snapshotText, and interactiveRefs such as @e1. Input: "-i" or {}.`
+		return `Read the current page. Returns url, title, snapshotText, and interactiveRefs such as @e1. Input: {}.`
 	case "browser.screenshot":
 		return `Capture the current page screenshot. Returns a temporary devicePath, not a local path. Input: {"ttlSeconds":86400}.`
 	case "browser.click":
@@ -337,11 +337,6 @@ func validateBrowserTargetToolInput(toolName string, toolInput json.RawMessage, 
 }
 
 func validateRequiredToolInputFields(toolName string, toolInput json.RawMessage, fieldNames ...string) error {
-	if value, isString := stringToolInput(toolInput); isString {
-		if value != "" {
-			return nil
-		}
-	}
 	inputDocument, errorValue := parseToolInputDocument(toolName, toolInput)
 	if errorValue != nil {
 		return errorValue
@@ -356,14 +351,6 @@ func validateRequiredToolInputFields(toolName string, toolInput json.RawMessage,
 		return errors.New("missing required tool input for " + strings.TrimSpace(toolName) + ": " + strings.Join(missingFieldNames, ", ") + validInputExampleSuffix(toolName))
 	}
 	return nil
-}
-
-func stringToolInput(toolInput json.RawMessage) (string, bool) {
-	var value string
-	if json.Unmarshal(toolInput, &value) != nil {
-		return "", false
-	}
-	return strings.TrimSpace(value), true
 }
 
 func validateBrowserWaitInput(toolInput json.RawMessage) error {
@@ -396,7 +383,7 @@ func toolDefinitionInputSchema(toolDefinition ToolDefinition) json.RawMessage {
 func validInputExampleSuffix(toolName string) string {
 	switch strings.TrimSpace(toolName) {
 	case "browser.open":
-		return `. Valid input example: "https://www.google.com"`
+		return `. Valid input example: {"url":"https://www.google.com"}`
 	case "browser.fill":
 		return `. Valid input example: {"target":"@e1","text":"hello world"}`
 	case "browser.click":
