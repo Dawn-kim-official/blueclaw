@@ -12,17 +12,15 @@ import (
 
 func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","maxIterationsPerRequest":3,"maxToolCallsPerRequest":2,"maxWallClockSecond":30,"reason":"bounded tool work","userFacingReply":""}`,
+		`{"classification":"bounded_task","budgetClass":"ten_minutes","reason":"bounded tool work","userFacingReply":""}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"memory.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, nil
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
-		IsEnabled:               true,
-		MaxIterationsPerRequest: 8,
-		MaxToolCallsPerRequest:  8,
-		MaxWallClockSecond:      120,
+		IsEnabled:          true,
+		DefaultBudgetClass: BudgetClassThirtyMinutes,
 	})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -33,8 +31,8 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if decision.Classification != IntakeClassificationBoundedTask {
 		t.Fatalf("expected bounded task, got %q", decision.Classification)
 	}
-	if decision.MaxIterationsPerRequest != 3 || decision.MaxToolCallsPerRequest != 2 || decision.MaxWallClockSecond != 30 {
-		t.Fatalf("expected selected budgets, got %+v", decision)
+	if decision.BudgetClass != BudgetClassTenMinutes {
+		t.Fatalf("expected selected budget class, got %+v", decision)
 	}
 	if len(languageModel.requests) != 1 {
 		t.Fatalf("expected one intake model call, got %d", len(languageModel.requests))
@@ -57,9 +55,34 @@ func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerClampsBrowserControlBudget(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","budgetClass":"five_minutes","reason":"browser control","userFacingReply":""}`,
+	}}
+	toolRegistry := NewToolRegistry([]string{"browser.navigate", "browser.screenshot"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:       "open google and take a screenshot",
+		ToolRegistry: toolRegistry,
+	})
+
+	if decision.BudgetClass != BudgetClassThirtyMinutes {
+		t.Fatalf("expected browser control budget clamp, got %+v", decision)
+	}
+}
+
+func TestBudgetProfileMapping(t *testing.T) {
+	profile := BudgetProfileForClass(BudgetClassSixHours)
+
+	if profile.MaxIterations != 48 || profile.MaxToolCalls != 96 || profile.Duration.Hours() != 6 {
+		t.Fatalf("expected six hour profile, got %+v", profile)
+	}
+}
+
 func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","maxIterationsPerRequest":8,"maxToolCallsPerRequest":8,"maxWallClockSecond":120,"reason":"too broad","userFacingReply":"Please narrow this first."}`,
+		`{"classification":"needs_confirmation","budgetClass":"thirty_minutes","reason":"too broad","userFacingReply":"Please narrow this first."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"final_reply","finalReply":"should not run"}`,
@@ -95,7 +118,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 
 func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","maxIterationsPerRequest":8,"maxToolCallsPerRequest":8,"maxWallClockSecond":120,"reason":"direct answer","userFacingReply":""}`,
+		`{"classification":"quick_reply","budgetClass":"five_minutes","reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"final_reply","finalReply":"hello"}`,
@@ -136,10 +159,8 @@ func newKernelIntakeTestServices(replyLanguageModel llm.LanguageModelProvider, i
 	kernel.UseLanguageModelProvider(replyLanguageModel)
 	kernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	kernel.UseIntakeOptions(IntakeOptions{
-		IsEnabled:               true,
-		MaxIterationsPerRequest: 8,
-		MaxToolCallsPerRequest:  8,
-		MaxWallClockSecond:      120,
+		IsEnabled:          true,
+		DefaultBudgetClass: BudgetClassThirtyMinutes,
 	})
 	return kernelIntakeTestServices{kernel: kernel, taskEventService: taskEventService}
 }

@@ -41,6 +41,15 @@
     "graphitiKuzuPath": "/workspace/.blueclaw/graphiti/kuzu",
     "timeoutSecond": 15
   },
+  "agent": {
+    "intake": {
+      "enabled": true,
+      "model": "local/gemma-4-E4B-it-litert-lm",
+      "executionMode": "auto"
+    },
+    "defaultBudgetClass": "thirty_minutes",
+    "toolResultMaxBytes": 32768
+  },
   "connectors": {
     "mattermost": {},
     "slack": {},

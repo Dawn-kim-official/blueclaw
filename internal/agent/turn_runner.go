@@ -20,6 +20,7 @@ type TurnOptions struct {
 	MaxIterations      int
 	MaxToolCalls       int
 	WallClockSecond    int
+	BudgetClass        BudgetClass
 	ToolResultMaxBytes int
 }
 
@@ -76,17 +77,21 @@ func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *ta
 }
 
 func normalizeTurnOptions(options TurnOptions) TurnOptions {
+	budgetProfile := BudgetProfileForClass(options.BudgetClass)
+	if options.BudgetClass == "" {
+		options.BudgetClass = budgetProfile.BudgetClass
+	}
 	if options.MaxIterations <= 0 {
-		options.MaxIterations = 8
+		options.MaxIterations = budgetProfile.MaxIterations
 	}
 	if options.MaxToolCalls < 0 {
 		options.MaxToolCalls = 0
 	}
 	if options.MaxToolCalls == 0 {
-		options.MaxToolCalls = 8
+		options.MaxToolCalls = budgetProfile.MaxToolCalls
 	}
 	if options.WallClockSecond <= 0 {
-		options.WallClockSecond = 120
+		options.WallClockSecond = int(budgetProfile.Duration.Seconds())
 	}
 	if options.ToolResultMaxBytes <= 0 {
 		options.ToolResultMaxBytes = 32768
@@ -287,9 +292,15 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, reason string
 }
 
 func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, reason string) (AgentTurnResult, error) {
-	agentTurnRunner.appendEvent(taskRunID, "agent.budget_stop", reason)
+	body := map[string]any{
+		"budgetClass":     agentTurnRunner.options.BudgetClass,
+		"wallClockSecond": agentTurnRunner.options.WallClockSecond,
+		"reason":          reason,
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.budget_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
-	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: DefaultBudgetExceededReply}, nil
+	reply := "I stopped after the " + BudgetClassLabel(agentTurnRunner.options.BudgetClass) + " budget was exceeded. Please narrow the task or approve a larger run."
+	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply}, nil
 }
 
 func marshalEventBody(value any) string {

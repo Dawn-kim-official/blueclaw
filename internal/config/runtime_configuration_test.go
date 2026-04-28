@@ -57,11 +57,9 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "intake": {
       "enabled": true,
       "model": "local/gemma-4-E4B-it-litert-lm",
-      "executionMode": "local"
+      "executionMode": "auto"
     },
-    "maxIterationsPerRequest": 8,
-    "maxToolCallsPerRequest": 8,
-    "maxWallClockSecond": 120,
+    "defaultBudgetClass": "thirty_minutes",
     "toolResultMaxBytes": 32768
   },
   "agentProfiles": [
@@ -175,17 +173,11 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Agent.Intake.Model != "local/gemma-4-E4B-it-litert-lm" {
 		t.Fatalf("expected agent intake model to match, got %q", runtimeConfiguration.Agent.Intake.Model)
 	}
-	if runtimeConfiguration.Agent.Intake.ExecutionMode != "local" {
+	if runtimeConfiguration.Agent.Intake.ExecutionMode != "auto" {
 		t.Fatalf("expected agent intake execution mode to match, got %q", runtimeConfiguration.Agent.Intake.ExecutionMode)
 	}
-	if runtimeConfiguration.Agent.MaxIterationsPerRequest != 8 {
-		t.Fatalf("expected agent max iterations to match, got %d", runtimeConfiguration.Agent.MaxIterationsPerRequest)
-	}
-	if runtimeConfiguration.Agent.MaxToolCallsPerRequest != 8 {
-		t.Fatalf("expected agent max tool calls to match, got %d", runtimeConfiguration.Agent.MaxToolCallsPerRequest)
-	}
-	if runtimeConfiguration.Agent.MaxWallClockSecond != 120 {
-		t.Fatalf("expected agent wall clock budget to match, got %d", runtimeConfiguration.Agent.MaxWallClockSecond)
+	if runtimeConfiguration.Agent.DefaultBudgetClass != "thirty_minutes" {
+		t.Fatalf("expected agent default budget class to match, got %q", runtimeConfiguration.Agent.DefaultBudgetClass)
 	}
 	if runtimeConfiguration.Agent.ToolResultMaxBytes != 32768 {
 		t.Fatalf("expected agent tool result limit to match, got %d", runtimeConfiguration.Agent.ToolResultMaxBytes)

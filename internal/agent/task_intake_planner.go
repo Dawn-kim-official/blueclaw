@@ -20,10 +20,8 @@ const (
 )
 
 type IntakeOptions struct {
-	IsEnabled               bool
-	MaxIterationsPerRequest int
-	MaxToolCallsPerRequest  int
-	MaxWallClockSecond      int
+	IsEnabled          bool
+	DefaultBudgetClass BudgetClass
 }
 
 type AgentRequest struct {
@@ -37,9 +35,7 @@ type AgentRequest struct {
 
 type IntakeDecision struct {
 	Classification            IntakeClassification `json:"classification"`
-	MaxIterationsPerRequest   int                  `json:"maxIterationsPerRequest"`
-	MaxToolCallsPerRequest    int                  `json:"maxToolCallsPerRequest"`
-	MaxWallClockSecond        int                  `json:"maxWallClockSecond"`
+	BudgetClass               BudgetClass          `json:"budgetClass"`
 	Reason                    string               `json:"reason"`
 	UserFacingReply           string               `json:"userFacingReply"`
 	UsedDeterministicFallback bool                 `json:"usedDeterministicFallback"`
@@ -58,14 +54,8 @@ func NewTaskIntakePlanner(languageModel llm.LanguageModelProvider, options Intak
 }
 
 func normalizeIntakeOptions(options IntakeOptions) IntakeOptions {
-	if options.MaxIterationsPerRequest <= 0 {
-		options.MaxIterationsPerRequest = 8
-	}
-	if options.MaxToolCallsPerRequest <= 0 {
-		options.MaxToolCallsPerRequest = 8
-	}
-	if options.MaxWallClockSecond <= 0 {
-		options.MaxWallClockSecond = 120
+	if NormalizeBudgetClass(string(options.DefaultBudgetClass)) == "" {
+		options.DefaultBudgetClass = BudgetClassThirtyMinutes
 	}
 	return options
 }
@@ -80,7 +70,7 @@ func (taskIntakePlanner TaskIntakePlanner) Plan(ctx context.Context, request Age
 	if errorValue != nil {
 		return defaultDecision
 	}
-	return taskIntakePlanner.normalizeDecision(intakeDecision, defaultDecision)
+	return taskIntakePlanner.normalizeDecision(intakeDecision, defaultDecision, request)
 }
 
 func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Context, request AgentRequest) (IntakeDecision, error) {
@@ -88,7 +78,7 @@ func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Con
 		Messages: taskIntakePlanner.buildMessages(request),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_task_intake_budget",
-			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"maxIterationsPerRequest":{"type":"integer"},"maxToolCallsPerRequest":{"type":"integer"},"maxWallClockSecond":{"type":"integer"},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","maxIterationsPerRequest","maxToolCallsPerRequest","maxWallClockSecond","reason"],"additionalProperties":false}`,
+			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"budgetClass":{"type":"string","enum":["five_minutes","ten_minutes","thirty_minutes","one_hour","six_hours","half_day"]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","budgetClass","reason"],"additionalProperties":false}`,
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -106,11 +96,8 @@ func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Con
 
 func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) []llm.Message {
 	toolDescriptions := "No tools are available."
-	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolDefinitions()) > 0 {
-		toolNames := []string{}
-		for _, toolDefinition := range request.ToolRegistry.ListToolDefinitions() {
-			toolNames = append(toolNames, toolDefinition.Name)
-		}
+	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 {
+		toolNames := request.ToolRegistry.ListToolNames()
 		toolDescriptions = "Available tools: " + strings.Join(toolNames, ", ")
 	}
 	return []llm.Message{
@@ -133,13 +120,16 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
 	classification := IntakeClassificationQuickReply
 	reason := "short request can be answered directly"
-	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolDefinitions()) > 0 && looksLikeToolRequest(prompt) {
+	budgetClass := BudgetClassFiveMinutes
+	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
 		classification = IntakeClassificationBoundedTask
 		reason = "request may benefit from bounded tool use"
+		budgetClass = taskIntakePlanner.options.DefaultBudgetClass
 	}
 	if request.VisibleContext.HasMoreBefore {
 		classification = IntakeClassificationBoundedTask
 		reason = "request has additional retrievable conversation history"
+		budgetClass = taskIntakePlanner.options.DefaultBudgetClass
 	}
 	if looksLikeLargeRequest(prompt) {
 		classification = IntakeClassificationNeedsConfirmation
@@ -151,24 +141,24 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	}
 	return IntakeDecision{
 		Classification:            classification,
-		MaxIterationsPerRequest:   taskIntakePlanner.options.MaxIterationsPerRequest,
-		MaxToolCallsPerRequest:    taskIntakePlanner.options.MaxToolCallsPerRequest,
-		MaxWallClockSecond:        taskIntakePlanner.options.MaxWallClockSecond,
+		BudgetClass:               LargerBudgetClass(budgetClass, minimumBudgetClassForRequest(request)),
 		Reason:                    reason,
 		UserFacingReply:           defaultUserFacingReply(classification),
 		UsedDeterministicFallback: true,
 	}
 }
 
-func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDecision, defaultDecision IntakeDecision) IntakeDecision {
+func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDecision, defaultDecision IntakeDecision, request AgentRequest) IntakeDecision {
 	normalizedClassification := normalizeClassification(decision.Classification)
 	if normalizedClassification == "" {
 		return defaultDecision
 	}
 	decision.Classification = normalizedClassification
-	decision.MaxIterationsPerRequest = clampPositiveBudget(decision.MaxIterationsPerRequest, taskIntakePlanner.options.MaxIterationsPerRequest)
-	decision.MaxToolCallsPerRequest = clampPositiveBudget(decision.MaxToolCallsPerRequest, taskIntakePlanner.options.MaxToolCallsPerRequest)
-	decision.MaxWallClockSecond = clampPositiveBudget(decision.MaxWallClockSecond, taskIntakePlanner.options.MaxWallClockSecond)
+	normalizedBudgetClass := NormalizeBudgetClass(string(decision.BudgetClass))
+	if normalizedBudgetClass == "" {
+		normalizedBudgetClass = defaultDecision.BudgetClass
+	}
+	decision.BudgetClass = LargerBudgetClass(normalizedBudgetClass, minimumBudgetClassForRequest(request))
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
 	}
@@ -187,19 +177,6 @@ func normalizeClassification(classification IntakeClassification) IntakeClassifi
 	}
 }
 
-func clampPositiveBudget(value int, maximum int) int {
-	if maximum <= 0 {
-		return value
-	}
-	if value <= 0 {
-		return maximum
-	}
-	if value > maximum {
-		return maximum
-	}
-	return value
-}
-
 func defaultUserFacingReply(classification IntakeClassification) string {
 	switch classification {
 	case IntakeClassificationNeedsConfirmation:
@@ -212,7 +189,7 @@ func defaultUserFacingReply(classification IntakeClassification) string {
 }
 
 func looksLikeToolRequest(prompt string) bool {
-	toolWords := []string{"search", "find", "lookup", "check", "read", "fetch", "compare", "analyze", "summarize", "검색", "찾", "확인", "읽", "분석", "요약"}
+	toolWords := []string{"search", "find", "lookup", "check", "read", "fetch", "compare", "analyze", "summarize", "browser", "screenshot", "click", "fill", "press", "검색", "찾", "확인", "읽", "분석", "요약", "브라우저", "인터넷", "스크린샷", "클릭", "입력"}
 	return containsAny(prompt, toolWords)
 }
 
@@ -235,9 +212,43 @@ func containsAny(value string, candidates []string) bool {
 	return false
 }
 
+func minimumBudgetClassForRequest(request AgentRequest) BudgetClass {
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if hasToolPrefix(request.ToolRegistry, "browser.") {
+		if looksLikeBrowserControlSequence(prompt) {
+			return BudgetClassThirtyMinutes
+		}
+		return BudgetClassTenMinutes
+	}
+	if hasToolPrefix(request.ToolRegistry, "file.") || hasToolPrefix(request.ToolRegistry, "user.") {
+		return BudgetClassTenMinutes
+	}
+	return BudgetClassFiveMinutes
+}
+
+func hasToolPrefix(toolRegistry *ToolRegistry, prefix string) bool {
+	if toolRegistry == nil {
+		return false
+	}
+	for _, toolName := range toolRegistry.ListToolNames() {
+		if strings.HasPrefix(toolName, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeBrowserControlSequence(prompt string) bool {
+	words := []string{"screenshot", "click", "fill", "press", "select", "navigate", "스크린샷", "캡처", "클릭", "입력", "눌러", "이동", "서치바"}
+	return containsAny(prompt, words)
+}
+
 func (intakeDecision IntakeDecision) Validate() error {
 	if normalizeClassification(intakeDecision.Classification) == "" {
 		return errors.New("intake classification is invalid")
+	}
+	if NormalizeBudgetClass(string(intakeDecision.BudgetClass)) == "" {
+		return errors.New("intake budget class is invalid")
 	}
 	return nil
 }

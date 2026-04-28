@@ -145,7 +145,7 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected fallback result, got error: %v", errorValue)
 	}
-	if result.FinalReply != DefaultBudgetExceededReply {
+	if !strings.Contains(result.FinalReply, "thirty-minute budget") {
 		t.Fatalf("expected budget reply, got %q", result.FinalReply)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
@@ -173,7 +173,7 @@ func TestAgentTurnRunnerStopsWhenToolBudgetIsExceeded(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected budget result, got error: %v", errorValue)
 	}
-	if result.FinalReply != DefaultBudgetExceededReply {
+	if !strings.Contains(result.FinalReply, "thirty-minute budget") {
 		t.Fatalf("expected budget reply, got %q", result.FinalReply)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.budget_stop", "maximum tool calls exceeded") {

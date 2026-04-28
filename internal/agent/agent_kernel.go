@@ -312,14 +312,10 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {
 	baseOptions := normalizeTurnOptions(agentKernel.turnOptions)
-	if intakeDecision.MaxIterationsPerRequest > 0 && intakeDecision.MaxIterationsPerRequest < baseOptions.MaxIterations {
-		baseOptions.MaxIterations = intakeDecision.MaxIterationsPerRequest
-	}
-	if intakeDecision.MaxToolCallsPerRequest > 0 && intakeDecision.MaxToolCallsPerRequest < baseOptions.MaxToolCalls {
-		baseOptions.MaxToolCalls = intakeDecision.MaxToolCallsPerRequest
-	}
-	if intakeDecision.MaxWallClockSecond > 0 && intakeDecision.MaxWallClockSecond < baseOptions.WallClockSecond {
-		baseOptions.WallClockSecond = intakeDecision.MaxWallClockSecond
-	}
+	budgetProfile := BudgetProfileForClass(intakeDecision.BudgetClass)
+	baseOptions.BudgetClass = budgetProfile.BudgetClass
+	baseOptions.MaxIterations = budgetProfile.MaxIterations
+	baseOptions.MaxToolCalls = budgetProfile.MaxToolCalls
+	baseOptions.WallClockSecond = int(budgetProfile.Duration.Seconds())
 	return baseOptions
 }

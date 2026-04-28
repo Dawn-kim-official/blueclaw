@@ -44,11 +44,9 @@ type MCPServerConfiguration struct {
 }
 
 type AgentConfiguration struct {
-	Intake                  AgentIntakeConfiguration `json:"intake"`
-	MaxIterationsPerRequest int                      `json:"maxIterationsPerRequest"`
-	MaxToolCallsPerRequest  int                      `json:"maxToolCallsPerRequest"`
-	MaxWallClockSecond      int                      `json:"maxWallClockSecond"`
-	ToolResultMaxBytes      int                      `json:"toolResultMaxBytes"`
+	Intake             AgentIntakeConfiguration `json:"intake"`
+	DefaultBudgetClass string                   `json:"defaultBudgetClass"`
+	ToolResultMaxBytes int                      `json:"toolResultMaxBytes"`
 }
 
 type AgentIntakeConfiguration struct {

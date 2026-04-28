@@ -185,20 +185,20 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 }
 
 func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
+	budgetProfile := agent.BudgetProfileForClass(agent.BudgetClass(runtimeConfiguration.Agent.DefaultBudgetClass))
 	return agent.TurnOptions{
-		MaxIterations:      runtimeConfiguration.Agent.MaxIterationsPerRequest,
-		MaxToolCalls:       runtimeConfiguration.Agent.MaxToolCallsPerRequest,
-		WallClockSecond:    runtimeConfiguration.Agent.MaxWallClockSecond,
+		MaxIterations:      budgetProfile.MaxIterations,
+		MaxToolCalls:       budgetProfile.MaxToolCalls,
+		WallClockSecond:    int(budgetProfile.Duration.Seconds()),
+		BudgetClass:        budgetProfile.BudgetClass,
 		ToolResultMaxBytes: runtimeConfiguration.Agent.ToolResultMaxBytes,
 	}
 }
 
 func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agent.IntakeOptions {
 	return agent.IntakeOptions{
-		IsEnabled:               runtimeConfiguration.Agent.Intake.Enabled,
-		MaxIterationsPerRequest: runtimeConfiguration.Agent.MaxIterationsPerRequest,
-		MaxToolCallsPerRequest:  runtimeConfiguration.Agent.MaxToolCallsPerRequest,
-		MaxWallClockSecond:      runtimeConfiguration.Agent.MaxWallClockSecond,
+		IsEnabled:          runtimeConfiguration.Agent.Intake.Enabled,
+		DefaultBudgetClass: agent.BudgetClass(runtimeConfiguration.Agent.DefaultBudgetClass),
 	}
 }
 
@@ -317,7 +317,7 @@ func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 	}
 	executionMode := strings.TrimSpace(runtimeConfiguration.Agent.Intake.ExecutionMode)
 	if executionMode == "" {
-		executionMode = "local"
+		executionMode = "auto"
 	}
 	return llm.CapabilityLLMClient{
 		CapabilityClient: capabilityClient,

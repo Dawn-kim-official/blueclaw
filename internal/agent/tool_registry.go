@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 )
 
@@ -88,6 +89,24 @@ func (toolRegistry *ToolRegistry) ListToolDefinitions() []ToolDefinition {
 		}
 	}
 	return toolDefinitions
+}
+
+func (toolRegistry *ToolRegistry) ListToolNames() []string {
+	toolNameByName := map[string]bool{}
+	for toolName := range toolRegistry.allowedToolNameByName {
+		toolNameByName[toolName] = true
+	}
+	for toolName := range toolRegistry.definitionByName {
+		if toolRegistry.IsAllowed(toolName) {
+			toolNameByName[toolName] = true
+		}
+	}
+	toolNames := []string{}
+	for toolName := range toolNameByName {
+		toolNames = append(toolNames, toolName)
+	}
+	sort.Strings(toolNames)
+	return toolNames
 }
 
 func MarshalToolInput(value any) json.RawMessage {
