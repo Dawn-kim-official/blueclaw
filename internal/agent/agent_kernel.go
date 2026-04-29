@@ -23,6 +23,7 @@ type AgentKernel struct {
 	intakeOptions       IntakeOptions
 	instructionPrompt   string
 	instructionSources  []InstructionSource
+	instructionLoader   func() InstructionBundle
 }
 
 func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
@@ -66,6 +67,13 @@ func (agentKernel *AgentKernel) UseInstructionBundle(instructionBundle Instructi
 	agentKernel.instructionSources = append([]InstructionSource{}, instructionBundle.Sources...)
 }
 
+func (agentKernel *AgentKernel) UseInstructionBundleLoader(instructionLoader func() InstructionBundle) {
+	agentKernel.instructionLoader = instructionLoader
+	if instructionLoader != nil {
+		agentKernel.UseInstructionBundle(instructionLoader())
+	}
+}
+
 func (agentKernel *AgentKernel) HandleInboundMessage(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
 	return agentKernel.RunTask(requesterPersonID, originConversationID, prompt)
 }
@@ -86,11 +94,12 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 	if agentKernel.languageModel == nil {
 		return "", errors.New("language model provider is not configured")
 	}
+	instructionBundle := agentKernel.currentInstructionBundle()
 
 	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
 		responseContext,
 		llm.StructuredResponseRequest{
-			Messages: agentKernel.buildReplyMessages(prompt, visibleContext, memoryFacts),
+			Messages: buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, instructionBundle.Prompt),
 			StructuredOutputSchema: llm.StructuredOutputSchema{
 				Name:               "blueclaw_reply",
 				Document:           `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}`,
@@ -130,6 +139,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
+	instructionBundle := agentKernel.currentInstructionBundle()
 	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
 	intakeDecision := intakePlanner.Plan(responseContext, request)
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
@@ -146,8 +156,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		VisibleContext:     request.VisibleContext,
 		MemoryFacts:        request.MemoryFacts,
 		ToolRegistry:       request.ToolRegistry,
-		InstructionPrompt:  agentKernel.instructionPrompt,
-		InstructionSources: append([]InstructionSource{}, agentKernel.instructionSources...),
+		InstructionPrompt:  instructionBundle.Prompt,
+		InstructionSources: append([]InstructionSource{}, instructionBundle.Sources...),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
@@ -181,7 +191,7 @@ type VisibleContextMessage struct {
 }
 
 func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
-	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, agentKernel.instructionPrompt)
+	return buildReplyMessagesWithInstructions(prompt, visibleContext, memoryFacts, agentKernel.currentInstructionBundle().Prompt)
 }
 
 func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
@@ -190,6 +200,16 @@ func buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFact
 
 func buildReplyMessagesWithInstructions(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact, instructionPrompt string) []llm.Message {
 	return (PromptAssembler{}).BuildReplyMessages(prompt, visibleContext, buildMemoryContext(memoryFacts), instructionPrompt)
+}
+
+func (agentKernel *AgentKernel) currentInstructionBundle() InstructionBundle {
+	if agentKernel.instructionLoader != nil {
+		return agentKernel.instructionLoader()
+	}
+	return InstructionBundle{
+		Prompt:  agentKernel.instructionPrompt,
+		Sources: append([]InstructionSource{}, agentKernel.instructionSources...),
+	}
 }
 
 func buildVisibleContextDescription(visibleContext VisibleContext) string {

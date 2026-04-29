@@ -56,6 +56,15 @@ func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	if errorValue := os.MkdirAll(skillDirectoryPath, 0o755); errorValue != nil {
 		t.Fatalf("expected skill directory: %v", errorValue)
 	}
+	if errorValue := os.WriteFile(filepath.Join(workspacePath, "IDENTITY.md"), []byte("Use the runtime display name."), 0o600); errorValue != nil {
+		t.Fatalf("expected identity file: %v", errorValue)
+	}
+	if errorValue := os.WriteFile(filepath.Join(workspacePath, "BOT_PROFILE.md"), []byte("displayName: 김인턴"), 0o600); errorValue != nil {
+		t.Fatalf("expected bot profile file: %v", errorValue)
+	}
+	if errorValue := os.WriteFile(filepath.Join(workspacePath, "SOUL.md"), []byte("Lead with the result."), 0o600); errorValue != nil {
+		t.Fatalf("expected soul file: %v", errorValue)
+	}
 	if errorValue := os.WriteFile(filepath.Join(workspacePath, "AGENTS.md"), []byte("Use agent-browser for web automation."), 0o600); errorValue != nil {
 		t.Fatalf("expected agents file: %v", errorValue)
 	}
@@ -66,7 +75,7 @@ func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	runtimeConfiguration.Terminal.WorkspaceRootPath = workspacePath
 
 	instructionPrompt := loadAgentInstructionPrompt(runtimeConfiguration)
-	for _, expectedFragment := range []string{"Use agent-browser for web automation.", "Run agent-browser snapshot -i after navigation."} {
+	for _, expectedFragment := range []string{"Use the runtime display name.", "displayName: 김인턴", "Lead with the result.", "Use agent-browser for web automation.", "Run agent-browser snapshot -i after navigation."} {
 		if !strings.Contains(instructionPrompt, expectedFragment) {
 			t.Fatalf("expected instruction prompt to contain %q, got %q", expectedFragment, instructionPrompt)
 		}

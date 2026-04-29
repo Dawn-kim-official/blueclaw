@@ -86,7 +86,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
 	agentKernel.UseIntakeOptions(deriveAgentIntakeOptions(runtimeConfiguration))
-	agentKernel.UseInstructionBundle(loadAgentInstructionBundle(runtimeConfiguration))
+	agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
+		return loadAgentInstructionBundle(runtimeConfiguration)
+	})
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
 	if languageModelProvider != nil {
@@ -217,7 +219,14 @@ func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration
 	sources := []agent.InstructionSource{}
 	includedSkillByName := map[string]bool{}
 	for _, rootPath := range instructionRootPaths(runtimeConfiguration) {
-		if instructionDocument, instructionSource := readInstructionDocument(rootPath); instructionDocument != "" {
+		for _, instructionDocument := range readInstructionDocuments(rootPath) {
+			if instructionDocument.Prompt == "" {
+				continue
+			}
+			parts = append(parts, instructionDocument.Prompt)
+			sources = append(sources, instructionDocument.Source)
+		}
+		if instructionDocument, instructionSource := readLegacyInstructionDocument(rootPath); instructionDocument != "" {
 			parts = append(parts, instructionDocument)
 			sources = append(sources, instructionSource)
 		}
@@ -259,7 +268,27 @@ func instructionRootPaths(runtimeConfiguration config.RuntimeConfiguration) []st
 	return rootPaths
 }
 
-func readInstructionDocument(rootPath string) (string, agent.InstructionSource) {
+type instructionDocument struct {
+	Prompt string
+	Source agent.InstructionSource
+}
+
+func readInstructionDocuments(rootPath string) []instructionDocument {
+	documents := []instructionDocument{}
+	for _, fileName := range []string{"IDENTITY.md", "BOT_PROFILE.md", "SOUL.md"} {
+		path := filepath.Join(rootPath, fileName)
+		document, errorValue := os.ReadFile(path)
+		if errorValue == nil && strings.TrimSpace(string(document)) != "" {
+			documents = append(documents, instructionDocument{
+				Prompt: strings.TrimSpace(string(document)),
+				Source: instructionSource(path, "", document),
+			})
+		}
+	}
+	return documents
+}
+
+func readLegacyInstructionDocument(rootPath string) (string, agent.InstructionSource) {
 	for _, fileName := range []string{"AGENTS.md", "CLAUDE.md"} {
 		path := filepath.Join(rootPath, fileName)
 		document, errorValue := os.ReadFile(path)
