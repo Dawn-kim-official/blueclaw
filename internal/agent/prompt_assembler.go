@@ -14,6 +14,7 @@ func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnReques
 	promptAssembler.appendToolMessage(&messages, toolDescription)
 	promptAssembler.appendVisibleContextMessage(&messages, request.VisibleContext)
 	promptAssembler.appendMemoryMessage(&messages, buildMemoryContext(request.MemoryFacts))
+	promptAssembler.appendProgressMessage(&messages, request, observations)
 	promptAssembler.appendObservationMessage(&messages, observations)
 	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
 	return messages
@@ -67,8 +68,27 @@ func (promptAssembler PromptAssembler) appendObservationMessage(messages *[]llm.
 	if len(observations) == 0 {
 		return
 	}
+	body := marshalEventBody(recentProgressObservations(observations))
+	if len(body) > progressMessageBudget {
+		body = body[:progressMessageBudget] + "\n[trimmed]"
+	}
 	*messages = append(*messages, llm.Message{
 		Role:    "system",
-		Content: "Tool observations so far:\n" + marshalEventBody(observations),
+		Content: "Relevant observation summaries so far. Use observationID/toolName/attachmentIndex when citing completionEvidence; do not infer hidden raw output:\n" + body,
+	})
+}
+
+func (promptAssembler PromptAssembler) appendProgressMessage(messages *[]llm.Message, request AgentTurnRequest, observations []turnObservation) {
+	progress := buildTurnProgress(request, observations)
+	if len(observations) == 0 {
+		progress.RemainingWork = "No tool work has been attempted yet."
+	}
+	body := marshalEventBody(progress)
+	if len(body) > progressMessageBudget {
+		body = body[:progressMessageBudget] + "\n[trimmed]"
+	}
+	*messages = append(*messages, llm.Message{
+		Role:    "system",
+		Content: "Progress ledger. This is the compact source of truth for what has already happened; raw tool output is intentionally omitted:\n" + body,
 	})
 }

@@ -68,6 +68,7 @@ type turnObservation struct {
 	Action        string           `json:"action"`
 	Tool          string           `json:"tool,omitempty"`
 	Content       string           `json:"content"`
+	Summary       string           `json:"summary,omitempty"`
 	IsError       bool             `json:"isError"`
 	Attachments   []FileAttachment `json:"attachments,omitempty"`
 }
@@ -472,17 +473,42 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 
 func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, observationID string, toolName string, toolResult ToolResult) turnObservation {
 	content := toolResult.Content
+	originalContent := content
+	artifactID := ""
 	if len(content) > agentTurnRunner.options.ToolResultMaxBytes {
 		taskArtifact := agentTurnRunner.taskArtifactService.AddTaskArtifactBody(taskRunID, "tool."+toolName+".result", content)
+		artifactID = taskArtifact.TaskArtifactID
 		content = content[:agentTurnRunner.options.ToolResultMaxBytes] + "\n[truncated; full result saved as artifact " + taskArtifact.TaskArtifactID + "]"
 	}
 	attachments := []FileAttachment{}
 	if !toolResult.IsError {
 		attachments = append(attachments, toolResult.Attachments...)
 	}
-	observation := turnObservation{ObservationID: observationID, Action: "call_tool", Tool: toolName, Content: content, IsError: toolResult.IsError, Attachments: attachments}
+	observation := turnObservation{
+		ObservationID: observationID,
+		Action:        "call_tool",
+		Tool:          toolName,
+		Content:       content,
+		Summary:       buildToolResultSummary(toolName, originalContent, toolResult.IsError, attachments, artifactID),
+		IsError:       toolResult.IsError,
+		Attachments:   attachments,
+	}
 	agentTurnRunner.appendEvent(taskRunID, "tool."+toolName+".result", marshalEventBody(observation))
 	return observation
+}
+
+func buildToolResultSummary(toolName string, content string, isError bool, attachments []FileAttachment, artifactID string) string {
+	observation := turnObservation{
+		Tool:        toolName,
+		Content:     content,
+		IsError:     isError,
+		Attachments: attachments,
+	}
+	summary := summarizeObservationContent(observation)
+	if strings.TrimSpace(artifactID) != "" {
+		summary = strings.TrimSpace(summary) + " Full result stored as artifact " + strings.TrimSpace(artifactID) + "."
+	}
+	return strings.TrimSpace(summary)
 }
 
 func (agentTurnRunner *AgentTurnRunner) saveStep(taskRunID string, taskStepID string, status task.TaskStatus, instruction string, output string) {
