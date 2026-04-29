@@ -52,6 +52,25 @@ func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeStopsProgressAfterRequestContextCancellation(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
+	ctx, cancel := context.WithCancel(context.Background())
+	stopProgress := connectorRuntime.startProgress(ctx, adapter, ReplyTarget{
+		ConversationID: "conversation-1",
+		ReplyTargetID:  "reply-target-1",
+	})
+
+	cancel()
+	stopProgress()
+
+	if len(adapter.progressStops) != 1 {
+		t.Fatalf("expected one progress stop, got %d", len(adapter.progressStops))
+	}
+	if adapter.progressStopErrors[0] != nil {
+		t.Fatalf("expected stop progress context not to inherit cancellation, got %v", adapter.progressStopErrors[0])
+	}
+}
+
 func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
 	adapter.senderEmail = "outside@example.com"
@@ -361,12 +380,13 @@ func TestPlatformInboundEventOnlyUsesTextAndSenderCompatibilityAliases(t *testin
 }
 
 type testAdapter struct {
-	senderEmail     string
-	httpParseResult HTTPParseResult
-	sentReplies     []testReply
-	progressStarts  []ReplyTarget
-	progressStops   []ReplyTarget
-	historyCursors  []string
+	senderEmail        string
+	httpParseResult    HTTPParseResult
+	sentReplies        []testReply
+	progressStarts     []ReplyTarget
+	progressStops      []ReplyTarget
+	progressStopErrors []error
+	historyCursors     []string
 }
 
 type testReply struct {
@@ -401,8 +421,9 @@ func (adapter *testAdapter) StartProgress(_ context.Context, target ReplyTarget)
 	return nil
 }
 
-func (adapter *testAdapter) StopProgress(_ context.Context, target ReplyTarget) error {
+func (adapter *testAdapter) StopProgress(ctx context.Context, target ReplyTarget) error {
 	adapter.progressStops = append(adapter.progressStops, target)
+	adapter.progressStopErrors = append(adapter.progressStopErrors, ctx.Err())
 	return nil
 }
 

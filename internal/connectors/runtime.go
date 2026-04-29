@@ -631,7 +631,9 @@ func (connectorRuntime *ConnectorRuntime) startProgress(ctx context.Context, ada
 	}
 
 	return func() {
-		if errorValue := adapter.StopProgress(ctx, replyTarget); errorValue != nil {
+		stopContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if errorValue := adapter.StopProgress(stopContext, replyTarget); errorValue != nil {
 			connectorRuntime.logger.Warn("connector."+platform+".progress.stop_failed", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID), slog.String("error", errorValue.Error()))
 		}
 		connectorRuntime.logger.Info("connector."+platform+".progress.stopped", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID))
