@@ -253,8 +253,6 @@ func shouldIncludeSkillInstruction(skillName string, request AgentRequest) bool 
 		return promptMentionsAny(request.Prompt, []string{"google sheet", "spreadsheet", "sheet", "시트", "스프레드시트"})
 	case "pdf":
 		return promptMentionsAny(request.Prompt, []string{"pdf", "문서", "보고서"})
-	case "share-file":
-		return promptMentionsAny(request.Prompt, []string{"share", "file", "attach", "파일", "첨부", "공유"})
 	case "simple-slides":
 		return promptMentionsAny(request.Prompt, []string{"slides", "presentation", "deck", "ppt", "슬라이드", "발표", "프레젠테이션"})
 	default:
