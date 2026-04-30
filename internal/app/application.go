@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -527,6 +528,10 @@ func (application *Application) Start() error {
 	}
 	application.startLogRetentionLoop()
 	application.startConnectorTransports()
+	listener, errorValue := net.Listen("tcp", application.httpServer.Addr)
+	if errorValue != nil {
+		return errorValue
+	}
 	application.runtimeLogger.Logger.Info(
 		"application.started",
 		"listenAddress",
@@ -542,7 +547,7 @@ func (application *Application) Start() error {
 		"logDirectoryPath",
 		application.runtimeLogger.DirectoryPath(),
 	)
-	return application.httpServer.ListenAndServe()
+	return application.httpServer.Serve(listener)
 }
 
 func (application *Application) Shutdown(ctx context.Context) error {

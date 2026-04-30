@@ -435,3 +435,7 @@ def main():
         raise
     server = ThreadingHTTPServer((listen_address, listen_port), RequestHandler)
     server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
