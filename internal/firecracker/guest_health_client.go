@@ -11,23 +11,23 @@ type GuestConnection interface {
 	io.ReadWriteCloser
 }
 
-type GuestConnectionDialer func(context.Context, uint32, string) (GuestConnection, error)
+type GuestConnectionDialer func(context.Context, string, string) (GuestConnection, error)
 
 type GuestHealthClient interface {
-	CheckHealth(context.Context, uint32, string) error
+	CheckHealth(context.Context, string, string) error
 }
 
 type VSockGuestHealthClient struct {
 	DialGuestConnection GuestConnectionDialer
 }
 
-func (vsockGuestHealthClient VSockGuestHealthClient) CheckHealth(healthContext context.Context, guestCID uint32, healthPortOrService string) error {
+func (vsockGuestHealthClient VSockGuestHealthClient) CheckHealth(healthContext context.Context, vsockUnixSocketPath string, healthPortOrService string) error {
 	dialGuestConnection := vsockGuestHealthClient.DialGuestConnection
 	if dialGuestConnection == nil {
 		dialGuestConnection = DefaultGuestConnectionDialer
 	}
 
-	guestConnection, errorValue := dialGuestConnection(healthContext, guestCID, healthPortOrService)
+	guestConnection, errorValue := dialGuestConnection(healthContext, vsockUnixSocketPath, healthPortOrService)
 	if errorValue != nil {
 		return errorValue
 	}

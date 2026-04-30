@@ -3,50 +3,50 @@
 package firecracker
 
 import (
+	"bufio"
 	"context"
-	"os"
+	"fmt"
+	"net"
 	"strconv"
-	"syscall"
-	"unsafe"
+	"strings"
 )
 
-type rawSockaddrVM struct {
-	Family    uint16
-	Reserved1 uint16
-	Port      uint32
-	CID       uint32
-	Zero      [4]byte
-}
-
-func DefaultGuestConnectionDialer(healthContext context.Context, guestCID uint32, healthPortOrService string) (GuestConnection, error) {
-	_ = healthContext
-
+func DefaultGuestConnectionDialer(healthContext context.Context, vsockUnixSocketPath string, healthPortOrService string) (GuestConnection, error) {
 	guestPort, errorValue := strconv.ParseUint(healthPortOrService, 10, 32)
 	if errorValue != nil {
 		return nil, errorValue
 	}
 
-	fileDescriptor, errorValue := syscall.Socket(syscall.AF_VSOCK, syscall.SOCK_STREAM, 0)
+	var dialer net.Dialer
+	connection, errorValue := dialer.DialContext(healthContext, "unix", vsockUnixSocketPath)
 	if errorValue != nil {
 		return nil, errorValue
 	}
 
-	socketAddress := rawSockaddrVM{
-		Family: uint16(syscall.AF_VSOCK),
-		Port:   uint32(guestPort),
-		CID:    guestCID,
+	reader := bufio.NewReader(connection)
+	if _, errorValue = fmt.Fprintf(connection, "CONNECT %d\n", guestPort); errorValue != nil {
+		_ = connection.Close()
+		return nil, errorValue
 	}
 
-	_, _, errorNumber := syscall.Syscall(
-		syscall.SYS_CONNECT,
-		uintptr(fileDescriptor),
-		uintptr(unsafe.Pointer(&socketAddress)),
-		unsafe.Sizeof(socketAddress),
-	)
-	if errorNumber != 0 {
-		_ = syscall.Close(fileDescriptor)
-		return nil, errorNumber
+	response, errorValue := reader.ReadString('\n')
+	if errorValue != nil {
+		_ = connection.Close()
+		return nil, errorValue
+	}
+	if !strings.HasPrefix(response, "OK ") {
+		_ = connection.Close()
+		return nil, fmt.Errorf("firecracker vsock connect failed: %s", strings.TrimSpace(response))
 	}
 
-	return os.NewFile(uintptr(fileDescriptor), "vsock"), nil
+	return firecrackerGuestConnection{Conn: connection, Reader: reader}, nil
+}
+
+type firecrackerGuestConnection struct {
+	net.Conn
+	Reader *bufio.Reader
+}
+
+func (firecrackerGuestConnection firecrackerGuestConnection) Read(buffer []byte) (int, error) {
+	return firecrackerGuestConnection.Reader.Read(buffer)
 }

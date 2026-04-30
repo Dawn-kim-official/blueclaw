@@ -25,10 +25,10 @@ func (guestConnection staticGuestConnection) Read(buffer []byte) (int, error) {
 
 func TestVSockGuestHealthClientChecksHealth(t *testing.T) {
 	guestHealthClient := VSockGuestHealthClient{
-		DialGuestConnection: func(healthContext context.Context, guestCID uint32, healthPortOrService string) (GuestConnection, error) {
+		DialGuestConnection: func(healthContext context.Context, vsockUnixSocketPath string, healthPortOrService string) (GuestConnection, error) {
 			_ = healthContext
-			if guestCID != 52 {
-				t.Fatalf("expected guest cid to match, got %d", guestCID)
+			if vsockUnixSocketPath != "/tmp/firecracker-vsock.socket" {
+				t.Fatalf("expected vsock socket path to match, got %q", vsockUnixSocketPath)
 			}
 			if healthPortOrService != "8080" {
 				t.Fatalf("expected health service to match, got %q", healthPortOrService)
@@ -37,7 +37,7 @@ func TestVSockGuestHealthClientChecksHealth(t *testing.T) {
 		},
 	}
 
-	errorValue := guestHealthClient.CheckHealth(context.Background(), 52, "8080")
+	errorValue := guestHealthClient.CheckHealth(context.Background(), "/tmp/firecracker-vsock.socket", "8080")
 	if errorValue != nil {
 		t.Fatalf("expected health check to succeed: %v", errorValue)
 	}
@@ -45,15 +45,15 @@ func TestVSockGuestHealthClientChecksHealth(t *testing.T) {
 
 func TestVSockGuestHealthClientFailsOnUnexpectedHealth(t *testing.T) {
 	guestHealthClient := VSockGuestHealthClient{
-		DialGuestConnection: func(healthContext context.Context, guestCID uint32, healthPortOrService string) (GuestConnection, error) {
+		DialGuestConnection: func(healthContext context.Context, vsockUnixSocketPath string, healthPortOrService string) (GuestConnection, error) {
 			_ = healthContext
-			_ = guestCID
+			_ = vsockUnixSocketPath
 			_ = healthPortOrService
 			return staticGuestConnection{response: stringsReader("bad\n")}, nil
 		},
 	}
 
-	errorValue := guestHealthClient.CheckHealth(context.Background(), 52, "8080")
+	errorValue := guestHealthClient.CheckHealth(context.Background(), "/tmp/firecracker-vsock.socket", "8080")
 	if errorValue == nil {
 		t.Fatal("expected unexpected health response to fail")
 	}

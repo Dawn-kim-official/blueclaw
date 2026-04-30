@@ -36,7 +36,7 @@ func main() {
 		log.Fatal(errorValue)
 	}
 
-	healthContext, cancelHealthCheck := context.WithTimeout(interruptContext, 30*time.Second)
+	healthContext, cancelHealthCheck := context.WithTimeout(interruptContext, 120*time.Second)
 	defer cancelHealthCheck()
 
 	errorValue = supervisorService.WaitForGuestHealth(healthContext, guestInstance)
@@ -45,7 +45,26 @@ func main() {
 		log.Fatal(errorValue)
 	}
 
+	proxyContext, stopProxy := context.WithCancel(interruptContext)
+	defer stopProxy()
+	proxyErrorChannel := make(chan error, 1)
+	go func() {
+		proxyErrorChannel <- firecracker.HostHTTPProxy{
+			ListenAddress:       runtimeConfiguration.Firecracker.HostHTTPListenAddress,
+			VSockUnixSocketPath: guestInstance.BootSpecification.VSockUnixSocketPath,
+			GuestPortOrService:  runtimeConfiguration.Firecracker.GuestHTTPPortOrService,
+		}.Serve(proxyContext)
+	}()
+
+	select {
+	case errorValue = <-proxyErrorChannel:
+		_ = supervisorService.StopGuest(guestInstance)
+		log.Fatal(errorValue)
+	case <-time.After(200 * time.Millisecond):
+	}
+
 	<-interruptContext.Done()
+	stopProxy()
 	errorValue = supervisorService.StopGuest(guestInstance)
 	if errorValue != nil {
 		log.Fatal(errorValue)

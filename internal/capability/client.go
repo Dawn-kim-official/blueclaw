@@ -16,7 +16,10 @@ const DefaultEndpoint = "http://127.0.0.1:7781"
 
 type Configuration struct {
 	Endpoint       string
+	Transport      string
 	UnixSocketPath string
+	VSockCID       uint32
+	VSockPort      uint32
 	Timeout        time.Duration
 }
 
@@ -45,7 +48,13 @@ func NewClient(configuration Configuration) Client {
 	}
 
 	unixSocketPath := strings.TrimSpace(configuration.UnixSocketPath)
-	if unixSocketPath != "" {
+	if strings.TrimSpace(configuration.Transport) == "vsock" {
+		transport, errorValue := newVSockTransport(configuration.VSockCID, configuration.VSockPort)
+		httpClient.Transport = transportWithError(transport, errorValue)
+		if strings.TrimSpace(configuration.Endpoint) == "" {
+			endpoint = "http://internkim-capability"
+		}
+	} else if unixSocketPath != "" {
 		httpClient.Transport = newUnixSocketTransport(unixSocketPath)
 		if strings.TrimSpace(configuration.Endpoint) == "" {
 			endpoint = "http://internkim-capability"
@@ -56,6 +65,21 @@ func NewClient(configuration Configuration) Client {
 		Endpoint:   endpoint,
 		HTTPClient: httpClient,
 	}
+}
+
+func transportWithError(transport *http.Transport, errorValue error) http.RoundTripper {
+	if errorValue != nil {
+		return roundTripError{errorValue: errorValue}
+	}
+	return transport
+}
+
+type roundTripError struct {
+	errorValue error
+}
+
+func (roundTripper roundTripError) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, roundTripper.errorValue
 }
 
 func (client Client) PostJSON(ctx context.Context, path string, requestDocument any, responseDocument any) error {

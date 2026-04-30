@@ -222,7 +222,9 @@ func minimumBudgetClassForRequest(request AgentRequest) BudgetClass {
 		if looksLikeBrowserControlSequence(prompt) {
 			return BudgetClassThirtyMinutes
 		}
-		return BudgetClassTenMinutes
+		if !hasToolPrefix(request.ToolRegistry, "web.") {
+			return BudgetClassTenMinutes
+		}
 	}
 	if hasToolPrefix(request.ToolRegistry, "file.") || hasToolPrefix(request.ToolRegistry, "user.") {
 		return BudgetClassTenMinutes

@@ -24,8 +24,11 @@ type RuntimeConfiguration struct {
 
 type CapabilityConfiguration struct {
 	Endpoint       string   `json:"endpoint"`
+	Transport      string   `json:"transport"`
 	UnixSocketPath string   `json:"unixSocketPath"`
 	TimeoutSecond  int      `json:"timeoutSecond"`
+	VSockCID       uint32   `json:"vsockCID"`
+	VSockPort      uint32   `json:"vsockPort"`
 	ToolNames      []string `json:"toolNames"`
 }
 
@@ -68,16 +71,20 @@ type LanguageModelCapabilityConfiguration struct {
 }
 
 type FirecrackerConfiguration struct {
-	FirecrackerPath     string `json:"firecrackerPath"`
-	JailerPath          string `json:"jailerPath"`
-	KernelImagePath     string `json:"kernelImagePath"`
-	RootfsImagePath     string `json:"rootfsImagePath"`
-	WorkspaceImagePath  string `json:"workspaceImagePath"`
-	VCPUCount           int    `json:"vcpuCount"`
-	MemoryMiB           int    `json:"memoryMiB"`
-	VSockCID            uint32 `json:"vsockCID"`
-	HealthPortOrService string `json:"healthPortOrService"`
-	LogDirectoryPath    string `json:"logDirectoryPath"`
+	FirecrackerPath        string `json:"firecrackerPath"`
+	JailerPath             string `json:"jailerPath"`
+	KernelImagePath        string `json:"kernelImagePath"`
+	RootfsImagePath        string `json:"rootfsImagePath"`
+	WorkspaceImagePath     string `json:"workspaceImagePath"`
+	HostWorkspacePath      string `json:"hostWorkspacePath"`
+	VCPUCount              int    `json:"vcpuCount"`
+	MemoryMiB              int    `json:"memoryMiB"`
+	VSockCID               uint32 `json:"vsockCID"`
+	HealthPortOrService    string `json:"healthPortOrService"`
+	GuestHTTPPortOrService string `json:"guestHTTPPortOrService"`
+	HostHTTPListenAddress  string `json:"hostHTTPListenAddress"`
+	LogDirectoryPath       string `json:"logDirectoryPath"`
+	RuntimeDirectoryPath   string `json:"runtimeDirectoryPath"`
 }
 
 type BridgeConfiguration struct {
