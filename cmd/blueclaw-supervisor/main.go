@@ -36,6 +36,22 @@ func main() {
 		log.Fatal(errorValue)
 	}
 
+	listenerContext, stopListenerProxies := context.WithCancel(interruptContext)
+	defer stopListenerProxies()
+	for _, listenerProxyConfiguration := range runtimeConfiguration.Firecracker.GuestListenerProxies {
+		listenerProxyConfiguration := listenerProxyConfiguration
+		go func() {
+			errorValue := firecracker.GuestListenerProxy{
+				VSockUnixSocketPath:  guestInstance.BootSpecification.VSockUnixSocketPath,
+				GuestPort:            listenerProxyConfiguration.GuestPort,
+				TargetUnixSocketPath: listenerProxyConfiguration.TargetUnixSocketPath,
+			}.Serve(listenerContext)
+			if errorValue != nil && listenerContext.Err() == nil {
+				log.Printf("guest listener proxy stopped: %v", errorValue)
+			}
+		}()
+	}
+
 	healthContext, cancelHealthCheck := context.WithTimeout(interruptContext, 120*time.Second)
 	defer cancelHealthCheck()
 
@@ -65,6 +81,7 @@ func main() {
 
 	<-interruptContext.Done()
 	stopProxy()
+	stopListenerProxies()
 	errorValue = supervisorService.StopGuest(guestInstance)
 	if errorValue != nil {
 		log.Fatal(errorValue)

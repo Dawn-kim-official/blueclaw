@@ -71,20 +71,26 @@ type LanguageModelCapabilityConfiguration struct {
 }
 
 type FirecrackerConfiguration struct {
-	FirecrackerPath        string `json:"firecrackerPath"`
-	JailerPath             string `json:"jailerPath"`
-	KernelImagePath        string `json:"kernelImagePath"`
-	RootfsImagePath        string `json:"rootfsImagePath"`
-	WorkspaceImagePath     string `json:"workspaceImagePath"`
-	HostWorkspacePath      string `json:"hostWorkspacePath"`
-	VCPUCount              int    `json:"vcpuCount"`
-	MemoryMiB              int    `json:"memoryMiB"`
-	VSockCID               uint32 `json:"vsockCID"`
-	HealthPortOrService    string `json:"healthPortOrService"`
-	GuestHTTPPortOrService string `json:"guestHTTPPortOrService"`
-	HostHTTPListenAddress  string `json:"hostHTTPListenAddress"`
-	LogDirectoryPath       string `json:"logDirectoryPath"`
-	RuntimeDirectoryPath   string `json:"runtimeDirectoryPath"`
+	FirecrackerPath        string                            `json:"firecrackerPath"`
+	JailerPath             string                            `json:"jailerPath"`
+	KernelImagePath        string                            `json:"kernelImagePath"`
+	RootfsImagePath        string                            `json:"rootfsImagePath"`
+	WorkspaceImagePath     string                            `json:"workspaceImagePath"`
+	HostWorkspacePath      string                            `json:"hostWorkspacePath"`
+	VCPUCount              int                               `json:"vcpuCount"`
+	MemoryMiB              int                               `json:"memoryMiB"`
+	VSockCID               uint32                            `json:"vsockCID"`
+	HealthPortOrService    string                            `json:"healthPortOrService"`
+	GuestHTTPPortOrService string                            `json:"guestHTTPPortOrService"`
+	HostHTTPListenAddress  string                            `json:"hostHTTPListenAddress"`
+	LogDirectoryPath       string                            `json:"logDirectoryPath"`
+	RuntimeDirectoryPath   string                            `json:"runtimeDirectoryPath"`
+	GuestListenerProxies   []GuestListenerProxyConfiguration `json:"guestListenerProxies"`
+}
+
+type GuestListenerProxyConfiguration struct {
+	GuestPort            uint32 `json:"guestPort"`
+	TargetUnixSocketPath string `json:"targetUnixSocketPath"`
 }
 
 type BridgeConfiguration struct {
