@@ -25,13 +25,16 @@ type IntakeOptions struct {
 }
 
 type AgentRequest struct {
-	RequesterPersonID string
-	ConversationID    string
-	Prompt            string
-	VisibleContext    VisibleContext
-	MemoryFacts       []memory.MemoryFact
-	ToolRegistry      *ToolRegistry
-	InstructionPrompt string
+	RequesterPersonID    string
+	RequesterName        string
+	RequesterCallingName string
+	RequesterHandle      string
+	ConversationID       string
+	Prompt               string
+	VisibleContext       VisibleContext
+	MemoryFacts          []memory.MemoryFact
+	ToolRegistry         *ToolRegistry
+	InstructionPrompt    string
 }
 
 type IntakeDecision struct {

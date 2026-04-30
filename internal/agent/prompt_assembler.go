@@ -12,6 +12,7 @@ func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnReques
 	messages := []llm.Message{{Role: "system", Content: strings.TrimSpace(baseInstruction)}}
 	promptAssembler.appendInstructionMessages(&messages, request.InstructionPrompt)
 	promptAssembler.appendToolMessage(&messages, toolDescription)
+	promptAssembler.appendSenderAddressingMessage(&messages, buildSenderAddressingDescription(request))
 	promptAssembler.appendVisibleContextMessage(&messages, request.VisibleContext)
 	promptAssembler.appendMemoryMessage(&messages, buildMemoryContext(request.MemoryFacts))
 	promptAssembler.appendProgressMessage(&messages, request, observations)
@@ -46,6 +47,16 @@ func (promptAssembler PromptAssembler) appendToolMessage(messages *[]llm.Message
 	*messages = append(*messages, llm.Message{
 		Role:    "system",
 		Content: strings.TrimSpace(toolDescription),
+	})
+}
+
+func (promptAssembler PromptAssembler) appendSenderAddressingMessage(messages *[]llm.Message, senderAddressingDescription string) {
+	if strings.TrimSpace(senderAddressingDescription) == "" {
+		return
+	}
+	*messages = append(*messages, llm.Message{
+		Role:    "system",
+		Content: strings.TrimSpace(senderAddressingDescription),
 	})
 }
 

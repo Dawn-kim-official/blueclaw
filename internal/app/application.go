@@ -217,6 +217,7 @@ func loadAgentInstructionPrompt(runtimeConfiguration config.RuntimeConfiguration
 func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration) agent.InstructionBundle {
 	parts := []string{}
 	sources := []agent.InstructionSource{}
+	skillInstructions := []agent.SkillInstruction{}
 	includedSkillByName := map[string]bool{}
 	for _, rootPath := range instructionRootPaths(runtimeConfiguration) {
 		for _, instructionDocument := range readInstructionDocuments(rootPath) {
@@ -230,15 +231,12 @@ func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration
 			parts = append(parts, instructionDocument)
 			sources = append(sources, instructionSource)
 		}
-		skillPrompt, skillSources := readSkillPrompt(rootPath)
-		for _, source := range skillSources {
-			if strings.TrimSpace(source.SkillName) != "" {
-				includedSkillByName[source.SkillName] = true
+		discoveredSkillInstructions := readSkillInstructions(rootPath)
+		for _, skillInstruction := range discoveredSkillInstructions {
+			if strings.TrimSpace(skillInstruction.Name) != "" {
+				includedSkillByName[skillInstruction.Name] = true
 			}
-			sources = append(sources, source)
-		}
-		if skillPrompt != "" {
-			parts = append(parts, skillPrompt)
+			skillInstructions = append(skillInstructions, skillInstruction)
 		}
 	}
 	if !includedSkillByName["agent-browser"] {
@@ -251,6 +249,7 @@ func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration
 	return agent.InstructionBundle{
 		Prompt:  strings.Join(parts, "\n\n"),
 		Sources: sources,
+		Skills:  skillInstructions,
 	}
 }
 
@@ -275,12 +274,16 @@ type instructionDocument struct {
 
 func readInstructionDocuments(rootPath string) []instructionDocument {
 	documents := []instructionDocument{}
-	for _, fileName := range []string{"IDENTITY.md", "BOT_PROFILE.md", "SOUL.md"} {
+	for _, fileName := range []string{"IDENTITY.md", "BOT_PROFILE.yaml", "SOUL.md"} {
 		path := filepath.Join(rootPath, fileName)
 		document, errorValue := os.ReadFile(path)
 		if errorValue == nil && strings.TrimSpace(string(document)) != "" {
+			prompt := strings.TrimSpace(string(document))
+			if fileName == "BOT_PROFILE.yaml" {
+				prompt = renderBotProfileInstruction(document)
+			}
 			documents = append(documents, instructionDocument{
-				Prompt: strings.TrimSpace(string(document)),
+				Prompt: prompt,
 				Source: instructionSource(path, "", document),
 			})
 		}
@@ -299,23 +302,83 @@ func readLegacyInstructionDocument(rootPath string) (string, agent.InstructionSo
 	return "", agent.InstructionSource{}
 }
 
-func readSkillPrompt(rootPath string) (string, []agent.InstructionSource) {
-	skillBundles := []skill.SkillBundle{}
-	sources := []agent.InstructionSource{}
+func readSkillInstructions(rootPath string) []agent.SkillInstruction {
+	skillInstructions := []agent.SkillInstruction{}
 	skillRegistry := skill.NewSkillRegistry()
 	for _, relativePath := range []string{filepath.Join(".agents", "skills"), "skills"} {
 		discoveredSkillBundles, errorValue := skillRegistry.DiscoverSkill(filepath.Join(rootPath, relativePath))
 		if errorValue == nil {
-			skillBundles = append(skillBundles, discoveredSkillBundles...)
 			for _, skillBundle := range discoveredSkillBundles {
 				document, readError := os.ReadFile(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"))
 				if readError == nil {
-					sources = append(sources, instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document))
+					skillInstructions = append(skillInstructions, agent.SkillInstruction{
+						Name:   skillBundle.Name,
+						Prompt: strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
+						Source: instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
+					})
 				}
 			}
 		}
 	}
-	return strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt(skillBundles)), sources
+	return skillInstructions
+}
+
+func renderBotProfileInstruction(document []byte) string {
+	profile := parseSimpleYAML(document)
+	lines := []string{
+		"Runtime bot profile:",
+		"- internal username: " + firstNonEmptyString(profile["username"], "internkim"),
+		"- current displayName: " + profile["displayName"],
+		"- English displayName: " + profile["englishDisplayName"],
+		"- aliases: " + profile["aliases"],
+		"- public description: " + profile["publicDescription"],
+	}
+	if strings.TrimSpace(profile["identityExtension"]) != "" {
+		lines = append(lines, "Identity extension:\n"+strings.TrimSpace(profile["identityExtension"]))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func parseSimpleYAML(document []byte) map[string]string {
+	values := map[string]string{}
+	lines := strings.Split(string(document), "\n")
+	for index := 0; index < len(lines); index++ {
+		line := strings.TrimSpace(lines[index])
+		if line == "" || strings.HasPrefix(line, "#") || line == "---" {
+			continue
+		}
+		if line == "aliases:" {
+			aliases := []string{}
+			for index+1 < len(lines) {
+				nextLine := strings.TrimSpace(lines[index+1])
+				if !strings.HasPrefix(nextLine, "- ") {
+					break
+				}
+				aliases = append(aliases, unquoteSimpleYAML(strings.TrimSpace(strings.TrimPrefix(nextLine, "- "))))
+				index++
+			}
+			values["aliases"] = strings.Join(aliases, ", ")
+			continue
+		}
+		key, value, found := strings.Cut(line, ":")
+		if found {
+			values[strings.TrimSpace(key)] = unquoteSimpleYAML(strings.TrimSpace(value))
+		}
+	}
+	return values
+}
+
+func unquoteSimpleYAML(value string) string {
+	return strings.Trim(value, `"'`)
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func instructionSource(path string, skillName string, document []byte) agent.InstructionSource {

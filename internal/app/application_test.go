@@ -59,7 +59,7 @@ func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	if errorValue := os.WriteFile(filepath.Join(workspacePath, "IDENTITY.md"), []byte("Use the runtime display name."), 0o600); errorValue != nil {
 		t.Fatalf("expected identity file: %v", errorValue)
 	}
-	if errorValue := os.WriteFile(filepath.Join(workspacePath, "BOT_PROFILE.md"), []byte("displayName: 김인턴"), 0o600); errorValue != nil {
+	if errorValue := os.WriteFile(filepath.Join(workspacePath, "BOT_PROFILE.yaml"), []byte("username: internkim\ndisplayName: 김인턴\nenglishDisplayName: Intern Kim\naliases:\n  - 인턴킴\npublicDescription: \"\"\nidentityExtension: Use the display name.\n"), 0o600); errorValue != nil {
 		t.Fatalf("expected bot profile file: %v", errorValue)
 	}
 	if errorValue := os.WriteFile(filepath.Join(workspacePath, "SOUL.md"), []byte("Lead with the result."), 0o600); errorValue != nil {
@@ -74,11 +74,14 @@ func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.Terminal.WorkspaceRootPath = workspacePath
 
-	instructionPrompt := loadAgentInstructionPrompt(runtimeConfiguration)
-	for _, expectedFragment := range []string{"Use the runtime display name.", "displayName: 김인턴", "Lead with the result.", "Use agent-browser for web automation.", "Run agent-browser snapshot -i after navigation."} {
-		if !strings.Contains(instructionPrompt, expectedFragment) {
-			t.Fatalf("expected instruction prompt to contain %q, got %q", expectedFragment, instructionPrompt)
+	instructionBundle := loadAgentInstructionBundle(runtimeConfiguration)
+	for _, expectedFragment := range []string{"Use the runtime display name.", "current displayName: 김인턴", "Use the display name.", "Lead with the result.", "Use agent-browser for web automation."} {
+		if !strings.Contains(instructionBundle.Prompt, expectedFragment) {
+			t.Fatalf("expected instruction prompt to contain %q, got %q", expectedFragment, instructionBundle.Prompt)
 		}
+	}
+	if len(instructionBundle.Skills) == 0 || instructionBundle.Skills[0].Name != "browser" {
+		t.Fatalf("expected skill metadata to be loaded: %+v", instructionBundle.Skills)
 	}
 }
 

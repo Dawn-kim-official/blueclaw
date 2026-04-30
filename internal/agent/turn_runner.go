@@ -33,14 +33,17 @@ type AgentTurnRunner struct {
 }
 
 type AgentTurnRequest struct {
-	RequesterPersonID  string
-	ConversationID     string
-	Prompt             string
-	VisibleContext     VisibleContext
-	MemoryFacts        []memory.MemoryFact
-	ToolRegistry       *ToolRegistry
-	InstructionPrompt  string
-	InstructionSources []InstructionSource
+	RequesterPersonID    string
+	RequesterName        string
+	RequesterCallingName string
+	RequesterHandle      string
+	ConversationID       string
+	Prompt               string
+	VisibleContext       VisibleContext
+	MemoryFacts          []memory.MemoryFact
+	ToolRegistry         *ToolRegistry
+	InstructionPrompt    string
+	InstructionSources   []InstructionSource
 }
 
 type AgentTurnResult struct {
@@ -296,6 +299,7 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 	body := map[string]any{
 		"sourceCount": len(request.InstructionSources),
 		"sources":     request.InstructionSources,
+		"skillNames":  instructionSkillNames(request.InstructionSources),
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"
@@ -303,6 +307,19 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 		body["status"] = "loaded"
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.instructions_loaded", marshalEventBody(body))
+}
+
+func instructionSkillNames(sources []InstructionSource) []string {
+	skillNames := []string{}
+	seen := map[string]bool{}
+	for _, source := range sources {
+		if strings.TrimSpace(source.SkillName) == "" || seen[source.SkillName] {
+			continue
+		}
+		seen[source.SkillName] = true
+		skillNames = append(skillNames, source.SkillName)
+	}
+	return skillNames
 }
 
 func specificToolDescription(toolName string) string {
@@ -323,6 +340,8 @@ func specificToolDescription(toolName string) string {
 		return `Press a key. Input: {"key":"Enter"}.`
 	case "browser.wait":
 		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
+	case "flow.task.add":
+		return `Add a Flow work item for the requester, or request work for another person. Input: {"prompt":"10분 회의"} or {"prompt":"10분 회의","targetPersonHint":"lee"}.`
 	default:
 		return ""
 	}

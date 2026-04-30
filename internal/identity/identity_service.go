@@ -15,6 +15,7 @@ type PlatformAccountRepository interface {
 type IdentityService struct {
 	mutex                        sync.RWMutex
 	personIDByEmail              map[string]string
+	emailByPersonID              map[string]string
 	personAccessByPersonID       map[string]policy.PersonAccess
 	channelByCompositeKey        map[string]policy.ChannelPolicy
 	personIDByPlatformAccountKey map[string]string
@@ -24,6 +25,7 @@ type IdentityService struct {
 func NewIdentityService(policyProjection policy.PolicyProjection) *IdentityService {
 	identityService := &IdentityService{
 		personIDByEmail:              map[string]string{},
+		emailByPersonID:              map[string]string{},
 		personAccessByPersonID:       map[string]policy.PersonAccess{},
 		channelByCompositeKey:        map[string]policy.ChannelPolicy{},
 		personIDByPlatformAccountKey: map[string]string{},
@@ -50,11 +52,16 @@ func (identityService *IdentityService) ReloadPolicyProjection(policyProjection 
 
 func (identityService *IdentityService) reloadPolicyProjection(policyProjection policy.PolicyProjection) {
 	identityService.personIDByEmail = map[string]string{}
+	identityService.emailByPersonID = map[string]string{}
 	identityService.personAccessByPersonID = map[string]policy.PersonAccess{}
 	identityService.channelByCompositeKey = map[string]policy.ChannelPolicy{}
 	identityService.personIDByPlatformAccountKey = map[string]string{}
 	for email, personID := range policyProjection.PersonIDByEmail {
-		identityService.personIDByEmail[email] = personID
+		normalizedEmail := strings.ToLower(strings.TrimSpace(email))
+		identityService.personIDByEmail[normalizedEmail] = personID
+		if identityService.emailByPersonID[personID] == "" {
+			identityService.emailByPersonID[personID] = normalizedEmail
+		}
 	}
 	for personID, personAccess := range policyProjection.PersonAccessByPersonID {
 		identityService.personAccessByPersonID[personID] = policy.PersonAccess{
@@ -99,6 +106,13 @@ func (identityService *IdentityService) ResolvePersonAccess(personID string) pol
 	}
 	personAccess.GrantedClasses = append([]string{}, personAccess.GrantedClasses...)
 	return personAccess
+}
+
+func (identityService *IdentityService) ResolvePersonPrimaryEmail(personID string) string {
+	identityService.mutex.RLock()
+	defer identityService.mutex.RUnlock()
+
+	return identityService.emailByPersonID[strings.TrimSpace(personID)]
 }
 
 func (identityService *IdentityService) ResolveConversationPolicy(platform string, conversationID string) (policy.ChannelPolicy, bool) {

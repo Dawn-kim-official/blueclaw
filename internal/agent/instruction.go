@@ -11,4 +11,11 @@ type InstructionSource struct {
 type InstructionBundle struct {
 	Prompt  string              `json:"prompt"`
 	Sources []InstructionSource `json:"sources"`
+	Skills  []SkillInstruction  `json:"skills,omitempty"`
+}
+
+type SkillInstruction struct {
+	Name   string `json:"name"`
+	Prompt string `json:"prompt"`
+	Source InstructionSource
 }

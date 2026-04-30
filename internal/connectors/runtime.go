@@ -58,11 +58,23 @@ type VisibleContext struct {
 	Messages      []VisibleContextMessage `json:"messages"`
 	HasMoreBefore bool                    `json:"hasMoreBefore"`
 	HistoryCursor string                  `json:"historyCursor"`
+	Sender        VisibleContextSender    `json:"sender,omitempty"`
+}
+
+type VisibleContextSender struct {
+	Platform    string `json:"platform,omitempty"`
+	SenderID    string `json:"senderID,omitempty"`
+	Handle      string `json:"handle,omitempty"`
+	Email       string `json:"email,omitempty"`
+	Name        string `json:"name,omitempty"`
+	CallingName string `json:"callingName,omitempty"`
 }
 
 type VisibleContextMessage struct {
-	Speaker string `json:"speaker"`
-	Text    string `json:"text"`
+	Speaker            string `json:"speaker"`
+	SpeakerCallingName string `json:"speakerCallingName,omitempty"`
+	SpeakerHandle      string `json:"speakerHandle,omitempty"`
+	Text               string `json:"text"`
 }
 
 type HTTPParseResult struct {
@@ -338,12 +350,15 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	turnResult, errorValue := connectorRuntime.agentKernel.RunTurn(ctx, agent.AgentTurnRequest{
-		RequesterPersonID: personID,
-		ConversationID:    event.ConversationID,
-		Prompt:            event.Prompt,
-		VisibleContext:    event.Context.ToAgentVisibleContext(),
-		MemoryFacts:       memoryFacts,
-		ToolRegistry:      toolRegistry,
+		RequesterPersonID:    personID,
+		RequesterName:        event.Context.Sender.Name,
+		RequesterCallingName: event.Context.Sender.CallingName,
+		RequesterHandle:      event.Context.Sender.Handle,
+		ConversationID:       event.ConversationID,
+		Prompt:               event.Prompt,
+		VisibleContext:       event.Context.ToAgentVisibleContext(),
+		MemoryFacts:          memoryFacts,
+		ToolRegistry:         toolRegistry,
 	})
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
@@ -450,7 +465,7 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter Platform
 				Status  string          `json:"status"`
 				Result  json.RawMessage `json:"result"`
 			}
-			request := map[string]any{"input": json.RawMessage(toolInvocation.Input)}
+			request := connectorRuntime.capabilityToolRequest(toolName, event, personID, json.RawMessage(toolInvocation.Input))
 			errorValue := connectorRuntime.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", request, &response)
 			if errorValue != nil {
 				return agent.ToolResult{}, errorValue
@@ -464,6 +479,19 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter Platform
 		})
 	}
 	return toolRegistry
+}
+
+func (connectorRuntime *ConnectorRuntime) capabilityToolRequest(toolName string, event PlatformInboundEvent, personID string, toolInput json.RawMessage) map[string]any {
+	return map[string]any{
+		"toolName": toolName,
+		"input":    toolInput,
+		"context": map[string]any{
+			"requesterPersonID": personID,
+			"requesterEmail":    connectorRuntime.identityService.ResolvePersonPrimaryEmail(personID),
+			"conversationID":    event.ConversationID,
+			"platform":          event.Platform,
+		},
+	}
 }
 
 func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
@@ -699,8 +727,10 @@ func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContex
 	messages := make([]agent.VisibleContextMessage, 0, len(visibleContext.Messages))
 	for _, message := range visibleContext.Messages {
 		messages = append(messages, agent.VisibleContextMessage{
-			Speaker: message.Speaker,
-			Text:    message.Text,
+			Speaker:            message.Speaker,
+			SpeakerCallingName: message.SpeakerCallingName,
+			SpeakerHandle:      message.SpeakerHandle,
+			Text:               message.Text,
 		})
 	}
 

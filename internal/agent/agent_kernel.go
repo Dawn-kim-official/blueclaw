@@ -129,17 +129,21 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 
 func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request AgentTurnRequest) (AgentTurnResult, error) {
 	return agentKernel.RunAgentRequest(responseContext, AgentRequest{
-		RequesterPersonID: request.RequesterPersonID,
-		ConversationID:    request.ConversationID,
-		Prompt:            request.Prompt,
-		VisibleContext:    request.VisibleContext,
-		MemoryFacts:       request.MemoryFacts,
-		ToolRegistry:      request.ToolRegistry,
+		RequesterPersonID:    request.RequesterPersonID,
+		RequesterName:        request.RequesterName,
+		RequesterCallingName: request.RequesterCallingName,
+		RequesterHandle:      request.RequesterHandle,
+		ConversationID:       request.ConversationID,
+		Prompt:               request.Prompt,
+		VisibleContext:       request.VisibleContext,
+		MemoryFacts:          request.MemoryFacts,
+		ToolRegistry:         request.ToolRegistry,
 	})
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
 	instructionBundle := agentKernel.currentInstructionBundle()
+	instructionBundle = selectInstructionBundleForRequest(instructionBundle, request)
 	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
 	intakeDecision := intakePlanner.Plan(responseContext, request)
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
@@ -150,14 +154,17 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 
 	turnRequest := AgentTurnRequest{
-		RequesterPersonID:  request.RequesterPersonID,
-		ConversationID:     request.ConversationID,
-		Prompt:             request.Prompt,
-		VisibleContext:     request.VisibleContext,
-		MemoryFacts:        request.MemoryFacts,
-		ToolRegistry:       request.ToolRegistry,
-		InstructionPrompt:  instructionBundle.Prompt,
-		InstructionSources: append([]InstructionSource{}, instructionBundle.Sources...),
+		RequesterPersonID:    request.RequesterPersonID,
+		RequesterName:        request.RequesterName,
+		RequesterCallingName: request.RequesterCallingName,
+		RequesterHandle:      request.RequesterHandle,
+		ConversationID:       request.ConversationID,
+		Prompt:               request.Prompt,
+		VisibleContext:       request.VisibleContext,
+		MemoryFacts:          request.MemoryFacts,
+		ToolRegistry:         request.ToolRegistry,
+		InstructionPrompt:    instructionBundle.Prompt,
+		InstructionSources:   append([]InstructionSource{}, instructionBundle.Sources...),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
@@ -186,8 +193,10 @@ type VisibleContext struct {
 }
 
 type VisibleContextMessage struct {
-	Speaker string
-	Text    string
+	Speaker            string
+	SpeakerCallingName string
+	SpeakerHandle      string
+	Text               string
 }
 
 func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
@@ -212,13 +221,103 @@ func (agentKernel *AgentKernel) currentInstructionBundle() InstructionBundle {
 	}
 }
 
+func selectInstructionBundleForRequest(instructionBundle InstructionBundle, request AgentRequest) InstructionBundle {
+	prompts := []string{strings.TrimSpace(instructionBundle.Prompt)}
+	sources := append([]InstructionSource{}, instructionBundle.Sources...)
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !shouldIncludeSkillInstruction(skillInstruction.Name, request) {
+			continue
+		}
+		if strings.TrimSpace(skillInstruction.Prompt) != "" {
+			prompts = append(prompts, strings.TrimSpace(skillInstruction.Prompt))
+		}
+		sources = append(sources, skillInstruction.Source)
+	}
+	return InstructionBundle{
+		Prompt:  strings.Join(nonEmptyStrings(prompts), "\n\n"),
+		Sources: sources,
+		Skills:  append([]SkillInstruction{}, instructionBundle.Skills...),
+	}
+}
+
+func shouldIncludeSkillInstruction(skillName string, request AgentRequest) bool {
+	normalizedSkillName := strings.ToLower(strings.TrimSpace(skillName))
+	switch normalizedSkillName {
+	case "agent-browser":
+		return requestHasToolPrefix(request, "browser.") && promptMentionsBrowserWork(request.Prompt)
+	case "internkim-flow":
+		return requestHasToolName(request, "flow.task.add") && promptMentionsFlowWork(request.Prompt)
+	case "calendar":
+		return promptMentionsAny(request.Prompt, []string{"calendar", "schedule", "meeting", "일정", "캘린더", "회의"})
+	case "create-gws-file":
+		return promptMentionsAny(request.Prompt, []string{"google sheet", "spreadsheet", "sheet", "시트", "스프레드시트"})
+	case "pdf":
+		return promptMentionsAny(request.Prompt, []string{"pdf", "문서", "보고서"})
+	case "share-file":
+		return promptMentionsAny(request.Prompt, []string{"share", "file", "attach", "파일", "첨부", "공유"})
+	case "simple-slides":
+		return promptMentionsAny(request.Prompt, []string{"slides", "presentation", "deck", "ppt", "슬라이드", "발표", "프레젠테이션"})
+	default:
+		return false
+	}
+}
+
+func requestHasToolPrefix(request AgentRequest, prefix string) bool {
+	if request.ToolRegistry == nil {
+		return false
+	}
+	for _, toolDefinition := range request.ToolRegistry.ListToolDefinitions() {
+		if strings.HasPrefix(toolDefinition.Name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestHasToolName(request AgentRequest, toolName string) bool {
+	if request.ToolRegistry == nil {
+		return false
+	}
+	for _, toolDefinition := range request.ToolRegistry.ListToolDefinitions() {
+		if toolDefinition.Name == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+func promptMentionsBrowserWork(prompt string) bool {
+	return promptMentionsAny(prompt, []string{"browser", "website", "web", "google", "검색", "브라우저", "스크린샷", "캡처", "페이지", "사이트", "클릭"})
+}
+
+func promptMentionsFlowWork(prompt string) bool {
+	return promptMentionsAny(prompt, []string{"flow", "task", "todo", "업무", "회의", "미팅", "추가", "넣어", "등록", "요청", "할 일", "할일"})
+}
+
+func promptMentionsAny(prompt string, keywords []string) bool {
+	normalizedPrompt := strings.ToLower(prompt)
+	for _, keyword := range keywords {
+		if strings.Contains(normalizedPrompt, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func nonEmptyStrings(values []string) []string {
+	result := []string{}
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			result = append(result, strings.TrimSpace(value))
+		}
+	}
+	return result
+}
+
 func buildVisibleContextDescription(visibleContext VisibleContext) string {
 	contextLines := []string{}
 	for _, message := range visibleContext.Messages {
-		speaker := strings.TrimSpace(message.Speaker)
-		if speaker == "" {
-			speaker = "Someone"
-		}
+		speaker := formatSpeakerLabel(message.SpeakerCallingName, message.SpeakerHandle, message.Speaker)
 		text := strings.TrimSpace(message.Text)
 		if text != "" {
 			contextLines = append(contextLines, "- "+speaker+": "+text)
@@ -239,6 +338,50 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 	}
 
 	return "Recent visible conversation context:\n" + strings.Join(contextLines, "\n") + "\n" + historyLine
+}
+
+func formatSpeakerLabel(callingName string, handle string, fullName string) string {
+	primary := strings.TrimSpace(callingName)
+	if primary == "" {
+		primary = strings.TrimSpace(fullName)
+	}
+	if primary == "" {
+		return "Someone"
+	}
+	trimmedHandle := strings.TrimSpace(handle)
+	if trimmedHandle == "" {
+		return primary
+	}
+	return primary + " (@" + trimmedHandle + ")"
+}
+
+func buildSenderAddressingDescription(request AgentTurnRequest) string {
+	callingName := strings.TrimSpace(request.RequesterCallingName)
+	fullName := strings.TrimSpace(request.RequesterName)
+	handle := strings.TrimSpace(request.RequesterHandle)
+	if callingName == "" {
+		callingName = fullName
+	}
+	if callingName == "" && handle == "" {
+		return ""
+	}
+
+	descriptionLines := []string{"You are speaking with the following user:"}
+	if fullName != "" {
+		descriptionLines = append(descriptionLines, "- Full name: "+fullName)
+	}
+	if callingName != "" {
+		descriptionLines = append(descriptionLines, "- Calling name: "+callingName)
+	}
+	if handle != "" {
+		descriptionLines = append(descriptionLines, "- Handle: @"+handle)
+	}
+	descriptionLines = append(descriptionLines,
+		"When addressing them in Korean, call them \""+callingName+" 님\".",
+		"When addressing them in English, call them \""+callingName+"\".",
+		"If multiple participants in this conversation share the same calling name, append \"@handle\" when addressing them to disambiguate.",
+	)
+	return strings.Join(descriptionLines, "\n")
 }
 
 func buildMemoryContext(memoryFacts []memory.MemoryFact) string {

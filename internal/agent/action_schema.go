@@ -145,6 +145,8 @@ func specificToolInputSchema(toolName string) json.RawMessage {
 		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}},"additionalProperties":false}`)
 	case "memory.search":
 		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"additionalProperties":false}`)
+	case "flow.task.add":
+		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"],"additionalProperties":false}`)
 	default:
 		return nil
 	}
