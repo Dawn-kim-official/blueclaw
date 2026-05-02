@@ -170,8 +170,16 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		return defaultDecision
 	}
 	decision.Classification = normalizedClassification
+	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision) {
+		decision.Classification = IntakeClassificationBoundedTask
+		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
+		decision.UserFacingReply = ""
+	}
 	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
 	if normalizedTaskShape == "" {
+		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
+	}
+	if decision.Classification == IntakeClassificationBoundedTask && normalizedTaskShape == TaskShapeApprovalGatedTask {
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
 	}
 	decision.TaskShape = normalizedTaskShape
@@ -254,6 +262,42 @@ func looksLikeLargeRequest(prompt string) bool {
 func looksUnsupported(prompt string) bool {
 	unsupportedWords := []string{"forever", "무기한", "계속 감시", "계속 실행"}
 	return containsAny(prompt, unsupportedWords)
+}
+
+func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decision IntakeDecision) bool {
+	if decision.Classification != IntakeClassificationNeedsConfirmation {
+		return false
+	}
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if looksLikeDestructiveLocalWork(prompt) {
+		return false
+	}
+	if !hasAllTools(request.ToolRegistry, []string{"terminal.run", "file.write", "file.attach"}) {
+		return false
+	}
+	artifactWords := []string{"slide", "slides", "deck", "presentation", "ppt", "pptx", "pdf", "html", "artifact", "attach", "피피티", "파워포인트", "발표자료", "슬라이드", "자료", "첨부", "보내"}
+	return containsAny(prompt, artifactWords) && containsAny(prompt, []string{"create", "make", "write", "generate", "export", "만들", "작성", "생성", "줘", "보내"})
+}
+
+func looksLikeDestructiveLocalWork(prompt string) bool {
+	destructiveWords := []string{"delete", "remove", "drop", "wipe", "format", "rm -rf", "destroy", "삭제", "제거", "초기화", "포맷"}
+	return containsAny(prompt, destructiveWords)
+}
+
+func hasAllTools(toolRegistry *ToolRegistry, toolNames []string) bool {
+	if toolRegistry == nil {
+		return false
+	}
+	availableToolNames := map[string]bool{}
+	for _, toolName := range toolRegistry.ListToolNames() {
+		availableToolNames[toolName] = true
+	}
+	for _, toolName := range toolNames {
+		if !availableToolNames[toolName] {
+			return false
+		}
+	}
+	return true
 }
 
 func containsAny(value string, candidates []string) bool {

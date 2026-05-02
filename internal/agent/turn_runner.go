@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -156,6 +157,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	attachments := []FileAttachment{}
 	toolUseRequirements := deriveToolUseRequirements(request)
 	toolCallCount := 0
+	successfulToolCalls := map[string]turnObservation{}
 	limitPressureWarnings := map[string]bool{}
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterationCount; iteration++ {
 		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, toolCallCount, len(observations)+1, limitPressureWarnings); warning != nil {
@@ -218,6 +220,22 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
 				continue
 			}
+			if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName) {
+				if len(toolUseRequirements) == 0 && len(duplicateObservation.Attachments) == 0 {
+					return agentTurnRunner.completeDuplicateSuccessfulToolCall(taskRun.TaskRunID, stepID, duplicateObservation)
+				}
+				observation := turnObservation{
+					ObservationID: nextObservationID(len(observations) + 1),
+					Action:        "policy",
+					Tool:          strings.TrimSpace(actionDocument.ToolName),
+					Content:       "This exact tool call already succeeded as " + duplicateObservation.ObservationID + ". Use that observation for completionEvidence instead of running it again.",
+					IsError:       true,
+				}
+				observations = append(observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.duplicate_tool_call_rejected", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "duplicate_tool_call "+actionDocument.ToolName, observation.Content)
+				continue
+			}
 			toolCallCount++
 			if toolCallCount > agentTurnRunner.options.MaxToolCallCount {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
@@ -226,6 +244,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput)
 			observations = append(observations, observation)
 			attachments = appendObservationAttachments(attachments, observation)
+			if !observation.IsError {
+				successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)] = observation
+			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
 			toolCallCount++
@@ -497,6 +518,29 @@ func parseToolInputDocument(toolName string, toolInput json.RawMessage) (map[str
 	return inputDocument, nil
 }
 
+func canonicalToolCallKey(toolName string, toolInput json.RawMessage) string {
+	return strings.TrimSpace(toolName) + "\x00" + canonicalToolInput(toolInput)
+}
+
+func canonicalToolInput(toolInput json.RawMessage) string {
+	if len(toolInput) == 0 {
+		return "{}"
+	}
+	var document any
+	if errorValue := json.Unmarshal(toolInput, &document); errorValue != nil {
+		return strings.TrimSpace(string(toolInput))
+	}
+	content, errorValue := json.Marshal(document)
+	if errorValue != nil {
+		return strings.TrimSpace(string(toolInput))
+	}
+	return string(content)
+}
+
+func handlesDuplicateSuccessfulToolCall(toolName string) bool {
+	return strings.TrimSpace(toolName) == "terminal.run"
+}
+
 func stringValue(value any) string {
 	typedValue, isString := value.(string)
 	if !isString {
@@ -591,6 +635,50 @@ func (agentTurnRunner *AgentTurnRunner) appendEvent(taskRunID string, name strin
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, reason string) (AgentTurnResult, error) {
 	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
 	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: DefaultFallbackReply}, nil
+}
+
+func (agentTurnRunner *AgentTurnRunner) completeDuplicateSuccessfulToolCall(taskRunID string, taskStepID string, observation turnObservation) (AgentTurnResult, error) {
+	reply := duplicateSuccessfulToolReply(observation)
+	agentTurnRunner.appendEvent(taskRunID, "agent.duplicate_tool_call_finalized", marshalEventBody(map[string]any{
+		"observationID": observation.ObservationID,
+		"toolName":      observation.Tool,
+	}))
+	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "duplicate_tool_call_finalized "+observation.Tool, reply)
+	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply}, nil
+}
+
+func duplicateSuccessfulToolReply(observation turnObservation) string {
+	if strings.TrimSpace(observation.Tool) == "terminal.run" {
+		if reply := terminalRunDuplicateReply(observation.Content); reply != "" {
+			return reply
+		}
+	}
+	summary := firstNonEmptyString(observation.Summary, observation.Content)
+	return "I completed the requested tool work.\n\n" + truncateText(strings.TrimSpace(summary), 2000)
+}
+
+func terminalRunDuplicateReply(content string) string {
+	var result struct {
+		ExitCode int    `json:"exitCode"`
+		Stdout   string `json:"stdout"`
+		Stderr   string `json:"stderr"`
+		TimedOut bool   `json:"timedOut"`
+	}
+	if errorValue := json.Unmarshal([]byte(content), &result); errorValue != nil {
+		return ""
+	}
+	lines := []string{"명령 실행은 완료됐습니다.", "", "exitCode: " + strconv.Itoa(result.ExitCode)}
+	if strings.TrimSpace(result.Stdout) != "" {
+		lines = append(lines, "", "stdout:", truncateText(strings.TrimSpace(result.Stdout), 2000))
+	}
+	if strings.TrimSpace(result.Stderr) != "" {
+		lines = append(lines, "", "stderr:", truncateText(strings.TrimSpace(result.Stderr), 1000))
+	}
+	if result.TimedOut {
+		lines = append(lines, "", "timedOut: true")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func appendObservationAttachments(attachments []FileAttachment, observation turnObservation) []FileAttachment {
