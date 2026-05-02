@@ -1,4 +1,5 @@
 .cache/
+.artifacts/
 .factory/
 __pycache__/
 *.pyc

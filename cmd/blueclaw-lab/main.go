@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"blueclaw/internal/e2e"
 	"blueclaw/internal/lab"
 )
 
@@ -35,6 +36,8 @@ func main() {
 	configurationPath := flag.String("configuration", "config/lab.example.json", "lab configuration path")
 	mode := flag.String("mode", "", "lab mode override")
 	dryRun := flag.Bool("dry-run", false, "print commands without executing them")
+	virtualScenarioName := flag.String("scenario", "slides", "virtual session scenario name")
+	virtualArtifactDirectoryPath := flag.String("artifact-dir", ".artifacts/blueclaw-e2e", "virtual session artifact directory")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -80,12 +83,50 @@ func main() {
 		errorValue = service.ScenarioMattermost(ctx)
 	case "scenario-slack":
 		errorValue = service.ScenarioSlack(ctx)
+	case "virtual-session":
+		scenarioName, artifactDirectoryPath, parseError := parseVirtualSessionArguments(flag.Args()[1:], *virtualScenarioName, *virtualArtifactDirectoryPath)
+		if parseError != nil {
+			errorValue = parseError
+		} else {
+			errorValue = runVirtualSession(ctx, scenarioName, artifactDirectoryPath)
+		}
 	default:
 		errorValue = fmt.Errorf("unsupported lab command: %s", commandName)
 	}
 	if errorValue != nil {
 		log.Fatal(errorValue)
 	}
+}
+
+func parseVirtualSessionArguments(arguments []string, defaultScenarioName string, defaultArtifactDirectoryPath string) (string, string, error) {
+	flagSet := flag.NewFlagSet("virtual-session", flag.ContinueOnError)
+	scenarioName := flagSet.String("scenario", defaultScenarioName, "virtual session scenario name")
+	artifactDirectoryPath := flagSet.String("artifact-dir", defaultArtifactDirectoryPath, "virtual session artifact directory")
+	if errorValue := flagSet.Parse(arguments); errorValue != nil {
+		return "", "", errorValue
+	}
+	return *scenarioName, *artifactDirectoryPath, nil
+}
+
+func runVirtualSession(ctx context.Context, scenarioName string, artifactDirectoryPath string) error {
+	scenario, errorValue := e2e.BuiltinScenario(scenarioName, artifactDirectoryPath)
+	if errorValue != nil {
+		return errorValue
+	}
+	result, errorValue := e2e.RunVirtualSession(ctx, scenario)
+	if errorValue != nil {
+		return errorValue
+	}
+	fmt.Println("scenario:", result.ScenarioName)
+	fmt.Println("artifactDirectoryPath:", result.ArtifactDirectoryPath)
+	for index, turnResult := range result.TurnResults {
+		fmt.Printf("turn %d taskRunID: %s\n", index+1, turnResult.TaskRunID)
+		fmt.Printf("turn %d reply: %s\n", index+1, turnResult.FinalReply)
+		for _, attachment := range turnResult.Attachments {
+			fmt.Printf("turn %d attachment: %s\n", index+1, attachment.DevicePath)
+		}
+	}
+	return nil
 }
 
 func printExecutableCommand(executableCommand lab.ExecutableCommand) {

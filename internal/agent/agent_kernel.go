@@ -156,19 +156,20 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 
 	turnRequest := AgentTurnRequest{
-		RequesterPersonID:    request.RequesterPersonID,
-		RequesterName:        request.RequesterName,
-		RequesterCallingName: request.RequesterCallingName,
-		RequesterHandle:      request.RequesterHandle,
-		ProfileName:          normalizedAgentProfileName(request.ProfileName),
-		ConversationID:       request.ConversationID,
-		Prompt:               request.Prompt,
-		VisibleContext:       request.VisibleContext,
-		MemoryFacts:          request.MemoryFacts,
-		ToolRegistry:         request.ToolRegistry,
-		InstructionPrompt:    instructionBundle.Prompt,
-		InstructionSources:   append([]InstructionSource{}, instructionBundle.Sources...),
-		SkillDecisions:       append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
+		RequesterPersonID:     request.RequesterPersonID,
+		RequesterName:         request.RequesterName,
+		RequesterCallingName:  request.RequesterCallingName,
+		RequesterHandle:       request.RequesterHandle,
+		ProfileName:           normalizedAgentProfileName(request.ProfileName),
+		ConversationID:        request.ConversationID,
+		Prompt:                request.Prompt,
+		VisibleContext:        request.VisibleContext,
+		MemoryFacts:           request.MemoryFacts,
+		ToolRegistry:          request.ToolRegistry,
+		InstructionPrompt:     instructionBundle.Prompt,
+		InstructionSources:    append([]InstructionSource{}, instructionBundle.Sources...),
+		SkillDecisions:        append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
+		RequiredEvidenceTools: selectedRequiredEvidenceTools(instructionBundle),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
@@ -188,6 +189,31 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	}
 	return result, errorValue
+}
+
+func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string {
+	selectedSkillName := map[string]bool{}
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Status == "selected" {
+			selectedSkillName[skillDecision.Name] = true
+		}
+	}
+	requiredEvidenceTools := []string{}
+	seenToolName := map[string]bool{}
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !selectedSkillName[skillInstruction.Name] {
+			continue
+		}
+		for _, toolName := range skillInstruction.Completion.RequiredEvidenceTools {
+			trimmedToolName := strings.TrimSpace(toolName)
+			if trimmedToolName == "" || seenToolName[trimmedToolName] {
+				continue
+			}
+			seenToolName[trimmedToolName] = true
+			requiredEvidenceTools = append(requiredEvidenceTools, trimmedToolName)
+		}
+	}
+	return requiredEvidenceTools
 }
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultBudgetClass BudgetClass) IntakeDecision {

@@ -21,6 +21,9 @@ activation:
   toolNames: [file.write, file.attach]
 requiredTools:
   - terminal.run
+completion:
+  requiredEvidenceTools:
+    - file.attach
 allowedProfiles: [default]
 triggerHints:
   - slide deck
@@ -64,6 +67,9 @@ Build slides.
 	}
 	if !containsString(skillBundle.RequiredTools, "terminal.run") {
 		t.Fatalf("expected required tools, got %+v", skillBundle.RequiredTools)
+	}
+	if !containsString(skillBundle.Completion.RequiredEvidenceTools, "file.attach") {
+		t.Fatalf("expected completion evidence tools, got %+v", skillBundle.Completion.RequiredEvidenceTools)
 	}
 	if !containsString(skillBundle.AllowedProfiles, "default") {
 		t.Fatalf("expected allowed profiles, got %+v", skillBundle.AllowedProfiles)

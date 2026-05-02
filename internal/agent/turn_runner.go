@@ -33,19 +33,20 @@ type AgentTurnRunner struct {
 }
 
 type AgentTurnRequest struct {
-	RequesterPersonID    string
-	RequesterName        string
-	RequesterCallingName string
-	RequesterHandle      string
-	ProfileName          string
-	ConversationID       string
-	Prompt               string
-	VisibleContext       VisibleContext
-	MemoryFacts          []memory.MemoryFact
-	ToolRegistry         *ToolRegistry
-	InstructionPrompt    string
-	InstructionSources   []InstructionSource
-	SkillDecisions       []SkillSelectionDecision
+	RequesterPersonID     string
+	RequesterName         string
+	RequesterCallingName  string
+	RequesterHandle       string
+	ProfileName           string
+	ConversationID        string
+	Prompt                string
+	VisibleContext        VisibleContext
+	MemoryFacts           []memory.MemoryFact
+	ToolRegistry          *ToolRegistry
+	InstructionPrompt     string
+	InstructionSources    []InstructionSource
+	SkillDecisions        []SkillSelectionDecision
+	RequiredEvidenceTools []string
 }
 
 type AgentTurnResult struct {
@@ -484,14 +485,20 @@ func numberValue(value any) float64 {
 }
 
 func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, observationID string, toolName string, toolInput json.RawMessage) turnObservation {
+	trimmedToolName := strings.TrimSpace(toolName)
 	if toolRegistry == nil {
-		return turnObservation{ObservationID: observationID, Action: "call_tool", Tool: toolName, Content: "tool registry was not configured", IsError: true}
+		return turnObservation{ObservationID: observationID, Action: "call_tool", Tool: trimmedToolName, Content: "tool registry was not configured", IsError: true}
 	}
-	toolResult, errorValue := toolRegistry.InvokeTool(WithTaskRunID(ctx, taskRunID), ToolInvocation{ToolName: toolName, Input: toolInput})
+	agentTurnRunner.appendEvent(taskRunID, "tool."+trimmedToolName+".requested", marshalEventBody(map[string]any{
+		"observationID": observationID,
+		"toolName":      trimmedToolName,
+		"input":         json.RawMessage(toolInput),
+	}))
+	toolResult, errorValue := toolRegistry.InvokeTool(WithTaskRunID(ctx, taskRunID), ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
 		toolResult = ToolResult{Content: errorValue.Error(), IsError: true}
 	}
-	return agentTurnRunner.saveToolObservation(taskRunID, observationID, toolName, toolResult)
+	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolResult)
 }
 
 func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, observationID string, toolName string, toolResult ToolResult) turnObservation {

@@ -26,6 +26,7 @@ func (skillLoader SkillLoader) LoadSkillBundle(directoryPath string) (SkillBundl
 		Category:        metadata.Category,
 		Tags:            metadata.Tags,
 		Activation:      metadata.Activation,
+		Completion:      metadata.Completion,
 		RequiredTools:   metadata.RequiredTools,
 		AllowedProfiles: metadata.AllowedProfiles,
 		TriggerHints:    metadata.TriggerHints,
@@ -43,6 +44,7 @@ type skillMetadata struct {
 	Category        string
 	Tags            []string
 	Activation      SkillActivation
+	Completion      SkillCompletion
 	RequiredTools   []string
 	AllowedProfiles []string
 	TriggerHints    []string
@@ -86,7 +88,7 @@ func parseSkillFrontmatter(frontmatter string) skillMetadata {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		if value == "" {
-			if section == "activation" && isIndentedLine {
+			if (section == "activation" || section == "completion") && isIndentedLine {
 				listKey = key
 				continue
 			}
@@ -94,8 +96,13 @@ func parseSkillFrontmatter(frontmatter string) skillMetadata {
 			listKey = key
 			continue
 		}
-		if section == "activation" {
+		if section == "activation" && isIndentedLine {
 			metadata = setSkillActivationValue(metadata, key, value)
+			listKey = key
+			continue
+		}
+		if section == "completion" && isIndentedLine {
+			metadata = setSkillCompletionValue(metadata, key, value)
 			listKey = key
 			continue
 		}
@@ -144,10 +151,22 @@ func setSkillActivationValue(metadata skillMetadata, key string, value string) s
 	return metadata
 }
 
+func setSkillCompletionValue(metadata skillMetadata, key string, value string) skillMetadata {
+	values := parseSkillList(value)
+	switch key {
+	case "requiredEvidenceTools":
+		metadata.Completion.RequiredEvidenceTools = append(metadata.Completion.RequiredEvidenceTools, values...)
+	}
+	return metadata
+}
+
 func appendSkillFrontmatterListValue(metadata skillMetadata, section string, listKey string, value string) skillMetadata {
 	values := parseSkillList(value)
 	if section == "activation" {
 		return setSkillActivationValue(metadata, listKey, strings.Join(values, ","))
+	}
+	if section == "completion" {
+		return setSkillCompletionValue(metadata, listKey, strings.Join(values, ","))
 	}
 	return setSkillMetadataValue(metadata, listKey, strings.Join(values, ","))
 }

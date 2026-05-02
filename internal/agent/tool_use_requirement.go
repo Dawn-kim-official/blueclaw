@@ -12,7 +12,7 @@ type toolUseRequirement struct {
 }
 
 func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
-	requirements := []toolUseRequirement{}
+	requirements := evidenceToolRequirements(request)
 	if requestRequiresBrowserScreenshot(request) {
 		requirements = append(requirements, toolUseRequirement{
 			ToolName:           "browser.screenshot",
@@ -25,6 +25,24 @@ func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
 		requirements = append(requirements, toolUseRequirement{
 			ToolPrefix: "browser.",
 			Reason:     "the request asks for browser state or browser control",
+		})
+	}
+	return requirements
+}
+
+func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
+	requirements := []toolUseRequirement{}
+	seenToolName := map[string]bool{}
+	for _, toolName := range request.RequiredEvidenceTools {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" || seenToolName[trimmedToolName] {
+			continue
+		}
+		seenToolName[trimmedToolName] = true
+		requirements = append(requirements, toolUseRequirement{
+			ToolName:           trimmedToolName,
+			Reason:             "selected skill requires completion evidence",
+			RequiresAttachment: strings.HasSuffix(trimmedToolName, ".attach"),
 		})
 	}
 	return requirements
