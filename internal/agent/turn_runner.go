@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,6 +46,7 @@ type AgentTurnRequest struct {
 	VisibleContext             VisibleContext
 	MemoryFacts                []memory.MemoryFact
 	ToolRegistry               *ToolRegistry
+	WorkspaceRootPath          string
 	InstructionPrompt          string
 	InstructionSources         []InstructionSource
 	SkillDecisions             []SkillSelectionDecision
@@ -90,6 +94,11 @@ type completionGateResult struct {
 	IsSatisfied bool
 	Message     string
 	Attachments []FileAttachment
+}
+
+type autoAttachmentResult struct {
+	Observation turnObservation
+	Reference   completionEvidenceReference
 }
 
 func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel llm.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
@@ -170,6 +179,14 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		switch strings.TrimSpace(actionDocument.Action) {
 		case "final_reply":
 			completionGateResult := validateCompletionGate(toolUseRequirements, observations, actionDocument)
+			if !completionGateResult.IsSatisfied {
+				if autoAttachment := agentTurnRunner.autoAttachRequiredArtifacts(turnContext, request, taskRun.TaskRunID, nextObservationID(len(observations)+1), toolUseRequirements); autoAttachment != nil {
+					observations = append(observations, autoAttachment.Observation)
+					attachments = appendObservationAttachments(attachments, autoAttachment.Observation)
+					actionDocument.CompletionEvidence = append(actionDocument.CompletionEvidence, autoAttachment.Reference)
+					completionGateResult = validateCompletionGate(toolUseRequirements, observations, actionDocument)
+				}
+			}
 			if !completionGateResult.IsSatisfied {
 				observation := turnObservation{
 					ObservationID: nextObservationID(len(observations) + 1),
@@ -743,6 +760,122 @@ func completionRequirementsHaveEvidence(requirements []toolUseRequirement, obser
 		}
 	}
 	return true
+}
+
+func (agentTurnRunner *AgentTurnRunner) autoAttachRequiredArtifacts(ctx context.Context, request AgentTurnRequest, taskRunID string, observationID string, requirements []toolUseRequirement) *autoAttachmentResult {
+	if request.ToolRegistry == nil || !request.ToolRegistry.IsAllowed("file.attach") {
+		return nil
+	}
+	suffixes := requiredFileAttachmentSuffixes(requirements)
+	if len(suffixes) == 0 {
+		return nil
+	}
+	paths, errorValue := findRequiredWorkspaceAttachmentPaths(request.WorkspaceRootPath, suffixes)
+	if errorValue != nil || len(paths) == 0 {
+		return nil
+	}
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolRegistry, taskRunID, observationID, "file.attach", MarshalToolInput(map[string]any{"paths": paths}))
+	if observation.IsError || len(observation.Attachments) == 0 {
+		return nil
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.completion_auto_evidence", marshalEventBody(map[string]any{
+		"observationID": observation.ObservationID,
+		"toolName":      "file.attach",
+		"paths":         paths,
+	}))
+	return &autoAttachmentResult{
+		Observation: observation,
+		Reference: completionEvidenceReference{
+			ObservationID: observation.ObservationID,
+			ToolName:      "file.attach",
+		},
+	}
+}
+
+func requiredFileAttachmentSuffixes(requirements []toolUseRequirement) []string {
+	suffixes := []string{}
+	seenSuffix := map[string]bool{}
+	for _, requirement := range requirements {
+		if requirement.ToolName != "file.attach" || !requirement.RequiresAttachment {
+			continue
+		}
+		for _, suffix := range requirement.AttachmentSuffixes {
+			trimmedSuffix := strings.TrimSpace(suffix)
+			if trimmedSuffix == "" || seenSuffix[trimmedSuffix] {
+				continue
+			}
+			seenSuffix[trimmedSuffix] = true
+			suffixes = append(suffixes, trimmedSuffix)
+		}
+	}
+	return suffixes
+}
+
+func findRequiredWorkspaceAttachmentPaths(workspaceRootPath string, suffixes []string) ([]string, error) {
+	searchRootPath := attachmentSearchRootPath(workspaceRootPath)
+	if searchRootPath == "" {
+		return nil, errors.New("workspace root path is not configured")
+	}
+	candidatesBySuffix := map[string][]workspaceAttachmentCandidate{}
+	errorValue := filepath.WalkDir(searchRootPath, func(path string, directoryEntry os.DirEntry, walkError error) error {
+		if walkError != nil {
+			return nil
+		}
+		if directoryEntry.IsDir() {
+			return nil
+		}
+		for _, suffix := range suffixes {
+			if !strings.HasSuffix(path, suffix) {
+				continue
+			}
+			fileInformation, errorValue := directoryEntry.Info()
+			if errorValue != nil {
+				continue
+			}
+			candidatesBySuffix[suffix] = append(candidatesBySuffix[suffix], workspaceAttachmentCandidate{Path: path, ModifiedAt: fileInformation.ModTime()})
+		}
+		return nil
+	})
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	return newestAttachmentPaths(candidatesBySuffix, suffixes), nil
+}
+
+type workspaceAttachmentCandidate struct {
+	Path       string
+	ModifiedAt time.Time
+}
+
+func attachmentSearchRootPath(workspaceRootPath string) string {
+	trimmedWorkspaceRootPath := strings.TrimSpace(workspaceRootPath)
+	if trimmedWorkspaceRootPath == "" {
+		return ""
+	}
+	tmpPath := filepath.Join(trimmedWorkspaceRootPath, ".blueclaw", "tmp")
+	if information, errorValue := os.Stat(tmpPath); errorValue == nil && information.IsDir() {
+		return tmpPath
+	}
+	return trimmedWorkspaceRootPath
+}
+
+func newestAttachmentPaths(candidatesBySuffix map[string][]workspaceAttachmentCandidate, suffixes []string) []string {
+	paths := []string{}
+	seenPath := map[string]bool{}
+	for _, suffix := range suffixes {
+		candidates := append([]workspaceAttachmentCandidate{}, candidatesBySuffix[suffix]...)
+		if len(candidates) == 0 {
+			return nil
+		}
+		sort.Slice(candidates, func(leftIndex int, rightIndex int) bool {
+			return candidates[leftIndex].ModifiedAt.After(candidates[rightIndex].ModifiedAt)
+		})
+		if !seenPath[candidates[0].Path] {
+			seenPath[candidates[0].Path] = true
+			paths = append(paths, candidates[0].Path)
+		}
+	}
+	return paths
 }
 
 func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {

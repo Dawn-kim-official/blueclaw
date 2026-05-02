@@ -139,6 +139,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		VisibleContext:       request.VisibleContext,
 		MemoryFacts:          request.MemoryFacts,
 		ToolRegistry:         request.ToolRegistry,
+		WorkspaceRootPath:    request.WorkspaceRootPath,
 	})
 }
 
@@ -166,6 +167,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		VisibleContext:             request.VisibleContext,
 		MemoryFacts:                request.MemoryFacts,
 		ToolRegistry:               request.ToolRegistry,
+		WorkspaceRootPath:          request.WorkspaceRootPath,
 		InstructionPrompt:          instructionBundle.Prompt,
 		InstructionSources:         append([]InstructionSource{}, instructionBundle.Sources...),
 		SkillDecisions:             append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),

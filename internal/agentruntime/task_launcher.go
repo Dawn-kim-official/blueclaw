@@ -104,6 +104,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		VisibleContext:       request.VisibleContext,
 		MemoryFacts:          memoryFacts,
 		ToolRegistry:         toolRegistry,
+		WorkspaceRootPath:    taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 	})
 	if errorValue != nil {
 		return TaskLaunchResult{}, errorValue

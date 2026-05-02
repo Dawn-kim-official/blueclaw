@@ -43,6 +43,7 @@ type AgentRequest struct {
 	VisibleContext       VisibleContext
 	MemoryFacts          []memory.MemoryFact
 	ToolRegistry         *ToolRegistry
+	WorkspaceRootPath    string
 	InstructionPrompt    string
 }
 
