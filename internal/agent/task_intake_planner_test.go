@@ -155,6 +155,65 @@ func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 	}
 }
 
+func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"quick_reply","taskShape":"immediate_reply","budgetClass":"five_minutes","reason":"direct answer","userFacingReply":""}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finalReplyDocument("deck created"),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
+		return InstructionBundle{
+			Skills: []SkillInstruction{{
+				Name:          "simple-slides",
+				Prompt:        "Create and attach PPTX files.",
+				TriggerHints:  []string{"피피티"},
+				RequiredTools: []string{"terminal.run", "file.write", "file.attach"},
+				Source:        InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+			}},
+		}
+	})
+	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write", "file.attach"})
+	for _, toolName := range toolRegistry.ListToolNames() {
+		currentToolName := toolName
+		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolResult{Content: "ok"}, nil
+		})
+	}
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected promoted bounded task: %v", errorValue)
+	}
+	if result.FinalReply != "deck created" {
+		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	}
+	requestContent := joinedMessageContent(replyLanguageModel.requests[0].Messages)
+	if !strings.Contains(requestContent, "Available tools") {
+		t.Fatal("expected promoted request to expose tools")
+	}
+	if !strings.Contains(requestContent, "Create and attach PPTX files.") {
+		t.Fatal("expected selected skill instructions")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
+		t.Fatal("expected promoted bounded task intake event")
+	}
+}
+
+func joinedMessageContent(messages []llm.Message) string {
+	parts := []string{}
+	for _, message := range messages {
+		parts = append(parts, message.Content)
+	}
+	return strings.Join(parts, "\n")
+}
+
 type kernelIntakeTestServices struct {
 	kernel           *AgentKernel
 	taskEventService *task.TaskEventService

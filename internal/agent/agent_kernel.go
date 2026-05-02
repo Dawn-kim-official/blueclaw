@@ -147,6 +147,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	instructionBundle = selectInstructionBundleForRequest(instructionBundle, request)
 	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
 	intakeDecision := intakePlanner.Plan(responseContext, request)
+	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultBudgetClass)
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
 		return agentKernel.completeIntakeOnlyRequest(request, intakeDecision, task.TaskStatusWaitingUserInput)
 	}
@@ -187,6 +188,33 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	}
 	return result, errorValue
+}
+
+func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultBudgetClass BudgetClass) IntakeDecision {
+	if decision.Classification != IntakeClassificationQuickReply || !hasSelectedSkillWithRequiredTools(instructionBundle) {
+		return decision
+	}
+	decision.Classification = IntakeClassificationBoundedTask
+	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply {
+		decision.TaskShape = TaskShapeResearchTask
+	}
+	decision.BudgetClass = LargerBudgetClass(decision.BudgetClass, defaultBudgetClass)
+	decision.Reason = "selected skill requires bounded tool execution"
+	decision.UserFacingReply = ""
+	return decision
+}
+
+func hasSelectedSkillWithRequiredTools(instructionBundle InstructionBundle) bool {
+	requiredToolCountBySkillName := map[string]int{}
+	for _, skillInstruction := range instructionBundle.Skills {
+		requiredToolCountBySkillName[skillInstruction.Name] = len(skillInstruction.RequiredTools)
+	}
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Status == "selected" && requiredToolCountBySkillName[skillDecision.Name] > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 type VisibleContext struct {
