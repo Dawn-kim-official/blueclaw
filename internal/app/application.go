@@ -119,6 +119,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	toolCatalogBuilder.UseTerminalService(terminalService)
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)

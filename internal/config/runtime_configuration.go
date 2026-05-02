@@ -151,6 +151,8 @@ type TerminalConfiguration struct {
 	DeniedExecutableNames  []string `json:"deniedExecutableNames"`
 	DeniedPathPrefixes     []string `json:"deniedPathPrefixes"`
 	TimeoutSecond          int      `json:"timeoutSecond"`
+	OutputMaxBytes         int      `json:"outputMaxBytes"`
+	SessionMaxCount        int      `json:"sessionMaxCount"`
 	AllowNetwork           bool     `json:"allowNetwork"`
 	AllowInteractiveShell  bool     `json:"allowInteractiveShell"`
 }

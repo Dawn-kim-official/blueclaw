@@ -84,7 +84,7 @@
     }
   ],
   "terminal": {
-    "mode": "native",
+    "mode": "firecrackerGuest",
     "workspaceRootPath": "/workspace",
     "allowedExecutableNames": [
       "bash",
@@ -160,6 +160,8 @@
       "/srv"
     ],
     "timeoutSecond": 120,
+    "outputMaxBytes": 32768,
+    "sessionMaxCount": 4,
     "allowNetwork": true,
     "allowInteractiveShell": true
   },

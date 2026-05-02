@@ -487,7 +487,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	if toolRegistry == nil {
 		return turnObservation{ObservationID: observationID, Action: "call_tool", Tool: toolName, Content: "tool registry was not configured", IsError: true}
 	}
-	toolResult, errorValue := toolRegistry.InvokeTool(ctx, ToolInvocation{ToolName: toolName, Input: toolInput})
+	toolResult, errorValue := toolRegistry.InvokeTool(WithTaskRunID(ctx, taskRunID), ToolInvocation{ToolName: toolName, Input: toolInput})
 	if errorValue != nil {
 		toolResult = ToolResult{Content: errorValue.Error(), IsError: true}
 	}

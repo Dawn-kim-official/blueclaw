@@ -140,7 +140,7 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		logger = slog.Default()
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"conversation.history", "memory.search", "terminal.run", "file.write", "file.attach"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach"})
 
 	return &ConnectorRuntime{
 		identityService:    identityService,
@@ -199,7 +199,7 @@ func (connectorRuntime *ConnectorRuntime) UseCapabilityTools(capabilityClient ca
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNames(allowedToolNames []string) {
 	trimmedToolNames := trimNonEmptyStrings(allowedToolNames)
 	if len(trimmedToolNames) == 0 {
-		trimmedToolNames = []string{"conversation.history", "memory.search", "terminal.run", "file.write", "file.attach"}
+		trimmedToolNames = []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach"}
 	}
 	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, trimmedToolNames)
 }

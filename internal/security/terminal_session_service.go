@@ -4,17 +4,32 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
 	"blueclaw/internal/config"
+	"github.com/creack/pty"
 )
 
 type CommandResult struct {
 	ExitCode int    `json:"exitCode"`
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
+	TimedOut bool   `json:"timedOut"`
+}
+
+type TerminalSessionStatus struct {
+	SessionID     string `json:"sessionID"`
+	Status        string `json:"status"`
+	ExitCode      int    `json:"exitCode"`
+	Stdout        string `json:"stdout,omitempty"`
+	Stderr        string `json:"stderr,omitempty"`
+	RecentOutput  string `json:"recentOutput,omitempty"`
+	OutputTrimmed bool   `json:"outputTrimmed,omitempty"`
 }
 
 type TerminalSession struct {
@@ -24,8 +39,13 @@ type TerminalSession struct {
 		Write([]byte) (int, error)
 		Close() error
 	}
-	standardOutputBuffer *bytes.Buffer
-	standardErrorBuffer  *bytes.Buffer
+	cancelFunction       context.CancelFunc
+	ptyFile              *os.File
+	standardOutputBuffer *outputRingBuffer
+	standardErrorBuffer  *outputRingBuffer
+	mutex                sync.RWMutex
+	isExited             bool
+	exitCode             int
 }
 
 type TerminalSessionService struct {
@@ -53,6 +73,9 @@ func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest 
 	command := exec.CommandContext(ctx, commandPlan.ExecutablePath, commandPlan.Arguments...)
 	command.Dir = commandPlan.WorkingDirectoryPath
 	command.Env = mapEnvironmentVariables(commandPlan.EnvironmentVariables)
+	if strings.TrimSpace(commandPlan.Stdin) != "" {
+		command.Stdin = strings.NewReader(commandPlan.Stdin)
+	}
 
 	var standardOutputBuffer bytes.Buffer
 	var standardErrorBuffer bytes.Buffer
@@ -63,8 +86,9 @@ func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest 
 	if ctx.Err() == context.DeadlineExceeded {
 		return CommandResult{
 			ExitCode: -1,
-			Stdout:   standardOutputBuffer.String(),
-			Stderr:   standardErrorBuffer.String(),
+			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+			TimedOut: true,
 		}, errors.New("command timed out")
 	}
 
@@ -76,15 +100,15 @@ func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest 
 	if errorValue != nil {
 		return CommandResult{
 			ExitCode: exitCode,
-			Stdout:   standardOutputBuffer.String(),
-			Stderr:   standardErrorBuffer.String(),
+			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
 		}, errorValue
 	}
 
 	return CommandResult{
 		ExitCode: exitCode,
-		Stdout:   standardOutputBuffer.String(),
-		Stderr:   standardErrorBuffer.String(),
+		Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
+		Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
 	}, nil
 }
 
@@ -94,49 +118,42 @@ func (terminalSessionService *TerminalSessionService) StartInteractiveSession(co
 	if errorValue != nil {
 		return "", errorValue
 	}
+	if terminalSessionService.sessionCount() >= terminalSessionService.sessionMaxCount() {
+		return "", errors.New("terminal session limit reached")
+	}
 
-	ctx, _ := context.WithTimeout(context.Background(), maxDuration(commandPlan.Timeout, 30*time.Minute))
+	ctx, cancelFunction := context.WithTimeout(context.Background(), maxDuration(commandPlan.Timeout, 30*time.Minute))
 	command := exec.CommandContext(ctx, commandPlan.ExecutablePath, commandPlan.Arguments...)
 	command.Dir = commandPlan.WorkingDirectoryPath
 	command.Env = mapEnvironmentVariables(commandPlan.EnvironmentVariables)
 
-	standardInputWriter, errorValue := command.StdinPipe()
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	standardOutputPipe, errorValue := command.StdoutPipe()
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	standardErrorPipe, errorValue := command.StderrPipe()
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	standardOutputBuffer := &bytes.Buffer{}
-	standardErrorBuffer := &bytes.Buffer{}
-
-	errorValue = command.Start()
-	if errorValue != nil {
-		return "", errorValue
-	}
-
-	go copyBuffer(standardOutputBuffer, standardOutputPipe)
-	go copyBuffer(standardErrorBuffer, standardErrorPipe)
-
 	sessionID := newIdentifier()
-	terminalSessionService.mutex.Lock()
-	terminalSessionService.terminalSessions[sessionID] = &TerminalSession{
+	terminalSession := &TerminalSession{
 		SessionID:            sessionID,
 		command:              command,
-		standardInputWriter:  standardInputWriter,
-		standardOutputBuffer: standardOutputBuffer,
-		standardErrorBuffer:  standardErrorBuffer,
+		cancelFunction:       cancelFunction,
+		standardOutputBuffer: newOutputRingBuffer(terminalSessionService.outputMaxBytes()),
+		standardErrorBuffer:  newOutputRingBuffer(terminalSessionService.outputMaxBytes()),
+		exitCode:             -1,
 	}
+	if commandPlan.IsPTY {
+		errorValue = terminalSession.startPTY(commandPlan)
+	} else {
+		errorValue = terminalSession.startPipe(commandPlan)
+	}
+	if errorValue != nil {
+		cancelFunction()
+		return "", errorValue
+	}
+	go terminalSession.wait()
+
+	terminalSessionService.mutex.Lock()
+	terminalSessionService.terminalSessions[sessionID] = terminalSession
 	terminalSessionService.mutex.Unlock()
 
+	if strings.TrimSpace(commandPlan.Stdin) != "" {
+		_, _ = terminalSession.standardInputWriter.Write([]byte(commandPlan.Stdin + "\n"))
+	}
 	return sessionID, nil
 }
 
@@ -154,10 +171,18 @@ func (terminalSessionService *TerminalSessionService) WriteSessionInput(sessionI
 	}
 
 	time.Sleep(50 * time.Millisecond)
-	return CommandResult{
-		Stdout: terminalSession.standardOutputBuffer.String(),
-		Stderr: terminalSession.standardErrorBuffer.String(),
-	}, nil
+	status := terminalSession.status()
+	return CommandResult{ExitCode: status.ExitCode, Stdout: status.Stdout, Stderr: status.Stderr}, nil
+}
+
+func (terminalSessionService *TerminalSessionService) StatusSession(sessionID string) (TerminalSessionStatus, error) {
+	terminalSessionService.mutex.RLock()
+	terminalSession, isFound := terminalSessionService.terminalSessions[sessionID]
+	terminalSessionService.mutex.RUnlock()
+	if !isFound {
+		return TerminalSessionStatus{}, errors.New("terminal session not found")
+	}
+	return terminalSession.status(), nil
 }
 
 func (terminalSessionService *TerminalSessionService) CloseSession(sessionID string) error {
@@ -170,12 +195,108 @@ func (terminalSessionService *TerminalSessionService) CloseSession(sessionID str
 	}
 
 	_ = terminalSession.standardInputWriter.Close()
+	if terminalSession.ptyFile != nil {
+		_ = terminalSession.ptyFile.Close()
+	}
 	if terminalSession.command.Process != nil {
 		_ = terminalSession.command.Process.Kill()
+	}
+	if terminalSession.cancelFunction != nil {
+		terminalSession.cancelFunction()
 	}
 
 	delete(terminalSessionService.terminalSessions, sessionID)
 	return nil
+}
+
+func (terminalSession *TerminalSession) startPipe(commandPlan CommandPlan) error {
+	standardInputWriter, errorValue := terminalSession.command.StdinPipe()
+	if errorValue != nil {
+		return errorValue
+	}
+	standardOutputPipe, errorValue := terminalSession.command.StdoutPipe()
+	if errorValue != nil {
+		return errorValue
+	}
+	standardErrorPipe, errorValue := terminalSession.command.StderrPipe()
+	if errorValue != nil {
+		return errorValue
+	}
+	terminalSession.standardInputWriter = standardInputWriter
+	if errorValue = terminalSession.command.Start(); errorValue != nil {
+		return errorValue
+	}
+	go copyBuffer(terminalSession.standardOutputBuffer, standardOutputPipe)
+	go copyBuffer(terminalSession.standardErrorBuffer, standardErrorPipe)
+	return nil
+}
+
+func (terminalSession *TerminalSession) startPTY(commandPlan CommandPlan) error {
+	ptyFile, errorValue := pty.Start(terminalSession.command)
+	if errorValue != nil {
+		return errorValue
+	}
+	terminalSession.ptyFile = ptyFile
+	terminalSession.standardInputWriter = ptyFile
+	go copyBuffer(terminalSession.standardOutputBuffer, ptyFile)
+	_ = commandPlan
+	return nil
+}
+
+func (terminalSession *TerminalSession) wait() {
+	errorValue := terminalSession.command.Wait()
+	exitCode := 0
+	if terminalSession.command.ProcessState != nil {
+		exitCode = terminalSession.command.ProcessState.ExitCode()
+	} else if errorValue != nil {
+		exitCode = -1
+	}
+	terminalSession.mutex.Lock()
+	terminalSession.exitCode = exitCode
+	terminalSession.isExited = true
+	terminalSession.mutex.Unlock()
+}
+
+func (terminalSession *TerminalSession) status() TerminalSessionStatus {
+	terminalSession.mutex.RLock()
+	isExited := terminalSession.isExited
+	exitCode := terminalSession.exitCode
+	terminalSession.mutex.RUnlock()
+	status := "running"
+	if isExited {
+		status = "exited"
+	}
+	stdout := terminalSession.standardOutputBuffer.String()
+	stderr := terminalSession.standardErrorBuffer.String()
+	return TerminalSessionStatus{
+		SessionID:     terminalSession.SessionID,
+		Status:        status,
+		ExitCode:      exitCode,
+		Stdout:        stdout,
+		Stderr:        stderr,
+		RecentOutput:  stdout + stderr,
+		OutputTrimmed: terminalSession.standardOutputBuffer.IsTrimmed() || terminalSession.standardErrorBuffer.IsTrimmed(),
+	}
+}
+
+func (terminalSessionService *TerminalSessionService) sessionCount() int {
+	terminalSessionService.mutex.RLock()
+	defer terminalSessionService.mutex.RUnlock()
+	return len(terminalSessionService.terminalSessions)
+}
+
+func (terminalSessionService *TerminalSessionService) sessionMaxCount() int {
+	if terminalSessionService.commandGuardrailService.terminalConfiguration.SessionMaxCount <= 0 {
+		return 4
+	}
+	return terminalSessionService.commandGuardrailService.terminalConfiguration.SessionMaxCount
+}
+
+func (terminalSessionService *TerminalSessionService) outputMaxBytes() int {
+	if terminalSessionService.commandGuardrailService.terminalConfiguration.OutputMaxBytes <= 0 {
+		return 32768
+	}
+	return terminalSessionService.commandGuardrailService.terminalConfiguration.OutputMaxBytes
 }
 
 func mapEnvironmentVariables(environmentVariables map[string]string) []string {
@@ -186,8 +307,52 @@ func mapEnvironmentVariables(environmentVariables map[string]string) []string {
 	return mappedEnvironmentVariables
 }
 
-func copyBuffer(buffer *bytes.Buffer, reader interface{ Read([]byte) (int, error) }) {
-	_, _ = buffer.ReadFrom(reader)
+func copyBuffer(buffer interface{ Write([]byte) (int, error) }, reader interface{ Read([]byte) (int, error) }) {
+	_, _ = io.Copy(buffer, reader)
+}
+
+type outputRingBuffer struct {
+	mutex     sync.RWMutex
+	maxBytes  int
+	content   []byte
+	isTrimmed bool
+}
+
+func newOutputRingBuffer(maxBytes int) *outputRingBuffer {
+	if maxBytes <= 0 {
+		maxBytes = 32768
+	}
+	return &outputRingBuffer{maxBytes: maxBytes}
+}
+
+func (outputRingBuffer *outputRingBuffer) Write(value []byte) (int, error) {
+	outputRingBuffer.mutex.Lock()
+	defer outputRingBuffer.mutex.Unlock()
+	outputRingBuffer.content = append(outputRingBuffer.content, value...)
+	if len(outputRingBuffer.content) > outputRingBuffer.maxBytes {
+		outputRingBuffer.content = outputRingBuffer.content[len(outputRingBuffer.content)-outputRingBuffer.maxBytes:]
+		outputRingBuffer.isTrimmed = true
+	}
+	return len(value), nil
+}
+
+func (outputRingBuffer *outputRingBuffer) String() string {
+	outputRingBuffer.mutex.RLock()
+	defer outputRingBuffer.mutex.RUnlock()
+	return string(outputRingBuffer.content)
+}
+
+func (outputRingBuffer *outputRingBuffer) IsTrimmed() bool {
+	outputRingBuffer.mutex.RLock()
+	defer outputRingBuffer.mutex.RUnlock()
+	return outputRingBuffer.isTrimmed
+}
+
+func truncateString(value string, maxBytes int) string {
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	return value[:maxBytes]
 }
 
 func maxDuration(left time.Duration, right time.Duration) time.Duration {

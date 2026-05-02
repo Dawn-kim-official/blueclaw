@@ -36,6 +36,10 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 		return CommandPlan{}, errorValue
 	}
 
+	if strings.TrimSpace(commandRequest.Command) != "" || commandRequest.IsPTY {
+		return commandGuardrailService.buildBashCommandPlan(commandRequest, workingDirectoryPath, workspaceRootPath)
+	}
+
 	resolvedExecutablePath, errorValue := commandGuardrailService.resolveExecutablePath(commandRequest.ExecutableName)
 	if errorValue != nil {
 		return CommandPlan{}, errorValue
@@ -65,7 +69,7 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 		Arguments:            append([]string{}, commandRequest.Arguments...),
 		WorkingDirectoryPath: workingDirectoryPath,
 		EnvironmentVariables: sanitizeEnvironmentVariables(commandRequest.EnvironmentVariables, workspaceRootPath),
-		Timeout:              time.Duration(commandGuardrailService.timeoutSecond()) * time.Second,
+		Timeout:              time.Duration(commandGuardrailService.timeoutSecond(commandRequest.TimeoutSecond)) * time.Second,
 	}
 
 	if commandGuardrailService.terminalConfiguration.Mode == "sandbox" {
@@ -82,6 +86,37 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 	return commandPlan, nil
 }
 
+func (commandGuardrailService CommandGuardrailService) buildBashCommandPlan(commandRequest CommandRequest, workingDirectoryPath string, workspaceRootPath string) (CommandPlan, error) {
+	if commandRequest.IsInteractive && !commandGuardrailService.terminalConfiguration.AllowInteractiveShell {
+		return CommandPlan{}, errors.New("interactive shell is disabled")
+	}
+	if errorValue := commandGuardrailService.validateCommandString(commandRequest.Command, workingDirectoryPath, workspaceRootPath); errorValue != nil {
+		return CommandPlan{}, errorValue
+	}
+	resolvedExecutablePath, errorValue := commandGuardrailService.resolveExecutablePath("bash")
+	if errorValue != nil {
+		return CommandPlan{}, errorValue
+	}
+	if commandGuardrailService.terminalConfiguration.Mode != "firecrackerGuest" {
+		if errorValue := commandGuardrailService.validateExecutable(resolvedExecutablePath); errorValue != nil {
+			return CommandPlan{}, errorValue
+		}
+	}
+	arguments := []string{"--noprofile", "--norc", "-s"}
+	if commandRequest.IsPTY {
+		arguments = []string{"-i"}
+	}
+	return CommandPlan{
+		ExecutablePath:       resolvedExecutablePath,
+		Arguments:            arguments,
+		Stdin:                joinCommandInput(commandRequest.Command, commandRequest.Stdin),
+		WorkingDirectoryPath: workingDirectoryPath,
+		EnvironmentVariables: sanitizeEnvironmentVariables(commandRequest.EnvironmentVariables, workspaceRootPath),
+		Timeout:              time.Duration(commandGuardrailService.timeoutSecond(commandRequest.TimeoutSecond)) * time.Second,
+		IsPTY:                commandRequest.IsPTY,
+	}, nil
+}
+
 func (commandGuardrailService CommandGuardrailService) sandboxProvider() string {
 	if strings.TrimSpace(commandGuardrailService.terminalConfiguration.SandboxProvider) == "" {
 		return "bubblewrap"
@@ -90,11 +125,21 @@ func (commandGuardrailService CommandGuardrailService) sandboxProvider() string 
 	return commandGuardrailService.terminalConfiguration.SandboxProvider
 }
 
-func (commandGuardrailService CommandGuardrailService) timeoutSecond() int {
+func (commandGuardrailService CommandGuardrailService) timeoutSecond(requestedTimeoutSecond int) int {
+	if requestedTimeoutSecond > 0 && requestedTimeoutSecond < commandGuardrailService.maxTimeoutSecond() {
+		return requestedTimeoutSecond
+	}
 	if commandGuardrailService.terminalConfiguration.TimeoutSecond <= 0 {
 		return 120
 	}
 
+	return commandGuardrailService.terminalConfiguration.TimeoutSecond
+}
+
+func (commandGuardrailService CommandGuardrailService) maxTimeoutSecond() int {
+	if commandGuardrailService.terminalConfiguration.TimeoutSecond <= 0 {
+		return 120
+	}
 	return commandGuardrailService.terminalConfiguration.TimeoutSecond
 }
 
@@ -198,6 +243,77 @@ func (commandGuardrailService CommandGuardrailService) validateArgumentPaths(arg
 	}
 
 	return nil
+}
+
+func (commandGuardrailService CommandGuardrailService) validateCommandString(command string, workingDirectoryPath string, workspaceRootPath string) error {
+	for _, token := range commandTokens(command) {
+		if commandGuardrailService.isDeniedExecutableToken(token) {
+			return errors.New("command references a denied executable")
+		}
+		if !looksLikePath(token) {
+			continue
+		}
+		resolvedPath, errorValue := resolvePathArgument(token, workingDirectoryPath)
+		if errorValue != nil {
+			return errorValue
+		}
+		if !isWithinRootPath(workspaceRootPath, resolvedPath) {
+			return errors.New("command path escapes workspace root")
+		}
+		for _, deniedPathPrefix := range commandGuardrailService.terminalConfiguration.DeniedPathPrefixes {
+			if strings.HasPrefix(resolvedPath, deniedPathPrefix) {
+				return errors.New("command path targets a denied system path")
+			}
+		}
+	}
+	return nil
+}
+
+func (commandGuardrailService CommandGuardrailService) isDeniedExecutableToken(token string) bool {
+	executableName := filepath.Base(strings.TrimSpace(token))
+	for _, deniedExecutableName := range commandGuardrailService.terminalConfiguration.DeniedExecutableNames {
+		if executableName == deniedExecutableName {
+			return true
+		}
+	}
+	return false
+}
+
+func commandTokens(command string) []string {
+	replacer := strings.NewReplacer(
+		"\n", " ",
+		";", " ",
+		"&&", " ",
+		"||", " ",
+		"|", " ",
+		"(", " ",
+		")", " ",
+		"=", " ",
+		"<", " ",
+		">", " ",
+	)
+	fields := strings.Fields(replacer.Replace(command))
+	tokens := []string{}
+	for _, field := range fields {
+		token := strings.Trim(field, `"'`)
+		if token != "" {
+			tokens = append(tokens, token)
+		}
+	}
+	return tokens
+}
+
+func joinCommandInput(command string, stdin string) string {
+	if strings.TrimSpace(command) == "" {
+		return stdin
+	}
+	if strings.TrimSpace(stdin) == "" {
+		return command
+	}
+	if strings.HasSuffix(command, "\n") {
+		return command + stdin
+	}
+	return command + "\n" + stdin
 }
 
 func resolveWorkingDirectoryPath(workingDirectoryPath string, workspaceRootPath string) (string, error) {

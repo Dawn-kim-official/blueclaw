@@ -17,6 +17,7 @@ import (
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
+	"blueclaw/internal/task"
 )
 
 type HistoryProvider interface {
@@ -31,6 +32,7 @@ type ToolCatalogBuilder struct {
 	capabilityClient          capability.Client
 	capabilityToolNames       []string
 	terminalService           *security.TerminalSessionService
+	taskRunService            *task.TaskRunService
 	workspaceRootPath         string
 }
 
@@ -46,6 +48,16 @@ type ToolCatalogRequest struct {
 	PersonAccess              policy.PersonAccess
 	MemoryNamespaces          []memory.MemoryNamespace
 	AccessibleConversationIDs []string
+}
+
+type terminalSessionToolInput struct {
+	Action               string            `json:"action"`
+	SessionID            string            `json:"sessionID"`
+	Command              string            `json:"command"`
+	Input                string            `json:"input"`
+	WorkingDirectoryPath string            `json:"workingDirectoryPath"`
+	EnvironmentVariables map[string]string `json:"environmentVariables"`
+	TimeoutSecond        int               `json:"timeoutSecond"`
 }
 
 func NewToolCatalogBuilder() *ToolCatalogBuilder {
@@ -76,6 +88,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseTerminalService(terminalService
 	toolCatalogBuilder.terminalService = terminalService
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskRunService(taskRunService *task.TaskRunService) {
+	toolCatalogBuilder.taskRunService = taskRunService
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) UseWorkspaceRootPath(workspaceRootPath string) {
 	trimmedWorkspaceRootPath := strings.TrimSpace(workspaceRootPath)
 	if trimmedWorkspaceRootPath != "" {
@@ -101,7 +117,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
 		return append([]string{}, toolCatalogBuilder.fallbackAllowedToolNames...)
 	}
-	return []string{"memory.search", "terminal.run", "file.write", "file.attach"}
+	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach"}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolRegistry, request ToolCatalogRequest) {
@@ -182,8 +198,23 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "terminal.run",
 		Description: "Run a guarded non-interactive command inside the Blueclaw workspace.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"executableName":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}}},"required":["executableName"],"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["command"],"additionalProperties":false}`),
 	}, toolCatalogBuilder.runTerminalTool)
+	toolRegistry.RegisterTool(agent.ToolDefinition{
+		Name:        "terminal.session",
+		Description: "Manage a PTY terminal session inside the Blueclaw workspace with action start, write, status, or close.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["action"],"additionalProperties":false}`),
+	}, toolCatalogBuilder.sessionTerminalTool)
+	toolRegistry.RegisterTool(agent.ToolDefinition{
+		Name:        "browser_handoff.openURL",
+		Description: "Ask the Companion bridge to open a URL on the user's computer without running shell commands.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
+	}, toolCatalogBuilder.openBrowserHandoffTool)
+	toolRegistry.RegisterTool(agent.ToolDefinition{
+		Name:        "approval.request",
+		Description: "Pause the current task while waiting for explicit user approval.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"},"reason":{"type":"string"}},"required":["message"],"additionalProperties":false}`),
+	}, toolCatalogBuilder.requestApprovalTool)
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "file.write",
 		Description: "Write a UTF-8 text file under the Blueclaw workspace.",
@@ -265,6 +296,119 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	}
 	_ = toolContext
 	return agent.ToolResult{Content: content}, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+	if toolCatalogBuilder.terminalService == nil {
+		return agent.ToolResult{Content: "terminal service is unavailable", IsError: true}, nil
+	}
+	var input terminalSessionToolInput
+	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
+		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+	}
+	switch strings.TrimSpace(input.Action) {
+	case "start":
+		return toolCatalogBuilder.startTerminalSession(input)
+	case "write":
+		commandResult, errorValue := toolCatalogBuilder.terminalService.WriteSessionInput(input.SessionID, input.Input)
+		return terminalSessionToolResult(commandResult, errorValue), nil
+	case "status":
+		status, errorValue := toolCatalogBuilder.terminalService.StatusSession(input.SessionID)
+		return statusToolResult(status, errorValue), nil
+	case "close":
+		errorValue := toolCatalogBuilder.terminalService.CloseSession(input.SessionID)
+		if errorValue != nil {
+			return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		}
+		return agent.ToolResult{Content: marshalToolResult(map[string]string{"sessionID": input.SessionID, "status": "closed"})}, nil
+	default:
+		_ = toolContext
+		return agent.ToolResult{Content: "terminal session action must be start, write, status, or close", IsError: true}, nil
+	}
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
+	workingDirectoryPath := firstNonEmptyString(input.WorkingDirectoryPath, toolCatalogBuilder.workspaceRootPath)
+	sessionID, errorValue := toolCatalogBuilder.terminalService.StartInteractiveSession(security.CommandRequest{
+		Command:              input.Command,
+		WorkingDirectoryPath: workingDirectoryPath,
+		EnvironmentVariables: input.EnvironmentVariables,
+		TimeoutSecond:        input.TimeoutSecond,
+		IsInteractive:        true,
+		IsPTY:                true,
+	})
+	if errorValue != nil {
+		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+	}
+	status, errorValue := toolCatalogBuilder.terminalService.StatusSession(sessionID)
+	return statusToolResult(status, errorValue), nil
+}
+
+func terminalSessionToolResult(commandResult security.CommandResult, errorValue error) agent.ToolResult {
+	content := marshalToolResult(commandResult)
+	if errorValue != nil {
+		return agent.ToolResult{Content: content, IsError: true}
+	}
+	return agent.ToolResult{Content: content}
+}
+
+func statusToolResult(status security.TerminalSessionStatus, errorValue error) agent.ToolResult {
+	content := marshalToolResult(status)
+	if errorValue != nil {
+		return agent.ToolResult{Content: errorValue.Error(), IsError: true}
+	}
+	return agent.ToolResult{Content: content}
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+	if toolCatalogBuilder.capabilityClient.HTTPClient == nil {
+		return agent.ToolResult{Content: "companion bridge capability client is unavailable", IsError: true}, nil
+	}
+	var input struct {
+		URL string `json:"url"`
+	}
+	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
+		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+	}
+	var response struct {
+		Content string          `json:"content"`
+		IsError bool            `json:"isError"`
+		Status  string          `json:"status"`
+		Result  json.RawMessage `json:"result"`
+	}
+	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/browser.open/invoke", map[string]any{
+		"toolName": "browser.open",
+		"input":    map[string]string{"url": input.URL},
+	}, &response)
+	if errorValue != nil {
+		return agent.ToolResult{}, errorValue
+	}
+	content := firstNonEmptyString(response.Content, string(response.Result))
+	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
+		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "browser_handoff.opened", marshalToolResult(map[string]string{"url": input.URL, "content": content}))
+	}
+	return agent.ToolResult{Content: content, IsError: response.IsError || response.Status == "error" || response.Status == "denied", Attachments: capabilityAttachments(response.Result)}, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+	var input struct {
+		Message string `json:"message"`
+		Reason  string `json:"reason"`
+	}
+	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
+		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+	}
+	taskRunID := agent.TaskRunIDFromContext(toolContext)
+	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
+		return agent.ToolResult{Content: "approval requires an active task run", IsError: true}, nil
+	}
+	reason := firstNonEmptyString(input.Reason, input.Message, "approval requested")
+	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, reason)
+	if errorValue != nil {
+		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+	}
+	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "approval.requested", marshalToolResult(input))
+	return agent.ToolResult{Content: marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "message": input.Message})}, nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
