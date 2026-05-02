@@ -246,6 +246,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			attachments = appendObservationAttachments(attachments, observation)
 			if !observation.IsError {
 				successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)] = observation
+				if result, isCompleted := agentTurnRunner.completeWithAutoAttachedArtifacts(turnContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, observations); isCompleted {
+					return result, nil
+				}
 			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
@@ -878,6 +881,62 @@ func (agentTurnRunner *AgentTurnRunner) autoAttachRequiredArtifacts(ctx context.
 			ToolName:      "file.attach",
 		},
 	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) completeWithAutoAttachedArtifacts(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) (AgentTurnResult, bool) {
+	if !requiresOnlyFileAttachmentEvidence(requirements) {
+		return AgentTurnResult{}, false
+	}
+	autoAttachment := agentTurnRunner.autoAttachRequiredArtifacts(ctx, request, taskRunID, nextObservationID(len(observations)+1), requirements)
+	if autoAttachment == nil {
+		return AgentTurnResult{}, false
+	}
+	observations = append(observations, autoAttachment.Observation)
+	goalSatisfied := true
+	actionDocument := turnActionDocument{
+		Action:             "final_reply",
+		FinalReply:         autoArtifactCompletionReply(autoAttachment.Observation.Attachments),
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      &goalSatisfied,
+		CompletionEvidence: []completionEvidenceReference{autoAttachment.Reference},
+	}
+	completionGateResult := validateCompletionGate(requirements, observations, actionDocument)
+	if !completionGateResult.IsSatisfied {
+		agentTurnRunner.appendEvent(taskRunID, "agent.completion_auto_finalize_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
+		return AgentTurnResult{}, false
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.completion_auto_finalized", marshalEventBody(map[string]any{
+		"observationID":   autoAttachment.Observation.ObservationID,
+		"attachmentCount": len(completionGateResult.Attachments),
+	}))
+	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_auto_finalized", actionDocument.FinalReply)
+	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, actionDocument.FinalReply)
+	return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: actionDocument.FinalReply, Attachments: completionGateResult.Attachments}, true
+}
+
+func requiresOnlyFileAttachmentEvidence(requirements []toolUseRequirement) bool {
+	if len(requirements) == 0 {
+		return false
+	}
+	for _, requirement := range requirements {
+		if requirement.ToolName != "file.attach" || !requirement.RequiresAttachment {
+			return false
+		}
+	}
+	return true
+}
+
+func autoArtifactCompletionReply(attachments []FileAttachment) string {
+	filenames := []string{}
+	for _, attachment := range attachments {
+		if strings.TrimSpace(attachment.Filename) != "" {
+			filenames = append(filenames, attachment.Filename)
+		}
+	}
+	if len(filenames) == 0 {
+		return "요청하신 파일을 생성해 첨부했습니다."
+	}
+	return "요청하신 파일을 생성해 첨부했습니다: " + strings.Join(filenames, ", ")
 }
 
 func requiredFileAttachmentSuffixes(requirements []toolUseRequirement) []string {
