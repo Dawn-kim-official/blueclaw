@@ -106,6 +106,7 @@ type virtualSessionArguments struct {
 	ScenarioName          string
 	ArtifactDirectoryPath string
 	LanguageModelEndpoint string
+	LanguageModelSocket   string
 	LanguageModelName     string
 	ExecutionMode         string
 	SkillDirectoryPath    string
@@ -116,6 +117,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	scenarioName := flagSet.String("scenario", defaultScenarioName, "virtual session scenario name")
 	artifactDirectoryPath := flagSet.String("artifact-dir", defaultArtifactDirectoryPath, "virtual session artifact directory")
 	languageModelEndpoint := flagSet.String("llm-endpoint", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), capability.DefaultEndpoint), "live LLM capability endpoint")
+	languageModelSocket := flagSet.String("llm-unix-socket", os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"), "live LLM capability unix socket path")
 	languageModelName := flagSet.String("llm-model", os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "live LLM model name")
 	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
 	skillDirectoryPath := flagSet.String("skill-dir", "", "skill directory to load into the virtual workspace")
@@ -126,6 +128,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 		ScenarioName:          *scenarioName,
 		ArtifactDirectoryPath: *artifactDirectoryPath,
 		LanguageModelEndpoint: *languageModelEndpoint,
+		LanguageModelSocket:   *languageModelSocket,
 		LanguageModelName:     *languageModelName,
 		ExecutionMode:         *executionMode,
 		SkillDirectoryPath:    *skillDirectoryPath,
@@ -140,8 +143,9 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 	if isLiveVirtualScenario(scenario) {
 		scenario.LanguageModel = llm.CapabilityLLMClient{
 			CapabilityClient: capability.NewClient(capability.Configuration{
-				Endpoint: strings.TrimSpace(arguments.LanguageModelEndpoint),
-				Timeout:  90 * time.Second,
+				Endpoint:       endpointForVirtualSession(arguments),
+				UnixSocketPath: strings.TrimSpace(arguments.LanguageModelSocket),
+				Timeout:        90 * time.Second,
 			}),
 			ModelName:     strings.TrimSpace(arguments.LanguageModelName),
 			ExecutionMode: firstNonEmptyString(arguments.ExecutionMode, "auto"),
@@ -165,6 +169,16 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		}
 	}
 	return nil
+}
+
+func endpointForVirtualSession(arguments virtualSessionArguments) string {
+	if strings.TrimSpace(arguments.LanguageModelSocket) == "" {
+		return strings.TrimSpace(arguments.LanguageModelEndpoint)
+	}
+	if strings.TrimSpace(arguments.LanguageModelEndpoint) == capability.DefaultEndpoint {
+		return ""
+	}
+	return strings.TrimSpace(arguments.LanguageModelEndpoint)
 }
 
 func isLiveVirtualScenario(scenario e2e.VirtualSessionScenario) bool {

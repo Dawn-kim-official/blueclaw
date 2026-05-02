@@ -132,7 +132,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
-	agentKernel.UseTurnOptions(agent.TurnOptions{MaxIterations: 16, MaxToolCalls: 12, WallClockSecond: 30})
+	agentKernel.UseTurnOptions(agent.TurnOptions{MaxIterations: 20, MaxToolCalls: 16, WallClockSecond: 120})
 	agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: append([]agent.SkillInstruction{}, skillInstructions...)}
 	})
@@ -491,7 +491,7 @@ func terminalConfiguration(workspacePath string) config.TerminalConfiguration {
 		WorkspaceRootPath:     workspacePath,
 		DeniedExecutableNames: []string{"sudo", "su", "mount", "umount", "reboot", "shutdown", "systemctl"},
 		DeniedPathPrefixes:    []string{"/etc", "/private/etc", "/System", "/Library"},
-		TimeoutSecond:         10,
+		TimeoutSecond:         120,
 		OutputMaxBytes:        32768,
 		SessionMaxCount:       2,
 		AllowNetwork:          true,

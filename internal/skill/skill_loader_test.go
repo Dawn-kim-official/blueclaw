@@ -24,6 +24,8 @@ requiredTools:
 completion:
   requiredEvidenceTools:
     - file.attach
+  requiredAttachmentSuffixes:
+    - .pptx
 allowedProfiles: [default]
 triggerHints:
   - slide deck
@@ -70,6 +72,9 @@ Build slides.
 	}
 	if !containsString(skillBundle.Completion.RequiredEvidenceTools, "file.attach") {
 		t.Fatalf("expected completion evidence tools, got %+v", skillBundle.Completion.RequiredEvidenceTools)
+	}
+	if !containsString(skillBundle.Completion.RequiredAttachmentSuffixes, ".pptx") {
+		t.Fatalf("expected completion attachment suffixes, got %+v", skillBundle.Completion.RequiredAttachmentSuffixes)
 	}
 	if !containsString(skillBundle.AllowedProfiles, "default") {
 		t.Fatalf("expected allowed profiles, got %+v", skillBundle.AllowedProfiles)

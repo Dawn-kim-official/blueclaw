@@ -33,20 +33,21 @@ type AgentTurnRunner struct {
 }
 
 type AgentTurnRequest struct {
-	RequesterPersonID     string
-	RequesterName         string
-	RequesterCallingName  string
-	RequesterHandle       string
-	ProfileName           string
-	ConversationID        string
-	Prompt                string
-	VisibleContext        VisibleContext
-	MemoryFacts           []memory.MemoryFact
-	ToolRegistry          *ToolRegistry
-	InstructionPrompt     string
-	InstructionSources    []InstructionSource
-	SkillDecisions        []SkillSelectionDecision
-	RequiredEvidenceTools []string
+	RequesterPersonID          string
+	RequesterName              string
+	RequesterCallingName       string
+	RequesterHandle            string
+	ProfileName                string
+	ConversationID             string
+	Prompt                     string
+	VisibleContext             VisibleContext
+	MemoryFacts                []memory.MemoryFact
+	ToolRegistry               *ToolRegistry
+	InstructionPrompt          string
+	InstructionSources         []InstructionSource
+	SkillDecisions             []SkillSelectionDecision
+	RequiredEvidenceTools      []string
+	RequiredAttachmentSuffixes []string
 }
 
 type AgentTurnResult struct {
@@ -270,9 +271,17 @@ func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnReque
 	return (PromptAssembler{}).BuildTurnMessages(
 		request,
 		observations,
-		"You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply only when goalSatisfied is true. Every final_reply must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed.",
+		agentTurnRunner.buildSystemInstruction(request),
 		agentTurnRunner.buildToolDescription(request.ToolRegistry),
 	)
+}
+
+func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurnRequest) string {
+	instruction := "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply only when goalSatisfied is true. Every final_reply must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
+	if len(request.RequiredAttachmentSuffixes) == 0 {
+		return instruction
+	}
+	return instruction + " This task requires attached artifacts with these filename suffixes before final_reply: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolRegistry) string {
@@ -717,8 +726,29 @@ func validateCompletionEvidence(requirements []toolUseRequirement, observations 
 		if len(requirementAttachments) == 0 {
 			return nil, errors.New("completionEvidence for " + requirementLabel(requirement) + " must include an attachment")
 		}
+		if missingSuffix := missingRequiredAttachmentSuffix(requirementAttachments, requirement.AttachmentSuffixes); missingSuffix != "" {
+			return nil, errors.New("completionEvidence for " + requirementLabel(requirement) + " must include attachment suffix " + missingSuffix)
+		}
 	}
 	return attachments, nil
+}
+
+func missingRequiredAttachmentSuffix(attachments []FileAttachment, suffixes []string) string {
+	for _, suffix := range suffixes {
+		if !attachmentsContainSuffix(attachments, suffix) {
+			return suffix
+		}
+	}
+	return ""
+}
+
+func attachmentsContainSuffix(attachments []FileAttachment, suffix string) bool {
+	for _, attachment := range attachments {
+		if strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func collectReferencedAttachments(observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {

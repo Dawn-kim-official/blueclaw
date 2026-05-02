@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -18,7 +19,7 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 		`{"action":"call_tool","toolName":"beta","toolInput":{"value":"two"}}`,
 		finalReplyDocument("done"),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 5})
 	toolRegistry := NewToolRegistry([]string{"alpha", "beta"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "alpha result"}, nil
@@ -54,7 +55,7 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("done"),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 5})
 
 	_, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
@@ -211,6 +212,53 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.attach") {
 		t.Fatal("expected completion required event for selected skill evidence")
+	}
+}
+
+func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"DESIGN.md"}}`,
+		finalReplyWithEvidence("첨부했습니다.", "obs-001", "file.attach", 0),
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
+		finalReplyWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.attach", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 5})
+	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var request struct {
+			Path string `json:"path"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		return ToolResult{
+			Content: "file attached",
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/" + request.Path,
+				Filename:   request.Path,
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "피피티 만들어줘",
+		ToolRegistry:               toolRegistry,
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected required suffix evidence to recover: %v", errorValue)
+	}
+	if result.FinalReply != "PPTX를 첨부했습니다." {
+		t.Fatalf("expected recovered reply, got %q", result.FinalReply)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
+		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", ".pptx") {
+		t.Fatal("expected completion required event for missing attachment suffix")
 	}
 }
 

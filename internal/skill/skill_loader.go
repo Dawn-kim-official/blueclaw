@@ -156,6 +156,8 @@ func setSkillCompletionValue(metadata skillMetadata, key string, value string) s
 	switch key {
 	case "requiredEvidenceTools":
 		metadata.Completion.RequiredEvidenceTools = append(metadata.Completion.RequiredEvidenceTools, values...)
+	case "requiredAttachmentSuffixes":
+		metadata.Completion.RequiredAttachmentSuffixes = append(metadata.Completion.RequiredAttachmentSuffixes, values...)
 	}
 	return metadata
 }

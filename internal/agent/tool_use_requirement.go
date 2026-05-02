@@ -9,6 +9,7 @@ type toolUseRequirement struct {
 	ToolName           string
 	Reason             string
 	RequiresAttachment bool
+	AttachmentSuffixes []string
 }
 
 func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
@@ -43,9 +44,27 @@ func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 			ToolName:           trimmedToolName,
 			Reason:             "selected skill requires completion evidence",
 			RequiresAttachment: strings.HasSuffix(trimmedToolName, ".attach"),
+			AttachmentSuffixes: attachmentSuffixesForEvidenceTool(trimmedToolName, request.RequiredAttachmentSuffixes),
 		})
 	}
 	return requirements
+}
+
+func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []string {
+	if !strings.HasSuffix(toolName, ".attach") {
+		return nil
+	}
+	trimmedSuffixes := []string{}
+	seenSuffix := map[string]bool{}
+	for _, suffix := range suffixes {
+		trimmedSuffix := strings.TrimSpace(suffix)
+		if trimmedSuffix == "" || seenSuffix[trimmedSuffix] {
+			continue
+		}
+		seenSuffix[trimmedSuffix] = true
+		trimmedSuffixes = append(trimmedSuffixes, trimmedSuffix)
+	}
+	return trimmedSuffixes
 }
 
 func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {

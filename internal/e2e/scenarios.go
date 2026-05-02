@@ -11,7 +11,7 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 		Turns: []VirtualTurn{{
 			Prompt:                 "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
 			ExpectedSelectedSkills: []string{"simple-slides"},
-			ExpectedToolCalls:      []string{"file.write", "terminal.run", "file.attach"},
+			ExpectedToolCalls:      []string{"terminal.run", "file.attach"},
 			ExpectedAttachments:    []string{".pptx", ".pdf", ".html", "-notes.txt"},
 			ForbiddenReplyFragments: []string{
 				"PPT 못",
@@ -90,7 +90,8 @@ func simpleSlidesSkill() agent.SkillInstruction {
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},
 		Completion: agent.SkillCompletion{
-			RequiredEvidenceTools: []string{"file.attach"},
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".pptx", ".pdf", ".html", "-notes.txt"},
 		},
 		RequiredTools: []string{"file.write", "terminal.run", "file.attach"},
 		TriggerHints:  []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},

@@ -217,13 +217,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	}, toolCatalogBuilder.requestApprovalTool)
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "file.write",
-		Description: "Write a UTF-8 text file under the Blueclaw workspace.",
+		Description: "Write a UTF-8 text file under the Blueclaw workspace. Use this for markdown, scripts, and source files instead of shell redirection.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`),
 	}, toolCatalogBuilder.writeFileTool)
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "file.attach",
-		Description: "Attach an existing workspace file to the final reply evidence.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"filename":{"type":"string"},"contentType":{"type":"string"},"title":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
+		Description: "Attach one or more existing workspace files to the final reply evidence. Use paths for related artifact sets.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"filename":{"type":"string"},"contentType":{"type":"string"},"title":{"type":"string"}},"additionalProperties":false}`),
 	}, toolCatalogBuilder.attachFileTool)
 }
 
@@ -443,38 +443,82 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
 	var input struct {
-		Path        string `json:"path"`
-		Filename    string `json:"filename"`
-		ContentType string `json:"contentType"`
-		Title       string `json:"title"`
+		Path        string   `json:"path"`
+		Paths       []string `json:"paths"`
+		Filename    string   `json:"filename"`
+		ContentType string   `json:"contentType"`
+		Title       string   `json:"title"`
 	}
 	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
-	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePath(input.Path)
+	attachmentPaths := requestedAttachmentPaths(input.Path, input.Paths)
+	if len(attachmentPaths) == 0 {
+		return agent.ToolResult{Content: "path is required", IsError: true}, nil
+	}
+	attachments := []agent.FileAttachment{}
+	for _, attachmentPath := range attachmentPaths {
+		attachment, errorValue := toolCatalogBuilder.fileAttachment(attachmentPath, input)
+		if errorValue != nil {
+			return agent.ToolResult{}, errorValue
+		}
+		attachments = append(attachments, attachment)
+	}
+	_ = toolContext
+	return agent.ToolResult{
+		Content:     "file attached",
+		Attachments: attachments,
+	}, nil
+}
+
+func requestedAttachmentPaths(path string, paths []string) []string {
+	attachmentPaths := trimNonEmptyStrings(paths)
+	if strings.TrimSpace(path) != "" {
+		attachmentPaths = append([]string{strings.TrimSpace(path)}, attachmentPaths...)
+	}
+	return attachmentPaths
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input struct {
+	Path        string   `json:"path"`
+	Paths       []string `json:"paths"`
+	Filename    string   `json:"filename"`
+	ContentType string   `json:"contentType"`
+	Title       string   `json:"title"`
+}) (agent.FileAttachment, error) {
+	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePath(path)
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.FileAttachment{}, errorValue
 	}
 	fileInformation, errorValue := os.Stat(resolvedPath)
 	if errorValue != nil {
-		return agent.ToolResult{}, errorValue
+		return agent.FileAttachment{}, errorValue
 	}
 	if !fileInformation.Mode().IsRegular() {
-		return agent.ToolResult{Content: "attachment path is not a regular file", IsError: true}, nil
+		return agent.FileAttachment{}, errors.New("attachment path is not a regular file")
 	}
-	filename := firstNonEmptyString(input.Filename, filepath.Base(resolvedPath))
+	filename := attachmentFilename(input, resolvedPath)
 	contentType := firstNonEmptyString(input.ContentType, mime.TypeByExtension(filepath.Ext(filename)), "application/octet-stream")
-	_ = toolContext
-	return agent.ToolResult{
-		Content: "file attached",
-		Attachments: []agent.FileAttachment{{
-			DevicePath:  resolvedPath,
-			Filename:    filename,
-			ContentType: contentType,
-			SizeBytes:   fileInformation.Size(),
-			Title:       strings.TrimSpace(input.Title),
-		}},
+	return agent.FileAttachment{
+		DevicePath:  resolvedPath,
+		Filename:    filename,
+		ContentType: contentType,
+		SizeBytes:   fileInformation.Size(),
+		Title:       strings.TrimSpace(input.Title),
 	}, nil
+}
+
+func attachmentFilename(input struct {
+	Path        string   `json:"path"`
+	Paths       []string `json:"paths"`
+	Filename    string   `json:"filename"`
+	ContentType string   `json:"contentType"`
+	Title       string   `json:"title"`
+}, resolvedPath string) string {
+	if len(input.Paths) == 0 && strings.TrimSpace(input.Filename) != "" {
+		return strings.TrimSpace(input.Filename)
+	}
+	return filepath.Base(resolvedPath)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveWorkspaceFilePath(value string) (string, error) {
