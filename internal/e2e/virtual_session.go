@@ -1,7 +1,10 @@
 package e2e
 
 import (
+	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +25,7 @@ import (
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
+	"blueclaw/internal/skill"
 	"blueclaw/internal/task"
 )
 
@@ -29,6 +33,8 @@ type VirtualSessionScenario struct {
 	Name                  string
 	ProfileName           string
 	ArtifactDirectoryPath string
+	LanguageModel         llm.LanguageModelProvider
+	SkillDirectoryPaths   []string
 	Skills                []agent.SkillInstruction
 	AllowedTools          []string
 	InitialMemory         []memory.MemoryFact
@@ -62,7 +68,7 @@ type VirtualSessionHarness struct {
 	scenario         VirtualSessionScenario
 	artifactPath     string
 	workspacePath    string
-	languageModel    *scriptedLanguageModel
+	scriptedModel    *scriptedLanguageModel
 	taskEventService *task.TaskEventService
 	memoryStore      *virtualMemoryStore
 	runtime          *connectors.ConnectorRuntime
@@ -106,17 +112,29 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		return nil, errorValue
 	}
 
+	skillInstructions, errorValue := loadVirtualSkillInstructions(scenario, workspacePath)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskStepService := task.NewTaskStepService()
 	taskArtifactService := task.NewTaskArtifactService()
-	languageModel := &scriptedLanguageModel{}
+	scriptedModel := scriptedLanguageModelForScenario(scenario)
+	languageModel := scenario.LanguageModel
+	if scriptedModel != nil {
+		languageModel = scriptedModel
+	}
+	if languageModel == nil {
+		return nil, errors.New("virtual session requires a live language model or explicit scripted model responses")
+	}
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseTurnOptions(agent.TurnOptions{MaxIterations: 16, MaxToolCalls: 12, WallClockSecond: 30})
 	agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
-		return agent.InstructionBundle{Skills: append([]agent.SkillInstruction{}, scenario.Skills...)}
+		return agent.InstructionBundle{Skills: append([]agent.SkillInstruction{}, skillInstructions...)}
 	})
 
 	identityService := identity.NewIdentityService(testPolicyProjection())
@@ -138,12 +156,102 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		scenario:         scenario,
 		artifactPath:     artifactPath,
 		workspacePath:    workspacePath,
-		languageModel:    languageModel,
+		scriptedModel:    scriptedModel,
 		taskEventService: taskEventService,
 		memoryStore:      memoryStore,
 		runtime:          runtime,
 		adapter:          adapter,
 	}, nil
+}
+
+func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath string) ([]agent.SkillInstruction, error) {
+	skillInstructions := append([]agent.SkillInstruction{}, scenario.Skills...)
+	for _, sourceDirectoryPath := range scenario.SkillDirectoryPaths {
+		trimmedSourceDirectoryPath := strings.TrimSpace(sourceDirectoryPath)
+		if trimmedSourceDirectoryPath == "" {
+			continue
+		}
+		destinationDirectoryPath := filepath.Join(workspacePath, "skills", filepath.Base(trimmedSourceDirectoryPath))
+		if errorValue := copyDirectory(trimmedSourceDirectoryPath, destinationDirectoryPath); errorValue != nil {
+			return nil, errorValue
+		}
+		skillBundle, errorValue := (skill.SkillLoader{}).LoadSkillBundle(destinationDirectoryPath)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		skillInstructions = append(skillInstructions, skillInstructionFromBundle(skillBundle, workspacePath))
+	}
+	return skillInstructions, nil
+}
+
+func skillInstructionFromBundle(skillBundle skill.SkillBundle, workspacePath string) agent.SkillInstruction {
+	instruction := strings.ReplaceAll(skillBundle.Instruction, "/workspace", workspacePath)
+	return agent.SkillInstruction{
+		Name:            skillBundle.Name,
+		Description:     skillBundle.Description,
+		Category:        skillBundle.Category,
+		Tags:            append([]string{}, skillBundle.Tags...),
+		Prompt:          instruction,
+		Activation:      agent.SkillActivation(skillBundle.Activation),
+		Completion:      agent.SkillCompletion(skillBundle.Completion),
+		RequiredTools:   append([]string{}, skillBundle.RequiredTools...),
+		AllowedProfiles: append([]string{}, skillBundle.AllowedProfiles...),
+		TriggerHints:    append([]string{}, skillBundle.TriggerHints...),
+		References:      append([]string{}, skillBundle.References...),
+		Scripts:         append([]string{}, skillBundle.Scripts...),
+		Assets:          append([]string{}, skillBundle.Assets...),
+		Source: agent.InstructionSource{
+			Path:      filepath.Join(skillBundle.DirectoryPath, "SKILL.md"),
+			SkillName: skillBundle.Name,
+			ByteSize:  fileSize(filepath.Join(skillBundle.DirectoryPath, "SKILL.md")),
+			SHA256:    fileSHA256(filepath.Join(skillBundle.DirectoryPath, "SKILL.md")),
+		},
+	}
+}
+
+func copyDirectory(sourcePath string, destinationPath string) error {
+	sourceInformation, errorValue := os.Stat(sourcePath)
+	if errorValue != nil {
+		return errorValue
+	}
+	if !sourceInformation.IsDir() {
+		return errors.New("skill source path is not a directory: " + sourcePath)
+	}
+	return filepath.WalkDir(sourcePath, func(path string, directoryEntry os.DirEntry, walkError error) error {
+		if walkError != nil {
+			return walkError
+		}
+		relativePath, errorValue := filepath.Rel(sourcePath, path)
+		if errorValue != nil {
+			return errorValue
+		}
+		destination := filepath.Join(destinationPath, relativePath)
+		if directoryEntry.IsDir() {
+			return os.MkdirAll(destination, 0700)
+		}
+		content, errorValue := os.ReadFile(path)
+		if errorValue != nil {
+			return errorValue
+		}
+		return os.WriteFile(destination, content, 0600)
+	})
+}
+
+func fileSize(path string) int {
+	information, errorValue := os.Stat(path)
+	if errorValue != nil {
+		return 0
+	}
+	return int(information.Size())
+}
+
+func fileSHA256(path string) string {
+	content, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		return ""
+	}
+	sum := sha256.Sum256(content)
+	return hex.EncodeToString(sum[:])
 }
 
 func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionResult, error) {
@@ -152,7 +260,9 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		ArtifactDirectoryPath: harness.artifactPath,
 	}
 	for index, virtualTurn := range harness.scenario.Turns {
-		harness.languageModel.Enqueue(virtualTurn.ModelResponses...)
+		if harness.scriptedModel != nil {
+			harness.scriptedModel.Enqueue(virtualTurn.ModelResponses...)
+		}
 		turnResult, errorValue := harness.runTurn(ctx, index, virtualTurn)
 		if errorValue != nil {
 			return result, errorValue
@@ -164,6 +274,15 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		harness.rememberTurn(virtualTurn, turnResult)
 	}
 	return result, nil
+}
+
+func scriptedLanguageModelForScenario(scenario VirtualSessionScenario) *scriptedLanguageModel {
+	for _, virtualTurn := range scenario.Turns {
+		if len(virtualTurn.ModelResponses) > 0 {
+			return &scriptedLanguageModel{}
+		}
+	}
+	return nil
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {
@@ -222,12 +341,16 @@ func assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) err
 	}
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
 		if !eventsContain(turnResult.Events, "tool."+toolName+".requested", toolName) {
-			return fmt.Errorf("expected requested tool %q", toolName)
+			return fmt.Errorf("expected requested tool %q; events: %s", toolName, summarizeEvents(turnResult.Events))
 		}
 	}
 	for _, suffix := range virtualTurn.ExpectedAttachments {
-		if !hasAttachmentSuffix(turnResult.Attachments, suffix) {
+		attachment, isFound := findAttachmentWithSuffix(turnResult.Attachments, suffix)
+		if !isFound {
 			return fmt.Errorf("expected attachment suffix %q, got %+v; events: %s", suffix, turnResult.Attachments, summarizeEvents(turnResult.Events))
+		}
+		if errorValue := validateAttachmentContent(attachment, suffix); errorValue != nil {
+			return errorValue
 		}
 	}
 	for _, fragment := range virtualTurn.ExpectedReplyFragments {
@@ -264,13 +387,86 @@ func eventsContain(events []task.TaskEvent, name string, bodyFragment string) bo
 	return false
 }
 
-func hasAttachmentSuffix(attachments []agent.FileAttachment, suffix string) bool {
+func findAttachmentWithSuffix(attachments []agent.FileAttachment, suffix string) (agent.FileAttachment, bool) {
 	for _, attachment := range attachments {
 		if strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix) {
-			return true
+			return attachment, true
 		}
 	}
-	return false
+	return agent.FileAttachment{}, false
+}
+
+func validateAttachmentContent(attachment agent.FileAttachment, suffix string) error {
+	switch suffix {
+	case ".pptx":
+		return validatePPTXAttachment(attachment)
+	case ".pdf":
+		return validateFilePrefix(attachment.DevicePath, "%PDF")
+	case ".html":
+		return validateFileContains(attachment.DevicePath, "<html")
+	case "-notes.txt":
+		return validateNonEmptyFile(attachment.DevicePath)
+	default:
+		return validateNonEmptyFile(attachment.DevicePath)
+	}
+}
+
+func validatePPTXAttachment(attachment agent.FileAttachment) error {
+	reader, errorValue := zip.OpenReader(attachment.DevicePath)
+	if errorValue != nil {
+		return fmt.Errorf("attachment %s is not a valid pptx zip: %w", attachment.DevicePath, errorValue)
+	}
+	defer reader.Close()
+	requiredEntries := map[string]bool{
+		"[Content_Types].xml":             false,
+		"ppt/presentation.xml":            false,
+		"ppt/slides/slide1.xml":           false,
+		"ppt/_rels/presentation.xml.rels": false,
+	}
+	for _, file := range reader.File {
+		if _, isRequired := requiredEntries[file.Name]; isRequired {
+			requiredEntries[file.Name] = true
+		}
+	}
+	for name, isFound := range requiredEntries {
+		if !isFound {
+			return fmt.Errorf("attachment %s is missing pptx entry %s", attachment.DevicePath, name)
+		}
+	}
+	return nil
+}
+
+func validateFilePrefix(path string, prefix string) error {
+	content, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	if !strings.HasPrefix(string(content), prefix) {
+		return fmt.Errorf("attachment %s does not start with %q", path, prefix)
+	}
+	return nil
+}
+
+func validateFileContains(path string, fragment string) error {
+	content, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	if !strings.Contains(strings.ToLower(string(content)), strings.ToLower(fragment)) {
+		return fmt.Errorf("attachment %s does not contain %q", path, fragment)
+	}
+	return nil
+}
+
+func validateNonEmptyFile(path string) error {
+	information, errorValue := os.Stat(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	if information.Size() <= 0 {
+		return fmt.Errorf("attachment %s is empty", path)
+	}
+	return nil
 }
 
 func prepareArtifactDirectory(scenario VirtualSessionScenario) (string, error) {

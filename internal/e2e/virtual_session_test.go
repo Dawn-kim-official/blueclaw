@@ -2,12 +2,41 @@ package e2e
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"blueclaw/internal/capability"
+	"blueclaw/internal/llm"
 )
 
-func TestSlidesLocalMultiturnSuccess(t *testing.T) {
-	result, errorValue := RunVirtualSession(context.Background(), SlidesLocalMultiturnSuccessScenario(t.TempDir()))
+func TestSlidesScenarioDoesNotScriptToolCalls(t *testing.T) {
+	scenario := SlidesLocalMultiturnSuccessScenario(t.TempDir())
+	if len(scenario.Turns) != 1 {
+		t.Fatalf("expected one slides turn, got %d", len(scenario.Turns))
+	}
+	if len(scenario.Turns[0].ModelResponses) != 0 {
+		t.Fatal("slides scenario must not script model tool calls or artifact creation")
+	}
+}
+
+func TestSlidesLocalMultiturnSuccessLive(t *testing.T) {
+	endpoint := strings.TrimSpace(os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"))
+	if endpoint == "" {
+		t.Skip("set BLUECLAW_E2E_LLM_ENDPOINT to run live slides virtual session")
+	}
+	scenario := SlidesLocalMultiturnSuccessScenario(t.TempDir())
+	scenario.LanguageModel = llm.CapabilityLLMClient{
+		CapabilityClient: capability.NewClient(capability.Configuration{
+			Endpoint: endpoint,
+			Timeout:  90 * time.Second,
+		}),
+		ModelName:     os.Getenv("BLUECLAW_E2E_LLM_MODEL"),
+		ExecutionMode: firstNonEmptyTestString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"),
+	}
+
+	result, errorValue := RunVirtualSession(context.Background(), scenario)
 	if errorValue != nil {
 		t.Fatalf("expected slides scenario to pass: %v", errorValue)
 	}
@@ -15,9 +44,6 @@ func TestSlidesLocalMultiturnSuccess(t *testing.T) {
 		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "agent.completion_required", "file.attach") {
-		t.Fatal("expected bad final reply to be rejected by required evidence gate")
-	}
 	if !eventsContain(turnResult.Events, "tool.terminal.run.result", "exitCode") {
 		t.Fatal("expected terminal build to succeed")
 	}
@@ -66,4 +92,14 @@ func TestGWSDisabled(t *testing.T) {
 	if !eventsContain(turnResult.Events, "tool.google.drive.import_pptx.result", "tool is not allowed") {
 		t.Fatal("expected google tool to be denied by catalog allowlist")
 	}
+}
+
+func firstNonEmptyTestString(values ...string) string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
 }
