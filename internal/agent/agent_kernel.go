@@ -156,20 +156,21 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 
 	turnRequest := AgentTurnRequest{
-		RequesterPersonID:     request.RequesterPersonID,
-		RequesterName:         request.RequesterName,
-		RequesterCallingName:  request.RequesterCallingName,
-		RequesterHandle:       request.RequesterHandle,
-		ProfileName:           normalizedAgentProfileName(request.ProfileName),
-		ConversationID:        request.ConversationID,
-		Prompt:                request.Prompt,
-		VisibleContext:        request.VisibleContext,
-		MemoryFacts:           request.MemoryFacts,
-		ToolRegistry:          request.ToolRegistry,
-		InstructionPrompt:     instructionBundle.Prompt,
-		InstructionSources:    append([]InstructionSource{}, instructionBundle.Sources...),
-		SkillDecisions:        append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
-		RequiredEvidenceTools: selectedRequiredEvidenceTools(instructionBundle),
+		RequesterPersonID:          request.RequesterPersonID,
+		RequesterName:              request.RequesterName,
+		RequesterCallingName:       request.RequesterCallingName,
+		RequesterHandle:            request.RequesterHandle,
+		ProfileName:                normalizedAgentProfileName(request.ProfileName),
+		ConversationID:             request.ConversationID,
+		Prompt:                     request.Prompt,
+		VisibleContext:             request.VisibleContext,
+		MemoryFacts:                request.MemoryFacts,
+		ToolRegistry:               request.ToolRegistry,
+		InstructionPrompt:          instructionBundle.Prompt,
+		InstructionSources:         append([]InstructionSource{}, instructionBundle.Sources...),
+		SkillDecisions:             append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
+		RequiredEvidenceTools:      selectedRequiredEvidenceTools(instructionBundle),
+		RequiredAttachmentSuffixes: selectedRequiredAttachmentSuffixes(instructionBundle),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
@@ -214,6 +215,31 @@ func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string
 		}
 	}
 	return requiredEvidenceTools
+}
+
+func selectedRequiredAttachmentSuffixes(instructionBundle InstructionBundle) []string {
+	selectedSkillName := map[string]bool{}
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Status == "selected" {
+			selectedSkillName[skillDecision.Name] = true
+		}
+	}
+	requiredAttachmentSuffixes := []string{}
+	seenSuffix := map[string]bool{}
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !selectedSkillName[skillInstruction.Name] {
+			continue
+		}
+		for _, suffix := range skillInstruction.Completion.RequiredAttachmentSuffixes {
+			trimmedSuffix := strings.TrimSpace(suffix)
+			if trimmedSuffix == "" || seenSuffix[trimmedSuffix] {
+				continue
+			}
+			seenSuffix[trimmedSuffix] = true
+			requiredAttachmentSuffixes = append(requiredAttachmentSuffixes, trimmedSuffix)
+		}
+	}
+	return requiredAttachmentSuffixes
 }
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultBudgetClass BudgetClass) IntakeDecision {

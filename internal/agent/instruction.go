@@ -39,7 +39,8 @@ type SkillActivation struct {
 }
 
 type SkillCompletion struct {
-	RequiredEvidenceTools []string `json:"requiredEvidenceTools,omitempty"`
+	RequiredEvidenceTools      []string `json:"requiredEvidenceTools,omitempty"`
+	RequiredAttachmentSuffixes []string `json:"requiredAttachmentSuffixes,omitempty"`
 }
 
 type SkillSelectionDecision struct {

@@ -153,6 +153,7 @@ func (commandGuardrailService CommandGuardrailService) resolveExecutablePath(exe
 	}
 
 	searchPaths := []string{
+		"/opt/homebrew/bin",
 		"/usr/local/sbin",
 		"/usr/local/bin",
 		"/usr/sbin",
@@ -364,7 +365,7 @@ func isWithinRootPath(rootPath string, targetPath string) bool {
 func sanitizeEnvironmentVariables(environmentVariables map[string]string, workspaceRootPath string) map[string]string {
 	sanitizedEnvironmentVariables := map[string]string{
 		"HOME": workspaceRootPath,
-		"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"PATH": "/opt/homebrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"TERM": "xterm-256color",
 		"LANG": "C.UTF-8",
 	}
