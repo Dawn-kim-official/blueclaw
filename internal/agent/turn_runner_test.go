@@ -322,6 +322,62 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build another deck"}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.attach"})
+	terminalCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		terminalCallCount++
+		if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"), "pptx")
+		writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"), "%PDF")
+		return ToolResult{Content: `{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var request struct {
+			Paths []string `json:"paths"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		attachments := []FileAttachment{}
+		for _, path := range request.Paths {
+			attachments = append(attachments, FileAttachment{DevicePath: path, Filename: filepath.Base(path)})
+		}
+		return ToolResult{Content: "file attached", Attachments: attachments}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "피피티 만들어줘",
+		ToolRegistry:               toolRegistry,
+		WorkspaceRootPath:          workspaceRootPath,
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected auto artifact completion: %v", errorValue)
+	}
+	if terminalCallCount != 1 {
+		t.Fatalf("expected one build command before auto completion, got %d", terminalCallCount)
+	}
+	if len(result.Attachments) != 2 {
+		t.Fatalf("expected two attachments, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_auto_finalized", "attachmentCount") {
+		t.Fatal("expected auto finalization event")
+	}
+}
+
 func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("done"),
