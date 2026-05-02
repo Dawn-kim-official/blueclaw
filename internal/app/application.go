@@ -208,12 +208,12 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 }
 
 func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
-	budgetProfile := agent.BudgetProfileForClass(agent.BudgetClass(runtimeConfiguration.Agent.DefaultBudgetClass))
+	effortProfile := agent.EffortLimitProfileForLevel(agent.EffortLevel(runtimeConfiguration.Agent.DefaultEffortLevel))
 	return agent.TurnOptions{
-		MaxIterations:      budgetProfile.MaxIterations,
-		MaxToolCalls:       budgetProfile.MaxToolCalls,
-		WallClockSecond:    int(budgetProfile.Duration.Seconds()),
-		BudgetClass:        budgetProfile.BudgetClass,
+		MaxIterationCount:  effortProfile.MaxIterationCount,
+		MaxToolCallCount:   effortProfile.MaxToolCallCount,
+		MaxElapsedSecond:   int(effortProfile.Duration.Seconds()),
+		EffortLevel:        effortProfile.EffortLevel,
 		ToolResultMaxBytes: runtimeConfiguration.Agent.ToolResultMaxBytes,
 	}
 }
@@ -221,7 +221,7 @@ func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) ag
 func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agent.IntakeOptions {
 	return agent.IntakeOptions{
 		IsEnabled:          runtimeConfiguration.Agent.Intake.Enabled,
-		DefaultBudgetClass: agent.BudgetClass(runtimeConfiguration.Agent.DefaultBudgetClass),
+		DefaultEffortLevel: agent.EffortLevel(runtimeConfiguration.Agent.DefaultEffortLevel),
 	}
 }
 

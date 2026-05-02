@@ -55,7 +55,7 @@ type MCPToolConfiguration struct {
 
 type AgentConfiguration struct {
 	Intake             AgentIntakeConfiguration `json:"intake"`
-	DefaultBudgetClass string                   `json:"defaultBudgetClass"`
+	DefaultEffortLevel string                   `json:"defaultEffortLevel"`
 	ToolResultMaxBytes int                      `json:"toolResultMaxBytes"`
 }
 

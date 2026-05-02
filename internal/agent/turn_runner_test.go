@@ -19,7 +19,7 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 		`{"action":"call_tool","toolName":"beta","toolInput":{"value":"two"}}`,
 		finalReplyDocument("done"),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 5})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := NewToolRegistry([]string{"alpha", "beta"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "alpha result"}, nil
@@ -55,7 +55,7 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("done"),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 5})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 
 	_, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
@@ -222,7 +222,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
 		finalReplyWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.attach", 0),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 5})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := NewToolRegistry([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
@@ -516,12 +516,12 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByBudget(t *testing.T) {
+func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 4})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	fillCallCount := 0
 	toolRegistry := NewToolRegistry([]string{"browser.fill"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -536,10 +536,10 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByBudget(t *testing.T) {
 		ToolRegistry:      toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected budget result, got error: %v", errorValue)
+		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "thirty-minute budget") {
-		t.Fatalf("expected budget reply, got %q", result.FinalReply)
+	if result.FinalReply != StaticLimitReachedReply {
+		t.Fatalf("expected limit reply, got %q", result.FinalReply)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
 		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
@@ -549,14 +549,14 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByBudget(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolBudget(t *testing.T) {
+func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"alpha","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"beta","toolInput":{}}`,
 		finalReplyDocument("done"),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 4, MaxToolCalls: 2})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 2})
 	toolRegistry := NewToolRegistry([]string{"browser.fill", "alpha", "beta"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"ok":true}`}, nil
@@ -585,11 +585,14 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolBudget(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerLocalizesKoreanBudgetReply(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 1})
+func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+		},
+		textResponses: []string{"검색은 시작했지만 결과 정리는 아직 남았습니다. 지금 확인된 내용은 다시 이어서 처리할 수 있게 저장했습니다."},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := NewToolRegistry([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "again"}, nil
@@ -602,20 +605,78 @@ func TestAgentTurnRunnerLocalizesKoreanBudgetReply(t *testing.T) {
 		ToolRegistry:      toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected budget result, got error: %v", errorValue)
+		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "30분 예산") {
-		t.Fatalf("expected korean budget reply, got %q", result.FinalReply)
+	if strings.Contains(result.FinalReply, "예산") || strings.Contains(result.FinalReply, "budget") {
+		t.Fatalf("expected reply without budget wording, got %q", result.FinalReply)
+	}
+	if !strings.Contains(result.FinalReply, "남았습니다") {
+		t.Fatalf("expected contextual limit reply, got %q", result.FinalReply)
 	}
 }
 
-func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationBudget(t *testing.T) {
+func TestAgentTurnRunnerUsesStaticLimitReplyWhenFinalizationLeaksDiagnostics(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+		},
+		textResponses: []string{"I used 10 minutes and 7 iterations before the budget stopped."},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
+	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "again"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected limit result, got error: %v", errorValue)
+	}
+	if result.FinalReply != StaticLimitReachedReply {
+		t.Fatalf("expected static fallback, got %q", result.FinalReply)
+	}
+}
+
+func TestAgentTurnRunnerAddsModelFacingLimitPressureWarnings(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"unknown"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, MaxToolCallCount: 8})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+	})
+	if errorValue != nil {
+		t.Fatalf("expected limit result, got error: %v", errorValue)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_pressure", "consolidate") {
+		t.Fatal("expected consolidate pressure warning event")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_pressure", "finalize") {
+		t.Fatal("expected finalize pressure warning event")
+	}
+	if !structuredRequestsContain(languageModel.requests, "Consolidate completed work") {
+		t.Fatal("expected consolidate warning in model-facing messages")
+	}
+	if !structuredRequestsContain(languageModel.requests, "Do not start new tool work") {
+		t.Fatal("expected finalize warning in model-facing messages")
+	}
+}
+
+func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
 		finalReplyWithEvidence("캡처했습니다.", "obs-002", "browser.screenshot", 0),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 2})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
 	toolRegistry := NewToolRegistry([]string{"browser.screenshot"})
 	screenshotIndex := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -660,7 +721,7 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
 		`{"action":"fail","reason":"not complete"}`,
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 1})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := NewToolRegistry([]string{"browser.screenshot"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
@@ -681,7 +742,7 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 		ToolRegistry:      toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected budget result, got error: %v", errorValue)
+		t.Fatalf("expected effort result, got error: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
 		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
@@ -694,11 +755,11 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 	}
 }
 
-func TestAgentTurnRunnerDoesNotCompleteBudgetStopFromUnrequestedAttachment(t *testing.T) {
+func TestAgentTurnRunnerDoesNotCompleteEffortStopFromUnrequestedAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"file.pick","toolInput":{}}`,
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 1})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := NewToolRegistry([]string{"file.pick"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.pick"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
@@ -719,7 +780,7 @@ func TestAgentTurnRunnerDoesNotCompleteBudgetStopFromUnrequestedAttachment(t *te
 		ToolRegistry:      toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected budget result, got error: %v", errorValue)
+		t.Fatalf("expected effort result, got error: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
 		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
@@ -758,7 +819,7 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 1})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := NewToolRegistry([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "again"}, nil
@@ -773,20 +834,20 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected fallback result, got error: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "thirty-minute budget") {
-		t.Fatalf("expected budget reply, got %q", result.FinalReply)
+	if result.FinalReply != StaticLimitReachedReply {
+		t.Fatalf("expected static limit fallback, got %q", result.FinalReply)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
 		t.Fatalf("expected blocked task run, got %s", result.TaskRun.Status)
 	}
 }
 
-func TestAgentTurnRunnerStopsWhenToolBudgetIsExceeded(t *testing.T) {
+func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterations: 3, MaxToolCalls: 1})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3, MaxToolCallCount: 1})
 	toolRegistry := NewToolRegistry([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "again"}, nil
@@ -799,13 +860,13 @@ func TestAgentTurnRunnerStopsWhenToolBudgetIsExceeded(t *testing.T) {
 		ToolRegistry:      toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected budget result, got error: %v", errorValue)
+		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "thirty-minute budget") {
-		t.Fatalf("expected budget reply, got %q", result.FinalReply)
+	if result.FinalReply != StaticLimitReachedReply {
+		t.Fatalf("expected limit reply, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.budget_stop", "maximum tool calls exceeded") {
-		t.Fatal("expected budget stop event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_stop", "max_tool_calls") {
+		t.Fatal("expected limit stop event")
 	}
 }
 
@@ -830,12 +891,19 @@ func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options 
 }
 
 type sequenceLanguageModel struct {
-	contents []string
-	requests []llm.StructuredResponseRequest
+	contents      []string
+	textResponses []string
+	requests      []llm.StructuredResponseRequest
+	textPrompts   []string
 }
 
-func (languageModel *sequenceLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "", nil
+func (languageModel *sequenceLanguageModel) GenerateResponse(_ context.Context, prompt string) (string, error) {
+	languageModel.textPrompts = append(languageModel.textPrompts, prompt)
+	index := len(languageModel.textPrompts) - 1
+	if index >= len(languageModel.textResponses) {
+		return "", nil
+	}
+	return languageModel.textResponses[index], nil
 }
 
 func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
@@ -859,6 +927,15 @@ func taskEventsContain(taskEvents []task.TaskEvent, name string, bodyFragment st
 func messagesContain(messages []llm.Message, fragment string) bool {
 	for _, message := range messages {
 		if strings.Contains(message.Content, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func structuredRequestsContain(requests []llm.StructuredResponseRequest, fragment string) bool {
+	for _, request := range requests {
+		if messagesContain(request.Messages, fragment) {
 			return true
 		}
 	}

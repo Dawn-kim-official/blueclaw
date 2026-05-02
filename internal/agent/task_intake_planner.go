@@ -29,7 +29,7 @@ const (
 
 type IntakeOptions struct {
 	IsEnabled          bool
-	DefaultBudgetClass BudgetClass
+	DefaultEffortLevel EffortLevel
 }
 
 type AgentRequest struct {
@@ -49,7 +49,7 @@ type AgentRequest struct {
 type IntakeDecision struct {
 	Classification            IntakeClassification `json:"classification"`
 	TaskShape                 TaskShape            `json:"taskShape"`
-	BudgetClass               BudgetClass          `json:"budgetClass"`
+	EffortLevel               EffortLevel          `json:"effortLevel"`
 	Reason                    string               `json:"reason"`
 	UserFacingReply           string               `json:"userFacingReply"`
 	UsedDeterministicFallback bool                 `json:"usedDeterministicFallback"`
@@ -68,8 +68,8 @@ func NewTaskIntakePlanner(languageModel llm.LanguageModelProvider, options Intak
 }
 
 func normalizeIntakeOptions(options IntakeOptions) IntakeOptions {
-	if NormalizeBudgetClass(string(options.DefaultBudgetClass)) == "" {
-		options.DefaultBudgetClass = BudgetClassThirtyMinutes
+	if NormalizeEffortLevel(string(options.DefaultEffortLevel)) == "" {
+		options.DefaultEffortLevel = EffortLevelStandard
 	}
 	return options
 }
@@ -91,8 +91,8 @@ func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Con
 	structuredResponse, errorValue := taskIntakePlanner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: taskIntakePlanner.buildMessages(request),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:               "blueclaw_task_intake_budget",
-			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"taskShape":{"type":"string","enum":["immediate_reply","research_task","maintenance_task","scheduled_task","browser_handoff_task","approval_gated_task"]},"budgetClass":{"type":"string","enum":["five_minutes","ten_minutes","thirty_minutes","one_hour","six_hours","half_day"]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","taskShape","budgetClass","reason"],"additionalProperties":false}`,
+			Name:               "blueclaw_task_intake_effort",
+			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"taskShape":{"type":"string","enum":["immediate_reply","research_task","maintenance_task","scheduled_task","browser_handoff_task","approval_gated_task"]},"effortLevel":{"type":"string","enum":["quick","standard","deep","extended"]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","taskShape","effortLevel","reason"],"additionalProperties":false}`,
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -134,16 +134,16 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
 	classification := IntakeClassificationQuickReply
 	reason := "short request can be answered directly"
-	budgetClass := BudgetClassFiveMinutes
+	effortLevel := EffortLevelQuick
 	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
 		classification = IntakeClassificationBoundedTask
 		reason = "request may benefit from bounded tool use"
-		budgetClass = taskIntakePlanner.options.DefaultBudgetClass
+		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
 	}
 	if request.VisibleContext.HasMoreBefore {
 		classification = IntakeClassificationBoundedTask
 		reason = "request has additional retrievable conversation history"
-		budgetClass = taskIntakePlanner.options.DefaultBudgetClass
+		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
 	}
 	if looksLikeLargeRequest(prompt) {
 		classification = IntakeClassificationNeedsConfirmation
@@ -156,7 +156,7 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	return IntakeDecision{
 		Classification:            classification,
 		TaskShape:                 deterministicTaskShape(request, classification),
-		BudgetClass:               LargerBudgetClass(budgetClass, minimumBudgetClassForRequest(request)),
+		EffortLevel:               LargerEffortLevel(effortLevel, minimumEffortLevelForRequest(request)),
 		Reason:                    reason,
 		UserFacingReply:           defaultUserFacingReply(classification),
 		UsedDeterministicFallback: true,
@@ -174,11 +174,11 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
 	}
 	decision.TaskShape = normalizedTaskShape
-	normalizedBudgetClass := NormalizeBudgetClass(string(decision.BudgetClass))
-	if normalizedBudgetClass == "" {
-		normalizedBudgetClass = defaultDecision.BudgetClass
+	normalizedEffortLevel := NormalizeEffortLevel(string(decision.EffortLevel))
+	if normalizedEffortLevel == "" {
+		normalizedEffortLevel = defaultDecision.EffortLevel
 	}
-	decision.BudgetClass = LargerBudgetClass(normalizedBudgetClass, minimumBudgetClassForRequest(request))
+	decision.EffortLevel = LargerEffortLevel(normalizedEffortLevel, minimumEffortLevelForRequest(request))
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
 	}
@@ -241,7 +241,7 @@ func defaultUserFacingReply(classification IntakeClassification) string {
 }
 
 func looksLikeToolRequest(prompt string) bool {
-	toolWords := []string{"search", "find", "lookup", "check", "read", "fetch", "compare", "analyze", "summarize", "browser", "screenshot", "click", "fill", "press", "검색", "찾", "확인", "읽", "분석", "요약", "브라우저", "인터넷", "스크린샷", "클릭", "입력"}
+	toolWords := []string{"search", "find", "lookup", "check", "read", "fetch", "compare", "analyze", "summarize", "browser", "screenshot", "click", "fill", "press", "create", "write", "attach", "run", "검색", "찾", "확인", "읽", "분석", "요약", "브라우저", "인터넷", "스크린샷", "클릭", "입력", "만들", "작성", "첨부", "실행"}
 	return containsAny(prompt, toolWords)
 }
 
@@ -264,20 +264,32 @@ func containsAny(value string, candidates []string) bool {
 	return false
 }
 
-func minimumBudgetClassForRequest(request AgentRequest) BudgetClass {
+func minimumEffortLevelForRequest(request AgentRequest) EffortLevel {
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if containsAny(prompt, []string{"migration", "backup", "restore", "delegated", "delegate", "scheduled workflow", "long-running", "마이그레이션", "백업", "복구", "위임", "장기", "예약 실행"}) {
+		return EffortLevelExtended
+	}
+	if containsAny(prompt, []string{"thorough", "deep", "exhaustive", "debug", "fix", "code edit", "multi-file", "verification", "verify", "browser handoff", "maintenance", "꼼꼼히", "깊게", "전체적으로", "디버그", "고쳐", "수정", "검증", "브라우저 핸드오프", "유지보수"}) {
+		return EffortLevelDeep
+	}
+	if deterministicTaskShape(request, IntakeClassificationBoundedTask) == TaskShapeScheduledTask {
+		return EffortLevelExtended
+	}
 	if hasToolPrefix(request.ToolRegistry, "browser.") {
 		if looksLikeBrowserControlSequence(prompt) {
-			return BudgetClassThirtyMinutes
+			return EffortLevelDeep
 		}
 		if !hasToolPrefix(request.ToolRegistry, "web.") {
-			return BudgetClassTenMinutes
+			return EffortLevelDeep
 		}
 	}
 	if hasToolPrefix(request.ToolRegistry, "file.") || hasToolPrefix(request.ToolRegistry, "user.") {
-		return BudgetClassTenMinutes
+		return EffortLevelStandard
 	}
-	return BudgetClassFiveMinutes
+	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
+		return EffortLevelStandard
+	}
+	return EffortLevelQuick
 }
 
 func hasToolPrefix(toolRegistry *ToolRegistry, prefix string) bool {
@@ -301,8 +313,8 @@ func (intakeDecision IntakeDecision) Validate() error {
 	if normalizeClassification(intakeDecision.Classification) == "" {
 		return errors.New("intake classification is invalid")
 	}
-	if NormalizeBudgetClass(string(intakeDecision.BudgetClass)) == "" {
-		return errors.New("intake budget class is invalid")
+	if NormalizeEffortLevel(string(intakeDecision.EffortLevel)) == "" {
+		return errors.New("intake effort level is invalid")
 	}
 	return nil
 }

@@ -147,7 +147,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	instructionBundle = selectInstructionBundleForRequest(instructionBundle, request)
 	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
 	intakeDecision := intakePlanner.Plan(responseContext, request)
-	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultBudgetClass)
+	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
 		return agentKernel.completeIntakeOnlyRequest(request, intakeDecision, task.TaskStatusWaitingUserInput)
 	}
@@ -175,7 +175,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
 		turnRequest.ToolRegistry = nil
-		turnOptions.MaxIterations = 1
+		turnOptions.MaxIterationCount = 1
 	}
 
 	agentTurnRunner := NewAgentTurnRunner(
@@ -242,7 +242,7 @@ func selectedRequiredAttachmentSuffixes(instructionBundle InstructionBundle) []s
 	return requiredAttachmentSuffixes
 }
 
-func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultBudgetClass BudgetClass) IntakeDecision {
+func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultEffortLevel EffortLevel) IntakeDecision {
 	if decision.Classification != IntakeClassificationQuickReply || !hasSelectedSkillWithRequiredTools(instructionBundle) {
 		return decision
 	}
@@ -250,7 +250,7 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply {
 		decision.TaskShape = TaskShapeResearchTask
 	}
-	decision.BudgetClass = LargerBudgetClass(decision.BudgetClass, defaultBudgetClass)
+	decision.EffortLevel = LargerEffortLevel(decision.EffortLevel, defaultEffortLevel)
 	decision.Reason = "selected skill requires bounded tool execution"
 	decision.UserFacingReply = ""
 	return decision
@@ -521,10 +521,10 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {
 	baseOptions := normalizeTurnOptions(agentKernel.turnOptions)
-	budgetProfile := BudgetProfileForClass(intakeDecision.BudgetClass)
-	baseOptions.BudgetClass = budgetProfile.BudgetClass
-	baseOptions.MaxIterations = budgetProfile.MaxIterations
-	baseOptions.MaxToolCalls = budgetProfile.MaxToolCalls
-	baseOptions.WallClockSecond = int(budgetProfile.Duration.Seconds())
+	effortProfile := EffortLimitProfileForLevel(intakeDecision.EffortLevel)
+	baseOptions.EffortLevel = effortProfile.EffortLevel
+	baseOptions.MaxIterationCount = effortProfile.MaxIterationCount
+	baseOptions.MaxToolCallCount = effortProfile.MaxToolCallCount
+	baseOptions.MaxElapsedSecond = int(effortProfile.Duration.Seconds())
 	return baseOptions
 }

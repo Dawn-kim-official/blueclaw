@@ -80,8 +80,8 @@ func (promptAssembler PromptAssembler) appendObservationMessage(messages *[]llm.
 		return
 	}
 	body := marshalEventBody(recentProgressObservations(observations))
-	if len(body) > progressMessageBudget {
-		body = body[:progressMessageBudget] + "\n[trimmed]"
+	if len(body) > progressMessageLimit {
+		body = body[:progressMessageLimit] + "\n[trimmed]"
 	}
 	*messages = append(*messages, llm.Message{
 		Role:    "system",
@@ -95,8 +95,8 @@ func (promptAssembler PromptAssembler) appendProgressMessage(messages *[]llm.Mes
 		progress.RemainingWork = "No tool work has been attempted yet."
 	}
 	body := marshalEventBody(progress)
-	if len(body) > progressMessageBudget {
-		body = body[:progressMessageBudget] + "\n[trimmed]"
+	if len(body) > progressMessageLimit {
+		body = body[:progressMessageLimit] + "\n[trimmed]"
 	}
 	*messages = append(*messages, llm.Message{
 		Role:    "system",

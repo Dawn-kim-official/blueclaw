@@ -132,7 +132,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
-	agentKernel.UseTurnOptions(agent.TurnOptions{MaxIterations: 20, MaxToolCalls: 16, WallClockSecond: 120})
+	agentKernel.UseTurnOptions(agent.TurnOptions{MaxIterationCount: 20, MaxToolCallCount: 16, MaxElapsedSecond: 120})
 	agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: append([]agent.SkillInstruction{}, skillInstructions...)}
 	})

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-const progressMessageBudget = 6000
+const progressMessageLimit = 6000
 const maxProgressObservations = 12
 const maxInteractiveReferences = 20
 const maxSummaryTextLength = 500
