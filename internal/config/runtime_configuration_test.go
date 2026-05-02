@@ -59,7 +59,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
       "enabled": true,
       "executionMode": "auto"
     },
-    "defaultBudgetClass": "thirty_minutes",
+    "defaultEffortLevel": "standard",
     "toolResultMaxBytes": 32768
   },
   "agentProfiles": [
@@ -176,8 +176,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Agent.Intake.ExecutionMode != "auto" {
 		t.Fatalf("expected agent intake execution mode to match, got %q", runtimeConfiguration.Agent.Intake.ExecutionMode)
 	}
-	if runtimeConfiguration.Agent.DefaultBudgetClass != "thirty_minutes" {
-		t.Fatalf("expected agent default budget class to match, got %q", runtimeConfiguration.Agent.DefaultBudgetClass)
+	if runtimeConfiguration.Agent.DefaultEffortLevel != "standard" {
+		t.Fatalf("expected agent default effort level to match, got %q", runtimeConfiguration.Agent.DefaultEffortLevel)
 	}
 	if runtimeConfiguration.Agent.ToolResultMaxBytes != 32768 {
 		t.Fatalf("expected agent tool result limit to match, got %d", runtimeConfiguration.Agent.ToolResultMaxBytes)

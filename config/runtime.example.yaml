@@ -48,7 +48,7 @@
       "enabled": true,
       "executionMode": "auto"
     },
-    "defaultBudgetClass": "thirty_minutes",
+    "defaultEffortLevel": "standard",
     "toolResultMaxBytes": 32768
   },
   "connectors": {

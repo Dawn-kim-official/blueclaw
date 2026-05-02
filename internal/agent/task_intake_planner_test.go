@@ -12,7 +12,7 @@ import (
 
 func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","budgetClass":"ten_minutes","reason":"bounded tool work","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","reason":"bounded tool work","userFacingReply":""}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"memory.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -20,7 +20,7 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
 		IsEnabled:          true,
-		DefaultBudgetClass: BudgetClassThirtyMinutes,
+		DefaultEffortLevel: EffortLevelStandard,
 	})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -34,13 +34,13 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if decision.TaskShape != TaskShapeResearchTask {
 		t.Fatalf("expected research task shape, got %+v", decision)
 	}
-	if decision.BudgetClass != BudgetClassTenMinutes {
-		t.Fatalf("expected selected budget class, got %+v", decision)
+	if decision.EffortLevel != EffortLevelStandard {
+		t.Fatalf("expected selected effort level, got %+v", decision)
 	}
 	if len(languageModel.requests) != 1 {
 		t.Fatalf("expected one intake model call, got %d", len(languageModel.requests))
 	}
-	if languageModel.requests[0].StructuredOutputSchema.Name != "blueclaw_task_intake_budget" {
+	if languageModel.requests[0].StructuredOutputSchema.Name != "blueclaw_task_intake_effort" {
 		t.Fatalf("expected intake schema, got %q", languageModel.requests[0].StructuredOutputSchema.Name)
 	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"taskShape"`) {
@@ -64,9 +64,23 @@ func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerClampsBrowserControlBudget(t *testing.T) {
+func TestTaskIntakePlannerFallbackDefaultsUncertainWorkToStandard(t *testing.T) {
+	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
+	toolRegistry := NewToolRegistry([]string{"memory.search"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:       "please search memory",
+		ToolRegistry: toolRegistry,
+	})
+
+	if decision.EffortLevel != EffortLevelStandard {
+		t.Fatalf("expected standard effort fallback, got %+v", decision)
+	}
+}
+
+func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"browser_handoff_task","budgetClass":"five_minutes","reason":"browser control","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"browser_handoff_task","effortLevel":"quick","reason":"browser control","userFacingReply":""}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.screenshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -76,22 +90,43 @@ func TestTaskIntakePlannerClampsBrowserControlBudget(t *testing.T) {
 		ToolRegistry: toolRegistry,
 	})
 
-	if decision.BudgetClass != BudgetClassThirtyMinutes {
-		t.Fatalf("expected browser control budget clamp, got %+v", decision)
+	if decision.EffortLevel != EffortLevelDeep {
+		t.Fatalf("expected browser control effort clamp, got %+v", decision)
 	}
 }
 
-func TestBudgetProfileMapping(t *testing.T) {
-	profile := BudgetProfileForClass(BudgetClassSixHours)
+func TestTaskIntakePlannerPromotesDeepAndExtendedRequests(t *testing.T) {
+	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
+	toolRegistry := NewToolRegistry([]string{"terminal.run"})
 
-	if profile.MaxIterations != 512 || profile.MaxToolCalls != 1024 || profile.Duration.Hours() != 6 {
-		t.Fatalf("expected six hour profile, got %+v", profile)
+	deepDecision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:       "꼼꼼히 디버그하고 검증해줘",
+		ToolRegistry: toolRegistry,
+	})
+	if deepDecision.EffortLevel != EffortLevelDeep {
+		t.Fatalf("expected deep effort, got %+v", deepDecision)
+	}
+
+	extendedDecision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:       "backup restore migration workflow를 처리해줘",
+		ToolRegistry: toolRegistry,
+	})
+	if extendedDecision.EffortLevel != EffortLevelExtended {
+		t.Fatalf("expected extended effort, got %+v", extendedDecision)
+	}
+}
+
+func TestEffortLimitProfileMapping(t *testing.T) {
+	profile := EffortLimitProfileForLevel(EffortLevelDeep)
+
+	if profile.MaxIterationCount != 90 || profile.MaxToolCallCount != 32 || profile.Duration.Minutes() != 30 {
+		t.Fatalf("expected deep profile, got %+v", profile)
 	}
 }
 
 func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","budgetClass":"thirty_minutes","reason":"too broad","userFacingReply":"Please narrow this first."}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","reason":"too broad","userFacingReply":"Please narrow this first."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("should not run"),
@@ -127,7 +162,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 
 func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","budgetClass":"five_minutes","reason":"direct answer","userFacingReply":""}`,
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("hello"),
@@ -157,7 +192,7 @@ func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 
 func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","budgetClass":"five_minutes","reason":"direct answer","userFacingReply":""}`,
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("deck created"),
@@ -228,7 +263,7 @@ func newKernelIntakeTestServices(replyLanguageModel llm.LanguageModelProvider, i
 	kernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 	kernel.UseIntakeOptions(IntakeOptions{
 		IsEnabled:          true,
-		DefaultBudgetClass: BudgetClassThirtyMinutes,
+		DefaultEffortLevel: EffortLevelStandard,
 	})
 	return kernelIntakeTestServices{kernel: kernel, taskEventService: taskEventService}
 }

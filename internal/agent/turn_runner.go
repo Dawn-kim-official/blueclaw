@@ -14,13 +14,13 @@ import (
 )
 
 const DefaultFallbackReply = "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
-const DefaultBudgetExceededReply = "I stopped because this request exceeded the current execution budget. Please narrow the request and try again."
+const StaticLimitReachedReply = "I hit the limit for this run before I could finish cleanly. I saved the task state so it can be resumed or retried with a larger scope."
 
 type TurnOptions struct {
-	MaxIterations      int
-	MaxToolCalls       int
-	WallClockSecond    int
-	BudgetClass        BudgetClass
+	MaxIterationCount  int
+	MaxToolCallCount   int
+	MaxElapsedSecond   int
+	EffortLevel        EffortLevel
 	ToolResultMaxBytes int
 }
 
@@ -106,21 +106,21 @@ func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *ta
 }
 
 func normalizeTurnOptions(options TurnOptions) TurnOptions {
-	budgetProfile := BudgetProfileForClass(options.BudgetClass)
-	if options.BudgetClass == "" {
-		options.BudgetClass = budgetProfile.BudgetClass
+	effortProfile := EffortLimitProfileForLevel(options.EffortLevel)
+	if options.EffortLevel == "" {
+		options.EffortLevel = effortProfile.EffortLevel
 	}
-	if options.MaxIterations <= 0 {
-		options.MaxIterations = budgetProfile.MaxIterations
+	if options.MaxIterationCount <= 0 {
+		options.MaxIterationCount = effortProfile.MaxIterationCount
 	}
-	if options.MaxToolCalls < 0 {
-		options.MaxToolCalls = 0
+	if options.MaxToolCallCount < 0 {
+		options.MaxToolCallCount = 0
 	}
-	if options.MaxToolCalls == 0 {
-		options.MaxToolCalls = budgetProfile.MaxToolCalls
+	if options.MaxToolCallCount == 0 {
+		options.MaxToolCallCount = effortProfile.MaxToolCallCount
 	}
-	if options.WallClockSecond <= 0 {
-		options.WallClockSecond = int(budgetProfile.Duration.Seconds())
+	if options.MaxElapsedSecond <= 0 {
+		options.MaxElapsedSecond = int(effortProfile.Duration.Seconds())
 	}
 	if options.ToolResultMaxBytes <= 0 {
 		options.ToolResultMaxBytes = 32768
@@ -133,7 +133,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		return AgentTurnResult{}, errors.New("language model provider is not configured")
 	}
 
-	turnContext, cancel := context.WithTimeout(ctx, time.Duration(agentTurnRunner.options.WallClockSecond)*time.Second)
+	turnContext, cancel := context.WithTimeout(ctx, time.Duration(agentTurnRunner.options.MaxElapsedSecond)*time.Second)
 	defer cancel()
 
 	taskRun := agentTurnRunner.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
@@ -147,7 +147,13 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	attachments := []FileAttachment{}
 	toolUseRequirements := deriveToolUseRequirements(request)
 	toolCallCount := 0
-	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterations; iteration++ {
+	limitPressureWarnings := map[string]bool{}
+	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterationCount; iteration++ {
+		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, toolCallCount, len(observations)+1, limitPressureWarnings); warning != nil {
+			observations = append(observations, warning.Observation)
+			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.limit_pressure", marshalEventBody(warning.EventBody))
+			limitPressureWarnings[warning.Level] = true
+		}
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
 
@@ -155,7 +161,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.DeadlineExceeded) {
-				return agentTurnRunner.stopForBudget(taskRun.TaskRunID, request.Prompt, "maximum wall clock exceeded", observations, attachments)
+				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", observations, attachments, iteration-1, toolCallCount)
 			}
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, "llm action failed: "+actionError.Error())
 		}
@@ -196,9 +202,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				continue
 			}
 			toolCallCount++
-			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.finalizeOrStopForBudget(turnContext, taskRun.TaskRunID, request, "maximum tool calls exceeded", toolUseRequirements, observations, attachments)
+			if toolCallCount > agentTurnRunner.options.MaxToolCallCount {
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
+				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, iteration, agentTurnRunner.options.MaxToolCallCount)
 			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput)
 			observations = append(observations, observation)
@@ -206,9 +212,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
 			toolCallCount++
-			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.finalizeOrStopForBudget(turnContext, taskRun.TaskRunID, request, "maximum tool calls exceeded", toolUseRequirements, observations, attachments)
+			if toolCallCount > agentTurnRunner.options.MaxToolCallCount {
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
+				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, iteration, agentTurnRunner.options.MaxToolCallCount)
 			}
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "conversation.history", actionDocument.ToolInput)
 			observations = append(observations, observation)
@@ -216,9 +222,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "fetch_history", observation.Content)
 		case "search_memory":
 			toolCallCount++
-			if toolCallCount > agentTurnRunner.options.MaxToolCalls {
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "budget stop", "maximum tool calls exceeded")
-				return agentTurnRunner.finalizeOrStopForBudget(turnContext, taskRun.TaskRunID, request, "maximum tool calls exceeded", toolUseRequirements, observations, attachments)
+			if toolCallCount > agentTurnRunner.options.MaxToolCallCount {
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
+				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, iteration, agentTurnRunner.options.MaxToolCallCount)
 			}
 			toolInput := actionDocument.ToolInput
 			if len(toolInput) == 0 {
@@ -239,7 +245,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 	}
 
-	return agentTurnRunner.finalizeOrStopForBudget(turnContext, taskRun.TaskRunID, request, "maximum agent iterations exceeded", toolUseRequirements, observations, attachments)
+	return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, observations, attachments, agentTurnRunner.options.MaxIterationCount, toolCallCount)
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation) (turnActionDocument, error) {
@@ -608,13 +614,71 @@ func hasAttachmentDevicePath(attachments []FileAttachment, devicePath string) bo
 	return false
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForBudget(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment) (AgentTurnResult, error) {
+type limitPressureWarning struct {
+	Level       string
+	Observation turnObservation
+	EventBody   map[string]any
+}
+
+func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCount int, usedToolCallCount int, observationIndex int, sentWarnings map[string]bool) *limitPressureWarning {
+	if sentWarnings["finalize"] {
+		return nil
+	}
+	if agentTurnRunner.options.MaxIterationCount < 10 && agentTurnRunner.options.MaxToolCallCount < 5 {
+		return nil
+	}
+	level := agentTurnRunner.limitPressureLevel(usedIterationCount, usedToolCallCount)
+	if level == "" || sentWarnings[level] {
+		return nil
+	}
+	message := limitPressureMessage(level)
+	return &limitPressureWarning{
+		Level: level,
+		Observation: turnObservation{
+			ObservationID: nextObservationID(observationIndex),
+			Action:        "limit_pressure",
+			Content:       message,
+		},
+		EventBody: map[string]any{
+			"level":              level,
+			"effortLevel":        agentTurnRunner.options.EffortLevel,
+			"usedIterationCount": usedIterationCount,
+			"usedToolCallCount":  usedToolCallCount,
+		},
+	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) limitPressureLevel(usedIterationCount int, usedToolCallCount int) string {
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 90) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 90) {
+		return "finalize"
+	}
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 70) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 70) {
+		return "consolidate"
+	}
+	return ""
+}
+
+func limitUsageReached(usedCount int, maxCount int, thresholdPercent int) bool {
+	if maxCount <= 0 || usedCount <= 0 {
+		return false
+	}
+	return usedCount*100 >= maxCount*thresholdPercent
+}
+
+func limitPressureMessage(level string) string {
+	if level == "finalize" {
+		return "The current run is very close to its limit. Do not start new tool work. Prepare the best final answer from completed observations."
+	}
+	return "The current run is getting close to its limit. Consolidate completed work, reuse existing observations, and avoid opening new branches unless essential."
+}
+
+func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	if ctx.Err() == nil && completionRequirementsHaveEvidence(requirements, observations) {
 		if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, requirements, observations); isFinalized {
 			return result, nil
 		}
 	}
-	return agentTurnRunner.stopForBudget(taskRunID, request.Prompt, reason, observations, attachments)
+	return agentTurnRunner.stopForLimit(taskRunID, request, reason, observations, attachments, usedIterationCount, usedToolCallCount)
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) (AgentTurnResult, bool) {
@@ -649,7 +713,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, req
 	messages := agentTurnRunner.buildTurnMessages(request, observations)
 	messages = append(messages, llm.Message{
 		Role:    "system",
-		Content: "The execution budget is ending. Do not call tools. If the goal is satisfied by successful observations, return final_reply with goalSatisfied=true and cite the completionEvidence. If the goal is not satisfied, return fail.",
+		Content: "The current run is near its limit. Do not call tools. If the goal is satisfied by successful observations, return final_reply with goalSatisfied=true and cite the completionEvidence. If the goal is not satisfied, return fail.",
 	})
 	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: messages,
@@ -681,17 +745,22 @@ func completionRequirementsHaveEvidence(requirements []toolUseRequirement, obser
 	return true
 }
 
-func (agentTurnRunner *AgentTurnRunner) stopForBudget(taskRunID string, prompt string, reason string, observations []turnObservation, attachments []FileAttachment) (AgentTurnResult, error) {
+func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	body := map[string]any{
-		"budgetClass":      agentTurnRunner.options.BudgetClass,
-		"wallClockSecond":  agentTurnRunner.options.WallClockSecond,
-		"reason":           reason,
-		"attachmentCount":  len(attachments),
-		"observationCount": len(observations),
+		"effortLevel":        agentTurnRunner.options.EffortLevel,
+		"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
+		"maxElapsedSecond":   agentTurnRunner.options.MaxElapsedSecond,
+		"maxToolCallCount":   agentTurnRunner.options.MaxToolCallCount,
+		"usedIterationCount": usedIterationCount,
+		"usedToolCallCount":  usedToolCallCount,
+		"limitStopReason":    reason,
+		"attachmentCount":    len(attachments),
+		"observationCount":   len(observations),
 	}
-	agentTurnRunner.appendEvent(taskRunID, "agent.budget_stop", marshalEventBody(body))
+	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
-	reply := budgetStopReply(prompt, agentTurnRunner.options.BudgetClass)
+	reply := agentTurnRunner.GenerateLimitReachedReply(request, reason, observations, attachments)
+	blockedTaskRun.Result = reply
 	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply}, nil
 }
 
@@ -881,16 +950,103 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func budgetStopReply(prompt string, budgetClass BudgetClass) string {
-	if containsHangul(prompt) {
-		return BudgetClassKoreanLabel(budgetClass) + " 예산을 넘어서 작업을 멈췄습니다. 작업 범위를 줄이거나 더 긴 실행을 승인해 주세요."
+func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
+	finalizationPrompt := buildLimitReachedPrompt(request, stopReason, observations, attachments)
+	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, finalizationPrompt)
+	reply = strings.TrimSpace(reply)
+	if errorValue != nil || reply == "" || containsForbiddenLimitReplyFragment(reply) {
+		return StaticLimitReachedReply
 	}
-	return "I stopped after the " + BudgetClassLabel(budgetClass) + " budget was exceeded. Please narrow the task or approve a larger run."
+	return reply
 }
 
-func containsHangul(value string) bool {
-	for _, character := range value {
-		if character >= '\uAC00' && character <= '\uD7A3' {
+func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
+	sections := []string{
+		"You are writing a short user-facing final reply after a Blueclaw run reached its scope limit.",
+		"Do not mention internal runtime jargon, counters, percentages, elapsed time, or exact limits.",
+		"Say what was completed, what remains, and the best partial answer available from completed work.",
+		"Do not claim a tool result or attachment exists unless it appears below.",
+		"Original user request:\n" + strings.TrimSpace(request.Prompt),
+	}
+	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
+		sections = append(sections, contextDescription)
+	}
+	if memoryDescription := buildMemoryContext(request.MemoryFacts); strings.TrimSpace(memoryDescription) != "" {
+		sections = append(sections, "Relevant memory summaries:\n"+memoryDescription)
+	}
+	if observationSummary := buildLimitObservationSummary(observations); observationSummary != "" {
+		sections = append(sections, "Completed observations:\n"+observationSummary)
+	}
+	if attachmentSummary := buildLimitAttachmentSummary(attachments); attachmentSummary != "" {
+		sections = append(sections, "Available attachments:\n"+attachmentSummary)
+	}
+	if requirementSummary := buildLimitRequirementSummary(request, observations); requirementSummary != "" {
+		sections = append(sections, "Remaining completion requirements:\n"+requirementSummary)
+	}
+	if reason := strings.TrimSpace(stopReason); reason != "" {
+		sections = append(sections, "Internal stop reason for your planning only: "+reason)
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+func buildLimitObservationSummary(observations []turnObservation) string {
+	lines := []string{}
+	for _, observation := range observations {
+		if observation.IsError {
+			continue
+		}
+		summary := strings.TrimSpace(observation.Summary)
+		if summary == "" {
+			summary = summarizeObservationContent(observation)
+		}
+		if summary == "" {
+			continue
+		}
+		label := strings.TrimSpace(observation.Tool)
+		if label == "" {
+			label = strings.TrimSpace(observation.Action)
+		}
+		lines = append(lines, "- "+label+": "+summary)
+		if len(lines) >= 8 {
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildLimitAttachmentSummary(attachments []FileAttachment) string {
+	lines := []string{}
+	for _, attachment := range attachments {
+		filename := strings.TrimSpace(attachment.Filename)
+		if filename == "" {
+			continue
+		}
+		lines = append(lines, "- "+filename)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildLimitRequirementSummary(request AgentTurnRequest, observations []turnObservation) string {
+	requirements := deriveToolUseRequirements(request)
+	lines := []string{}
+	for _, requirement := range requirements {
+		if matchingCompletionObservations(requirement, observations) != nil {
+			continue
+		}
+		lines = append(lines, "- "+requirementLabel(requirement))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+func containsForbiddenLimitReplyFragment(reply string) bool {
+	normalizedReply := strings.ToLower(reply)
+	for _, fragment := range []string{"budget", "예산", "%", "percent", "percentage", "iteration", "tool call", "tool-call", "counter", "minute", "minutes", "second", "seconds", "분 ", "초 "} {
+		if strings.Contains(normalizedReply, fragment) {
 			return true
 		}
 	}
