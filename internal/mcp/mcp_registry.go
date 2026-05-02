@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	"blueclaw/internal/config"
@@ -33,6 +34,7 @@ func (mcpRegistry *McpRegistry) LoadServerDefinition(configurations []config.MCP
 			Arguments: configuration.Arguments,
 			Endpoint:  configuration.Endpoint,
 			ToolNames: configuration.ToolNames,
+			Tools:     buildToolDefinitions(configuration),
 		}
 	}
 }
@@ -43,12 +45,7 @@ func (mcpRegistry *McpRegistry) ListTool() []ToolDefinition {
 
 	toolDefinitions := []ToolDefinition{}
 	for _, serverDefinition := range mcpRegistry.serverDefinition {
-		for _, toolName := range serverDefinition.ToolNames {
-			toolDefinitions = append(toolDefinitions, ToolDefinition{
-				Name:       toolName,
-				ServerName: serverDefinition.Name,
-			})
-		}
+		toolDefinitions = append(toolDefinitions, serverDefinition.Tools...)
 	}
 
 	return toolDefinitions
@@ -63,4 +60,34 @@ func (mcpRegistry *McpRegistry) InvokeTool(ctx context.Context, invocation Invoc
 	}
 
 	return mcpRegistry.serverClient.InvokeTool(ctx, serverDefinition, invocation)
+}
+
+func buildToolDefinitions(configuration config.MCPServerConfiguration) []ToolDefinition {
+	toolDefinitions := []ToolDefinition{}
+	seenToolNames := map[string]bool{}
+	for _, toolConfiguration := range configuration.Tools {
+		toolName := strings.TrimSpace(toolConfiguration.Name)
+		if toolName == "" {
+			continue
+		}
+		seenToolNames[toolName] = true
+		toolDefinitions = append(toolDefinitions, ToolDefinition{
+			Name:        toolName,
+			ServerName:  configuration.Name,
+			Description: strings.TrimSpace(toolConfiguration.Description),
+			InputSchema: append([]byte{}, toolConfiguration.InputSchema...),
+		})
+	}
+	for _, toolName := range configuration.ToolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" || seenToolNames[trimmedToolName] {
+			continue
+		}
+		seenToolNames[trimmedToolName] = true
+		toolDefinitions = append(toolDefinitions, ToolDefinition{
+			Name:       trimmedToolName,
+			ServerName: configuration.Name,
+		})
+	}
+	return toolDefinitions
 }

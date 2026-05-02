@@ -37,6 +37,7 @@ type AgentTurnRequest struct {
 	RequesterName        string
 	RequesterCallingName string
 	RequesterHandle      string
+	ProfileName          string
 	ConversationID       string
 	Prompt               string
 	VisibleContext       VisibleContext
@@ -44,6 +45,7 @@ type AgentTurnRequest struct {
 	ToolRegistry         *ToolRegistry
 	InstructionPrompt    string
 	InstructionSources   []InstructionSource
+	SkillDecisions       []SkillSelectionDecision
 }
 
 type AgentTurnResult struct {
@@ -297,9 +299,11 @@ func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolR
 
 func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string, request AgentTurnRequest) {
 	body := map[string]any{
-		"sourceCount": len(request.InstructionSources),
-		"sources":     request.InstructionSources,
-		"skillNames":  instructionSkillNames(request.InstructionSources),
+		"profileName":    normalizedAgentProfileName(request.ProfileName),
+		"sourceCount":    len(request.InstructionSources),
+		"sources":        request.InstructionSources,
+		"skillNames":     instructionSkillNames(request.InstructionSources),
+		"skillDecisions": request.SkillDecisions,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"

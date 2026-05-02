@@ -9,13 +9,39 @@ type InstructionSource struct {
 }
 
 type InstructionBundle struct {
-	Prompt  string              `json:"prompt"`
-	Sources []InstructionSource `json:"sources"`
-	Skills  []SkillInstruction  `json:"skills,omitempty"`
+	Prompt         string                   `json:"prompt"`
+	Sources        []InstructionSource      `json:"sources"`
+	Skills         []SkillInstruction       `json:"skills,omitempty"`
+	SkillDecisions []SkillSelectionDecision `json:"skillDecisions,omitempty"`
 }
 
 type SkillInstruction struct {
-	Name   string `json:"name"`
-	Prompt string `json:"prompt"`
-	Source InstructionSource
+	Name            string          `json:"name"`
+	Description     string          `json:"description,omitempty"`
+	Category        string          `json:"category,omitempty"`
+	Tags            []string        `json:"tags,omitempty"`
+	Prompt          string          `json:"prompt"`
+	Activation      SkillActivation `json:"activation,omitempty"`
+	RequiredTools   []string        `json:"requiredTools,omitempty"`
+	AllowedProfiles []string        `json:"allowedProfiles,omitempty"`
+	TriggerHints    []string        `json:"triggerHints,omitempty"`
+	References      []string        `json:"references,omitempty"`
+	Scripts         []string        `json:"scripts,omitempty"`
+	Assets          []string        `json:"assets,omitempty"`
+	Source          InstructionSource
+}
+
+type SkillActivation struct {
+	Keywords     []string `json:"keywords,omitempty"`
+	ToolNames    []string `json:"toolNames,omitempty"`
+	ToolPrefixes []string `json:"toolPrefixes,omitempty"`
+}
+
+type SkillSelectionDecision struct {
+	Name         string            `json:"name"`
+	Status       string            `json:"status"`
+	Reason       string            `json:"reason"`
+	ProfileName  string            `json:"profileName,omitempty"`
+	MissingTools []string          `json:"missingTools,omitempty"`
+	Source       InstructionSource `json:"source,omitempty"`
 }

@@ -12,7 +12,7 @@ import (
 
 func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","budgetClass":"ten_minutes","reason":"bounded tool work","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"research_task","budgetClass":"ten_minutes","reason":"bounded tool work","userFacingReply":""}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"memory.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -31,6 +31,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if decision.Classification != IntakeClassificationBoundedTask {
 		t.Fatalf("expected bounded task, got %q", decision.Classification)
 	}
+	if decision.TaskShape != TaskShapeResearchTask {
+		t.Fatalf("expected research task shape, got %+v", decision)
+	}
 	if decision.BudgetClass != BudgetClassTenMinutes {
 		t.Fatalf("expected selected budget class, got %+v", decision)
 	}
@@ -39,6 +42,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 	if languageModel.requests[0].StructuredOutputSchema.Name != "blueclaw_task_intake_budget" {
 		t.Fatalf("expected intake schema, got %q", languageModel.requests[0].StructuredOutputSchema.Name)
+	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"taskShape"`) {
+		t.Fatalf("expected task shape in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
 }
 
@@ -50,6 +56,9 @@ func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
 	if decision.Classification != IntakeClassificationNeedsConfirmation {
 		t.Fatalf("expected confirmation fallback, got %q", decision.Classification)
 	}
+	if decision.TaskShape != TaskShapeApprovalGatedTask {
+		t.Fatalf("expected approval-gated fallback shape, got %+v", decision)
+	}
 	if !decision.UsedDeterministicFallback {
 		t.Fatal("expected deterministic fallback marker")
 	}
@@ -57,7 +66,7 @@ func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
 
 func TestTaskIntakePlannerClampsBrowserControlBudget(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","budgetClass":"five_minutes","reason":"browser control","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"browser_handoff_task","budgetClass":"five_minutes","reason":"browser control","userFacingReply":""}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.screenshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -82,7 +91,7 @@ func TestBudgetProfileMapping(t *testing.T) {
 
 func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","budgetClass":"thirty_minutes","reason":"too broad","userFacingReply":"Please narrow this first."}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","budgetClass":"thirty_minutes","reason":"too broad","userFacingReply":"Please narrow this first."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("should not run"),
@@ -118,7 +127,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 
 func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","budgetClass":"five_minutes","reason":"direct answer","userFacingReply":""}`,
+		`{"classification":"quick_reply","taskShape":"immediate_reply","budgetClass":"five_minutes","reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("hello"),

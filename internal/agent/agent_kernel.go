@@ -133,6 +133,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		RequesterName:        request.RequesterName,
 		RequesterCallingName: request.RequesterCallingName,
 		RequesterHandle:      request.RequesterHandle,
+		ProfileName:          request.ProfileName,
 		ConversationID:       request.ConversationID,
 		Prompt:               request.Prompt,
 		VisibleContext:       request.VisibleContext,
@@ -158,6 +159,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequesterName:        request.RequesterName,
 		RequesterCallingName: request.RequesterCallingName,
 		RequesterHandle:      request.RequesterHandle,
+		ProfileName:          normalizedAgentProfileName(request.ProfileName),
 		ConversationID:       request.ConversationID,
 		Prompt:               request.Prompt,
 		VisibleContext:       request.VisibleContext,
@@ -165,6 +167,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		ToolRegistry:         request.ToolRegistry,
 		InstructionPrompt:    instructionBundle.Prompt,
 		InstructionSources:   append([]InstructionSource{}, instructionBundle.Sources...),
+		SkillDecisions:       append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
@@ -224,82 +227,94 @@ func (agentKernel *AgentKernel) currentInstructionBundle() InstructionBundle {
 func selectInstructionBundleForRequest(instructionBundle InstructionBundle, request AgentRequest) InstructionBundle {
 	prompts := []string{strings.TrimSpace(instructionBundle.Prompt)}
 	sources := append([]InstructionSource{}, instructionBundle.Sources...)
+	skillSelector := SkillSelector{}
+	skillDecisions := []SkillSelectionDecision{}
+	selectedSkillInstructions := []SkillInstruction{}
 	for _, skillInstruction := range instructionBundle.Skills {
-		if !shouldIncludeSkillInstruction(skillInstruction.Name, request) {
+		skillDecision := skillSelector.Evaluate(skillInstruction, request, normalizedAgentProfileName(request.ProfileName))
+		skillDecisions = append(skillDecisions, skillDecision)
+		if skillDecision.Status != "selected" {
 			continue
 		}
-		if strings.TrimSpace(skillInstruction.Prompt) != "" {
-			prompts = append(prompts, strings.TrimSpace(skillInstruction.Prompt))
-		}
+		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
 		sources = append(sources, skillInstruction.Source)
 	}
+	prompts = append(prompts, buildCompactSkillIndexPrompt(instructionBundle.Skills, skillDecisions))
+	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
 	return InstructionBundle{
-		Prompt:  strings.Join(nonEmptyStrings(prompts), "\n\n"),
-		Sources: sources,
-		Skills:  append([]SkillInstruction{}, instructionBundle.Skills...),
+		Prompt:         strings.Join(nonEmptyStrings(prompts), "\n\n"),
+		Sources:        sources,
+		Skills:         append([]SkillInstruction{}, instructionBundle.Skills...),
+		SkillDecisions: skillDecisions,
 	}
 }
 
-func shouldIncludeSkillInstruction(skillName string, request AgentRequest) bool {
-	normalizedSkillName := strings.ToLower(strings.TrimSpace(skillName))
-	switch normalizedSkillName {
-	case "agent-browser":
-		return requestHasToolPrefix(request, "browser.") && promptMentionsBrowserWork(request.Prompt)
-	case "internkim-flow":
-		return requestHasToolName(request, "flow.task.add") && promptMentionsFlowWork(request.Prompt)
-	case "calendar":
-		return promptMentionsAny(request.Prompt, []string{"calendar", "schedule", "meeting", "일정", "캘린더", "회의"})
-	case "create-gws-file":
-		return promptMentionsAny(request.Prompt, []string{"google sheet", "spreadsheet", "sheet", "시트", "스프레드시트"})
-	case "pdf":
-		return promptMentionsAny(request.Prompt, []string{"pdf", "문서", "보고서"})
-	case "simple-slides":
-		return promptMentionsAny(request.Prompt, []string{"slides", "presentation", "deck", "ppt", "슬라이드", "발표", "프레젠테이션"})
-	default:
-		return false
+func normalizedAgentProfileName(profileName string) string {
+	trimmedProfileName := strings.TrimSpace(profileName)
+	if trimmedProfileName == "" {
+		return "default"
 	}
+	return trimmedProfileName
 }
 
-func requestHasToolPrefix(request AgentRequest, prefix string) bool {
-	if request.ToolRegistry == nil {
-		return false
+func buildCompactSkillIndexPrompt(skillInstructions []SkillInstruction, skillDecisions []SkillSelectionDecision) string {
+	eligibleSkillInstructions := eligibleSkillInstructions(skillInstructions, skillDecisions)
+	if len(eligibleSkillInstructions) == 0 {
+		return ""
 	}
-	for _, toolDefinition := range request.ToolRegistry.ListToolDefinitions() {
-		if strings.HasPrefix(toolDefinition.Name, prefix) {
-			return true
+	lines := []string{"Available skill index. Full instructions are loaded only for selected skills:"}
+	for _, skillInstruction := range eligibleSkillInstructions {
+		lines = append(lines, "- "+compactSkillIndexLine(skillInstruction))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func eligibleSkillInstructions(skillInstructions []SkillInstruction, skillDecisions []SkillSelectionDecision) []SkillInstruction {
+	decisionByName := map[string]SkillSelectionDecision{}
+	for _, skillDecision := range skillDecisions {
+		decisionByName[skillDecision.Name] = skillDecision
+	}
+	eligibleSkills := []SkillInstruction{}
+	for _, skillInstruction := range skillInstructions {
+		skillDecision, isFound := decisionByName[skillInstruction.Name]
+		if !isFound || skillDecision.Status == "selected" || skillDecision.Reason == "no_trigger_matched" {
+			eligibleSkills = append(eligibleSkills, skillInstruction)
 		}
 	}
-	return false
+	return eligibleSkills
 }
 
-func requestHasToolName(request AgentRequest, toolName string) bool {
-	if request.ToolRegistry == nil {
-		return false
+func compactSkillIndexLine(skillInstruction SkillInstruction) string {
+	parts := []string{skillInstruction.Name}
+	if strings.TrimSpace(skillInstruction.Category) != "" {
+		parts = append(parts, "category="+strings.TrimSpace(skillInstruction.Category))
 	}
-	for _, toolDefinition := range request.ToolRegistry.ListToolDefinitions() {
-		if toolDefinition.Name == toolName {
-			return true
+	if strings.TrimSpace(skillInstruction.Description) != "" {
+		parts = append(parts, "description="+strings.TrimSpace(skillInstruction.Description))
+	}
+	if len(skillInstruction.Tags) > 0 {
+		parts = append(parts, "tags="+strings.Join(skillInstruction.Tags, ", "))
+	}
+	if len(skillInstruction.TriggerHints) > 0 {
+		parts = append(parts, "triggerHints="+strings.Join(skillInstruction.TriggerHints, ", "))
+	}
+	if len(skillInstruction.RequiredTools) > 0 {
+		parts = append(parts, "requiredTools="+strings.Join(skillInstruction.RequiredTools, ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func buildSelectedSkillInstructionPrompt(skillInstructions []SkillInstruction) string {
+	if len(skillInstructions) == 0 {
+		return ""
+	}
+	parts := []string{"Selected skill instructions:"}
+	for _, skillInstruction := range skillInstructions {
+		if strings.TrimSpace(skillInstruction.Prompt) != "" {
+			parts = append(parts, strings.TrimSpace(skillInstruction.Prompt))
 		}
 	}
-	return false
-}
-
-func promptMentionsBrowserWork(prompt string) bool {
-	return promptMentionsAny(prompt, []string{"browser", "website", "web", "google", "검색", "브라우저", "스크린샷", "캡처", "페이지", "사이트", "클릭"})
-}
-
-func promptMentionsFlowWork(prompt string) bool {
-	return promptMentionsAny(prompt, []string{"flow", "task", "todo", "업무", "회의", "미팅", "추가", "넣어", "등록", "요청", "할 일", "할일"})
-}
-
-func promptMentionsAny(prompt string, keywords []string) bool {
-	normalizedPrompt := strings.ToLower(prompt)
-	for _, keyword := range keywords {
-		if strings.Contains(normalizedPrompt, keyword) {
-			return true
-		}
-	}
-	return false
+	return strings.Join(parts, "\n\n")
 }
 
 func nonEmptyStrings(values []string) []string {
@@ -380,43 +395,6 @@ func buildSenderAddressingDescription(request AgentTurnRequest) string {
 		"If multiple participants in this conversation share the same calling name, append \"@handle\" when addressing them to disambiguate.",
 	)
 	return strings.Join(descriptionLines, "\n")
-}
-
-func buildMemoryContext(memoryFacts []memory.MemoryFact) string {
-	userMemoryDescriptions := []string{}
-	workspaceMemoryDescriptions := []string{}
-	conversationMemoryDescriptions := []string{}
-	for _, memoryFact := range memoryFacts {
-		memoryDescription := strings.TrimSpace(memoryFact.Content)
-		if memoryDescription == "" {
-			continue
-		}
-		switch memoryFact.ScopeType {
-		case memory.ScopeTypeWorkspace:
-			workspaceMemoryDescriptions = append(workspaceMemoryDescriptions, "- "+memoryDescription)
-		case memory.ScopeTypeConversation:
-			conversationMemoryDescriptions = append(conversationMemoryDescriptions, "- "+memoryDescription)
-		default:
-			userMemoryDescriptions = append(userMemoryDescriptions, "- "+memoryDescription)
-		}
-	}
-
-	sections := []string{}
-	if len(userMemoryDescriptions) > 0 {
-		sections = append(sections, "User-space memory for this requester:\n"+strings.Join(userMemoryDescriptions, "\n"))
-	}
-	if len(workspaceMemoryDescriptions) > 0 {
-		sections = append(sections, "Accessible workspace memory:\n"+strings.Join(workspaceMemoryDescriptions, "\n"))
-	}
-	if len(conversationMemoryDescriptions) > 0 {
-		sections = append(sections, "Current conversation memory:\n"+strings.Join(conversationMemoryDescriptions, "\n"))
-	}
-
-	if len(sections) == 0 {
-		return ""
-	}
-
-	return strings.Join(sections, "\n\n")
 }
 
 func (agentKernel *AgentKernel) RunTask(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {

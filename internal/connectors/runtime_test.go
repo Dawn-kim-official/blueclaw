@@ -12,8 +12,10 @@ import (
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
+	"blueclaw/internal/config"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/mcp"
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/task"
@@ -252,6 +254,46 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	}
 	if len(adapter.sentReplies[0].attachments) != 1 || adapter.sentReplies[0].attachments[0].DevicePath != "/tmp/internkim-companion-files/screen.png" {
 		t.Fatalf("expected final reply attachment, got %+v", adapter.sentReplies[0].attachments)
+	}
+}
+
+func TestConnectorRuntimeExposesAllowedMcpSchemaCatalog(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	connectorRuntime.UseAllowedToolNames([]string{"allowed.tool"})
+	mcpRegistry := mcp.NewMcpRegistry()
+	inputSchema := json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}`)
+	mcpRegistry.LoadServerDefinition([]config.MCPServerConfiguration{
+		{
+			Name: "workspace-mcp",
+			Tools: []config.MCPToolConfiguration{
+				{Name: "allowed.tool", Description: "Allowed MCP tool", InputSchema: inputSchema},
+				{Name: "blocked.tool", Description: "Blocked MCP tool", InputSchema: inputSchema},
+			},
+		},
+	})
+	connectorRuntime.UseMCPRegistry(mcpRegistry)
+
+	toolRegistry := connectorRuntime.buildTurnToolRegistry(adapter, testInboundEvent("message-1"), "person-1", policy.PersonAccess{})
+	allowedToolDefinition, isFound := findAgentToolDefinition(toolRegistry.ListToolDefinitions(), "allowed.tool")
+	if !isFound {
+		t.Fatalf("expected allowed MCP tool definition, got %+v", toolRegistry.ListToolDefinitions())
+	}
+	if allowedToolDefinition.Description != "Allowed MCP tool" {
+		t.Fatalf("expected MCP description, got %q", allowedToolDefinition.Description)
+	}
+	if string(allowedToolDefinition.InputSchema) != string(inputSchema) {
+		t.Fatalf("expected MCP input schema, got %s", string(allowedToolDefinition.InputSchema))
+	}
+	if _, isFound := findAgentToolDefinition(toolRegistry.ListToolDefinitions(), "blocked.tool"); isFound {
+		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolRegistry.ListToolDefinitions())
+	}
+
+	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
+	if errorValue != nil {
+		t.Fatalf("expected policy denial as tool result: %v", errorValue)
+	}
+	if !toolResult.IsError || toolResult.Content != "tool is not allowed" {
+		t.Fatalf("expected blocked MCP invocation to be denied, got %+v", toolResult)
 	}
 }
 
@@ -559,6 +601,15 @@ func messageIndex(messages []llm.Message, fragment string) int {
 		}
 	}
 	return -1
+}
+
+func findAgentToolDefinition(toolDefinitions []agent.ToolDefinition, toolName string) (agent.ToolDefinition, bool) {
+	for _, toolDefinition := range toolDefinitions {
+		if toolDefinition.Name == toolName {
+			return toolDefinition, true
+		}
+	}
+	return agent.ToolDefinition{}, false
 }
 
 func connectorFinalReply(reply string) string {

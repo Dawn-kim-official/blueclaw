@@ -1,0 +1,152 @@
+package agent
+
+import "strings"
+
+type SkillSelector struct{}
+
+func (skillSelector SkillSelector) ShouldInclude(skillInstruction SkillInstruction, request AgentRequest) bool {
+	decision := skillSelector.Evaluate(skillInstruction, request, "default")
+	return decision.Status == "selected"
+}
+
+func (skillSelector SkillSelector) Evaluate(skillInstruction SkillInstruction, request AgentRequest, profileName string) SkillSelectionDecision {
+	normalizedProfileName := firstNonEmptySkillSelectionString(profileName, "default")
+	if !skillSelector.isAllowedForProfile(skillInstruction, normalizedProfileName) {
+		return skippedSkillDecision(skillInstruction, normalizedProfileName, "profile_not_allowed", nil)
+	}
+	missingTools := missingRequiredTools(skillInstruction, request)
+	if len(missingTools) > 0 {
+		return skippedSkillDecision(skillInstruction, normalizedProfileName, "missing_required_tools", missingTools)
+	}
+	if skillSelector.hasPromptTriggerHint(skillInstruction, request.Prompt) {
+		return selectedSkillDecision(skillInstruction, normalizedProfileName, "prompt_matched_trigger_hint")
+	}
+	if skillSelector.hasPromptKeyword(skillInstruction, request.Prompt) {
+		return selectedSkillDecision(skillInstruction, normalizedProfileName, "prompt_matched_activation_keyword")
+	}
+	if skillSelector.hasExplicitToolActivation(skillInstruction, request) {
+		return selectedSkillDecision(skillInstruction, normalizedProfileName, "tool_activation_available")
+	}
+	return skippedSkillDecision(skillInstruction, normalizedProfileName, "no_trigger_matched", nil)
+}
+
+func (skillSelector SkillSelector) isAllowedForProfile(skillInstruction SkillInstruction, profileName string) bool {
+	if len(skillInstruction.AllowedProfiles) == 0 {
+		return true
+	}
+	for _, allowedProfile := range skillInstruction.AllowedProfiles {
+		if normalizeSkillSelectionText(allowedProfile) == normalizeSkillSelectionText(profileName) {
+			return true
+		}
+	}
+	return false
+}
+
+func missingRequiredTools(skillInstruction SkillInstruction, request AgentRequest) []string {
+	missingTools := []string{}
+	for _, toolName := range skillInstruction.RequiredTools {
+		if !requestHasToolName(request, toolName) {
+			missingTools = append(missingTools, strings.TrimSpace(toolName))
+		}
+	}
+	return missingTools
+}
+
+func (skillSelector SkillSelector) hasPromptTriggerHint(skillInstruction SkillInstruction, prompt string) bool {
+	return promptMentionsAnySkillSelectionText(prompt, skillInstruction.TriggerHints)
+}
+
+func (skillSelector SkillSelector) hasPromptKeyword(skillInstruction SkillInstruction, prompt string) bool {
+	return promptMentionsAnySkillSelectionText(prompt, skillInstruction.Activation.Keywords)
+}
+
+func (skillSelector SkillSelector) hasExplicitToolActivation(skillInstruction SkillInstruction, request AgentRequest) bool {
+	for _, toolName := range skillInstruction.Activation.ToolNames {
+		if requestHasToolName(request, toolName) {
+			return true
+		}
+	}
+	for _, toolPrefix := range skillInstruction.Activation.ToolPrefixes {
+		if requestHasToolPrefix(request, toolPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestHasToolName(request AgentRequest, toolName string) bool {
+	if request.ToolRegistry == nil {
+		return false
+	}
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == "" {
+		return false
+	}
+	for _, availableToolName := range request.ToolRegistry.ListToolNames() {
+		if availableToolName == trimmedToolName {
+			return true
+		}
+	}
+	return false
+}
+
+func requestHasToolPrefix(request AgentRequest, toolPrefix string) bool {
+	if request.ToolRegistry == nil {
+		return false
+	}
+	trimmedToolPrefix := strings.TrimSpace(toolPrefix)
+	if trimmedToolPrefix == "" {
+		return false
+	}
+	for _, availableToolName := range request.ToolRegistry.ListToolNames() {
+		if strings.HasPrefix(availableToolName, trimmedToolPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeSkillSelectionText(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func promptMentionsAnySkillSelectionText(prompt string, candidates []string) bool {
+	normalizedPrompt := normalizeSkillSelectionText(prompt)
+	for _, candidate := range candidates {
+		normalizedCandidate := normalizeSkillSelectionText(candidate)
+		if normalizedCandidate != "" && strings.Contains(normalizedPrompt, normalizedCandidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func selectedSkillDecision(skillInstruction SkillInstruction, profileName string, reason string) SkillSelectionDecision {
+	return SkillSelectionDecision{
+		Name:        skillInstruction.Name,
+		Status:      "selected",
+		Reason:      reason,
+		ProfileName: profileName,
+		Source:      skillInstruction.Source,
+	}
+}
+
+func skippedSkillDecision(skillInstruction SkillInstruction, profileName string, reason string, missingTools []string) SkillSelectionDecision {
+	return SkillSelectionDecision{
+		Name:         skillInstruction.Name,
+		Status:       "skipped",
+		Reason:       reason,
+		ProfileName:  profileName,
+		MissingTools: missingTools,
+		Source:       skillInstruction.Source,
+	}
+}
+
+func firstNonEmptySkillSelectionString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}

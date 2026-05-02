@@ -14,6 +14,7 @@ import (
 
 	"blueclaw/internal/adminapi"
 	"blueclaw/internal/agent"
+	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/auth"
 	"blueclaw/internal/backup"
 	"blueclaw/internal/capability"
@@ -100,7 +101,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if intakeLanguageModelProvider != nil {
 		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
 	}
-	_ = security.NewTerminalSessionService(runtimeConfiguration.Terminal)
+	terminalService := security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(memory.NewGraphitiClient(
 		runtimeConfiguration.Memory.GraphitiEndpoint,
@@ -113,14 +114,21 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	mcpRegistry := mcp.NewMcpRegistry()
 	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
+	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
+	toolCatalogBuilder.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
+	toolCatalogBuilder.UseTerminalService(terminalService)
+	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
 		agentKernel,
 		logger,
 	)
-	connectorRuntime.UseMCPRegistry(mcpRegistry)
-	connectorRuntime.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
-	connectorRuntime.UseAllowedToolNames(deriveAllowedToolNames(runtimeConfiguration))
+	connectorRuntime.UseTaskLauncher(taskLauncher)
+	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	connectorRuntime.UseMemoryService(memoryService)
 	connectorRuntime.UseMemoryScopeRouter(memoryScopeRouter)
 	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
@@ -153,6 +161,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskRunService:   taskRunService,
 			TaskStepService:  taskStepService,
 			TaskEventService: taskEventService,
+		},
+		TaskRunHandler: adminapi.TaskRunHandler{
+			TaskLauncher:    taskLauncher,
+			IdentityService: identityService,
+			WorkspaceID:     runtimeConfiguration.Memory.WorkspaceID,
 		},
 		BackupHandler: adminapi.BackupHandler{
 			Coordinator: backupCoordinator,
@@ -313,9 +326,19 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 				document, readError := os.ReadFile(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"))
 				if readError == nil {
 					skillInstructions = append(skillInstructions, agent.SkillInstruction{
-						Name:   skillBundle.Name,
-						Prompt: strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
-						Source: instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
+						Name:            skillBundle.Name,
+						Description:     skillBundle.Description,
+						Category:        skillBundle.Category,
+						Tags:            append([]string{}, skillBundle.Tags...),
+						Prompt:          strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
+						Activation:      agent.SkillActivation(skillBundle.Activation),
+						RequiredTools:   append([]string{}, skillBundle.RequiredTools...),
+						AllowedProfiles: append([]string{}, skillBundle.AllowedProfiles...),
+						TriggerHints:    append([]string{}, skillBundle.TriggerHints...),
+						References:      append([]string{}, skillBundle.References...),
+						Scripts:         append([]string{}, skillBundle.Scripts...),
+						Assets:          append([]string{}, skillBundle.Assets...),
+						Source:          instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
 					})
 				}
 			}
@@ -412,6 +435,12 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 				allowedToolNameByName[trimmedToolName] = true
 			}
 		}
+		for _, tool := range mcpServer.Tools {
+			trimmedToolName := strings.TrimSpace(tool.Name)
+			if trimmedToolName != "" {
+				allowedToolNameByName[trimmedToolName] = true
+			}
+		}
 	}
 	for _, toolName := range runtimeConfiguration.Capabilities.ToolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
@@ -424,6 +453,18 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 		allowedToolNames = append(allowedToolNames, allowedToolName)
 	}
 	return allowedToolNames
+}
+
+func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfiguration) map[string][]string {
+	allowedToolNamesByProfile := map[string][]string{}
+	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
+		profileName := strings.TrimSpace(agentProfile.Name)
+		if profileName == "" {
+			profileName = "default"
+		}
+		allowedToolNamesByProfile[profileName] = append([]string{}, agentProfile.AllowedToolNames...)
+	}
+	return allowedToolNamesByProfile
 }
 
 func openRuntimeDatabase(runtimeConfiguration config.RuntimeConfiguration) (postgres.Database, error) {

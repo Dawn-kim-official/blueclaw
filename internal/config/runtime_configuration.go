@@ -38,12 +38,19 @@ type AgentProfileConfiguration struct {
 }
 
 type MCPServerConfiguration struct {
-	Name      string   `json:"name"`
-	Transport string   `json:"transport"`
-	Command   string   `json:"command"`
-	Arguments []string `json:"arguments"`
-	Endpoint  string   `json:"endpoint"`
-	ToolNames []string `json:"toolNames"`
+	Name      string                 `json:"name"`
+	Transport string                 `json:"transport"`
+	Command   string                 `json:"command"`
+	Arguments []string               `json:"arguments"`
+	Endpoint  string                 `json:"endpoint"`
+	ToolNames []string               `json:"toolNames"`
+	Tools     []MCPToolConfiguration `json:"tools,omitempty"`
+}
+
+type MCPToolConfiguration struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
 }
 
 type AgentConfiguration struct {

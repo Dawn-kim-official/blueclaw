@@ -11,12 +11,20 @@ import (
 )
 
 type IntakeClassification string
+type TaskShape string
 
 const (
 	IntakeClassificationQuickReply        IntakeClassification = "quick_reply"
 	IntakeClassificationBoundedTask       IntakeClassification = "bounded_task"
 	IntakeClassificationNeedsConfirmation IntakeClassification = "needs_confirmation"
 	IntakeClassificationUnsupported       IntakeClassification = "unsupported"
+
+	TaskShapeImmediateReply     TaskShape = "immediate_reply"
+	TaskShapeResearchTask       TaskShape = "research_task"
+	TaskShapeMaintenanceTask    TaskShape = "maintenance_task"
+	TaskShapeScheduledTask      TaskShape = "scheduled_task"
+	TaskShapeBrowserHandoffTask TaskShape = "browser_handoff_task"
+	TaskShapeApprovalGatedTask  TaskShape = "approval_gated_task"
 )
 
 type IntakeOptions struct {
@@ -29,6 +37,7 @@ type AgentRequest struct {
 	RequesterName        string
 	RequesterCallingName string
 	RequesterHandle      string
+	ProfileName          string
 	ConversationID       string
 	Prompt               string
 	VisibleContext       VisibleContext
@@ -39,6 +48,7 @@ type AgentRequest struct {
 
 type IntakeDecision struct {
 	Classification            IntakeClassification `json:"classification"`
+	TaskShape                 TaskShape            `json:"taskShape"`
 	BudgetClass               BudgetClass          `json:"budgetClass"`
 	Reason                    string               `json:"reason"`
 	UserFacingReply           string               `json:"userFacingReply"`
@@ -82,7 +92,7 @@ func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Con
 		Messages: taskIntakePlanner.buildMessages(request),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_task_intake_budget",
-			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"budgetClass":{"type":"string","enum":["five_minutes","ten_minutes","thirty_minutes","one_hour","six_hours","half_day"]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","budgetClass","reason"],"additionalProperties":false}`,
+			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"taskShape":{"type":"string","enum":["immediate_reply","research_task","maintenance_task","scheduled_task","browser_handoff_task","approval_gated_task"]},"budgetClass":{"type":"string","enum":["five_minutes","ten_minutes","thirty_minutes","one_hour","six_hours","half_day"]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","taskShape","budgetClass","reason"],"additionalProperties":false}`,
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -107,7 +117,7 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	return []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution. Do not use platform-specific assumptions. Use quick_reply for direct answers, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely.",
+			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely.",
 		},
 		{
 			Role:    "system",
@@ -145,6 +155,7 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	}
 	return IntakeDecision{
 		Classification:            classification,
+		TaskShape:                 deterministicTaskShape(request, classification),
 		BudgetClass:               LargerBudgetClass(budgetClass, minimumBudgetClassForRequest(request)),
 		Reason:                    reason,
 		UserFacingReply:           defaultUserFacingReply(classification),
@@ -158,6 +169,11 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		return defaultDecision
 	}
 	decision.Classification = normalizedClassification
+	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
+	if normalizedTaskShape == "" {
+		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
+	}
+	decision.TaskShape = normalizedTaskShape
 	normalizedBudgetClass := NormalizeBudgetClass(string(decision.BudgetClass))
 	if normalizedBudgetClass == "" {
 		normalizedBudgetClass = defaultDecision.BudgetClass
@@ -170,6 +186,38 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		decision.UserFacingReply = defaultUserFacingReply(decision.Classification)
 	}
 	return decision
+}
+
+func deterministicTaskShape(request AgentRequest, classification IntakeClassification) TaskShape {
+	if classification == IntakeClassificationQuickReply {
+		return TaskShapeImmediateReply
+	}
+	if classification == IntakeClassificationNeedsConfirmation {
+		return TaskShapeApprovalGatedTask
+	}
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if hasToolPrefix(request.ToolRegistry, "browser.") && containsAny(prompt, []string{"browser", "website", "web", "브라우저", "사이트", "페이지"}) {
+		return TaskShapeBrowserHandoffTask
+	}
+	if containsAny(prompt, []string{"schedule", "scheduled", "cron", "매일", "매주", "정기", "예약"}) {
+		return TaskShapeScheduledTask
+	}
+	if containsAny(prompt, []string{"fix", "clean", "setup", "install", "deploy", "고쳐", "정리", "설치", "배포"}) {
+		return TaskShapeMaintenanceTask
+	}
+	if classification == IntakeClassificationBoundedTask {
+		return TaskShapeResearchTask
+	}
+	return TaskShapeImmediateReply
+}
+
+func normalizeTaskShape(taskShape TaskShape) TaskShape {
+	switch taskShape {
+	case TaskShapeImmediateReply, TaskShapeResearchTask, TaskShapeMaintenanceTask, TaskShapeScheduledTask, TaskShapeBrowserHandoffTask, TaskShapeApprovalGatedTask:
+		return taskShape
+	default:
+		return ""
+	}
 }
 
 func normalizeClassification(classification IntakeClassification) IntakeClassification {

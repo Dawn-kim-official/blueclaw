@@ -147,6 +147,43 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		finalReplyDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:  "person-1",
+		ConversationID:     "conversation-1",
+		Prompt:             "피피티 만들어줘",
+		InstructionPrompt:  "Available skill index.\n\nSelected skill instructions:\nGenerate PPTX with Marp.",
+		InstructionSources: []InstructionSource{{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides", SHA256: "abc"}},
+		SkillDecisions: []SkillSelectionDecision{{
+			Name:   "simple-slides",
+			Status: "selected",
+			Reason: "prompt_matched_trigger_hint",
+			Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides", SHA256: "abc"},
+		}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn result: %v", errorValue)
+	}
+	if result.FinalReply != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "simple-slides") {
+		t.Fatal("expected selected skill in instructions event")
+	}
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "prompt_matched_trigger_hint") {
+		t.Fatal("expected selected skill reason in instructions event")
+	}
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "skills/simple-slides/SKILL.md") {
+		t.Fatal("expected selected skill source in instructions event")
+	}
+}
+
 func TestAgentTurnRunnerRejectsUnsatisfiedFinalReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"final_reply","goalStatus":"in_progress","goalSatisfied":false,"completionEvidence":[],"finalReply":"done"}`,

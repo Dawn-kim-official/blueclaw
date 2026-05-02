@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -88,10 +90,54 @@ func (memoryService *MemoryService) SearchMemory(ctx context.Context, request Me
 			filteredMemoryFacts = append(filteredMemoryFacts, memoryFact)
 		}
 	}
-	if len(filteredMemoryFacts) > request.Limit {
-		return filteredMemoryFacts[:request.Limit], nil
+	rankedMemoryFacts := rankMemoryFacts(filteredMemoryFacts, request.Query)
+	if len(rankedMemoryFacts) > request.Limit {
+		return rankedMemoryFacts[:request.Limit], nil
 	}
-	return filteredMemoryFacts, nil
+	return rankedMemoryFacts, nil
+}
+
+func rankMemoryFacts(memoryFacts []MemoryFact, query string) []MemoryFact {
+	rankedMemoryFacts := append([]MemoryFact{}, memoryFacts...)
+	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
+	sort.SliceStable(rankedMemoryFacts, func(leftIndex int, rightIndex int) bool {
+		leftMemoryFact := rankedMemoryFacts[leftIndex]
+		rightMemoryFact := rankedMemoryFacts[rightIndex]
+		leftScore := relevanceScore(leftMemoryFact, normalizedQuery)
+		rightScore := relevanceScore(rightMemoryFact, normalizedQuery)
+		if leftScore != rightScore {
+			return leftScore > rightScore
+		}
+		if !leftMemoryFact.ValidAt.Equal(rightMemoryFact.ValidAt) {
+			return leftMemoryFact.ValidAt.After(rightMemoryFact.ValidAt)
+		}
+		return memoryFactStableKey(leftMemoryFact) < memoryFactStableKey(rightMemoryFact)
+	})
+	return rankedMemoryFacts
+}
+
+func relevanceScore(memoryFact MemoryFact, normalizedQuery string) float64 {
+	score := memoryFact.Score
+	normalizedContent := strings.ToLower(memoryFact.Content)
+	if normalizedQuery == "" {
+		return score
+	}
+	if strings.Contains(normalizedContent, normalizedQuery) {
+		score += 1
+	}
+	for _, queryTerm := range strings.Fields(normalizedQuery) {
+		if strings.Contains(normalizedContent, queryTerm) {
+			score += 0.25
+		}
+	}
+	return score
+}
+
+func memoryFactStableKey(memoryFact MemoryFact) string {
+	if strings.TrimSpace(memoryFact.FactID) != "" {
+		return memoryFact.FactID
+	}
+	return memoryFact.ScopeType + ":" + memoryFact.NamespaceID + ":" + memoryFact.Content
 }
 
 func (memoryService *MemoryService) resolveAccessibleNamespaces(ctx context.Context, request MemorySearchRequest) []MemoryNamespace {

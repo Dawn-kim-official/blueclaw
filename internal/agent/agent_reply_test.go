@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/memory"
@@ -52,6 +53,44 @@ func TestAgentKernelInjectsMemoryIntoStructuredReplyRequest(t *testing.T) {
 	}
 	if !strings.Contains(replyProvider.request.Messages[1].Content, "매터모스트 DM 답장 디버깅") {
 		t.Fatalf("expected memory context to be injected, got %q", replyProvider.request.Messages[1].Content)
+	}
+}
+
+func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskStepService := task.NewTaskStepService()
+	agentKernel := NewAgentKernel(taskRunService, taskStepService)
+	replyProvider := &capturingReplyProvider{content: `{"reply":"remembered"}`}
+	agentKernel.UseLanguageModelProvider(replyProvider)
+	longContent := strings.Repeat("요약해야 하는 상세 메모리 ", 30) + "RAW_TAIL_SHOULD_NOT_APPEAR"
+
+	_, errorValue := agentKernel.GenerateReplyWithMemory(
+		context.Background(),
+		"기억 참고해줘",
+		[]memory.MemoryFact{
+			{
+				ScopeType:       memory.ScopeTypeWorkspace,
+				Content:         longContent,
+				Score:           0.87,
+				SourceEpisodeID: "episode-1",
+				ValidAt:         time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	)
+	if errorValue != nil {
+		t.Fatalf("expected reply generation: %v", errorValue)
+	}
+
+	memoryMessage := replyProvider.request.Messages[1].Content
+	if !strings.Contains(memoryMessage, "Relevant Blueclaw memory") {
+		t.Fatalf("expected compact memory heading, got %q", memoryMessage)
+	}
+	if !strings.Contains(memoryMessage, "score=0.87") || !strings.Contains(memoryMessage, "source=episode-1") {
+		t.Fatalf("expected memory attribution, got %q", memoryMessage)
+	}
+	if strings.Contains(memoryMessage, "RAW_TAIL_SHOULD_NOT_APPEAR") {
+		t.Fatalf("expected long raw memory content to be compacted, got %q", memoryMessage)
 	}
 }
 
