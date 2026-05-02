@@ -64,7 +64,10 @@ func NewTerminalSessionService(terminalConfiguration config.TerminalConfiguratio
 func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest CommandRequest) (CommandResult, error) {
 	commandPlan, errorValue := terminalSessionService.commandGuardrailService.BuildCommandPlan(commandRequest)
 	if errorValue != nil {
-		return CommandResult{}, errorValue
+		return CommandResult{ExitCode: -1, Stderr: errorValue.Error()}, errorValue
+	}
+	if errorValue := terminalSessionService.prepareWorkingDirectory(commandPlan.WorkingDirectoryPath); errorValue != nil {
+		return CommandResult{Stderr: errorValue.Error()}, errorValue
 	}
 
 	ctx, cancelFunction := context.WithTimeout(context.Background(), commandPlan.Timeout)
@@ -98,10 +101,14 @@ func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest 
 	}
 
 	if errorValue != nil {
+		standardError := standardErrorBuffer.String()
+		if strings.TrimSpace(standardError) == "" {
+			standardError = errorValue.Error()
+		}
 		return CommandResult{
 			ExitCode: exitCode,
 			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
-			Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stderr:   truncateString(standardError, terminalSessionService.outputMaxBytes()),
 		}, errorValue
 	}
 
@@ -112,6 +119,13 @@ func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest 
 	}, nil
 }
 
+func (terminalSessionService *TerminalSessionService) prepareWorkingDirectory(workingDirectoryPath string) error {
+	if terminalSessionService.commandGuardrailService.terminalConfiguration.Mode != "firecrackerGuest" {
+		return nil
+	}
+	return os.MkdirAll(workingDirectoryPath, 0700)
+}
+
 func (terminalSessionService *TerminalSessionService) StartInteractiveSession(commandRequest CommandRequest) (string, error) {
 	commandRequest.IsInteractive = true
 	commandPlan, errorValue := terminalSessionService.commandGuardrailService.BuildCommandPlan(commandRequest)
@@ -120,6 +134,9 @@ func (terminalSessionService *TerminalSessionService) StartInteractiveSession(co
 	}
 	if terminalSessionService.sessionCount() >= terminalSessionService.sessionMaxCount() {
 		return "", errors.New("terminal session limit reached")
+	}
+	if errorValue := terminalSessionService.prepareWorkingDirectory(commandPlan.WorkingDirectoryPath); errorValue != nil {
+		return "", errorValue
 	}
 
 	ctx, cancelFunction := context.WithTimeout(context.Background(), maxDuration(commandPlan.Timeout, 30*time.Minute))

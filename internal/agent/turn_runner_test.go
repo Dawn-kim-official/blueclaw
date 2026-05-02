@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -259,6 +261,64 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", ".pptx") {
 		t.Fatal("expected completion required event for missing attachment suffix")
+	}
+}
+
+func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"), "pptx")
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"), "%PDF")
+
+	languageModel := &sequenceLanguageModel{contents: []string{
+		finalReplyDocument("첨부했습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var request struct {
+			Paths []string `json:"paths"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		attachments := []FileAttachment{}
+		for _, path := range request.Paths {
+			attachments = append(attachments, FileAttachment{
+				DevicePath: path,
+				Filename:   filepath.Base(path),
+			})
+		}
+		return ToolResult{Content: "file attached", Attachments: attachments}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "피피티 만들어줘",
+		ToolRegistry:               toolRegistry,
+		WorkspaceRootPath:          workspaceRootPath,
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected auto attachment evidence to succeed: %v", errorValue)
+	}
+	if result.FinalReply != "첨부했습니다." {
+		t.Fatalf("expected original final reply, got %q", result.FinalReply)
+	}
+	if len(result.Attachments) != 2 {
+		t.Fatalf("expected two attachments, got %+v", result.Attachments)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.completion_auto_evidence", "file.attach") {
+		t.Fatal("expected auto evidence event")
+	}
+	if !taskEventsContain(taskEvents, "tool.file.attach.requested", "deck.pptx") {
+		t.Fatal("expected automatic file.attach request")
 	}
 }
 
@@ -940,6 +1000,13 @@ func structuredRequestsContain(requests []llm.StructuredResponseRequest, fragmen
 		}
 	}
 	return false
+}
+
+func writeAgentTestFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if errorValue := os.WriteFile(path, []byte(content), 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
 }
 
 func finalReplyDocument(reply string) string {

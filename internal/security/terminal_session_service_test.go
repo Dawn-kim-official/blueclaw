@@ -1,6 +1,7 @@
 package security
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -23,15 +24,40 @@ func TestRunCommandUsesBashStdinInFirecrackerGuestMode(t *testing.T) {
 	}
 }
 
+func TestRunCommandPreparesMissingWorkspaceWorkingDirectoryInFirecrackerGuestMode(t *testing.T) {
+	terminalConfiguration := testTerminalConfiguration(t)
+	terminalSessionService := NewTerminalSessionService(terminalConfiguration)
+	workingDirectoryPath := terminalConfiguration.WorkspaceRootPath + "/.blueclaw/tmp/slides"
+
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+		Command:              "printf 'ready' > result.txt",
+		WorkingDirectoryPath: workingDirectoryPath,
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected command to succeed: %v result=%+v", errorValue, commandResult)
+	}
+	if commandResult.ExitCode != 0 {
+		t.Fatalf("expected successful exit code, got %+v", commandResult)
+	}
+	content, errorValue := os.ReadFile(workingDirectoryPath + "/result.txt")
+	if errorValue != nil || string(content) != "ready" {
+		t.Fatalf("expected command to write inside prepared working directory, content=%q error=%v", string(content), errorValue)
+	}
+}
+
 func TestRunCommandDeniesWorkspaceEscape(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
-	_, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
 		Command: "cat /etc/passwd",
 	})
 
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "escapes workspace root") {
 		t.Fatalf("expected workspace escape denial, got %v", errorValue)
+	}
+	if !strings.Contains(commandResult.Stderr, "escapes workspace root") {
+		t.Fatalf("expected command result to include guardrail error, got %+v", commandResult)
 	}
 }
 
@@ -57,6 +83,21 @@ func TestRunCommandReportsTimeout(t *testing.T) {
 
 	if errorValue == nil || !commandResult.TimedOut {
 		t.Fatalf("expected timed out command result, got result=%+v error=%v", commandResult, errorValue)
+	}
+}
+
+func TestRunCommandIncludesProcessErrorWhenStderrIsEmpty(t *testing.T) {
+	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
+
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+		Command: "definitely_missing_blueclaw_binary",
+	})
+
+	if errorValue == nil {
+		t.Fatal("expected command error")
+	}
+	if strings.TrimSpace(commandResult.Stderr) == "" {
+		t.Fatalf("expected stderr to explain the process error, got %+v", commandResult)
 	}
 }
 

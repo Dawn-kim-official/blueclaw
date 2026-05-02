@@ -99,6 +99,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseWorkspaceRootPath(workspaceRoot
 	}
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) WorkspaceRootPath() string {
+	return strings.TrimSpace(toolCatalogBuilder.workspaceRootPath)
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistry(request ToolCatalogRequest) *agent.ToolRegistry {
 	toolRegistry := agent.NewToolRegistry(toolCatalogBuilder.allowedToolNames(request.ProfileName))
 	toolCatalogBuilder.registerHistoryTool(toolRegistry, request)
