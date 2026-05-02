@@ -9,17 +9,7 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 		Skills:                []agent.SkillInstruction{simpleSlidesSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.write", "file.attach"},
 		Turns: []VirtualTurn{{
-			Prompt: "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
-			ModelResponses: []string{
-				actionFinalReply("PPT 못 만들어요"),
-				actionCallTool("file.write", `{"path":".blueclaw/tmp/capabilities/presentation.md","content":"# 김인턴 업무 지원 가능 범위\n\n- 정보 검색\n- 브라우저 자동화\n- 업무 보조\n"}`),
-				actionCallTool("terminal.run", `{"command":"mkdir -p .blueclaw/tmp/capabilities\nprintf 'pptx' > .blueclaw/tmp/capabilities/capabilities.pptx\nprintf 'pdf' > .blueclaw/tmp/capabilities/capabilities.pdf\nprintf 'html deck' > .blueclaw/tmp/capabilities/capabilities.html\nprintf 'speaker notes' > .blueclaw/tmp/capabilities/capabilities-notes.txt","timeoutSecond":5}`),
-				actionCallTool("file.attach", `{"path":".blueclaw/tmp/capabilities/capabilities.pptx","filename":"capabilities.pptx"}`),
-				actionCallTool("file.attach", `{"path":".blueclaw/tmp/capabilities/capabilities.pdf","filename":"capabilities.pdf"}`),
-				actionCallTool("file.attach", `{"path":".blueclaw/tmp/capabilities/capabilities.html","filename":"capabilities.html"}`),
-				actionCallTool("file.attach", `{"path":".blueclaw/tmp/capabilities/capabilities-notes.txt","filename":"capabilities-notes.txt"}`),
-				actionFinalReply("PPTX, PDF, HTML, 발표자 노트를 첨부했습니다.", "obs-004:file.attach:0", "obs-005:file.attach:0", "obs-006:file.attach:0", "obs-007:file.attach:0"),
-			},
+			Prompt:                 "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
 			ExpectedSelectedSkills: []string{"simple-slides"},
 			ExpectedToolCalls:      []string{"file.write", "terminal.run", "file.attach"},
 			ExpectedAttachments:    []string{".pptx", ".pdf", ".html", "-notes.txt"},

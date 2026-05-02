@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"blueclaw/internal/capability"
 	"blueclaw/internal/e2e"
 	"blueclaw/internal/lab"
+	"blueclaw/internal/llm"
 )
 
 type PrintingCommandRunner struct{}
@@ -84,11 +88,11 @@ func main() {
 	case "scenario-slack":
 		errorValue = service.ScenarioSlack(ctx)
 	case "virtual-session":
-		scenarioName, artifactDirectoryPath, parseError := parseVirtualSessionArguments(flag.Args()[1:], *virtualScenarioName, *virtualArtifactDirectoryPath)
+		virtualSessionArguments, parseError := parseVirtualSessionArguments(flag.Args()[1:], *virtualScenarioName, *virtualArtifactDirectoryPath)
 		if parseError != nil {
 			errorValue = parseError
 		} else {
-			errorValue = runVirtualSession(ctx, scenarioName, artifactDirectoryPath)
+			errorValue = runVirtualSession(ctx, virtualSessionArguments)
 		}
 	default:
 		errorValue = fmt.Errorf("unsupported lab command: %s", commandName)
@@ -98,20 +102,54 @@ func main() {
 	}
 }
 
-func parseVirtualSessionArguments(arguments []string, defaultScenarioName string, defaultArtifactDirectoryPath string) (string, string, error) {
+type virtualSessionArguments struct {
+	ScenarioName          string
+	ArtifactDirectoryPath string
+	LanguageModelEndpoint string
+	LanguageModelName     string
+	ExecutionMode         string
+	SkillDirectoryPath    string
+}
+
+func parseVirtualSessionArguments(arguments []string, defaultScenarioName string, defaultArtifactDirectoryPath string) (virtualSessionArguments, error) {
 	flagSet := flag.NewFlagSet("virtual-session", flag.ContinueOnError)
 	scenarioName := flagSet.String("scenario", defaultScenarioName, "virtual session scenario name")
 	artifactDirectoryPath := flagSet.String("artifact-dir", defaultArtifactDirectoryPath, "virtual session artifact directory")
+	languageModelEndpoint := flagSet.String("llm-endpoint", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), capability.DefaultEndpoint), "live LLM capability endpoint")
+	languageModelName := flagSet.String("llm-model", os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "live LLM model name")
+	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
+	skillDirectoryPath := flagSet.String("skill-dir", "", "skill directory to load into the virtual workspace")
 	if errorValue := flagSet.Parse(arguments); errorValue != nil {
-		return "", "", errorValue
+		return virtualSessionArguments{}, errorValue
 	}
-	return *scenarioName, *artifactDirectoryPath, nil
+	return virtualSessionArguments{
+		ScenarioName:          *scenarioName,
+		ArtifactDirectoryPath: *artifactDirectoryPath,
+		LanguageModelEndpoint: *languageModelEndpoint,
+		LanguageModelName:     *languageModelName,
+		ExecutionMode:         *executionMode,
+		SkillDirectoryPath:    *skillDirectoryPath,
+	}, nil
 }
 
-func runVirtualSession(ctx context.Context, scenarioName string, artifactDirectoryPath string) error {
-	scenario, errorValue := e2e.BuiltinScenario(scenarioName, artifactDirectoryPath)
+func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) error {
+	scenario, errorValue := e2e.BuiltinScenario(arguments.ScenarioName, arguments.ArtifactDirectoryPath)
 	if errorValue != nil {
 		return errorValue
+	}
+	if isLiveVirtualScenario(scenario) {
+		scenario.LanguageModel = llm.CapabilityLLMClient{
+			CapabilityClient: capability.NewClient(capability.Configuration{
+				Endpoint: strings.TrimSpace(arguments.LanguageModelEndpoint),
+				Timeout:  90 * time.Second,
+			}),
+			ModelName:     strings.TrimSpace(arguments.LanguageModelName),
+			ExecutionMode: firstNonEmptyString(arguments.ExecutionMode, "auto"),
+		}
+		if skillDirectoryPath := firstNonEmptyString(arguments.SkillDirectoryPath, defaultSkillDirectoryPath(scenario.Name)); skillDirectoryPath != "" {
+			scenario.Skills = nil
+			scenario.SkillDirectoryPaths = []string{skillDirectoryPath}
+		}
 	}
 	result, errorValue := e2e.RunVirtualSession(ctx, scenario)
 	if errorValue != nil {
@@ -127,6 +165,36 @@ func runVirtualSession(ctx context.Context, scenarioName string, artifactDirecto
 		}
 	}
 	return nil
+}
+
+func isLiveVirtualScenario(scenario e2e.VirtualSessionScenario) bool {
+	for _, virtualTurn := range scenario.Turns {
+		if len(virtualTurn.ModelResponses) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func defaultSkillDirectoryPath(scenarioName string) string {
+	if scenarioName != "slides_local_multiturn_success" {
+		return ""
+	}
+	candidatePath := filepath.Clean("../../assets/blueclaw-workspace/skills/simple-slides")
+	if _, errorValue := os.Stat(candidatePath); errorValue == nil {
+		return candidatePath
+	}
+	return ""
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
 }
 
 func printExecutableCommand(executableCommand lab.ExecutableCommand) {
