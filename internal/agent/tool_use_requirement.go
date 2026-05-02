@@ -72,7 +72,20 @@ func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
 		return false
 	}
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	return looksLikeBrowserControlSequence(prompt) || containsAny(prompt, []string{"google", "구글", "browser", "브라우저", "search", "검색", "screenshot", "스크린샷"})
+	if looksLikeBrowserControlSequence(prompt) {
+		return true
+	}
+	if containsAny(prompt, []string{"browser", "브라우저", "search", "검색"}) {
+		return true
+	}
+	return containsAny(prompt, []string{"google", "구글"}) && !mentionsGoogleWorkspaceAvoidance(prompt)
+}
+
+func mentionsGoogleWorkspaceAvoidance(prompt string) bool {
+	if !containsAny(prompt, []string{"google workspace", "구글 워크스페이스", "gws"}) {
+		return false
+	}
+	return containsAny(prompt, []string{"don't use", "do not use", "without", "not use", "쓰지 말", "사용하지 말", "빼고", "없이"})
 }
 
 func requestRequiresBrowserScreenshot(request AgentTurnRequest) bool {
