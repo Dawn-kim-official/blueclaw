@@ -95,6 +95,46 @@ func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
+	}}
+	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write", "file.attach"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:       "너 뭐 할 수 있는지 피피티 만들어서 pdf로 보내줘",
+		ToolRegistry: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected local artifact request to be bounded, got %+v", decision)
+	}
+	if decision.TaskShape == TaskShapeApprovalGatedTask {
+		t.Fatalf("expected non-approval task shape, got %+v", decision)
+	}
+	if decision.UserFacingReply != "" {
+		t.Fatalf("expected confirmation reply to be cleared, got %q", decision.UserFacingReply)
+	}
+}
+
+func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
+	}}
+	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write", "file.attach"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:       "전체 자료를 삭제하고 새 피피티 만들어줘",
+		ToolRegistry: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationNeedsConfirmation {
+		t.Fatalf("expected destructive request to stay approval gated, got %+v", decision)
+	}
+}
+
 func TestTaskIntakePlannerPromotesDeepAndExtendedRequests(t *testing.T) {
 	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
 	toolRegistry := NewToolRegistry([]string{"terminal.run"})

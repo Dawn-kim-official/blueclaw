@@ -645,6 +645,42 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerCompletesInsteadOfRepeatingSuccessfulToolCall(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
+	toolCallCount := 0
+	toolRegistry := NewToolRegistry([]string{"terminal.run"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolResult{Content: `{"exitCode":0,"stdout":"@marp-team/marp-cli v4.3.1\n","stderr":"","timedOut":false}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "marp 버전 확인해줘",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected duplicate completion: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected duplicate tool call not to execute, got %d calls", toolCallCount)
+	}
+	if !strings.Contains(result.FinalReply, "@marp-team/marp-cli v4.3.1") {
+		t.Fatalf("expected final reply from successful observation, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_finalized", "obs-001") {
+		t.Fatal("expected duplicate finalization event")
+	}
+}
+
 func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
