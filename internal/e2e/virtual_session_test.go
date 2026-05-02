@@ -22,15 +22,20 @@ func TestSlidesScenarioDoesNotScriptToolCalls(t *testing.T) {
 }
 
 func TestSlidesLocalMultiturnSuccessLive(t *testing.T) {
+	if !truthyEnvironmentValue(os.Getenv("BLUECLAW_E2E_LIVE")) {
+		t.Skip("set BLUECLAW_E2E_LIVE=1 to explicitly run costed live slides virtual session")
+	}
 	endpoint := strings.TrimSpace(os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"))
-	if endpoint == "" {
-		t.Skip("set BLUECLAW_E2E_LLM_ENDPOINT to run live slides virtual session")
+	socketPath := strings.TrimSpace(os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"))
+	if endpoint == "" && socketPath == "" {
+		t.Skip("set BLUECLAW_E2E_LLM_ENDPOINT or BLUECLAW_E2E_LLM_UNIX_SOCKET to run live slides virtual session")
 	}
 	scenario := SlidesLocalMultiturnSuccessScenario(t.TempDir())
 	scenario.LanguageModel = llm.CapabilityLLMClient{
 		CapabilityClient: capability.NewClient(capability.Configuration{
-			Endpoint: endpoint,
-			Timeout:  90 * time.Second,
+			Endpoint:       endpoint,
+			UnixSocketPath: socketPath,
+			Timeout:        90 * time.Second,
 		}),
 		ModelName:     os.Getenv("BLUECLAW_E2E_LLM_MODEL"),
 		ExecutionMode: firstNonEmptyTestString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"),
@@ -102,4 +107,13 @@ func firstNonEmptyTestString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func truthyEnvironmentValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
