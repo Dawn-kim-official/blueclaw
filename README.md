@@ -168,6 +168,32 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 - `tools/blueclaw-litert-wrapper` is kept as an InternKim-side reference utility, not as a Blueclaw product runtime dependency
 - if the capability LLM endpoint fails, the connector sends a short model-configuration failure reply and writes the detailed error to the persistent log
 
+## Virtual Session E2E
+
+Fast virtual session tests are included in the normal Go suite:
+
+```bash
+go test ./...
+```
+
+Live virtual session tests call a real LLM provider and may spend money. They are never enabled by endpoint configuration alone. Run them only when explicitly requested:
+
+```bash
+BLUECLAW_E2E_LIVE=1 \
+BLUECLAW_E2E_LLM_UNIX_SOCKET=/run/internkim/capability.sock \
+go test ./internal/e2e -run TestSlidesLocalMultiturnSuccessLive -count=1
+```
+
+For inspectable artifacts, use the lab runner with the same explicit live flag:
+
+```bash
+go run ./cmd/blueclaw-lab virtual-session \
+  --live-llm \
+  --scenario slides \
+  --artifact-dir .artifacts/blueclaw-e2e \
+  --llm-unix-socket /run/internkim/capability.sock
+```
+
 ## Graphiti Memory
 
 Blueclaw uses Graphiti as the product memory engine through the `graphiti-memoryd` sidecar. Blueclaw owns identity, policy, ACL namespace selection, and prompt assembly; Graphiti owns episode ingestion, temporal graph extraction, Kuzu persistence, and hybrid graph search.

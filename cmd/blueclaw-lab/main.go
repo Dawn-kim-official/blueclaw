@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -110,6 +111,7 @@ type virtualSessionArguments struct {
 	LanguageModelName     string
 	ExecutionMode         string
 	SkillDirectoryPath    string
+	LiveLanguageModel     bool
 }
 
 func parseVirtualSessionArguments(arguments []string, defaultScenarioName string, defaultArtifactDirectoryPath string) (virtualSessionArguments, error) {
@@ -121,6 +123,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	languageModelName := flagSet.String("llm-model", os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "live LLM model name")
 	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
 	skillDirectoryPath := flagSet.String("skill-dir", "", "skill directory to load into the virtual workspace")
+	liveLanguageModel := flagSet.Bool("live-llm", truthyEnvironmentValue(os.Getenv("BLUECLAW_E2E_LIVE")), "explicitly allow costed live LLM calls for unscripted scenarios")
 	if errorValue := flagSet.Parse(arguments); errorValue != nil {
 		return virtualSessionArguments{}, errorValue
 	}
@@ -132,6 +135,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 		LanguageModelName:     *languageModelName,
 		ExecutionMode:         *executionMode,
 		SkillDirectoryPath:    *skillDirectoryPath,
+		LiveLanguageModel:     *liveLanguageModel,
 	}, nil
 }
 
@@ -141,6 +145,9 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		return errorValue
 	}
 	if isLiveVirtualScenario(scenario) {
+		if !arguments.LiveLanguageModel {
+			return errors.New("virtual-session scenario needs live LLM calls; pass --live-llm or set BLUECLAW_E2E_LIVE=1")
+		}
 		scenario.LanguageModel = llm.CapabilityLLMClient{
 			CapabilityClient: capability.NewClient(capability.Configuration{
 				Endpoint:       endpointForVirtualSession(arguments),
@@ -169,6 +176,15 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		}
 	}
 	return nil
+}
+
+func truthyEnvironmentValue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func endpointForVirtualSession(arguments virtualSessionArguments) string {
