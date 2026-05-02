@@ -22,6 +22,7 @@ type SkillInstruction struct {
 	Tags            []string        `json:"tags,omitempty"`
 	Prompt          string          `json:"prompt"`
 	Activation      SkillActivation `json:"activation,omitempty"`
+	Completion      SkillCompletion `json:"completion,omitempty"`
 	RequiredTools   []string        `json:"requiredTools,omitempty"`
 	AllowedProfiles []string        `json:"allowedProfiles,omitempty"`
 	TriggerHints    []string        `json:"triggerHints,omitempty"`
@@ -35,6 +36,10 @@ type SkillActivation struct {
 	Keywords     []string `json:"keywords,omitempty"`
 	ToolNames    []string `json:"toolNames,omitempty"`
 	ToolPrefixes []string `json:"toolPrefixes,omitempty"`
+}
+
+type SkillCompletion struct {
+	RequiredEvidenceTools []string `json:"requiredEvidenceTools,omitempty"`
 }
 
 type SkillSelectionDecision struct {

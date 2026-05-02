@@ -98,6 +98,34 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"alpha","toolInput":{"value":"one"}}`,
+		finalReplyDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"alpha"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "alpha result"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.alpha.requested", `"value":"one"`) {
+		t.Fatal("expected requested tool event with input summary")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.alpha.result", "alpha result") {
+		t.Fatal("expected result tool event")
+	}
+}
+
 func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("browser tool is unavailable"),
@@ -144,6 +172,45 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.browser.screenshot.result", "/tmp/internkim-companion-files/screenshot.png") {
 		t.Fatal("expected browser screenshot observation")
+	}
+}
+
+func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		finalReplyDocument("PPT 못 만들어요"),
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
+		finalReplyWithEvidence("PPTX를 첨부했습니다.", "obs-002", "file.attach", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Content: "file attached",
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/deck.pptx",
+				Filename:   "deck.pptx",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "피피티 만들어줘",
+		ToolRegistry:          toolRegistry,
+		RequiredEvidenceTools: []string{"file.attach"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected required evidence to recover: %v", errorValue)
+	}
+	if result.FinalReply != "PPTX를 첨부했습니다." {
+		t.Fatalf("expected recovered reply, got %q", result.FinalReply)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
+		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.attach") {
+		t.Fatal("expected completion required event for selected skill evidence")
 	}
 }
 
