@@ -12,7 +12,7 @@ import (
 
 func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","reason":"bounded tool work","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"bounded tool work","userFacingReply":""}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"memory.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -45,6 +45,29 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"taskShape"`) {
 		t.Fatalf("expected task shape in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requestedOutputFormats"`) {
+		t.Fatalf("expected requested output formats in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), `requestedOutputFormats should be ["html"], not ["html","pptx"]`) {
+		t.Fatal("expected intake prompt to disambiguate html presentation requests from pptx file requests")
+	}
+}
+
+func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
+	}}
+	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.attach"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:       "html만 주면 돼",
+		ToolRegistry: toolRegistry,
+	})
+
+	if strings.Join(decision.RequestedOutputFormats, ",") != "html" {
+		t.Fatalf("expected structured html output format, got %+v", decision.RequestedOutputFormats)
 	}
 }
 
@@ -80,7 +103,7 @@ func TestTaskIntakePlannerFallbackDefaultsUncertainWorkToStandard(t *testing.T) 
 
 func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"browser_handoff_task","effortLevel":"quick","reason":"browser control","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"browser_handoff_task","effortLevel":"quick","requestedOutputFormats":null,"reason":"browser control","userFacingReply":""}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.screenshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -97,7 +120,7 @@ func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 
 func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write", "file.attach"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -120,7 +143,7 @@ func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testin
 
 func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
 	}}
 	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write", "file.attach"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -166,7 +189,7 @@ func TestEffortLimitProfileMapping(t *testing.T) {
 
 func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","reason":"too broad","userFacingReply":"Please narrow this first."}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"too broad","userFacingReply":"Please narrow this first."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("should not run"),
@@ -202,7 +225,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 
 func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","reason":"direct answer","userFacingReply":""}`,
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("hello"),
@@ -232,7 +255,7 @@ func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 
 func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","reason":"direct answer","userFacingReply":""}`,
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("deck created"),
@@ -278,6 +301,50 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
 		t.Fatal("expected promoted bounded task intake event")
+	}
+}
+
+func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
+		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.attach", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Content: "file attached",
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/deck.html",
+				Filename:   "deck.html",
+				SizeBytes:  12,
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "html만 주면 돼",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected structured output format task to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.html" {
+		t.Fatalf("expected html attachment, got %+v", result.Attachments)
+	}
+	if !strings.Contains(joinedMessageContent(replyLanguageModel.requests[0].Messages), ".html") {
+		t.Fatal("expected structured output format to become an html attachment requirement")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"requestedOutputFormats":["html"]`) {
+		t.Fatal("expected intake event to preserve structured output format")
 	}
 }
 

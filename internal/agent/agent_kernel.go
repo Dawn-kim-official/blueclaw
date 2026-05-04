@@ -156,6 +156,12 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return agentKernel.completeIntakeOnlyRequest(request, intakeDecision, task.TaskStatusBlocked)
 	}
 
+	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
+	requiredEvidenceTools := selectedRequiredEvidenceTools(instructionBundle)
+	if len(requiredAttachmentSuffixes) > 0 {
+		requiredEvidenceTools = appendUniqueStrings(requiredEvidenceTools, "file.attach")
+	}
+
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
 		RequesterName:              request.RequesterName,
@@ -171,8 +177,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		InstructionPrompt:          instructionBundle.Prompt,
 		InstructionSources:         append([]InstructionSource{}, instructionBundle.Sources...),
 		SkillDecisions:             append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
-		RequiredEvidenceTools:      selectedRequiredEvidenceTools(instructionBundle),
-		RequiredAttachmentSuffixes: selectedRequiredAttachmentSuffixes(instructionBundle, request.Prompt),
+		RequiredEvidenceTools:      requiredEvidenceTools,
+		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
@@ -201,6 +207,46 @@ func selectedRequiredEvidenceTools(_ InstructionBundle) []string {
 
 func selectedRequiredAttachmentSuffixes(_ InstructionBundle, _ string) []string {
 	return nil
+}
+
+func attachmentSuffixesForRequestedOutputFormats(formats []string) []string {
+	suffixes := []string{}
+	for _, format := range normalizeRequestedOutputFormats(formats) {
+		switch format {
+		case "html":
+			suffixes = append(suffixes, ".html")
+		case "pptx":
+			suffixes = append(suffixes, ".pptx")
+		case "pdf":
+			suffixes = append(suffixes, ".pdf")
+		case "txt":
+			suffixes = append(suffixes, ".txt")
+		case "docx":
+			suffixes = append(suffixes, ".docx")
+		case "xlsx":
+			suffixes = append(suffixes, ".xlsx")
+		case "csv":
+			suffixes = append(suffixes, ".csv")
+		}
+	}
+	return suffixes
+}
+
+func appendUniqueStrings(values []string, candidates ...string) []string {
+	nextValues := append([]string{}, values...)
+	seenValue := map[string]bool{}
+	for _, value := range nextValues {
+		seenValue[value] = true
+	}
+	for _, candidate := range candidates {
+		trimmedCandidate := strings.TrimSpace(candidate)
+		if trimmedCandidate == "" || seenValue[trimmedCandidate] {
+			continue
+		}
+		seenValue[trimmedCandidate] = true
+		nextValues = append(nextValues, trimmedCandidate)
+	}
+	return nextValues
 }
 
 func selectedQualityAcceptanceGuidance(instructionBundle InstructionBundle) []string {

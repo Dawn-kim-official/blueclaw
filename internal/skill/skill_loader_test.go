@@ -36,11 +36,11 @@ allowedProfiles: [default]
 triggerHints:
   - slide deck
 references:
-  - references/design-system.md
+  - references/example.md
 scripts:
   - scripts/extract_notes.py
 assets:
-  - assets/template.md
+  - assets/design.md
 ---
 # Simple Slides
 
@@ -94,13 +94,13 @@ Build slides.
 	if !containsString(skillBundle.TriggerHints, "slide deck") {
 		t.Fatalf("expected trigger hints, got %+v", skillBundle.TriggerHints)
 	}
-	if !containsString(skillBundle.References, "references/design-system.md") {
+	if !containsString(skillBundle.References, "references/example.md") {
 		t.Fatalf("expected references, got %+v", skillBundle.References)
 	}
 	if !containsString(skillBundle.Scripts, "scripts/extract_notes.py") {
 		t.Fatalf("expected scripts, got %+v", skillBundle.Scripts)
 	}
-	if !containsString(skillBundle.Assets, "assets/template.md") {
+	if !containsString(skillBundle.Assets, "assets/design.md") {
 		t.Fatalf("expected assets, got %+v", skillBundle.Assets)
 	}
 	if skillBundle.Instruction != "# Simple Slides\n\nBuild slides." {

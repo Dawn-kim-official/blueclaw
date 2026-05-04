@@ -51,6 +51,7 @@ type IntakeDecision struct {
 	Classification            IntakeClassification `json:"classification"`
 	TaskShape                 TaskShape            `json:"taskShape"`
 	EffortLevel               EffortLevel          `json:"effortLevel"`
+	RequestedOutputFormats    []string             `json:"requestedOutputFormats"`
 	Reason                    string               `json:"reason"`
 	UserFacingReply           string               `json:"userFacingReply"`
 	UsedDeterministicFallback bool                 `json:"usedDeterministicFallback"`
@@ -93,7 +94,7 @@ func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Con
 		Messages: taskIntakePlanner.buildMessages(request),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_task_intake_effort",
-			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"taskShape":{"type":"string","enum":["immediate_reply","research_task","maintenance_task","scheduled_task","browser_handoff_task","approval_gated_task"]},"effortLevel":{"type":"string","enum":["quick","standard","deep","extended"]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","taskShape","effortLevel","reason"],"additionalProperties":false}`,
+			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"taskShape":{"type":"string","enum":["immediate_reply","research_task","maintenance_task","scheduled_task","browser_handoff_task","approval_gated_task"]},"effortLevel":{"type":"string","enum":["quick","standard","deep","extended"]},"requestedOutputFormats":{"anyOf":[{"type":"array","items":{"type":"string","enum":["html","pptx","pdf","txt","docx","xlsx","csv"]}},{"type":"null"}]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","taskShape","effortLevel","requestedOutputFormats","reason","userFacingReply"],"additionalProperties":false}`,
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -118,7 +119,7 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	return []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely.",
+			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"].",
 		},
 		{
 			Role:    "system",
@@ -188,6 +189,7 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		normalizedEffortLevel = defaultDecision.EffortLevel
 	}
 	decision.EffortLevel = LargerEffortLevel(normalizedEffortLevel, minimumEffortLevelForRequest(request))
+	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
 	}
@@ -195,6 +197,25 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		decision.UserFacingReply = defaultUserFacingReply(decision.Classification)
 	}
 	return decision
+}
+
+func normalizeRequestedOutputFormats(formats []string) []string {
+	normalizedFormats := []string{}
+	seenFormat := map[string]bool{}
+	for _, format := range formats {
+		normalizedFormat := strings.ToLower(strings.TrimSpace(format))
+		switch normalizedFormat {
+		case "html", "pptx", "pdf", "txt", "docx", "xlsx", "csv":
+		default:
+			continue
+		}
+		if seenFormat[normalizedFormat] {
+			continue
+		}
+		seenFormat[normalizedFormat] = true
+		normalizedFormats = append(normalizedFormats, normalizedFormat)
+	}
+	return normalizedFormats
 }
 
 func deterministicTaskShape(request AgentRequest, classification IntakeClassification) TaskShape {
