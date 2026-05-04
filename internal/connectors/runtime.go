@@ -722,13 +722,12 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Context, platform string, event PlatformInboundEvent, taskRunID string, replyTarget ReplyTarget, turnResult agent.AgentTurnResult, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {
 	reply := strings.TrimSpace(turnResult.FinalReply)
 	if reply == "" {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "task run is not completed")
-		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "task_not_completed"))
-		return "", false
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.recovered_blocked", "task run is not completed")
+		reply = agent.BuildIncompleteTaskRecoveryReply(event.Prompt, "task_not_completed")
 	}
 	if agent.FinalReplyClaimsAttachmentDelivery(reply) || agent.ValidateFinalReplyDelivery(reply, nil, true) != nil {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.sanitized_blocked", "incomplete task reply claimed unavailable artifact delivery")
-		reply = agent.BuildLimitReachedFallbackReply(event.Prompt)
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.recovered_blocked", "incomplete task reply claimed unavailable artifact delivery")
+		reply = agent.BuildIncompleteTaskRecoveryReply(event.Prompt, "attachment unavailable")
 	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply})
 	if errorValue != nil {

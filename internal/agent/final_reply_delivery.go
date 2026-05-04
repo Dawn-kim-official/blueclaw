@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+var finalReplyAttachmentDeliveryClaimExpressions = compileRegularExpressions(finalReplyAttachmentDeliveryClaimPatterns())
+
 func ValidateFinalReplyDelivery(reply string, attachments []FileAttachment, requiresArtifactEvidence bool) error {
 	if locator := finalReplyNonDeliverableArtifactLocator(reply); locator != "" {
 		return errors.New("final_reply exposes non-deliverable artifact locator " + locator + "; cite attached filenames from completionEvidence only")
@@ -21,28 +23,38 @@ func ValidateFinalReplyDelivery(reply string, attachments []FileAttachment, requ
 
 func FinalReplyClaimsAttachmentDelivery(reply string) bool {
 	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
-	if normalizedReply == "" || containsAny(normalizedReply, attachmentDeliveryNegations()) {
+	if normalizedReply == "" {
 		return false
 	}
-	if containsAny(normalizedReply, []string{"attached", "attachment"}) {
-		return true
+	for _, expression := range finalReplyAttachmentDeliveryClaimExpressions {
+		if expression.MatchString(normalizedReply) {
+			return true
+		}
 	}
-	if containsAny(normalizedReply, []string{"첨부", "전달", "보내드", "보냈"}) &&
-		containsAny(normalizedReply, []string{"파일", "pptx", "pdf", "html", "notes", "자료", "deck", "slide"}) {
-		return true
-	}
-	return containsAny(normalizedReply, []string{"첨부된 파일", "파일들을 확인", "파일을 확인", "attached files"})
+	return false
 }
 
 func FinalReplyContainsNonDeliverableArtifactLocator(reply string) bool {
 	return finalReplyNonDeliverableArtifactLocator(reply) != ""
 }
 
-func attachmentDeliveryNegations() []string {
+func finalReplyAttachmentDeliveryClaimPatterns() []string {
 	return []string{
-		"not attached", "not attach", "cannot attach", "could not attach", "failed to attach",
-		"첨부하지 못", "첨부할 수 없", "첨부 실패", "파일을 전달하지 못", "파일로 전달하지 못",
+		`(?i)\b(?:i'?ve|i have|we'?ve|we have)\s+(?:attached|sent|delivered)\b`,
+		`(?i)\b(?:attached|sent|delivered)\s+(?:the\s+)?(?:file|files|attachment|attachments|html|pptx|pdf|deck|slides|notes)\b`,
+		`(?i)\b(?:file|files|attachment|attachments|html|pptx|pdf|deck|slides|notes)\s+(?:is|are|has been|have been)\s+(?:attached|sent|delivered)\b`,
+		`첨부(?:했|했습|했어|했습니다|했어요|해드렸|해 드렸|되어 있|된)`,
+		`(?:파일|자료|html|pptx|pdf|deck|slide|슬라이드).*(?:전달해 드립니다|전달했습니다|전달했어요|보내드렸습니다|보내드렸어요|보냈습니다|보냈어요|확인해 주세요)`,
+		`첨부된\s*(?:파일|자료)`,
 	}
+}
+
+func compileRegularExpressions(patterns []string) []*regexp.Regexp {
+	expressions := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		expressions = append(expressions, regexp.MustCompile(pattern))
+	}
+	return expressions
 }
 
 func finalReplyNonDeliverableArtifactLocator(reply string) string {

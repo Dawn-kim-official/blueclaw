@@ -120,7 +120,7 @@ func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSendsSafeReplyWhenTaskDoesNotComplete(t *testing.T) {
+func TestConnectorRuntimeSendsDynamicReplyWhenTaskDoesNotComplete(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
@@ -135,17 +135,17 @@ func TestConnectorRuntimeSendsSafeReplyWhenTaskDoesNotComplete(t *testing.T) {
 		t.Fatalf("expected task_not_completed result, got %+v", result)
 	}
 	if result.ReplyDispatchID != "dispatch-1" {
-		t.Fatalf("expected incomplete task reply dispatch id, got %q", result.ReplyDispatchID)
+		t.Fatalf("expected dynamic failure reply dispatch id, got %q", result.ReplyDispatchID)
 	}
 	if len(adapter.sentReplies) != 1 {
-		t.Fatalf("expected one safe failure reply, got %+v", adapter.sentReplies)
+		t.Fatalf("expected one dynamic failure reply, got %+v", adapter.sentReplies)
 	}
-	if adapter.sentReplies[0].message != agent.DefaultFallbackReply {
-		t.Fatalf("expected safe failure reply, got %q", adapter.sentReplies[0].message)
+	if strings.Contains(adapter.sentReplies[0].message, "I am having trouble reaching the language model") || strings.Contains(adapter.sentReplies[0].message, "model configuration") {
+		t.Fatalf("expected non-static failure reply, got %q", adapter.sentReplies[0].message)
 	}
 }
 
-func TestConnectorRuntimeSanitizesIncompleteAttachmentClaims(t *testing.T) {
+func TestConnectorRuntimeRecoversIncompleteAttachmentClaims(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -164,20 +164,17 @@ func TestConnectorRuntimeSanitizesIncompleteAttachmentClaims(t *testing.T) {
 	)
 
 	if !isSent || dispatchID != "dispatch-1" {
-		t.Fatalf("expected sanitized reply to be sent, got dispatchID=%q sent=%v", dispatchID, isSent)
+		t.Fatalf("expected recovered incomplete reply, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
 	if len(sentReplies) != 1 {
-		t.Fatalf("expected one sanitized reply, got %+v", sentReplies)
+		t.Fatalf("expected one recovered reply, got %+v", sentReplies)
 	}
-	if sentReplies[0].Message != agent.BuildLimitReachedFallbackReply(event.Prompt) {
-		t.Fatalf("expected fallback safe reply, got %q", sentReplies[0].Message)
-	}
-	if strings.Contains(sentReplies[0].Message, "larger scope") || strings.Contains(sentReplies[0].Message, "첨부했습니다") {
-		t.Fatalf("expected sanitized reply without stale attachment claim, got %q", sentReplies[0].Message)
+	if strings.Contains(sentReplies[0].Message, "첨부했습니다") || strings.Contains(sentReplies[0].Message, "보냈습니다") {
+		t.Fatalf("expected recovered reply without delivery claim, got %q", sentReplies[0].Message)
 	}
 }
 
-func TestConnectorRuntimeSanitizesIncompleteUnattachedFilenames(t *testing.T) {
+func TestConnectorRuntimeRecoversIncompleteUnattachedFilenames(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -196,13 +193,13 @@ func TestConnectorRuntimeSanitizesIncompleteUnattachedFilenames(t *testing.T) {
 	)
 
 	if !isSent || dispatchID != "dispatch-1" {
-		t.Fatalf("expected sanitized reply to be sent, got dispatchID=%q sent=%v", dispatchID, isSent)
+		t.Fatalf("expected recovered incomplete reply, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
 	if len(sentReplies) != 1 {
-		t.Fatalf("expected one sanitized reply, got %+v", sentReplies)
+		t.Fatalf("expected one recovered reply, got %+v", sentReplies)
 	}
 	if strings.Contains(sentReplies[0].Message, "Hermes_Agent_Slide_Part1.html") {
-		t.Fatalf("expected sanitized reply without unattached filename, got %q", sentReplies[0].Message)
+		t.Fatalf("expected recovered reply without unattached filename, got %q", sentReplies[0].Message)
 	}
 }
 

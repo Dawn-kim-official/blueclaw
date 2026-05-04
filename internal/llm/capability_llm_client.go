@@ -44,6 +44,21 @@ type capabilityStructuredResponseDocument struct {
 }
 
 func (capabilityLLMClient CapabilityLLMClient) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	return capabilityLLMClient.generateResponse(responseContext, prompt, capabilityLLMClient.executionMode())
+}
+
+func (capabilityLLMClient CapabilityLLMClient) GenerateRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
+	response, errorValue := capabilityLLMClient.generateResponse(responseContext, prompt, "auto")
+	if errorValue == nil && strings.TrimSpace(response) != "" {
+		return response, nil
+	}
+	if capabilityLLMClient.executionMode() == "device" {
+		return response, errorValue
+	}
+	return capabilityLLMClient.generateResponse(responseContext, prompt, "device")
+}
+
+func (capabilityLLMClient CapabilityLLMClient) generateResponse(responseContext context.Context, prompt string, executionMode string) (string, error) {
 	if capabilityLLMClient.CapabilityClient.HTTPClient == nil {
 		return "", errors.New("capability llm http client is not configured")
 	}
@@ -54,7 +69,7 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateResponse(responseContext 
 		"/v1/llm/text",
 		capabilityTextResponseRequestDocument{
 			Model:         capabilityLLMClient.ModelName,
-			ExecutionMode: capabilityLLMClient.executionMode(),
+			ExecutionMode: executionMode,
 			Messages: []Message{{
 				Role:    "user",
 				Content: prompt,

@@ -121,6 +121,41 @@ func TestCapabilityLLMClientGenerateResponseUsesTextEndpoint(t *testing.T) {
 	}
 }
 
+func TestCapabilityLLMClientRecoveryResponseUsesLocalCapableExecutionMode(t *testing.T) {
+	receivedExecutionModes := []string{}
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		var receivedDocument capabilityTextResponseRequestDocument
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected request document to decode: %v", errorValue)
+		}
+		receivedExecutionModes = append(receivedExecutionModes, receivedDocument.ExecutionMode)
+		if receivedDocument.ExecutionMode == "auto" {
+			return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma","content":"local-ish reply","selectedBackend":"cpu"}`), nil
+		}
+		return jsonCapabilityResponse(http.StatusBadGateway, "remote unavailable"), nil
+	}}
+
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName:     "gemma",
+		ExecutionMode: "remote",
+	}
+
+	response, errorValue := client.GenerateRecoveryResponse(context.Background(), "hello")
+	if errorValue != nil {
+		t.Fatalf("expected recovery text response: %v", errorValue)
+	}
+	if response != "local-ish reply" {
+		t.Fatalf("expected recovery response, got %q", response)
+	}
+	if len(receivedExecutionModes) != 1 || receivedExecutionModes[0] != "auto" {
+		t.Fatalf("expected recovery to use auto execution mode, got %+v", receivedExecutionModes)
+	}
+}
+
 type fakeCapabilityHTTPClient struct {
 	handler func(*http.Request) (*http.Response, error)
 }
