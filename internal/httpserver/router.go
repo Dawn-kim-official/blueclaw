@@ -10,6 +10,7 @@ import (
 
 type RouterDependencies struct {
 	PolicyHandler         adminapi.PolicyHandler
+	HealthHandler         HealthHandler
 	AuditHandler          *adminapi.AuditHandler
 	TaskMonitorHandler    adminapi.TaskMonitorHandler
 	TaskRunHandler        adminapi.TaskRunHandler
@@ -23,6 +24,7 @@ type RouterDependencies struct {
 func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer := http.NewServeMux()
 
+	multiplexer.HandleFunc("GET /admin/api/health", routerDependencies.HealthHandler.HandleHealth)
 	multiplexer.HandleFunc("GET /admin/api/policy", routerDependencies.PolicyHandler.HandleGetPolicy)
 	multiplexer.HandleFunc("POST /admin/api/policy/validate", routerDependencies.PolicyHandler.HandleValidatePolicy)
 	multiplexer.HandleFunc("POST /admin/api/policy/save", routerDependencies.PolicyHandler.HandleSavePolicy)

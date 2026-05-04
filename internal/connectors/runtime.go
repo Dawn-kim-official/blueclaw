@@ -20,6 +20,7 @@ import (
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
+	"blueclaw/internal/task"
 )
 
 type IngressGate interface {
@@ -66,11 +67,15 @@ type ReplyTarget struct {
 
 type OutboundReply struct {
 	Message     string                 `json:"message"`
+	RawEventID  string                 `json:"rawEventID,omitempty"`
+	OutboxID    string                 `json:"outboxID,omitempty"`
 	Attachments []agent.FileAttachment `json:"attachments,omitempty"`
 }
 
 type outboundReplyDocument struct {
 	Message     string                    `json:"message"`
+	RawEventID  string                    `json:"rawEventID,omitempty"`
+	OutboxID    string                    `json:"outboxID,omitempty"`
 	Attachments []outboundReplyAttachment `json:"attachments,omitempty"`
 }
 
@@ -86,6 +91,8 @@ type outboundReplyAttachment struct {
 func (reply OutboundReply) MarshalJSON() ([]byte, error) {
 	document := outboundReplyDocument{
 		Message:     reply.Message,
+		RawEventID:  reply.RawEventID,
+		OutboxID:    reply.OutboxID,
 		Attachments: outboundReplyAttachments(reply.Attachments),
 	}
 	return json.Marshal(document)
@@ -97,6 +104,8 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 		return errorValue
 	}
 	reply.Message = document.Message
+	reply.RawEventID = document.RawEventID
+	reply.OutboxID = document.OutboxID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
 	return nil
 }
@@ -231,6 +240,25 @@ type ConnectorRuntime struct {
 	eventRepository   ConnectorEventRepository
 	ingressGate       IngressGate
 	conversationLocks map[string]*sync.Mutex
+	started           bool
+	inboxHeartbeats   []time.Time
+	outboxHeartbeats  []time.Time
+}
+
+type ConnectorRuntimeHealth struct {
+	Started                     bool      `json:"started"`
+	HasEventRepository          bool      `json:"hasEventRepository"`
+	HasQueueRepository          bool      `json:"hasQueueRepository"`
+	HasOutboxRepository         bool      `json:"hasOutboxRepository"`
+	RegisteredPlatforms         []string  `json:"registeredPlatforms"`
+	MattermostAdapterRegistered bool      `json:"mattermostAdapterRegistered"`
+	InboxWorkerCount            int       `json:"inboxWorkerCount"`
+	OutboxWorkerCount           int       `json:"outboxWorkerCount"`
+	InboxWorkersAlive           bool      `json:"inboxWorkersAlive"`
+	OutboxWorkersAlive          bool      `json:"outboxWorkersAlive"`
+	LastInboxHeartbeatAt        time.Time `json:"lastInboxHeartbeatAt,omitempty"`
+	LastOutboxHeartbeatAt       time.Time `json:"lastOutboxHeartbeatAt,omitempty"`
+	Passed                      bool      `json:"passed"`
 }
 
 func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
@@ -313,15 +341,20 @@ func (connectorRuntime *ConnectorRuntime) UseTaskLauncher(taskLauncher *agentrun
 
 func (connectorRuntime *ConnectorRuntime) Start(ctx context.Context) {
 	if connectorRuntime.queueRepository() != nil {
+		connectorRuntime.prepareConnectorWorkers("inbox", connectorInboxWorkerCount)
 		for index := 0; index < connectorInboxWorkerCount; index++ {
-			go connectorRuntime.runConnectorInboxWorker(ctx)
+			go connectorRuntime.runConnectorInboxWorker(ctx, index)
 		}
 	}
 	if connectorRuntime.outboxRepository() != nil {
+		connectorRuntime.prepareConnectorWorkers("outbox", connectorOutboxWorkerCount)
 		for index := 0; index < connectorOutboxWorkerCount; index++ {
-			go connectorRuntime.runConnectorOutboxWorker(ctx)
+			go connectorRuntime.runConnectorOutboxWorker(ctx, index)
 		}
 	}
+	connectorRuntime.mutex.Lock()
+	connectorRuntime.started = true
+	connectorRuntime.mutex.Unlock()
 }
 
 func (connectorRuntime *ConnectorRuntime) HandleHTTPEvent(ctx context.Context, platform string, request *http.Request) (ConnectorRuntimeResult, *HTTPResponse, error) {
@@ -401,6 +434,9 @@ func (connectorRuntime *ConnectorRuntime) HandleInboundEvent(ctx context.Context
 	if queueRepository := connectorRuntime.queueRepository(); queueRepository != nil {
 		return connectorRuntime.enqueueInboundEvent(event, queueRepository)
 	}
+	if connectorRuntime.eventRepository != nil {
+		return ConnectorRuntimeResult{}, errors.New("connector queue repository is required when connector event repository is configured")
+	}
 
 	return connectorRuntime.handleInboundEventImmediately(ctx, adapter, event)
 }
@@ -456,8 +492,12 @@ func (connectorRuntime *ConnectorRuntime) enqueueInboundEvent(event PlatformInbo
 	return ConnectorRuntimeResult{Handled: true, Platform: event.Platform, Reason: "queued"}, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) runConnectorInboxWorker(ctx context.Context) {
+func (connectorRuntime *ConnectorRuntime) runConnectorInboxWorker(ctx context.Context, workerIndex int) {
+	workerContext, stopHeartbeat := context.WithCancel(ctx)
+	defer stopHeartbeat()
+	go connectorRuntime.recordConnectorWorkerHeartbeatUntilStopped(workerContext, "inbox", workerIndex)
 	for ctx.Err() == nil {
+		connectorRuntime.recordConnectorWorkerHeartbeat("inbox", workerIndex)
 		if connectorRuntime.processNextQueuedConnectorEvent(ctx) {
 			continue
 		}
@@ -515,6 +555,9 @@ func (connectorRuntime *ConnectorRuntime) enqueueConnectorReply(ctx context.Cont
 	}
 	outboxRepository := connectorRuntime.outboxRepository()
 	if outboxRepository == nil {
+		if connectorRuntime.eventRepository != nil {
+			return "", errors.New("connector outbox repository is required when connector event repository is configured")
+		}
 		adapter, errorValue := connectorRuntime.findAdapter(event.Platform)
 		if errorValue != nil {
 			return "", errorValue
@@ -524,8 +567,12 @@ func (connectorRuntime *ConnectorRuntime) enqueueConnectorReply(ctx context.Cont
 	return outboxRepository.EnqueueConnectorReply(event, replyTarget, reply)
 }
 
-func (connectorRuntime *ConnectorRuntime) runConnectorOutboxWorker(ctx context.Context) {
+func (connectorRuntime *ConnectorRuntime) runConnectorOutboxWorker(ctx context.Context, workerIndex int) {
+	workerContext, stopHeartbeat := context.WithCancel(ctx)
+	defer stopHeartbeat()
+	go connectorRuntime.recordConnectorWorkerHeartbeatUntilStopped(workerContext, "outbox", workerIndex)
 	for ctx.Err() == nil {
+		connectorRuntime.recordConnectorWorkerHeartbeat("outbox", workerIndex)
 		if connectorRuntime.processNextQueuedConnectorReply(ctx) {
 			continue
 		}
@@ -556,6 +603,8 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorReply(ctx contex
 		connectorRuntime.markQueuedConnectorReplyFailed(queuedReply, errorValue)
 		return
 	}
+	queuedReply.Reply.RawEventID = firstNonEmptyString(queuedReply.Reply.RawEventID, queuedReply.RawEventID)
+	queuedReply.Reply.OutboxID = firstNonEmptyString(queuedReply.Reply.OutboxID, queuedReply.OutboxID)
 	dispatchID, errorValue := adapter.SendReply(ctx, queuedReply.ReplyTarget, queuedReply.Reply)
 	if ctx.Err() != nil {
 		return
@@ -638,6 +687,16 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	turnResult := launchResult.TurnResult
 	taskRunID := turnResult.TaskRun.TaskRunID
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
+	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "task run is not completed")
+		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "task_not_completed"))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_not_completed"}, nil
+	}
+	if connectorReplyClaimsAttachmentDelivery(turnResult.FinalReply) && len(turnResult.Attachments) == 0 {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "reply claims attachments without evidence")
+		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "missing_attachment_evidence"))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "missing_attachment_evidence"}, nil
+	}
 
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{
 		Message:     turnResult.FinalReply,
@@ -651,6 +710,104 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID))
 	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) Health() ConnectorRuntimeHealth {
+	connectorRuntime.mutex.Lock()
+	defer connectorRuntime.mutex.Unlock()
+
+	platforms := []string{}
+	for platform := range connectorRuntime.adapterByPlatform {
+		platforms = append(platforms, platform)
+	}
+	health := ConnectorRuntimeHealth{
+		Started:                     connectorRuntime.started,
+		HasEventRepository:          connectorRuntime.eventRepository != nil,
+		HasQueueRepository:          connectorRuntime.queueRepository() != nil,
+		HasOutboxRepository:         connectorRuntime.outboxRepository() != nil,
+		RegisteredPlatforms:         platforms,
+		MattermostAdapterRegistered: connectorRuntime.adapterByPlatform["mattermost"] != nil,
+		InboxWorkerCount:            len(connectorRuntime.inboxHeartbeats),
+		OutboxWorkerCount:           len(connectorRuntime.outboxHeartbeats),
+		LastInboxHeartbeatAt:        latestTime(connectorRuntime.inboxHeartbeats),
+		LastOutboxHeartbeatAt:       latestTime(connectorRuntime.outboxHeartbeats),
+	}
+	health.InboxWorkersAlive = connectorWorkersAlive(connectorRuntime.inboxHeartbeats, 2*connectorWorkerIdleDelay)
+	health.OutboxWorkersAlive = connectorWorkersAlive(connectorRuntime.outboxHeartbeats, 2*connectorWorkerIdleDelay)
+	health.Passed = health.Started &&
+		health.HasEventRepository &&
+		health.HasQueueRepository &&
+		health.HasOutboxRepository &&
+		health.MattermostAdapterRegistered &&
+		health.InboxWorkersAlive &&
+		health.OutboxWorkersAlive
+	return health
+}
+
+func (connectorRuntime *ConnectorRuntime) prepareConnectorWorkers(kind string, count int) {
+	connectorRuntime.mutex.Lock()
+	defer connectorRuntime.mutex.Unlock()
+
+	heartbeats := make([]time.Time, count)
+	now := time.Now()
+	for index := range heartbeats {
+		heartbeats[index] = now
+	}
+	if kind == "inbox" {
+		connectorRuntime.inboxHeartbeats = heartbeats
+		return
+	}
+	connectorRuntime.outboxHeartbeats = heartbeats
+}
+
+func (connectorRuntime *ConnectorRuntime) recordConnectorWorkerHeartbeat(kind string, workerIndex int) {
+	connectorRuntime.mutex.Lock()
+	defer connectorRuntime.mutex.Unlock()
+
+	now := time.Now()
+	if kind == "inbox" && workerIndex >= 0 && workerIndex < len(connectorRuntime.inboxHeartbeats) {
+		connectorRuntime.inboxHeartbeats[workerIndex] = now
+		return
+	}
+	if kind == "outbox" && workerIndex >= 0 && workerIndex < len(connectorRuntime.outboxHeartbeats) {
+		connectorRuntime.outboxHeartbeats[workerIndex] = now
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) recordConnectorWorkerHeartbeatUntilStopped(ctx context.Context, kind string, workerIndex int) {
+	ticker := time.NewTicker(connectorWorkerIdleDelay)
+	defer ticker.Stop()
+	for {
+		connectorRuntime.recordConnectorWorkerHeartbeat(kind, workerIndex)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func connectorWorkersAlive(heartbeats []time.Time, maximumAge time.Duration) bool {
+	if len(heartbeats) == 0 {
+		return false
+	}
+	oldestAllowed := time.Now().Add(-maximumAge)
+	for _, heartbeat := range heartbeats {
+		if heartbeat.IsZero() || heartbeat.Before(oldestAllowed) {
+			return false
+		}
+	}
+	return true
+}
+
+func latestTime(values []time.Time) time.Time {
+	var latest time.Time
+	for _, value := range values {
+		if value.After(latest) {
+			latest = value
+		}
+	}
+	return latest
 }
 
 func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *agent.ToolRegistry {
@@ -715,6 +872,37 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func connectorReplyClaimsAttachmentDelivery(reply string) bool {
+	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
+	if normalizedReply == "" || containsAny(normalizedReply, connectorAttachmentDeliveryNegations()) {
+		return false
+	}
+	if containsAny(normalizedReply, []string{"attached", "attachment"}) {
+		return true
+	}
+	if containsAny(normalizedReply, []string{"첨부", "전달", "보내드", "보냈"}) &&
+		containsAny(normalizedReply, []string{"파일", "pptx", "pdf", "html", "notes", "자료", "deck", "slide"}) {
+		return true
+	}
+	return containsAny(normalizedReply, []string{"첨부된 파일", "파일들을 확인", "파일을 확인", "attached files"})
+}
+
+func connectorAttachmentDeliveryNegations() []string {
+	return []string{
+		"not attached", "not attach", "cannot attach", "could not attach", "failed to attach",
+		"첨부하지 못", "첨부할 수 없", "첨부 실패", "파일을 전달하지 못", "파일로 전달하지 못",
+	}
+}
+
+func containsAny(value string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func detachedConnectorContext(ctx context.Context) context.Context {

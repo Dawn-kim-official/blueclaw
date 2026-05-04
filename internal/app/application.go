@@ -145,6 +145,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
+		HealthHandler: httpserver.HealthHandler{
+			Database:         database,
+			ConnectorRuntime: connectorRuntime,
+			MaximumBacklog:   1000,
+		},
 		PolicyHandler: adminapi.PolicyHandler{
 			PolicyPath:    policyPath,
 			PolicyLoader:  policyLoader,
@@ -485,7 +490,16 @@ func openRuntimeDatabase(runtimeConfiguration config.RuntimeConfiguration) (post
 	if migrationDirectoryPath == "" {
 		migrationDirectoryPath = "migrations"
 	}
-	if errorValue := (postgres.MigrationRunner{MigrationDirectoryPath: migrationDirectoryPath}).ApplyMigrations(context.Background(), database); errorValue != nil {
+	migrationRunner := postgres.MigrationRunner{MigrationDirectoryPath: migrationDirectoryPath}
+	if errorValue := postgres.ValidateConnectorMigrationDirectory(migrationRunner); errorValue != nil {
+		_ = database.Close()
+		return postgres.Database{}, errorValue
+	}
+	if errorValue := migrationRunner.ApplyMigrations(context.Background(), database); errorValue != nil {
+		_ = database.Close()
+		return postgres.Database{}, errorValue
+	}
+	if errorValue := postgres.ValidateConnectorDeliverySchema(context.Background(), database); errorValue != nil {
 		_ = database.Close()
 		return postgres.Database{}, errorValue
 	}
