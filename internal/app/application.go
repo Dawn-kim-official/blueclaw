@@ -36,10 +36,12 @@ import (
 
 type Application struct {
 	httpServer                    *http.Server
+	connectorRuntime              *connectors.ConnectorRuntime
 	connectorTransports           []connectors.ConnectorTransport
 	runtimeLogger                 *runtimelogging.PersistentLogger
 	database                      postgres.Database
 	startupError                  error
+	connectorRuntimeCancel        context.CancelFunc
 	connectorTransportCancel      context.CancelFunc
 	logRetentionCancel            context.CancelFunc
 	languageModelDefaultProvider  string
@@ -197,6 +199,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			Addr:    deriveListenAddress(runtimeConfiguration.BaseURL),
 			Handler: router,
 		},
+		connectorRuntime:              connectorRuntime,
 		connectorTransports:           connectorTransports,
 		runtimeLogger:                 runtimeLogger,
 		database:                      database,
@@ -571,6 +574,7 @@ func (application *Application) Start() error {
 		return application.startupError
 	}
 	application.startLogRetentionLoop()
+	application.startConnectorRuntime()
 	application.startConnectorTransports()
 	listener, errorValue := net.Listen("tcp", application.httpServer.Addr)
 	if errorValue != nil {
@@ -598,6 +602,9 @@ func (application *Application) Shutdown(ctx context.Context) error {
 	if application.connectorTransportCancel != nil {
 		application.connectorTransportCancel()
 	}
+	if application.connectorRuntimeCancel != nil {
+		application.connectorRuntimeCancel()
+	}
 	if application.logRetentionCancel != nil {
 		application.logRetentionCancel()
 	}
@@ -611,6 +618,15 @@ func (application *Application) Shutdown(ctx context.Context) error {
 		return closeErrorValue
 	}
 	return databaseCloseError
+}
+
+func (application *Application) startConnectorRuntime() {
+	if application.connectorRuntime == nil || application.connectorRuntimeCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	application.connectorRuntimeCancel = cancel
+	application.connectorRuntime.Start(ctx)
 }
 
 func (application *Application) startConnectorTransports() {
