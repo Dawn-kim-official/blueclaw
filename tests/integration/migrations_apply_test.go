@@ -15,8 +15,8 @@ func TestMigrationsApplyList(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected migrations to load: %v", errorValue)
 	}
-	if len(migrationPaths) != 12 {
-		t.Fatalf("expected 12 migration files, got %d", len(migrationPaths))
+	if len(migrationPaths) != 13 {
+		t.Fatalf("expected 13 migration files, got %d", len(migrationPaths))
 	}
 }
 
@@ -72,6 +72,29 @@ func TestGraphitiMemoryMigrationStoresMirrorMetadata(t *testing.T) {
 		"graphiti_episode",
 		"namespace_document jsonb",
 		"UNIQUE (source_platform, source_message_id)",
+	}
+	for _, requiredField := range requiredFields {
+		if !strings.Contains(migrationText, requiredField) {
+			t.Fatalf("expected migration to include %q", requiredField)
+		}
+	}
+}
+
+func TestConnectorQueueMigrationStoresInboxAndOutboxState(t *testing.T) {
+	migrationDocument, errorValue := os.ReadFile(filepath.Join("../../migrations", "013_connector_queue.sql"))
+	if errorValue != nil {
+		t.Fatalf("expected connector queue migration to load: %v", errorValue)
+	}
+
+	migrationText := string(migrationDocument)
+	requiredFields := []string{
+		"connector_event_json jsonb",
+		"connector_status text",
+		"connector_attempt_count integer",
+		"CREATE TABLE IF NOT EXISTS connector_outbox",
+		"reply_target_json jsonb",
+		"reply_json jsonb",
+		"UNIQUE (raw_event_id)",
 	}
 	for _, requiredField := range requiredFields {
 		if !strings.Contains(migrationText, requiredField) {

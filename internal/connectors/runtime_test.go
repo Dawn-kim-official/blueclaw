@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
@@ -320,6 +321,52 @@ func TestConnectorRuntimeDetachesHTTPEventFromCanceledRequestContext(t *testing.
 	}
 }
 
+func TestConnectorRuntimeQueuesHTTPEventAndSendsReplyThroughOutbox(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "queued reply"})
+	repository := &testConnectorQueueRepository{}
+	connectorRuntime.UseEventRepository(repository)
+	event := testInboundEvent("message-http")
+	adapter.httpParseResult = HTTPParseResult{HasEvent: true, Event: event}
+	request, errorValue := http.NewRequest(http.MethodPost, "/connectors/test/events", strings.NewReader(`{}`))
+	if errorValue != nil {
+		t.Fatalf("expected request: %v", errorValue)
+	}
+
+	result, _, errorValue := connectorRuntime.HandleHTTPEvent(context.Background(), adapter.Name(), request)
+	if errorValue != nil {
+		t.Fatalf("expected http event to queue: %v", errorValue)
+	}
+	if result.Reason != "queued" {
+		t.Fatalf("expected queued result, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 0 {
+		t.Fatalf("expected no synchronous reply, got %+v", adapter.sentReplies)
+	}
+
+	if !connectorRuntime.processNextQueuedConnectorEvent(context.Background()) {
+		t.Fatal("expected queued connector event to process")
+	}
+	if len(repository.succeededEvents) != 1 {
+		t.Fatalf("expected one succeeded event, got %+v", repository.succeededEvents)
+	}
+	if len(repository.pendingReplies) != 1 {
+		t.Fatalf("expected one queued reply, got %+v", repository.pendingReplies)
+	}
+	if len(adapter.sentReplies) != 0 {
+		t.Fatalf("expected outbox to own reply send, got %+v", adapter.sentReplies)
+	}
+
+	if !connectorRuntime.processNextQueuedConnectorReply(context.Background()) {
+		t.Fatal("expected queued connector reply to send")
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "queued reply" {
+		t.Fatalf("expected outbox reply to send, got %+v", adapter.sentReplies)
+	}
+	if len(repository.sentReplies) != 1 || repository.sentReplies[0] != "dispatch-1" {
+		t.Fatalf("expected dispatch id to be recorded, got %+v", repository.sentReplies)
+	}
+}
+
 func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -435,6 +482,77 @@ type testReply struct {
 	target      ReplyTarget
 	message     string
 	attachments []agent.FileAttachment
+}
+
+type testConnectorQueueRepository struct {
+	pendingEvents   []QueuedConnectorEvent
+	succeededEvents []ConnectorRuntimeResult
+	pendingReplies  []QueuedConnectorReply
+	sentReplies     []string
+}
+
+func (repository *testConnectorQueueRepository) TryInsertConnectorEvent(PlatformInboundEvent) (bool, ConnectorRuntimeResult, error) {
+	return false, ConnectorRuntimeResult{}, nil
+}
+
+func (repository *testConnectorQueueRepository) SaveConnectorResult(PlatformInboundEvent, ConnectorRuntimeResult) error {
+	return nil
+}
+
+func (repository *testConnectorQueueRepository) TryEnqueueConnectorEvent(event PlatformInboundEvent) (bool, ConnectorRuntimeResult, error) {
+	repository.pendingEvents = append(repository.pendingEvents, QueuedConnectorEvent{Event: event, AttemptCount: 0})
+	return false, ConnectorRuntimeResult{}, nil
+}
+
+func (repository *testConnectorQueueRepository) ClaimPendingConnectorEvents(int, time.Duration) ([]QueuedConnectorEvent, error) {
+	if len(repository.pendingEvents) == 0 {
+		return nil, nil
+	}
+	queuedEvent := repository.pendingEvents[0]
+	repository.pendingEvents = repository.pendingEvents[1:]
+	queuedEvent.AttemptCount++
+	return []QueuedConnectorEvent{queuedEvent}, nil
+}
+
+func (repository *testConnectorQueueRepository) MarkConnectorEventSucceeded(_ PlatformInboundEvent, result ConnectorRuntimeResult) error {
+	repository.succeededEvents = append(repository.succeededEvents, result)
+	return nil
+}
+
+func (repository *testConnectorQueueRepository) MarkConnectorEventFailed(QueuedConnectorEvent, error, time.Time) error {
+	return nil
+}
+
+func (repository *testConnectorQueueRepository) EnqueueConnectorReply(event PlatformInboundEvent, replyTarget ReplyTarget, reply OutboundReply) (string, error) {
+	outboxID := event.DedupeKey()
+	repository.pendingReplies = append(repository.pendingReplies, QueuedConnectorReply{
+		OutboxID:     outboxID,
+		RawEventID:   event.DedupeKey(),
+		Platform:     event.Platform,
+		ReplyTarget:  replyTarget,
+		Reply:        reply,
+		AttemptCount: 0,
+	})
+	return outboxID, nil
+}
+
+func (repository *testConnectorQueueRepository) ClaimPendingConnectorReplies(int, time.Duration) ([]QueuedConnectorReply, error) {
+	if len(repository.pendingReplies) == 0 {
+		return nil, nil
+	}
+	queuedReply := repository.pendingReplies[0]
+	repository.pendingReplies = repository.pendingReplies[1:]
+	queuedReply.AttemptCount++
+	return []QueuedConnectorReply{queuedReply}, nil
+}
+
+func (repository *testConnectorQueueRepository) MarkConnectorReplySent(_ QueuedConnectorReply, dispatchID string) error {
+	repository.sentReplies = append(repository.sentReplies, dispatchID)
+	return nil
+}
+
+func (repository *testConnectorQueueRepository) MarkConnectorReplyFailed(QueuedConnectorReply, error, time.Time) error {
+	return nil
 }
 
 func (adapter *testAdapter) Name() string {

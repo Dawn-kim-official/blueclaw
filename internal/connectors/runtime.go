@@ -31,6 +31,20 @@ type ConnectorEventRepository interface {
 	SaveConnectorResult(PlatformInboundEvent, ConnectorRuntimeResult) error
 }
 
+type ConnectorQueueRepository interface {
+	TryEnqueueConnectorEvent(PlatformInboundEvent) (bool, ConnectorRuntimeResult, error)
+	ClaimPendingConnectorEvents(int, time.Duration) ([]QueuedConnectorEvent, error)
+	MarkConnectorEventSucceeded(PlatformInboundEvent, ConnectorRuntimeResult) error
+	MarkConnectorEventFailed(QueuedConnectorEvent, error, time.Time) error
+}
+
+type ConnectorOutboxRepository interface {
+	EnqueueConnectorReply(PlatformInboundEvent, ReplyTarget, OutboundReply) (string, error)
+	ClaimPendingConnectorReplies(int, time.Duration) ([]QueuedConnectorReply, error)
+	MarkConnectorReplySent(QueuedConnectorReply, string) error
+	MarkConnectorReplyFailed(QueuedConnectorReply, error, time.Time) error
+}
+
 type PlatformInboundEvent struct {
 	Platform       string                 `json:"-"`
 	Source         string                 `json:"-"`
@@ -53,6 +67,20 @@ type ReplyTarget struct {
 type OutboundReply struct {
 	Message     string                 `json:"message"`
 	Attachments []agent.FileAttachment `json:"attachments,omitempty"`
+}
+
+type QueuedConnectorEvent struct {
+	Event        PlatformInboundEvent
+	AttemptCount int
+}
+
+type QueuedConnectorReply struct {
+	OutboxID     string
+	RawEventID   string
+	Platform     string
+	ReplyTarget  ReplyTarget
+	Reply        OutboundReply
+	AttemptCount int
 }
 
 type VisibleContext struct {
@@ -118,6 +146,13 @@ type ConnectorTransport interface {
 	Start(context.Context)
 }
 
+const connectorInboxWorkerCount = 4
+const connectorOutboxWorkerCount = 2
+const connectorWorkerIdleDelay = time.Second
+const connectorClaimLeaseDuration = 15 * time.Minute
+const connectorProgressHeartbeatInterval = time.Minute
+const connectorMaximumAttemptCount = 5
+
 type ConnectorRuntime struct {
 	identityService    *identity.IdentityService
 	agentKernel        *agent.AgentKernel
@@ -133,6 +168,7 @@ type ConnectorRuntime struct {
 	processedResults  map[string]ConnectorRuntimeResult
 	eventRepository   ConnectorEventRepository
 	ingressGate       IngressGate
+	conversationLocks map[string]*sync.Mutex
 }
 
 func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
@@ -149,6 +185,7 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		logger:             logger,
 		adapterByPlatform:  map[string]PlatformAdapter{},
 		processedResults:   map[string]ConnectorRuntimeResult{},
+		conversationLocks:  map[string]*sync.Mutex{},
 	}
 }
 
@@ -210,6 +247,19 @@ func (connectorRuntime *ConnectorRuntime) UseAllowedToolNamesByProfile(allowedTo
 
 func (connectorRuntime *ConnectorRuntime) UseTaskLauncher(taskLauncher *agentruntime.TaskLauncher) {
 	connectorRuntime.taskLauncher = taskLauncher
+}
+
+func (connectorRuntime *ConnectorRuntime) Start(ctx context.Context) {
+	if connectorRuntime.queueRepository() != nil {
+		for index := 0; index < connectorInboxWorkerCount; index++ {
+			go connectorRuntime.runConnectorInboxWorker(ctx)
+		}
+	}
+	if connectorRuntime.outboxRepository() != nil {
+		for index := 0; index < connectorOutboxWorkerCount; index++ {
+			go connectorRuntime.runConnectorOutboxWorker(ctx)
+		}
+	}
 }
 
 func (connectorRuntime *ConnectorRuntime) HandleHTTPEvent(ctx context.Context, platform string, request *http.Request) (ConnectorRuntimeResult, *HTTPResponse, error) {
@@ -286,6 +336,14 @@ func (connectorRuntime *ConnectorRuntime) HandleInboundEvent(ctx context.Context
 		return ConnectorRuntimeResult{Handled: true, Platform: adapter.Name(), Ignored: true, Reason: "missing_history_cursor"}, nil
 	}
 
+	if queueRepository := connectorRuntime.queueRepository(); queueRepository != nil {
+		return connectorRuntime.enqueueInboundEvent(event, queueRepository)
+	}
+
+	return connectorRuntime.handleInboundEventImmediately(ctx, adapter, event)
+}
+
+func (connectorRuntime *ConnectorRuntime) handleInboundEventImmediately(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (ConnectorRuntimeResult, error) {
 	eventKey := event.DedupeKey()
 	if connectorRuntime.eventRepository != nil {
 		isDuplicate, result, errorValue := connectorRuntime.eventRepository.TryInsertConnectorEvent(event)
@@ -321,7 +379,140 @@ func (connectorRuntime *ConnectorRuntime) HandleInboundEvent(ctx context.Context
 	return result, nil
 }
 
+func (connectorRuntime *ConnectorRuntime) enqueueInboundEvent(event PlatformInboundEvent, queueRepository ConnectorQueueRepository) (ConnectorRuntimeResult, error) {
+	isDuplicate, result, errorValue := queueRepository.TryEnqueueConnectorEvent(event)
+	if errorValue != nil {
+		return ConnectorRuntimeResult{}, errorValue
+	}
+	if isDuplicate {
+		result.Handled = true
+		result.Platform = event.Platform
+		result.Duplicate = true
+		connectorRuntime.logger.Info("connector."+event.Platform+".event.suppressed", slog.String("source", event.Source), slog.String("reason", "duplicate"), slog.String("messageID", event.MessageID))
+		return result, nil
+	}
+	return ConnectorRuntimeResult{Handled: true, Platform: event.Platform, Reason: "queued"}, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) runConnectorInboxWorker(ctx context.Context) {
+	for ctx.Err() == nil {
+		if connectorRuntime.processNextQueuedConnectorEvent(ctx) {
+			continue
+		}
+		sleepConnectorWorker(ctx)
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) processNextQueuedConnectorEvent(ctx context.Context) bool {
+	queueRepository := connectorRuntime.queueRepository()
+	if queueRepository == nil {
+		return false
+	}
+	queuedEvents, errorValue := queueRepository.ClaimPendingConnectorEvents(1, connectorClaimLeaseDuration)
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector.inbox.claim_failed", slog.String("error", errorValue.Error()))
+		return false
+	}
+	if len(queuedEvents) == 0 {
+		return false
+	}
+	connectorRuntime.processQueuedConnectorEvent(ctx, queuedEvents[0])
+	return true
+}
+
+func (connectorRuntime *ConnectorRuntime) processQueuedConnectorEvent(ctx context.Context, queuedEvent QueuedConnectorEvent) {
+	event := queuedEvent.Event
+	adapter, errorValue := connectorRuntime.findAdapter(event.Platform)
+	if errorValue != nil {
+		connectorRuntime.markQueuedConnectorEventFailed(queuedEvent, errorValue)
+		return
+	}
+	lock := connectorRuntime.conversationLock(event.Platform + ":" + event.ConversationID)
+	lock.Lock()
+	defer lock.Unlock()
+	if ctx.Err() != nil {
+		return
+	}
+	result, errorValue := connectorRuntime.processInboundEventWithReplySender(ctx, adapter, event, connectorRuntime.enqueueConnectorReply)
+	if ctx.Err() != nil {
+		return
+	}
+	if errorValue != nil {
+		connectorRuntime.markQueuedConnectorEventFailed(queuedEvent, errorValue)
+		return
+	}
+	if errorValue := connectorRuntime.queueRepository().MarkConnectorEventSucceeded(event, result); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+event.Platform+".inbox.mark_succeeded_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) enqueueConnectorReply(ctx context.Context, replyTarget ReplyTarget, reply OutboundReply) (string, error) {
+	event, isFound := connectorEventFromContext(ctx)
+	if !isFound {
+		return "", errors.New("connector event context is missing")
+	}
+	outboxRepository := connectorRuntime.outboxRepository()
+	if outboxRepository == nil {
+		adapter, errorValue := connectorRuntime.findAdapter(event.Platform)
+		if errorValue != nil {
+			return "", errorValue
+		}
+		return adapter.SendReply(ctx, replyTarget, reply)
+	}
+	return outboxRepository.EnqueueConnectorReply(event, replyTarget, reply)
+}
+
+func (connectorRuntime *ConnectorRuntime) runConnectorOutboxWorker(ctx context.Context) {
+	for ctx.Err() == nil {
+		if connectorRuntime.processNextQueuedConnectorReply(ctx) {
+			continue
+		}
+		sleepConnectorWorker(ctx)
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) processNextQueuedConnectorReply(ctx context.Context) bool {
+	outboxRepository := connectorRuntime.outboxRepository()
+	if outboxRepository == nil {
+		return false
+	}
+	queuedReplies, errorValue := outboxRepository.ClaimPendingConnectorReplies(1, connectorClaimLeaseDuration)
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector.outbox.claim_failed", slog.String("error", errorValue.Error()))
+		return false
+	}
+	if len(queuedReplies) == 0 {
+		return false
+	}
+	connectorRuntime.processQueuedConnectorReply(ctx, queuedReplies[0])
+	return true
+}
+
+func (connectorRuntime *ConnectorRuntime) processQueuedConnectorReply(ctx context.Context, queuedReply QueuedConnectorReply) {
+	adapter, errorValue := connectorRuntime.findAdapter(queuedReply.Platform)
+	if errorValue != nil {
+		connectorRuntime.markQueuedConnectorReplyFailed(queuedReply, errorValue)
+		return
+	}
+	dispatchID, errorValue := adapter.SendReply(ctx, queuedReply.ReplyTarget, queuedReply.Reply)
+	if ctx.Err() != nil {
+		return
+	}
+	if errorValue != nil {
+		connectorRuntime.markQueuedConnectorReplyFailed(queuedReply, errorValue)
+		return
+	}
+	if errorValue := connectorRuntime.outboxRepository().MarkConnectorReplySent(queuedReply, dispatchID); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+queuedReply.Platform+".outbox.mark_sent_failed", slog.String("outboxID", queuedReply.OutboxID), slog.String("error", errorValue.Error()))
+	}
+}
+
 func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (ConnectorRuntimeResult, error) {
+	return connectorRuntime.processInboundEventWithReplySender(ctx, adapter, event, adapter.SendReply)
+}
+
+func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
+	ctx = withConnectorEvent(ctx, event)
 	platform := adapter.Name()
 	connectorRuntime.logger.Info(
 		"connector."+platform+".ingress.received",
@@ -345,7 +536,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	}
 	if !isAllowed {
 		connectorRuntime.logger.Info("connector."+platform+".auth.rejected", slog.String("messageID", event.MessageID), slog.String("reason", "not_invited"))
-		dispatchID, sendError := adapter.SendReply(ctx, replyTarget, OutboundReply{Message: adapter.NotInvitedReply()})
+		dispatchID, sendError := sendReply(ctx, replyTarget, OutboundReply{Message: adapter.NotInvitedReply()})
 		if sendError != nil {
 			connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("error", sendError.Error()))
 			return ConnectorRuntimeResult{Handled: true, Platform: platform, Reason: "not_invited"}, nil
@@ -356,7 +547,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 
 	connectorRuntime.logger.Info("connector."+platform+".auth.allowed", slog.String("messageID", event.MessageID), slog.String("personID", personID))
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
-	stopProgress := connectorRuntime.startProgress(ctx, adapter, replyTarget)
+	stopProgress := connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
 	defer stopProgress()
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
@@ -386,7 +577,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Contex
 	taskRunID := turnResult.TaskRun.TaskRunID
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
 
-	dispatchID, errorValue := adapter.SendReply(ctx, replyTarget, OutboundReply{
+	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{
 		Message:     turnResult.FinalReply,
 		Attachments: turnResult.Attachments,
 	})
@@ -564,19 +755,42 @@ func (connectorRuntime *ConnectorRuntime) buildReplyTarget(ctx context.Context, 
 }
 
 func (connectorRuntime *ConnectorRuntime) startProgress(ctx context.Context, adapter PlatformAdapter, replyTarget ReplyTarget) func() {
+	return connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
+}
+
+func (connectorRuntime *ConnectorRuntime) startProgressHeartbeat(ctx context.Context, adapter PlatformAdapter, replyTarget ReplyTarget) func() {
 	platform := adapter.Name()
 	connectorRuntime.logger.Info("connector."+platform+".progress.started", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID))
 	if errorValue := adapter.StartProgress(ctx, replyTarget); errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".progress.start_failed", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID), slog.String("error", errorValue.Error()))
 	}
 
+	progressContext, stopHeartbeat := context.WithCancel(ctx)
+	go connectorRuntime.refreshProgressUntilStopped(progressContext, adapter, replyTarget)
+
 	return func() {
+		stopHeartbeat()
 		stopContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if errorValue := adapter.StopProgress(stopContext, replyTarget); errorValue != nil {
 			connectorRuntime.logger.Warn("connector."+platform+".progress.stop_failed", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID), slog.String("error", errorValue.Error()))
 		}
 		connectorRuntime.logger.Info("connector."+platform+".progress.stopped", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID))
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) refreshProgressUntilStopped(ctx context.Context, adapter PlatformAdapter, replyTarget ReplyTarget) {
+	ticker := time.NewTicker(connectorProgressHeartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if errorValue := adapter.StartProgress(ctx, replyTarget); errorValue != nil {
+				connectorRuntime.logger.Warn("connector."+adapter.Name()+".progress.refresh_failed", slog.String("conversationID", replyTarget.ConversationID), slog.String("replyTargetID", replyTarget.ReplyTargetID), slog.String("error", errorValue.Error()))
+			}
+		}
 	}
 }
 
@@ -589,6 +803,34 @@ func (connectorRuntime *ConnectorRuntime) findAdapter(platform string) (Platform
 		return nil, errors.New("connector adapter not registered: " + platform)
 	}
 	return adapter, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) queueRepository() ConnectorQueueRepository {
+	queueRepository, isFound := connectorRuntime.eventRepository.(ConnectorQueueRepository)
+	if !isFound {
+		return nil
+	}
+	return queueRepository
+}
+
+func (connectorRuntime *ConnectorRuntime) outboxRepository() ConnectorOutboxRepository {
+	outboxRepository, isFound := connectorRuntime.eventRepository.(ConnectorOutboxRepository)
+	if !isFound {
+		return nil
+	}
+	return outboxRepository
+}
+
+func (connectorRuntime *ConnectorRuntime) conversationLock(name string) *sync.Mutex {
+	connectorRuntime.mutex.Lock()
+	defer connectorRuntime.mutex.Unlock()
+	lock, isFound := connectorRuntime.conversationLocks[name]
+	if isFound {
+		return lock
+	}
+	lock = &sync.Mutex{}
+	connectorRuntime.conversationLocks[name] = lock
+	return lock
 }
 
 func (connectorRuntime *ConnectorRuntime) findProcessedResult(eventKey string) (ConnectorRuntimeResult, bool) {
@@ -604,6 +846,48 @@ func (connectorRuntime *ConnectorRuntime) rememberProcessedResult(eventKey strin
 	defer connectorRuntime.mutex.Unlock()
 
 	connectorRuntime.processedResults[eventKey] = result
+}
+
+func (connectorRuntime *ConnectorRuntime) markQueuedConnectorEventFailed(queuedEvent QueuedConnectorEvent, errorValue error) {
+	nextAttemptAt := nextConnectorAttemptAt(queuedEvent.AttemptCount)
+	if markError := connectorRuntime.queueRepository().MarkConnectorEventFailed(queuedEvent, errorValue, nextAttemptAt); markError != nil {
+		connectorRuntime.logger.Warn("connector."+queuedEvent.Event.Platform+".inbox.mark_failed_failed", slog.String("messageID", queuedEvent.Event.MessageID), slog.String("error", markError.Error()))
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) markQueuedConnectorReplyFailed(queuedReply QueuedConnectorReply, errorValue error) {
+	nextAttemptAt := nextConnectorAttemptAt(queuedReply.AttemptCount)
+	if markError := connectorRuntime.outboxRepository().MarkConnectorReplyFailed(queuedReply, errorValue, nextAttemptAt); markError != nil {
+		connectorRuntime.logger.Warn("connector."+queuedReply.Platform+".outbox.mark_failed_failed", slog.String("outboxID", queuedReply.OutboxID), slog.String("error", markError.Error()))
+	}
+}
+
+func nextConnectorAttemptAt(attemptCount int) time.Time {
+	if attemptCount >= connectorMaximumAttemptCount {
+		return time.Time{}
+	}
+	delaySeconds := 1 << max(0, min(attemptCount, 6))
+	return time.Now().UTC().Add(time.Duration(delaySeconds) * time.Second)
+}
+
+func sleepConnectorWorker(ctx context.Context) {
+	timer := time.NewTimer(connectorWorkerIdleDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
+type connectorEventContextKey struct{}
+
+func withConnectorEvent(ctx context.Context, event PlatformInboundEvent) context.Context {
+	return context.WithValue(ctx, connectorEventContextKey{}, event)
+}
+
+func connectorEventFromContext(ctx context.Context) (PlatformInboundEvent, bool) {
+	event, isFound := ctx.Value(connectorEventContextKey{}).(PlatformInboundEvent)
+	return event, isFound
 }
 
 func (event PlatformInboundEvent) DedupeKey() string {
