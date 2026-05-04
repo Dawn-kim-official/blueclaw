@@ -811,7 +811,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.FinalReply != StaticLimitReachedReply {
+	if result.FinalReply != BuildLimitReachedFallbackReply("fill the search box") {
 		t.Fatalf("expected limit reply, got %q", result.FinalReply)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
@@ -938,7 +938,13 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := NewToolRegistry([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "started"}, nil
+		return ToolResult{
+			Content: "started",
+			Attachments: []FileAttachment{{
+				Filename:   "deck.html",
+				DevicePath: "/tmp/deck.html",
+			}},
+		}, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -958,6 +964,12 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 	}
 	if len(languageModel.textPrompts) != 2 {
 		t.Fatalf("expected repair generation prompt, got %d prompts", len(languageModel.textPrompts))
+	}
+	if strings.Contains(languageModel.textPrompts[0], "deck.html") {
+		t.Fatalf("expected blocked limit reply prompt to omit undeliverable attachments, got %s", languageModel.textPrompts[0])
+	}
+	if len(result.Attachments) != 0 {
+		t.Fatalf("expected blocked task to deliver no attachments, got %+v", result.Attachments)
 	}
 }
 
@@ -983,7 +995,7 @@ func TestAgentTurnRunnerUsesStaticLimitReplyWhenFinalizationLeaksDiagnostics(t *
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.FinalReply != StaticLimitReachedReply {
+	if result.FinalReply != BuildLimitReachedFallbackReply("do it") {
 		t.Fatalf("expected static fallback, got %q", result.FinalReply)
 	}
 }
@@ -1180,7 +1192,7 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected fallback result, got error: %v", errorValue)
 	}
-	if result.FinalReply != StaticLimitReachedReply {
+	if result.FinalReply != BuildLimitReachedFallbackReply("do it") {
 		t.Fatalf("expected static limit fallback, got %q", result.FinalReply)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
@@ -1208,7 +1220,7 @@ func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.FinalReply != StaticLimitReachedReply {
+	if result.FinalReply != BuildLimitReachedFallbackReply("do it") {
 		t.Fatalf("expected limit reply, got %q", result.FinalReply)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_stop", "max_tool_calls") {
