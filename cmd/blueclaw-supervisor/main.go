@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -14,6 +15,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "sync-workspace" {
+		if errorValue := syncWorkspace(os.Args[2:]); errorValue != nil {
+			log.Fatal(errorValue)
+		}
+		return
+	}
+
 	runtimeConfigurationPath := flag.String("runtime", "config/runtime.example.yaml", "runtime configuration path")
 	flag.Parse()
 
@@ -86,4 +94,36 @@ func main() {
 	if errorValue != nil {
 		log.Fatal(errorValue)
 	}
+}
+
+func syncWorkspace(arguments []string) error {
+	flagSet := flag.NewFlagSet("sync-workspace", flag.ContinueOnError)
+	runtimeConfigurationPath := flagSet.String("runtime", "", "runtime configuration path")
+	workspaceImagePath := flagSet.String("workspace-image", "", "workspace image path")
+	sourceDirectoryPath := flagSet.String("source", "", "source directory path")
+	if errorValue := flagSet.Parse(arguments); errorValue != nil {
+		return errorValue
+	}
+	if *sourceDirectoryPath == "" {
+		return fmt.Errorf("source directory path is required")
+	}
+
+	resolvedWorkspaceImagePath := *workspaceImagePath
+	if resolvedWorkspaceImagePath == "" {
+		if *runtimeConfigurationPath == "" {
+			return fmt.Errorf("workspace image path or runtime configuration path is required")
+		}
+		runtimeConfiguration, errorValue := config.LoadRuntimeConfiguration(*runtimeConfigurationPath)
+		if errorValue != nil {
+			return errorValue
+		}
+		resolvedWorkspaceImagePath = runtimeConfiguration.Firecracker.WorkspaceImagePath
+	}
+
+	workspaceVolumeService := firecracker.WorkspaceVolumeService{}
+	workspaceMetadata, errorValue := workspaceVolumeService.EnsureWorkspaceImage(resolvedWorkspaceImagePath)
+	if errorValue != nil {
+		return errorValue
+	}
+	return workspaceVolumeService.SyncWorkspaceDirectory(workspaceMetadata.HostImagePath, *sourceDirectoryPath)
 }
