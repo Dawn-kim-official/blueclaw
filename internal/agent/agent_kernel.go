@@ -172,7 +172,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		InstructionSources:         append([]InstructionSource{}, instructionBundle.Sources...),
 		SkillDecisions:             append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
 		RequiredEvidenceTools:      selectedRequiredEvidenceTools(instructionBundle),
-		RequiredAttachmentSuffixes: selectedRequiredAttachmentSuffixes(instructionBundle),
+		RequiredAttachmentSuffixes: selectedRequiredAttachmentSuffixes(instructionBundle, request.Prompt),
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
@@ -220,7 +220,7 @@ func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string
 	return requiredEvidenceTools
 }
 
-func selectedRequiredAttachmentSuffixes(instructionBundle InstructionBundle) []string {
+func selectedRequiredAttachmentSuffixes(instructionBundle InstructionBundle, prompt string) []string {
 	selectedSkillName := map[string]bool{}
 	for _, skillDecision := range instructionBundle.SkillDecisions {
 		if skillDecision.Status == "selected" {
@@ -233,6 +233,24 @@ func selectedRequiredAttachmentSuffixes(instructionBundle InstructionBundle) []s
 		if !selectedSkillName[skillInstruction.Name] {
 			continue
 		}
+		if skillInstruction.Name == "simple-slides" {
+			if requestedSuffixes := requestedSlideAttachmentSuffixes(prompt); len(requestedSuffixes) > 0 {
+				for _, suffix := range requestedSuffixes {
+					if !seenSuffix[suffix] {
+						seenSuffix[suffix] = true
+						requiredAttachmentSuffixes = append(requiredAttachmentSuffixes, suffix)
+					}
+				}
+				continue
+			}
+			for _, suffix := range []string{".pptx", ".pdf", ".html", "-notes.txt"} {
+				if !seenSuffix[suffix] {
+					seenSuffix[suffix] = true
+					requiredAttachmentSuffixes = append(requiredAttachmentSuffixes, suffix)
+				}
+			}
+			continue
+		}
 		for _, suffix := range skillInstruction.Completion.RequiredAttachmentSuffixes {
 			trimmedSuffix := strings.TrimSpace(suffix)
 			if trimmedSuffix == "" || seenSuffix[trimmedSuffix] {
@@ -243,6 +261,17 @@ func selectedRequiredAttachmentSuffixes(instructionBundle InstructionBundle) []s
 		}
 	}
 	return requiredAttachmentSuffixes
+}
+
+func requestedSlideAttachmentSuffixes(prompt string) []string {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return nil
+	}
+	if strings.Contains(normalizedPrompt, "html만") || strings.Contains(normalizedPrompt, "html only") {
+		return []string{".html"}
+	}
+	return nil
 }
 
 func selectedQualityAcceptanceGuidance(instructionBundle InstructionBundle) []string {

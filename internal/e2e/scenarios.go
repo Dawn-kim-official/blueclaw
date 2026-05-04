@@ -115,7 +115,7 @@ func simpleSlidesSkill() agent.SkillInstruction {
 		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
 		Category:    "document-generation",
 		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Call set_quality_criteria for the requested deck. Write brief.md with original_user_request copied verbatim, then run python3 /workspace/skills/simple-slides/scripts/create_deck.py --slug <deck-slug> --brief brief.md. The creator must write Stitch-compatible DESIGN.md, read that design source, generate presentation.md, build artifacts, and then file.attach PPTX, PDF, HTML, and notes. Do not hand-write presentation.md before running the creator. Do not use Google Workspace unless a google tool is explicitly available. final_reply must pass each declared criterion with observation evidence.",
+		Prompt:      "Call set_quality_criteria for the requested deck. Write brief.md with original_user_request copied verbatim plus topic, slide_intent, requested_slide_count, requested_formats, output_slug, and a fenced JSON deck_spec containing the exact slide list. Then write Stitch-compatible DESIGN.md and Marp presentation.md with design-source: DESIGN.md. Run python3 /workspace/skills/simple-slides/scripts/create_deck.py --slug <deck-slug> --brief brief.md to validate and build artifacts, then file.attach only the requested generated files. Do not use Google Workspace unless a google tool is explicitly available. final_reply must pass each declared criterion with observation evidence.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},

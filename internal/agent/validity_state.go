@@ -3,9 +3,12 @@ package agent
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 type ValidityState struct {
@@ -24,6 +27,16 @@ type ArtifactValidity struct {
 	Passed       bool   `json:"passed"`
 	Reason       string `json:"reason,omitempty"`
 	path         string
+}
+
+type deckIntentManifest struct {
+	OutputSlug          string   `json:"output_slug"`
+	Mode                string   `json:"mode"`
+	Topic               string   `json:"topic"`
+	SlideIntent         string   `json:"slide_intent"`
+	RequestedSlideCount int      `json:"requested_slide_count"`
+	RequestedFormats    []string `json:"requested_formats"`
+	SlideCount          int      `json:"slide_count"`
 }
 
 func buildArtifactValidityState(artifacts []CompletionArtifact) ValidityState {
@@ -120,11 +133,13 @@ func validateArtifactPath(path string, filename string, relativePath string) Art
 	}
 	switch artifact.Suffix {
 	case ".pptx":
-		return validatePPTXArtifact(path, artifact)
+		return validateArtifactIntent(path, validatePPTXArtifact(path, artifact))
 	case ".pdf":
-		return validatePDFArtifact(path, artifact)
+		return validateArtifactIntent(path, validatePDFArtifact(path, artifact))
 	case ".html":
-		return validateHTMLArtifact(path, artifact)
+		return validateArtifactIntent(path, validateHTMLArtifact(path, artifact))
+	case "-notes.txt":
+		return validateArtifactIntent(path, validateNotesArtifact(path, artifact))
 	default:
 		return validArtifact(artifact)
 	}
@@ -186,7 +201,219 @@ func validateHTMLArtifact(path string, artifact ArtifactValidity) ArtifactValidi
 	if !strings.Contains(normalizedContent, "<body") {
 		return invalidArtifact(artifact, "html file is missing body element")
 	}
+	artifact.SlideCount = countHTMLSlides(normalizedContent)
 	return validArtifact(artifact)
+}
+
+func validateNotesArtifact(path string, artifact ArtifactValidity) ArtifactValidity {
+	content, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		return invalidArtifact(artifact, "notes file cannot be read")
+	}
+	artifact.SlideCount = countNotesSlides(string(content))
+	return validArtifact(artifact)
+}
+
+func validateArtifactIntent(path string, artifact ArtifactValidity) ArtifactValidity {
+	if !artifact.Passed {
+		return artifact
+	}
+	manifestPath, isRequired := deckIntentManifestPath(path)
+	manifest, isFound, reason := readDeckIntentManifest(manifestPath)
+	if reason != "" {
+		return invalidArtifact(artifact, reason)
+	}
+	if !isFound {
+		if isRequired {
+			return invalidArtifact(artifact, "deck intent manifest is missing")
+		}
+		return artifact
+	}
+	if reason := validateArtifactAgainstDeckIntent(path, artifact, manifest); reason != "" {
+		return invalidArtifact(artifact, reason)
+	}
+	return artifact
+}
+
+func deckIntentManifestPath(path string) (string, bool) {
+	directoryPath := filepath.Dir(path)
+	filename := filepath.Base(path)
+	slug := strings.TrimSuffix(filename, "-notes.txt")
+	if slug == filename {
+		slug = strings.TrimSuffix(filename, filepath.Ext(filename))
+	}
+	manifestPath := filepath.Join(directoryPath, slug+"-intent.json")
+	_, presentationError := os.Stat(filepath.Join(directoryPath, "presentation.md"))
+	return manifestPath, presentationError == nil && strings.Contains(filepath.ToSlash(filepath.Clean(path)), "/.blueclaw/tmp/")
+}
+
+func readDeckIntentManifest(path string) (deckIntentManifest, bool, string) {
+	document, errorValue := os.ReadFile(path)
+	if os.IsNotExist(errorValue) {
+		return deckIntentManifest{}, false, ""
+	}
+	if errorValue != nil {
+		return deckIntentManifest{}, false, "deck intent manifest is not readable"
+	}
+	var manifest deckIntentManifest
+	if errorValue := json.Unmarshal(document, &manifest); errorValue != nil {
+		return deckIntentManifest{}, false, "deck intent manifest is not valid json"
+	}
+	return manifest, true, ""
+}
+
+func validateArtifactAgainstDeckIntent(path string, artifact ArtifactValidity, manifest deckIntentManifest) string {
+	if !artifactSlugMatchesManifest(artifact.Filename, manifest.OutputSlug) {
+		return "artifact filename does not match deck intent output_slug"
+	}
+	if !artifactSuffixAllowedByManifest(artifact.Suffix, manifest.RequestedFormats) {
+		return "artifact suffix is not requested by deck intent"
+	}
+	if manifest.RequestedSlideCount > 0 && artifact.SlideCount > 0 && artifact.SlideCount != manifest.RequestedSlideCount {
+		return "artifact slide count does not match deck intent"
+	}
+	text := artifactIntentText(path, artifact.Suffix)
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	normalizedText := strings.ToLower(text)
+	if normalizedMode := strings.ToLower(strings.TrimSpace(manifest.Mode)); normalizedMode != "capabilities" && containsForbiddenSampleToken(normalizedText) {
+		return "non-capabilities artifact contains built-in capability sample text"
+	}
+	if !containsIntentToken(normalizedText, manifest.Topic) {
+		return "artifact text does not contain deck topic"
+	}
+	if !containsIntentToken(normalizedText, manifest.SlideIntent) {
+		return "artifact text does not contain deck intent"
+	}
+	return ""
+}
+
+func artifactSlugMatchesManifest(filename string, outputSlug string) bool {
+	normalizedOutputSlug := strings.TrimSpace(outputSlug)
+	if normalizedOutputSlug == "" {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(filename), normalizedOutputSlug+".") ||
+		strings.HasPrefix(strings.TrimSpace(filename), normalizedOutputSlug+"-")
+}
+
+func artifactSuffixAllowedByManifest(suffix string, requestedFormats []string) bool {
+	if len(requestedFormats) == 0 {
+		return true
+	}
+	for _, requestedFormat := range requestedFormats {
+		if requestedFormatSuffix(strings.TrimSpace(requestedFormat)) == suffix {
+			return true
+		}
+	}
+	return false
+}
+
+func requestedFormatSuffix(format string) string {
+	switch strings.TrimPrefix(strings.ToLower(format), ".") {
+	case "pptx":
+		return ".pptx"
+	case "pdf":
+		return ".pdf"
+	case "html":
+		return ".html"
+	case "note", "notes", "txt", "speaker-notes":
+		return "-notes.txt"
+	default:
+		return ""
+	}
+}
+
+func containsForbiddenSampleToken(value string) bool {
+	return strings.Contains(value, "internkim capability deck") ||
+		strings.Contains(value, "김인턴이 할 수 있는 일")
+}
+
+func containsIntentToken(value string, intent string) bool {
+	tokens := intentTokens(intent)
+	if len(tokens) == 0 {
+		return true
+	}
+	for _, token := range tokens {
+		if strings.Contains(value, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func intentTokens(value string) []string {
+	tokens := []string{}
+	for _, token := range strings.FieldsFunc(strings.ToLower(value), func(character rune) bool {
+		return !unicode.IsLetter(character) && !unicode.IsDigit(character)
+	}) {
+		if len([]rune(token)) >= 3 || containsHangul(token) {
+			tokens = append(tokens, token)
+		}
+	}
+	return tokens
+}
+
+func containsHangul(value string) bool {
+	for _, character := range value {
+		if character >= '가' && character <= '힣' {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactIntentText(path string, suffix string) string {
+	switch suffix {
+	case ".pptx":
+		return pptxText(path)
+	case ".html", "-notes.txt":
+		content, _ := os.ReadFile(path)
+		return string(content)
+	default:
+		return ""
+	}
+}
+
+func pptxText(path string) string {
+	reader, errorValue := zip.OpenReader(path)
+	if errorValue != nil {
+		return ""
+	}
+	defer reader.Close()
+	builder := strings.Builder{}
+	for _, file := range reader.File {
+		if !strings.HasPrefix(file.Name, "ppt/slides/slide") || !strings.HasSuffix(file.Name, ".xml") {
+			continue
+		}
+		fileReader, errorValue := file.Open()
+		if errorValue != nil {
+			continue
+		}
+		document, _ := io.ReadAll(fileReader)
+		_ = fileReader.Close()
+		builder.WriteString(" ")
+		builder.WriteString(string(document))
+	}
+	return builder.String()
+}
+
+func countHTMLSlides(content string) int {
+	if count := strings.Count(content, "data-marpit-pagination="); count > 0 {
+		return count
+	}
+	return strings.Count(content, "bespoke-marp-slide")
+}
+
+func countNotesSlides(content string) int {
+	count := 0
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "# Slide ") {
+			count++
+		}
+	}
+	return count
 }
 
 func countPDFPages(content []byte) int {
