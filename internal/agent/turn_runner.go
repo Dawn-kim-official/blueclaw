@@ -201,7 +201,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			continue
 		}
 
-		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, observations)
+		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, observations, len(qualityCriteria) == 0)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.DeadlineExceeded) {
@@ -323,12 +323,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, observations, attachments, qualityCriteria, agentTurnRunner.options.MaxIterationCount, toolCallCount)
 }
 
-func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation) (turnActionDocument, error) {
+func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {
 	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: agentTurnRunner.buildTurnMessages(request, observations),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
-			Document:           agentTurnRunner.buildActionSchema(request.ToolRegistry),
+			Document:           agentTurnRunner.buildActionSchema(request.ToolRegistry, allowQualityCriteria),
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -1039,6 +1039,9 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 		"limitStopReason":    reason,
 		"attachmentCount":    len(attachments),
 		"observationCount":   len(observations),
+		"actionCounts":       observationActionCounts(observations),
+		"toolCounts":         observationToolCounts(observations),
+		"recentObservations": recentProgressObservations(observations),
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
@@ -1254,6 +1257,30 @@ func attachmentsForReference(observation turnObservation, reference completionEv
 		return nil
 	}
 	return []FileAttachment{observation.Attachments[index]}
+}
+
+func observationActionCounts(observations []turnObservation) map[string]int {
+	counts := map[string]int{}
+	for _, observation := range observations {
+		action := strings.TrimSpace(observation.Action)
+		if action == "" {
+			action = "unknown"
+		}
+		counts[action]++
+	}
+	return counts
+}
+
+func observationToolCounts(observations []turnObservation) map[string]int {
+	counts := map[string]int{}
+	for _, observation := range observations {
+		toolName := strings.TrimSpace(observation.Tool)
+		if toolName == "" {
+			continue
+		}
+		counts[toolName]++
+	}
+	return counts
 }
 
 func appendUniqueAttachments(attachments []FileAttachment, candidates []FileAttachment) []FileAttachment {
