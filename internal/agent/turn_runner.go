@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -201,7 +202,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			continue
 		}
 
-		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, observations, len(qualityCriteria) == 0)
+		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, toolUseRequirements, observations, len(qualityCriteria) == 0)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.DeadlineExceeded) {
@@ -260,6 +261,20 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
 				continue
 			}
+			if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
+				observation := turnObservation{ObservationID: nextObservationID(len(observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
+				observations = append(observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
+				continue
+			}
+			if blockedToolMessage := blockedToolPreconditionMessage(request.ToolRegistry, toolUseRequirements, observations, actionDocument.ToolName, actionDocument.ToolInput); blockedToolMessage != "" {
+				observation := turnObservation{ObservationID: nextObservationID(len(observations) + 1), Action: "policy", Tool: strings.TrimSpace(actionDocument.ToolName), Content: blockedToolMessage, IsError: true}
+				observations = append(observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_precondition_blocked", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool_precondition_blocked "+actionDocument.ToolName, observation.Content)
+				continue
+			}
 			if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName) {
 				observation := turnObservation{
 					ObservationID: nextObservationID(len(observations) + 1),
@@ -278,7 +293,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
 				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, qualityCriteria, iteration, agentTurnRunner.options.MaxToolCallCount)
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 			observations = append(observations, observation)
 			attachments = appendObservationAttachments(attachments, observation)
 			if !observation.IsError {
@@ -291,7 +306,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
 				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, qualityCriteria, iteration, agentTurnRunner.options.MaxToolCallCount)
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "conversation.history", actionDocument.ToolInput)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "conversation.history", actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 			observations = append(observations, observation)
 			attachments = appendObservationAttachments(attachments, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "fetch_history", observation.Content)
@@ -305,7 +320,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			if len(toolInput) == 0 {
 				toolInput = MarshalToolInput(map[string]string{"query": firstNonEmptyString(actionDocument.Query, request.Prompt)})
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "memory.search", toolInput)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "memory.search", toolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 			observations = append(observations, observation)
 			attachments = appendObservationAttachments(attachments, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "search_memory", observation.Content)
@@ -323,12 +338,13 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, observations, attachments, qualityCriteria, agentTurnRunner.options.MaxIterationCount, toolCallCount)
 }
 
-func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {
+func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {
+	blockedToolNames := blockedToolNamesForPreconditions(request.ToolRegistry, requirements, observations)
 	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: agentTurnRunner.buildTurnMessages(request, observations),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
-			Document:           agentTurnRunner.buildActionSchema(request.ToolRegistry, allowQualityCriteria),
+			Document:           agentTurnRunner.buildActionSchema(request.ToolRegistry, allowQualityCriteria, blockedToolNames),
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -367,6 +383,9 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 	}
 	if len(request.RequiredAttachmentSuffixes) > 0 {
 		instruction += " This task requires attached artifacts with these filename suffixes before final_reply: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
+	}
+	if requestRequiresQualityCriteria(request) || len(request.RequiredAttachmentSuffixes) > 0 {
+		instruction += " Deliver artifacts only through file.attach. final_reply may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths."
 	}
 	return instruction
 }
@@ -465,6 +484,26 @@ func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error 
 	default:
 		return nil
 	}
+}
+
+func validateTerminalToolInput(toolName string, toolInput json.RawMessage) error {
+	if !isTerminalExecutionTool(toolName) {
+		return nil
+	}
+	inputDocument, errorValue := parseToolInputDocument(toolName, toolInput)
+	if errorValue != nil {
+		return errorValue
+	}
+	command := strings.TrimSpace(stringValue(inputDocument["command"]))
+	if command == "" {
+		return nil
+	}
+	for _, toolAlias := range []string{"file.write", "file.attach", "set_quality_criteria", "final_reply"} {
+		if strings.Contains(command, toolAlias) {
+			return errors.New(strings.TrimSpace(toolName) + " command cannot call Blueclaw action " + toolAlias + "; call that action directly instead")
+		}
+	}
+	return nil
 }
 
 func validateBrowserTargetToolInput(toolName string, toolInput json.RawMessage, fieldNames ...string) error {
@@ -584,6 +623,188 @@ func handlesDuplicateSuccessfulToolCall(toolName string) bool {
 	return strings.TrimSpace(toolName) == "terminal.run"
 }
 
+func isTerminalExecutionTool(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "terminal.run", "terminal.session":
+		return true
+	default:
+		return false
+	}
+}
+
+func blockedToolPreconditionMessage(toolRegistry *ToolRegistry, requirements []toolUseRequirement, observations []turnObservation, toolName string, toolInput json.RawMessage) string {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if requiredFileWriteIsMissing(requirements, observations) && trimmedToolName != "file.write" {
+		return trimmedToolName + " is blocked until file.write creates the first required workspace file"
+	}
+	missingFileName := latestUnresolvedMissingFileName(observations)
+	if missingFileName == "" {
+		return ""
+	}
+	if trimmedToolName == "file.write" {
+		if fileWriteInputBaseName(toolInput) == missingFileName {
+			return ""
+		}
+		return "file.write must create the missing file before writing other files: " + missingFileName
+	}
+	return trimmedToolName + " is blocked until file.write creates the missing file: " + missingFileName
+}
+
+func blockedToolNamesForPreconditions(toolRegistry *ToolRegistry, requirements []toolUseRequirement, observations []turnObservation) map[string]bool {
+	blockedToolNames := map[string]bool{}
+	if toolRegistry == nil || !toolRegistry.IsAllowed("file.write") {
+		return blockedToolNames
+	}
+	if requiredFileWriteIsMissing(requirements, observations) {
+		return allToolNamesExcept(toolRegistry, "file.write")
+	}
+	missingFileName := latestUnresolvedMissingFileName(observations)
+	if missingFileName == "" {
+		return blockedToolNames
+	}
+	return allToolNamesExcept(toolRegistry, "file.write")
+}
+
+func allToolNamesExcept(toolRegistry *ToolRegistry, allowedToolName string) map[string]bool {
+	blockedToolNames := map[string]bool{}
+	for _, toolName := range toolRegistry.ListToolNames() {
+		if toolName != allowedToolName {
+			blockedToolNames[toolName] = true
+		}
+	}
+	return blockedToolNames
+}
+
+func requiredFileWriteIsMissing(requirements []toolUseRequirement, observations []turnObservation) bool {
+	if !requirementsIncludeTool(requirements, "file.write") {
+		return false
+	}
+	for _, observation := range observations {
+		if observation.IsError {
+			continue
+		}
+		if strings.TrimSpace(observation.Tool) == "file.write" {
+			return false
+		}
+	}
+	return true
+}
+
+func requirementsIncludeTool(requirements []toolUseRequirement, toolName string) bool {
+	for _, requirement := range requirements {
+		if strings.TrimSpace(requirement.ToolName) == toolName {
+			return true
+		}
+	}
+	return false
+}
+
+func latestUnresolvedMissingFileName(observations []turnObservation) string {
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		if strings.TrimSpace(observation.Tool) == "file.write" && !observation.IsError {
+			if missingFileName := fileWritePathBaseName(observation.Content); missingFileName != "" {
+				if missingFileName == newestMissingFileNameAfter(observations, index) {
+					return ""
+				}
+			}
+		}
+		if !isTerminalExecutionTool(observation.Tool) || !observation.IsError {
+			continue
+		}
+		missingFileName := missingFileNameFromText(observation.Content)
+		if missingFileName == "" {
+			continue
+		}
+		if fileWasWrittenAfter(observations[index+1:], missingFileName) {
+			return ""
+		}
+		return missingFileName
+	}
+	return ""
+}
+
+func newestMissingFileNameAfter(observations []turnObservation, startIndex int) string {
+	for index := len(observations) - 1; index > startIndex; index-- {
+		observation := observations[index]
+		if !isTerminalExecutionTool(observation.Tool) || !observation.IsError {
+			continue
+		}
+		if missingFileName := missingFileNameFromText(observation.Content); missingFileName != "" {
+			return missingFileName
+		}
+	}
+	return ""
+}
+
+func fileWasWrittenAfter(observations []turnObservation, missingFileName string) bool {
+	for _, observation := range observations {
+		if strings.TrimSpace(observation.Tool) != "file.write" || observation.IsError {
+			continue
+		}
+		if fileWritePathBaseName(observation.Content) == missingFileName {
+			return true
+		}
+	}
+	return false
+}
+
+func fileWriteInputBaseName(toolInput json.RawMessage) string {
+	var input struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(toolInput, &input) != nil {
+		return ""
+	}
+	return pathBaseName(input.Path)
+}
+
+func fileWritePathBaseName(content string) string {
+	var document struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal([]byte(content), &document) != nil {
+		return ""
+	}
+	return pathBaseName(document.Path)
+}
+
+func pathBaseName(path string) string {
+	parts := strings.FieldsFunc(strings.TrimSpace(path), func(character rune) bool {
+		return character == '/' || character == '\\'
+	})
+	if len(parts) == 0 {
+		return ""
+	}
+	return parts[len(parts)-1]
+}
+
+func missingFileNameFromText(content string) string {
+	for _, pattern := range []string{
+		`([A-Za-z0-9._-]+\.(?:md|json|txt|html|css|js|py|yaml|yml)) is required`,
+		`([A-Za-z0-9._-]+\.(?:md|json|txt|html|css|js|py|yaml|yml)) is empty`,
+		`([A-Za-z0-9._-]+\.(?:md|json|txt|html|css|js|py|yaml|yml)) is missing`,
+		`([A-Za-z0-9._-]+\.(?:md|json|txt|html|css|js|py|yaml|yml)) not found`,
+		`is required.*?([A-Za-z0-9._-]+\.(?:md|json|txt|html|css|js|py|yaml|yml))`,
+		`no such file or directory.*?([A-Za-z0-9._-]+\.(?:md|json|txt|html|css|js|py|yaml|yml))`,
+		`([A-Za-z0-9._-]+\.(?:md|json|txt|html|css|js|py|yaml|yml)):\s*no such file or directory`,
+	} {
+		missingFileName := firstRegexSubmatch(content, pattern)
+		if missingFileName != "" {
+			return missingFileName
+		}
+	}
+	return ""
+}
+
+func firstRegexSubmatch(value string, pattern string) string {
+	matches := regexp.MustCompile(pattern).FindStringSubmatch(value)
+	if len(matches) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(matches[1])
+}
+
 func stringValue(value any) string {
 	typedValue, isString := value.(string)
 	if !isString {
@@ -603,7 +824,7 @@ func numberValue(value any) float64 {
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, observationID string, toolName string, toolInput json.RawMessage) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if toolRegistry == nil {
 		return turnObservation{ObservationID: observationID, Action: "call_tool", Tool: trimmedToolName, Content: "tool registry was not configured", IsError: true}
@@ -617,12 +838,13 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	if errorValue != nil {
 		toolResult = ToolResult{Content: errorValue.Error(), IsError: true}
 	}
-	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolResult)
+	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolResult, workspaceRootPath, minimumModifiedAt)
 }
 
-func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, observationID string, toolName string, toolResult ToolResult) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, observationID string, toolName string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
 	content := toolResult.Content
 	originalContent := content
+	isError := toolResult.IsError
 	artifactID := ""
 	if len(content) > agentTurnRunner.options.ToolResultMaxBytes {
 		taskArtifact := agentTurnRunner.taskArtifactService.AddTaskArtifactBody(taskRunID, "tool."+toolName+".result", content)
@@ -630,16 +852,26 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, ob
 		content = content[:agentTurnRunner.options.ToolResultMaxBytes] + "\n[truncated; full result saved as artifact " + taskArtifact.TaskArtifactID + "]"
 	}
 	attachments := []FileAttachment{}
-	if !toolResult.IsError {
+	if !isError {
 		attachments = append(attachments, toolResult.Attachments...)
+	}
+	if !isError && toolName == "file.attach" && len(attachments) > 0 {
+		validityState := buildAttachmentValidityState(workspaceRootPath, attachments, minimumModifiedAt)
+		if !validityState.Passed {
+			content = validityFailureMessage(validityState)
+			originalContent = content
+			isError = true
+			attachments = nil
+			agentTurnRunner.appendEvent(taskRunID, "agent.artifact_attach_rejected", marshalEventBody(validityState))
+		}
 	}
 	observation := turnObservation{
 		ObservationID: observationID,
 		Action:        "call_tool",
 		Tool:          toolName,
 		Content:       content,
-		Summary:       buildToolResultSummary(toolName, originalContent, toolResult.IsError, attachments, artifactID),
-		IsError:       toolResult.IsError,
+		Summary:       buildToolResultSummary(toolName, originalContent, isError, attachments, artifactID),
+		IsError:       isError,
 		Attachments:   attachments,
 	}
 	agentTurnRunner.appendEvent(taskRunID, "tool."+toolName+".result", marshalEventBody(observation))
@@ -717,7 +949,7 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
 	agentTurnRunner.appendValidityReview(taskRunID, "pre_attach", state.ValidityState)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolRegistry, taskRunID, nextObservationID(len(observations)+1), "file.attach", MarshalToolInput(map[string]any{"paths": state.AttachmentPaths}))
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolRegistry, taskRunID, nextObservationID(len(observations)+1), "file.attach", MarshalToolInput(map[string]any{"paths": state.AttachmentPaths}), request.WorkspaceRootPath, request.TurnStartedAt)
 	if observation.IsError {
 		observation.Content = completionAttachmentFailureContent(observation.Content, state.AttachmentPaths)
 	}
@@ -1061,12 +1293,18 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	if errorValue := validateQualityReview(criteria, actionDocument.QualityReview, observations); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
+	if errorValue := validateObservedToolRequirements(requirements, observations); errorValue != nil {
+		return completionGateResult{Message: errorValue.Error()}
+	}
 	attachments, errorValue := validateCompletionEvidence(requirements, observations, actionDocument.CompletionEvidence)
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
-	if finalReplyClaimsAttachmentDelivery(actionDocument.FinalReply) && len(attachments) == 0 {
+	if FinalReplyClaimsAttachmentDelivery(actionDocument.FinalReply) && len(attachments) == 0 {
 		return completionGateResult{Message: "final_reply claims attached files but completionEvidence does not cite an attachment"}
+	}
+	if errorValue := ValidateFinalReplyDelivery(actionDocument.FinalReply, attachments, len(requirements) > 0); errorValue != nil {
+		return completionGateResult{Message: errorValue.Error()}
 	}
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
@@ -1079,7 +1317,7 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 	if !result.IsSatisfied {
 		return result
 	}
-	result.ValidityState = buildAttachmentValidityState(request.WorkspaceRootPath, result.Attachments)
+	result.ValidityState = buildAttachmentValidityState(request.WorkspaceRootPath, result.Attachments, request.TurnStartedAt)
 	if !result.ValidityState.Passed {
 		result.IsSatisfied = false
 		result.Message = validityFailureMessage(result.ValidityState)
@@ -1092,40 +1330,18 @@ func requestRequiresQualityCriteria(request AgentTurnRequest) bool {
 	return len(request.QualityAcceptanceGuidance) > 0
 }
 
-func finalReplyClaimsAttachmentDelivery(reply string) bool {
-	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
-	if normalizedReply == "" || containsAny(normalizedReply, attachmentDeliveryNegations()) {
-		return false
-	}
-	if containsAny(normalizedReply, []string{"attached", "attachment"}) {
-		return true
-	}
-	if containsAny(normalizedReply, []string{"첨부", "전달", "보내드", "보냈"}) &&
-		containsAny(normalizedReply, []string{"파일", "pptx", "pdf", "html", "notes", "자료", "deck", "slide"}) {
-		return true
-	}
-	return containsAny(normalizedReply, []string{"첨부된 파일", "파일들을 확인", "파일을 확인", "attached files"})
-}
-
-func attachmentDeliveryNegations() []string {
-	return []string{
-		"not attached", "not attach", "cannot attach", "could not attach", "failed to attach",
-		"첨부하지 못", "첨부할 수 없", "첨부 실패", "파일을 전달하지 못", "파일로 전달하지 못",
-	}
-}
-
 func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
 	if len(requirements) == 0 {
 		return collectReferencedAttachments(observations, references)
 	}
 	attachments := collectReferenceAttachments(observations, references)
 	for _, requirement := range requirements {
+		if !requirement.RequiresAttachment {
+			continue
+		}
 		matchingReferences := completionReferencesForRequirement(requirement, observations, references)
 		if len(matchingReferences) == 0 {
 			return nil, errors.New("completionEvidence must cite successful observation for " + requirementLabel(requirement))
-		}
-		if !requirement.RequiresAttachment {
-			continue
 		}
 		requirementAttachments := collectReferenceAttachments(observations, matchingReferences)
 		if len(requirementAttachments) == 0 {
@@ -1136,6 +1352,19 @@ func validateCompletionEvidence(requirements []toolUseRequirement, observations 
 		}
 	}
 	return attachments, nil
+}
+
+func validateObservedToolRequirements(requirements []toolUseRequirement, observations []turnObservation) error {
+	for _, requirement := range requirements {
+		if requirement.RequiresAttachment {
+			continue
+		}
+		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		if !isSatisfied {
+			return errors.New("final_reply requires successful observation for " + requirementLabel(requirement))
+		}
+	}
+	return nil
 }
 
 func missingRequiredAttachmentSuffix(attachments []FileAttachment, suffixes []string) string {
@@ -1430,7 +1659,10 @@ func limitReachedReplyIsInvalid(reply string, attachments []FileAttachment) bool
 	if containsForbiddenLimitReplyFragment(reply) {
 		return true
 	}
-	return len(attachments) == 0 && finalReplyClaimsAttachmentDelivery(reply)
+	if ValidateFinalReplyDelivery(reply, attachments, true) != nil {
+		return true
+	}
+	return len(attachments) == 0 && FinalReplyClaimsAttachmentDelivery(reply)
 }
 
 func buildLimitObservationSummary(observations []turnObservation) string {

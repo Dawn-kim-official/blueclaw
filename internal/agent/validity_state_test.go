@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestValidityStateAcceptsPDFWithoutDetectablePageMarkers(t *testing.T) {
@@ -94,6 +95,43 @@ func TestValidityStateRejectsSampleTokenForGenericDeck(t *testing.T) {
 	}
 	if validityState.InvalidArtifacts[0].Reason != "non-capabilities artifact contains built-in capability sample text" {
 		t.Fatalf("expected sample token reason, got %+v", validityState.InvalidArtifacts[0])
+	}
+}
+
+func TestValidityStateRejectsStaleAttachedArtifact(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "hermes-analysis")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "presentation.md"), "Hermes Agent 장단점 분석")
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "hermes-analysis-intent.json"), `{
+  "output_slug": "hermes-analysis",
+  "mode": "generic",
+  "topic": "Hermes Agent",
+  "slide_intent": "장단점 분석",
+  "requested_slide_count": 1,
+  "requested_formats": ["html"],
+  "slide_count": 1
+}`)
+	artifactPath := filepath.Join(artifactDirectoryPath, "hermes-analysis.html")
+	writeAgentTestFile(t, artifactPath, "<html><body>Hermes Agent 장단점 분석</body></html>")
+	taskStartedAt := time.Now()
+	oldModifiedAt := taskStartedAt.Add(-time.Hour)
+	if errorValue := os.Chtimes(artifactPath, oldModifiedAt, oldModifiedAt); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	validityState := buildAttachmentValidityState(workspaceRootPath, []FileAttachment{{
+		DevicePath: "/workspace/.blueclaw/tmp/hermes-analysis/hermes-analysis.html",
+		Filename:   "hermes-analysis.html",
+	}}, taskStartedAt)
+
+	if validityState.Passed || len(validityState.InvalidArtifacts) != 1 {
+		t.Fatalf("expected stale artifact failure, got %+v", validityState)
+	}
+	if validityState.InvalidArtifacts[0].Reason != "artifact was not created during this task run" {
+		t.Fatalf("expected stale artifact reason, got %+v", validityState.InvalidArtifacts[0])
 	}
 }
 

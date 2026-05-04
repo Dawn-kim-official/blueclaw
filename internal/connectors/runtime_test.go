@@ -177,6 +177,35 @@ func TestConnectorRuntimeSanitizesIncompleteAttachmentClaims(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeSanitizesIncompleteUnattachedFilenames(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+	event.Prompt = "html 파일 만들어줘"
+	dispatchID, isSent := connectorRuntime.sendIncompleteTaskReply(
+		context.Background(),
+		"test",
+		event,
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{FinalReply: "아래 파일을 확인해 주세요.\n[Hermes_Agent_Slide_Part1.html]"},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected sanitized reply to be sent, got dispatchID=%q sent=%v", dispatchID, isSent)
+	}
+	if len(sentReplies) != 1 {
+		t.Fatalf("expected one sanitized reply, got %+v", sentReplies)
+	}
+	if strings.Contains(sentReplies[0].Message, "Hermes_Agent_Slide_Part1.html") {
+		t.Fatalf("expected sanitized reply without unattached filename, got %q", sentReplies[0].Message)
+	}
+}
+
 func TestConnectorRuntimeUsesOpaqueReplyTarget(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "reply"})
 	event := testInboundEvent("message-1")

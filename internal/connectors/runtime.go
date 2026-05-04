@@ -694,7 +694,12 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		}
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_not_completed"}, nil
 	}
-	if connectorReplyClaimsAttachmentDelivery(turnResult.FinalReply) && len(turnResult.Attachments) == 0 {
+	if agent.FinalReplyContainsNonDeliverableArtifactLocator(turnResult.FinalReply) {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "reply exposes non-deliverable artifact locator")
+		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "non_deliverable_artifact_locator"))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "non_deliverable_artifact_locator"}, nil
+	}
+	if agent.FinalReplyClaimsAttachmentDelivery(turnResult.FinalReply) && len(turnResult.Attachments) == 0 {
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "reply claims attachments without evidence")
 		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "missing_attachment_evidence"))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "missing_attachment_evidence"}, nil
@@ -721,8 +726,8 @@ func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Co
 		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "task_not_completed"))
 		return "", false
 	}
-	if connectorReplyClaimsAttachmentDelivery(reply) {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.sanitized_blocked", "incomplete task reply claimed attachments")
+	if agent.FinalReplyClaimsAttachmentDelivery(reply) || agent.ValidateFinalReplyDelivery(reply, nil, true) != nil {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.sanitized_blocked", "incomplete task reply claimed unavailable artifact delivery")
 		reply = agent.BuildLimitReachedFallbackReply(event.Prompt)
 	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply})
@@ -895,37 +900,6 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func connectorReplyClaimsAttachmentDelivery(reply string) bool {
-	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
-	if normalizedReply == "" || containsAny(normalizedReply, connectorAttachmentDeliveryNegations()) {
-		return false
-	}
-	if containsAny(normalizedReply, []string{"attached", "attachment"}) {
-		return true
-	}
-	if containsAny(normalizedReply, []string{"첨부", "전달", "보내드", "보냈"}) &&
-		containsAny(normalizedReply, []string{"파일", "pptx", "pdf", "html", "notes", "자료", "deck", "slide"}) {
-		return true
-	}
-	return containsAny(normalizedReply, []string{"첨부된 파일", "파일들을 확인", "파일을 확인", "attached files"})
-}
-
-func connectorAttachmentDeliveryNegations() []string {
-	return []string{
-		"not attached", "not attach", "cannot attach", "could not attach", "failed to attach",
-		"첨부하지 못", "첨부할 수 없", "첨부 실패", "파일을 전달하지 못", "파일로 전달하지 못",
-	}
-}
-
-func containsAny(value string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if strings.Contains(value, candidate) {
-			return true
-		}
-	}
-	return false
 }
 
 func detachedConnectorContext(ctx context.Context) context.Context {

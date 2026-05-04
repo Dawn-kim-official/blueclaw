@@ -241,6 +241,45 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 	}
 }
 
+func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/brief.md","content":"brief"}}`,
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
+		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-002", "file.attach", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := NewToolRegistry([]string{"file.write", "file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `{"path":"/workspace/.blueclaw/tmp/deck/brief.md","sizeBytes":5}`}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Content: "file attached",
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/deck.html",
+				Filename:   "deck.html",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "html 만들어줘",
+		ToolRegistry:          toolRegistry,
+		RequiredEvidenceTools: []string{"file.write", "file.attach"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected required evidence to recover: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.html" {
+		t.Fatalf("expected html attachment, got %+v", result.Attachments)
+	}
+}
+
 func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"DESIGN.md"}}`,
@@ -285,6 +324,51 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", ".pptx") {
 		t.Fatal("expected completion required event for missing attachment suffix")
+	}
+}
+
+func TestAgentTurnRunnerRejectsInvalidFileAttachObservation(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "presentation.md"), "Hermes Agent 장단점 분석")
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.html"), "<html><body>Hermes Agent 장단점 분석</body></html>")
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/deck.html"}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
+	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Content: "file attached",
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/.blueclaw/tmp/deck/deck.html",
+				Filename:   "deck.html",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "html 만들어줘",
+		WorkspaceRootPath:     workspaceRootPath,
+		ToolRegistry:          toolRegistry,
+		RequiredEvidenceTools: []string{"file.attach"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected blocked turn without runner error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
+	}
+	if len(result.Attachments) != 0 {
+		t.Fatalf("expected invalid attachment to be withheld, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.artifact_attach_rejected", "deck intent manifest is missing") {
+		t.Fatal("expected invalid file.attach rejection event")
 	}
 }
 
@@ -765,7 +849,7 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 			return ToolResult{}, nil
 		})
 	}
-	schemaDocument := runner.buildActionSchema(toolRegistry, true)
+	schemaDocument := runner.buildActionSchema(toolRegistry, true, nil)
 
 	if strings.Contains(schemaDocument, "anyOf") {
 		t.Fatalf("expected browser action schema to avoid anyOf, got %s", schemaDocument)
@@ -931,6 +1015,147 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerBlocksTerminalRerunUntilMissingFileIsWritten(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
+		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/brief.md","content":"brief"}}`,
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
+		finalReplyDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
+	terminalCallCount := 0
+	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		terminalCallCount++
+		if terminalCallCount == 1 {
+			return ToolResult{Content: `{"exitCode":1,"stdout":"","stderr":"brief file is required: brief.md\n","timedOut":false}`, IsError: true}, nil
+		}
+		return ToolResult{Content: `{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var input struct {
+			Path string `json:"path"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
+			return ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		}
+		return ToolResult{Content: `{"path":"` + input.Path + `","sizeBytes":5}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "build deck",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if terminalCallCount != 2 {
+		t.Fatalf("expected blocked rerun not to execute, got %d terminal calls", terminalCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "brief.md") {
+		t.Fatal("expected terminal precondition block event")
+	}
+}
+
+func TestAgentTurnRunnerBlocksTerminalRerunUntilMissingDesignFileIsWritten(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
+		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/DESIGN.md","content":"colors: blue"}}`,
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
+		finalReplyDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
+	terminalCallCount := 0
+	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		terminalCallCount++
+		if terminalCallCount == 1 {
+			return ToolResult{Content: `{"exitCode":1,"stdout":"","stderr":"DESIGN.md is missing colors:\n","timedOut":false}`, IsError: true}, nil
+		}
+		return ToolResult{Content: `{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var input struct {
+			Path string `json:"path"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
+			return ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		}
+		return ToolResult{Content: `{"path":"` + input.Path + `","sizeBytes":12}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "build deck",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if terminalCallCount != 2 {
+		t.Fatalf("expected blocked rerun not to execute, got %d terminal calls", terminalCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "DESIGN.md") {
+		t.Fatal("expected DESIGN.md precondition block event")
+	}
+}
+
+func TestAgentTurnRunnerBlocksTerminalBeforeRequiredFileWrite(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
+		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/brief.md","content":"brief"}}`,
+		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
+		`{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"file.write"}],"finalReply":"done"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 5})
+	terminalCallCount := 0
+	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		terminalCallCount++
+		return ToolResult{Content: `{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var input struct {
+			Path string `json:"path"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
+			return ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		}
+		return ToolResult{Content: `{"path":"` + input.Path + `","sizeBytes":5}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "build deck",
+		ToolRegistry:          toolRegistry,
+		RequiredEvidenceTools: []string{"file.write"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if terminalCallCount != 1 {
+		t.Fatalf("expected first terminal call to be blocked before execution, got %d calls", terminalCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "first required workspace file") {
+		t.Fatal("expected required file.write precondition block event")
+	}
+}
+
 func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
@@ -1006,6 +1231,39 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 	}
 	if len(result.Attachments) != 0 {
 		t.Fatalf("expected blocked task to deliver no attachments, got %+v", result.Attachments)
+	}
+}
+
+func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+		},
+		textResponses: []string{
+			"아래 파일을 확인해 주세요.\n[Hermes_Agent_Slide_Part1.html]",
+			"작업은 시작했지만 HTML 파일을 완성하기 전에 중단되었습니다. 다시 시도할 수 있게 상태를 저장했습니다.",
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
+	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "started"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "html 파일 만들어줘",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected limit result, got error: %v", errorValue)
+	}
+	if strings.Contains(result.FinalReply, "Hermes_Agent_Slide_Part1.html") {
+		t.Fatalf("expected generated reply without unattached filename, got %q", result.FinalReply)
+	}
+	if len(languageModel.textPrompts) != 2 {
+		t.Fatalf("expected repair generation prompt, got %d prompts", len(languageModel.textPrompts))
 	}
 }
 

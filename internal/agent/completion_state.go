@@ -78,7 +78,7 @@ func buildCompletionState(request AgentTurnRequest, requirements []toolUseRequir
 
 func completionValidityState(request AgentTurnRequest, state CompletionState) ValidityState {
 	if len(state.AttachedEvidence) > 0 {
-		return buildAttachedEvidenceValidityState(request.WorkspaceRootPath, state.AttachedEvidence)
+		return buildAttachedEvidenceValidityState(request.WorkspaceRootPath, state.AttachedEvidence, request.TurnStartedAt)
 	}
 	if len(state.ExistingArtifacts) > 0 {
 		return buildArtifactValidityState(state.ExistingArtifacts)
@@ -274,7 +274,7 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 	return completionActionContinueWork
 }
 
-func buildAttachedEvidenceValidityState(workspaceRootPath string, attachedEvidence []CompletionAttachedEvidence) ValidityState {
+func buildAttachedEvidenceValidityState(workspaceRootPath string, attachedEvidence []CompletionAttachedEvidence, minimumModifiedAt time.Time) ValidityState {
 	attachments := []FileAttachment{}
 	for _, evidence := range attachedEvidence {
 		attachments = append(attachments, FileAttachment{
@@ -285,7 +285,7 @@ func buildAttachedEvidenceValidityState(workspaceRootPath string, attachedEviden
 			Title:       evidence.Title,
 		})
 	}
-	return buildAttachmentValidityState(workspaceRootPath, attachments)
+	return buildAttachmentValidityState(workspaceRootPath, attachments, minimumModifiedAt)
 }
 
 func completionValidityPaths(state CompletionState) []string {

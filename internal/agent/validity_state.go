@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -24,6 +25,7 @@ type ArtifactValidity struct {
 	SizeBytes    int64  `json:"sizeBytes,omitempty"`
 	PageCount    int    `json:"pageCount,omitempty"`
 	SlideCount   int    `json:"slideCount,omitempty"`
+	ModifiedAt   string `json:"modifiedAt,omitempty"`
 	Passed       bool   `json:"passed"`
 	Reason       string `json:"reason,omitempty"`
 	path         string
@@ -43,8 +45,8 @@ func buildArtifactValidityState(artifacts []CompletionArtifact) ValidityState {
 	return summarizeArtifactValidity(validateCompletionArtifacts(artifacts))
 }
 
-func buildAttachmentValidityState(workspaceRootPath string, attachments []FileAttachment) ValidityState {
-	return summarizeArtifactValidity(validateAttachments(workspaceRootPath, attachments))
+func buildAttachmentValidityState(workspaceRootPath string, attachments []FileAttachment, minimumModifiedAt time.Time) ValidityState {
+	return summarizeArtifactValidity(validateAttachments(workspaceRootPath, attachments, minimumModifiedAt))
 }
 
 func summarizeArtifactValidity(checkedArtifacts []ArtifactValidity) ValidityState {
@@ -65,19 +67,19 @@ func summarizeArtifactValidity(checkedArtifacts []ArtifactValidity) ValidityStat
 func validateCompletionArtifacts(artifacts []CompletionArtifact) []ArtifactValidity {
 	checkedArtifacts := []ArtifactValidity{}
 	for _, artifact := range artifacts {
-		checkedArtifacts = append(checkedArtifacts, validateArtifactPath(artifact.path, artifact.Filename, artifact.RelativePath))
+		checkedArtifacts = append(checkedArtifacts, validateArtifactPath(artifact.path, artifact.Filename, artifact.RelativePath, time.Time{}))
 	}
 	return checkedArtifacts
 }
 
-func validateAttachments(workspaceRootPath string, attachments []FileAttachment) []ArtifactValidity {
+func validateAttachments(workspaceRootPath string, attachments []FileAttachment, minimumModifiedAt time.Time) []ArtifactValidity {
 	checkedArtifacts := []ArtifactValidity{}
 	for _, attachment := range attachments {
 		path, isCheckable := checkableAttachmentPath(workspaceRootPath, attachment)
 		if !isCheckable {
 			continue
 		}
-		checkedArtifacts = append(checkedArtifacts, validateArtifactPath(path, attachmentFilenameForValidity(attachment), relativeWorkspacePath(workspaceRootPath, path)))
+		checkedArtifacts = append(checkedArtifacts, validateArtifactPath(path, attachmentFilenameForValidity(attachment), relativeWorkspacePath(workspaceRootPath, path), minimumModifiedAt))
 	}
 	return checkedArtifacts
 }
@@ -113,7 +115,7 @@ func attachmentFilenameForValidity(attachment FileAttachment) string {
 	return filepath.Base(strings.TrimSpace(attachment.DevicePath))
 }
 
-func validateArtifactPath(path string, filename string, relativePath string) ArtifactValidity {
+func validateArtifactPath(path string, filename string, relativePath string, minimumModifiedAt time.Time) ArtifactValidity {
 	artifact := ArtifactValidity{
 		Filename:     firstNonEmptyString(strings.TrimSpace(filename), filepath.Base(path)),
 		RelativePath: strings.TrimSpace(relativePath),
@@ -128,6 +130,10 @@ func validateArtifactPath(path string, filename string, relativePath string) Art
 		return invalidArtifact(artifact, "artifact path is not a regular file")
 	}
 	artifact.SizeBytes = fileInformation.Size()
+	artifact.ModifiedAt = fileInformation.ModTime().UTC().Format(time.RFC3339Nano)
+	if !minimumModifiedAt.IsZero() && fileInformation.ModTime().Before(minimumModifiedAt) {
+		return invalidArtifact(artifact, "artifact was not created during this task run")
+	}
 	if artifact.SizeBytes == 0 {
 		return invalidArtifact(artifact, "artifact file is empty")
 	}
