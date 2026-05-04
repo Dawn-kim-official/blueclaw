@@ -290,8 +290,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
+	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
+	input.Stdin = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Stdin)
+	input.EnvironmentVariables = toolCatalogBuilder.resolveAgentWorkspaceEnvironment(input.EnvironmentVariables)
 	if strings.TrimSpace(input.WorkingDirectoryPath) == "" {
 		input.WorkingDirectoryPath = toolCatalogBuilder.workspaceRootPath
+	} else {
+		input.WorkingDirectoryPath = toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath)
 	}
 	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(input)
 	content := marshalToolResult(commandResult)
@@ -332,11 +337,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
-	workingDirectoryPath := firstNonEmptyString(input.WorkingDirectoryPath, toolCatalogBuilder.workspaceRootPath)
+	workingDirectoryPath := firstNonEmptyString(toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath), toolCatalogBuilder.workspaceRootPath)
 	sessionID, errorValue := toolCatalogBuilder.terminalService.StartInteractiveSession(security.CommandRequest{
-		Command:              input.Command,
+		Command:              toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command),
 		WorkingDirectoryPath: workingDirectoryPath,
-		EnvironmentVariables: input.EnvironmentVariables,
+		EnvironmentVariables: toolCatalogBuilder.resolveAgentWorkspaceEnvironment(input.EnvironmentVariables),
 		TimeoutSecond:        input.TimeoutSecond,
 		IsInteractive:        true,
 		IsPTY:                true,
@@ -440,7 +445,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	}
 	_ = toolContext
 	return agent.ToolResult{Content: marshalToolResult(map[string]any{
-		"path":      resolvedPath,
+		"path":      toolCatalogBuilder.agentWorkspacePath(resolvedPath),
 		"sizeBytes": len(input.Content),
 	})}, nil
 }
@@ -504,7 +509,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input 
 	filename := attachmentFilename(input, resolvedPath)
 	contentType := firstNonEmptyString(input.ContentType, mime.TypeByExtension(filepath.Ext(filename)), "application/octet-stream")
 	return agent.FileAttachment{
-		DevicePath:  resolvedPath,
+		DevicePath:  toolCatalogBuilder.agentWorkspacePath(resolvedPath),
 		Filename:    filename,
 		ContentType: contentType,
 		SizeBytes:   fileInformation.Size(),
@@ -526,7 +531,7 @@ func attachmentFilename(input struct {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveWorkspaceFilePath(value string) (string, error) {
-	trimmedPath := strings.TrimSpace(value)
+	trimmedPath := toolCatalogBuilder.resolveAgentWorkspacePath(value)
 	if trimmedPath == "" {
 		return "", errors.New("path is required")
 	}
@@ -549,6 +554,49 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveWorkspaceFilePath(value str
 		return "", errors.New("path must stay under the workspace root")
 	}
 	return cleanPath, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspacePath(value string) string {
+	trimmedPath := strings.TrimSpace(value)
+	if trimmedPath == "" {
+		return ""
+	}
+	if toolCatalogBuilder.workspaceRootPath == "/workspace" {
+		return trimmedPath
+	}
+	if trimmedPath == "/workspace" {
+		return toolCatalogBuilder.workspaceRootPath
+	}
+	if strings.HasPrefix(trimmedPath, "/workspace/") {
+		return filepath.Join(toolCatalogBuilder.workspaceRootPath, strings.TrimPrefix(trimmedPath, "/workspace/"))
+	}
+	return trimmedPath
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceReferences(value string) string {
+	if strings.TrimSpace(value) == "" || toolCatalogBuilder.workspaceRootPath == "/workspace" {
+		return value
+	}
+	return strings.ReplaceAll(value, "/workspace", toolCatalogBuilder.workspaceRootPath)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceEnvironment(environmentVariables map[string]string) map[string]string {
+	if len(environmentVariables) == 0 {
+		return environmentVariables
+	}
+	resolvedEnvironmentVariables := map[string]string{}
+	for key, value := range environmentVariables {
+		resolvedEnvironmentVariables[key] = toolCatalogBuilder.resolveAgentWorkspaceReferences(value)
+	}
+	return resolvedEnvironmentVariables
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) agentWorkspacePath(path string) string {
+	relativePath, errorValue := filepath.Rel(toolCatalogBuilder.workspaceRootPath, path)
+	if errorValue != nil || relativePath == "." || strings.HasPrefix(relativePath, "../") || relativePath == ".." {
+		return path
+	}
+	return filepath.ToSlash(filepath.Join("/workspace", relativePath))
 }
 
 func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {

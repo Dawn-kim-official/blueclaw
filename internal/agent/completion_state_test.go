@@ -1,0 +1,188 @@
+package agent
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestCompletionStateFindsNewestArtifactByRequiredSuffix(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	olderPath := filepath.Join(artifactDirectoryPath, "older.pptx")
+	newerPath := filepath.Join(artifactDirectoryPath, "newer.pptx")
+	writeValidPPTXTestFile(t, olderPath)
+	writeValidPPTXTestFile(t, newerPath)
+	if errorValue := os.Chtimes(olderPath, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour)); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	state := buildCompletionState(
+		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolRegistry: NewToolRegistry([]string{"file.attach"})},
+		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		nil,
+	)
+
+	if state.RecommendedAction != completionActionAttachExistingArtifacts {
+		t.Fatalf("expected attach action, got %+v", state)
+	}
+	if len(state.ExistingArtifacts) != 1 || state.ExistingArtifacts[0].Filename != "newer.pptx" {
+		t.Fatalf("expected newest pptx artifact, got %+v", state.ExistingArtifacts)
+	}
+}
+
+func TestCompletionStateFinalizesWhenRequiredAttachmentEvidenceExists(t *testing.T) {
+	state := buildCompletionState(
+		AgentTurnRequest{},
+		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx", ".pdf"}}},
+		[]turnObservation{{
+			ObservationID: "obs-001",
+			Tool:          "file.attach",
+			Attachments: []FileAttachment{
+				{DevicePath: "/workspace/deck.pptx", Filename: "deck.pptx"},
+				{DevicePath: "/workspace/deck.pdf", Filename: "deck.pdf"},
+			},
+		}},
+	)
+
+	if state.RecommendedAction != completionActionFinalizeWithEvidence {
+		t.Fatalf("expected finalize action, got %+v", state)
+	}
+	if len(state.EvidenceReferences) != 2 {
+		t.Fatalf("expected file.attach evidence reference, got %+v", state.EvidenceReferences)
+	}
+	for _, reference := range state.EvidenceReferences {
+		if reference.ObservationID != "obs-001" || reference.AttachmentIndex == nil {
+			t.Fatalf("expected exact file.attach evidence reference, got %+v", state.EvidenceReferences)
+		}
+	}
+}
+
+func TestCompletionStateUsesAttachmentIndexesForRequiredSuffixEvidence(t *testing.T) {
+	state := buildCompletionState(
+		AgentTurnRequest{},
+		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		[]turnObservation{{
+			ObservationID: "obs-001",
+			Tool:          "file.attach",
+			Attachments: []FileAttachment{
+				{DevicePath: "/workspace/DESIGN.md", Filename: "DESIGN.md"},
+				{DevicePath: "/workspace/deck.pptx", Filename: "deck.pptx"},
+			},
+		}},
+	)
+
+	if state.RecommendedAction != completionActionFinalizeWithEvidence {
+		t.Fatalf("expected finalize action, got %+v", state)
+	}
+	if len(state.EvidenceReferences) != 1 || state.EvidenceReferences[0].AttachmentIndex == nil || *state.EvidenceReferences[0].AttachmentIndex != 1 {
+		t.Fatalf("expected exact pptx attachment evidence reference, got %+v", state.EvidenceReferences)
+	}
+	if len(state.AttachedEvidence) != 1 || state.AttachedEvidence[0].Filename != "deck.pptx" {
+		t.Fatalf("expected only required artifact evidence, got %+v", state.AttachedEvidence)
+	}
+}
+
+func TestCompletionStateDoesNotRepeatFailedAttachment(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
+
+	state := buildCompletionState(
+		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolRegistry: NewToolRegistry([]string{"file.attach"})},
+		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		[]turnObservation{{ObservationID: "obs-001", Tool: "file.attach", Content: filepath.Join(artifactDirectoryPath, "deck.pptx"), IsError: true}},
+	)
+
+	if state.RecommendedAction != completionActionContinueWork {
+		t.Fatalf("expected continue work after failed attach, got %+v", state)
+	}
+}
+
+func TestCompletionStateIgnoresArtifactsOlderThanTurn(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	artifactPath := filepath.Join(artifactDirectoryPath, "deck.pptx")
+	writeAgentTestFile(t, artifactPath, "pptx")
+	if errorValue := os.Chtimes(artifactPath, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour)); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	state := buildCompletionState(
+		AgentTurnRequest{
+			WorkspaceRootPath: workspaceRootPath,
+			ToolRegistry:      NewToolRegistry([]string{"file.attach"}),
+			TurnStartedAt:     time.Now().Add(-time.Minute),
+		},
+		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		nil,
+	)
+
+	if state.RecommendedAction != completionActionContinueWork {
+		t.Fatalf("expected old artifact to be ignored, got %+v", state)
+	}
+	if len(state.ExistingArtifacts) != 0 {
+		t.Fatalf("expected no current artifacts, got %+v", state.ExistingArtifacts)
+	}
+}
+
+func TestCompletionStateFindsArtifactsNewerThanTurn(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	turnStartedAt := time.Now().Add(-time.Minute)
+	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
+	writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
+
+	state := buildCompletionState(
+		AgentTurnRequest{
+			WorkspaceRootPath: workspaceRootPath,
+			ToolRegistry:      NewToolRegistry([]string{"file.attach"}),
+			TurnStartedAt:     turnStartedAt,
+		},
+		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx", ".pdf"}}},
+		nil,
+	)
+
+	if state.RecommendedAction != completionActionAttachExistingArtifacts {
+		t.Fatalf("expected current artifacts to be attachable, got %+v", state)
+	}
+}
+
+func TestCompletionStateBlocksInvalidArtifactCandidate(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"), "not a zip package")
+
+	state := buildCompletionState(
+		AgentTurnRequest{
+			WorkspaceRootPath: workspaceRootPath,
+			ToolRegistry:      NewToolRegistry([]string{"file.attach"}),
+			TurnStartedAt:     time.Now().Add(-time.Minute),
+		},
+		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		nil,
+	)
+
+	if state.RecommendedAction != completionActionBlockedInvalidArtifact {
+		t.Fatalf("expected invalid artifact to be blocked, got %+v", state)
+	}
+	if state.ValidityState.Passed || len(state.ValidityState.InvalidArtifacts) != 1 {
+		t.Fatalf("expected validity failure, got %+v", state.ValidityState)
+	}
+}

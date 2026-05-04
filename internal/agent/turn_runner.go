@@ -5,10 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +49,8 @@ type AgentTurnRequest struct {
 	SkillDecisions             []SkillSelectionDecision
 	RequiredEvidenceTools      []string
 	RequiredAttachmentSuffixes []string
+	QualityRecommendedChecks   []string
+	TurnStartedAt              time.Time
 }
 
 type AgentTurnResult struct {
@@ -92,14 +90,19 @@ type completionEvidenceReference struct {
 }
 
 type completionGateResult struct {
-	IsSatisfied bool
-	Message     string
-	Attachments []FileAttachment
+	IsSatisfied   bool
+	Message       string
+	Attachments   []FileAttachment
+	ValidityState ValidityState
 }
 
-type autoAttachmentResult struct {
-	Observation turnObservation
-	Reference   completionEvidenceReference
+type completionTransition struct {
+	Observations  []turnObservation
+	Attachments   []FileAttachment
+	Result        AgentTurnResult
+	IsCompleted   bool
+	DidTransition bool
+	Action        completionRecommendedAction
 }
 
 func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel llm.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
@@ -145,6 +148,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 
 	turnContext, cancel := context.WithTimeout(ctx, time.Duration(agentTurnRunner.options.MaxElapsedSecond)*time.Second)
 	defer cancel()
+	if request.TurnStartedAt.IsZero() {
+		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
+	}
 
 	taskRun := agentTurnRunner.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
 	runningTaskRun, errorValue := agentTurnRunner.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
@@ -168,6 +174,17 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
 
+		transition := agentTurnRunner.applyCompletionState(turnContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, observations, attachments)
+		observations = transition.Observations
+		attachments = transition.Attachments
+		if transition.IsCompleted {
+			return transition.Result, nil
+		}
+		if transition.DidTransition {
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "completion_state "+string(transition.Action), "")
+			continue
+		}
+
 		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, observations)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
@@ -180,15 +197,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
 		case "final_reply":
-			completionGateResult := validateCompletionGate(toolUseRequirements, observations, actionDocument)
-			if !completionGateResult.IsSatisfied {
-				if autoAttachment := agentTurnRunner.autoAttachRequiredArtifacts(turnContext, request, taskRun.TaskRunID, nextObservationID(len(observations)+1), toolUseRequirements); autoAttachment != nil {
-					observations = append(observations, autoAttachment.Observation)
-					attachments = appendObservationAttachments(attachments, autoAttachment.Observation)
-					actionDocument.CompletionEvidence = append(actionDocument.CompletionEvidence, autoAttachment.Reference)
-					completionGateResult = validateCompletionGate(toolUseRequirements, observations, actionDocument)
-				}
-			}
+			completionGateResult := validateCompletionGateForRequest(request, toolUseRequirements, observations, actionDocument)
+			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "final_reply", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
 				observation := turnObservation{
 					ObservationID: nextObservationID(len(observations) + 1),
@@ -201,6 +211,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "completion_required", observation.Content)
 				continue
 			}
+			agentTurnRunner.appendQualityReview(taskRun.TaskRunID, request, observations, completionGateResult.ValidityState)
 			reply := strings.TrimSpace(actionDocument.FinalReply)
 			if reply == "" {
 				reply = strings.TrimSpace(actionDocument.Reply)
@@ -221,9 +232,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				continue
 			}
 			if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName) {
-				if len(toolUseRequirements) == 0 && len(duplicateObservation.Attachments) == 0 {
-					return agentTurnRunner.completeDuplicateSuccessfulToolCall(taskRun.TaskRunID, stepID, duplicateObservation)
-				}
 				observation := turnObservation{
 					ObservationID: nextObservationID(len(observations) + 1),
 					Action:        "policy",
@@ -246,9 +254,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			attachments = appendObservationAttachments(attachments, observation)
 			if !observation.IsError {
 				successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)] = observation
-				if result, isCompleted := agentTurnRunner.completeWithAutoAttachedArtifacts(turnContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, observations); isCompleted {
-					return result, nil
-				}
 			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
 		case "fetch_history":
@@ -635,53 +640,163 @@ func (agentTurnRunner *AgentTurnRunner) appendEvent(taskRunID string, name strin
 	agentTurnRunner.taskRunService.AppendTaskEvent(taskRunID, name, body)
 }
 
+func (agentTurnRunner *AgentTurnRunner) appendValidityReview(taskRunID string, phase string, validityState ValidityState) {
+	if len(validityState.CheckedArtifacts) == 0 {
+		return
+	}
+	body := map[string]any{
+		"phase":            phase,
+		"passed":           validityState.Passed,
+		"checkedArtifacts": validityState.CheckedArtifacts,
+		"invalidArtifacts": validityState.InvalidArtifacts,
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.validity_review", marshalEventBody(body))
+}
+
+func (agentTurnRunner *AgentTurnRunner) appendQualityReview(taskRunID string, request AgentTurnRequest, observations []turnObservation, validityState ValidityState) {
+	if len(request.QualityRecommendedChecks) == 0 {
+		return
+	}
+	qualityState := buildQualityState(request, observations, validityState)
+	agentTurnRunner.appendEvent(taskRunID, "agent.quality_review", marshalEventBody(qualityState))
+}
+
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, reason string) (AgentTurnResult, error) {
 	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
 	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: DefaultFallbackReply}, nil
 }
 
-func (agentTurnRunner *AgentTurnRunner) completeDuplicateSuccessfulToolCall(taskRunID string, taskStepID string, observation turnObservation) (AgentTurnResult, error) {
-	reply := duplicateSuccessfulToolReply(observation)
-	agentTurnRunner.appendEvent(taskRunID, "agent.duplicate_tool_call_finalized", marshalEventBody(map[string]any{
-		"observationID": observation.ObservationID,
-		"toolName":      observation.Tool,
-	}))
-	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "duplicate_tool_call_finalized "+observation.Tool, reply)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
-	return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply}, nil
+func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment) completionTransition {
+	state := buildCompletionState(request, requirements, observations)
+	switch state.RecommendedAction {
+	case completionActionAttachExistingArtifacts:
+		return agentTurnRunner.attachCompletionArtifacts(ctx, taskRunID, request, observations, attachments, state)
+	case completionActionFinalizeWithEvidence:
+		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, state)
+	case completionActionBlockedInvalidArtifact:
+		return agentTurnRunner.blockInvalidCompletionArtifacts(taskRunID, observations, attachments, state)
+	default:
+		return completionTransition{Observations: observations, Attachments: attachments}
+	}
 }
 
-func duplicateSuccessfulToolReply(observation turnObservation) string {
-	if strings.TrimSpace(observation.Tool) == "terminal.run" {
-		if reply := terminalRunDuplicateReply(observation.Content); reply != "" {
-			return reply
+func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
+	agentTurnRunner.appendValidityReview(taskRunID, "pre_attach", state.ValidityState)
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolRegistry, taskRunID, nextObservationID(len(observations)+1), "file.attach", MarshalToolInput(map[string]any{"paths": state.AttachmentPaths}))
+	if observation.IsError {
+		observation.Content = completionAttachmentFailureContent(observation.Content, state.AttachmentPaths)
+	}
+	observations = append(observations, observation)
+	attachments = appendObservationAttachments(attachments, observation)
+	agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_transition", marshalEventBody(map[string]any{
+		"action":        completionActionAttachExistingArtifacts,
+		"observationID": observation.ObservationID,
+		"artifactCount": len(state.AttachmentPaths),
+	}))
+	return completionTransition{
+		Observations:  observations,
+		Attachments:   attachments,
+		DidTransition: true,
+		Action:        completionActionAttachExistingArtifacts,
+	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) blockInvalidCompletionArtifacts(taskRunID string, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
+	observation := turnObservation{
+		ObservationID: nextObservationID(len(observations) + 1),
+		Action:        "policy",
+		Content:       invalidCompletionArtifactObservationContent(state),
+		IsError:       true,
+	}
+	observations = append(observations, observation)
+	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", state.ValidityState)
+	agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
+	return completionTransition{
+		Observations:  observations,
+		Attachments:   attachments,
+		DidTransition: true,
+		Action:        completionActionBlockedInvalidArtifact,
+	}
+}
+
+func invalidCompletionArtifactObservationContent(state CompletionState) string {
+	lines := []string{validityFailureMessage(state.ValidityState)}
+	for _, path := range completionValidityPaths(state) {
+		if strings.TrimSpace(path) != "" {
+			lines = append(lines, "path: "+strings.TrimSpace(path))
 		}
 	}
-	summary := firstNonEmptyString(observation.Summary, observation.Content)
-	return "I completed the requested tool work.\n\n" + truncateText(strings.TrimSpace(summary), 2000)
+	return strings.Join(lines, "\n")
 }
 
-func terminalRunDuplicateReply(content string) string {
-	var result struct {
-		ExitCode int    `json:"exitCode"`
-		Stdout   string `json:"stdout"`
-		Stderr   string `json:"stderr"`
-		TimedOut bool   `json:"timedOut"`
+func completionAttachmentFailureContent(content string, paths []string) string {
+	trimmedContent := strings.TrimSpace(content)
+	if len(paths) == 0 {
+		return trimmedContent
 	}
-	if errorValue := json.Unmarshal([]byte(content), &result); errorValue != nil {
-		return ""
+	if trimmedContent == "" {
+		trimmedContent = "file.attach failed"
 	}
-	lines := []string{"명령 실행은 완료됐습니다.", "", "exitCode: " + strconv.Itoa(result.ExitCode)}
-	if strings.TrimSpace(result.Stdout) != "" {
-		lines = append(lines, "", "stdout:", truncateText(strings.TrimSpace(result.Stdout), 2000))
+	return trimmedContent + "\nrequested paths: " + strings.Join(paths, "\n")
+}
+
+func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
+	actionDocument := completionStateFinalReplyDocument(state)
+	completionGateResult := validateCompletionGateForRequest(request, requirements, observations, actionDocument)
+	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
+	if !completionGateResult.IsSatisfied {
+		agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
+		return completionTransition{Observations: observations, Attachments: attachments}
 	}
-	if strings.TrimSpace(result.Stderr) != "" {
-		lines = append(lines, "", "stderr:", truncateText(strings.TrimSpace(result.Stderr), 1000))
+	agentTurnRunner.appendQualityReview(taskRunID, request, observations, completionGateResult.ValidityState)
+	agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_finalized", marshalEventBody(map[string]any{
+		"attachmentCount": len(completionGateResult.Attachments),
+		"evidenceCount":   len(state.EvidenceReferences),
+	}))
+	reply := strings.TrimSpace(actionDocument.FinalReply)
+	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
+	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	return completionTransition{
+		Observations:  observations,
+		Attachments:   appendUniqueAttachments(attachments, completionGateResult.Attachments),
+		Result:        AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments},
+		IsCompleted:   true,
+		DidTransition: true,
+		Action:        completionActionFinalizeWithEvidence,
 	}
-	if result.TimedOut {
-		lines = append(lines, "", "timedOut: true")
+}
+
+func completionStateFinalReplyDocument(state CompletionState) turnActionDocument {
+	goalSatisfied := true
+	return turnActionDocument{
+		Action:             "final_reply",
+		FinalReply:         completionStateFinalReply(state),
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      &goalSatisfied,
+		CompletionEvidence: state.EvidenceReferences,
 	}
-	return strings.Join(lines, "\n")
+}
+
+func completionStateFinalReply(state CompletionState) string {
+	filenames := completionStateFilenames(state)
+	if len(filenames) == 0 {
+		return "요청하신 작업을 완료했습니다."
+	}
+	return "요청하신 파일을 생성해 첨부했습니다: " + strings.Join(filenames, ", ")
+}
+
+func completionStateFilenames(state CompletionState) []string {
+	filenames := []string{}
+	seenFilename := map[string]bool{}
+	for _, evidence := range state.AttachedEvidence {
+		filename := strings.TrimSpace(evidence.Filename)
+		if filename == "" || seenFilename[filename] {
+			continue
+		}
+		seenFilename[filename] = true
+		filenames = append(filenames, filename)
+	}
+	return filenames
 }
 
 func appendObservationAttachments(attachments []FileAttachment, observation turnObservation) []FileAttachment {
@@ -781,9 +896,23 @@ func limitPressureMessage(level string) string {
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
-	if ctx.Err() == nil && completionRequirementsHaveEvidence(requirements, observations) {
-		if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, requirements, observations); isFinalized {
-			return result, nil
+	if ctx.Err() == nil {
+		transition := agentTurnRunner.applyCompletionState(ctx, taskRunID, taskRunID+":completion", request, requirements, observations, attachments)
+		if transition.IsCompleted {
+			return transition.Result, nil
+		}
+		if transition.DidTransition {
+			transition = agentTurnRunner.applyCompletionState(ctx, taskRunID, taskRunID+":completion", request, requirements, transition.Observations, transition.Attachments)
+			if transition.IsCompleted {
+				return transition.Result, nil
+			}
+			observations = transition.Observations
+			attachments = transition.Attachments
+		}
+		if completionRequirementsHaveEvidence(requirements, observations) {
+			if result, isFinalized := agentTurnRunner.finalizeSatisfiedTurn(ctx, taskRunID, request, requirements, observations); isFinalized {
+				return result, nil
+			}
 		}
 	}
 	return agentTurnRunner.stopForLimit(taskRunID, request, reason, observations, attachments, usedIterationCount, usedToolCallCount)
@@ -800,11 +929,13 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "finalizer did not return final_reply"}))
 		return AgentTurnResult{}, false
 	}
-	completionGateResult := validateCompletionGate(requirements, observations, actionDocument)
+	completionGateResult := validateCompletionGateForRequest(request, requirements, observations, actionDocument)
 	if !completionGateResult.IsSatisfied {
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
 		return AgentTurnResult{}, false
 	}
+	agentTurnRunner.appendValidityReview(taskRunID, "limit_finalizer", completionGateResult.ValidityState)
+	agentTurnRunner.appendQualityReview(taskRunID, request, observations, completionGateResult.ValidityState)
 	reply := strings.TrimSpace(actionDocument.FinalReply)
 	if reply == "" {
 		reply = strings.TrimSpace(actionDocument.Reply)
@@ -846,183 +977,12 @@ func completionRequirementsHaveEvidence(requirements []toolUseRequirement, obser
 		return false
 	}
 	for _, requirement := range requirements {
-		if matchingCompletionObservations(requirement, observations) == nil {
+		isSatisfied, _ := completionRequirementStatus(requirement, observations)
+		if !isSatisfied {
 			return false
 		}
 	}
 	return true
-}
-
-func (agentTurnRunner *AgentTurnRunner) autoAttachRequiredArtifacts(ctx context.Context, request AgentTurnRequest, taskRunID string, observationID string, requirements []toolUseRequirement) *autoAttachmentResult {
-	if request.ToolRegistry == nil || !request.ToolRegistry.IsAllowed("file.attach") {
-		return nil
-	}
-	suffixes := requiredFileAttachmentSuffixes(requirements)
-	if len(suffixes) == 0 {
-		return nil
-	}
-	paths, errorValue := findRequiredWorkspaceAttachmentPaths(request.WorkspaceRootPath, suffixes)
-	if errorValue != nil || len(paths) == 0 {
-		return nil
-	}
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolRegistry, taskRunID, observationID, "file.attach", MarshalToolInput(map[string]any{"paths": paths}))
-	if observation.IsError || len(observation.Attachments) == 0 {
-		return nil
-	}
-	agentTurnRunner.appendEvent(taskRunID, "agent.completion_auto_evidence", marshalEventBody(map[string]any{
-		"observationID": observation.ObservationID,
-		"toolName":      "file.attach",
-		"paths":         paths,
-	}))
-	return &autoAttachmentResult{
-		Observation: observation,
-		Reference: completionEvidenceReference{
-			ObservationID: observation.ObservationID,
-			ToolName:      "file.attach",
-		},
-	}
-}
-
-func (agentTurnRunner *AgentTurnRunner) completeWithAutoAttachedArtifacts(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) (AgentTurnResult, bool) {
-	if !requiresOnlyFileAttachmentEvidence(requirements) {
-		return AgentTurnResult{}, false
-	}
-	autoAttachment := agentTurnRunner.autoAttachRequiredArtifacts(ctx, request, taskRunID, nextObservationID(len(observations)+1), requirements)
-	if autoAttachment == nil {
-		return AgentTurnResult{}, false
-	}
-	observations = append(observations, autoAttachment.Observation)
-	goalSatisfied := true
-	actionDocument := turnActionDocument{
-		Action:             "final_reply",
-		FinalReply:         autoArtifactCompletionReply(autoAttachment.Observation.Attachments),
-		GoalStatus:         "satisfied",
-		GoalSatisfied:      &goalSatisfied,
-		CompletionEvidence: []completionEvidenceReference{autoAttachment.Reference},
-	}
-	completionGateResult := validateCompletionGate(requirements, observations, actionDocument)
-	if !completionGateResult.IsSatisfied {
-		agentTurnRunner.appendEvent(taskRunID, "agent.completion_auto_finalize_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
-		return AgentTurnResult{}, false
-	}
-	agentTurnRunner.appendEvent(taskRunID, "agent.completion_auto_finalized", marshalEventBody(map[string]any{
-		"observationID":   autoAttachment.Observation.ObservationID,
-		"attachmentCount": len(completionGateResult.Attachments),
-	}))
-	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_auto_finalized", actionDocument.FinalReply)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, actionDocument.FinalReply)
-	return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: actionDocument.FinalReply, Attachments: completionGateResult.Attachments}, true
-}
-
-func requiresOnlyFileAttachmentEvidence(requirements []toolUseRequirement) bool {
-	if len(requirements) == 0 {
-		return false
-	}
-	for _, requirement := range requirements {
-		if requirement.ToolName != "file.attach" || !requirement.RequiresAttachment {
-			return false
-		}
-	}
-	return true
-}
-
-func autoArtifactCompletionReply(attachments []FileAttachment) string {
-	filenames := []string{}
-	for _, attachment := range attachments {
-		if strings.TrimSpace(attachment.Filename) != "" {
-			filenames = append(filenames, attachment.Filename)
-		}
-	}
-	if len(filenames) == 0 {
-		return "요청하신 파일을 생성해 첨부했습니다."
-	}
-	return "요청하신 파일을 생성해 첨부했습니다: " + strings.Join(filenames, ", ")
-}
-
-func requiredFileAttachmentSuffixes(requirements []toolUseRequirement) []string {
-	suffixes := []string{}
-	seenSuffix := map[string]bool{}
-	for _, requirement := range requirements {
-		if requirement.ToolName != "file.attach" || !requirement.RequiresAttachment {
-			continue
-		}
-		for _, suffix := range requirement.AttachmentSuffixes {
-			trimmedSuffix := strings.TrimSpace(suffix)
-			if trimmedSuffix == "" || seenSuffix[trimmedSuffix] {
-				continue
-			}
-			seenSuffix[trimmedSuffix] = true
-			suffixes = append(suffixes, trimmedSuffix)
-		}
-	}
-	return suffixes
-}
-
-func findRequiredWorkspaceAttachmentPaths(workspaceRootPath string, suffixes []string) ([]string, error) {
-	searchRootPath := attachmentSearchRootPath(workspaceRootPath)
-	if searchRootPath == "" {
-		return nil, errors.New("workspace root path is not configured")
-	}
-	candidatesBySuffix := map[string][]workspaceAttachmentCandidate{}
-	errorValue := filepath.WalkDir(searchRootPath, func(path string, directoryEntry os.DirEntry, walkError error) error {
-		if walkError != nil {
-			return nil
-		}
-		if directoryEntry.IsDir() {
-			return nil
-		}
-		for _, suffix := range suffixes {
-			if !strings.HasSuffix(path, suffix) {
-				continue
-			}
-			fileInformation, errorValue := directoryEntry.Info()
-			if errorValue != nil {
-				continue
-			}
-			candidatesBySuffix[suffix] = append(candidatesBySuffix[suffix], workspaceAttachmentCandidate{Path: path, ModifiedAt: fileInformation.ModTime()})
-		}
-		return nil
-	})
-	if errorValue != nil {
-		return nil, errorValue
-	}
-	return newestAttachmentPaths(candidatesBySuffix, suffixes), nil
-}
-
-type workspaceAttachmentCandidate struct {
-	Path       string
-	ModifiedAt time.Time
-}
-
-func attachmentSearchRootPath(workspaceRootPath string) string {
-	trimmedWorkspaceRootPath := strings.TrimSpace(workspaceRootPath)
-	if trimmedWorkspaceRootPath == "" {
-		return ""
-	}
-	tmpPath := filepath.Join(trimmedWorkspaceRootPath, ".blueclaw", "tmp")
-	if information, errorValue := os.Stat(tmpPath); errorValue == nil && information.IsDir() {
-		return tmpPath
-	}
-	return trimmedWorkspaceRootPath
-}
-
-func newestAttachmentPaths(candidatesBySuffix map[string][]workspaceAttachmentCandidate, suffixes []string) []string {
-	paths := []string{}
-	seenPath := map[string]bool{}
-	for _, suffix := range suffixes {
-		candidates := append([]workspaceAttachmentCandidate{}, candidatesBySuffix[suffix]...)
-		if len(candidates) == 0 {
-			return nil
-		}
-		sort.Slice(candidates, func(leftIndex int, rightIndex int) bool {
-			return candidates[leftIndex].ModifiedAt.After(candidates[rightIndex].ModifiedAt)
-		})
-		if !seenPath[candidates[0].Path] {
-			seenPath[candidates[0].Path] = true
-			paths = append(paths, candidates[0].Path)
-		}
-	}
-	return paths
 }
 
 func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
@@ -1058,6 +1018,20 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
 
+func validateCompletionGateForRequest(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) completionGateResult {
+	result := validateCompletionGate(requirements, observations, actionDocument)
+	if !result.IsSatisfied {
+		return result
+	}
+	result.ValidityState = buildAttachmentValidityState(request.WorkspaceRootPath, result.Attachments)
+	if !result.ValidityState.Passed {
+		result.IsSatisfied = false
+		result.Message = validityFailureMessage(result.ValidityState)
+		result.Attachments = nil
+	}
+	return result
+}
+
 func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
 	if len(requirements) == 0 {
 		return collectReferencedAttachments(observations, references)
@@ -1083,21 +1057,34 @@ func validateCompletionEvidence(requirements []toolUseRequirement, observations 
 }
 
 func missingRequiredAttachmentSuffix(attachments []FileAttachment, suffixes []string) string {
+	missingSuffixes := missingRequiredAttachmentSuffixes(attachments, suffixes)
+	if len(missingSuffixes) == 0 {
+		return ""
+	}
+	return missingSuffixes[0]
+}
+
+func missingRequiredAttachmentSuffixes(attachments []FileAttachment, suffixes []string) []string {
+	missingSuffixes := []string{}
 	for _, suffix := range suffixes {
 		if !attachmentsContainSuffix(attachments, suffix) {
-			return suffix
+			missingSuffixes = append(missingSuffixes, suffix)
 		}
 	}
-	return ""
+	return missingSuffixes
 }
 
 func attachmentsContainSuffix(attachments []FileAttachment, suffix string) bool {
 	for _, attachment := range attachments {
-		if strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix) {
+		if attachmentMatchesSuffix(attachment, suffix) {
 			return true
 		}
 	}
 	return false
+}
+
+func attachmentMatchesSuffix(attachment FileAttachment, suffix string) bool {
+	return strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix)
 }
 
 func collectReferencedAttachments(observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {

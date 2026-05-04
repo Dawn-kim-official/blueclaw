@@ -27,6 +27,7 @@ func (skillLoader SkillLoader) LoadSkillBundle(directoryPath string) (SkillBundl
 		Tags:            metadata.Tags,
 		Activation:      metadata.Activation,
 		Completion:      metadata.Completion,
+		Quality:         metadata.Quality,
 		RequiredTools:   metadata.RequiredTools,
 		AllowedProfiles: metadata.AllowedProfiles,
 		TriggerHints:    metadata.TriggerHints,
@@ -45,6 +46,7 @@ type skillMetadata struct {
 	Tags            []string
 	Activation      SkillActivation
 	Completion      SkillCompletion
+	Quality         SkillQuality
 	RequiredTools   []string
 	AllowedProfiles []string
 	TriggerHints    []string
@@ -88,7 +90,7 @@ func parseSkillFrontmatter(frontmatter string) skillMetadata {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		if value == "" {
-			if (section == "activation" || section == "completion") && isIndentedLine {
+			if (section == "activation" || section == "completion" || section == "quality") && isIndentedLine {
 				listKey = key
 				continue
 			}
@@ -103,6 +105,11 @@ func parseSkillFrontmatter(frontmatter string) skillMetadata {
 		}
 		if section == "completion" && isIndentedLine {
 			metadata = setSkillCompletionValue(metadata, key, value)
+			listKey = key
+			continue
+		}
+		if section == "quality" && isIndentedLine {
+			metadata = setSkillQualityValue(metadata, key, value)
 			listKey = key
 			continue
 		}
@@ -162,6 +169,15 @@ func setSkillCompletionValue(metadata skillMetadata, key string, value string) s
 	return metadata
 }
 
+func setSkillQualityValue(metadata skillMetadata, key string, value string) skillMetadata {
+	values := parseSkillList(value)
+	switch key {
+	case "recommendedChecks":
+		metadata.Quality.RecommendedChecks = append(metadata.Quality.RecommendedChecks, values...)
+	}
+	return metadata
+}
+
 func appendSkillFrontmatterListValue(metadata skillMetadata, section string, listKey string, value string) skillMetadata {
 	values := parseSkillList(value)
 	if section == "activation" {
@@ -169,6 +185,9 @@ func appendSkillFrontmatterListValue(metadata skillMetadata, section string, lis
 	}
 	if section == "completion" {
 		return setSkillCompletionValue(metadata, listKey, strings.Join(values, ","))
+	}
+	if section == "quality" {
+		return setSkillQualityValue(metadata, listKey, strings.Join(values, ","))
 	}
 	return setSkillMetadataValue(metadata, listKey, strings.Join(values, ","))
 }
