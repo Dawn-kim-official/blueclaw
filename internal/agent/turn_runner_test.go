@@ -327,7 +327,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRejectsInvalidFileAttachObservation(t *testing.T) {
+func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
@@ -359,16 +359,16 @@ func TestAgentTurnRunnerRejectsInvalidFileAttachObservation(t *testing.T) {
 		RequiredEvidenceTools: []string{"file.attach"},
 	})
 	if errorValue != nil {
-		t.Fatalf("expected blocked turn without runner error: %v", errorValue)
+		t.Fatalf("expected completed turn without runner error: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
-	if len(result.Attachments) != 0 {
-		t.Fatalf("expected invalid attachment to be withheld, got %+v", result.Attachments)
+	if len(result.Attachments) != 1 {
+		t.Fatalf("expected readable attachment to be delivered, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.artifact_attach_rejected", "deck intent manifest is missing") {
-		t.Fatal("expected invalid file.attach rejection event")
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.artifact_attach_rejected", "deck intent manifest is missing") {
+		t.Fatal("did not expect intent manifest rejection event")
 	}
 }
 
@@ -527,7 +527,7 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerDoesNotAttachInvalidArtifactCandidate(t *testing.T) {
+func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
@@ -544,7 +544,13 @@ func TestAgentTurnRunnerDoesNotAttachInvalidArtifactCandidate(t *testing.T) {
 	attachmentCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		attachmentCallCount++
-		return ToolResult{Content: "file attached"}, nil
+		return ToolResult{
+			Content: "file attached",
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/.blueclaw/tmp/deck/deck.pptx",
+				Filename:   "deck.pptx",
+			}},
+		}, nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -560,14 +566,14 @@ func TestAgentTurnRunnerDoesNotAttachInvalidArtifactCandidate(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected invalid artifact turn to return result without runner error: %v", errorValue)
 	}
-	if attachmentCallCount != 0 {
-		t.Fatalf("expected invalid artifact not to be attached, got %d calls", attachmentCallCount)
+	if attachmentCallCount == 0 {
+		t.Fatal("expected readable imperfect artifact to be attached")
 	}
-	if len(result.Attachments) != 0 {
-		t.Fatalf("expected no invalid artifact attachments, got %+v", result.Attachments)
+	if len(result.Attachments) != 1 {
+		t.Fatalf("expected imperfect artifact attachment, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.validity_review", "pptx package cannot be opened") {
-		t.Fatal("expected validity review failure event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.validity_review", `"passed":true`) {
+		t.Fatal("expected passing basic validity review event")
 	}
 }
 
@@ -1015,7 +1021,7 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerBlocksTerminalRerunUntilMissingFileIsWritten(t *testing.T) {
+func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
@@ -1056,14 +1062,14 @@ func TestAgentTurnRunnerBlocksTerminalRerunUntilMissingFileIsWritten(t *testing.
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 2 {
-		t.Fatalf("expected blocked rerun not to execute, got %d terminal calls", terminalCallCount)
+		t.Fatalf("expected terminal rerun to remain available, got %d terminal calls", terminalCallCount)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "brief.md") {
-		t.Fatal("expected terminal precondition block event")
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "brief.md") {
+		t.Fatal("did not expect terminal precondition block event")
 	}
 }
 
-func TestAgentTurnRunnerBlocksTerminalRerunUntilMissingDesignFileIsWritten(t *testing.T) {
+func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
@@ -1104,14 +1110,14 @@ func TestAgentTurnRunnerBlocksTerminalRerunUntilMissingDesignFileIsWritten(t *te
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 2 {
-		t.Fatalf("expected blocked rerun not to execute, got %d terminal calls", terminalCallCount)
+		t.Fatalf("expected terminal rerun to remain available, got %d terminal calls", terminalCallCount)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "DESIGN.md") {
-		t.Fatal("expected DESIGN.md precondition block event")
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "DESIGN.md") {
+		t.Fatal("did not expect DESIGN.md precondition block event")
 	}
 }
 
-func TestAgentTurnRunnerBlocksTerminalBeforeRequiredFileWrite(t *testing.T) {
+func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"python3 create_deck.py"}}`,
 		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/brief.md","content":"brief"}}`,
@@ -1149,10 +1155,10 @@ func TestAgentTurnRunnerBlocksTerminalBeforeRequiredFileWrite(t *testing.T) {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 1 {
-		t.Fatalf("expected first terminal call to be blocked before execution, got %d calls", terminalCallCount)
+		t.Fatalf("expected terminal call to remain available, got %d calls", terminalCallCount)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "first required workspace file") {
-		t.Fatal("expected required file.write precondition block event")
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "first required workspace file") {
+		t.Fatal("did not expect required file.write precondition block event")
 	}
 }
 

@@ -8,22 +8,18 @@ import (
 	"testing"
 )
 
-func TestSimpleSlidesCreatorFailsWithoutBrief(t *testing.T) {
+func TestSimpleSlidesCreatorBuildsExistingPresentationWithoutBrief(t *testing.T) {
 	workingDirectoryPath := t.TempDir()
 	writeSimpleSlidesDesignAndPresentation(t, workingDirectoryPath, hermesPresentation())
 
-	command := exec.Command("python3", simpleSlidesCreatorPath(), "--slug", "hermes-analysis", "--brief", "brief.md", "--no-build")
-	command.Dir = workingDirectoryPath
-	output, errorValue := command.CombinedOutput()
-	if errorValue == nil {
-		t.Fatalf("expected missing brief to fail, output:\n%s", string(output))
-	}
-	if !strings.Contains(string(output), "brief file is required") {
-		t.Fatalf("expected missing brief failure, got:\n%s", string(output))
+	runSimpleSlidesCreator(t, workingDirectoryPath, "hermes-analysis")
+
+	if _, errorValue := os.Stat(filepath.Join(workingDirectoryPath, "build.sh")); errorValue != nil {
+		t.Fatalf("expected runtime build script to be copied: %v", errorValue)
 	}
 }
 
-func TestSimpleSlidesCreatorFailsWithoutDeckSpec(t *testing.T) {
+func TestSimpleSlidesCreatorBuildsExistingPresentationWithoutDeckSpec(t *testing.T) {
 	workingDirectoryPath := t.TempDir()
 	writeSimpleSlidesDesignAndPresentation(t, workingDirectoryPath, hermesPresentation())
 	writeTestFile(t, filepath.Join(workingDirectoryPath, "brief.md"), strings.Join([]string{
@@ -35,52 +31,48 @@ func TestSimpleSlidesCreatorFailsWithoutDeckSpec(t *testing.T) {
 		"output_slug: hermes-analysis",
 	}, "\n"))
 
-	command := exec.Command("python3", simpleSlidesCreatorPath(), "--slug", "hermes-analysis", "--brief", "brief.md", "--no-build")
-	command.Dir = workingDirectoryPath
-	output, errorValue := command.CombinedOutput()
-	if errorValue == nil {
-		t.Fatalf("expected missing deck_spec to fail, output:\n%s", string(output))
-	}
-	if !strings.Contains(string(output), "deck_spec is required") {
-		t.Fatalf("expected deck_spec failure, got:\n%s", string(output))
+	runSimpleSlidesCreator(t, workingDirectoryPath, "hermes-analysis")
+
+	presentation := readTestFile(t, filepath.Join(workingDirectoryPath, "presentation.md"))
+	if slideCount := countPresentationSlides(presentation); slideCount != 6 {
+		t.Fatalf("expected existing 6-slide presentation to be preserved, got %d:\n%s", slideCount, presentation)
 	}
 }
 
-func TestSimpleSlidesCreatorValidatesHermesDeckSpec(t *testing.T) {
+func TestSimpleSlidesCreatorCanCreatePresentationFromDeckSpec(t *testing.T) {
 	workingDirectoryPath := t.TempDir()
-	writeSimpleSlidesDesignAndPresentation(t, workingDirectoryPath, hermesPresentation())
 	writeTestFile(t, filepath.Join(workingDirectoryPath, "brief.md"), hermesBrief())
 
 	runSimpleSlidesCreator(t, workingDirectoryPath, "hermes-analysis")
 
-	intentManifest := readTestFile(t, filepath.Join(workingDirectoryPath, "hermes-analysis-intent.json"))
 	presentation := readTestFile(t, filepath.Join(workingDirectoryPath, "presentation.md"))
-	if !strings.Contains(intentManifest, `"requested_formats": [`) || !strings.Contains(intentManifest, `"html"`) {
-		t.Fatalf("expected html requested format manifest, got:\n%s", intentManifest)
-	}
 	if slideCount := countPresentationSlides(presentation); slideCount != 6 {
-		t.Fatalf("expected 6 slides, got %d:\n%s", slideCount, presentation)
+		t.Fatalf("expected 6 slides from deck_spec, got %d:\n%s", slideCount, presentation)
 	}
-	for _, forbidden := range []string{"InternKim capability deck", "김인턴이 할 수 있는 일"} {
-		if strings.Contains(presentation, forbidden) {
-			t.Fatalf("presentation contains forbidden sample token %q:\n%s", forbidden, presentation)
-		}
+	if !strings.Contains(presentation, "Hermes Agent 분석 프레임") {
+		t.Fatalf("expected generated presentation to include deck_spec content:\n%s", presentation)
 	}
 }
 
-func TestSimpleSlidesCreatorRejectsMismatchedPresentation(t *testing.T) {
+func TestSimpleSlidesCreatorAllowsMismatchedImperfectPresentation(t *testing.T) {
 	workingDirectoryPath := t.TempDir()
 	writeSimpleSlidesDesignAndPresentation(t, workingDirectoryPath, capabilitiesPresentation())
 	writeTestFile(t, filepath.Join(workingDirectoryPath, "brief.md"), hermesBrief())
+
+	runSimpleSlidesCreator(t, workingDirectoryPath, "hermes-analysis")
+}
+
+func TestSimpleSlidesCreatorFailsWithoutAnyDeckSource(t *testing.T) {
+	workingDirectoryPath := t.TempDir()
 
 	command := exec.Command("python3", simpleSlidesCreatorPath(), "--slug", "hermes-analysis", "--brief", "brief.md", "--no-build")
 	command.Dir = workingDirectoryPath
 	output, errorValue := command.CombinedOutput()
 	if errorValue == nil {
-		t.Fatalf("expected mismatched presentation to fail, output:\n%s", string(output))
+		t.Fatalf("expected missing deck source to fail, output:\n%s", string(output))
 	}
-	if !strings.Contains(string(output), "sample token") {
-		t.Fatalf("expected sample-token failure, got:\n%s", string(output))
+	if !strings.Contains(string(output), "presentation.md is missing") {
+		t.Fatalf("expected missing presentation guidance, got:\n%s", string(output))
 	}
 }
 
@@ -121,6 +113,9 @@ func writeSimpleSlidesDesignAndPresentation(t *testing.T, workingDirectoryPath s
 
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
+	if errorValue := os.MkdirAll(filepath.Dir(path), 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
 	if errorValue := os.WriteFile(path, []byte(strings.TrimSpace(content)+"\n"), 0600); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -145,7 +140,7 @@ func hermesBrief() string {
 		"output_slug: hermes-analysis",
 		"deck_spec:",
 		"```json",
-		`{"slides":[` +
+		`{"title":"Hermes Agent 장단점 분석","slides":[` +
 			`{"title":"Hermes Agent 분석 프레임","body":["Hermes Agent의 장점과 단점을 실행형 에이전트 관점에서 비교한다."],"speaker_note":"Hermes Agent 장단점 분석의 기준을 먼저 제시합니다."},` +
 			`{"title":"Hermes Agent 장점 1","body":["Hermes Agent는 도구 호출과 산출물 생성을 하나의 흐름으로 묶는 장점이 있다."],"speaker_note":"Hermes Agent의 첫 번째 장점은 실행 흐름입니다."},` +
 			`{"title":"Hermes Agent 장점 2","body":["Hermes Agent는 evidence 기반 완료 판단으로 반복 업무를 안정화할 수 있다."],"speaker_note":"Hermes Agent의 두 번째 장점은 증거 중심 완료입니다."},` +
@@ -197,23 +192,18 @@ func capabilitiesPresentation() string {
 		"title: 김인턴이 할 수 있는 일",
 		"---",
 		"<!-- design-source: DESIGN.md -->",
-		"<div class=\"eyebrow\">InternKim capability deck</div>",
-		"# 김인턴이 할 수 있는 일",
-		"---",
-		"## 김인턴이 끝까지 처리하는 일",
-		"자료를 만듭니다.",
-		"---",
-		"## 마무리",
+		"# InternKim capability deck",
 		"김인턴이 할 수 있는 일",
 	}, "\n")
 }
 
 func countPresentationSlides(presentation string) int {
 	parts := strings.SplitN(presentation, "---", 3)
-	body := strings.TrimSpace(presentation)
-	if len(parts) == 3 {
-		body = strings.TrimSpace(parts[2])
+	body := presentation
+	if len(parts) == 3 && strings.TrimSpace(parts[0]) == "" {
+		body = parts[2]
 	}
+	body = strings.TrimSpace(body)
 	if body == "" {
 		return 0
 	}
