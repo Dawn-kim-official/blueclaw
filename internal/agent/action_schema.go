@@ -9,6 +9,7 @@ func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolRegi
 	var variants []any
 	variants = append(variants,
 		finalReplyActionSchema(),
+		setQualityCriteriaActionSchema(),
 		fetchHistoryActionSchema(),
 		searchMemoryActionSchema(),
 		failActionSchema(),
@@ -36,9 +37,26 @@ func finalReplyActionSchema() map[string]any {
 			"goalStatus":         enumValuesStringSchema([]string{"satisfied"}),
 			"goalSatisfied":      booleanSchema(),
 			"completionEvidence": completionEvidenceSchema(),
+			"qualityReview":      qualityReviewSchema(),
 			"remainingWork":      stringSchema(),
 		},
-		"required":             []string{"action", "goalStatus", "goalSatisfied", "completionEvidence"},
+		"required":             []string{"action", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview"},
+		"additionalProperties": false,
+	}
+}
+
+func setQualityCriteriaActionSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action":          enumStringSchema("set_quality_criteria"),
+			"qualityCriteria": qualityCriteriaSchema(),
+			"reason":          stringSchema(),
+			"goalStatus":      enumValuesStringSchema([]string{"in_progress"}),
+			"goalSatisfied":   booleanSchema(),
+			"remainingWork":   stringSchema(),
+		},
+		"required":             []string{"action", "qualityCriteria"},
 		"additionalProperties": false,
 	}
 }
@@ -188,8 +206,41 @@ func completionEvidenceSchema() map[string]any {
 	}
 }
 
+func qualityCriteriaSchema() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":          stringSchema(),
+				"description": stringSchema(),
+				"required":    booleanSchema(),
+			},
+			"required":             []string{"id", "description"},
+			"additionalProperties": false,
+		},
+	}
+}
+
+func qualityReviewSchema() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":       stringSchema(),
+				"passed":   booleanSchema(),
+				"evidence": completionEvidenceSchema(),
+				"notes":    stringSchema(),
+			},
+			"required":             []string{"id", "passed", "evidence"},
+			"additionalProperties": false,
+		},
+	}
+}
+
 func fallbackActionSchema() string {
-	return `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","call_tool","fetch_history","search_memory","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"query":{"type":"string"},"reason":{"type":"string"},"reply":{"type":"string"},"goalStatus":{"type":"string"},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action"],"additionalProperties":false}`
+	return `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","set_quality_criteria","call_tool","fetch_history","search_memory","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"query":{"type":"string"},"reason":{"type":"string"},"reply":{"type":"string"},"goalStatus":{"type":"string"},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityCriteria":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action"],"additionalProperties":false}`
 }
 
 func finalizerActionSchema() string {

@@ -172,8 +172,13 @@ func setSkillCompletionValue(metadata skillMetadata, key string, value string) s
 func setSkillQualityValue(metadata skillMetadata, key string, value string) skillMetadata {
 	values := parseSkillList(value)
 	switch key {
+	case "acceptanceGuidance":
+		metadata.Quality.AcceptanceGuidance = append(metadata.Quality.AcceptanceGuidance, values...)
+	case "rubric":
+		metadata.Quality.Rubric = append(metadata.Quality.Rubric, values...)
 	case "recommendedChecks":
 		metadata.Quality.RecommendedChecks = append(metadata.Quality.RecommendedChecks, values...)
+		metadata.Quality.AcceptanceGuidance = append(metadata.Quality.AcceptanceGuidance, values...)
 	}
 	return metadata
 }

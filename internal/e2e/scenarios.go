@@ -9,7 +9,7 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 		Skills:                []agent.SkillInstruction{simpleSlidesSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.write", "file.attach"},
 		Turns: []VirtualTurn{{
-			Prompt:                 "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
+			Prompt:                 "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐",
 			ExpectedSelectedSkills: []string{"simple-slides"},
 			ExpectedToolCalls:      []string{"terminal.run", "file.attach"},
 			ExpectedEventCounts: []VirtualEventCount{
@@ -18,12 +18,16 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 				{Name: "tool.terminal.run.result", BodyFragment: "Slide render review", Count: 1},
 				{Name: "tool.file.attach.result", BodyFragment: `"isError":false`, Count: 1},
 			},
-			ExpectedEvents:      []string{"agent.validity_review", "agent.quality_review"},
+			ExpectedEvents:      []string{"agent.quality_criteria", "agent.validity_review", "agent.quality_review"},
 			ExpectedAttachments: []string{".pptx", ".pdf", ".html", "-notes.txt"},
 			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{
 				{
 					PathGlob:          ".blueclaw/tmp/*/DESIGN.md",
 					ContainsFragments: []string{"colors:", "Visual direction"},
+				},
+				{
+					PathGlob:          ".blueclaw/tmp/*/brief.md",
+					ContainsFragments: []string{"original_user_request", "너 뭐 할 수 있는지"},
 				},
 				{
 					PathGlob:           ".blueclaw/tmp/*/presentation.md",
@@ -33,6 +37,10 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 				{
 					PathGlob:          ".blueclaw/tmp/*/review/slide-review.json",
 					ContainsFragments: []string{`"passed": true`, `"safeMargin": true`, `"edgeOverflow": true`, `"contactSheets"`},
+				},
+				{
+					PathGlob:          ".blueclaw/tmp/*/*.html",
+					ContainsFragments: []string{"Paperlogy", "Freesentation", "--background", "InternKim capability deck"},
 				},
 			},
 			ForbiddenReplyFragments: []string{
@@ -107,7 +115,7 @@ func simpleSlidesSkill() agent.SkillInstruction {
 		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
 		Category:    "document-generation",
 		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Write brief.md, then run python3 /workspace/skills/simple-slides/scripts/create_deck.py --slug <deck-slug> --brief brief.md. The creator must write Stitch-compatible DESIGN.md, read that design source, generate presentation.md, build artifacts, and then file.attach PPTX, PDF, HTML, and notes. Do not hand-write presentation.md before running the creator. Do not use Google Workspace unless a google tool is explicitly available.",
+		Prompt:      "Call set_quality_criteria for the requested deck. Write brief.md with original_user_request copied verbatim, then run python3 /workspace/skills/simple-slides/scripts/create_deck.py --slug <deck-slug> --brief brief.md. The creator must write Stitch-compatible DESIGN.md, read that design source, generate presentation.md, build artifacts, and then file.attach PPTX, PDF, HTML, and notes. Do not hand-write presentation.md before running the creator. Do not use Google Workspace unless a google tool is explicitly available. final_reply must pass each declared criterion with observation evidence.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},
@@ -116,7 +124,11 @@ func simpleSlidesSkill() agent.SkillInstruction {
 			RequiredAttachmentSuffixes: []string{".pptx", ".pdf", ".html", "-notes.txt"},
 		},
 		Quality: agent.SkillQuality{
-			RecommendedChecks: []string{"marp_build_log_success", "parse_pptx", "pdf_page_count", "render_nonblank", "slide_render_images", "max_text_overflow", "slide_count_min", "forbidden_reply_fragments"},
+			AcceptanceGuidance: []string{
+				"Preserve the original user request in brief.md.",
+				"Verify requested formats and rendered artifacts before final reply.",
+				"Pass declared task-specific quality criteria with evidence.",
+			},
 		},
 		RequiredTools: []string{"file.write", "terminal.run", "file.attach"},
 		TriggerHints:  []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
