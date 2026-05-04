@@ -120,7 +120,7 @@ func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeBlocksOutboxWhenTaskDoesNotComplete(t *testing.T) {
+func TestConnectorRuntimeSendsSafeReplyWhenTaskDoesNotComplete(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
@@ -134,8 +134,14 @@ func TestConnectorRuntimeBlocksOutboxWhenTaskDoesNotComplete(t *testing.T) {
 	if result.Reason != "task_not_completed" {
 		t.Fatalf("expected task_not_completed result, got %+v", result)
 	}
-	if len(adapter.sentReplies) != 0 {
-		t.Fatalf("expected no direct failure reply, got %+v", adapter.sentReplies)
+	if result.ReplyDispatchID != "dispatch-1" {
+		t.Fatalf("expected incomplete task reply dispatch id, got %q", result.ReplyDispatchID)
+	}
+	if len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected one safe failure reply, got %+v", adapter.sentReplies)
+	}
+	if adapter.sentReplies[0].message != agent.DefaultFallbackReply {
+		t.Fatalf("expected safe failure reply, got %q", adapter.sentReplies[0].message)
 	}
 }
 

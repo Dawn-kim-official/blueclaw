@@ -688,8 +688,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	taskRunID := turnResult.TaskRun.TaskRunID
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "task run is not completed")
-		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "task_not_completed"))
+		dispatchID, isSent := connectorRuntime.sendIncompleteTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
+		if isSent {
+			return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_not_completed", ReplyDispatchID: dispatchID}, nil
+		}
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_not_completed"}, nil
 	}
 	if connectorReplyClaimsAttachmentDelivery(turnResult.FinalReply) && len(turnResult.Attachments) == 0 {
@@ -710,6 +712,28 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID))
 	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Context, platform string, event PlatformInboundEvent, taskRunID string, replyTarget ReplyTarget, turnResult agent.AgentTurnResult, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {
+	reply := strings.TrimSpace(turnResult.FinalReply)
+	if reply == "" {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "task run is not completed")
+		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "task_not_completed"))
+		return "", false
+	}
+	if connectorReplyClaimsAttachmentDelivery(reply) {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "incomplete task reply claims attachments")
+		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "incomplete_reply_claims_attachments"))
+		return "", false
+	}
+	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply})
+	if errorValue != nil {
+		connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		return "", false
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.enqueued_blocked", "incomplete task reply enqueued")
+	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID), slog.String("reason", "task_not_completed"))
+	return dispatchID, true
 }
 
 func (connectorRuntime *ConnectorRuntime) Health() ConnectorRuntimeHealth {
