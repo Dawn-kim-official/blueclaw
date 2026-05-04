@@ -1042,7 +1042,8 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
-	reply := agentTurnRunner.GenerateLimitReachedReply(request, reason, observations, attachments)
+	reply, replyStatus := agentTurnRunner.generateLimitReachedReply(request, reason, observations, attachments)
+	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	blockedTaskRun.Result = reply
 	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply}, nil
 }
@@ -1295,23 +1296,42 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
+type limitReplyStatus struct {
+	Source       string `json:"source"`
+	FirstInvalid bool   `json:"firstInvalid"`
+	RepairCount  int    `json:"repairCount"`
+	Fallback     bool   `json:"fallback"`
+	Reason       string `json:"reason,omitempty"`
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) (string, limitReplyStatus) {
 	finalizationPrompt := buildLimitReachedPrompt(request, stopReason, observations, attachments)
 	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, finalizationPrompt)
 	reply = strings.TrimSpace(reply)
 	if errorValue != nil || reply == "" {
-		return StaticLimitReachedReply
+		return StaticLimitReachedReply, limitReplyStatus{Source: "static", Fallback: true, Reason: firstNonEmptyString(errorString(errorValue), "empty_reply")}
 	}
 	if limitReachedReplyIsInvalid(reply, attachments) {
-		repairedReply, repairError := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, buildLimitReachedRepairPrompt(finalizationPrompt, reply, attachments))
-		repairedReply = strings.TrimSpace(repairedReply)
-		if repairError != nil || repairedReply == "" || limitReachedReplyIsInvalid(repairedReply, attachments) {
-			return StaticLimitReachedReply
+		for repairCount := 1; repairCount <= 2; repairCount++ {
+			repairedReply, repairError := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, buildLimitReachedRepairPrompt(finalizationPrompt, reply, attachments, repairCount))
+			repairedReply = strings.TrimSpace(repairedReply)
+			if repairError != nil || repairedReply == "" {
+				return StaticLimitReachedReply, limitReplyStatus{Source: "static", FirstInvalid: true, RepairCount: repairCount, Fallback: true, Reason: firstNonEmptyString(errorString(repairError), "empty_repair")}
+			}
+			if !limitReachedReplyIsInvalid(repairedReply, attachments) {
+				return repairedReply, limitReplyStatus{Source: "generated_repair", FirstInvalid: true, RepairCount: repairCount}
+			}
+			reply = repairedReply
 		}
-		return repairedReply
+		return StaticLimitReachedReply, limitReplyStatus{Source: "static", FirstInvalid: true, RepairCount: 2, Fallback: true, Reason: "invalid_repair"}
 	}
+	return reply, limitReplyStatus{Source: "generated"}
+}
+
+func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
+	reply, _ := agentTurnRunner.generateLimitReachedReply(request, stopReason, observations, attachments)
 	return reply
 }
 
@@ -1344,14 +1364,17 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 	return strings.Join(sections, "\n\n")
 }
 
-func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, attachments []FileAttachment) string {
+func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, attachments []FileAttachment, repairCount int) string {
 	sections := []string{
 		originalPrompt,
 		"Previous draft was rejected because it either exposed internal runtime details or claimed an attachment/tool result that is not available.",
-		"Rewrite the final reply in natural user-facing language. Do not mention budgets, counters, exact limits, tool-call counts, iterations, seconds, or minutes.",
+		"Rewrite the final reply in natural user-facing language. Do not mention budgets, counters, exact limits, tool-call counts, iterations, seconds, or minutes. Do not use the exact canned sentence from any previous fallback.",
 	}
 	if len(attachments) == 0 {
-		sections = append(sections, "No attachments are available. Do not say that a file, HTML, PPTX, PDF, deck, slide, or notes were attached, sent, delivered, or completed.")
+		sections = append(sections, "No attachments are available. You may say the requested file or HTML was not completed or not attached. Do not say that a file, HTML, PPTX, PDF, deck, slide, or notes were attached, sent, delivered, completed, or created successfully.")
+	}
+	if repairCount > 1 {
+		sections = append(sections, "Use one or two Korean sentences. Apologize briefly, say the run stopped before completion, and say the user can retry. Avoid all attachment-success wording.")
 	}
 	sections = append(sections, "Rejected draft:\n"+strings.TrimSpace(rejectedReply))
 	return strings.Join(sections, "\n\n")
@@ -1424,4 +1447,11 @@ func containsForbiddenLimitReplyFragment(reply string) bool {
 		}
 	}
 	return false
+}
+
+func errorString(errorValue error) string {
+	if errorValue == nil {
+		return ""
+	}
+	return errorValue.Error()
 }
