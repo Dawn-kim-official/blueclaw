@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,10 @@ func TestSlidesLocalMultiturnSuccessLive(t *testing.T) {
 		t.Skip("set BLUECLAW_E2E_LLM_ENDPOINT or BLUECLAW_E2E_LLM_UNIX_SOCKET to run live slides virtual session")
 	}
 	scenario := SlidesLocalMultiturnSuccessScenario(t.TempDir())
+	if skillDirectoryPath := rootSimpleSlidesSkillPath(); skillDirectoryPath != "" {
+		scenario.Skills = nil
+		scenario.SkillDirectoryPaths = []string{skillDirectoryPath}
+	}
 	scenario.LanguageModel = llm.CapabilityLLMClient{
 		CapabilityClient: capability.NewClient(capability.Configuration{
 			Endpoint:       endpoint,
@@ -52,6 +57,14 @@ func TestSlidesLocalMultiturnSuccessLive(t *testing.T) {
 	if !eventsContain(turnResult.Events, "tool.terminal.run.result", "exitCode") {
 		t.Fatal("expected terminal build to succeed")
 	}
+}
+
+func rootSimpleSlidesSkillPath() string {
+	candidatePath := filepath.Clean("../../assets/blueclaw-workspace/skills/simple-slides")
+	if _, errorValue := os.Stat(candidatePath); errorValue == nil {
+		return candidatePath
+	}
+	return ""
 }
 
 func TestMemoryGuidedFollowup(t *testing.T) {

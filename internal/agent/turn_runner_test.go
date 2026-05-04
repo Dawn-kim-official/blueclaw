@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -206,8 +207,8 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected required evidence to recover: %v", errorValue)
 	}
-	if result.FinalReply != "PPTX를 첨부했습니다." {
-		t.Fatalf("expected recovered reply, got %q", result.FinalReply)
+	if !strings.Contains(result.FinalReply, "deck.pptx") {
+		t.Fatalf("expected artifact-aware reply, got %q", result.FinalReply)
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
@@ -253,8 +254,8 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected required suffix evidence to recover: %v", errorValue)
 	}
-	if result.FinalReply != "PPTX를 첨부했습니다." {
-		t.Fatalf("expected recovered reply, got %q", result.FinalReply)
+	if !strings.Contains(result.FinalReply, "deck.pptx") {
+		t.Fatalf("expected artifact-aware reply, got %q", result.FinalReply)
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
@@ -270,12 +271,11 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"), "pptx")
-	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"), "%PDF")
+	turnStartedAt := time.Now().Add(-time.Minute)
+	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
+	writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
 
-	languageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("첨부했습니다."),
-	}}
+	languageModel := &sequenceLanguageModel{contents: []string{finalReplyDocument("unused")}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolRegistry([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
@@ -301,24 +301,28 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 		Prompt:                     "피피티 만들어줘",
 		ToolRegistry:               toolRegistry,
 		WorkspaceRootPath:          workspaceRootPath,
+		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected auto attachment evidence to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "첨부했습니다." {
-		t.Fatalf("expected original final reply, got %q", result.FinalReply)
+	if !strings.Contains(result.FinalReply, "deck.pptx") || !strings.Contains(result.FinalReply, "deck.pdf") {
+		t.Fatalf("expected artifact-aware final reply, got %q", result.FinalReply)
 	}
 	if len(result.Attachments) != 2 {
 		t.Fatalf("expected two attachments, got %+v", result.Attachments)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.completion_auto_evidence", "file.attach") {
-		t.Fatal("expected auto evidence event")
+	if !taskEventsContain(taskEvents, "agent.completion_state_transition", "attach_existing_artifacts") {
+		t.Fatal("expected completion state attachment transition")
 	}
 	if !taskEventsContain(taskEvents, "tool.file.attach.requested", "deck.pptx") {
 		t.Fatal("expected automatic file.attach request")
+	}
+	if len(languageModel.requests) != 0 {
+		t.Fatalf("expected completion state to avoid model calls, got %d", len(languageModel.requests))
 	}
 }
 
@@ -337,8 +341,8 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 		if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 			return ToolResult{}, errorValue
 		}
-		writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"), "pptx")
-		writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"), "%PDF")
+		writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
+		writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
 		return ToolResult{Content: `{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`}, nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
@@ -373,8 +377,139 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	if len(result.Attachments) != 2 {
 		t.Fatalf("expected two attachments, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_auto_finalized", "attachmentCount") {
-		t.Fatal("expected auto finalization event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "attachmentCount") {
+		t.Fatal("expected completion state finalization event")
+	}
+}
+
+func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	turnStartedAt := time.Now().Add(-time.Minute)
+	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
+
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"fail","reason":"attachment unavailable"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	attachmentCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		attachmentCallCount++
+		return ToolResult{Content: "attachment unavailable", IsError: true}, nil
+	})
+
+	_, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "피피티 만들어줘",
+		ToolRegistry:               toolRegistry,
+		WorkspaceRootPath:          workspaceRootPath,
+		TurnStartedAt:              turnStartedAt,
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected failed turn to return result without runner error: %v", errorValue)
+	}
+	if attachmentCallCount != 1 {
+		t.Fatalf("expected one automatic attachment attempt, got %d", attachmentCallCount)
+	}
+}
+
+func TestAgentTurnRunnerDoesNotAttachInvalidArtifactCandidate(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	turnStartedAt := time.Now().Add(-time.Minute)
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"), "not a valid pptx")
+
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"fail","reason":"artifact invalid"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	attachmentCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		attachmentCallCount++
+		return ToolResult{Content: "file attached"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "피피티 만들어줘",
+		ToolRegistry:               toolRegistry,
+		WorkspaceRootPath:          workspaceRootPath,
+		TurnStartedAt:              turnStartedAt,
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected invalid artifact turn to return result without runner error: %v", errorValue)
+	}
+	if attachmentCallCount != 0 {
+		t.Fatalf("expected invalid artifact not to be attached, got %d calls", attachmentCallCount)
+	}
+	if len(result.Attachments) != 0 {
+		t.Fatalf("expected no invalid artifact attachments, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.validity_review", "pptx package cannot be opened") {
+		t.Fatal("expected validity review failure event")
+	}
+}
+
+func TestAgentTurnRunnerQualityWarningDoesNotBlockCompletion(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	turnStartedAt := time.Now().Add(-time.Minute)
+	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
+	writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
+
+	languageModel := &sequenceLanguageModel{contents: []string{finalReplyDocument("unused")}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var request struct {
+			Paths []string `json:"paths"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		attachments := []FileAttachment{}
+		for _, path := range request.Paths {
+			attachments = append(attachments, FileAttachment{DevicePath: path, Filename: filepath.Base(path)})
+		}
+		return ToolResult{Content: "file attached", Attachments: attachments}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "피피티 만들어줘",
+		ToolRegistry:               toolRegistry,
+		WorkspaceRootPath:          workspaceRootPath,
+		TurnStartedAt:              turnStartedAt,
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
+		QualityRecommendedChecks:   []string{"marp_build_log_success"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected advisory quality warning not to block completion: %v", errorValue)
+	}
+	if len(result.Attachments) != 2 {
+		t.Fatalf("expected attachments despite advisory warning, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.quality_review", "No Marp build success log was observed") {
+		t.Fatal("expected advisory quality warning event")
 	}
 }
 
@@ -701,10 +836,11 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerCompletesInsteadOfRepeatingSuccessfulToolCall(t *testing.T) {
+func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
+		finalReplyDocument("명령 실행은 완료됐습니다.\n\n@marp-team/marp-cli v4.3.1"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -732,8 +868,8 @@ func TestAgentTurnRunnerCompletesInsteadOfRepeatingSuccessfulToolCall(t *testing
 	if !strings.Contains(result.FinalReply, "@marp-team/marp-cli v4.3.1") {
 		t.Fatalf("expected final reply from successful observation, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_finalized", "obs-001") {
-		t.Fatal("expected duplicate finalization event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_rejected", "obs-001") {
+		t.Fatal("expected duplicate rejection event")
 	}
 }
 

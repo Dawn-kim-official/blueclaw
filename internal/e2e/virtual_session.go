@@ -46,9 +46,25 @@ type VirtualTurn struct {
 	ModelResponses          []string
 	ExpectedSelectedSkills  []string
 	ExpectedToolCalls       []string
+	ExpectedEvents          []string
+	ExpectedToolCallCounts  map[string]int
+	ExpectedEventCounts     []VirtualEventCount
 	ExpectedAttachments     []string
+	ExpectedWorkspaceFiles  []VirtualWorkspaceFileExpectation
 	ExpectedReplyFragments  []string
 	ForbiddenReplyFragments []string
+}
+
+type VirtualEventCount struct {
+	Name         string
+	BodyFragment string
+	Count        int
+}
+
+type VirtualWorkspaceFileExpectation struct {
+	PathGlob           string
+	ContainsFragments  []string
+	ForbiddenFragments []string
 }
 
 type VirtualSessionResult struct {
@@ -179,21 +195,21 @@ func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath
 		if errorValue != nil {
 			return nil, errorValue
 		}
-		skillInstructions = append(skillInstructions, skillInstructionFromBundle(skillBundle, workspacePath))
+		skillInstructions = append(skillInstructions, skillInstructionFromBundle(skillBundle))
 	}
 	return skillInstructions, nil
 }
 
-func skillInstructionFromBundle(skillBundle skill.SkillBundle, workspacePath string) agent.SkillInstruction {
-	instruction := strings.ReplaceAll(skillBundle.Instruction, "/workspace", workspacePath)
+func skillInstructionFromBundle(skillBundle skill.SkillBundle) agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:            skillBundle.Name,
 		Description:     skillBundle.Description,
 		Category:        skillBundle.Category,
 		Tags:            append([]string{}, skillBundle.Tags...),
-		Prompt:          instruction,
+		Prompt:          skillBundle.Instruction,
 		Activation:      agent.SkillActivation(skillBundle.Activation),
 		Completion:      agent.SkillCompletion(skillBundle.Completion),
+		Quality:         agent.SkillQuality(skillBundle.Quality),
 		RequiredTools:   append([]string{}, skillBundle.RequiredTools...),
 		AllowedProfiles: append([]string{}, skillBundle.AllowedProfiles...),
 		TriggerHints:    append([]string{}, skillBundle.TriggerHints...),
@@ -267,7 +283,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		if errorValue != nil {
 			return result, errorValue
 		}
-		if errorValue := assertTurnResult(virtualTurn, turnResult); errorValue != nil {
+		if errorValue := assertTurnResult(harness.workspacePath, virtualTurn, turnResult); errorValue != nil {
 			return result, fmt.Errorf("%s turn %d: %w", harness.scenario.Name, index+1, errorValue)
 		}
 		result.TurnResults = append(result.TurnResults, turnResult)
@@ -333,7 +349,7 @@ func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turn
 	)
 }
 
-func assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
 	for _, skillName := range virtualTurn.ExpectedSelectedSkills {
 		if !eventsContain(turnResult.Events, "agent.instructions_loaded", skillName) {
 			return fmt.Errorf("expected selected skill %q", skillName)
@@ -344,12 +360,34 @@ func assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) err
 			return fmt.Errorf("expected requested tool %q; events: %s", toolName, summarizeEvents(turnResult.Events))
 		}
 	}
+	for _, eventName := range virtualTurn.ExpectedEvents {
+		if !eventsContain(turnResult.Events, eventName, "") {
+			return fmt.Errorf("expected event %q; events: %s", eventName, summarizeEvents(turnResult.Events))
+		}
+	}
+	for toolName, expectedCount := range virtualTurn.ExpectedToolCallCounts {
+		actualCount := countEvents(turnResult.Events, "tool."+toolName+".requested")
+		if actualCount != expectedCount {
+			return fmt.Errorf("expected %d requested %s calls, got %d; events: %s", expectedCount, toolName, actualCount, summarizeEvents(turnResult.Events))
+		}
+	}
+	for _, expectedEventCount := range virtualTurn.ExpectedEventCounts {
+		actualCount := countEventsWithFragment(turnResult.Events, expectedEventCount.Name, expectedEventCount.BodyFragment)
+		if actualCount != expectedEventCount.Count {
+			return fmt.Errorf("expected %d events %s containing %q, got %d; events: %s", expectedEventCount.Count, expectedEventCount.Name, expectedEventCount.BodyFragment, actualCount, summarizeEvents(turnResult.Events))
+		}
+	}
 	for _, suffix := range virtualTurn.ExpectedAttachments {
 		attachment, isFound := findAttachmentWithSuffix(turnResult.Attachments, suffix)
 		if !isFound {
 			return fmt.Errorf("expected attachment suffix %q, got %+v; events: %s", suffix, turnResult.Attachments, summarizeEvents(turnResult.Events))
 		}
-		if errorValue := validateAttachmentContent(attachment, suffix); errorValue != nil {
+		if errorValue := validateAttachmentContent(workspacePath, attachment, suffix); errorValue != nil {
+			return errorValue
+		}
+	}
+	for _, expectedWorkspaceFile := range virtualTurn.ExpectedWorkspaceFiles {
+		if errorValue := validateExpectedWorkspaceFile(workspacePath, expectedWorkspaceFile); errorValue != nil {
 			return errorValue
 		}
 	}
@@ -361,6 +399,34 @@ func assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) err
 	for _, fragment := range virtualTurn.ForbiddenReplyFragments {
 		if strings.Contains(turnResult.FinalReply, fragment) {
 			return fmt.Errorf("forbidden reply fragment %q found in %q", fragment, turnResult.FinalReply)
+		}
+	}
+	return nil
+}
+
+func validateExpectedWorkspaceFile(workspacePath string, expectation VirtualWorkspaceFileExpectation) error {
+	pattern := filepath.Join(workspacePath, expectation.PathGlob)
+	matches, errorValue := filepath.Glob(pattern)
+	if errorValue != nil {
+		return errorValue
+	}
+	if len(matches) == 0 {
+		return fmt.Errorf("expected workspace file matching %q", expectation.PathGlob)
+	}
+	sort.Strings(matches)
+	content, errorValue := os.ReadFile(matches[len(matches)-1])
+	if errorValue != nil {
+		return errorValue
+	}
+	document := string(content)
+	for _, fragment := range expectation.ContainsFragments {
+		if !strings.Contains(document, fragment) {
+			return fmt.Errorf("expected %s to contain %q", matches[len(matches)-1], fragment)
+		}
+	}
+	for _, fragment := range expectation.ForbiddenFragments {
+		if strings.Contains(document, fragment) {
+			return fmt.Errorf("expected %s not to contain %q", matches[len(matches)-1], fragment)
 		}
 	}
 	return nil
@@ -387,6 +453,30 @@ func eventsContain(events []task.TaskEvent, name string, bodyFragment string) bo
 	return false
 }
 
+func countEvents(events []task.TaskEvent, name string) int {
+	count := 0
+	for _, event := range events {
+		if event.Name == name {
+			count++
+		}
+	}
+	return count
+}
+
+func countEventsWithFragment(events []task.TaskEvent, name string, bodyFragment string) int {
+	count := 0
+	for _, event := range events {
+		if event.Name != name {
+			continue
+		}
+		if bodyFragment != "" && !strings.Contains(event.Body, bodyFragment) {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
 func findAttachmentWithSuffix(attachments []agent.FileAttachment, suffix string) (agent.FileAttachment, bool) {
 	for _, attachment := range attachments {
 		if strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix) {
@@ -396,23 +486,35 @@ func findAttachmentWithSuffix(attachments []agent.FileAttachment, suffix string)
 	return agent.FileAttachment{}, false
 }
 
-func validateAttachmentContent(attachment agent.FileAttachment, suffix string) error {
+func validateAttachmentContent(workspacePath string, attachment agent.FileAttachment, suffix string) error {
+	path := localAttachmentPath(workspacePath, attachment)
 	switch suffix {
 	case ".pptx":
-		return validatePPTXAttachment(attachment)
+		return validatePPTXAttachment(path, attachment)
 	case ".pdf":
-		return validateFilePrefix(attachment.DevicePath, "%PDF")
+		return validateFilePrefix(path, "%PDF")
 	case ".html":
-		return validateFileContains(attachment.DevicePath, "<html")
+		return validateFileContains(path, "<html")
 	case "-notes.txt":
-		return validateNonEmptyFile(attachment.DevicePath)
+		return validateNonEmptyFile(path)
 	default:
-		return validateNonEmptyFile(attachment.DevicePath)
+		return validateNonEmptyFile(path)
 	}
 }
 
-func validatePPTXAttachment(attachment agent.FileAttachment) error {
-	reader, errorValue := zip.OpenReader(attachment.DevicePath)
+func localAttachmentPath(workspacePath string, attachment agent.FileAttachment) string {
+	devicePath := strings.TrimSpace(attachment.DevicePath)
+	if devicePath == "/workspace" {
+		return workspacePath
+	}
+	if strings.HasPrefix(devicePath, "/workspace/") {
+		return filepath.Join(workspacePath, strings.TrimPrefix(devicePath, "/workspace/"))
+	}
+	return devicePath
+}
+
+func validatePPTXAttachment(path string, attachment agent.FileAttachment) error {
+	reader, errorValue := zip.OpenReader(path)
 	if errorValue != nil {
 		return fmt.Errorf("attachment %s is not a valid pptx zip: %w", attachment.DevicePath, errorValue)
 	}
@@ -474,7 +576,11 @@ func prepareArtifactDirectory(scenario VirtualSessionScenario) (string, error) {
 	if rootPath == "" {
 		return os.MkdirTemp("", "blueclaw-e2e-*")
 	}
-	artifactPath := filepath.Join(rootPath, scenario.Name+"-"+time.Now().UTC().Format("20060102T150405.000000000"))
+	absoluteRootPath, errorValue := filepath.Abs(rootPath)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	artifactPath := filepath.Join(absoluteRootPath, scenario.Name+"-"+time.Now().UTC().Format("20060102T150405.000000000"))
 	return artifactPath, os.MkdirAll(artifactPath, 0700)
 }
 

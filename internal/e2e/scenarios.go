@@ -12,7 +12,29 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 			Prompt:                 "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
 			ExpectedSelectedSkills: []string{"simple-slides"},
 			ExpectedToolCalls:      []string{"terminal.run", "file.attach"},
-			ExpectedAttachments:    []string{".pptx", ".pdf", ".html", "-notes.txt"},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.terminal.run.requested", BodyFragment: "create_deck.py", Count: 1},
+				{Name: "tool.terminal.run.result", BodyFragment: "Building HTML + PPTX + PDF", Count: 1},
+				{Name: "tool.terminal.run.result", BodyFragment: "Slide render review", Count: 1},
+				{Name: "tool.file.attach.result", BodyFragment: `"isError":false`, Count: 1},
+			},
+			ExpectedEvents:      []string{"agent.validity_review", "agent.quality_review"},
+			ExpectedAttachments: []string{".pptx", ".pdf", ".html", "-notes.txt"},
+			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{
+				{
+					PathGlob:          ".blueclaw/tmp/*/DESIGN.md",
+					ContainsFragments: []string{"colors:", "Visual direction"},
+				},
+				{
+					PathGlob:           ".blueclaw/tmp/*/presentation.md",
+					ContainsFragments:  []string{"design-source: DESIGN.md", "InternKim capability deck"},
+					ForbiddenFragments: []string{"Draft a presentation deck", "user_request:"},
+				},
+				{
+					PathGlob:          ".blueclaw/tmp/*/review/slide-review.json",
+					ContainsFragments: []string{`"passed": true`, `"safeMargin": true`, `"edgeOverflow": true`, `"contactSheets"`},
+				},
+			},
 			ForbiddenReplyFragments: []string{
 				"PPT 못",
 				"PPT 파일을 직접 생성할 수",
@@ -85,13 +107,16 @@ func simpleSlidesSkill() agent.SkillInstruction {
 		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
 		Category:    "document-generation",
 		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Use file.write to create presentation sources, terminal.run to build local artifacts, and file.attach to attach PPTX, PDF, HTML, and notes. Do not use Google Workspace unless a google tool is explicitly available.",
+		Prompt:      "Write brief.md, then run python3 /workspace/skills/simple-slides/scripts/create_deck.py --slug <deck-slug> --brief brief.md. The creator must write Stitch-compatible DESIGN.md, read that design source, generate presentation.md, build artifacts, and then file.attach PPTX, PDF, HTML, and notes. Do not hand-write presentation.md before running the creator. Do not use Google Workspace unless a google tool is explicitly available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},
 		Completion: agent.SkillCompletion{
 			RequiredEvidenceTools:      []string{"file.attach"},
 			RequiredAttachmentSuffixes: []string{".pptx", ".pdf", ".html", "-notes.txt"},
+		},
+		Quality: agent.SkillQuality{
+			RecommendedChecks: []string{"marp_build_log_success", "parse_pptx", "pdf_page_count", "render_nonblank", "slide_render_images", "max_text_overflow", "slide_count_min", "forbidden_reply_fragments"},
 		},
 		RequiredTools: []string{"file.write", "terminal.run", "file.attach"},
 		TriggerHints:  []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},

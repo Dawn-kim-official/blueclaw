@@ -334,6 +334,7 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 						Prompt:          strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
 						Activation:      agent.SkillActivation(skillBundle.Activation),
 						Completion:      agent.SkillCompletion(skillBundle.Completion),
+						Quality:         agent.SkillQuality(skillBundle.Quality),
 						RequiredTools:   append([]string{}, skillBundle.RequiredTools...),
 						AllowedProfiles: append([]string{}, skillBundle.AllowedProfiles...),
 						TriggerHints:    append([]string{}, skillBundle.TriggerHints...),
