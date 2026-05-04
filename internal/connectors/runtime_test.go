@@ -145,6 +145,33 @@ func TestConnectorRuntimeSendsSafeReplyWhenTaskDoesNotComplete(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeSanitizesIncompleteAttachmentClaims(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	sentReplies := []OutboundReply{}
+	dispatchID, isSent := connectorRuntime.sendIncompleteTaskReply(
+		context.Background(),
+		"test",
+		testInboundEvent("message-1"),
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{FinalReply: "파일을 생성해 첨부했습니다."},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected sanitized reply to be sent, got dispatchID=%q sent=%v", dispatchID, isSent)
+	}
+	if len(sentReplies) != 1 {
+		t.Fatalf("expected one sanitized reply, got %+v", sentReplies)
+	}
+	if sentReplies[0].Message != agent.StaticLimitReachedReply {
+		t.Fatalf("expected static safe reply, got %q", sentReplies[0].Message)
+	}
+}
+
 func TestConnectorRuntimeUsesOpaqueReplyTarget(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "reply"})
 	event := testInboundEvent("message-1")

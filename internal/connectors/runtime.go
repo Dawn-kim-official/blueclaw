@@ -722,9 +722,8 @@ func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Co
 		return "", false
 	}
 	if connectorReplyClaimsAttachmentDelivery(reply) {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "incomplete task reply claims attachments")
-		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "incomplete_reply_claims_attachments"))
-		return "", false
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.sanitized_blocked", "incomplete task reply claimed attachments")
+		reply = agent.StaticLimitReachedReply
 	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply})
 	if errorValue != nil {
