@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolRegistry, allowQualityCriteria bool) string {
+func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolRegistry, allowQualityCriteria bool, blockedToolNames map[string]bool) string {
 	var variants []any
 	variants = append(variants,
 		finalReplyActionSchema(),
@@ -18,6 +18,9 @@ func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolRegi
 	}
 	if toolRegistry != nil {
 		for _, toolDefinition := range toolRegistry.ListToolDefinitions() {
+			if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
+				continue
+			}
 			variants = append(variants, callToolActionSchema(toolDefinition))
 		}
 	}

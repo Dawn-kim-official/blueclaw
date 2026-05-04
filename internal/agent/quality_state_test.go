@@ -78,6 +78,85 @@ func TestQualityReviewRejectsMissingEvidence(t *testing.T) {
 	}
 }
 
+func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
+	criteria := normalizeQualityCriteria([]qualityCriterion{{
+		ID:          "artifact-delivered",
+		Description: "HTML artifact is attached.",
+	}})
+	evidence := []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach", AttachmentIndex: intPointer(0)}}
+	actionDocument := turnActionDocument{
+		Action:             "final_reply",
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      boolPointer(true),
+		CompletionEvidence: evidence,
+		QualityReview: []qualityReviewItem{{
+			ID:       "artifact-delivered",
+			Passed:   true,
+			Evidence: evidence,
+		}},
+		FinalReply: "HTML 파일을 만들었습니다: sandbox:/mnt/data/Hermes_Agent_Analysis.html",
+	}
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "call_tool",
+		Tool:          "file.attach",
+		Content:       "file attached",
+		Attachments: []FileAttachment{{
+			Filename:   "hermes-analysis.html",
+			DevicePath: "/root/.blueclaw/workspace/hermes-analysis.html",
+		}},
+	}}
+
+	result := validateCompletionGateForRequest(AgentTurnRequest{
+		QualityAcceptanceGuidance: []string{"deliver the requested HTML"},
+	}, []toolUseRequirement{{
+		ToolName:           "file.attach",
+		RequiresAttachment: true,
+		AttachmentSuffixes: []string{".html"},
+	}}, observations, criteria, actionDocument)
+
+	if result.IsSatisfied {
+		t.Fatal("expected sandbox artifact locator to be rejected")
+	}
+	if result.Message == "" {
+		t.Fatal("expected rejection message")
+	}
+}
+
+func TestCompletionGateRejectsUnattachedArtifactFilename(t *testing.T) {
+	actionDocument := turnActionDocument{
+		Action:             "final_reply",
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      boolPointer(true),
+		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach", AttachmentIndex: intPointer(0)}},
+		FinalReply:         "요청하신 파일을 생성해 첨부했습니다: Hermes_Agent_Analysis.html",
+	}
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "call_tool",
+		Tool:          "file.attach",
+		Content:       "file attached",
+		Attachments: []FileAttachment{{
+			Filename:   "hermes-analysis.html",
+			DevicePath: "/root/.blueclaw/workspace/hermes-analysis.html",
+		}},
+	}}
+
+	result := validateCompletionGateForRequest(AgentTurnRequest{}, []toolUseRequirement{{
+		ToolName:           "file.attach",
+		RequiresAttachment: true,
+		AttachmentSuffixes: []string{".html"},
+	}}, observations, nil, actionDocument)
+
+	if result.IsSatisfied {
+		t.Fatal("expected unattached artifact filename to be rejected")
+	}
+}
+
 func boolPointer(value bool) *bool {
+	return &value
+}
+
+func intPointer(value int) *int {
 	return &value
 }
