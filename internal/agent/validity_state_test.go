@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -36,5 +37,92 @@ func TestValidityStateRejectsBrokenPPTX(t *testing.T) {
 
 	if validityState.Passed || len(validityState.InvalidArtifacts) != 1 {
 		t.Fatalf("expected broken PPTX validity failure, got %+v", validityState)
+	}
+}
+
+func TestValidityStateRejectsDeckArtifactMissingIntentManifest(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "hermes-analysis")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "presentation.md"), "Hermes Agent 장단점 분석")
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "hermes-analysis.html"), "<html><body>Hermes Agent 장단점 분석</body></html>")
+
+	validityState := buildArtifactValidityState([]CompletionArtifact{{
+		Suffix:       ".html",
+		Filename:     "hermes-analysis.html",
+		RelativePath: ".blueclaw/tmp/hermes-analysis/hermes-analysis.html",
+		path:         filepath.Join(artifactDirectoryPath, "hermes-analysis.html"),
+	}})
+
+	if validityState.Passed || len(validityState.InvalidArtifacts) != 1 {
+		t.Fatalf("expected missing intent manifest failure, got %+v", validityState)
+	}
+	if validityState.InvalidArtifacts[0].Reason != "deck intent manifest is missing" {
+		t.Fatalf("expected missing manifest reason, got %+v", validityState.InvalidArtifacts[0])
+	}
+}
+
+func TestValidityStateRejectsSampleTokenForGenericDeck(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "hermes-analysis")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "presentation.md"), "Hermes Agent 장단점 분석")
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "hermes-analysis-intent.json"), `{
+  "output_slug": "hermes-analysis",
+  "mode": "generic",
+  "topic": "Hermes Agent",
+  "slide_intent": "장단점 분석",
+  "requested_slide_count": 1,
+  "requested_formats": ["html"],
+  "slide_count": 1
+}`)
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "hermes-analysis.html"), "<html><body>Hermes Agent 장단점 분석 InternKim capability deck</body></html>")
+
+	validityState := buildArtifactValidityState([]CompletionArtifact{{
+		Suffix:       ".html",
+		Filename:     "hermes-analysis.html",
+		RelativePath: ".blueclaw/tmp/hermes-analysis/hermes-analysis.html",
+		path:         filepath.Join(artifactDirectoryPath, "hermes-analysis.html"),
+	}})
+
+	if validityState.Passed || len(validityState.InvalidArtifacts) != 1 {
+		t.Fatalf("expected sample token failure, got %+v", validityState)
+	}
+	if validityState.InvalidArtifacts[0].Reason != "non-capabilities artifact contains built-in capability sample text" {
+		t.Fatalf("expected sample token reason, got %+v", validityState.InvalidArtifacts[0])
+	}
+}
+
+func TestValidityStateAcceptsDeckArtifactMatchingIntentManifest(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "hermes-analysis")
+	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "presentation.md"), "Hermes Agent 장단점 분석")
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "hermes-analysis-intent.json"), `{
+  "output_slug": "hermes-analysis",
+  "mode": "generic",
+  "topic": "Hermes Agent",
+  "slide_intent": "장단점 분석",
+  "requested_slide_count": 1,
+  "requested_formats": ["html"],
+  "slide_count": 1
+}`)
+	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "hermes-analysis.html"), "<html><body>Hermes Agent 장단점 분석</body></html>")
+
+	validityState := buildArtifactValidityState([]CompletionArtifact{{
+		Suffix:       ".html",
+		Filename:     "hermes-analysis.html",
+		RelativePath: ".blueclaw/tmp/hermes-analysis/hermes-analysis.html",
+		path:         filepath.Join(artifactDirectoryPath, "hermes-analysis.html"),
+	}})
+
+	if !validityState.Passed {
+		t.Fatalf("expected matching intent artifact to pass, got %+v", validityState)
 	}
 }
