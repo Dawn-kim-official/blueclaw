@@ -925,6 +925,42 @@ func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+		},
+		textResponses: []string{
+			"요청하신 HTML 파일을 생성해 첨부했습니다.",
+			"작업은 시작했지만 HTML 파일을 완성하기 전에 실행 한계에 걸렸습니다. 지금까지의 작업 상태는 저장되어 다시 이어서 시도할 수 있습니다.",
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
+	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "started"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "html 파일 만들어줘",
+		ToolRegistry:      toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected limit result, got error: %v", errorValue)
+	}
+	if strings.Contains(result.FinalReply, "첨부") {
+		t.Fatalf("expected generated reply without attachment claim, got %q", result.FinalReply)
+	}
+	if !strings.Contains(result.FinalReply, "저장") {
+		t.Fatalf("expected regenerated contextual reply, got %q", result.FinalReply)
+	}
+	if len(languageModel.textPrompts) != 2 {
+		t.Fatalf("expected repair generation prompt, got %d prompts", len(languageModel.textPrompts))
+	}
+}
+
 func TestAgentTurnRunnerUsesStaticLimitReplyWhenFinalizationLeaksDiagnostics(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{

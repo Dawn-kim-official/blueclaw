@@ -1301,8 +1301,16 @@ func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentT
 	defer cancel()
 	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, finalizationPrompt)
 	reply = strings.TrimSpace(reply)
-	if errorValue != nil || reply == "" || containsForbiddenLimitReplyFragment(reply) {
+	if errorValue != nil || reply == "" {
 		return StaticLimitReachedReply
+	}
+	if limitReachedReplyIsInvalid(reply, attachments) {
+		repairedReply, repairError := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, buildLimitReachedRepairPrompt(finalizationPrompt, reply, attachments))
+		repairedReply = strings.TrimSpace(repairedReply)
+		if repairError != nil || repairedReply == "" || limitReachedReplyIsInvalid(repairedReply, attachments) {
+			return StaticLimitReachedReply
+		}
+		return repairedReply
 	}
 	return reply
 }
@@ -1334,6 +1342,26 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 		sections = append(sections, "Internal stop reason for your planning only: "+reason)
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, attachments []FileAttachment) string {
+	sections := []string{
+		originalPrompt,
+		"Previous draft was rejected because it either exposed internal runtime details or claimed an attachment/tool result that is not available.",
+		"Rewrite the final reply in natural user-facing language. Do not mention budgets, counters, exact limits, tool-call counts, iterations, seconds, or minutes.",
+	}
+	if len(attachments) == 0 {
+		sections = append(sections, "No attachments are available. Do not say that a file, HTML, PPTX, PDF, deck, slide, or notes were attached, sent, delivered, or completed.")
+	}
+	sections = append(sections, "Rejected draft:\n"+strings.TrimSpace(rejectedReply))
+	return strings.Join(sections, "\n\n")
+}
+
+func limitReachedReplyIsInvalid(reply string, attachments []FileAttachment) bool {
+	if containsForbiddenLimitReplyFragment(reply) {
+		return true
+	}
+	return len(attachments) == 0 && finalReplyClaimsAttachmentDelivery(reply)
 }
 
 func buildLimitObservationSummary(observations []turnObservation) string {
