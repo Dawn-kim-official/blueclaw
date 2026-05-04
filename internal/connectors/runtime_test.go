@@ -120,22 +120,22 @@ func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeUsesFallbackReplyWhenLanguageModelFails(t *testing.T) {
+func TestConnectorRuntimeBlocksOutboxWhenTaskDoesNotComplete(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
-		t.Fatalf("expected fallback reply: %v", errorValue)
+		t.Fatalf("expected incomplete task to be recorded: %v", errorValue)
 	}
 
 	if result.TaskRunID == "" {
 		t.Fatal("expected task run id")
 	}
-	if len(adapter.sentReplies) != 1 {
-		t.Fatalf("expected one reply, got %d", len(adapter.sentReplies))
+	if result.Reason != "task_not_completed" {
+		t.Fatalf("expected task_not_completed result, got %+v", result)
 	}
-	if adapter.sentReplies[0].message != "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed." {
-		t.Fatalf("expected fallback reply, got %q", adapter.sentReplies[0].message)
+	if len(adapter.sentReplies) != 0 {
+		t.Fatalf("expected no direct failure reply, got %+v", adapter.sentReplies)
 	}
 }
 

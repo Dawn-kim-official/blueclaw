@@ -33,6 +33,8 @@ type capabilityProgressRequest struct {
 type capabilityReplyRequest struct {
 	ReplyTargetID string                      `json:"replyTargetID"`
 	Message       string                      `json:"message"`
+	RawEventID    string                      `json:"rawEventID,omitempty"`
+	OutboxID      string                      `json:"outboxID,omitempty"`
 	Attachments   []capabilityReplyAttachment `json:"attachments,omitempty"`
 }
 
@@ -113,6 +115,8 @@ func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTar
 	errorValue := adapter.post(ctx, "reply.send", capabilityReplyRequest{
 		ReplyTargetID: replyTarget.ReplyTargetID,
 		Message:       reply.Message,
+		RawEventID:    reply.RawEventID,
+		OutboxID:      reply.OutboxID,
 		Attachments:   buildCapabilityReplyAttachments(reply.Attachments),
 	}, &response)
 	if errorValue != nil {

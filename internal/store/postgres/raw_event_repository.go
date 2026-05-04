@@ -269,6 +269,9 @@ WHERE platform = $1 AND conversation_id = $2 AND external_message_id = $3`,
 }
 
 func (rawEventRepository RawEventRepository) EnqueueConnectorReply(event connectors.PlatformInboundEvent, replyTarget connectors.ReplyTarget, reply connectors.OutboundReply) (string, error) {
+	outboxID := event.DedupeKey()
+	reply.RawEventID = event.DedupeKey()
+	reply.OutboxID = outboxID
 	replyTargetDocument, errorValue := json.Marshal(replyTarget)
 	if errorValue != nil {
 		return "", errorValue
@@ -277,7 +280,6 @@ func (rawEventRepository RawEventRepository) EnqueueConnectorReply(event connect
 	if errorValue != nil {
 		return "", errorValue
 	}
-	outboxID := event.DedupeKey()
 	execResult, errorValue := rawEventRepository.database.SQL.ExecContext(context.Background(), `
 INSERT INTO connector_outbox (
   outbox_id, raw_event_id, platform, reply_target_id, reply_target_json, reply_json
