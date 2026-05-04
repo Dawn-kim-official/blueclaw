@@ -54,6 +54,29 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRejectsAttachmentClaimWithoutAttachmentEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		finalReplyDocument("첨부된 파일들을 확인해 주세요."),
+		`{"action":"fail","reason":"attachment evidence missing"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "파일 만들어서 보내줘",
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to finish: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task after unsupported attachment claim, got %s", result.TaskRun.Status)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "claims attached files") {
+		t.Fatal("expected completion gate to reject attachment claim without evidence")
+	}
+}
+
 func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("done"),

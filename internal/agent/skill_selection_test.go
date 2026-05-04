@@ -42,6 +42,37 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 	}
 }
 
+func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Prompt: "base",
+		Skills: []SkillInstruction{
+			{
+				Name:          "simple-slides",
+				Description:   "Create presentation decks.",
+				Prompt:        "Generate PPTX with Marp.",
+				TriggerHints:  []string{"피피티", "pptx"},
+				RequiredTools: []string{"terminal.run", "file.write", "file.attach"},
+				Source:        InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+			},
+		},
+	}
+
+	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
+		Prompt: "별로야. 폐기하고 새로 다시 해줘.",
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
+			{Speaker: "user", Text: "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐"},
+		}},
+		ToolRegistry: testToolRegistry([]string{"terminal.run", "file.write", "file.attach"}),
+	})
+
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected follow-up context to select simple-slides, got %+v", selectedBundle.SkillDecisions)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
+		t.Fatalf("expected selected skill body, got %q", selectedBundle.Prompt)
+	}
+}
+
 func TestSkillSelectorIncludesSimpleSlidesInstructionForPresentationAliases(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{

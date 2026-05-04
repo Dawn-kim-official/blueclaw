@@ -1061,6 +1061,9 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
+	if finalReplyClaimsAttachmentDelivery(actionDocument.FinalReply) && len(attachments) == 0 {
+		return completionGateResult{Message: "final_reply claims attached files but completionEvidence does not cite an attachment"}
+	}
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
 
@@ -1083,6 +1086,28 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 
 func requestRequiresQualityCriteria(request AgentTurnRequest) bool {
 	return len(request.QualityAcceptanceGuidance) > 0
+}
+
+func finalReplyClaimsAttachmentDelivery(reply string) bool {
+	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
+	if normalizedReply == "" || containsAny(normalizedReply, attachmentDeliveryNegations()) {
+		return false
+	}
+	if containsAny(normalizedReply, []string{"attached", "attachment"}) {
+		return true
+	}
+	if containsAny(normalizedReply, []string{"첨부", "전달", "보내드", "보냈"}) &&
+		containsAny(normalizedReply, []string{"파일", "pptx", "pdf", "html", "notes", "자료", "deck", "slide"}) {
+		return true
+	}
+	return containsAny(normalizedReply, []string{"첨부된 파일", "파일들을 확인", "파일을 확인", "attached files"})
+}
+
+func attachmentDeliveryNegations() []string {
+	return []string{
+		"not attached", "not attach", "cannot attach", "could not attach", "failed to attach",
+		"첨부하지 못", "첨부할 수 없", "첨부 실패", "파일을 전달하지 못", "파일로 전달하지 못",
+	}
 }
 
 func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
