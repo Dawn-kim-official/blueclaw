@@ -60,7 +60,7 @@ func TestSlidesLocalMultiturnSuccessLive(t *testing.T) {
 }
 
 func rootSimpleSlidesSkillPath() string {
-	candidatePath := filepath.Clean("../../assets/blueclaw-workspace/skills/simple-slides")
+	candidatePath := filepath.Clean("../../../../assets/blueclaw-workspace/skills/simple-slides")
 	if _, errorValue := os.Stat(candidatePath); errorValue == nil {
 		return candidatePath
 	}

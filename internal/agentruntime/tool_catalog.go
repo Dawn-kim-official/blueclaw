@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,8 @@ import (
 	"blueclaw/internal/security"
 	"blueclaw/internal/task"
 )
+
+const inlineAttachmentMaximumBytes = 25 * 1024 * 1024
 
 type HistoryProvider interface {
 	FetchHistory(context.Context, string, int) (agent.VisibleContext, error)
@@ -506,15 +509,31 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input 
 	if !fileInformation.Mode().IsRegular() {
 		return agent.FileAttachment{}, errors.New("attachment path is not a regular file")
 	}
+	contentBase64, errorValue := inlineAttachmentContent(resolvedPath, fileInformation.Size())
+	if errorValue != nil {
+		return agent.FileAttachment{}, errorValue
+	}
 	filename := attachmentFilename(input, resolvedPath)
 	contentType := firstNonEmptyString(input.ContentType, mime.TypeByExtension(filepath.Ext(filename)), "application/octet-stream")
 	return agent.FileAttachment{
-		DevicePath:  toolCatalogBuilder.agentWorkspacePath(resolvedPath),
-		Filename:    filename,
-		ContentType: contentType,
-		SizeBytes:   fileInformation.Size(),
-		Title:       strings.TrimSpace(input.Title),
+		DevicePath:    toolCatalogBuilder.agentWorkspacePath(resolvedPath),
+		Filename:      filename,
+		ContentType:   contentType,
+		SizeBytes:     fileInformation.Size(),
+		Title:         strings.TrimSpace(input.Title),
+		ContentBase64: contentBase64,
 	}, nil
+}
+
+func inlineAttachmentContent(path string, sizeBytes int64) (string, error) {
+	if sizeBytes > inlineAttachmentMaximumBytes {
+		return "", errors.New("attachment file is too large")
+	}
+	document, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	return base64.StdEncoding.EncodeToString(document), nil
 }
 
 func attachmentFilename(input struct {

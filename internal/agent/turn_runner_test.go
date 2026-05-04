@@ -464,7 +464,7 @@ func TestAgentTurnRunnerDoesNotAttachInvalidArtifactCandidate(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerQualityWarningDoesNotBlockCompletion(t *testing.T) {
+func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
@@ -500,16 +500,15 @@ func TestAgentTurnRunnerQualityWarningDoesNotBlockCompletion(t *testing.T) {
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
-		QualityRecommendedChecks:   []string{"marp_build_log_success"},
 	})
 	if errorValue != nil {
-		t.Fatalf("expected advisory quality warning not to block completion: %v", errorValue)
+		t.Fatalf("expected artifact validity completion without core quality checks: %v", errorValue)
 	}
 	if len(result.Attachments) != 2 {
-		t.Fatalf("expected attachments despite advisory warning, got %+v", result.Attachments)
+		t.Fatalf("expected attachments, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.quality_review", "No Marp build success log was observed") {
-		t.Fatal("expected advisory quality warning event")
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.quality_review", "marp_build_log_success") {
+		t.Fatal("expected no hard-coded slide quality check event")
 	}
 }
 

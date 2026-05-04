@@ -45,7 +45,9 @@ type SkillCompletion struct {
 }
 
 type SkillQuality struct {
-	RecommendedChecks []string `json:"recommendedChecks,omitempty"`
+	AcceptanceGuidance []string `json:"acceptanceGuidance,omitempty"`
+	Rubric             []string `json:"rubric,omitempty"`
+	RecommendedChecks  []string `json:"recommendedChecks,omitempty"`
 }
 
 type SkillSelectionDecision struct {

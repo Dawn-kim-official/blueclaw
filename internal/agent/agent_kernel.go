@@ -173,7 +173,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		SkillDecisions:             append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
 		RequiredEvidenceTools:      selectedRequiredEvidenceTools(instructionBundle),
 		RequiredAttachmentSuffixes: selectedRequiredAttachmentSuffixes(instructionBundle),
-		QualityRecommendedChecks:   selectedQualityRecommendedChecks(instructionBundle),
+		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
@@ -245,29 +245,35 @@ func selectedRequiredAttachmentSuffixes(instructionBundle InstructionBundle) []s
 	return requiredAttachmentSuffixes
 }
 
-func selectedQualityRecommendedChecks(instructionBundle InstructionBundle) []string {
+func selectedQualityAcceptanceGuidance(instructionBundle InstructionBundle) []string {
 	selectedSkillName := map[string]bool{}
 	for _, skillDecision := range instructionBundle.SkillDecisions {
 		if skillDecision.Status == "selected" {
 			selectedSkillName[skillDecision.Name] = true
 		}
 	}
-	recommendedChecks := []string{}
-	seenCheck := map[string]bool{}
+	guidance := []string{}
+	seenGuidance := map[string]bool{}
 	for _, skillInstruction := range instructionBundle.Skills {
 		if !selectedSkillName[skillInstruction.Name] {
 			continue
 		}
-		for _, check := range skillInstruction.Quality.RecommendedChecks {
-			trimmedCheck := strings.TrimSpace(check)
-			if trimmedCheck == "" || seenCheck[trimmedCheck] {
-				continue
-			}
-			seenCheck[trimmedCheck] = true
-			recommendedChecks = append(recommendedChecks, trimmedCheck)
-		}
+		guidance = appendUniqueQualityGuidance(guidance, seenGuidance, skillInstruction.Quality.AcceptanceGuidance)
+		guidance = appendUniqueQualityGuidance(guidance, seenGuidance, skillInstruction.Quality.Rubric)
 	}
-	return recommendedChecks
+	return guidance
+}
+
+func appendUniqueQualityGuidance(guidance []string, seenGuidance map[string]bool, values []string) []string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue == "" || seenGuidance[trimmedValue] {
+			continue
+		}
+		seenGuidance[trimmedValue] = true
+		guidance = append(guidance, trimmedValue)
+	}
+	return guidance
 }
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultEffortLevel EffortLevel) IntakeDecision {
@@ -409,8 +415,8 @@ func compactSkillIndexLine(skillInstruction SkillInstruction) string {
 	if len(skillInstruction.RequiredTools) > 0 {
 		parts = append(parts, "requiredTools="+strings.Join(skillInstruction.RequiredTools, ", "))
 	}
-	if len(skillInstruction.Quality.RecommendedChecks) > 0 {
-		parts = append(parts, "qualityChecks="+strings.Join(skillInstruction.Quality.RecommendedChecks, ", "))
+	if len(skillInstruction.Quality.AcceptanceGuidance) > 0 {
+		parts = append(parts, "qualityGuidance="+strings.Join(skillInstruction.Quality.AcceptanceGuidance, ", "))
 	}
 	return strings.Join(parts, "; ")
 }

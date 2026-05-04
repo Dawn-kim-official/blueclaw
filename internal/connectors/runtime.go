@@ -69,6 +69,68 @@ type OutboundReply struct {
 	Attachments []agent.FileAttachment `json:"attachments,omitempty"`
 }
 
+type outboundReplyDocument struct {
+	Message     string                    `json:"message"`
+	Attachments []outboundReplyAttachment `json:"attachments,omitempty"`
+}
+
+type outboundReplyAttachment struct {
+	DevicePath    string `json:"devicePath"`
+	Filename      string `json:"filename,omitempty"`
+	ContentType   string `json:"contentType,omitempty"`
+	SizeBytes     int64  `json:"sizeBytes,omitempty"`
+	Title         string `json:"title,omitempty"`
+	ContentBase64 string `json:"contentBase64,omitempty"`
+}
+
+func (reply OutboundReply) MarshalJSON() ([]byte, error) {
+	document := outboundReplyDocument{
+		Message:     reply.Message,
+		Attachments: outboundReplyAttachments(reply.Attachments),
+	}
+	return json.Marshal(document)
+}
+
+func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
+	var document outboundReplyDocument
+	if errorValue := json.Unmarshal(documentBytes, &document); errorValue != nil {
+		return errorValue
+	}
+	reply.Message = document.Message
+	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
+	return nil
+}
+
+func outboundReplyAttachments(attachments []agent.FileAttachment) []outboundReplyAttachment {
+	replyAttachments := []outboundReplyAttachment{}
+	for _, attachment := range attachments {
+		replyAttachments = append(replyAttachments, outboundReplyAttachment{
+			DevicePath:    attachment.DevicePath,
+			Filename:      attachment.Filename,
+			ContentType:   attachment.ContentType,
+			SizeBytes:     attachment.SizeBytes,
+			Title:         attachment.Title,
+			ContentBase64: attachment.ContentBase64,
+		})
+	}
+	return replyAttachments
+}
+
+func fileAttachmentsFromOutboundReplyAttachments(attachments []outboundReplyAttachment) []agent.FileAttachment {
+	fileAttachments := []agent.FileAttachment{}
+	for _, attachment := range attachments {
+		fileAttachments = append(fileAttachments, agent.FileAttachment{
+			DevicePath:    attachment.DevicePath,
+			Filename:      attachment.Filename,
+			ContentType:   attachment.ContentType,
+			SizeBytes:     attachment.SizeBytes,
+			Title:         attachment.Title,
+			ContentBase64: attachment.ContentBase64,
+		})
+	}
+	return fileAttachments
+}
+
 type QueuedConnectorEvent struct {
 	Event        PlatformInboundEvent
 	AttemptCount int

@@ -55,6 +55,32 @@ func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
+	reply := OutboundReply{
+		Message: "attached",
+		Attachments: []agent.FileAttachment{{
+			DevicePath:    "/workspace/deck.pptx",
+			Filename:      "deck.pptx",
+			ContentType:   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			SizeBytes:     4,
+			ContentBase64: "cHB0eA==",
+		}},
+	}
+
+	document, errorValue := json.Marshal(reply)
+	if errorValue != nil {
+		t.Fatalf("expected reply to marshal: %v", errorValue)
+	}
+	var decodedReply OutboundReply
+	if errorValue := json.Unmarshal(document, &decodedReply); errorValue != nil {
+		t.Fatalf("expected reply to unmarshal: %v", errorValue)
+	}
+
+	if len(decodedReply.Attachments) != 1 || decodedReply.Attachments[0].ContentBase64 != "cHB0eA==" {
+		t.Fatalf("expected inline payload to survive outbox json, got %+v", decodedReply.Attachments)
+	}
+}
+
 func TestConnectorRuntimeStopsProgressAfterRequestContextCancellation(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
 	ctx, cancel := context.WithCancel(context.Background())

@@ -27,9 +27,11 @@ completion:
   requiredAttachmentSuffixes:
     - .pptx
 quality:
-  recommendedChecks:
-    - parse_pptx
-    - unknown_external_check
+  acceptanceGuidance:
+    - preserve original request
+    - verify artifact evidence
+  rubric:
+    - pass declared criteria before final reply
 allowedProfiles: [default]
 triggerHints:
   - slide deck
@@ -80,8 +82,11 @@ Build slides.
 	if !containsString(skillBundle.Completion.RequiredAttachmentSuffixes, ".pptx") {
 		t.Fatalf("expected completion attachment suffixes, got %+v", skillBundle.Completion.RequiredAttachmentSuffixes)
 	}
-	if !containsString(skillBundle.Quality.RecommendedChecks, "parse_pptx") || !containsString(skillBundle.Quality.RecommendedChecks, "unknown_external_check") {
-		t.Fatalf("expected quality checks, got %+v", skillBundle.Quality.RecommendedChecks)
+	if !containsString(skillBundle.Quality.AcceptanceGuidance, "preserve original request") || !containsString(skillBundle.Quality.AcceptanceGuidance, "verify artifact evidence") {
+		t.Fatalf("expected quality acceptance guidance, got %+v", skillBundle.Quality.AcceptanceGuidance)
+	}
+	if !containsString(skillBundle.Quality.Rubric, "pass declared criteria before final reply") {
+		t.Fatalf("expected quality rubric, got %+v", skillBundle.Quality.Rubric)
 	}
 	if !containsString(skillBundle.AllowedProfiles, "default") {
 		t.Fatalf("expected allowed profiles, got %+v", skillBundle.AllowedProfiles)

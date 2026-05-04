@@ -31,9 +31,18 @@ type capabilityProgressRequest struct {
 }
 
 type capabilityReplyRequest struct {
-	ReplyTargetID string                 `json:"replyTargetID"`
-	Message       string                 `json:"message"`
-	Attachments   []agent.FileAttachment `json:"attachments,omitempty"`
+	ReplyTargetID string                      `json:"replyTargetID"`
+	Message       string                      `json:"message"`
+	Attachments   []capabilityReplyAttachment `json:"attachments,omitempty"`
+}
+
+type capabilityReplyAttachment struct {
+	DevicePath    string `json:"devicePath"`
+	Filename      string `json:"filename,omitempty"`
+	ContentType   string `json:"contentType,omitempty"`
+	SizeBytes     int64  `json:"sizeBytes,omitempty"`
+	Title         string `json:"title,omitempty"`
+	ContentBase64 string `json:"contentBase64,omitempty"`
 }
 
 type capabilityHistoryRequest struct {
@@ -104,12 +113,27 @@ func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTar
 	errorValue := adapter.post(ctx, "reply.send", capabilityReplyRequest{
 		ReplyTargetID: replyTarget.ReplyTargetID,
 		Message:       reply.Message,
-		Attachments:   reply.Attachments,
+		Attachments:   buildCapabilityReplyAttachments(reply.Attachments),
 	}, &response)
 	if errorValue != nil {
 		return "", errorValue
 	}
 	return strings.TrimSpace(response.DispatchID), nil
+}
+
+func buildCapabilityReplyAttachments(attachments []agent.FileAttachment) []capabilityReplyAttachment {
+	replyAttachments := []capabilityReplyAttachment{}
+	for _, attachment := range attachments {
+		replyAttachments = append(replyAttachments, capabilityReplyAttachment{
+			DevicePath:    attachment.DevicePath,
+			Filename:      attachment.Filename,
+			ContentType:   attachment.ContentType,
+			SizeBytes:     attachment.SizeBytes,
+			Title:         attachment.Title,
+			ContentBase64: attachment.ContentBase64,
+		})
+	}
+	return replyAttachments
 }
 
 func (adapter CapabilityPlatformAdapter) FetchHistory(ctx context.Context, historyCursor string, limit int) (VisibleContext, error) {
