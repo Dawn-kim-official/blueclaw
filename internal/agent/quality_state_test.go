@@ -2,7 +2,7 @@ package agent
 
 import "testing"
 
-func TestQualityReviewRequiresDeclaredCriteria(t *testing.T) {
+func TestQualityReviewGuidanceDoesNotBlockCompletion(t *testing.T) {
 	actionDocument := turnActionDocument{
 		Action:             "final_reply",
 		GoalStatus:         "satisfied",
@@ -14,8 +14,8 @@ func TestQualityReviewRequiresDeclaredCriteria(t *testing.T) {
 		QualityAcceptanceGuidance: []string{"declare task quality criteria"},
 	}, nil, nil, nil, actionDocument)
 
-	if result.IsSatisfied {
-		t.Fatal("expected artifact quality guidance to require declared criteria")
+	if !result.IsSatisfied {
+		t.Fatalf("expected quality guidance to stay advisory, got %s", result.Message)
 	}
 }
 

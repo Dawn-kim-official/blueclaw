@@ -285,7 +285,7 @@ func buildAttachedEvidenceValidityState(workspaceRootPath string, attachedEviden
 			Title:       evidence.Title,
 		})
 	}
-	return buildAttachmentValidityState(workspaceRootPath, attachments, minimumModifiedAt)
+	return buildAttachmentValidityState(workspaceRootPath, attachments)
 }
 
 func completionValidityPaths(state CompletionState) []string {

@@ -195,82 +195,11 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	return result, errorValue
 }
 
-func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string {
-	selectedSkillName := map[string]bool{}
-	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Status == "selected" {
-			selectedSkillName[skillDecision.Name] = true
-		}
-	}
-	requiredEvidenceTools := []string{}
-	seenToolName := map[string]bool{}
-	for _, skillInstruction := range instructionBundle.Skills {
-		if !selectedSkillName[skillInstruction.Name] {
-			continue
-		}
-		for _, toolName := range skillInstruction.Completion.RequiredEvidenceTools {
-			trimmedToolName := strings.TrimSpace(toolName)
-			if trimmedToolName == "" || seenToolName[trimmedToolName] {
-				continue
-			}
-			seenToolName[trimmedToolName] = true
-			requiredEvidenceTools = append(requiredEvidenceTools, trimmedToolName)
-		}
-	}
-	return requiredEvidenceTools
+func selectedRequiredEvidenceTools(_ InstructionBundle) []string {
+	return nil
 }
 
-func selectedRequiredAttachmentSuffixes(instructionBundle InstructionBundle, prompt string) []string {
-	selectedSkillName := map[string]bool{}
-	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Status == "selected" {
-			selectedSkillName[skillDecision.Name] = true
-		}
-	}
-	requiredAttachmentSuffixes := []string{}
-	seenSuffix := map[string]bool{}
-	for _, skillInstruction := range instructionBundle.Skills {
-		if !selectedSkillName[skillInstruction.Name] {
-			continue
-		}
-		if skillInstruction.Name == "simple-slides" {
-			if requestedSuffixes := requestedSlideAttachmentSuffixes(prompt); len(requestedSuffixes) > 0 {
-				for _, suffix := range requestedSuffixes {
-					if !seenSuffix[suffix] {
-						seenSuffix[suffix] = true
-						requiredAttachmentSuffixes = append(requiredAttachmentSuffixes, suffix)
-					}
-				}
-				continue
-			}
-			for _, suffix := range []string{".pptx", ".pdf", ".html", "-notes.txt"} {
-				if !seenSuffix[suffix] {
-					seenSuffix[suffix] = true
-					requiredAttachmentSuffixes = append(requiredAttachmentSuffixes, suffix)
-				}
-			}
-			continue
-		}
-		for _, suffix := range skillInstruction.Completion.RequiredAttachmentSuffixes {
-			trimmedSuffix := strings.TrimSpace(suffix)
-			if trimmedSuffix == "" || seenSuffix[trimmedSuffix] {
-				continue
-			}
-			seenSuffix[trimmedSuffix] = true
-			requiredAttachmentSuffixes = append(requiredAttachmentSuffixes, trimmedSuffix)
-		}
-	}
-	return requiredAttachmentSuffixes
-}
-
-func requestedSlideAttachmentSuffixes(prompt string) []string {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return nil
-	}
-	if strings.Contains(normalizedPrompt, "html만") || strings.Contains(normalizedPrompt, "html only") {
-		return []string{".html"}
-	}
+func selectedRequiredAttachmentSuffixes(_ InstructionBundle, _ string) []string {
 	return nil
 }
 

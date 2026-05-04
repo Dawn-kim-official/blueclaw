@@ -161,7 +161,7 @@ func TestCompletionStateFindsArtifactsNewerThanTurn(t *testing.T) {
 	}
 }
 
-func TestCompletionStateBlocksInvalidArtifactCandidate(t *testing.T) {
+func TestCompletionStateAllowsReadableImperfectArtifactCandidate(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
@@ -179,10 +179,10 @@ func TestCompletionStateBlocksInvalidArtifactCandidate(t *testing.T) {
 		nil,
 	)
 
-	if state.RecommendedAction != completionActionBlockedInvalidArtifact {
-		t.Fatalf("expected invalid artifact to be blocked, got %+v", state)
+	if state.RecommendedAction != completionActionAttachExistingArtifacts {
+		t.Fatalf("expected readable artifact to be attachable, got %+v", state)
 	}
-	if state.ValidityState.Passed || len(state.ValidityState.InvalidArtifacts) != 1 {
-		t.Fatalf("expected validity failure, got %+v", state.ValidityState)
+	if !state.ValidityState.Passed {
+		t.Fatalf("expected basic validity to pass, got %+v", state.ValidityState)
 	}
 }
