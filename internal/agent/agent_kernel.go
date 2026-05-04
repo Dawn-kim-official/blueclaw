@@ -342,10 +342,11 @@ func selectInstructionBundleForRequest(instructionBundle InstructionBundle, requ
 	prompts := []string{strings.TrimSpace(instructionBundle.Prompt)}
 	sources := append([]InstructionSource{}, instructionBundle.Sources...)
 	skillSelector := SkillSelector{}
+	selectionRequest := requestForSkillSelection(request)
 	skillDecisions := []SkillSelectionDecision{}
 	selectedSkillInstructions := []SkillInstruction{}
 	for _, skillInstruction := range instructionBundle.Skills {
-		skillDecision := skillSelector.Evaluate(skillInstruction, request, normalizedAgentProfileName(request.ProfileName))
+		skillDecision := skillSelector.Evaluate(skillInstruction, selectionRequest, normalizedAgentProfileName(request.ProfileName))
 		skillDecisions = append(skillDecisions, skillDecision)
 		if skillDecision.Status != "selected" {
 			continue
@@ -361,6 +362,37 @@ func selectInstructionBundleForRequest(instructionBundle InstructionBundle, requ
 		Skills:         append([]SkillInstruction{}, instructionBundle.Skills...),
 		SkillDecisions: skillDecisions,
 	}
+}
+
+func requestForSkillSelection(request AgentRequest) AgentRequest {
+	request.Prompt = skillSelectionPrompt(request)
+	return request
+}
+
+func skillSelectionPrompt(request AgentRequest) string {
+	prompt := strings.TrimSpace(request.Prompt)
+	if !shouldUseVisibleContextForSkillSelection(prompt) {
+		return prompt
+	}
+	contextLines := []string{}
+	for _, message := range request.VisibleContext.Messages {
+		text := strings.TrimSpace(message.Text)
+		if text != "" {
+			contextLines = append(contextLines, text)
+		}
+	}
+	if len(contextLines) == 0 {
+		return prompt
+	}
+	return strings.Join(nonEmptyStrings([]string{strings.Join(contextLines, "\n"), prompt}), "\n")
+}
+
+func shouldUseVisibleContextForSkillSelection(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{
+		"again", "continue", "redo", "same", "that", "previous",
+		"계속", "다시", "새로", "아까", "이전", "그거", "그걸", "그 파일", "파일", "첨부", "이어",
+	})
 }
 
 func normalizedAgentProfileName(profileName string) string {
