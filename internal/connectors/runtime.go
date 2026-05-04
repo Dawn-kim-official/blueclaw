@@ -723,7 +723,7 @@ func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Co
 	}
 	if connectorReplyClaimsAttachmentDelivery(reply) {
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.sanitized_blocked", "incomplete task reply claimed attachments")
-		reply = agent.StaticLimitReachedReply
+		reply = agent.BuildLimitReachedFallbackReply(event.Prompt)
 	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply})
 	if errorValue != nil {

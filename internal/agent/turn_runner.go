@@ -14,7 +14,7 @@ import (
 )
 
 const DefaultFallbackReply = "I am having trouble reaching the language model right now. I logged the failure so the model configuration can be fixed."
-const StaticLimitReachedReply = "I hit the limit for this run before I could finish cleanly. I saved the task state so it can be resumed or retried with a larger scope."
+const StaticLimitReachedReply = "This run stopped before it could complete. No files were delivered from this attempt, and the task state was recorded for retry."
 
 type TurnOptions struct {
 	MaxIterationCount  int
@@ -1042,7 +1042,7 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
-	reply, replyStatus := agentTurnRunner.generateLimitReachedReply(request, reason, observations, attachments)
+	reply, replyStatus := agentTurnRunner.generateLimitReachedReply(request, reason, observations, nil)
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	blockedTaskRun.Result = reply
 	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply}, nil
@@ -1311,23 +1311,42 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, finalizationPrompt)
 	reply = strings.TrimSpace(reply)
 	if errorValue != nil || reply == "" {
-		return StaticLimitReachedReply, limitReplyStatus{Source: "static", Fallback: true, Reason: firstNonEmptyString(errorString(errorValue), "empty_reply")}
+		return BuildLimitReachedFallbackReply(request.Prompt), limitReplyStatus{Source: "static", Fallback: true, Reason: firstNonEmptyString(errorString(errorValue), "empty_reply")}
 	}
 	if limitReachedReplyIsInvalid(reply, attachments) {
 		for repairCount := 1; repairCount <= 2; repairCount++ {
 			repairedReply, repairError := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, buildLimitReachedRepairPrompt(finalizationPrompt, reply, attachments, repairCount))
 			repairedReply = strings.TrimSpace(repairedReply)
 			if repairError != nil || repairedReply == "" {
-				return StaticLimitReachedReply, limitReplyStatus{Source: "static", FirstInvalid: true, RepairCount: repairCount, Fallback: true, Reason: firstNonEmptyString(errorString(repairError), "empty_repair")}
+				return BuildLimitReachedFallbackReply(request.Prompt), limitReplyStatus{Source: "static", FirstInvalid: true, RepairCount: repairCount, Fallback: true, Reason: firstNonEmptyString(errorString(repairError), "empty_repair")}
 			}
 			if !limitReachedReplyIsInvalid(repairedReply, attachments) {
 				return repairedReply, limitReplyStatus{Source: "generated_repair", FirstInvalid: true, RepairCount: repairCount}
 			}
 			reply = repairedReply
 		}
-		return StaticLimitReachedReply, limitReplyStatus{Source: "static", FirstInvalid: true, RepairCount: 2, Fallback: true, Reason: "invalid_repair"}
+		return BuildLimitReachedFallbackReply(request.Prompt), limitReplyStatus{Source: "static", FirstInvalid: true, RepairCount: 2, Fallback: true, Reason: "invalid_repair"}
 	}
 	return reply, limitReplyStatus{Source: "generated"}
+}
+
+func BuildLimitReachedFallbackReply(prompt string) string {
+	if containsKoreanText(prompt) {
+		return "이번 실행은 완료 전에 중단되었습니다. 이 시도에서 전달된 첨부 파일은 없고, 작업 상태와 실패 원인은 기록해 두었습니다."
+	}
+	return StaticLimitReachedReply
+}
+
+func containsKoreanText(value string) bool {
+	for _, character := range value {
+		if character >= '\uac00' && character <= '\ud7a3' {
+			return true
+		}
+		if character >= '\u3131' && character <= '\u318e' {
+			return true
+		}
+	}
+	return false
 }
 
 func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {

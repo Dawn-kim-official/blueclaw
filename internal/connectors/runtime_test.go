@@ -148,10 +148,12 @@ func TestConnectorRuntimeSendsSafeReplyWhenTaskDoesNotComplete(t *testing.T) {
 func TestConnectorRuntimeSanitizesIncompleteAttachmentClaims(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+	event.Prompt = "파일 만들어줘"
 	dispatchID, isSent := connectorRuntime.sendIncompleteTaskReply(
 		context.Background(),
 		"test",
-		testInboundEvent("message-1"),
+		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
 		agent.AgentTurnResult{FinalReply: "파일을 생성해 첨부했습니다."},
@@ -167,8 +169,11 @@ func TestConnectorRuntimeSanitizesIncompleteAttachmentClaims(t *testing.T) {
 	if len(sentReplies) != 1 {
 		t.Fatalf("expected one sanitized reply, got %+v", sentReplies)
 	}
-	if sentReplies[0].Message != agent.StaticLimitReachedReply {
-		t.Fatalf("expected static safe reply, got %q", sentReplies[0].Message)
+	if sentReplies[0].Message != agent.BuildLimitReachedFallbackReply(event.Prompt) {
+		t.Fatalf("expected fallback safe reply, got %q", sentReplies[0].Message)
+	}
+	if strings.Contains(sentReplies[0].Message, "larger scope") || strings.Contains(sentReplies[0].Message, "첨부했습니다") {
+		t.Fatalf("expected sanitized reply without stale attachment claim, got %q", sentReplies[0].Message)
 	}
 }
 
