@@ -5,15 +5,17 @@ import (
 	"strings"
 )
 
-func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolRegistry) string {
+func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolRegistry, allowQualityCriteria bool) string {
 	var variants []any
 	variants = append(variants,
 		finalReplyActionSchema(),
-		setQualityCriteriaActionSchema(),
 		fetchHistoryActionSchema(),
 		searchMemoryActionSchema(),
 		failActionSchema(),
 	)
+	if allowQualityCriteria {
+		variants = append(variants, setQualityCriteriaActionSchema())
+	}
 	if toolRegistry != nil {
 		for _, toolDefinition := range toolRegistry.ListToolDefinitions() {
 			variants = append(variants, callToolActionSchema(toolDefinition))

@@ -765,7 +765,7 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 			return ToolResult{}, nil
 		})
 	}
-	schemaDocument := runner.buildActionSchema(toolRegistry)
+	schemaDocument := runner.buildActionSchema(toolRegistry, true)
 
 	if strings.Contains(schemaDocument, "anyOf") {
 		t.Fatalf("expected browser action schema to avoid anyOf, got %s", schemaDocument)
@@ -786,6 +786,42 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 		if !strings.Contains(schemaDocument, fragment) {
 			t.Fatalf("expected action schema to include %q, got %s", fragment, schemaDocument)
 		}
+	}
+}
+
+func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"set_quality_criteria","qualityCriteria":[{"id":"done-once","description":"criteria are declared","required":true}],"goalStatus":"in_progress","goalSatisfied":false}`,
+		`{"action":"call_tool","toolName":"alpha","toolInput":{}}`,
+		`{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"alpha"}],"qualityReview":[{"id":"done-once","passed":true,"evidence":[{"observationID":"obs-002","toolName":"alpha"}]}],"finalReply":"done"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := NewToolRegistry([]string{"alpha"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "alpha result"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:         "person-1",
+		ConversationID:            "conversation-1",
+		Prompt:                    "make an artifact",
+		ToolRegistry:              toolRegistry,
+		QualityAcceptanceGuidance: []string{"declare criteria first"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinalReply != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	}
+	if len(languageModel.requests) < 2 {
+		t.Fatalf("expected at least two model requests, got %d", len(languageModel.requests))
+	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, "set_quality_criteria") {
+		t.Fatalf("expected initial schema to allow quality criteria, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
+	if strings.Contains(languageModel.requests[1].StructuredOutputSchema.Document, "set_quality_criteria") {
+		t.Fatalf("expected next schema to remove quality criteria, got %s", languageModel.requests[1].StructuredOutputSchema.Document)
 	}
 }
 
