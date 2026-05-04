@@ -38,13 +38,9 @@ func NewClient(configuration Configuration) Client {
 		endpoint = DefaultEndpoint
 	}
 
-	timeout := configuration.Timeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-
-	httpClient := &http.Client{
-		Timeout: timeout,
+	httpClient := &http.Client{}
+	if configuration.Timeout > 0 {
+		httpClient.Timeout = configuration.Timeout
 	}
 
 	unixSocketPath := strings.TrimSpace(configuration.UnixSocketPath)

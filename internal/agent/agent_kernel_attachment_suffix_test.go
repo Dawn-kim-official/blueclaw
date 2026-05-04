@@ -19,3 +19,11 @@ func TestSelectedRequiredAttachmentSuffixesStayAdvisoryForSlides(t *testing.T) {
 		t.Fatalf("expected no hard suffix contract, got %+v", suffixes)
 	}
 }
+
+func TestAttachmentSuffixesComeFromStructuredOutputFormats(t *testing.T) {
+	suffixes := attachmentSuffixesForRequestedOutputFormats([]string{"html", "pdf", "html"})
+
+	if len(suffixes) != 2 || suffixes[0] != ".html" || suffixes[1] != ".pdf" {
+		t.Fatalf("expected structured output format suffixes, got %+v", suffixes)
+	}
+}

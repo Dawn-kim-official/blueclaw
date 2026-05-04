@@ -13,12 +13,13 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 			ExpectedSelectedSkills: []string{"simple-slides"},
 			ExpectedToolCalls:      []string{"terminal.run", "file.attach"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.terminal.run.requested", BodyFragment: "create_deck.py", Count: 1},
-				{Name: "tool.terminal.run.result", BodyFragment: "Building HTML + PPTX + PDF", Count: 1},
+				{Name: "tool.terminal.run.requested", BodyFragment: "NAME=", Count: 1},
+				{Name: "tool.terminal.run.requested", BodyFragment: "./build.sh", Count: 1},
+				{Name: "tool.terminal.run.result", BodyFragment: "Building requested formats", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Slide render review", Count: 1},
 				{Name: "tool.file.attach.result", BodyFragment: `"isError":false`, Count: 1},
 			},
-			ExpectedEvents:      []string{"agent.quality_criteria", "agent.validity_review", "agent.quality_review"},
+			ExpectedEvents:      []string{"agent.validity_review"},
 			ExpectedAttachments: []string{".pptx", ".pdf", ".html", "-notes.txt"},
 			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{
 				{
@@ -26,12 +27,8 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 					ContainsFragments: []string{"colors:", "Visual direction"},
 				},
 				{
-					PathGlob:          ".blueclaw/tmp/*/brief.md",
-					ContainsFragments: []string{"original_user_request", "너 뭐 할 수 있는지"},
-				},
-				{
 					PathGlob:           ".blueclaw/tmp/*/presentation.md",
-					ContainsFragments:  []string{"design-source: DESIGN.md", "InternKim capability deck"},
+					ContainsFragments:  []string{"design-source: DESIGN.md", "InternKim capability deck", "너 뭐 할 수 있는지"},
 					ForbiddenFragments: []string{"Draft a presentation deck", "user_request:"},
 				},
 				{
@@ -115,20 +112,9 @@ func simpleSlidesSkill() agent.SkillInstruction {
 		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
 		Category:    "document-generation",
 		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Call set_quality_criteria for the requested deck. Write brief.md with original_user_request copied verbatim plus topic, slide_intent, requested_slide_count, requested_formats, output_slug, and a fenced JSON deck_spec containing the exact slide list. Then write Stitch-compatible DESIGN.md and Marp presentation.md with design-source: DESIGN.md. Run python3 /workspace/skills/simple-slides/scripts/create_deck.py --slug <deck-slug> --brief brief.md to validate and build artifacts, then file.attach only the requested generated files. Do not use Google Workspace unless a google tool is explicitly available. final_reply must pass each declared criterion with observation evidence.",
+		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, copy build.sh/extract_notes.py/render_review.py into the deck directory, run NAME=<deck-slug> ./build.sh for a full deck or FORMATS=html NAME=<deck-slug> ./build.sh for html-only requests, then file.attach only the requested generated files. Do not use Google Workspace unless a google tool is explicitly available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
-		},
-		Completion: agent.SkillCompletion{
-			RequiredEvidenceTools:      []string{"file.attach"},
-			RequiredAttachmentSuffixes: []string{".pptx", ".pdf", ".html", "-notes.txt"},
-		},
-		Quality: agent.SkillQuality{
-			AcceptanceGuidance: []string{
-				"Preserve the original user request in brief.md.",
-				"Verify requested formats and rendered artifacts before final reply.",
-				"Pass declared task-specific quality criteria with evidence.",
-			},
 		},
 		RequiredTools: []string{"file.write", "terminal.run", "file.attach"},
 		TriggerHints:  []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
