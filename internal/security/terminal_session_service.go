@@ -12,7 +12,14 @@ import (
 	"time"
 
 	"blueclaw/internal/config"
+	"blueclaw/internal/hooks"
 	"github.com/creack/pty"
+)
+
+const (
+	terminalRunToolName      = "terminal.run"
+	defaultRTKExecutablePath = "/workspace/.blueclaw/runtime/current/bin/rtk"
+	defaultRTKRewriteTimeout = time.Second
 )
 
 type CommandResult struct {
@@ -50,18 +57,32 @@ type TerminalSession struct {
 
 type TerminalSessionService struct {
 	commandGuardrailService CommandGuardrailService
+	hookRunner              *hooks.Runner
 	mutex                   sync.RWMutex
 	terminalSessions        map[string]*TerminalSession
 }
 
 func NewTerminalSessionService(terminalConfiguration config.TerminalConfiguration) *TerminalSessionService {
+	return newTerminalSessionService(terminalConfiguration, defaultRTKExecutablePath)
+}
+
+func newTerminalSessionService(terminalConfiguration config.TerminalConfiguration, rtkExecutablePath string) *TerminalSessionService {
+	hookRunner := hooks.NewRunner()
+	hookRunner.RegisterHook(hooks.EventPreToolUse, newRTKRewriteHook(rtkExecutablePath))
+
 	return &TerminalSessionService{
 		commandGuardrailService: NewCommandGuardrailService(terminalConfiguration),
+		hookRunner:              hookRunner,
 		terminalSessions:        map[string]*TerminalSession{},
 	}
 }
 
 func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest CommandRequest) (CommandResult, error) {
+	commandRequest, errorValue := terminalSessionService.runPreToolUseHooks(commandRequest)
+	if errorValue != nil {
+		return CommandResult{ExitCode: -1, Stderr: errorValue.Error()}, errorValue
+	}
+
 	commandPlan, errorValue := terminalSessionService.commandGuardrailService.BuildCommandPlan(commandRequest)
 	if errorValue != nil {
 		return CommandResult{ExitCode: -1, Stderr: errorValue.Error()}, errorValue
@@ -117,6 +138,67 @@ func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest 
 		Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
 		Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
 	}, nil
+}
+
+func (terminalSessionService *TerminalSessionService) runPreToolUseHooks(commandRequest CommandRequest) (CommandRequest, error) {
+	toolInput, errorValue := terminalSessionService.hookRunner.Run(context.Background(), hooks.HookRequest{
+		EventName: hooks.EventPreToolUse,
+		ToolName:  terminalRunToolName,
+		ToolInput: commandRequest,
+	})
+	if errorValue != nil {
+		return commandRequest, errorValue
+	}
+
+	updatedCommandRequest, isCommandRequest := toolInput.(CommandRequest)
+	if !isCommandRequest {
+		return commandRequest, errors.New("terminal hook returned invalid tool input")
+	}
+
+	return updatedCommandRequest, nil
+}
+
+func newRTKRewriteHook(rtkExecutablePath string) hooks.Hook {
+	return func(ctx context.Context, request hooks.HookRequest) (hooks.HookResult, error) {
+		commandRequest, isCommandRequest := request.ToolInput.(CommandRequest)
+		if !isCommandRequest || !canRewriteWithRTK(request, commandRequest) {
+			return hooks.HookResult{}, nil
+		}
+
+		rewrittenCommand, isRewritten := rewriteCommandWithRTK(ctx, rtkExecutablePath, commandRequest.Command)
+		if !isRewritten {
+			return hooks.HookResult{}, nil
+		}
+
+		commandRequest.Command = rewrittenCommand
+		return hooks.HookResult{UpdatedToolInput: commandRequest}, nil
+	}
+}
+
+func canRewriteWithRTK(request hooks.HookRequest, commandRequest CommandRequest) bool {
+	return request.EventName == hooks.EventPreToolUse &&
+		request.ToolName == terminalRunToolName &&
+		!commandRequest.IsInteractive &&
+		!commandRequest.IsPTY &&
+		strings.TrimSpace(commandRequest.Command) != ""
+}
+
+func rewriteCommandWithRTK(ctx context.Context, rtkExecutablePath string, command string) (string, bool) {
+	rewriteContext, cancelFunction := context.WithTimeout(ctx, defaultRTKRewriteTimeout)
+	defer cancelFunction()
+
+	rewriteCommand := exec.CommandContext(rewriteContext, rtkExecutablePath, "rewrite", command)
+	outputBytes, errorValue := rewriteCommand.Output()
+	if errorValue != nil {
+		return "", false
+	}
+
+	rewrittenCommand := strings.TrimSpace(string(outputBytes))
+	if rewrittenCommand == "" || rewrittenCommand == strings.TrimSpace(command) {
+		return "", false
+	}
+
+	return rewrittenCommand, true
 }
 
 func (terminalSessionService *TerminalSessionService) prepareWorkingDirectory(workingDirectoryPath string) error {

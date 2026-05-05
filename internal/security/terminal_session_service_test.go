@@ -1,12 +1,15 @@
 package security
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"blueclaw/internal/config"
+	"blueclaw/internal/hooks"
 )
 
 func TestRunCommandUsesBashStdinInFirecrackerGuestMode(t *testing.T) {
@@ -21,6 +24,158 @@ func TestRunCommandUsesBashStdinInFirecrackerGuestMode(t *testing.T) {
 	}
 	if commandResult.Stdout != "blueclaw\n" || commandResult.ExitCode != 0 {
 		t.Fatalf("expected bash stdout and exit code, got %+v", commandResult)
+	}
+}
+
+func TestRunCommandUsesBuiltInRTKHook(t *testing.T) {
+	terminalConfiguration := testTerminalConfiguration(t)
+	terminalSessionService := newTerminalSessionService(
+		terminalConfiguration,
+		fakeRewriteExecutable(t, "printf original", "printf rewritten"),
+	)
+
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+		Command: "printf original",
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected rewritten command to succeed: %v", errorValue)
+	}
+	if commandResult.Stdout != "rewritten" {
+		t.Fatalf("expected rewritten output, got %+v", commandResult)
+	}
+}
+
+func TestRunCommandFallsBackWhenRTKHookFails(t *testing.T) {
+	terminalConfiguration := testTerminalConfiguration(t)
+	terminalSessionService := newTerminalSessionService(
+		terminalConfiguration,
+		fakeRewriteExecutable(t, "git status", "rtk git status"),
+	)
+
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+		Command: "printf original",
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected fallback command to succeed: %v", errorValue)
+	}
+	if commandResult.Stdout != "original" {
+		t.Fatalf("expected original output after rewrite fallback, got %+v", commandResult)
+	}
+}
+
+func TestRunCommandFallsBackWhenRTKHookIsMissing(t *testing.T) {
+	terminalSessionService := newTerminalSessionService(testTerminalConfiguration(t), "/missing/rtk")
+
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+		Command: "printf original",
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected fallback command to succeed: %v", errorValue)
+	}
+	if commandResult.Stdout != "original" {
+		t.Fatalf("expected original output after missing RTK fallback, got %+v", commandResult)
+	}
+}
+
+func TestRunCommandFallsBackWhenRTKHookReturnsUnchangedCommand(t *testing.T) {
+	terminalSessionService := newTerminalSessionService(
+		testTerminalConfiguration(t),
+		fakeRewriteExecutable(t, "printf original", "printf original"),
+	)
+
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+		Command: "printf original",
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected unchanged command to succeed: %v", errorValue)
+	}
+	if commandResult.Stdout != "original" {
+		t.Fatalf("expected original output after unchanged RTK fallback, got %+v", commandResult)
+	}
+}
+
+func TestRunCommandFallsBackWhenRTKHookTimesOut(t *testing.T) {
+	terminalSessionService := newTerminalSessionService(testTerminalConfiguration(t), fakeSlowRewriteExecutable(t))
+
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+		Command: "printf original",
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected timeout fallback command to succeed: %v", errorValue)
+	}
+	if commandResult.Stdout != "original" {
+		t.Fatalf("expected original output after RTK timeout, got %+v", commandResult)
+	}
+}
+
+func TestRTKHookSkipsPTYCommand(t *testing.T) {
+	markerPath := filepath.Join(t.TempDir(), "called")
+	rtkHook := newRTKRewriteHook(fakeMarkedRewriteExecutable(t, markerPath))
+
+	result, errorValue := rtkHook(context.Background(), hooks.HookRequest{
+		EventName: hooks.EventPreToolUse,
+		ToolName:  terminalRunToolName,
+		ToolInput: CommandRequest{
+			Command: "printf original",
+			IsPTY:   true,
+		},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected PTY hook skip to succeed: %v", errorValue)
+	}
+	if result.UpdatedToolInput != nil {
+		t.Fatalf("expected PTY command to skip RTK, got %+v", result)
+	}
+	if _, errorValue := os.Stat(markerPath); errorValue == nil {
+		t.Fatal("expected RTK executable not to be called for PTY command")
+	}
+}
+
+func TestRTKHookSkipsInteractiveCommand(t *testing.T) {
+	markerPath := filepath.Join(t.TempDir(), "called")
+	rtkHook := newRTKRewriteHook(fakeMarkedRewriteExecutable(t, markerPath))
+
+	result, errorValue := rtkHook(context.Background(), hooks.HookRequest{
+		EventName: hooks.EventPreToolUse,
+		ToolName:  terminalRunToolName,
+		ToolInput: CommandRequest{
+			Command:       "printf original",
+			IsInteractive: true,
+		},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected interactive hook skip to succeed: %v", errorValue)
+	}
+	if result.UpdatedToolInput != nil {
+		t.Fatalf("expected interactive command to skip RTK, got %+v", result)
+	}
+	if _, errorValue := os.Stat(markerPath); errorValue == nil {
+		t.Fatal("expected RTK executable not to be called for interactive command")
+	}
+}
+
+func TestRunCommandValidatesRewrittenCommandWithGuardrails(t *testing.T) {
+	terminalSessionService := newTerminalSessionService(
+		testTerminalConfiguration(t),
+		fakeRewriteExecutable(t, "printf original", "cat /etc/passwd"),
+	)
+
+	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+		Command: "printf original",
+	})
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "escapes workspace root") {
+		t.Fatalf("expected rewritten command guardrail denial, got %v", errorValue)
+	}
+	if !strings.Contains(commandResult.Stderr, "escapes workspace root") {
+		t.Fatalf("expected command result to include guardrail error, got %+v", commandResult)
 	}
 }
 
@@ -160,6 +315,40 @@ func TestTerminalSessionLimit(t *testing.T) {
 	if errorValue == nil || !strings.Contains(errorValue.Error(), "session limit") {
 		t.Fatalf("expected session cap error, got %v", errorValue)
 	}
+}
+
+func fakeRewriteExecutable(t *testing.T, originalCommand string, rewrittenCommand string) string {
+	t.Helper()
+	executablePath := t.TempDir() + "/fake-rtk"
+	script := "#!/bin/sh\nif [ \"$1\" = \"rewrite\" ] && [ \"$2\" = " + shellSingleQuote(originalCommand) + " ]; then\n  printf '%s\\n' " + shellSingleQuote(rewrittenCommand) + "\n  exit 0\nfi\nexit 1\n"
+	if errorValue := os.WriteFile(executablePath, []byte(script), 0o755); errorValue != nil {
+		t.Fatalf("expected fake rewrite executable to be written: %v", errorValue)
+	}
+	return executablePath
+}
+
+func fakeSlowRewriteExecutable(t *testing.T) string {
+	t.Helper()
+	executablePath := t.TempDir() + "/fake-slow-rtk"
+	script := "#!/bin/sh\nsleep 2\nprintf '%s\\n' 'printf rewritten'\n"
+	if errorValue := os.WriteFile(executablePath, []byte(script), 0o755); errorValue != nil {
+		t.Fatalf("expected fake slow rewrite executable to be written: %v", errorValue)
+	}
+	return executablePath
+}
+
+func fakeMarkedRewriteExecutable(t *testing.T, markerPath string) string {
+	t.Helper()
+	executablePath := t.TempDir() + "/fake-marked-rtk"
+	script := "#!/bin/sh\ntouch " + shellSingleQuote(markerPath) + "\nprintf '%s\\n' 'printf rewritten'\n"
+	if errorValue := os.WriteFile(executablePath, []byte(script), 0o755); errorValue != nil {
+		t.Fatalf("expected fake marked rewrite executable to be written: %v", errorValue)
+	}
+	return executablePath
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func testTerminalConfiguration(t *testing.T) config.TerminalConfiguration {
