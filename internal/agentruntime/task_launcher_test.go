@@ -193,6 +193,64 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	}
 }
 
+func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
+	resourceAccessRules := []policy.ResourceAccessPolicy{{
+		Resource: "tool:company.broadcast.send",
+		Actions:  []string{"execute"},
+		Circles:  []string{"representative"},
+	}}
+	httpClient := &recordingHTTPClient{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"company.broadcast.send"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"company.broadcast.send"},
+	}, nil)
+
+	staffToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID:            "person-1",
+			Circles:             []string{"staff"},
+			ResourceAccessRules: resourceAccessRules,
+		},
+	})
+	staffResult, errorValue := staffToolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "company.broadcast.send",
+		Input:    json.RawMessage(`{"message":"hello"}`),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected denied tool result: %v", errorValue)
+	}
+	if !staffResult.IsError || !strings.Contains(staffResult.Content, "cannot execute") {
+		t.Fatalf("expected staff execution denial, got %+v", staffResult)
+	}
+	if httpClient.requestPath != "" {
+		t.Fatalf("expected denied tool not to call capability bridge, got path=%s", httpClient.requestPath)
+	}
+
+	representativeToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID:            "person-2",
+			Circles:             []string{"staff", "representative"},
+			ResourceAccessRules: resourceAccessRules,
+		},
+	})
+	representativeResult, errorValue := representativeToolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "company.broadcast.send",
+		Input:    json.RawMessage(`{"message":"hello"}`),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected representative tool result: %v", errorValue)
+	}
+	if representativeResult.IsError {
+		t.Fatalf("expected representative execution success, got %+v", representativeResult)
+	}
+	if httpClient.requestPath != "/v1/tools/company.broadcast.send/invoke" {
+		t.Fatalf("expected capability bridge call, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
+	}
+}
+
 type recordingHTTPClient struct {
 	requestPath string
 	requestBody string

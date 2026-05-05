@@ -49,6 +49,7 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	}
 
 	if _, errorValue := os.Stat("web/admin"); errorValue == nil {
+		multiplexer.Handle("/_app/", AdminAssetHandler{RootDirectoryPath: "web/admin"})
 		multiplexer.Handle("/admin/", http.StripPrefix("/admin/", AdminAssetHandler{RootDirectoryPath: "web/admin"}))
 		multiplexer.Handle("/tasks/", TaskInboxHandler{RootDirectoryPath: "web/admin"})
 		multiplexer.Handle("/login/", TaskInboxHandler{RootDirectoryPath: "web/admin"})

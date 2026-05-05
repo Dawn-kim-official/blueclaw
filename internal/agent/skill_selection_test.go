@@ -314,6 +314,51 @@ func TestDirectSkillNameBypassesDisableModelInvocation(t *testing.T) {
 	}
 }
 
+func TestHiddenFromCirclesSkipsAutomaticSkillRetrieval(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:              "finance-helper",
+			Description:       "Handle finance report workflows.",
+			WhenToUse:         "Use for finance report requests.",
+			Prompt:            "FINANCE BODY",
+			HiddenFromCircles: []string{"staff"},
+		}},
+	}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:           "finance report 만들어줘",
+		RequesterCircles: []string{"staff"},
+	}, nil)
+
+	if strings.Contains(selectedBundle.Prompt, "finance-helper") || strings.Contains(selectedBundle.Prompt, "FINANCE BODY") {
+		t.Fatalf("expected hidden skill to stay out of automatic prompt, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestDirectSkillNameBypassesHiddenFromCirclesHint(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:              "finance-helper",
+			Description:       "Handle finance report workflows.",
+			Prompt:            "FINANCE BODY",
+			HiddenFromCircles: []string{"staff"},
+		}},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:           "/finance-helper 공개 자료로 보고서 만들어줘",
+		RequesterCircles: []string{"staff"},
+	}, retriever)
+
+	if !strings.Contains(selectedBundle.Prompt, "FINANCE BODY") {
+		t.Fatalf("expected direct hidden skill request to load body, got %q", selectedBundle.Prompt)
+	}
+	if selectedBundle.RetrievalMode != "direct" {
+		t.Fatalf("expected direct retrieval, got %q", selectedBundle.RetrievalMode)
+	}
+}
+
 func TestPathsPreventAutomaticRetrievalOutsideMatchingFiles(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{

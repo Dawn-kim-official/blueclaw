@@ -12,7 +12,108 @@
         "internal",
         "executive"
       ],
+      "circles": [
+        "staff",
+        "admin"
+      ],
       "isAdmin": true
+    }
+  ],
+  "circles": [
+    {
+      "circleID": "staff",
+      "displayName": "Staff",
+      "isMattermostManaged": false,
+      "workspaceDirectoryPath": "/workspace/circles/staff"
+    },
+    {
+      "circleID": "c-level",
+      "displayName": "C-Level",
+      "mattermostChannelID": "",
+      "isMattermostManaged": true,
+      "workspaceDirectoryPath": "/workspace/circles/c-level"
+    },
+    {
+      "circleID": "representative",
+      "displayName": "Representative",
+      "mattermostChannelID": "",
+      "isMattermostManaged": true,
+      "workspaceDirectoryPath": "/workspace/circles/representative"
+    },
+    {
+      "circleID": "admin",
+      "displayName": "Admin",
+      "mattermostChannelID": "",
+      "isMattermostManaged": true,
+      "workspaceDirectoryPath": "/workspace/circles/admin"
+    }
+  ],
+  "circleSync": {
+    "mattermostPrivateChannels": [
+      {
+        "circleID": "c-level",
+        "channelName": "circle-c-level"
+      },
+      {
+        "circleID": "representative",
+        "channelName": "circle-representative"
+      },
+      {
+        "circleID": "admin",
+        "channelName": "circle-admin"
+      }
+    ]
+  },
+  "resourceAccess": [
+    {
+      "resource": "file:circle:staff",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "circles": [
+        "staff"
+      ]
+    },
+    {
+      "resource": "file:circle:c-level",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "circles": [
+        "c-level"
+      ]
+    },
+    {
+      "resource": "file:circle:representative",
+      "actions": [
+        "read",
+        "write"
+      ],
+      "circles": [
+        "representative"
+      ]
+    },
+    {
+      "resource": "file:circle:admin",
+      "actions": [
+        "read",
+        "write",
+        "manage"
+      ],
+      "circles": [
+        "admin"
+      ]
+    },
+    {
+      "resource": "tool:company.broadcast.send",
+      "actions": [
+        "execute"
+      ],
+      "circles": [
+        "representative"
+      ]
     }
   ],
   "channels": [

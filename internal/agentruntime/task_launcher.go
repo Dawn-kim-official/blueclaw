@@ -98,6 +98,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		RequesterName:        request.RequesterName,
 		RequesterCallingName: request.RequesterCallingName,
 		RequesterHandle:      request.RequesterHandle,
+		RequesterCircles:     append([]string{}, request.PersonAccess.Circles...),
 		ProfileName:          normalizedProfileName,
 		ConversationID:       request.ConversationID,
 		Prompt:               request.Prompt,

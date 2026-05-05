@@ -41,6 +41,7 @@ var standardSkillFrontmatterKeys = map[string]bool{
 	"disable-model-invocation": true,
 	"effort":                   true,
 	"hooks":                    true,
+	"hiddenFromCircles":        true,
 	"model":                    true,
 	"name":                     true,
 	"paths":                    true,

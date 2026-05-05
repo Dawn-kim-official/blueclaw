@@ -918,6 +918,13 @@ func (connectorRuntime *ConnectorRuntime) ingestMemory(ctx context.Context, plat
 		defaultSecurityLevelRank = channelPolicy.DefaultSecurityLevelRank
 		defaultRequiredClasses = append([]string{}, channelPolicy.DefaultRequiredClasses...)
 	}
+	if isPrivateConversationID(event.ConversationID) {
+		connectorRuntime.addMemoryEpisode(ctx, platform, personID, event, taskRunID, []memory.MemoryNamespace{
+			memory.UserNamespace(personID),
+			memory.PrivatePersonNamespace(personID),
+		})
+		return
+	}
 	route, errorValue := connectorRuntime.memoryRouter.Route(ctx, memory.ScopeRouteInput{
 		PersonID:                 personID,
 		Prompt:                   event.Prompt,
@@ -932,6 +939,10 @@ func (connectorRuntime *ConnectorRuntime) ingestMemory(ctx context.Context, plat
 		route = memory.ScopeRoute{Namespaces: connectorRuntime.accessibleNamespaces(personID, personAccess, event)}
 	}
 
+	connectorRuntime.addMemoryEpisode(ctx, platform, personID, event, taskRunID, route.Namespaces)
+}
+
+func (connectorRuntime *ConnectorRuntime) addMemoryEpisode(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskRunID string, namespaces []memory.MemoryNamespace) {
 	episode := memory.MemoryEpisode{
 		EpisodeID:       event.DedupeKey(),
 		Platform:        platform,
@@ -940,21 +951,21 @@ func (connectorRuntime *ConnectorRuntime) ingestMemory(ctx context.Context, plat
 		SenderPersonID:  personID,
 		Prompt:          event.Prompt,
 		OccurredAt:      event.RawReceivedAt,
-		Namespaces:      route.Namespaces,
+		Namespaces:      namespaces,
 		Source:          "message",
 		SourceReference: event.ReplyTargetID,
 	}
 	if episode.OccurredAt.IsZero() {
 		episode.OccurredAt = time.Now().UTC()
 	}
-	errorValue = connectorRuntime.memoryService.AddEpisode(ctx, episode)
+	errorValue := connectorRuntime.memoryService.AddEpisode(ctx, episode)
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".memory.ingestion_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_failed", errorValue.Error())
 		return
 	}
-	connectorRuntime.logger.Info("connector."+platform+".memory.episode_ingested", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int("namespaceCount", len(route.Namespaces)))
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.episode_ingested", strconv.Itoa(len(route.Namespaces)))
+	connectorRuntime.logger.Info("connector."+platform+".memory.episode_ingested", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int("namespaceCount", len(namespaces)))
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.episode_ingested", strconv.Itoa(len(namespaces)))
 }
 
 func (connectorRuntime *ConnectorRuntime) accessibleNamespaces(personID string, personAccess policy.PersonAccess, event PlatformInboundEvent) []memory.MemoryNamespace {
@@ -964,11 +975,22 @@ func (connectorRuntime *ConnectorRuntime) accessibleNamespaces(personID string, 
 		conversationSecurityLevelRank = channelPolicy.DefaultSecurityLevelRank
 		conversationRequiredClasses = append([]string{}, channelPolicy.DefaultRequiredClasses...)
 	}
-	return []memory.MemoryNamespace{
+	namespaces := []memory.MemoryNamespace{
 		memory.UserNamespace(personID),
+		memory.PrivatePersonNamespace(personID),
 		memory.WorkspaceNamespace(connectorRuntime.workspaceID, personAccess.SecurityLevelRank, personAccess.GrantedClasses),
-		memory.ConversationNamespace(event.ConversationID, conversationSecurityLevelRank, conversationRequiredClasses),
 	}
+	if !isPrivateConversationID(event.ConversationID) {
+		namespaces = append(namespaces, memory.ConversationNamespace(event.ConversationID, conversationSecurityLevelRank, conversationRequiredClasses))
+	}
+	for _, circleID := range personAccess.Circles {
+		namespaces = append(namespaces, memory.CircleNamespace(connectorRuntime.workspaceID, circleID))
+	}
+	return namespaces
+}
+
+func isPrivateConversationID(conversationID string) bool {
+	return strings.HasPrefix(strings.TrimSpace(conversationID), "dm:")
 }
 
 func (connectorRuntime *ConnectorRuntime) authorizeSender(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (string, bool, error) {

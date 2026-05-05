@@ -74,11 +74,16 @@ func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseW
 }
 
 func (taskRunHandler TaskRunHandler) memoryNamespaces(personID string, conversationID string, personAccess policy.PersonAccess) []memory.MemoryNamespace {
-	return []memory.MemoryNamespace{
+	namespaces := []memory.MemoryNamespace{
 		memory.UserNamespace(personID),
+		memory.PrivatePersonNamespace(personID),
 		memory.WorkspaceNamespace(taskRunHandler.WorkspaceID, personAccess.SecurityLevelRank, personAccess.GrantedClasses),
 		memory.ConversationNamespace(conversationID, personAccess.SecurityLevelRank, personAccess.GrantedClasses),
 	}
+	for _, circleID := range personAccess.Circles {
+		namespaces = append(namespaces, memory.CircleNamespace(taskRunHandler.WorkspaceID, circleID))
+	}
+	return namespaces
 }
 
 func firstNonEmptyAdminString(values ...string) string {

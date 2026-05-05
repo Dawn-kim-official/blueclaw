@@ -25,12 +25,13 @@ func (repository GraphitiMemoryRepository) SaveGraphNamespaces(ctx context.Conte
 		_, errorValue := repository.database.SQL.ExecContext(ctx, `
 INSERT INTO graphiti_namespace (
   namespace_id, scope_type, scope_person_id, scope_conversation_id,
-  security_level_rank, required_classes, updated_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7)
+  scope_circle_id, security_level_rank, required_classes, updated_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 ON CONFLICT (namespace_id) DO UPDATE SET
   scope_type = EXCLUDED.scope_type,
   scope_person_id = EXCLUDED.scope_person_id,
   scope_conversation_id = EXCLUDED.scope_conversation_id,
+  scope_circle_id = EXCLUDED.scope_circle_id,
   security_level_rank = EXCLUDED.security_level_rank,
   required_classes = EXCLUDED.required_classes,
   updated_at = EXCLUDED.updated_at`,
@@ -38,6 +39,7 @@ ON CONFLICT (namespace_id) DO UPDATE SET
 			namespace.ScopeType,
 			emptyStringAsNil(namespace.ScopePersonID),
 			emptyStringAsNil(namespace.ScopeConversationID),
+			emptyStringAsNil(namespace.ScopeCircleID),
 			namespace.SecurityLevelRank,
 			namespace.RequiredClasses,
 			time.Now().UTC(),
@@ -80,7 +82,7 @@ ON CONFLICT (episode_id) DO UPDATE SET
 
 func (repository GraphitiMemoryRepository) ListAccessibleNamespaces(ctx context.Context, request memory.MemorySearchRequest) ([]memory.MemoryNamespace, error) {
 	rows, errorValue := repository.database.SQL.QueryContext(ctx, `
-SELECT namespace_id, scope_type, COALESCE(scope_person_id, ''), COALESCE(scope_conversation_id, ''),
+SELECT namespace_id, scope_type, COALESCE(scope_person_id, ''), COALESCE(scope_conversation_id, ''), COALESCE(scope_circle_id, ''),
        security_level_rank, required_classes
 FROM graphiti_namespace
 WHERE
@@ -96,11 +98,20 @@ WHERE
     AND security_level_rank <= $2
     AND required_classes <@ $3::text[]
   )
+  OR (
+    scope_type = 'private'
+    AND scope_person_id = $1
+  )
+  OR (
+    scope_type = 'circle'
+    AND scope_circle_id = ANY($5::text[])
+  )
 ORDER BY scope_type, namespace_id`,
 		request.ReaderPersonID,
 		request.ReaderSecurityLevelRank,
 		request.ReaderGrantedClasses,
 		append([]string{request.ConversationID}, request.AccessibleConversationIDs...),
+		request.ReaderCircles,
 	)
 	if errorValue != nil {
 		return nil, errorValue
@@ -115,6 +126,7 @@ ORDER BY scope_type, namespace_id`,
 			&namespace.ScopeType,
 			&namespace.ScopePersonID,
 			&namespace.ScopeConversationID,
+			&namespace.ScopeCircleID,
 			&namespace.SecurityLevelRank,
 			&namespace.RequiredClasses,
 		)

@@ -20,6 +20,29 @@ func UserNamespace(personID string) MemoryNamespace {
 	}
 }
 
+func PrivatePersonNamespace(personID string) MemoryNamespace {
+	return MemoryNamespace{
+		NamespaceID:     "private:person:" + strings.TrimSpace(personID),
+		ScopeType:       ScopeTypePrivate,
+		ScopePersonID:   strings.TrimSpace(personID),
+		RequiredClasses: []string{},
+	}
+}
+
+func CircleNamespace(workspaceID string, circleID string) MemoryNamespace {
+	cleanWorkspaceID := strings.TrimSpace(workspaceID)
+	if cleanWorkspaceID == "" {
+		cleanWorkspaceID = DefaultWorkspaceID
+	}
+	cleanCircleID := strings.ToLower(strings.TrimSpace(circleID))
+	return MemoryNamespace{
+		NamespaceID:     "circle:" + cleanWorkspaceID + ":" + cleanCircleID,
+		ScopeType:       ScopeTypeCircle,
+		ScopeCircleID:   cleanCircleID,
+		RequiredClasses: []string{},
+	}
+}
+
 func WorkspaceNamespace(workspaceID string, securityLevelRank int, requiredClasses []string) MemoryNamespace {
 	cleanWorkspaceID := strings.TrimSpace(workspaceID)
 	if cleanWorkspaceID == "" {

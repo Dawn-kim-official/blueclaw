@@ -6,6 +6,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"blueclaw/internal/access"
+	"blueclaw/internal/policy"
 )
 
 type GraphMemoryStore interface {
@@ -20,8 +23,10 @@ type GraphMemoryMirror interface {
 }
 
 type MemorySearchRequest struct {
-	Query                     string            `json:"query"`
-	ReaderPersonID            string            `json:"readerPersonID"`
+	Query                     string   `json:"query"`
+	ReaderPersonID            string   `json:"readerPersonID"`
+	ReaderCircles             []string `json:"readerCircles"`
+	ResourceAccessRules       []policy.ResourceAccessPolicy
 	ReaderSecurityLevelRank   int               `json:"readerSecurityLevelRank"`
 	ReaderGrantedClasses      []string          `json:"readerGrantedClasses"`
 	ConversationID            string            `json:"conversationID"`
@@ -78,23 +83,32 @@ func (memoryService *MemoryService) SearchMemory(ctx context.Context, request Me
 	}
 	request.Namespaces = memoryService.resolveAccessibleNamespaces(ctx, request)
 	if memoryService.store != nil {
-		return memoryService.store.SearchFacts(ctx, request)
+		memoryFacts, errorValue := memoryService.store.SearchFacts(ctx, request)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		return filterReadableMemoryFacts(request, memoryFacts), nil
 	}
 
 	memoryService.mutex.RLock()
 	defer memoryService.mutex.RUnlock()
 
-	filteredMemoryFacts := []MemoryFact{}
-	for _, memoryFact := range memoryService.memoryFacts {
-		if canReadMemoryFact(request, memoryFact) {
-			filteredMemoryFacts = append(filteredMemoryFacts, memoryFact)
-		}
-	}
+	filteredMemoryFacts := filterReadableMemoryFacts(request, memoryService.memoryFacts)
 	rankedMemoryFacts := rankMemoryFacts(filteredMemoryFacts, request.Query)
 	if len(rankedMemoryFacts) > request.Limit {
 		return rankedMemoryFacts[:request.Limit], nil
 	}
 	return rankedMemoryFacts, nil
+}
+
+func filterReadableMemoryFacts(request MemorySearchRequest, memoryFacts []MemoryFact) []MemoryFact {
+	filteredMemoryFacts := []MemoryFact{}
+	for _, memoryFact := range memoryFacts {
+		if canReadMemoryFact(request, memoryFact) {
+			filteredMemoryFacts = append(filteredMemoryFacts, memoryFact)
+		}
+	}
+	return filteredMemoryFacts
 }
 
 func rankMemoryFacts(memoryFacts []MemoryFact, query string) []MemoryFact {
@@ -172,7 +186,37 @@ func canReadMemoryFact(request MemorySearchRequest, memoryFact MemoryFact) bool 
 	if request.ReaderSecurityLevelRank < memoryFact.SecurityLevelRank {
 		return false
 	}
-	return containsAll(request.ReaderGrantedClasses, memoryFact.RequiredClasses)
+	if !containsAll(request.ReaderGrantedClasses, memoryFact.RequiredClasses) {
+		return false
+	}
+	return access.CanAccess(access.Request{
+		PersonAccess: policy.PersonAccess{
+			PersonID:            request.ReaderPersonID,
+			Circles:             request.ReaderCircles,
+			ResourceAccessRules: request.ResourceAccessRules,
+		},
+		Action:   access.ActionRead,
+		Resource: memoryResourceForFact(request.Namespaces, memoryFact),
+	})
+}
+
+func memoryResourceForFact(namespaces []MemoryNamespace, memoryFact MemoryFact) string {
+	for _, namespace := range namespaces {
+		if namespace.NamespaceID != memoryFact.NamespaceID {
+			continue
+		}
+		switch namespace.ScopeType {
+		case ScopeTypeCircle:
+			return "memory:circle:" + namespace.ScopeCircleID
+		case ScopeTypePrivate, ScopeTypeUser:
+			return "memory:private:" + namespace.ScopePersonID
+		case ScopeTypeConversation:
+			return "memory:conversation"
+		default:
+			return "memory:workspace"
+		}
+	}
+	return "memory:workspace"
 }
 
 func containsNamespace(namespaces []MemoryNamespace, namespaceID string) bool {

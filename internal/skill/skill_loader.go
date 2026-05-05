@@ -35,6 +35,7 @@ func (skillLoader SkillLoader) LoadSkillBundle(directoryPath string) (SkillBundl
 		RequiredTools:          metadata.RequiredTools,
 		AllowedTools:           metadata.AllowedTools,
 		AllowedProfiles:        metadata.AllowedProfiles,
+		HiddenFromCircles:      metadata.HiddenFromCircles,
 		TriggerHints:           metadata.TriggerHints,
 		DisableModelInvocation: metadata.DisableModelInvocation,
 		Paths:                  metadata.Paths,
@@ -58,6 +59,7 @@ type skillMetadata struct {
 	RequiredTools          []string
 	AllowedTools           []string
 	AllowedProfiles        []string
+	HiddenFromCircles      []string
 	TriggerHints           []string
 	DisableModelInvocation bool
 	Paths                  []string
@@ -148,6 +150,8 @@ func setSkillMetadataValue(metadata skillMetadata, key string, value string) ski
 		metadata.AllowedTools = append(metadata.AllowedTools, parseSkillSpaceSeparatedList(value)...)
 	case "allowedProfiles":
 		metadata.AllowedProfiles = append(metadata.AllowedProfiles, parseSkillList(value)...)
+	case "hiddenFromCircles":
+		metadata.HiddenFromCircles = append(metadata.HiddenFromCircles, parseSkillList(value)...)
 	case "triggerHints":
 		metadata.TriggerHints = append(metadata.TriggerHints, parseSkillList(value)...)
 	case "disable-model-invocation":

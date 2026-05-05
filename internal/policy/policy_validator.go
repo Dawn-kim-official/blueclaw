@@ -10,6 +10,7 @@ type PolicyValidator struct{}
 func (policyValidator PolicyValidator) ValidatePolicyDocument(policyDocument PolicyDocument) error {
 	emailSet := map[string]bool{}
 	personSet := map[string]bool{}
+	circleSet := map[string]bool{}
 
 	for _, personPolicy := range policyDocument.People {
 		if personPolicy.PersonID == "" {
@@ -34,9 +35,29 @@ func (policyValidator PolicyValidator) ValidatePolicyDocument(policyDocument Pol
 		}
 	}
 
+	for _, circlePolicy := range policyDocument.Circles {
+		circleID := strings.ToLower(strings.TrimSpace(circlePolicy.CircleID))
+		if circleID == "" {
+			return errors.New("circleID is required")
+		}
+		if circleSet[circleID] {
+			return errors.New("duplicate circleID")
+		}
+		circleSet[circleID] = true
+	}
+
 	for _, channelPolicy := range policyDocument.Channels {
 		if channelPolicy.Platform == "" || channelPolicy.ExternalConversationID == "" {
 			return errors.New("channel platform and externalConversationID are required")
+		}
+	}
+
+	for _, resourceAccessPolicy := range policyDocument.ResourceAccess {
+		if strings.TrimSpace(resourceAccessPolicy.Resource) == "" {
+			return errors.New("resource access resource is required")
+		}
+		if len(resourceAccessPolicy.Actions) == 0 {
+			return errors.New("resource access action is required")
 		}
 	}
 

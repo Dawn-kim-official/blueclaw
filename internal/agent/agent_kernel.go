@@ -145,6 +145,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		RequesterName:        request.RequesterName,
 		RequesterCallingName: request.RequesterCallingName,
 		RequesterHandle:      request.RequesterHandle,
+		RequesterCircles:     append([]string{}, request.RequesterCircles...),
 		ProfileName:          request.ProfileName,
 		ConversationID:       request.ConversationID,
 		Prompt:               request.Prompt,
@@ -180,6 +181,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequesterName:              request.RequesterName,
 		RequesterCallingName:       request.RequesterCallingName,
 		RequesterHandle:            request.RequesterHandle,
+		RequesterCircles:           append([]string{}, request.RequesterCircles...),
 		ProfileName:                normalizedAgentProfileName(request.ProfileName),
 		ConversationID:             request.ConversationID,
 		Prompt:                     request.Prompt,
@@ -371,7 +373,8 @@ func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instruc
 	selectedSkillInstructions := []SkillInstruction{}
 	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever)
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
-	for _, skillInstruction := range candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates) {
+	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
+	for _, skillInstruction := range candidateInstructions {
 		skillDecision := skillSelector.Evaluate(skillInstruction, selectionRequest, normalizedAgentProfileName(request.ProfileName))
 		if skillCandidate, isFound := candidateByName[skillInstruction.Name]; isFound {
 			skillDecision = skillDecisionForCandidate(skillInstruction, skillDecision, skillCandidate, normalizedAgentProfileName(request.ProfileName))
@@ -388,7 +391,7 @@ func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instruc
 		sources = append(sources, skillInstruction.Source)
 	}
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, selectionRequest, normalizedAgentProfileName(request.ProfileName))...)
-	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates)))
+	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
 	return InstructionBundle{
 		Prompt:         strings.Join(nonEmptyStrings(prompts), "\n\n"),
@@ -401,6 +404,32 @@ func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instruc
 	}
 }
 
+func visibleCandidateSkillInstructions(skillInstructions []SkillInstruction, candidateByName map[string]SkillCandidate, requesterCircles []string) []SkillInstruction {
+	visibleSkillInstructions := []SkillInstruction{}
+	for _, skillInstruction := range skillInstructions {
+		skillCandidate, isCandidate := candidateByName[skillInstruction.Name]
+		isDirectRequest := isCandidate && skillCandidate.Reason == "direct_skill_name"
+		if skillHiddenFromRequester(skillInstruction, requesterCircles) && !isDirectRequest {
+			continue
+		}
+		visibleSkillInstructions = append(visibleSkillInstructions, skillInstruction)
+	}
+	return visibleSkillInstructions
+}
+
+func skillHiddenFromRequester(skillInstruction SkillInstruction, requesterCircles []string) bool {
+	hiddenCircleByName := map[string]bool{}
+	for _, circleID := range skillInstruction.HiddenFromCircles {
+		hiddenCircleByName[strings.ToLower(strings.TrimSpace(circleID))] = true
+	}
+	for _, circleID := range requesterCircles {
+		if hiddenCircleByName[strings.ToLower(strings.TrimSpace(circleID))] {
+			return true
+		}
+	}
+	return false
+}
+
 func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existingSkillDecisions []SkillSelectionDecision, request AgentRequest, profileName string) []SkillSelectionDecision {
 	existingDecisionByName := map[string]bool{}
 	for _, skillDecision := range existingSkillDecisions {
@@ -410,6 +439,9 @@ func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existi
 	blockedDecisions := []SkillSelectionDecision{}
 	for _, skillInstruction := range skillInstructions {
 		if existingDecisionByName[skillInstruction.Name] {
+			continue
+		}
+		if skillHiddenFromRequester(skillInstruction, request.RequesterCircles) {
 			continue
 		}
 		skillDecision := skillSelector.Evaluate(skillInstruction, request, profileName)
