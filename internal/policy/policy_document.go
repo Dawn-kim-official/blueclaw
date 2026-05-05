@@ -1,21 +1,33 @@
 package policy
 
 type PolicyDocument struct {
-	People    []PersonPolicy  `json:"people"`
-	Channels  []ChannelPolicy `json:"channels"`
-	Retention RetentionPolicy `json:"retention"`
-	Rules     []TopicRule     `json:"rules"`
-	Metadata  PolicyMetadata  `json:"metadata"`
+	People         []PersonPolicy         `json:"people"`
+	Circles        []CirclePolicy         `json:"circles"`
+	Channels       []ChannelPolicy        `json:"channels"`
+	ResourceAccess []ResourceAccessPolicy `json:"resourceAccess"`
+	CircleSync     CircleSyncPolicy       `json:"circleSync"`
+	Retention      RetentionPolicy        `json:"retention"`
+	Rules          []TopicRule            `json:"rules"`
+	Metadata       PolicyMetadata         `json:"metadata"`
 }
 
 type PersonPolicy struct {
 	PersonID          string   `json:"personID"`
 	DisplayName       string   `json:"displayName"`
 	Emails            []string `json:"emails"`
+	Circles           []string `json:"circles"`
 	SecurityLevelName string   `json:"securityLevelName"`
 	SecurityLevelRank int      `json:"securityLevelRank"`
 	GrantedClasses    []string `json:"grantedClasses"`
 	IsAdmin           bool     `json:"isAdmin"`
+}
+
+type CirclePolicy struct {
+	CircleID               string `json:"circleID"`
+	DisplayName            string `json:"displayName"`
+	MattermostChannelID    string `json:"mattermostChannelID,omitempty"`
+	IsMattermostManaged    bool   `json:"isMattermostManaged,omitempty"`
+	WorkspaceDirectoryPath string `json:"workspaceDirectoryPath,omitempty"`
 }
 
 type ChannelPolicy struct {
@@ -27,6 +39,22 @@ type ChannelPolicy struct {
 	DefaultRequiredClasses   []string `json:"defaultRequiredClasses"`
 	IsCollectEnabled         bool     `json:"isCollectEnabled"`
 	IsReplyEnabled           bool     `json:"isReplyEnabled"`
+}
+
+type ResourceAccessPolicy struct {
+	Resource string   `json:"resource"`
+	Actions  []string `json:"actions"`
+	Circles  []string `json:"circles"`
+}
+
+type CircleSyncPolicy struct {
+	MattermostPrivateChannels []MattermostCircleChannelPolicy `json:"mattermostPrivateChannels"`
+}
+
+type MattermostCircleChannelPolicy struct {
+	CircleID    string `json:"circleID"`
+	ChannelName string `json:"channelName"`
+	ChannelID   string `json:"channelID,omitempty"`
 }
 
 type RetentionPolicy struct {

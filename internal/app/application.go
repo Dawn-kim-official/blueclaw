@@ -360,6 +360,7 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 						RequiredTools:          append([]string{}, skillBundle.RequiredTools...),
 						AllowedTools:           append([]string{}, skillBundle.AllowedTools...),
 						AllowedProfiles:        append([]string{}, skillBundle.AllowedProfiles...),
+						HiddenFromCircles:      append([]string{}, skillBundle.HiddenFromCircles...),
 						TriggerHints:           append([]string{}, skillBundle.TriggerHints...),
 						DisableModelInvocation: skillBundle.DisableModelInvocation,
 						Paths:                  append([]string{}, skillBundle.Paths...),

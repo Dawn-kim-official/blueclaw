@@ -6,6 +6,8 @@ const (
 	ScopeTypeUser         = "user"
 	ScopeTypeWorkspace    = "workspace"
 	ScopeTypeConversation = "conversation"
+	ScopeTypeCircle       = "circle"
+	ScopeTypePrivate      = "private"
 )
 
 type ContentSegment struct {
@@ -40,6 +42,7 @@ type MemoryNamespace struct {
 	ScopeType           string   `json:"scopeType"`
 	ScopePersonID       string   `json:"scopePersonID,omitempty"`
 	ScopeConversationID string   `json:"scopeConversationID,omitempty"`
+	ScopeCircleID       string   `json:"scopeCircleID,omitempty"`
 	SecurityLevelRank   int      `json:"securityLevelRank"`
 	RequiredClasses     []string `json:"requiredClasses"`
 }

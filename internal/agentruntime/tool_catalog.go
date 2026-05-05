@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/mcp"
@@ -38,6 +39,10 @@ type ToolCatalogBuilder struct {
 	taskRunService            *task.TaskRunService
 	workspaceRootPath         string
 	skillChangeHandler        func(context.Context)
+}
+
+type toolHandlerContext struct {
+	request ToolCatalogRequest
 }
 
 type ToolCatalogRequest struct {
@@ -115,7 +120,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistry(request ToolCata
 	toolRegistry := agent.NewToolRegistry(toolCatalogBuilder.allowedToolNames(request.ProfileName))
 	toolCatalogBuilder.registerHistoryTool(toolRegistry, request)
 	toolCatalogBuilder.registerMemoryTool(toolRegistry, request)
-	toolCatalogBuilder.registerBuiltInTools(toolRegistry)
+	toolCatalogBuilder.registerBuiltInTools(toolRegistry, toolHandlerContext{request: request})
 	toolCatalogBuilder.registerMCPTools(toolRegistry)
 	toolCatalogBuilder.registerCapabilityTools(toolRegistry, request)
 	return toolRegistry
@@ -198,6 +203,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) SearchMemory(ctx context.Context, 
 	return toolCatalogBuilder.memoryService.SearchMemory(ctx, memory.MemorySearchRequest{
 		Query:                     request.Query,
 		ReaderPersonID:            request.RequesterPersonID,
+		ReaderCircles:             request.PersonAccess.Circles,
+		ResourceAccessRules:       request.PersonAccess.ResourceAccessRules,
 		ReaderSecurityLevelRank:   request.PersonAccess.SecurityLevelRank,
 		ReaderGrantedClasses:      request.PersonAccess.GrantedClasses,
 		ConversationID:            request.ConversationID,
@@ -206,17 +213,21 @@ func (toolCatalogBuilder *ToolCatalogBuilder) SearchMemory(ctx context.Context, 
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolRegistry) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolRegistry, handlerContext toolHandlerContext) {
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "terminal.run",
 		Description: "Run a guarded non-interactive command inside the Blueclaw workspace.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["command"],"additionalProperties":false}`),
-	}, toolCatalogBuilder.runTerminalTool)
+	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+		return toolCatalogBuilder.runTerminalTool(toolContext, toolInvocation, handlerContext)
+	})
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "terminal.session",
 		Description: "Manage a PTY terminal session inside the Blueclaw workspace with action start, write, status, or close.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["action"],"additionalProperties":false}`),
-	}, toolCatalogBuilder.sessionTerminalTool)
+	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+		return toolCatalogBuilder.sessionTerminalTool(toolContext, toolInvocation, handlerContext)
+	})
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "browser_handoff.openURL",
 		Description: "Ask the Companion bridge to open a URL on the user's computer without running shell commands.",
@@ -231,12 +242,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Name:        "file.write",
 		Description: "Write a UTF-8 text file under the Blueclaw workspace. Use this for markdown, scripts, and source files instead of shell redirection.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`),
-	}, toolCatalogBuilder.writeFileTool)
+	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+		return toolCatalogBuilder.writeFileTool(toolContext, toolInvocation, handlerContext)
+	})
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "file.attach",
 		Description: "Attach one or more existing workspace files to the final reply evidence. Use paths for related artifact sets.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"filename":{"type":"string"},"contentType":{"type":"string"},"title":{"type":"string"}},"additionalProperties":false}`),
-	}, toolCatalogBuilder.attachFileTool)
+	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+		return toolCatalogBuilder.attachFileTool(toolContext, toolInvocation, handlerContext)
+	})
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
 }
 
@@ -277,6 +292,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				Status  string          `json:"status"`
 				Result  json.RawMessage `json:"result"`
 			}
+			if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: "tool:" + toolName}) {
+				return agent.ToolResult{Content: "current account cannot execute this tool", IsError: true}, nil
+			}
 			errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, json.RawMessage(toolInvocation.Input)), &response)
 			if errorValue != nil {
 				return agent.ToolResult{}, errorValue
@@ -291,7 +309,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.terminalService == nil {
 		return agent.ToolResult{Content: "terminal service is unavailable", IsError: true}, nil
 	}
@@ -307,6 +325,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	} else {
 		input.WorkingDirectoryPath = toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath)
 	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
+		return agent.ToolResult{Content: "current account cannot use this workspace path", IsError: true}, nil
+	}
 	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(input)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
@@ -316,7 +337,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	return agent.ToolResult{Content: content}, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.terminalService == nil {
 		return agent.ToolResult{Content: "terminal service is unavailable", IsError: true}, nil
 	}
@@ -326,7 +347,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 	}
 	switch strings.TrimSpace(input.Action) {
 	case "start":
-		return toolCatalogBuilder.startTerminalSession(input)
+		return toolCatalogBuilder.startTerminalSession(input, handlerContext)
 	case "write":
 		commandResult, errorValue := toolCatalogBuilder.terminalService.WriteSessionInput(input.SessionID, input.Input)
 		return terminalSessionToolResult(commandResult, errorValue), nil
@@ -345,8 +366,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	workingDirectoryPath := firstNonEmptyString(toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath), toolCatalogBuilder.workspaceRootPath)
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, workingDirectoryPath) {
+		return agent.ToolResult{Content: "current account cannot use this workspace path", IsError: true}, nil
+	}
 	sessionID, errorValue := toolCatalogBuilder.terminalService.StartInteractiveSession(security.CommandRequest{
 		Command:              toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command),
 		WorkingDirectoryPath: workingDirectoryPath,
@@ -429,7 +453,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext co
 	return agent.ToolResult{Content: marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "message": input.Message})}, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	var input struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
@@ -444,6 +468,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	}
 	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath) {
 		return agent.ToolResult{Content: "file.write cannot modify built-in skill files", IsError: true}, nil
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath) {
+		return agent.ToolResult{Content: "current account cannot write this file", IsError: true}, nil
 	}
 	fileMode := os.FileMode(0600)
 	if input.Mode != 0 {
@@ -462,7 +489,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	})}, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	var input struct {
 		Path        string   `json:"path"`
 		Paths       []string `json:"paths"`
@@ -479,7 +506,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 	}
 	attachments := []agent.FileAttachment{}
 	for _, attachmentPath := range attachmentPaths {
-		attachment, errorValue := toolCatalogBuilder.fileAttachment(attachmentPath, input)
+		attachment, errorValue := toolCatalogBuilder.fileAttachment(attachmentPath, input, handlerContext)
 		if errorValue != nil {
 			return agent.ToolResult{}, errorValue
 		}
@@ -506,10 +533,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input 
 	Filename    string   `json:"filename"`
 	ContentType string   `json:"contentType"`
 	Title       string   `json:"title"`
-}) (agent.FileAttachment, error) {
+}, handlerContext toolHandlerContext) (agent.FileAttachment, error) {
 	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePath(path)
 	if errorValue != nil {
 		return agent.FileAttachment{}, errorValue
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath) {
+		return agent.FileAttachment{}, errors.New("current account cannot read this file")
 	}
 	fileInformation, errorValue := os.Stat(resolvedPath)
 	if errorValue != nil {
@@ -532,6 +562,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input 
 		Title:         strings.TrimSpace(input.Title),
 		ContentBase64: contentBase64,
 	}, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) canAccessWorkspacePath(personAccess policy.PersonAccess, action string, path string) bool {
+	resource := access.ResourceForWorkspacePath(toolCatalogBuilder.workspaceRootPath, path)
+	return access.CanAccess(access.Request{
+		PersonAccess: personAccess,
+		Action:       action,
+		Resource:     resource,
+	})
 }
 
 func inlineAttachmentContent(path string, sizeBytes int64) (string, error) {

@@ -20,13 +20,14 @@ func (personRepository PersonRepository) UpsertPerson(personPolicy policy.Person
 	_, errorValue := personRepository.database.SQL.ExecContext(context.Background(), `
 INSERT INTO person (
   person_id, display_name, security_level_name, security_level_rank,
-  granted_classes, is_admin, created_at, updated_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
+  granted_classes, circles, is_admin, created_at, updated_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
 ON CONFLICT (person_id) DO UPDATE SET
   display_name = EXCLUDED.display_name,
   security_level_name = EXCLUDED.security_level_name,
   security_level_rank = EXCLUDED.security_level_rank,
   granted_classes = EXCLUDED.granted_classes,
+  circles = EXCLUDED.circles,
   is_admin = EXCLUDED.is_admin,
   updated_at = EXCLUDED.updated_at`,
 		personPolicy.PersonID,
@@ -34,6 +35,7 @@ ON CONFLICT (person_id) DO UPDATE SET
 		personPolicy.SecurityLevelName,
 		personPolicy.SecurityLevelRank,
 		personPolicy.GrantedClasses,
+		personPolicy.Circles,
 		personPolicy.IsAdmin,
 		now,
 	)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"blueclaw/internal/policy"
 )
 
 func TestMemoryServiceSeparatesUserWorkspaceAndConversationNamespaces(t *testing.T) {
@@ -148,6 +150,93 @@ func TestMemoryServiceRanksAfterPolicyFiltering(t *testing.T) {
 	}
 	if containsMemory(memoryFacts, "프로젝트 오로라 예산은 비공개다.") {
 		t.Fatal("expected inaccessible high-score memory to be filtered before ranking")
+	}
+}
+
+func TestMemoryServiceFiltersPrivateAndCircleResources(t *testing.T) {
+	memoryService := &MemoryService{}
+	privateNamespace := PrivatePersonNamespace("person-1")
+	financeNamespace := CircleNamespace("default", "finance")
+	memoryService.StoreMemoryFact(MemoryFact{
+		FactID:      "private",
+		ScopeType:   ScopeTypePrivate,
+		NamespaceID: privateNamespace.NamespaceID,
+		Content:     "민수와 봇의 1:1 메모다.",
+	})
+	memoryService.StoreMemoryFact(MemoryFact{
+		FactID:      "finance",
+		ScopeType:   ScopeTypeCircle,
+		NamespaceID: financeNamespace.NamespaceID,
+		Content:     "재무 circle 자료다.",
+	})
+
+	ownerFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
+		ReaderPersonID: "person-1",
+		ReaderCircles:  []string{"staff", "finance"},
+		Namespaces:     []MemoryNamespace{privateNamespace, financeNamespace},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected search to succeed: %v", errorValue)
+	}
+	if !containsMemory(ownerFacts, "민수와 봇의 1:1 메모다.") || !containsMemory(ownerFacts, "재무 circle 자료다.") {
+		t.Fatalf("expected owner finance access, got %+v", ownerFacts)
+	}
+
+	otherFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
+		ReaderPersonID: "person-2",
+		ReaderCircles:  []string{"staff"},
+		Namespaces:     []MemoryNamespace{privateNamespace, financeNamespace},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected search to succeed: %v", errorValue)
+	}
+	if containsMemory(otherFacts, "민수와 봇의 1:1 메모다.") {
+		t.Fatal("expected other person not to read private memory")
+	}
+	if containsMemory(otherFacts, "재무 circle 자료다.") {
+		t.Fatal("expected finance non-member not to read finance memory")
+	}
+}
+
+func TestMemoryServiceAppliesResourceAccessRulesBeforeRanking(t *testing.T) {
+	memoryService := &MemoryService{}
+	resourceAccessRules := []policy.ResourceAccessPolicy{{
+		Resource: "memory:workspace",
+		Actions:  []string{"read"},
+		Circles:  []string{"admin"},
+	}}
+	memoryService.StoreMemoryFact(MemoryFact{
+		FactID:      "workspace-secret",
+		ScopeType:   ScopeTypeWorkspace,
+		NamespaceID: WorkspaceNamespace("default", 0, nil).NamespaceID,
+		Content:     "워크스페이스 공용 메모지만 rule로 막는다.",
+		Score:       100,
+	})
+	memoryService.StoreMemoryFact(MemoryFact{
+		FactID:      "private",
+		ScopeType:   ScopeTypePrivate,
+		NamespaceID: PrivatePersonNamespace("person-1").NamespaceID,
+		Content:     "낮은 점수의 개인 메모다.",
+		Score:       1,
+	})
+
+	memoryFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
+		ReaderPersonID:      "person-1",
+		ReaderCircles:       []string{"staff"},
+		ResourceAccessRules: resourceAccessRules,
+		Namespaces: []MemoryNamespace{
+			WorkspaceNamespace("default", 0, nil),
+			PrivatePersonNamespace("person-1"),
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected search to succeed: %v", errorValue)
+	}
+	if containsMemory(memoryFacts, "워크스페이스 공용 메모지만 rule로 막는다.") {
+		t.Fatal("expected resource access rule to filter workspace memory before ranking")
+	}
+	if !containsMemory(memoryFacts, "낮은 점수의 개인 메모다.") {
+		t.Fatalf("expected private memory to remain, got %+v", memoryFacts)
 	}
 }
 

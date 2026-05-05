@@ -31,6 +31,7 @@ type SkillInstruction struct {
 	RequiredTools          []string        `json:"requiredTools,omitempty"`
 	AllowedTools           []string        `json:"allowedTools,omitempty"`
 	AllowedProfiles        []string        `json:"allowedProfiles,omitempty"`
+	HiddenFromCircles      []string        `json:"hiddenFromCircles,omitempty"`
 	TriggerHints           []string        `json:"triggerHints,omitempty"`
 	DisableModelInvocation bool            `json:"disableModelInvocation,omitempty"`
 	Paths                  []string        `json:"paths,omitempty"`

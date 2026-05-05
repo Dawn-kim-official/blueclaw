@@ -25,6 +25,7 @@ type invitePersonRequest struct {
 	Email             string   `json:"email"`
 	DisplayName       string   `json:"displayName"`
 	IsAdmin           bool     `json:"isAdmin"`
+	Circles           []string `json:"circles"`
 	SecurityLevelName string   `json:"securityLevelName"`
 	SecurityLevelRank int      `json:"securityLevelRank"`
 	GrantedClasses    []string `json:"grantedClasses"`
@@ -208,10 +209,12 @@ func createInvitedPersonPolicy(inviteRequest invitePersonRequest, email string) 
 	securityLevelName := strings.TrimSpace(inviteRequest.SecurityLevelName)
 	securityLevelRank := inviteRequest.SecurityLevelRank
 	grantedClasses := append([]string{}, inviteRequest.GrantedClasses...)
+	circles := normalizeCircles(append([]string{"staff"}, inviteRequest.Circles...))
 	if inviteRequest.IsAdmin {
 		securityLevelName = "admin"
 		securityLevelRank = 100
 		grantedClasses = []string{"internal", "executive"}
+		circles = normalizeCircles(append(circles, "admin"))
 	}
 	if securityLevelName == "" {
 		securityLevelName = "member"
@@ -227,11 +230,26 @@ func createInvitedPersonPolicy(inviteRequest invitePersonRequest, email string) 
 		PersonID:          newPersonID(),
 		DisplayName:       displayNameForInvite(inviteRequest.DisplayName, email),
 		Emails:            []string{email},
+		Circles:           circles,
 		SecurityLevelName: securityLevelName,
 		SecurityLevelRank: securityLevelRank,
 		GrantedClasses:    grantedClasses,
 		IsAdmin:           inviteRequest.IsAdmin,
 	}
+}
+
+func normalizeCircles(values []string) []string {
+	seenValue := map[string]bool{}
+	circles := []string{}
+	for _, value := range values {
+		trimmedValue := strings.ToLower(strings.TrimSpace(value))
+		if trimmedValue == "" || seenValue[trimmedValue] {
+			continue
+		}
+		seenValue[trimmedValue] = true
+		circles = append(circles, trimmedValue)
+	}
+	return circles
 }
 
 func displayNameForInvite(displayName string, email string) string {

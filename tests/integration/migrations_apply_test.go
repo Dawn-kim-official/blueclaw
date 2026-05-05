@@ -15,8 +15,8 @@ func TestMigrationsApplyList(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected migrations to load: %v", errorValue)
 	}
-	if len(migrationPaths) != 13 {
-		t.Fatalf("expected 13 migration files, got %d", len(migrationPaths))
+	if len(migrationPaths) != 14 {
+		t.Fatalf("expected 14 migration files, got %d", len(migrationPaths))
 	}
 }
 
@@ -95,6 +95,27 @@ func TestConnectorQueueMigrationStoresInboxAndOutboxState(t *testing.T) {
 		"reply_target_json jsonb",
 		"reply_json jsonb",
 		"UNIQUE (raw_event_id)",
+	}
+	for _, requiredField := range requiredFields {
+		if !strings.Contains(migrationText, requiredField) {
+			t.Fatalf("expected migration to include %q", requiredField)
+		}
+	}
+}
+
+func TestCircleAccessMigrationStoresCirclePolicy(t *testing.T) {
+	migrationDocument, errorValue := os.ReadFile(filepath.Join("../../migrations", "014_circle_access.sql"))
+	if errorValue != nil {
+		t.Fatalf("expected circle access migration to load: %v", errorValue)
+	}
+
+	migrationText := string(migrationDocument)
+	requiredFields := []string{
+		"circles text[]",
+		"CREATE TABLE IF NOT EXISTS circle",
+		"CREATE TABLE IF NOT EXISTS resource_access_rule",
+		"CREATE TABLE IF NOT EXISTS mattermost_circle_link",
+		"scope_circle_id text",
 	}
 	for _, requiredField := range requiredFields {
 		if !strings.Contains(migrationText, requiredField) {

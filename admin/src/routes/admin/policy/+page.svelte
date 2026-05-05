@@ -1,13 +1,19 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { loadPolicyDocument } from "$lib/api/admin_api_client";
+  import { loadPolicyDocument, type PolicyDocument } from "$lib/api/admin_api_client";
+  import CircleStatus from "$lib/component/policy/circle_status.svelte";
   import PeopleEditor from "$lib/component/policy/people_editor.svelte";
   import ChannelRuleEditor from "$lib/component/policy/channel_rule_editor.svelte";
   import RetentionEditor from "$lib/component/policy/retention_editor.svelte";
   import ValidationPanel from "$lib/component/policy/validation_panel.svelte";
 
-  let policyDocument = {
+  let policyDocument: PolicyDocument = {
     people: [],
+    circles: [],
+    circleSync: {
+      mattermostPrivateChannels: []
+    },
+    resourceAccess: [],
     channels: [],
     retention: {
       rawEventDays: 60
@@ -19,6 +25,7 @@
   });
 </script>
 
+<CircleStatus circles={policyDocument.circles} mattermostPrivateChannels={policyDocument.circleSync.mattermostPrivateChannels} />
 <PeopleEditor people={policyDocument.people} />
 <ChannelRuleEditor channels={policyDocument.channels} />
 <RetentionEditor rawEventDays={policyDocument.retention.rawEventDays} />

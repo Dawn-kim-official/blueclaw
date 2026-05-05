@@ -6,7 +6,27 @@ export type PolicyDocument = {
     securityLevelName: string;
     securityLevelRank: number;
     grantedClasses: string[];
+    circles: string[];
     isAdmin: boolean;
+  }>;
+  circles: Array<{
+    circleID: string;
+    displayName: string;
+    mattermostChannelID: string;
+    isMattermostManaged: boolean;
+    workspaceDirectoryPath: string;
+  }>;
+  circleSync: {
+    mattermostPrivateChannels: Array<{
+      circleID: string;
+      channelName: string;
+      channelID: string;
+    }>;
+  };
+  resourceAccess: Array<{
+    resource: string;
+    actions: string[];
+    circles: string[];
   }>;
   channels: Array<{
     platform: string;

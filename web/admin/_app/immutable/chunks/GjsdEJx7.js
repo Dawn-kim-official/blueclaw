@@ -1,0 +1,1 @@
+async function s(){return(await fetch("/admin/api/policy")).json()}async function a(){return(await fetch("/admin/api/audit")).json()}async function o(){return(await fetch("/admin/api/task")).json()}export{a,s as b,o as l};

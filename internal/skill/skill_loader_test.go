@@ -39,6 +39,7 @@ quality:
   rubric:
     - pass declared criteria before final reply
 allowedProfiles: [default]
+hiddenFromCircles: [staff]
 triggerHints:
   - slide deck
 references:
@@ -108,6 +109,9 @@ Build slides.
 	}
 	if !containsString(skillBundle.AllowedProfiles, "default") {
 		t.Fatalf("expected allowed profiles, got %+v", skillBundle.AllowedProfiles)
+	}
+	if !containsString(skillBundle.HiddenFromCircles, "staff") {
+		t.Fatalf("expected hidden circles, got %+v", skillBundle.HiddenFromCircles)
 	}
 	if !containsString(skillBundle.TriggerHints, "slide deck") {
 		t.Fatalf("expected trigger hints, got %+v", skillBundle.TriggerHints)

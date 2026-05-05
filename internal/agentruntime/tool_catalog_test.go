@@ -10,6 +10,7 @@ import (
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/config"
+	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
 )
 
@@ -87,6 +88,78 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	}
 }
 
+func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
+	workspacePath := t.TempDir()
+	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
+	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	writeResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "/workspace/circles/finance/report.md",
+			"content": "changed",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !writeResult.IsError || !strings.Contains(writeResult.Content, "cannot write") {
+		t.Fatalf("expected file.write denial, got %+v", writeResult)
+	}
+
+	attachResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "file.attach",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "/workspace/circles/finance/report.md",
+		}),
+	})
+	if errorValue == nil {
+		t.Fatalf("expected file.attach access error, got %+v", attachResult)
+	}
+	if !strings.Contains(errorValue.Error(), "cannot read") {
+		t.Fatalf("expected file.attach read denial, got %v", errorValue)
+	}
+}
+
+func TestFileToolsAllowCirclePathForMember(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff", "finance"},
+		},
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "/workspace/circles/finance/report.md",
+			"content": "finance",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected finance member write success, got %+v", result)
+	}
+}
+
 func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
@@ -119,6 +192,40 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 	if string(content) != "ok" {
 		t.Fatalf("expected translated workspace command to write file, got %q", string(content))
+	}
+}
+
+func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
+		WorkspaceRootPath: workspacePath,
+		Mode:              "firecrackerGuest",
+		TimeoutSecond:     5,
+		OutputMaxBytes:    4096,
+		SessionMaxCount:   2,
+	}))
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command":              "printf no",
+			"workingDirectoryPath": "/workspace/circles/finance",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "cannot use this workspace path") {
+		t.Fatalf("expected terminal.run path denial, got %+v", result)
 	}
 }
 
