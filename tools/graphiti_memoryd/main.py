@@ -75,7 +75,12 @@ class CapabilityEmbedder(EmbedderClient):
         response_document = await asyncio.to_thread(
             post_json,
             self.endpoint + "/v1/embedding/create",
-            {"input": input_data},
+            {
+                "input": input_data,
+                "executionMode": os.environ.get("BLUECLAW_GRAPHITI_EMBEDDING_EXECUTION_MODE", "auto"),
+                "task": "retrieval",
+                "inputType": "query",
+            },
         )
         embedding = response_document.get("embedding", [])
         return [float(value) for value in embedding]
@@ -84,7 +89,12 @@ class CapabilityEmbedder(EmbedderClient):
         response_document = await asyncio.to_thread(
             post_json,
             self.endpoint + "/v1/embedding/create",
-            {"input": input_data_list},
+            {
+                "input": input_data_list,
+                "executionMode": os.environ.get("BLUECLAW_GRAPHITI_EMBEDDING_EXECUTION_MODE", "auto"),
+                "task": "retrieval",
+                "inputType": "document",
+            },
         )
         embeddings = response_document.get("embeddings", [])
         return [[float(value) for value in embedding] for embedding in embeddings]
