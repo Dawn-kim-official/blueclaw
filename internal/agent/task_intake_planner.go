@@ -44,6 +44,7 @@ type AgentRequest struct {
 	MemoryFacts          []memory.MemoryFact
 	ToolRegistry         *ToolRegistry
 	WorkspaceRootPath    string
+	ActivePaths          []string
 	InstructionPrompt    string
 }
 

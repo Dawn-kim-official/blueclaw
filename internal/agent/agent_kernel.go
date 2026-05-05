@@ -24,6 +24,7 @@ type AgentKernel struct {
 	instructionPrompt   string
 	instructionSources  []InstructionSource
 	instructionLoader   func() InstructionBundle
+	skillRetriever      SkillRetriever
 }
 
 func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
@@ -72,6 +73,17 @@ func (agentKernel *AgentKernel) UseInstructionBundleLoader(instructionLoader fun
 	if instructionLoader != nil {
 		agentKernel.UseInstructionBundle(instructionLoader())
 	}
+}
+
+func (agentKernel *AgentKernel) UseSkillRetriever(skillRetriever SkillRetriever) {
+	agentKernel.skillRetriever = skillRetriever
+}
+
+func (agentKernel *AgentKernel) RefreshSkillIndex(ctx context.Context, instructionBundle InstructionBundle) {
+	if agentKernel.skillRetriever == nil {
+		return
+	}
+	agentKernel.skillRetriever.Refresh(ctx, instructionBundle.Skills)
 }
 
 func (agentKernel *AgentKernel) HandleInboundMessage(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
@@ -140,12 +152,13 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		MemoryFacts:          request.MemoryFacts,
 		ToolRegistry:         request.ToolRegistry,
 		WorkspaceRootPath:    request.WorkspaceRootPath,
+		ActivePaths:          request.ActivePaths,
 	})
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
 	instructionBundle := agentKernel.currentInstructionBundle()
-	instructionBundle = selectInstructionBundleForRequest(instructionBundle, request)
+	instructionBundle = selectInstructionBundleForRequestWithRetriever(responseContext, instructionBundle, request, agentKernel.skillRetriever)
 	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
 	intakeDecision := intakePlanner.Plan(responseContext, request)
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
@@ -177,6 +190,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		InstructionPrompt:          instructionBundle.Prompt,
 		InstructionSources:         append([]InstructionSource{}, instructionBundle.Sources...),
 		SkillDecisions:             append([]SkillSelectionDecision{}, instructionBundle.SkillDecisions...),
+		SkillRetrievalMode:         instructionBundle.RetrievalMode,
+		SkillIndexStatus:           instructionBundle.IndexStatus,
+		SkillCandidateCount:        instructionBundle.CandidateCount,
 		RequiredEvidenceTools:      requiredEvidenceTools,
 		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
@@ -297,7 +313,7 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 func hasSelectedSkillWithRequiredTools(instructionBundle InstructionBundle) bool {
 	requiredToolCountBySkillName := map[string]int{}
 	for _, skillInstruction := range instructionBundle.Skills {
-		requiredToolCountBySkillName[skillInstruction.Name] = len(skillInstruction.RequiredTools)
+		requiredToolCountBySkillName[skillInstruction.Name] = len(appendUniqueStrings(skillInstruction.RequiredTools, skillInstruction.AllowedTools...))
 	}
 	for _, skillDecision := range instructionBundle.SkillDecisions {
 		if skillDecision.Status == "selected" && requiredToolCountBySkillName[skillDecision.Name] > 0 {
@@ -343,14 +359,27 @@ func (agentKernel *AgentKernel) currentInstructionBundle() InstructionBundle {
 }
 
 func selectInstructionBundleForRequest(instructionBundle InstructionBundle, request AgentRequest) InstructionBundle {
+	return selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, request, nil)
+}
+
+func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instructionBundle InstructionBundle, request AgentRequest, skillRetriever SkillRetriever) InstructionBundle {
 	prompts := []string{strings.TrimSpace(instructionBundle.Prompt)}
 	sources := append([]InstructionSource{}, instructionBundle.Sources...)
 	skillSelector := SkillSelector{}
 	selectionRequest := requestForSkillSelection(request)
 	skillDecisions := []SkillSelectionDecision{}
 	selectedSkillInstructions := []SkillInstruction{}
-	for _, skillInstruction := range instructionBundle.Skills {
+	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever)
+	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
+	for _, skillInstruction := range candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates) {
 		skillDecision := skillSelector.Evaluate(skillInstruction, selectionRequest, normalizedAgentProfileName(request.ProfileName))
+		if skillCandidate, isFound := candidateByName[skillInstruction.Name]; isFound {
+			skillDecision = skillDecisionForCandidate(skillInstruction, skillDecision, skillCandidate, normalizedAgentProfileName(request.ProfileName))
+		}
+		if skillDecision.Status == "selected" && len(selectedSkillInstructions) >= maxSelectedSkillInstructionCount {
+			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "selected_skill_limit_reached", nil)
+			skillDecision.Score = candidateByName[skillInstruction.Name].Score
+		}
 		skillDecisions = append(skillDecisions, skillDecision)
 		if skillDecision.Status != "selected" {
 			continue
@@ -358,14 +387,88 @@ func selectInstructionBundleForRequest(instructionBundle InstructionBundle, requ
 		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
 		sources = append(sources, skillInstruction.Source)
 	}
-	prompts = append(prompts, buildCompactSkillIndexPrompt(instructionBundle.Skills, skillDecisions))
+	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, selectionRequest, normalizedAgentProfileName(request.ProfileName))...)
+	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates)))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
 	return InstructionBundle{
 		Prompt:         strings.Join(nonEmptyStrings(prompts), "\n\n"),
 		Sources:        sources,
 		Skills:         append([]SkillInstruction{}, instructionBundle.Skills...),
 		SkillDecisions: skillDecisions,
+		RetrievalMode:  retrievalResult.RetrievalMode,
+		IndexStatus:    retrievalResult.IndexStatus,
+		CandidateCount: retrievalResult.CandidateCount,
 	}
+}
+
+func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existingSkillDecisions []SkillSelectionDecision, request AgentRequest, profileName string) []SkillSelectionDecision {
+	existingDecisionByName := map[string]bool{}
+	for _, skillDecision := range existingSkillDecisions {
+		existingDecisionByName[skillDecision.Name] = true
+	}
+	skillSelector := SkillSelector{}
+	blockedDecisions := []SkillSelectionDecision{}
+	for _, skillInstruction := range skillInstructions {
+		if existingDecisionByName[skillInstruction.Name] {
+			continue
+		}
+		skillDecision := skillSelector.Evaluate(skillInstruction, request, profileName)
+		if skillDecision.Status == "skipped" && skillDecision.Reason != "no_trigger_matched" {
+			blockedDecisions = append(blockedDecisions, skillDecision)
+		}
+	}
+	return blockedDecisions
+}
+
+func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillInstructions []SkillInstruction, skillRetriever SkillRetriever) SkillRetrievalResult {
+	if skillRetriever != nil {
+		return skillRetriever.Retrieve(ctx, request, skillInstructions, maxSkillIndexCandidateCount)
+	}
+	return retrieveSkillsWithBM25(request, skillInstructions, maxSkillIndexCandidateCount, "embedding_unconfigured")
+}
+
+func candidateSkillInstructions(skillInstructions []SkillInstruction, skillCandidates []SkillCandidate) []SkillInstruction {
+	skillInstructionByName := skillInstructionByName(skillInstructions)
+	candidateInstructions := []SkillInstruction{}
+	for _, skillCandidate := range skillCandidates {
+		if skillInstruction, isFound := skillInstructionByName[skillCandidate.Name]; isFound {
+			candidateInstructions = append(candidateInstructions, skillInstruction)
+		}
+	}
+	return candidateInstructions
+}
+
+func skillCandidateByName(skillCandidates []SkillCandidate) map[string]SkillCandidate {
+	candidateByName := map[string]SkillCandidate{}
+	for _, skillCandidate := range skillCandidates {
+		candidateByName[skillCandidate.Name] = skillCandidate
+	}
+	return candidateByName
+}
+
+func skillDecisionForCandidate(skillInstruction SkillInstruction, skillDecision SkillSelectionDecision, skillCandidate SkillCandidate, profileName string) SkillSelectionDecision {
+	if skillDecision.Status == "selected" || skillCandidate.Reason == "direct_skill_name" || skillCandidate.Score >= minimumSelectionScoreForCandidate(skillCandidate) {
+		return SkillSelectionDecision{
+			Name:        skillInstruction.Name,
+			Status:      "selected",
+			Reason:      skillCandidate.Reason,
+			ProfileName: profileName,
+			Score:       skillCandidate.Score,
+			Source:      skillInstruction.Source,
+		}
+	}
+	skillDecision.Score = skillCandidate.Score
+	if skillDecision.Reason == "no_trigger_matched" {
+		skillDecision.Reason = "candidate_below_selection_threshold"
+	}
+	return skillDecision
+}
+
+func minimumSelectionScoreForCandidate(skillCandidate SkillCandidate) float64 {
+	if skillCandidate.Reason == "bm25_fallback" {
+		return minimumBM25SelectionScore
+	}
+	return minimumEmbeddingSelectionScore
 }
 
 func requestForSkillSelection(request AgentRequest) AgentRequest {
@@ -407,54 +510,23 @@ func normalizedAgentProfileName(profileName string) string {
 	return trimmedProfileName
 }
 
-func buildCompactSkillIndexPrompt(skillInstructions []SkillInstruction, skillDecisions []SkillSelectionDecision) string {
-	eligibleSkillInstructions := eligibleSkillInstructions(skillInstructions, skillDecisions)
-	if len(eligibleSkillInstructions) == 0 {
+func buildCompactSkillIndexPrompt(skillInstructions []SkillInstruction) string {
+	if len(skillInstructions) == 0 {
 		return ""
 	}
 	lines := []string{"Available skill index. Full instructions are loaded only for selected skills:"}
-	for _, skillInstruction := range eligibleSkillInstructions {
+	for _, skillInstruction := range skillInstructions {
 		lines = append(lines, "- "+compactSkillIndexLine(skillInstruction))
 	}
 	return strings.Join(lines, "\n")
 }
 
-func eligibleSkillInstructions(skillInstructions []SkillInstruction, skillDecisions []SkillSelectionDecision) []SkillInstruction {
-	decisionByName := map[string]SkillSelectionDecision{}
-	for _, skillDecision := range skillDecisions {
-		decisionByName[skillDecision.Name] = skillDecision
-	}
-	eligibleSkills := []SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		skillDecision, isFound := decisionByName[skillInstruction.Name]
-		if !isFound || skillDecision.Status == "selected" || skillDecision.Reason == "no_trigger_matched" {
-			eligibleSkills = append(eligibleSkills, skillInstruction)
-		}
-	}
-	return eligibleSkills
-}
-
 func compactSkillIndexLine(skillInstruction SkillInstruction) string {
 	parts := []string{skillInstruction.Name}
-	if strings.TrimSpace(skillInstruction.Category) != "" {
-		parts = append(parts, "category="+strings.TrimSpace(skillInstruction.Category))
+	if text := skillListText(skillInstruction); strings.TrimSpace(text) != "" {
+		parts = append(parts, strings.TrimSpace(text))
 	}
-	if strings.TrimSpace(skillInstruction.Description) != "" {
-		parts = append(parts, "description="+strings.TrimSpace(skillInstruction.Description))
-	}
-	if len(skillInstruction.Tags) > 0 {
-		parts = append(parts, "tags="+strings.Join(skillInstruction.Tags, ", "))
-	}
-	if len(skillInstruction.TriggerHints) > 0 {
-		parts = append(parts, "triggerHints="+strings.Join(skillInstruction.TriggerHints, ", "))
-	}
-	if len(skillInstruction.RequiredTools) > 0 {
-		parts = append(parts, "requiredTools="+strings.Join(skillInstruction.RequiredTools, ", "))
-	}
-	if len(skillInstruction.Quality.AcceptanceGuidance) > 0 {
-		parts = append(parts, "qualityGuidance="+strings.Join(skillInstruction.Quality.AcceptanceGuidance, ", "))
-	}
-	return strings.Join(parts, "; ")
+	return strings.Join(parts, ": ")
 }
 
 func buildSelectedSkillInstructionPrompt(skillInstructions []SkillInstruction) string {

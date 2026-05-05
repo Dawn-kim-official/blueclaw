@@ -19,40 +19,51 @@ func (skillLoader SkillLoader) LoadSkillBundle(directoryPath string) (SkillBundl
 	if strings.TrimSpace(metadata.Name) == "" {
 		metadata.Name = filepath.Base(directoryPath)
 	}
+	if strings.TrimSpace(metadata.Description) == "" {
+		metadata.Description = firstMarkdownParagraph(instruction)
+	}
 
 	return SkillBundle{
-		Name:            metadata.Name,
-		Description:     metadata.Description,
-		Category:        metadata.Category,
-		Tags:            metadata.Tags,
-		Activation:      metadata.Activation,
-		Completion:      metadata.Completion,
-		Quality:         metadata.Quality,
-		RequiredTools:   metadata.RequiredTools,
-		AllowedProfiles: metadata.AllowedProfiles,
-		TriggerHints:    metadata.TriggerHints,
-		References:      metadata.References,
-		Scripts:         metadata.Scripts,
-		Assets:          metadata.Assets,
-		Instruction:     strings.TrimSpace(instruction),
-		DirectoryPath:   directoryPath,
+		Name:                   metadata.Name,
+		Description:            metadata.Description,
+		WhenToUse:              metadata.WhenToUse,
+		Category:               metadata.Category,
+		Tags:                   metadata.Tags,
+		Activation:             metadata.Activation,
+		Completion:             metadata.Completion,
+		Quality:                metadata.Quality,
+		RequiredTools:          metadata.RequiredTools,
+		AllowedTools:           metadata.AllowedTools,
+		AllowedProfiles:        metadata.AllowedProfiles,
+		TriggerHints:           metadata.TriggerHints,
+		DisableModelInvocation: metadata.DisableModelInvocation,
+		Paths:                  metadata.Paths,
+		References:             metadata.References,
+		Scripts:                metadata.Scripts,
+		Assets:                 metadata.Assets,
+		Instruction:            strings.TrimSpace(instruction),
+		DirectoryPath:          directoryPath,
 	}, nil
 }
 
 type skillMetadata struct {
-	Name            string
-	Description     string
-	Category        string
-	Tags            []string
-	Activation      SkillActivation
-	Completion      SkillCompletion
-	Quality         SkillQuality
-	RequiredTools   []string
-	AllowedProfiles []string
-	TriggerHints    []string
-	References      []string
-	Scripts         []string
-	Assets          []string
+	Name                   string
+	Description            string
+	WhenToUse              string
+	Category               string
+	Tags                   []string
+	Activation             SkillActivation
+	Completion             SkillCompletion
+	Quality                SkillQuality
+	RequiredTools          []string
+	AllowedTools           []string
+	AllowedProfiles        []string
+	TriggerHints           []string
+	DisableModelInvocation bool
+	Paths                  []string
+	References             []string
+	Scripts                []string
+	Assets                 []string
 }
 
 func parseSkillDocument(document string) (skillMetadata, string) {
@@ -125,16 +136,24 @@ func setSkillMetadataValue(metadata skillMetadata, key string, value string) ski
 		metadata.Name = cleanSkillScalar(value)
 	case "description":
 		metadata.Description = joinSkillDescription(metadata.Description, cleanSkillScalar(value))
+	case "when_to_use":
+		metadata.WhenToUse = joinSkillDescription(metadata.WhenToUse, cleanSkillScalar(value))
 	case "category":
 		metadata.Category = cleanSkillScalar(value)
 	case "tags":
 		metadata.Tags = append(metadata.Tags, parseSkillList(value)...)
 	case "requiredTools":
 		metadata.RequiredTools = append(metadata.RequiredTools, parseSkillList(value)...)
+	case "allowed-tools":
+		metadata.AllowedTools = append(metadata.AllowedTools, parseSkillSpaceSeparatedList(value)...)
 	case "allowedProfiles":
 		metadata.AllowedProfiles = append(metadata.AllowedProfiles, parseSkillList(value)...)
 	case "triggerHints":
 		metadata.TriggerHints = append(metadata.TriggerHints, parseSkillList(value)...)
+	case "disable-model-invocation":
+		metadata.DisableModelInvocation = cleanSkillBoolean(value)
+	case "paths":
+		metadata.Paths = append(metadata.Paths, parseSkillList(value)...)
 	case "references":
 		metadata.References = append(metadata.References, parseSkillList(value)...)
 	case "scripts":
@@ -194,12 +213,31 @@ func appendSkillFrontmatterListValue(metadata skillMetadata, section string, lis
 	if section == "quality" {
 		return setSkillQualityValue(metadata, listKey, strings.Join(values, ","))
 	}
-	return setSkillMetadataValue(metadata, listKey, strings.Join(values, ","))
+	return appendSkillMetadataListValue(metadata, listKey, value)
+}
+
+func appendSkillMetadataListValue(metadata skillMetadata, key string, value string) skillMetadata {
+	cleanedValue := cleanSkillScalar(value)
+	if cleanedValue == "" {
+		return metadata
+	}
+	switch key {
+	case "allowed-tools":
+		metadata.AllowedTools = append(metadata.AllowedTools, cleanedValue)
+	case "paths":
+		metadata.Paths = append(metadata.Paths, cleanedValue)
+	default:
+		return setSkillMetadataValue(metadata, key, value)
+	}
+	return metadata
 }
 
 func appendSkillFrontmatterScalarContinuation(metadata skillMetadata, section string, value string) skillMetadata {
 	if section == "description" {
 		metadata.Description = joinSkillDescription(metadata.Description, cleanSkillScalar(value))
+	}
+	if section == "when_to_use" {
+		metadata.WhenToUse = joinSkillDescription(metadata.WhenToUse, cleanSkillScalar(value))
 	}
 	return metadata
 }
@@ -219,8 +257,44 @@ func parseSkillList(value string) []string {
 	return values
 }
 
+func parseSkillSpaceSeparatedList(value string) []string {
+	if strings.Contains(value, ",") || strings.HasPrefix(strings.TrimSpace(value), "[") {
+		return parseSkillList(value)
+	}
+	values := []string{}
+	for _, part := range strings.Fields(value) {
+		cleanedPart := cleanSkillScalar(part)
+		if cleanedPart != "" {
+			values = append(values, cleanedPart)
+		}
+	}
+	return values
+}
+
 func cleanSkillScalar(value string) string {
 	return strings.Trim(strings.TrimSpace(value), `"'`)
+}
+
+func cleanSkillBoolean(value string) bool {
+	return strings.EqualFold(cleanSkillScalar(value), "true")
+}
+
+func firstMarkdownParagraph(document string) string {
+	lines := []string{}
+	for _, line := range strings.Split(document, "\n") {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			if len(lines) > 0 {
+				break
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmedLine, "#") {
+			continue
+		}
+		lines = append(lines, trimmedLine)
+	}
+	return strings.Join(lines, " ")
 }
 
 func joinSkillDescription(left string, right string) string {

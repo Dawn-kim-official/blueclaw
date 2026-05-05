@@ -37,6 +37,7 @@ type ToolCatalogBuilder struct {
 	terminalService           *security.TerminalSessionService
 	taskRunService            *task.TaskRunService
 	workspaceRootPath         string
+	skillChangeHandler        func(context.Context)
 }
 
 type ToolCatalogRequest struct {
@@ -102,6 +103,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseWorkspaceRootPath(workspaceRoot
 	}
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) UseSkillChangeHandler(skillChangeHandler func(context.Context)) {
+	toolCatalogBuilder.skillChangeHandler = skillChangeHandler
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) WorkspaceRootPath() string {
 	return strings.TrimSpace(toolCatalogBuilder.workspaceRootPath)
 }
@@ -124,7 +129,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
 		return append([]string{}, toolCatalogBuilder.fallbackAllowedToolNames...)
 	}
-	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach"}
+	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove"}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolRegistry, request ToolCatalogRequest) {
@@ -232,6 +237,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Description: "Attach one or more existing workspace files to the final reply evidence. Use paths for related artifact sets.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"filename":{"type":"string"},"contentType":{"type":"string"},"title":{"type":"string"}},"additionalProperties":false}`),
 	}, toolCatalogBuilder.attachFileTool)
+	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *agent.ToolRegistry) {
@@ -435,6 +441,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePath(input.Path)
 	if errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+	}
+	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath) {
+		return agent.ToolResult{Content: "file.write cannot modify built-in skill files", IsError: true}, nil
 	}
 	fileMode := os.FileMode(0600)
 	if input.Mode != 0 {

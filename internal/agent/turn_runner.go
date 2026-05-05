@@ -41,9 +41,13 @@ type AgentTurnRequest struct {
 	MemoryFacts                []memory.MemoryFact
 	ToolRegistry               *ToolRegistry
 	WorkspaceRootPath          string
+	ActivePaths                []string
 	InstructionPrompt          string
 	InstructionSources         []InstructionSource
 	SkillDecisions             []SkillSelectionDecision
+	SkillRetrievalMode         string
+	SkillIndexStatus           string
+	SkillCandidateCount        int
 	RequiredEvidenceTools      []string
 	RequiredAttachmentSuffixes []string
 	QualityAcceptanceGuidance  []string
@@ -405,6 +409,9 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 		"sources":        request.InstructionSources,
 		"skillNames":     instructionSkillNames(request.InstructionSources),
 		"skillDecisions": request.SkillDecisions,
+		"retrievalMode":  request.SkillRetrievalMode,
+		"indexStatus":    request.SkillIndexStatus,
+		"candidateCount": request.SkillCandidateCount,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"
