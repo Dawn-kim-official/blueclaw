@@ -265,6 +265,8 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 		return InstructionBundle{
 			Skills: []SkillInstruction{{
 				Name:          "simple-slides",
+				Description:   "Create presentation slides.",
+				WhenToUse:     "Use for 피피티 and PPTX requests.",
 				Prompt:        "Create and attach PPTX files.",
 				TriggerHints:  []string{"피피티"},
 				RequiredTools: []string{"terminal.run", "file.write", "file.attach"},

@@ -1,6 +1,9 @@
 package agent
 
-import "strings"
+import (
+	"path/filepath"
+	"strings"
+)
 
 type SkillSelector struct{}
 
@@ -11,7 +14,7 @@ func (skillSelector SkillSelector) ShouldInclude(skillInstruction SkillInstructi
 
 func (skillSelector SkillSelector) Evaluate(skillInstruction SkillInstruction, request AgentRequest, profileName string) SkillSelectionDecision {
 	normalizedProfileName := firstNonEmptySkillSelectionString(profileName, "default")
-	if !skillSelector.isAllowedForProfile(skillInstruction, normalizedProfileName) {
+	if !skillProfileAllows(skillInstruction, normalizedProfileName) {
 		return skippedSkillDecision(skillInstruction, normalizedProfileName, "profile_not_allowed", nil)
 	}
 	missingTools := missingRequiredTools(skillInstruction, request)
@@ -30,7 +33,7 @@ func (skillSelector SkillSelector) Evaluate(skillInstruction SkillInstruction, r
 	return skippedSkillDecision(skillInstruction, normalizedProfileName, "no_trigger_matched", nil)
 }
 
-func (skillSelector SkillSelector) isAllowedForProfile(skillInstruction SkillInstruction, profileName string) bool {
+func skillProfileAllows(skillInstruction SkillInstruction, profileName string) bool {
 	if len(skillInstruction.AllowedProfiles) == 0 {
 		return true
 	}
@@ -44,12 +47,38 @@ func (skillSelector SkillSelector) isAllowedForProfile(skillInstruction SkillIns
 
 func missingRequiredTools(skillInstruction SkillInstruction, request AgentRequest) []string {
 	missingTools := []string{}
-	for _, toolName := range skillInstruction.RequiredTools {
+	for _, toolName := range appendUniqueStrings(skillInstruction.RequiredTools, skillInstruction.AllowedTools...) {
 		if !requestHasToolName(request, toolName) {
 			missingTools = append(missingTools, strings.TrimSpace(toolName))
 		}
 	}
 	return missingTools
+}
+
+func skillPathsAllow(skillInstruction SkillInstruction, request AgentRequest) bool {
+	if len(skillInstruction.Paths) == 0 {
+		return true
+	}
+	for _, activePath := range request.ActivePaths {
+		if skillPathMatchesAny(activePath, skillInstruction.Paths) {
+			return true
+		}
+	}
+	return false
+}
+
+func skillPathMatchesAny(path string, patterns []string) bool {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		return false
+	}
+	for _, pattern := range patterns {
+		isMatched, errorValue := filepath.Match(strings.TrimSpace(pattern), trimmedPath)
+		if errorValue == nil && isMatched {
+			return true
+		}
+	}
+	return false
 }
 
 func (skillSelector SkillSelector) hasPromptTriggerHint(skillInstruction SkillInstruction, prompt string) bool {

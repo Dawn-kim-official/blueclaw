@@ -90,15 +90,25 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
 	agentKernel.UseIntakeOptions(deriveAgentIntakeOptions(runtimeConfiguration))
-	agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
+	instructionBundleLoader := func() agent.InstructionBundle {
 		return loadAgentInstructionBundle(runtimeConfiguration)
-	})
+	}
+	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
 	if languageModelProvider != nil {
 		agentKernel.UseLanguageModelProvider(languageModelProvider)
 	}
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
+	skillRetriever := agent.NewEmbeddingSkillRetriever(
+		llm.CapabilityEmbeddingClient{
+			CapabilityClient: capabilityClient,
+			ExecutionMode:    firstNonEmptyString(runtimeConfiguration.LanguageModel.Capability.ExecutionMode, "auto"),
+		},
+		skillIndexPath(runtimeConfiguration),
+	)
+	agentKernel.UseSkillRetriever(skillRetriever)
+	go agentKernel.RefreshSkillIndex(context.Background(), instructionBundleLoader())
 	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, capabilityClient)
 	if intakeLanguageModelProvider != nil {
 		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
@@ -123,6 +133,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseTerminalService(terminalService)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
+	toolCatalogBuilder.UseSkillChangeHandler(func(ctx context.Context) {
+		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
+	})
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)
 	connectorRuntime := connectors.NewConnectorRuntime(
@@ -335,21 +348,25 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 				document, readError := os.ReadFile(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"))
 				if readError == nil {
 					skillInstructions = append(skillInstructions, agent.SkillInstruction{
-						Name:            skillBundle.Name,
-						Description:     skillBundle.Description,
-						Category:        skillBundle.Category,
-						Tags:            append([]string{}, skillBundle.Tags...),
-						Prompt:          strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
-						Activation:      agent.SkillActivation(skillBundle.Activation),
-						Completion:      agent.SkillCompletion(skillBundle.Completion),
-						Quality:         agent.SkillQuality(skillBundle.Quality),
-						RequiredTools:   append([]string{}, skillBundle.RequiredTools...),
-						AllowedProfiles: append([]string{}, skillBundle.AllowedProfiles...),
-						TriggerHints:    append([]string{}, skillBundle.TriggerHints...),
-						References:      append([]string{}, skillBundle.References...),
-						Scripts:         append([]string{}, skillBundle.Scripts...),
-						Assets:          append([]string{}, skillBundle.Assets...),
-						Source:          instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
+						Name:                   skillBundle.Name,
+						Description:            skillBundle.Description,
+						WhenToUse:              skillBundle.WhenToUse,
+						Category:               skillBundle.Category,
+						Tags:                   append([]string{}, skillBundle.Tags...),
+						Prompt:                 strings.TrimSpace((skill.SkillPromptBuilder{}).BuildSkillPrompt([]skill.SkillBundle{skillBundle})),
+						Activation:             agent.SkillActivation(skillBundle.Activation),
+						Completion:             agent.SkillCompletion(skillBundle.Completion),
+						Quality:                agent.SkillQuality(skillBundle.Quality),
+						RequiredTools:          append([]string{}, skillBundle.RequiredTools...),
+						AllowedTools:           append([]string{}, skillBundle.AllowedTools...),
+						AllowedProfiles:        append([]string{}, skillBundle.AllowedProfiles...),
+						TriggerHints:           append([]string{}, skillBundle.TriggerHints...),
+						DisableModelInvocation: skillBundle.DisableModelInvocation,
+						Paths:                  append([]string{}, skillBundle.Paths...),
+						References:             append([]string{}, skillBundle.References...),
+						Scripts:                append([]string{}, skillBundle.Scripts...),
+						Assets:                 append([]string{}, skillBundle.Assets...),
+						Source:                 instructionSource(filepath.Join(skillBundle.DirectoryPath, "SKILL.md"), skillBundle.Name, document),
 					})
 				}
 			}
@@ -543,6 +560,11 @@ func newCapabilityClient(runtimeConfiguration config.RuntimeConfiguration) capab
 		VSockPort:      runtimeConfiguration.Capabilities.VSockPort,
 		Timeout:        time.Duration(runtimeConfiguration.Capabilities.TimeoutSecond) * time.Second,
 	})
+}
+
+func skillIndexPath(runtimeConfiguration config.RuntimeConfiguration) string {
+	workspaceRootPath := firstNonEmptyString(runtimeConfiguration.Terminal.WorkspaceRootPath, "/workspace")
+	return filepath.Join(workspaceRootPath, ".blueclaw", "skill-index.json")
 }
 
 func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration) llm.LanguageModelProvider {

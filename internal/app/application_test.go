@@ -85,6 +85,35 @@ func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	}
 }
 
+func TestLoadAgentInstructionBundleDiscoversAddedUserSkill(t *testing.T) {
+	workspacePath := t.TempDir()
+	skillDirectoryPath := filepath.Join(workspacePath, ".agents", "skills", "research-helper")
+	if errorValue := os.MkdirAll(skillDirectoryPath, 0o755); errorValue != nil {
+		t.Fatalf("expected skill directory: %v", errorValue)
+	}
+	skillDocument := `---
+name: research-helper
+description: Help with research tasks.
+when_to_use: Use for source lookup requests.
+---
+Research helper body.
+`
+	if errorValue := os.WriteFile(filepath.Join(skillDirectoryPath, "SKILL.md"), []byte(skillDocument), 0o600); errorValue != nil {
+		t.Fatalf("expected skill file: %v", errorValue)
+	}
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Terminal.WorkspaceRootPath = workspacePath
+
+	instructionBundle := loadAgentInstructionBundle(runtimeConfiguration)
+
+	if len(instructionBundle.Skills) != 1 || instructionBundle.Skills[0].Name != "research-helper" {
+		t.Fatalf("expected added user skill to be discovered, got %+v", instructionBundle.Skills)
+	}
+	if instructionBundle.Skills[0].WhenToUse != "Use for source lookup requests." {
+		t.Fatalf("expected standard skill fields, got %+v", instructionBundle.Skills[0])
+	}
+}
+
 func TestNewApplicationRegistersSecretlessConnectorTransports(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.Logging.DirectoryPath = t.TempDir()

@@ -1,21 +1,25 @@
 package skill
 
 type SkillBundle struct {
-	Name            string          `json:"name"`
-	Description     string          `json:"description,omitempty"`
-	Category        string          `json:"category,omitempty"`
-	Tags            []string        `json:"tags,omitempty"`
-	Activation      SkillActivation `json:"activation,omitempty"`
-	Completion      SkillCompletion `json:"completion,omitempty"`
-	Quality         SkillQuality    `json:"quality,omitempty"`
-	RequiredTools   []string        `json:"requiredTools,omitempty"`
-	AllowedProfiles []string        `json:"allowedProfiles,omitempty"`
-	TriggerHints    []string        `json:"triggerHints,omitempty"`
-	References      []string        `json:"references,omitempty"`
-	Scripts         []string        `json:"scripts,omitempty"`
-	Assets          []string        `json:"assets,omitempty"`
-	Instruction     string          `json:"instruction"`
-	DirectoryPath   string          `json:"directoryPath"`
+	Name                   string          `json:"name"`
+	Description            string          `json:"description,omitempty"`
+	WhenToUse              string          `json:"whenToUse,omitempty"`
+	Category               string          `json:"category,omitempty"`
+	Tags                   []string        `json:"tags,omitempty"`
+	Activation             SkillActivation `json:"activation,omitempty"`
+	Completion             SkillCompletion `json:"completion,omitempty"`
+	Quality                SkillQuality    `json:"quality,omitempty"`
+	RequiredTools          []string        `json:"requiredTools,omitempty"`
+	AllowedTools           []string        `json:"allowedTools,omitempty"`
+	AllowedProfiles        []string        `json:"allowedProfiles,omitempty"`
+	TriggerHints           []string        `json:"triggerHints,omitempty"`
+	DisableModelInvocation bool            `json:"disableModelInvocation,omitempty"`
+	Paths                  []string        `json:"paths,omitempty"`
+	References             []string        `json:"references,omitempty"`
+	Scripts                []string        `json:"scripts,omitempty"`
+	Assets                 []string        `json:"assets,omitempty"`
+	Instruction            string          `json:"instruction"`
+	DirectoryPath          string          `json:"directoryPath"`
 }
 
 type SkillActivation struct {

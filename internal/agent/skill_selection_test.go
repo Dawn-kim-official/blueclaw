@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -13,6 +16,7 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 			{
 				Name:          "simple-slides",
 				Description:   "Create presentation decks.",
+				WhenToUse:     "Use for 피피티, 파워포인트, 발표자료, and PPTX requests.",
 				Category:      "document-generation",
 				Tags:          []string{"slides", "pptx"},
 				Prompt:        "Generate PPTX with Marp.",
@@ -31,7 +35,7 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
 		t.Fatalf("expected simple-slides skill prompt for Korean PPT request, got %q", selectedBundle.Prompt)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "Available skill index") || !strings.Contains(selectedBundle.Prompt, "category=document-generation") {
+	if !strings.Contains(selectedBundle.Prompt, "Available skill index") || !strings.Contains(selectedBundle.Prompt, "simple-slides: Create presentation decks.") {
 		t.Fatalf("expected compact skill index, got %q", selectedBundle.Prompt)
 	}
 	if len(selectedBundle.Sources) != 1 || selectedBundle.Sources[0].SkillName != "simple-slides" {
@@ -49,6 +53,7 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 			{
 				Name:          "simple-slides",
 				Description:   "Create presentation decks.",
+				WhenToUse:     "Use for 피피티 and PPTX requests.",
 				Prompt:        "Generate PPTX with Marp.",
 				TriggerHints:  []string{"피피티", "pptx"},
 				RequiredTools: []string{"terminal.run", "file.write", "file.attach"},
@@ -183,12 +188,361 @@ func TestSelectInstructionBundleKeepsUnselectedFullSkillBodyOutOfPrompt(t *testi
 		ToolRegistry: testToolRegistry([]string{"terminal.run"}),
 	})
 
-	if !strings.Contains(selectedBundle.Prompt, "create-gws-file") {
-		t.Fatalf("expected unselected eligible skill in compact index, got %q", selectedBundle.Prompt)
-	}
 	if strings.Contains(selectedBundle.Prompt, "SECRET FULL BODY") {
 		t.Fatalf("expected unselected full body to be omitted, got %q", selectedBundle.Prompt)
 	}
+}
+
+func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:        "simple-slides",
+				Description: "Create presentation slides and PPTX decks.",
+				WhenToUse:   "Use for pitch decks, 발표자료, 피피티, and PowerPoint requests.",
+				Prompt:      "Generate slides.",
+				Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
+			},
+			{
+				Name:        "calendar",
+				Description: "Create or list calendar events.",
+				Prompt:      "Use calendar tools.",
+				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SHA256: "two", SkillName: "calendar"},
+			},
+		},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "피피티 만들어줘",
+	}, retriever)
+
+	if selectedBundle.RetrievalMode != "embedding" || selectedBundle.IndexStatus != "ready" {
+		t.Fatalf("expected embedding retrieval, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
+	}
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "simple-slides" || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected simple-slides selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "Generate slides.") {
+		t.Fatalf("expected selected skill body, got %q", selectedBundle.Prompt)
+	}
+	if strings.Contains(selectedBundle.Prompt, "Use calendar tools.") {
+		t.Fatalf("expected unselected skill body to stay out of prompt, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:        "skill-management",
+				Description: "Create, add, update, or remove user-managed Blueclaw skills.",
+				WhenToUse:   "Use for skill 만들기, 스킬 추가, 스킬 삭제, SKILL.md 작성, and /skill-management.",
+				Prompt:      "Use skill.add and skill.remove.",
+				Source:      InstructionSource{Path: "skills/skill-management/SKILL.md", SHA256: "one", SkillName: "skill-management"},
+			},
+			{
+				Name:        "calendar",
+				Description: "Create or list calendar events.",
+				Prompt:      "Use calendar tools.",
+				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SHA256: "two", SkillName: "calendar"},
+			},
+		},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "새 스킬 만들어서 추가해줘",
+	}, retriever)
+
+	if selectedBundle.RetrievalMode != "embedding" {
+		t.Fatalf("expected embedding retrieval, got %q", selectedBundle.RetrievalMode)
+	}
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "skill-management" || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected skill-management selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "Use skill.add and skill.remove.") {
+		t.Fatalf("expected selected skill-management body, got %q", selectedBundle.Prompt)
+	}
+	if strings.Contains(selectedBundle.Prompt, "Use calendar tools.") {
+		t.Fatalf("expected unselected skill body to stay out of prompt, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestDisableModelInvocationBlocksAutomaticRetrieval(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:                   "manual-only",
+			Description:            "Create slides.",
+			Prompt:                 "MANUAL BODY",
+			DisableModelInvocation: true,
+			Source:                 InstructionSource{Path: "skills/manual-only/SKILL.md", SHA256: "one", SkillName: "manual-only"},
+		}},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "create slides",
+	}, retriever)
+
+	if strings.Contains(selectedBundle.Prompt, "MANUAL BODY") {
+		t.Fatalf("expected manual-only skill to stay out of automatic prompt, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestDirectSkillNameBypassesDisableModelInvocation(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:                   "manual-only",
+			Description:            "Create slides.",
+			Prompt:                 "MANUAL BODY",
+			DisableModelInvocation: true,
+			Source:                 InstructionSource{Path: "skills/manual-only/SKILL.md", SHA256: "one", SkillName: "manual-only"},
+		}},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "/manual-only create slides",
+	}, retriever)
+
+	if !strings.Contains(selectedBundle.Prompt, "MANUAL BODY") {
+		t.Fatalf("expected direct skill body, got %q", selectedBundle.Prompt)
+	}
+	if selectedBundle.RetrievalMode != "direct" {
+		t.Fatalf("expected direct retrieval, got %q", selectedBundle.RetrievalMode)
+	}
+}
+
+func TestPathsPreventAutomaticRetrievalOutsideMatchingFiles(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:        "swiftui-pro",
+			Description: "Review SwiftUI files.",
+			WhenToUse:   "Use for SwiftUI code.",
+			Prompt:      "SWIFT BODY",
+			Paths:       []string{"*.swift"},
+			Source:      InstructionSource{Path: "skills/swiftui-pro/SKILL.md", SHA256: "one", SkillName: "swiftui-pro"},
+		}},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:      "review SwiftUI code",
+		ActivePaths: []string{"README.md"},
+	}, retriever)
+
+	if strings.Contains(selectedBundle.Prompt, "SWIFT BODY") {
+		t.Fatalf("expected paths to block automatic retrieval, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestDirectSkillNameBypassesPathFilter(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:        "swiftui-pro",
+			Description: "Review SwiftUI files.",
+			Prompt:      "SWIFT BODY",
+			Paths:       []string{"*.swift"},
+			Source:      InstructionSource{Path: "skills/swiftui-pro/SKILL.md", SHA256: "one", SkillName: "swiftui-pro"},
+		}},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:      "/swiftui-pro review",
+		ActivePaths: []string{"README.md"},
+	}, retriever)
+
+	if !strings.Contains(selectedBundle.Prompt, "SWIFT BODY") {
+		t.Fatalf("expected direct retrieval to bypass paths, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestDirectSkillNameRequiresExactSlashToken(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:        "git",
+				Description: "Use git.",
+				Prompt:      "GIT BODY",
+			},
+			{
+				Name:        "git-review",
+				Description: "Review git changes.",
+				Prompt:      "GIT REVIEW BODY",
+			},
+		},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "/git-review please",
+	}, retriever)
+
+	if strings.Contains(selectedBundle.Prompt, "GIT BODY") {
+		t.Fatalf("expected /git-review not to select /git, got %q", selectedBundle.Prompt)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "GIT REVIEW BODY") {
+		t.Fatalf("expected exact direct skill match, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestSelectedFullSkillBodiesAreLimited(t *testing.T) {
+	skills := []SkillInstruction{}
+	for index := 0; index < 5; index++ {
+		skills = append(skills, SkillInstruction{
+			Name:        fmt.Sprintf("slides-%d", index),
+			Description: "Create presentation slides.",
+			WhenToUse:   "Use for 피피티.",
+			Prompt:      fmt.Sprintf("BODY %d", index),
+			Source:      InstructionSource{Path: fmt.Sprintf("skills/slides-%d/SKILL.md", index), SHA256: fmt.Sprintf("sha-%d", index)},
+		})
+	}
+	instructionBundle := InstructionBundle{Skills: skills}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "피피티",
+	}, retriever)
+
+	if strings.Count(selectedBundle.Prompt, "BODY ") != maxSelectedSkillInstructionCount {
+		t.Fatalf("expected selected full bodies to be limited, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestSkillIndexPromptStaysBoundedForManySkills(t *testing.T) {
+	skills := []SkillInstruction{{
+		Name:        "simple-slides",
+		Description: "Create presentation slides.",
+		WhenToUse:   "Use for 피피티.",
+		Prompt:      "Generate slides.",
+		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "match", SkillName: "simple-slides"},
+	}}
+	for index := 0; index < 1000; index++ {
+		skills = append(skills, SkillInstruction{
+			Name:        fmt.Sprintf("unrelated-%d", index),
+			Description: "Archive unrelated data.",
+			Prompt:      "UNRELATED BODY",
+			Source:      InstructionSource{Path: fmt.Sprintf("skills/unrelated-%d/SKILL.md", index), SHA256: fmt.Sprintf("sha-%d", index)},
+		})
+	}
+	instructionBundle := InstructionBundle{Skills: skills}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "피피티",
+	}, retriever)
+
+	if strings.Count(selectedBundle.Prompt, "\n- ") > maxSkillIndexCandidateCount {
+		t.Fatalf("expected bounded skill index, got %q", selectedBundle.Prompt)
+	}
+	if strings.Contains(selectedBundle.Prompt, "UNRELATED BODY") {
+		t.Fatalf("expected unrelated full bodies to stay out of prompt")
+	}
+}
+
+func TestBM25FallbackIsObservableWhenEmbeddingUnavailable(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:        "simple-slides",
+			Description: "Create presentation slides.",
+			WhenToUse:   "Use for 피피티.",
+			Prompt:      "Generate slides.",
+		}},
+	}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "피피티",
+	}, NewEmbeddingSkillRetriever(nil, ""))
+
+	if selectedBundle.RetrievalMode != "bm25_fallback" {
+		t.Fatalf("expected BM25 fallback, got %q", selectedBundle.RetrievalMode)
+	}
+}
+
+func TestBM25FallbackIsObservableWhenEmbeddingDimensionMismatches(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:        "simple-slides",
+			Description: "Create presentation slides.",
+			WhenToUse:   "Use for 피피티.",
+			Prompt:      "Generate slides.",
+			Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
+		}},
+	}
+	retriever := NewEmbeddingSkillRetriever(&dimensionChangingEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "피피티",
+	}, retriever)
+
+	if selectedBundle.RetrievalMode != "bm25_fallback" || selectedBundle.IndexStatus != "embedding_dimension_mismatch" {
+		t.Fatalf("expected dimension mismatch BM25 fallback, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "Generate slides.") {
+		t.Fatalf("expected BM25 fallback to select skill, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestSkillIndexRefreshesWhenSourceHashChanges(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "skill-index.json")
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, indexPath)
+	firstBundle := []SkillInstruction{{
+		Name:        "simple-slides",
+		Description: "Create presentation slides.",
+		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
+	}}
+	secondBundle := []SkillInstruction{{
+		Name:        "simple-slides",
+		Description: "Create presentation slides.",
+		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "two", SkillName: "simple-slides"},
+	}}
+
+	retriever.Refresh(context.Background(), firstBundle)
+	retriever.Refresh(context.Background(), secondBundle)
+
+	document, errorValue := os.ReadFile(indexPath)
+	if errorValue != nil {
+		t.Fatalf("expected materialized skill index: %v", errorValue)
+	}
+	if !strings.Contains(string(document), `"sourceSHA256": "two"`) || strings.Contains(string(document), `"sourceSHA256": "one"`) {
+		t.Fatalf("expected index to refresh by source hash, got %s", string(document))
+	}
+}
+
+type keywordEmbeddingProvider struct{}
+
+func (provider keywordEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
+	normalizedInput := normalizeSkillSearchText(input)
+	return []float32{
+		keywordEmbeddingValue(normalizedInput, []string{"피피티", "pptx", "slides", "presentation"}),
+		keywordEmbeddingValue(normalizedInput, []string{"calendar", "event", "일정", "캘린더"}),
+		keywordEmbeddingValue(normalizedInput, []string{"archive", "unrelated"}),
+		keywordEmbeddingValue(normalizedInput, []string{"skill", "skills", "스킬", "skill.md"}),
+	}, nil
+}
+
+type dimensionChangingEmbeddingProvider struct {
+	callCount int
+}
+
+func (provider *dimensionChangingEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
+	provider.callCount++
+	normalizedInput := normalizeSkillSearchText(input)
+	if provider.callCount == 1 {
+		return []float32{keywordEmbeddingValue(normalizedInput, []string{"피피티", "slides", "presentation"})}, nil
+	}
+	return []float32{keywordEmbeddingValue(normalizedInput, []string{"피피티", "slides", "presentation"}), 0}, nil
+}
+
+func keywordEmbeddingValue(input string, keywords []string) float32 {
+	for _, keyword := range keywords {
+		if strings.Contains(input, keyword) {
+			return 1
+		}
+	}
+	return 0
 }
 
 func testToolRegistry(toolNames []string) *ToolRegistry {

@@ -12,6 +12,7 @@ func TestSkillLoaderParsesFrontmatterMetadata(t *testing.T) {
 	document := `---
 name: simple-slides
 description: Create presentation decks.
+when_to_use: Use for 피피티, PowerPoint, and slide deck requests.
 category: document-generation
 tags: [slides, pptx]
 activation:
@@ -21,6 +22,11 @@ activation:
   toolNames: [file.write, file.attach]
 requiredTools:
   - terminal.run
+allowed-tools:
+  - file.write
+disable-model-invocation: true
+paths:
+  - "*.pptx"
 completion:
   requiredEvidenceTools:
     - file.attach
@@ -61,6 +67,9 @@ Build slides.
 	if skillBundle.Description != "Create presentation decks." {
 		t.Fatalf("expected description from frontmatter, got %q", skillBundle.Description)
 	}
+	if skillBundle.WhenToUse != "Use for 피피티, PowerPoint, and slide deck requests." {
+		t.Fatalf("expected when_to_use from frontmatter, got %q", skillBundle.WhenToUse)
+	}
 	if skillBundle.Category != "document-generation" {
 		t.Fatalf("expected category from frontmatter, got %q", skillBundle.Category)
 	}
@@ -75,6 +84,15 @@ Build slides.
 	}
 	if !containsString(skillBundle.RequiredTools, "terminal.run") {
 		t.Fatalf("expected required tools, got %+v", skillBundle.RequiredTools)
+	}
+	if !containsString(skillBundle.AllowedTools, "file.write") {
+		t.Fatalf("expected allowed tools, got %+v", skillBundle.AllowedTools)
+	}
+	if !skillBundle.DisableModelInvocation {
+		t.Fatal("expected disable model invocation")
+	}
+	if !containsString(skillBundle.Paths, "*.pptx") {
+		t.Fatalf("expected paths, got %+v", skillBundle.Paths)
 	}
 	if !containsString(skillBundle.Completion.RequiredEvidenceTools, "file.attach") {
 		t.Fatalf("expected completion evidence tools, got %+v", skillBundle.Completion.RequiredEvidenceTools)
@@ -126,8 +144,60 @@ func TestSkillLoaderFallsBackForLegacySkillDocument(t *testing.T) {
 	if skillBundle.Instruction != "Use this legacy skill." {
 		t.Fatalf("expected legacy body as instruction, got %q", skillBundle.Instruction)
 	}
+	if skillBundle.Description != "Use this legacy skill." {
+		t.Fatalf("expected first paragraph description fallback, got %q", skillBundle.Description)
+	}
 	if len(skillBundle.TriggerHints) != 0 || len(skillBundle.RequiredTools) != 0 {
 		t.Fatalf("expected empty metadata fallback, got %+v", skillBundle)
+	}
+}
+
+func TestSkillLoaderParsesSpaceSeparatedAllowedTools(t *testing.T) {
+	directoryPath := t.TempDir()
+	documentPath := filepath.Join(directoryPath, "SKILL.md")
+	document := `---
+name: file-work
+description: Work with files.
+allowed-tools: file.read file.write
+---
+Use files.
+`
+	if errorValue := os.WriteFile(documentPath, []byte(document), 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	skillBundle, errorValue := (SkillLoader{}).LoadSkillBundle(directoryPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	if !containsString(skillBundle.AllowedTools, "file.read") || !containsString(skillBundle.AllowedTools, "file.write") {
+		t.Fatalf("expected space separated allowed tools, got %+v", skillBundle.AllowedTools)
+	}
+}
+
+func TestSkillLoaderKeepsYamlAllowedToolItemsWhole(t *testing.T) {
+	directoryPath := t.TempDir()
+	documentPath := filepath.Join(directoryPath, "SKILL.md")
+	document := `---
+name: git-work
+description: Work with git.
+allowed-tools:
+  - Bash(git *)
+---
+Use git.
+`
+	if errorValue := os.WriteFile(documentPath, []byte(document), 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	skillBundle, errorValue := (SkillLoader{}).LoadSkillBundle(directoryPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	if !containsString(skillBundle.AllowedTools, "Bash(git *)") {
+		t.Fatalf("expected YAML allowed tool item to stay whole, got %+v", skillBundle.AllowedTools)
 	}
 }
 
