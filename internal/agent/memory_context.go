@@ -60,6 +60,9 @@ func memorySummaryAttributes(memoryFact memory.MemoryFact) []string {
 	if memoryFact.Score != 0 {
 		attributes = append(attributes, fmt.Sprintf("score=%.2f", memoryFact.Score))
 	}
+	if strings.TrimSpace(memoryFact.SourceKind) != "" {
+		attributes = append(attributes, "kind="+strings.TrimSpace(memoryFact.SourceKind))
+	}
 	if strings.TrimSpace(memoryFact.SourceEpisodeID) != "" {
 		attributes = append(attributes, "source="+strings.TrimSpace(memoryFact.SourceEpisodeID))
 	}

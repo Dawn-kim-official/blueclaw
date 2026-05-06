@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"blueclaw/internal/connectors"
+	"blueclaw/internal/memory"
 	"blueclaw/internal/store/postgres"
 )
 
 type HealthHandler struct {
 	Database         postgres.Database
 	ConnectorRuntime *connectors.ConnectorRuntime
+	MemoryService    *memory.MemoryService
 	MaximumBacklog   int
 }
 
@@ -20,6 +22,7 @@ type healthResponse struct {
 	Status         string                            `json:"status"`
 	Database       databaseHealth                    `json:"database"`
 	Connector      connectors.ConnectorRuntimeHealth `json:"connector"`
+	Memory         memory.MemoryHealth               `json:"memory"`
 	Backlog        postgres.ConnectorDeliveryBacklog `json:"backlog"`
 	FailureReasons []string                          `json:"failureReasons,omitempty"`
 	CheckedAt      time.Time                         `json:"checkedAt"`
@@ -56,6 +59,9 @@ func (healthHandler HealthHandler) health(ctx context.Context) healthResponse {
 	}
 	if healthHandler.ConnectorRuntime != nil {
 		response.Connector = healthHandler.ConnectorRuntime.Health()
+	}
+	if healthHandler.MemoryService != nil {
+		response.Memory = healthHandler.MemoryService.Health(ctx)
 	}
 	response.Database = healthHandler.databaseHealth(ctx)
 	if response.Database.SchemaValid {
@@ -105,6 +111,9 @@ func healthFailureReasons(response healthResponse) []string {
 	}
 	if !response.Connector.Passed {
 		failureReasons = append(failureReasons, "connector runtime is not healthy")
+	}
+	if response.Memory.Configured && !response.Memory.Reachable {
+		failureReasons = append(failureReasons, "graphiti memory is not reachable")
 	}
 	return failureReasons
 }

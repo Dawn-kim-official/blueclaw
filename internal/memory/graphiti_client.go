@@ -40,8 +40,13 @@ func NewGraphitiClient(endpoint string, timeout time.Duration) GraphitiClient {
 	}
 }
 
-func (client GraphitiClient) AddEpisode(ctx context.Context, episode MemoryEpisode) error {
-	return client.post(ctx, "/v1/episodes", episode, nil)
+func (client GraphitiClient) AddEpisode(ctx context.Context, episode MemoryEpisode) (MemoryIngestionResult, error) {
+	var response MemoryIngestionResult
+	errorValue := client.post(ctx, "/v1/episodes", episode, &response)
+	if errorValue != nil {
+		return MemoryIngestionResult{}, errorValue
+	}
+	return response, nil
 }
 
 func (client GraphitiClient) SearchFacts(ctx context.Context, request MemorySearchRequest) ([]MemoryFact, error) {
@@ -84,6 +89,29 @@ func (client GraphitiClient) post(ctx context.Context, path string, requestDocum
 		return nil
 	}
 	return json.Unmarshal(responseBody, responseDocument)
+}
+
+func (client GraphitiClient) CheckHealth(ctx context.Context) error {
+	if client.HTTPClient == nil {
+		return errors.New("graphiti http client is not configured")
+	}
+	httpRequest, errorValue := http.NewRequestWithContext(ctx, http.MethodGet, client.endpointURL("/health"), nil)
+	if errorValue != nil {
+		return errorValue
+	}
+	httpResponse, errorValue := client.HTTPClient.Do(httpRequest)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer httpResponse.Body.Close()
+	responseBody, errorValue := io.ReadAll(httpResponse.Body)
+	if errorValue != nil {
+		return errorValue
+	}
+	if httpResponse.StatusCode >= http.StatusBadRequest {
+		return errors.New(strings.TrimSpace(string(responseBody)))
+	}
+	return nil
 }
 
 func (client GraphitiClient) endpointURL(path string) string {

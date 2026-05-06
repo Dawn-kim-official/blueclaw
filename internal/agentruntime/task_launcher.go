@@ -101,7 +101,9 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		MemoryNamespaces:          request.MemoryNamespaces,
 		AccessibleConversationIDs: request.AccessibleConversationIDs,
 	})
+	memorySearchError := ""
 	if errorValue != nil {
+		memorySearchError = errorValue.Error()
 		memoryFacts = nil
 	}
 	turnResult, errorValue := taskLauncher.agentKernel.RunTurn(ctx, agent.AgentTurnRequest{
@@ -125,6 +127,11 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		return TaskLaunchResult{}, errorValue
 	}
 	if turnResult.TaskRun.TaskRunID != "" {
+		if memorySearchError != "" {
+			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.search_failed", memorySearchError)
+		} else {
+			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.search_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryFacts)}))
+		}
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, toolNames, len(memoryFacts)))
 		conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{
 			RequesterPersonID:       request.RequesterPersonID,

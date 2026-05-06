@@ -240,9 +240,66 @@ func TestMemoryServiceAppliesResourceAccessRulesBeforeRanking(t *testing.T) {
 	}
 }
 
+func TestMemoryServiceRanksSourceKindAndDeduplicatesBeforeLimit(t *testing.T) {
+	memoryService := &MemoryService{}
+	namespace := UserNamespace("person-1")
+	memoryService.StoreMemoryFact(MemoryFact{
+		FactID:      "episode",
+		ScopeType:   ScopeTypeUser,
+		NamespaceID: namespace.NamespaceID,
+		Content:     "사용자는 그래피티 메모리를 선호한다.",
+		Score:       0.9,
+		SourceKind:  MemorySourceKindEpisode,
+	})
+	memoryService.StoreMemoryFact(MemoryFact{
+		FactID:      "fact",
+		ScopeType:   ScopeTypeUser,
+		NamespaceID: namespace.NamespaceID,
+		Content:     "사용자는 그래피티 메모리를 선호한다.",
+		Score:       0.8,
+		SourceKind:  MemorySourceKindFact,
+	})
+	memoryService.StoreMemoryFact(MemoryFact{
+		FactID:      "node",
+		ScopeType:   ScopeTypeUser,
+		NamespaceID: namespace.NamespaceID,
+		Content:     "사용자는 간결한 설계를 선호한다.",
+		Score:       0.85,
+		SourceKind:  MemorySourceKindNode,
+	})
+
+	memoryFacts, errorValue := memoryService.SearchMemory(context.Background(), MemorySearchRequest{
+		Query:          "그래피티 메모리",
+		ReaderPersonID: "person-1",
+		Limit:          2,
+		Namespaces:     []MemoryNamespace{namespace},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected memory search to succeed: %v", errorValue)
+	}
+	if len(memoryFacts) != 2 {
+		t.Fatalf("expected deduplicated limited facts, got %+v", memoryFacts)
+	}
+	if memoryFacts[0].SourceKind != MemorySourceKindFact {
+		t.Fatalf("expected durable fact to outrank duplicate episode, got %+v", memoryFacts)
+	}
+	if containsFactID(memoryFacts, "episode") {
+		t.Fatalf("expected duplicate raw episode to be removed, got %+v", memoryFacts)
+	}
+}
+
 func containsMemory(memoryFacts []MemoryFact, content string) bool {
 	for _, memoryFact := range memoryFacts {
 		if memoryFact.Content == content {
+			return true
+		}
+	}
+	return false
+}
+
+func containsFactID(memoryFacts []MemoryFact, factID string) bool {
+	for _, memoryFact := range memoryFacts {
+		if memoryFact.FactID == factID {
 			return true
 		}
 	}

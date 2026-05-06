@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -233,7 +232,7 @@ type ConnectorRuntime struct {
 	taskLauncher       *agentruntime.TaskLauncher
 	toolCatalogBuilder *agentruntime.ToolCatalogBuilder
 	memoryService      *memory.MemoryService
-	memoryRouter       *memory.MemoryScopeRouter
+	memoryRouter       *memory.GraphitiIngestionRouter
 	workspaceID        string
 	logger             *slog.Logger
 
@@ -294,7 +293,7 @@ func (connectorRuntime *ConnectorRuntime) UseMemoryService(memoryService *memory
 	connectorRuntime.toolCatalogBuilder.UseMemoryService(memoryService)
 }
 
-func (connectorRuntime *ConnectorRuntime) UseMemoryScopeRouter(memoryRouter *memory.MemoryScopeRouter) {
+func (connectorRuntime *ConnectorRuntime) UseGraphitiIngestionRouter(memoryRouter *memory.GraphitiIngestionRouter) {
 	connectorRuntime.memoryRouter = memoryRouter
 }
 
@@ -699,6 +698,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	turnResult := launchResult.TurnResult
 	taskRunID := turnResult.TaskRun.TaskRunID
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
+	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
 		dispatchID, isSent := connectorRuntime.sendIncompleteTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
 		if isSent {
@@ -727,7 +727,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID))
-	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
 }
 
@@ -936,25 +935,24 @@ func (connectorRuntime *ConnectorRuntime) ingestMemory(ctx context.Context, plat
 		defaultSecurityLevelRank = channelPolicy.DefaultSecurityLevelRank
 		defaultRequiredClasses = append([]string{}, channelPolicy.DefaultRequiredClasses...)
 	}
-	if isPrivateConversationID(event.ConversationID) {
-		connectorRuntime.addMemoryEpisode(ctx, platform, personID, event, taskRunID, []memory.MemoryNamespace{
-			memory.UserNamespace(personID),
-			memory.PrivatePersonNamespace(personID),
-		})
-		return
-	}
-	route, errorValue := connectorRuntime.memoryRouter.Route(ctx, memory.ScopeRouteInput{
+	route, errorValue := connectorRuntime.memoryRouter.Route(ctx, memory.GraphitiIngestionInput{
 		PersonID:                 personID,
 		Prompt:                   event.Prompt,
 		ConversationID:           event.ConversationID,
 		WorkspaceID:              connectorRuntime.workspaceID,
 		DefaultSecurityLevelRank: defaultSecurityLevelRank,
 		DefaultRequiredClasses:   defaultRequiredClasses,
+		IsPrivateConversation:    isPrivateConversationID(event.ConversationID),
 	})
 	if errorValue != nil {
-		connectorRuntime.logger.Warn("connector."+platform+".memory.scope_route_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.scope_route_failed", errorValue.Error())
-		route = memory.ScopeRoute{Namespaces: connectorRuntime.accessibleNamespaces(personID, personAccess, event)}
+		connectorRuntime.logger.Warn("connector."+platform+".memory.ingestion_route_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_route_failed", errorValue.Error())
+		route = memory.GraphitiIngestionRoute{ShouldStore: true, Namespaces: connectorRuntime.accessibleNamespaces(personID, personAccess, event), Reason: "route_failed_fallback", Confidence: 0.25}
+	}
+	if !route.ShouldStore {
+		connectorRuntime.logger.Info("connector."+platform+".memory.ingestion_skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", route.Reason))
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_skipped", marshalConnectorToolResult(route))
+		return
 	}
 
 	connectorRuntime.addMemoryEpisode(ctx, platform, personID, event, taskRunID, route.Namespaces)
@@ -976,14 +974,14 @@ func (connectorRuntime *ConnectorRuntime) addMemoryEpisode(ctx context.Context, 
 	if episode.OccurredAt.IsZero() {
 		episode.OccurredAt = time.Now().UTC()
 	}
-	errorValue := connectorRuntime.memoryService.AddEpisode(ctx, episode)
+	result, errorValue := connectorRuntime.memoryService.AddEpisode(ctx, episode)
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".memory.ingestion_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_failed", errorValue.Error())
 		return
 	}
-	connectorRuntime.logger.Info("connector."+platform+".memory.episode_ingested", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int("namespaceCount", len(namespaces)))
-	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.episode_ingested", strconv.Itoa(len(namespaces)))
+	connectorRuntime.logger.Info("connector."+platform+".memory.ingestion_succeeded", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int("namespaceCount", result.NamespaceCount))
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "memory.ingestion_succeeded", marshalConnectorToolResult(result))
 }
 
 func (connectorRuntime *ConnectorRuntime) accessibleNamespaces(personID string, personAccess policy.PersonAccess, event PlatformInboundEvent) []memory.MemoryNamespace {

@@ -18,11 +18,11 @@ func TestGraphitiClientAddsEpisodeThroughSidecar(t *testing.T) {
 			if request.Header.Get("Authorization") != "" {
 				t.Fatalf("expected no authorization header, got %q", request.Header.Get("Authorization"))
 			}
-			return graphitiResponse(http.StatusOK, `{}`), nil
+			return graphitiResponse(http.StatusOK, `{"episodeID":"mattermost:dm-1:post-1","namespaceCount":1}`), nil
 		}},
 	}
 
-	errorValue := client.AddEpisode(context.Background(), MemoryEpisode{
+	result, errorValue := client.AddEpisode(context.Background(), MemoryEpisode{
 		EpisodeID:      "mattermost:dm-1:post-1",
 		Prompt:         "내 이름은 민수야",
 		OccurredAt:     time.Now().UTC(),
@@ -34,6 +34,9 @@ func TestGraphitiClientAddsEpisodeThroughSidecar(t *testing.T) {
 	}
 	if requestedPath != "/v1/episodes" {
 		t.Fatalf("expected episode endpoint, got %q", requestedPath)
+	}
+	if result.EpisodeID != "mattermost:dm-1:post-1" || result.NamespaceCount != 1 {
+		t.Fatalf("expected ingestion result, got %+v", result)
 	}
 }
 
@@ -60,6 +63,22 @@ func TestGraphitiClientSearchesFacts(t *testing.T) {
 	}
 	if facts[0].Content != "사용자의 이름은 민수다." {
 		t.Fatalf("expected fact content, got %q", facts[0].Content)
+	}
+}
+
+func TestGraphitiClientChecksHealth(t *testing.T) {
+	client := GraphitiClient{
+		Endpoint: "http://graphiti-memoryd",
+		HTTPClient: fakeGraphitiHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+			if request.Method != http.MethodGet || request.URL.Path != "/health" {
+				t.Fatalf("expected health request, got %s %s", request.Method, request.URL.Path)
+			}
+			return graphitiResponse(http.StatusOK, `{"status":"ok"}`), nil
+		}},
+	}
+
+	if errorValue := client.CheckHealth(context.Background()); errorValue != nil {
+		t.Fatalf("expected health to pass: %v", errorValue)
 	}
 }
 
