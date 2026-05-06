@@ -228,7 +228,7 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	if toolResult.Content != "opened" || toolResult.IsError {
 		t.Fatalf("expected opened bridge response, got %+v", toolResult)
 	}
-	if httpClient.requestPath != "/v1/tools/browser.open/invoke" || !strings.Contains(httpClient.requestBody, "https://example.com/login") {
+	if httpClient.requestPath != "/v1/tools/browser.handoff/invoke" || !strings.Contains(httpClient.requestBody, "https://example.com/login") {
 		t.Fatalf("expected browser bridge request, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
 	}
 	var requestDocument struct {
@@ -254,6 +254,48 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	}
 	if !containsTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "browser_handoff.opened") {
 		t.Fatalf("expected browser handoff audit event")
+	}
+}
+
+func TestBrowserHandoffPausesTaskWhileWaitingForUser(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"provider":"companion","toolName":"browser.handoff","status":"waiting_for_user","content":"브라우저에서 필요한 작업을 마친 뒤 완료 버튼을 눌러주세요.","result":{"state":"waiting_for_user","handoffID":"handoff-1","sessionID":"internkim","url":"https://example.com/login"}}`}
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "open browser")
+
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"browser_handoff.openURL"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:             "default",
+		RequesterPersonID:       "person-1",
+		RequesterName:           "Dongha",
+		RequesterEmail:          "dongha@example.com",
+		RequesterPlatformUserID: "mattermost-user-1",
+		ConversationID:          "conversation-1",
+		Platform:                "mattermost",
+	})
+
+	toolResult, errorValue := toolRegistry.InvokeTool(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "browser_handoff.openURL",
+		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected browser handoff result: %v", errorValue)
+	}
+	if toolResult.IsError {
+		t.Fatalf("expected waiting handoff not to be an error: %+v", toolResult)
+	}
+	pausedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || pausedTaskRun.Status != task.TaskStatusWaitingUserInput {
+		t.Fatalf("expected waiting user input task, got found=%v task=%+v", isFound, pausedTaskRun)
+	}
+	if httpClient.requestPath != "/v1/tools/browser.handoff/invoke" {
+		t.Fatalf("expected browser handoff request, got path=%s", httpClient.requestPath)
 	}
 }
 
