@@ -27,6 +27,7 @@ import (
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	runtimelogging "blueclaw/internal/runtime"
+	"blueclaw/internal/scheduler"
 	"blueclaw/internal/security"
 	"blueclaw/internal/skill"
 	"blueclaw/internal/store/postgres"
@@ -43,7 +44,10 @@ type Application struct {
 	startupError                  error
 	connectorRuntimeCancel        context.CancelFunc
 	connectorTransportCancel      context.CancelFunc
+	taskScheduleCancel            context.CancelFunc
 	logRetentionCancel            context.CancelFunc
+	taskSchedulePoller            *scheduler.TaskSchedulePoller
+	taskSchedulePollSecond        int
 	languageModelDefaultProvider  string
 	languageModelFallbackProvider string
 	languageModelConfigured       bool
@@ -77,11 +81,15 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	taskStepService := task.NewTaskStepService()
 	taskArtifactService := task.NewTaskArtifactService()
 	taskRunService := task.NewTaskRunService(taskEventService)
+	var taskScheduleRepository task.TaskScheduleRepository
+	var scheduledDeliveryRepository scheduler.TaskScheduleDeliveryRepository
 	if database.SQL != nil {
 		taskEventService.UseRepository(postgres.NewTaskEventRepository(database))
 		taskStepService.UseRepository(postgres.NewTaskStepRepository(database))
 		taskArtifactService.UseRepository(postgres.NewTaskArtifactRepository(database))
 		taskRunService.UseRepository(postgres.NewTaskRunRepository(database))
+		taskScheduleRepository = postgres.NewTaskScheduleRepository(database)
+		scheduledDeliveryRepository = postgres.NewRawEventRepository(database)
 	}
 	magicLinkService := auth.NewMagicLinkService()
 	sessionService := auth.NewSessionService()
@@ -132,12 +140,25 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	toolCatalogBuilder.UseTerminalService(terminalService)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
 	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
 	toolCatalogBuilder.UseSkillChangeHandler(func(ctx context.Context) {
 		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
 	})
 	toolCatalogBuilder.UseMemoryService(memoryService)
 	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)
+	var taskSchedulePoller *scheduler.TaskSchedulePoller
+	if taskScheduleRepository != nil && scheduledDeliveryRepository != nil {
+		poller := scheduler.TaskSchedulePoller{
+			TaskScheduleRepository: taskScheduleRepository,
+			DeliveryRepository:     scheduledDeliveryRepository,
+			TaskScheduleRunner:     agentruntime.NewTaskScheduleRunner(taskLauncher),
+			PersonAccessResolver:   identityService,
+			WorkspaceID:            runtimeConfiguration.Memory.WorkspaceID,
+			WorkerID:               "blueclaw-app",
+		}
+		taskSchedulePoller = &poller
+	}
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
 		agentKernel,
@@ -178,6 +199,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			},
 		},
 		AuditHandler: auditHandler,
+		AttentionHandler: adminapi.AttentionHandler{
+			LanguageModel: languageModelProvider,
+		},
 		TaskMonitorHandler: adminapi.TaskMonitorHandler{
 			TaskRunService:   taskRunService,
 			TaskStepService:  taskStepService,
@@ -222,6 +246,8 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		runtimeLogger:                 runtimeLogger,
 		database:                      database,
 		startupError:                  startupError,
+		taskSchedulePoller:            taskSchedulePoller,
+		taskSchedulePollSecond:        runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond,
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 		languageModelConfigured:       languageModelProvider != nil,
@@ -448,6 +474,7 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 	allowedToolNameByName := map[string]bool{
 		"conversation.history": true,
 		"memory.search":        true,
+		"schedule.create":      true,
 	}
 	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
 		for _, allowedToolName := range agentProfile.AllowedToolNames {
@@ -491,9 +518,26 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 		if profileName == "" {
 			profileName = "default"
 		}
-		allowedToolNamesByProfile[profileName] = append([]string{}, agentProfile.AllowedToolNames...)
+		allowedToolNamesByProfile[profileName] = appendDefaultBuiltInToolNames(agentProfile.AllowedToolNames)
 	}
 	return allowedToolNamesByProfile
+}
+
+func appendDefaultBuiltInToolNames(toolNames []string) []string {
+	result := append([]string{}, toolNames...)
+	if !containsString(result, "schedule.create") {
+		result = append(result, "schedule.create")
+	}
+	return result
+}
+
+func containsString(values []string, expectedValue string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == expectedValue {
+			return true
+		}
+	}
+	return false
 }
 
 func openRuntimeDatabase(runtimeConfiguration config.RuntimeConfiguration) (postgres.Database, error) {
@@ -613,6 +657,7 @@ func (application *Application) Start() error {
 	application.startLogRetentionLoop()
 	application.startConnectorRuntime()
 	application.startConnectorTransports()
+	application.startTaskSchedulePoller()
 	listener, errorValue := net.Listen("tcp", application.httpServer.Addr)
 	if errorValue != nil {
 		return errorValue
@@ -641,6 +686,9 @@ func (application *Application) Shutdown(ctx context.Context) error {
 	}
 	if application.connectorRuntimeCancel != nil {
 		application.connectorRuntimeCancel()
+	}
+	if application.taskScheduleCancel != nil {
+		application.taskScheduleCancel()
 	}
 	if application.logRetentionCancel != nil {
 		application.logRetentionCancel()
@@ -702,6 +750,23 @@ func (application *Application) startLogRetentionLoop() {
 	ctx, cancel := context.WithCancel(context.Background())
 	application.logRetentionCancel = cancel
 	go application.runtimeLogger.StartRetentionLoop(ctx)
+}
+
+func (application *Application) startTaskSchedulePoller() {
+	if application.taskSchedulePoller == nil || application.taskScheduleCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	application.taskScheduleCancel = cancel
+	interval := time.Duration(application.taskSchedulePollIntervalSecond()) * time.Second
+	go application.taskSchedulePoller.Start(ctx, interval)
+}
+
+func (application *Application) taskSchedulePollIntervalSecond() int {
+	if application.taskSchedulePollSecond > 0 {
+		return application.taskSchedulePollSecond
+	}
+	return 30
 }
 
 func deriveListenAddress(baseURL string) string {

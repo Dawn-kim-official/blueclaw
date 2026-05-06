@@ -309,6 +309,43 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T)
 	}
 }
 
+func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
+	languageModel := &connectorSequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"name":"daily research brief","prompt":"매일 업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"}}`,
+		connectorFinalReply("매일 아침 7시에 조사해서 알려드릴게요."),
+	}}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	repository := &connectorTaskScheduleRepository{}
+	connectorRuntime.UseTaskScheduleRepository(repository)
+	event := testInboundEvent("message-1")
+	event.Prompt = "매일 업계 뉴스를 조사해서 아침 7시에 알려줘."
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected schedule request to process: %v", errorValue)
+	}
+	if result.TaskRunID == "" {
+		t.Fatal("expected task run id")
+	}
+	if len(repository.taskSchedules) != 1 {
+		t.Fatalf("expected one task schedule, got %+v", repository.taskSchedules)
+	}
+	taskSchedule := repository.taskSchedules[0]
+	if taskSchedule.Prompt != "매일 업계 뉴스를 조사해서 핵심만 보고해줘." {
+		t.Fatalf("expected stored research prompt, got %q", taskSchedule.Prompt)
+	}
+	if taskSchedule.CronExpression != "0 7 * * *" || taskSchedule.TimeZone != "Asia/Seoul" {
+		t.Fatalf("expected cron schedule in Asia/Seoul, got %+v", taskSchedule)
+	}
+	if taskSchedule.Platform != event.Platform || taskSchedule.ConversationID != event.ConversationID || taskSchedule.ReplyTargetID != event.ReplyTargetID {
+		t.Fatalf("expected connector context delivery target, got %+v", taskSchedule)
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "매일 아침 7시에 조사해서 알려드릴게요." {
+		t.Fatalf("expected confirmation reply, got %+v", adapter.sentReplies)
+	}
+}
+
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := &connectorSequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
@@ -579,6 +616,27 @@ type testConnectorQueueRepository struct {
 	succeededEvents []ConnectorRuntimeResult
 	pendingReplies  []QueuedConnectorReply
 	sentReplies     []string
+}
+
+type connectorTaskScheduleRepository struct {
+	taskSchedules []task.TaskSchedule
+}
+
+func (repository *connectorTaskScheduleRepository) UpsertTaskSchedule(taskSchedule task.TaskSchedule) error {
+	repository.taskSchedules = append(repository.taskSchedules, taskSchedule)
+	return nil
+}
+
+func (repository *connectorTaskScheduleRepository) ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]task.TaskSchedule, error) {
+	return nil, nil
+}
+
+func (repository *connectorTaskScheduleRepository) MarkTaskScheduleSucceeded(task.TaskSchedule) error {
+	return nil
+}
+
+func (repository *connectorTaskScheduleRepository) MarkTaskScheduleFailed(task.TaskSchedule, string, time.Time) error {
+	return nil
 }
 
 func (repository *testConnectorQueueRepository) TryInsertConnectorEvent(PlatformInboundEvent) (bool, ConnectorRuntimeResult, error) {

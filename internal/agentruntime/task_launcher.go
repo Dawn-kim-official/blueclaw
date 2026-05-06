@@ -36,6 +36,7 @@ type TaskLaunchRequest struct {
 	ConversationType          string
 	ConversationChannelID     string
 	ConversationChannelName   string
+	ReplyTargetID             string
 	Prompt                    string
 	VisibleContext            agent.VisibleContext
 	HistoryProvider           HistoryProvider
@@ -83,6 +84,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ConversationType:          request.ConversationType,
 		ConversationChannelID:     request.ConversationChannelID,
 		ConversationChannelName:   request.ConversationChannelName,
+		ReplyTargetID:             request.ReplyTargetID,
 		Platform:                  request.Platform,
 		HistoryCursor:             request.VisibleContext.HistoryCursor,
 		HistoryProvider:           request.HistoryProvider,

@@ -12,6 +12,7 @@ type RouterDependencies struct {
 	PolicyHandler         adminapi.PolicyHandler
 	HealthHandler         HealthHandler
 	AuditHandler          *adminapi.AuditHandler
+	AttentionHandler      adminapi.AttentionHandler
 	TaskMonitorHandler    adminapi.TaskMonitorHandler
 	TaskRunHandler        adminapi.TaskRunHandler
 	BackupHandler         adminapi.BackupHandler
@@ -31,6 +32,7 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer.HandleFunc("POST /admin/api/people/invite", routerDependencies.PolicyHandler.HandleInvitePerson)
 	multiplexer.HandleFunc("DELETE /admin/api/people", routerDependencies.PolicyHandler.HandleRemovePerson)
 	multiplexer.HandleFunc("GET /admin/api/audit", routerDependencies.AuditHandler.HandleListAudit)
+	multiplexer.HandleFunc("POST /admin/api/attention/run", routerDependencies.AttentionHandler.HandleRunAttention)
 	multiplexer.HandleFunc("GET /admin/api/task", routerDependencies.TaskMonitorHandler.HandleListTaskRun)
 	multiplexer.HandleFunc("GET /admin/api/task/detail", routerDependencies.TaskMonitorHandler.HandleGetTaskRun)
 	multiplexer.HandleFunc("POST /admin/api/task/run", routerDependencies.TaskRunHandler.HandleRunTask)

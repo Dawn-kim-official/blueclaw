@@ -301,6 +301,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 			observations = append(observations, observation)
 			attachments = appendObservationAttachments(attachments, observation)
+			if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRun.TaskRunID, observation, attachments); isPaused {
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, pausedResult.TaskRun.Status, "call_tool "+actionDocument.ToolName, observation.Content)
+				return pausedResult, nil
+			}
 			if !observation.IsError {
 				successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)] = observation
 			}
@@ -341,6 +345,29 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 
 	return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, observations, attachments, qualityCriteria, agentTurnRunner.options.MaxIterationCount, toolCallCount)
+}
+
+func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, observation turnObservation, attachments []FileAttachment) (AgentTurnResult, bool) {
+	taskRun, isFound := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
+	if !isFound || !isWaitingForUser(taskRun.Status) {
+		return AgentTurnResult{}, false
+	}
+	reply := firstNonEmptyString(taskRun.FailureReason, toolObservationMessage(observation), observation.Content)
+	return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments}, true
+}
+
+func isWaitingForUser(status task.TaskStatus) bool {
+	return status == task.TaskStatusWaitingApproval || status == task.TaskStatusWaitingUserInput
+}
+
+func toolObservationMessage(observation turnObservation) string {
+	var document struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(observation.Content), &document) != nil {
+		return ""
+	}
+	return strings.TrimSpace(document.Message)
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {

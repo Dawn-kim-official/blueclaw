@@ -53,6 +53,7 @@ func (taskScheduleRunner TaskScheduleRunner) RunIfDue(ctx context.Context, reque
 		SourceReference:           taskSchedule.TaskScheduleID,
 		RequesterPersonID:         taskSchedule.CreatorPersonID,
 		ProfileName:               taskSchedule.AgentProfileName,
+		Platform:                  taskSchedule.Platform,
 		ConversationID:            "schedule:" + taskSchedule.TaskScheduleID,
 		Prompt:                    taskSchedule.Prompt,
 		PersonAccess:              request.PersonAccess,

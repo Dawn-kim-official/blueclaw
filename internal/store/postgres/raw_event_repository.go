@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"blueclaw/internal/connectors"
+	"blueclaw/internal/task"
 )
 
 type RawEventRepository struct {
@@ -299,6 +300,76 @@ ON CONFLICT (raw_event_id) DO NOTHING`,
 		return outboxID, nil
 	}
 	return rawEventRepository.findConnectorOutboxID(event.DedupeKey())
+}
+
+func (rawEventRepository RawEventRepository) EnqueueScheduledConnectorReply(taskSchedule task.TaskSchedule, taskRunID string, reply connectors.OutboundReply) (string, error) {
+	conversationID, errorValue := NewConversationRepository(rawEventRepository.database).EnsureConversation(taskSchedule.Platform, taskSchedule.ConversationID)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	rawEventID := "schedule:" + taskSchedule.TaskScheduleID + ":task:" + taskRunID
+	reply.RawEventID = rawEventID
+	reply.OutboxID = rawEventID
+	replyTarget := connectors.ReplyTarget{
+		ConversationID: taskSchedule.ConversationID,
+		ReplyTargetID:  taskSchedule.ReplyTargetID,
+		DedupeKey:      rawEventID,
+	}
+	replyTargetDocument, errorValue := json.Marshal(replyTarget)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	replyDocument, errorValue := json.Marshal(reply)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	now := time.Now().UTC()
+	contentHash := sha256.Sum256([]byte(taskSchedule.Prompt))
+	transaction, errorValue := rawEventRepository.database.SQL.BeginTx(context.Background(), nil)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	defer transaction.Rollback()
+	_, errorValue = transaction.ExecContext(context.Background(), `
+INSERT INTO raw_event (
+  raw_event_id, platform, conversation_id, external_message_id, event_type,
+  content_ciphertext, encryption_key_version, content_sha256, security_level_rank,
+  required_classes, occurred_at, ingested_at, expires_at,
+  reply_target_id, visible_context_ciphertext, visible_context_sha256, has_more_before, history_cursor
+) VALUES ($1,$2,$3,$1,'scheduled_task',$4,1,$5,0,'{}',$6,$6,$7,$8,$9,$10,false,NULL)
+ON CONFLICT (raw_event_id) DO NOTHING`,
+		rawEventID,
+		taskSchedule.Platform,
+		conversationID,
+		[]byte(taskSchedule.Prompt),
+		contentHash[:],
+		now,
+		now.AddDate(0, 0, 60),
+		taskSchedule.ReplyTargetID,
+		mustJSON(connectors.VisibleContext{}),
+		hashJSON(connectors.VisibleContext{}),
+	)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	_, errorValue = transaction.ExecContext(context.Background(), `
+INSERT INTO connector_outbox (
+  outbox_id, raw_event_id, platform, reply_target_id, reply_target_json, reply_json
+) VALUES ($1,$1,$2,$3,$4,$5)
+ON CONFLICT (raw_event_id) DO NOTHING`,
+		rawEventID,
+		taskSchedule.Platform,
+		taskSchedule.ReplyTargetID,
+		replyTargetDocument,
+		replyDocument,
+	)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	if errorValue = transaction.Commit(); errorValue != nil {
+		return "", errorValue
+	}
+	return rawEventID, nil
 }
 
 func (rawEventRepository RawEventRepository) ClaimPendingConnectorReplies(limit int, leaseDuration time.Duration) ([]connectors.QueuedConnectorReply, error) {

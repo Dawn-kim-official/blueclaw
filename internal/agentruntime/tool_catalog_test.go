@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/config"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
+	"blueclaw/internal/task"
 )
 
 func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
@@ -43,6 +45,102 @@ func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	if result.Attachments[0].Filename != "deck.pptx" || result.Attachments[3].Filename != "deck-notes.txt" {
 		t.Fatalf("expected attachment filenames to match paths, got %+v", result.Attachments)
 	}
+}
+
+func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"name":           "daily research",
+			"prompt":         "매일 중요한 업계 뉴스를 조사해서 아침 7시에 알려줘.",
+			"kind":           "cron",
+			"cronExpression": "0 7 * * *",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected schedule.create success, got %s", result.Content)
+	}
+	if len(repository.taskSchedules) != 1 {
+		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
+	}
+	taskSchedule := repository.taskSchedules[0]
+	if taskSchedule.Platform != "mattermost" || taskSchedule.ConversationID != "channel-1" || taskSchedule.ReplyTargetID != "reply-target-1" {
+		t.Fatalf("expected current reply target to be stored, got %+v", taskSchedule)
+	}
+	if taskSchedule.Prompt != "매일 중요한 업계 뉴스를 조사해서 아침 7시에 알려줘." {
+		t.Fatalf("expected arbitrary scheduled task prompt, got %q", taskSchedule.Prompt)
+	}
+	if taskSchedule.TimeZone != "Asia/Seoul" || taskSchedule.NextRunAt == nil {
+		t.Fatalf("expected default timezone and next run, got %+v", taskSchedule)
+	}
+}
+
+func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"prompt":         "오늘 일정을 보고 매일 아침 브리핑해줘.",
+			"kind":           "cron",
+			"cronExpression": "0 7 * * *",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.IsError || !strings.Contains(result.Content, "reply target") {
+		t.Fatalf("expected reply target error, got %+v", result)
+	}
+}
+
+type memoryTaskScheduleRepository struct {
+	taskSchedules []task.TaskSchedule
+	failed        []string
+}
+
+func (repository *memoryTaskScheduleRepository) UpsertTaskSchedule(taskSchedule task.TaskSchedule) error {
+	repository.taskSchedules = append(repository.taskSchedules, taskSchedule)
+	return nil
+}
+
+func (repository *memoryTaskScheduleRepository) ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]task.TaskSchedule, error) {
+	return append([]task.TaskSchedule{}, repository.taskSchedules...), nil
+}
+
+func (repository *memoryTaskScheduleRepository) MarkTaskScheduleSucceeded(taskSchedule task.TaskSchedule) error {
+	repository.taskSchedules = []task.TaskSchedule{taskSchedule}
+	return nil
+}
+
+func (repository *memoryTaskScheduleRepository) MarkTaskScheduleFailed(_ task.TaskSchedule, errorMessage string, _ time.Time) error {
+	repository.failed = append(repository.failed, errorMessage)
+	return nil
 }
 
 func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) {

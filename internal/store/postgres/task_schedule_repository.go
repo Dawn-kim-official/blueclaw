@@ -1,6 +1,12 @@
 package postgres
 
-import "blueclaw/internal/task"
+import (
+	"context"
+	"database/sql"
+	"time"
+
+	"blueclaw/internal/task"
+)
 
 type TaskScheduleRepository struct {
 	database Database
@@ -11,6 +17,266 @@ func NewTaskScheduleRepository(database Database) TaskScheduleRepository {
 }
 
 func (taskScheduleRepository TaskScheduleRepository) UpsertTaskSchedule(taskSchedule task.TaskSchedule) error {
-	_ = taskSchedule
-	return nil
+	now := time.Now().UTC()
+	if taskSchedule.CreatedAt.IsZero() {
+		taskSchedule.CreatedAt = now
+	}
+	if taskSchedule.UpdatedAt.IsZero() {
+		taskSchedule.UpdatedAt = now
+	}
+	_, errorValue := taskScheduleRepository.database.SQL.ExecContext(context.Background(), `
+INSERT INTO task_schedule (
+  task_schedule_id, creator_person_id, name, prompt, agent_profile_name,
+  schedule_kind, run_at, interval_second, cron_expression, next_run_at,
+  last_run_at, last_task_run_id, is_paused, created_at, updated_at,
+  platform, delivery_conversation_id, reply_target_id, time_zone,
+  lease_owner, leased_until, failure_count, last_error, next_attempt_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+ON CONFLICT (task_schedule_id) DO UPDATE SET
+  name = EXCLUDED.name,
+  prompt = EXCLUDED.prompt,
+  agent_profile_name = EXCLUDED.agent_profile_name,
+  schedule_kind = EXCLUDED.schedule_kind,
+  run_at = EXCLUDED.run_at,
+  interval_second = EXCLUDED.interval_second,
+  cron_expression = EXCLUDED.cron_expression,
+  next_run_at = EXCLUDED.next_run_at,
+  last_run_at = EXCLUDED.last_run_at,
+  last_task_run_id = EXCLUDED.last_task_run_id,
+  is_paused = EXCLUDED.is_paused,
+  updated_at = EXCLUDED.updated_at,
+  platform = EXCLUDED.platform,
+  delivery_conversation_id = EXCLUDED.delivery_conversation_id,
+  reply_target_id = EXCLUDED.reply_target_id,
+  time_zone = EXCLUDED.time_zone,
+  lease_owner = EXCLUDED.lease_owner,
+  leased_until = EXCLUDED.leased_until,
+  failure_count = EXCLUDED.failure_count,
+  last_error = EXCLUDED.last_error,
+  next_attempt_at = EXCLUDED.next_attempt_at`,
+		taskSchedule.TaskScheduleID,
+		emptyStringAsNil(taskSchedule.CreatorPersonID),
+		taskSchedule.Name,
+		taskSchedule.Prompt,
+		taskSchedule.AgentProfileName,
+		string(taskSchedule.Kind),
+		taskSchedule.RunAt,
+		zeroAsNil(taskSchedule.IntervalSecond),
+		emptyStringAsNil(taskSchedule.CronExpression),
+		taskSchedule.NextRunAt,
+		taskSchedule.LastRunAt,
+		emptyStringAsNil(taskSchedule.LastTaskRunID),
+		taskSchedule.IsPaused,
+		taskSchedule.CreatedAt,
+		taskSchedule.UpdatedAt,
+		taskSchedule.Platform,
+		taskSchedule.ConversationID,
+		taskSchedule.ReplyTargetID,
+		firstNonEmptyPostgresString(taskSchedule.TimeZone, "Asia/Seoul"),
+		taskSchedule.LeaseOwner,
+		taskSchedule.LeasedUntil,
+		taskSchedule.FailureCount,
+		taskSchedule.LastError,
+		firstNonNilTaskScheduleTime(taskSchedule.NextAttemptAt, taskSchedule.CreatedAt),
+	)
+	return errorValue
 }
+
+func (taskScheduleRepository TaskScheduleRepository) ClaimDueTaskSchedules(limit int, leaseDuration time.Duration, referenceTime time.Time, leaseOwner string) ([]task.TaskSchedule, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	if referenceTime.IsZero() {
+		referenceTime = time.Now().UTC()
+	}
+	leaseSecond := int(leaseDuration.Seconds())
+	if leaseSecond <= 0 {
+		leaseSecond = 300
+	}
+	rows, errorValue := taskScheduleRepository.database.SQL.QueryContext(context.Background(), `
+WITH claim AS (
+  SELECT task_schedule_id FROM task_schedule
+  WHERE is_paused = false
+    AND next_run_at IS NOT NULL
+    AND next_run_at <= $1
+    AND next_attempt_at <= $1
+    AND (leased_until IS NULL OR leased_until <= $1)
+  ORDER BY next_run_at ASC
+  LIMIT $2
+  FOR UPDATE SKIP LOCKED
+)
+UPDATE task_schedule
+SET lease_owner = $3,
+  leased_until = $1 + ($4 * interval '1 second'),
+  updated_at = $1
+WHERE task_schedule_id IN (SELECT task_schedule_id FROM claim)
+RETURNING task_schedule_id, COALESCE(creator_person_id, ''), name, prompt, agent_profile_name,
+  schedule_kind, run_at, interval_second, cron_expression, next_run_at,
+  last_run_at, COALESCE(last_task_run_id, ''), is_paused, created_at, updated_at,
+  platform, delivery_conversation_id, reply_target_id, time_zone,
+  lease_owner, leased_until, failure_count, last_error, next_attempt_at`,
+		referenceTime,
+		limit,
+		leaseOwner,
+		leaseSecond,
+	)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	defer rows.Close()
+	return scanTaskSchedules(rows)
+}
+
+func (taskScheduleRepository TaskScheduleRepository) MarkTaskScheduleSucceeded(taskSchedule task.TaskSchedule) error {
+	now := time.Now().UTC()
+	_, errorValue := taskScheduleRepository.database.SQL.ExecContext(context.Background(), `
+UPDATE task_schedule
+SET next_run_at = $2,
+  last_run_at = $3,
+  last_task_run_id = $4,
+  lease_owner = '',
+  leased_until = NULL,
+  failure_count = 0,
+  last_error = '',
+  next_attempt_at = $1,
+  updated_at = $1
+WHERE task_schedule_id = $5`,
+		now,
+		taskSchedule.NextRunAt,
+		taskSchedule.LastRunAt,
+		emptyStringAsNil(taskSchedule.LastTaskRunID),
+		taskSchedule.TaskScheduleID,
+	)
+	return errorValue
+}
+
+func (taskScheduleRepository TaskScheduleRepository) MarkTaskScheduleFailed(taskSchedule task.TaskSchedule, errorMessage string, referenceTime time.Time) error {
+	if referenceTime.IsZero() {
+		referenceTime = time.Now().UTC()
+	}
+	nextAttemptAt := referenceTime.Add(taskScheduleRetryDelay(taskSchedule.FailureCount + 1))
+	_, errorValue := taskScheduleRepository.database.SQL.ExecContext(context.Background(), `
+UPDATE task_schedule
+SET lease_owner = '',
+  leased_until = NULL,
+  failure_count = failure_count + 1,
+  last_error = $1,
+  next_attempt_at = $2,
+  updated_at = $3
+WHERE task_schedule_id = $4`,
+		errorMessage,
+		nextAttemptAt,
+		referenceTime,
+		taskSchedule.TaskScheduleID,
+	)
+	return errorValue
+}
+
+func taskScheduleRetryDelay(failureCount int) time.Duration {
+	if failureCount <= 0 {
+		return time.Minute
+	}
+	delay := time.Duration(failureCount) * 5 * time.Minute
+	if delay > time.Hour {
+		return time.Hour
+	}
+	return delay
+}
+
+type taskScheduleScanner interface {
+	Scan(...any) error
+}
+
+func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
+	var taskSchedule task.TaskSchedule
+	var kind string
+	var intervalSecond sql.NullInt64
+	var runAt sql.NullTime
+	var nextRunAt sql.NullTime
+	var lastRunAt sql.NullTime
+	var leasedUntil sql.NullTime
+	var nextAttemptAt sql.NullTime
+	errorValue := scanner.Scan(
+		&taskSchedule.TaskScheduleID,
+		&taskSchedule.CreatorPersonID,
+		&taskSchedule.Name,
+		&taskSchedule.Prompt,
+		&taskSchedule.AgentProfileName,
+		&kind,
+		&runAt,
+		&intervalSecond,
+		&taskSchedule.CronExpression,
+		&nextRunAt,
+		&lastRunAt,
+		&taskSchedule.LastTaskRunID,
+		&taskSchedule.IsPaused,
+		&taskSchedule.CreatedAt,
+		&taskSchedule.UpdatedAt,
+		&taskSchedule.Platform,
+		&taskSchedule.ConversationID,
+		&taskSchedule.ReplyTargetID,
+		&taskSchedule.TimeZone,
+		&taskSchedule.LeaseOwner,
+		&leasedUntil,
+		&taskSchedule.FailureCount,
+		&taskSchedule.LastError,
+		&nextAttemptAt,
+	)
+	taskSchedule.Kind = task.TaskScheduleKind(kind)
+	if intervalSecond.Valid {
+		taskSchedule.IntervalSecond = int(intervalSecond.Int64)
+	}
+	taskSchedule.RunAt = nullableTaskScheduleTime(runAt)
+	taskSchedule.NextRunAt = nullableTaskScheduleTime(nextRunAt)
+	taskSchedule.LastRunAt = nullableTaskScheduleTime(lastRunAt)
+	taskSchedule.LeasedUntil = nullableTaskScheduleTime(leasedUntil)
+	taskSchedule.NextAttemptAt = nullableTaskScheduleTime(nextAttemptAt)
+	return taskSchedule, errorValue
+}
+
+func scanTaskSchedules(rows *sql.Rows) ([]task.TaskSchedule, error) {
+	taskSchedules := []task.TaskSchedule{}
+	for rows.Next() {
+		taskSchedule, errorValue := scanTaskSchedule(rows)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		taskSchedules = append(taskSchedules, taskSchedule)
+	}
+	return taskSchedules, rows.Err()
+}
+
+func zeroAsNil(value int) any {
+	if value == 0 {
+		return nil
+	}
+	return value
+}
+
+func firstNonNilTaskScheduleTime(pointerValue *time.Time, fallbackValue time.Time) *time.Time {
+	if pointerValue != nil && !pointerValue.IsZero() {
+		return pointerValue
+	}
+	if fallbackValue.IsZero() {
+		return nil
+	}
+	return &fallbackValue
+}
+
+func nullableTaskScheduleTime(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	return &value.Time
+}
+
+func firstNonEmptyPostgresString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+var _ task.TaskScheduleRepository = TaskScheduleRepository{}
