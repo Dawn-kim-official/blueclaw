@@ -257,6 +257,77 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	}
 }
 
+func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
+	httpClient := &recordingHTTPClient{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"browser.open"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:             "default",
+		RequesterPersonID:       "person-1",
+		RequesterPlatformUserID: "mattermost-user-1",
+		ConversationID:          "conversation-1",
+		Platform:                "mattermost",
+	})
+
+	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "browser.open",
+		Input:    json.RawMessage(`{"url":"https://example.com"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected browser capability result: %v", errorValue)
+	}
+	if toolResult.IsError {
+		t.Fatalf("expected browser capability success, got %+v", toolResult)
+	}
+	var requestDocument struct {
+		ExecutionMode        string `json:"executionMode"`
+		RequiresUserPresence bool   `json:"requiresUserPresence"`
+		PrivacyClass         string `json:"privacyClass"`
+	}
+	if errorValue := json.Unmarshal([]byte(httpClient.requestBody), &requestDocument); errorValue != nil {
+		t.Fatalf("expected browser capability request json: %v", errorValue)
+	}
+	if requestDocument.ExecutionMode != "companion" || !requestDocument.RequiresUserPresence || requestDocument.PrivacyClass != "user_browser" {
+		t.Fatalf("expected interactive browser capability to require companion, got %+v body=%s", requestDocument, httpClient.requestBody)
+	}
+}
+
+func TestPublicBrowserCapabilityKeepsDeviceFallback(t *testing.T) {
+	httpClient := &recordingHTTPClient{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"browser.open"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "browser.open",
+		Input:    json.RawMessage(`{"url":"https://example.com"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected browser capability result: %v", errorValue)
+	}
+	if toolResult.IsError {
+		t.Fatalf("expected browser capability success, got %+v", toolResult)
+	}
+	var requestDocument map[string]any
+	if errorValue := json.Unmarshal([]byte(httpClient.requestBody), &requestDocument); errorValue != nil {
+		t.Fatalf("expected browser capability request json: %v", errorValue)
+	}
+	if _, isFound := requestDocument["executionMode"]; isFound {
+		t.Fatalf("expected public browser capability to keep automatic fallback, got body=%s", httpClient.requestBody)
+	}
+	if _, isFound := requestDocument["requiresUserPresence"]; isFound {
+		t.Fatalf("expected public browser capability to avoid user presence, got body=%s", httpClient.requestBody)
+	}
+}
+
 func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testing.T) {
 	httpClient := &recordingHTTPClient{responseBody: `{"content":"Companion is not connected, so the browser was not opened. Ask the user to run /connect before retrying.","status":"denied","isError":true}`}
 	taskEventService := task.NewTaskEventService()
