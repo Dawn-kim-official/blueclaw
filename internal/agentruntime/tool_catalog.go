@@ -50,7 +50,9 @@ type ToolCatalogRequest struct {
 	ProfileName               string
 	Prompt                    string
 	RequesterPersonID         string
+	RequesterName             string
 	RequesterEmail            string
+	RequesterPlatformUserID   string
 	ConversationID            string
 	ConversationType          string
 	ConversationChannelID     string
@@ -240,7 +242,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Name:        "browser_handoff.openURL",
 		Description: "Ask the Companion bridge to open a URL on the user's computer without running shell commands.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
-	}, toolCatalogBuilder.openBrowserHandoffTool)
+	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+		return toolCatalogBuilder.openBrowserHandoffTool(toolContext, toolInvocation, handlerContext)
+	})
 	toolRegistry.RegisterTool(agent.ToolDefinition{
 		Name:        "approval.request",
 		Description: "Pause the current task while waiting for explicit user approval.",
@@ -410,7 +414,7 @@ func statusToolResult(status security.TerminalSessionStatus, errorValue error) a
 	return agent.ToolResult{Content: content}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.capabilityClient.HTTPClient == nil {
 		return agent.ToolResult{Content: "companion bridge capability client is unavailable", IsError: true}, nil
 	}
@@ -420,16 +424,21 @@ func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext
 	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
+	inputDocument, errorValue := json.Marshal(map[string]string{"url": input.URL})
+	if errorValue != nil {
+		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+	}
+	requestDocument := capabilityToolRequest("browser.open", handlerContext.request, inputDocument)
+	requestDocument["executionMode"] = "companion"
+	requestDocument["requiresUserPresence"] = true
+	requestDocument["privacyClass"] = "user_browser"
 	var response struct {
 		Content string          `json:"content"`
 		IsError bool            `json:"isError"`
 		Status  string          `json:"status"`
 		Result  json.RawMessage `json:"result"`
 	}
-	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/browser.open/invoke", map[string]any{
-		"toolName": "browser.open",
-		"input":    map[string]string{"url": input.URL},
-	}, &response)
+	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/browser.open/invoke", requestDocument, &response)
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
@@ -691,13 +700,15 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 		"toolName": toolName,
 		"input":    toolInput,
 		"context": map[string]any{
-			"requesterPersonID": request.RequesterPersonID,
-			"requesterEmail":    request.RequesterEmail,
-			"conversationID":    request.ConversationID,
-			"conversationType":  request.ConversationType,
-			"channelID":         request.ConversationChannelID,
-			"channelName":       request.ConversationChannelName,
-			"platform":          request.Platform,
+			"requesterPersonID":       request.RequesterPersonID,
+			"requesterEmail":          request.RequesterEmail,
+			"requesterName":           request.RequesterName,
+			"requesterPlatformUserID": request.RequesterPlatformUserID,
+			"conversationID":          request.ConversationID,
+			"conversationType":        request.ConversationType,
+			"channelID":               request.ConversationChannelID,
+			"channelName":             request.ConversationChannelName,
+			"platform":                request.Platform,
 		},
 	}
 }

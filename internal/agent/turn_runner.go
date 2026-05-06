@@ -31,7 +31,10 @@ type AgentTurnRunner struct {
 
 type AgentTurnRequest struct {
 	RequesterPersonID          string
+	RequesterEmail             string
 	RequesterName              string
+	RequesterPlatformUserID    string
+	Platform                   string
 	RequesterCallingName       string
 	RequesterHandle            string
 	RequesterCircles           []string
@@ -165,6 +168,14 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 
 	turnContext, cancel := context.WithTimeout(ctx, time.Duration(agentTurnRunner.options.MaxElapsedSecond)*time.Second)
 	defer cancel()
+	turnContext = llm.ContextWithRequestContext(turnContext, llm.RequestContext{
+		RequesterPersonID:       request.RequesterPersonID,
+		RequesterEmail:          request.RequesterEmail,
+		RequesterName:           request.RequesterName,
+		RequesterPlatformUserID: request.RequesterPlatformUserID,
+		ConversationID:          request.ConversationID,
+		Platform:                request.Platform,
+	})
 	if request.TurnStartedAt.IsZero() {
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}

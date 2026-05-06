@@ -172,7 +172,15 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser_handoff.openURL"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:             "default",
+		RequesterPersonID:       "person-1",
+		RequesterName:           "Dongha",
+		RequesterEmail:          "dongha@example.com",
+		RequesterPlatformUserID: "mattermost-user-1",
+		ConversationID:          "conversation-1",
+		Platform:                "mattermost",
+	})
 
 	toolResult, errorValue := toolRegistry.InvokeTool(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "browser_handoff.openURL",
@@ -187,6 +195,27 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	}
 	if httpClient.requestPath != "/v1/tools/browser.open/invoke" || !strings.Contains(httpClient.requestBody, "https://example.com/login") {
 		t.Fatalf("expected browser bridge request, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
+	}
+	var requestDocument struct {
+		ExecutionMode        string `json:"executionMode"`
+		RequiresUserPresence bool   `json:"requiresUserPresence"`
+		Context              struct {
+			RequesterPersonID       string `json:"requesterPersonID"`
+			RequesterName           string `json:"requesterName"`
+			RequesterEmail          string `json:"requesterEmail"`
+			RequesterPlatformUserID string `json:"requesterPlatformUserID"`
+			ConversationID          string `json:"conversationID"`
+			Platform                string `json:"platform"`
+		} `json:"context"`
+	}
+	if errorValue := json.Unmarshal([]byte(httpClient.requestBody), &requestDocument); errorValue != nil {
+		t.Fatalf("expected browser bridge request json: %v", errorValue)
+	}
+	if requestDocument.ExecutionMode != "companion" || !requestDocument.RequiresUserPresence {
+		t.Fatalf("expected browser bridge to require companion user presence, got %s presence=%v body=%s", requestDocument.ExecutionMode, requestDocument.RequiresUserPresence, httpClient.requestBody)
+	}
+	if requestDocument.Context.RequesterPersonID != "person-1" || requestDocument.Context.RequesterPlatformUserID != "mattermost-user-1" {
+		t.Fatalf("expected requester identity in browser bridge request, got %+v", requestDocument.Context)
 	}
 	if !containsTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "browser_handoff.opened") {
 		t.Fatalf("expected browser handoff audit event")

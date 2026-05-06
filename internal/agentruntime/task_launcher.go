@@ -29,6 +29,7 @@ type TaskLaunchRequest struct {
 	RequesterCallingName      string
 	RequesterHandle           string
 	RequesterEmail            string
+	RequesterPlatformUserID   string
 	ProfileName               string
 	Platform                  string
 	ConversationID            string
@@ -75,7 +76,9 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ProfileName:               normalizedProfileName,
 		Prompt:                    request.Prompt,
 		RequesterPersonID:         request.RequesterPersonID,
+		RequesterName:             request.RequesterName,
 		RequesterEmail:            request.RequesterEmail,
+		RequesterPlatformUserID:   request.RequesterPlatformUserID,
 		ConversationID:            request.ConversationID,
 		ConversationType:          request.ConversationType,
 		ConversationChannelID:     request.ConversationChannelID,
@@ -100,18 +103,21 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		memoryFacts = nil
 	}
 	turnResult, errorValue := taskLauncher.agentKernel.RunTurn(ctx, agent.AgentTurnRequest{
-		RequesterPersonID:    request.RequesterPersonID,
-		RequesterName:        request.RequesterName,
-		RequesterCallingName: request.RequesterCallingName,
-		RequesterHandle:      request.RequesterHandle,
-		RequesterCircles:     append([]string{}, request.PersonAccess.Circles...),
-		ProfileName:          normalizedProfileName,
-		ConversationID:       request.ConversationID,
-		Prompt:               request.Prompt,
-		VisibleContext:       request.VisibleContext,
-		MemoryFacts:          memoryFacts,
-		ToolRegistry:         toolRegistry,
-		WorkspaceRootPath:    taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
+		RequesterPersonID:       request.RequesterPersonID,
+		RequesterEmail:          request.RequesterEmail,
+		RequesterName:           request.RequesterName,
+		RequesterPlatformUserID: request.RequesterPlatformUserID,
+		Platform:                request.Platform,
+		RequesterCallingName:    request.RequesterCallingName,
+		RequesterHandle:         request.RequesterHandle,
+		RequesterCircles:        append([]string{}, request.PersonAccess.Circles...),
+		ProfileName:             normalizedProfileName,
+		ConversationID:          request.ConversationID,
+		Prompt:                  request.Prompt,
+		VisibleContext:          request.VisibleContext,
+		MemoryFacts:             memoryFacts,
+		ToolRegistry:            toolRegistry,
+		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 	})
 	if errorValue != nil {
 		return TaskLaunchResult{}, errorValue
