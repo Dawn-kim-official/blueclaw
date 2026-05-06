@@ -62,3 +62,34 @@ func TestRepresentativeToolPolicy(t *testing.T) {
 		t.Fatal("staff should not execute representative tool")
 	}
 }
+
+func TestFlowResourcePolicies(t *testing.T) {
+	resourceAccessRules := []policy.ResourceAccessPolicy{
+		{Resource: "api:flow.summary", Actions: []string{ActionRead}, Circles: []string{"staff"}},
+		{Resource: "api:flow.task", Actions: []string{"create", "update"}, Circles: []string{"staff"}},
+		{Resource: "api:flow.definition", Actions: []string{ActionManage}, Circles: []string{"admin"}},
+		{Resource: "tool:flow.task.add", Actions: []string{ActionExecute}, Circles: []string{"staff"}},
+	}
+	staffAccess := policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}, ResourceAccessRules: resourceAccessRules}
+	adminAccess := policy.PersonAccess{PersonID: "person-2", Circles: []string{"staff", "admin"}, ResourceAccessRules: resourceAccessRules}
+	guestAccess := policy.PersonAccess{PersonID: "person-3", ResourceAccessRules: resourceAccessRules}
+
+	if !CanAccess(Request{PersonAccess: staffAccess, Action: ActionRead, Resource: "api:flow.summary"}) {
+		t.Fatal("staff should read Flow summary")
+	}
+	if !CanAccess(Request{PersonAccess: staffAccess, Action: "create", Resource: "api:flow.task"}) {
+		t.Fatal("staff should create Flow task")
+	}
+	if CanAccess(Request{PersonAccess: staffAccess, Action: ActionManage, Resource: "api:flow.definition"}) {
+		t.Fatal("staff should not manage Flow definitions")
+	}
+	if !CanAccess(Request{PersonAccess: adminAccess, Action: ActionManage, Resource: "api:flow.definition"}) {
+		t.Fatal("admin should manage Flow definitions")
+	}
+	if !CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:flow.task.add"}) {
+		t.Fatal("staff should execute Flow task add tool")
+	}
+	if CanAccess(Request{PersonAccess: guestAccess, Action: ActionExecute, Resource: "tool:flow.task.add"}) {
+		t.Fatal("guest should not execute Flow task add tool")
+	}
+}

@@ -107,6 +107,43 @@
       ]
     },
     {
+      "resource": "api:flow.summary",
+      "actions": [
+        "read"
+      ],
+      "circles": [
+        "staff"
+      ]
+    },
+    {
+      "resource": "api:flow.task",
+      "actions": [
+        "create",
+        "update"
+      ],
+      "circles": [
+        "staff"
+      ]
+    },
+    {
+      "resource": "api:flow.definition",
+      "actions": [
+        "manage"
+      ],
+      "circles": [
+        "admin"
+      ]
+    },
+    {
+      "resource": "tool:flow.task.add",
+      "actions": [
+        "execute"
+      ],
+      "circles": [
+        "staff"
+      ]
+    },
+    {
       "resource": "tool:company.broadcast.send",
       "actions": [
         "execute"

@@ -42,7 +42,8 @@ type ToolCatalogBuilder struct {
 }
 
 type toolHandlerContext struct {
-	request ToolCatalogRequest
+	request           ToolCatalogRequest
+	conversationScope ConversationResourceScope
 }
 
 type ToolCatalogRequest struct {
@@ -51,6 +52,9 @@ type ToolCatalogRequest struct {
 	RequesterPersonID         string
 	RequesterEmail            string
 	ConversationID            string
+	ConversationType          string
+	ConversationChannelID     string
+	ConversationChannelName   string
 	Platform                  string
 	HistoryCursor             string
 	HistoryProvider           HistoryProvider
@@ -118,9 +122,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) WorkspaceRootPath() string {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistry(request ToolCatalogRequest) *agent.ToolRegistry {
 	toolRegistry := agent.NewToolRegistry(toolCatalogBuilder.allowedToolNames(request.ProfileName))
+	handlerContext := toolHandlerContext{
+		request:           request,
+		conversationScope: toolCatalogBuilder.conversationScope(request),
+	}
 	toolCatalogBuilder.registerHistoryTool(toolRegistry, request)
 	toolCatalogBuilder.registerMemoryTool(toolRegistry, request)
-	toolCatalogBuilder.registerBuiltInTools(toolRegistry, toolHandlerContext{request: request})
+	toolCatalogBuilder.registerBuiltInTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerMCPTools(toolRegistry)
 	toolCatalogBuilder.registerCapabilityTools(toolRegistry, request)
 	return toolRegistry
@@ -321,7 +329,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	input.Stdin = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Stdin)
 	input.EnvironmentVariables = toolCatalogBuilder.resolveAgentWorkspaceEnvironment(input.EnvironmentVariables)
 	if strings.TrimSpace(input.WorkingDirectoryPath) == "" {
-		input.WorkingDirectoryPath = toolCatalogBuilder.workspaceRootPath
+		input.WorkingDirectoryPath = handlerContext.conversationScope.DefaultDirectoryPath
 	} else {
 		input.WorkingDirectoryPath = toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath)
 	}
@@ -367,7 +375,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	workingDirectoryPath := firstNonEmptyString(toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath), toolCatalogBuilder.workspaceRootPath)
+	workingDirectoryPath := firstNonEmptyString(toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath), handlerContext.conversationScope.DefaultDirectoryPath)
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, workingDirectoryPath) {
 		return agent.ToolResult{Content: "current account cannot use this workspace path", IsError: true}, nil
 	}
@@ -462,7 +470,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
-	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePath(input.Path)
+	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(input.Path, handlerContext.conversationScope)
 	if errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
@@ -534,7 +542,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input 
 	ContentType string   `json:"contentType"`
 	Title       string   `json:"title"`
 }, handlerContext toolHandlerContext) (agent.FileAttachment, error) {
-	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePath(path)
+	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(path, handlerContext.conversationScope)
 	if errorValue != nil {
 		return agent.FileAttachment{}, errorValue
 	}
@@ -623,6 +631,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveWorkspaceFilePath(value str
 	return cleanPath, nil
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveWorkspaceFilePathForConversation(value string, conversationScope ConversationResourceScope) (string, error) {
+	trimmedPath := toolCatalogBuilder.resolveAgentWorkspacePath(value)
+	if trimmedPath == "" {
+		return "", errors.New("path is required")
+	}
+	if filepath.IsAbs(trimmedPath) {
+		return toolCatalogBuilder.resolveWorkspaceFilePath(trimmedPath)
+	}
+	defaultDirectoryPath := firstNonEmptyString(conversationScope.DefaultDirectoryPath, toolCatalogBuilder.workspaceRootPath)
+	return toolCatalogBuilder.resolveWorkspaceFilePath(filepath.Join(defaultDirectoryPath, trimmedPath))
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspacePath(value string) string {
 	trimmedPath := strings.TrimSpace(value)
 	if trimmedPath == "" {
@@ -674,6 +694,9 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 			"requesterPersonID": request.RequesterPersonID,
 			"requesterEmail":    request.RequesterEmail,
 			"conversationID":    request.ConversationID,
+			"conversationType":  request.ConversationType,
+			"channelID":         request.ConversationChannelID,
+			"channelName":       request.ConversationChannelName,
 			"platform":          request.Platform,
 		},
 	}
