@@ -18,6 +18,26 @@ type StructuredResponseRequest struct {
 	StructuredOutputSchema StructuredOutputSchema
 }
 
+type RequestContext struct {
+	RequesterPersonID       string `json:"requesterPersonID,omitempty"`
+	RequesterEmail          string `json:"requesterEmail,omitempty"`
+	RequesterName           string `json:"requesterName,omitempty"`
+	RequesterPlatformUserID string `json:"requesterPlatformUserID,omitempty"`
+	ConversationID          string `json:"conversationID,omitempty"`
+	Platform                string `json:"platform,omitempty"`
+}
+
+type requestContextKey struct{}
+
+func ContextWithRequestContext(ctx context.Context, requestContext RequestContext) context.Context {
+	return context.WithValue(ctx, requestContextKey{}, requestContext)
+}
+
+func RequestContextFromContext(ctx context.Context) RequestContext {
+	requestContext, _ := ctx.Value(requestContextKey{}).(RequestContext)
+	return requestContext
+}
+
 type StructuredResponse struct {
 	ProviderName string
 	ModelName    string

@@ -121,6 +121,38 @@ func TestCapabilityLLMClientGenerateResponseUsesTextEndpoint(t *testing.T) {
 	}
 }
 
+func TestCapabilityLLMClientSendsRequesterContext(t *testing.T) {
+	var receivedDocument capabilityStructuredResponseRequestDocument
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected request document to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma","content":"{\"reply\":\"ok\"}","selectedBackend":"companion_local"}`), nil
+	}}
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName: "gemma",
+	}
+	requestContext := RequestContext{
+		RequesterPersonID:       "person-1",
+		RequesterEmail:          "alice@example.com",
+		RequesterName:           "Alice",
+		RequesterPlatformUserID: "user-1",
+		ConversationID:          "dm:channel-1",
+		Platform:                "mattermost",
+	}
+	_, errorValue := client.GenerateStructuredResponse(ContextWithRequestContext(context.Background(), requestContext), buildTestStructuredResponseRequest())
+	if errorValue != nil {
+		t.Fatalf("expected structured response: %v", errorValue)
+	}
+	if receivedDocument.Context == nil || *receivedDocument.Context != requestContext {
+		t.Fatalf("expected requester context, got %+v", receivedDocument.Context)
+	}
+}
+
 func TestCapabilityLLMClientRecoveryResponseUsesLocalCapableExecutionMode(t *testing.T) {
 	receivedExecutionModes := []string{}
 	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {

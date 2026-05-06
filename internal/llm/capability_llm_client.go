@@ -18,16 +18,18 @@ type CapabilityLLMClient struct {
 type capabilityStructuredResponseRequestDocument struct {
 	Model                  string                           `json:"model,omitempty"`
 	ExecutionMode          string                           `json:"executionMode"`
+	Context                *RequestContext                  `json:"context,omitempty"`
 	Messages               []Message                        `json:"messages"`
 	StructuredOutputSchema capabilityStructuredOutputSchema `json:"structuredOutputSchema"`
 }
 
 type capabilityTextResponseRequestDocument struct {
-	Model                 string    `json:"model,omitempty"`
-	ExecutionMode         string    `json:"executionMode"`
-	Messages              []Message `json:"messages"`
-	RequireParameters     bool      `json:"requireParameters"`
-	EnableResponseHealing bool      `json:"enableResponseHealing"`
+	Model                 string          `json:"model,omitempty"`
+	ExecutionMode         string          `json:"executionMode"`
+	Context               *RequestContext `json:"context,omitempty"`
+	Messages              []Message       `json:"messages"`
+	RequireParameters     bool            `json:"requireParameters"`
+	EnableResponseHealing bool            `json:"enableResponseHealing"`
 }
 
 type capabilityStructuredOutputSchema struct {
@@ -70,6 +72,7 @@ func (capabilityLLMClient CapabilityLLMClient) generateResponse(responseContext 
 		capabilityTextResponseRequestDocument{
 			Model:         capabilityLLMClient.ModelName,
 			ExecutionMode: executionMode,
+			Context:       requestContextPointer(responseContext),
 			Messages: []Message{{
 				Role:    "user",
 				Content: prompt,
@@ -89,7 +92,7 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 		return StructuredResponse{}, errors.New("capability llm http client is not configured")
 	}
 
-	requestDocument, errorValue := capabilityLLMClient.buildStructuredRequestDocument(structuredResponseRequest)
+	requestDocument, errorValue := capabilityLLMClient.buildStructuredRequestDocument(responseContext, structuredResponseRequest)
 	if errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}
@@ -116,7 +119,7 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 	}, nil
 }
 
-func (capabilityLLMClient CapabilityLLMClient) buildStructuredRequestDocument(structuredResponseRequest StructuredResponseRequest) (capabilityStructuredResponseRequestDocument, error) {
+func (capabilityLLMClient CapabilityLLMClient) buildStructuredRequestDocument(responseContext context.Context, structuredResponseRequest StructuredResponseRequest) (capabilityStructuredResponseRequestDocument, error) {
 	jsonSchemaDocument, errorValue := normalizeStructuredOutputSchema(structuredResponseRequest.StructuredOutputSchema)
 	if errorValue != nil {
 		return capabilityStructuredResponseRequestDocument{}, errorValue
@@ -125,6 +128,7 @@ func (capabilityLLMClient CapabilityLLMClient) buildStructuredRequestDocument(st
 	return capabilityStructuredResponseRequestDocument{
 		Model:         capabilityLLMClient.ModelName,
 		ExecutionMode: capabilityLLMClient.executionMode(),
+		Context:       requestContextPointer(responseContext),
 		Messages:      append([]Message{}, structuredResponseRequest.Messages...),
 		StructuredOutputSchema: capabilityStructuredOutputSchema{
 			Name:               structuredResponseRequest.StructuredOutputSchema.Name,
@@ -132,6 +136,19 @@ func (capabilityLLMClient CapabilityLLMClient) buildStructuredRequestDocument(st
 			IsStrictlyEnforced: structuredResponseRequest.StructuredOutputSchema.IsStrictlyEnforced,
 		},
 	}, nil
+}
+
+func requestContextPointer(ctx context.Context) *RequestContext {
+	requestContext := RequestContextFromContext(ctx)
+	if requestContext.RequesterPersonID == "" &&
+		requestContext.RequesterEmail == "" &&
+		requestContext.RequesterName == "" &&
+		requestContext.RequesterPlatformUserID == "" &&
+		requestContext.ConversationID == "" &&
+		requestContext.Platform == "" {
+		return nil
+	}
+	return &requestContext
 }
 
 func (capabilityLLMClient CapabilityLLMClient) executionMode() string {
