@@ -76,6 +76,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	toolRegistry := taskLauncher.toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
 		ProfileName:               normalizedProfileName,
 		Prompt:                    request.Prompt,
+		VisibleContext:            request.VisibleContext,
 		RequesterPersonID:         request.RequesterPersonID,
 		RequesterName:             request.RequesterName,
 		RequesterEmail:            request.RequesterEmail,

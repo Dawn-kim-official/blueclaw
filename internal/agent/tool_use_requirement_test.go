@@ -29,3 +29,20 @@ func TestGoogleSearchStillRequiresBrowserEvidence(t *testing.T) {
 		t.Fatalf("expected browser requirement, got %+v", requirements)
 	}
 }
+
+func TestBrowserRetryWithVisibleContextRequiresBrowserEvidence(t *testing.T) {
+	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.snapshot"})
+
+	requirements := deriveToolUseRequirements(AgentTurnRequest{
+		Prompt:       "다시 열어봐",
+		ToolRegistry: toolRegistry,
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
+			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
+			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
+		}},
+	})
+
+	if len(requirements) != 1 || requirements[0].ToolPrefix != "browser." {
+		t.Fatalf("expected browser follow-up requirement, got %+v", requirements)
+	}
+}

@@ -118,7 +118,7 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 		toolNames := request.ToolRegistry.ListToolNames()
 		toolDescriptions = "Available tools: " + strings.Join(toolNames, ", ")
 	}
-	return []llm.Message{
+	messages := []llm.Message{
 		{
 			Role:    "system",
 			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"].",
@@ -127,11 +127,12 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 			Role:    "system",
 			Content: toolDescriptions,
 		},
-		{
-			Role:    "user",
-			Content: request.Prompt,
-		},
 	}
+	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: contextDescription})
+	}
+	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
+	return messages
 }
 
 func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRequest) IntakeDecision {
@@ -147,6 +148,11 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
 		classification = IntakeClassificationBoundedTask
 		reason = "request may benefit from bounded tool use"
+		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
+	}
+	if requestRequiresFollowUpToolWork(request) {
+		classification = IntakeClassificationBoundedTask
+		reason = "request resumes previous visible tool work"
 		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
 	}
 	if request.VisibleContext.HasMoreBefore {
@@ -178,6 +184,11 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		return defaultDecision
 	}
 	decision.Classification = normalizedClassification
+	if requestRequiresFollowUpToolWork(request) && decision.Classification == IntakeClassificationQuickReply {
+		decision.Classification = IntakeClassificationBoundedTask
+		decision.Reason = firstNonEmptyString(decision.Reason, "request resumes previous visible tool work")
+		decision.UserFacingReply = ""
+	}
 	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision) {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
@@ -186,6 +197,9 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
 	if normalizedTaskShape == "" {
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
+	}
+	if requestRequiresFollowUpToolWork(request) {
+		normalizedTaskShape = TaskShapeBrowserHandoffTask
 	}
 	if decision.Classification == IntakeClassificationBoundedTask && normalizedTaskShape == TaskShapeApprovalGatedTask {
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
@@ -233,6 +247,9 @@ func deterministicTaskShape(request AgentRequest, classification IntakeClassific
 		return TaskShapeApprovalGatedTask
 	}
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if requestRequiresFollowUpToolWork(request) {
+		return TaskShapeBrowserHandoffTask
+	}
 	if hasToolPrefix(request.ToolRegistry, "browser.") && containsAny(prompt, []string{"browser", "website", "web", "브라우저", "사이트", "페이지"}) {
 		return TaskShapeBrowserHandoffTask
 	}
@@ -280,6 +297,13 @@ func defaultUserFacingReply(classification IntakeClassification) string {
 func looksLikeToolRequest(prompt string) bool {
 	toolWords := []string{"search", "find", "lookup", "check", "read", "fetch", "compare", "analyze", "summarize", "browser", "screenshot", "click", "fill", "press", "create", "write", "attach", "run", "검색", "찾", "확인", "읽", "분석", "요약", "브라우저", "인터넷", "스크린샷", "클릭", "입력", "만들", "작성", "첨부", "실행"}
 	return containsAny(prompt, toolWords)
+}
+
+func requestRequiresFollowUpToolWork(request AgentRequest) bool {
+	if !hasToolPrefix(request.ToolRegistry, "browser.") {
+		return false
+	}
+	return looksLikeBrowserFollowUp(strings.ToLower(strings.TrimSpace(request.Prompt))) && visibleContextMentionsBrowserWork(request.VisibleContext)
 }
 
 func looksLikeScheduleRequest(prompt string) bool {

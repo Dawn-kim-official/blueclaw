@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -50,6 +51,7 @@ type toolHandlerContext struct {
 type ToolCatalogRequest struct {
 	ProfileName               string
 	Prompt                    string
+	VisibleContext            agent.VisibleContext
 	RequesterPersonID         string
 	RequesterName             string
 	RequesterEmail            string
@@ -323,7 +325,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				content = string(response.Result)
 			}
 			isError := response.IsError || response.Status == "error" || response.Status == "denied"
-			return agent.ToolResult{Content: content, IsError: isError, Attachments: capabilityAttachments(response.Result)}, nil
+			return agent.ToolResult{Content: content, IsError: isError, Attachments: capabilityAttachments(response.Result), RecoveryActions: capabilityRecoveryActions(response.Result)}, nil
 		})
 	}
 }
@@ -726,7 +728,7 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 			"platform":                request.Platform,
 		},
 	}
-	if shouldRequireCompanionBrowser(toolName, request) {
+	if shouldRequireCompanionBrowser(toolName, request, toolInput) {
 		requestDocument["executionMode"] = "companion"
 		requestDocument["requiresUserPresence"] = true
 		requestDocument["privacyClass"] = "user_browser"
@@ -734,11 +736,105 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 	return requestDocument
 }
 
-func shouldRequireCompanionBrowser(toolName string, request ToolCatalogRequest) bool {
-	if !strings.HasPrefix(toolName, "browser.") {
+func shouldRequireCompanionBrowser(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) bool {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if !strings.HasPrefix(trimmedToolName, "browser.") {
 		return false
 	}
-	return strings.TrimSpace(request.RequesterPersonID) != "" || strings.TrimSpace(request.Platform) != ""
+	switch trimmedToolName {
+	case "browser.handoff", "browser.screenshot":
+		return true
+	}
+	return promptRequiresUserBrowser(request.Prompt) || browserFollowUpRequiresUserBrowser(request) || browserInputUsesPrivateURL(toolInput)
+}
+
+func promptRequiresUserBrowser(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return false
+	}
+	if containsAny(normalizedPrompt, []string{"브라우저 열", "브라우저 켜", "open browser", "open the browser"}) {
+		return true
+	}
+	return containsAny(normalizedPrompt, []string{
+		"로그인", "login", "sign in", "signin", "account", "계정",
+		"mfa", "2fa", "otp", "쿠키", "cookie", "세션", "session",
+		"결제", "payment", "관리자", "admin", "내 컴퓨터", "my computer",
+		"내 브라우저", "my browser", "localhost", "local url", "private network",
+		"credential", "credentials", "자격 증명", "인증 정보",
+		"google cloud console", "cloud console", "구글 클라우드 콘솔",
+	})
+}
+
+func browserFollowUpRequiresUserBrowser(request ToolCatalogRequest) bool {
+	if !looksLikeBrowserFollowUp(request.Prompt) {
+		return false
+	}
+	return visibleContextMentionsUserBrowser(request.VisibleContext)
+}
+
+func looksLikeBrowserFollowUp(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return false
+	}
+	return containsAny(normalizedPrompt, []string{
+		"다시 해", "다시 열", "다시 시도", "계속해", "진행해", "이제 연결", "연결했",
+		"try again", "open it again", "do it again", "continue", "go ahead", "connected now",
+	})
+}
+
+func visibleContextMentionsUserBrowser(visibleContext agent.VisibleContext) bool {
+	for _, message := range visibleContext.Messages {
+		text := strings.ToLower(strings.TrimSpace(message.Text))
+		if text == "" {
+			continue
+		}
+		if containsAny(text, []string{
+			"browser", "브라우저", "companion", "컴패니언", "login", "로그인",
+			"credential", "credentials", "자격 증명", "인증 정보",
+			"google cloud console", "cloud console", "구글 클라우드 콘솔",
+		}) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAny(value string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func browserInputUsesPrivateURL(toolInput json.RawMessage) bool {
+	var input struct {
+		URL      string `json:"url"`
+		StartURL string `json:"startURL"`
+	}
+	if json.Unmarshal(toolInput, &input) != nil {
+		return false
+	}
+	return isPrivateBrowserURL(firstNonEmptyString(input.URL, input.StartURL))
+}
+
+func isPrivateBrowserURL(value string) bool {
+	parsedURL, errorValue := url.Parse(strings.TrimSpace(value))
+	if errorValue != nil || parsedURL.Hostname() == "" {
+		return false
+	}
+	hostname := strings.ToLower(strings.TrimSpace(parsedURL.Hostname()))
+	if hostname == "localhost" || strings.HasSuffix(hostname, ".local") {
+		return true
+	}
+	ipAddress := net.ParseIP(hostname)
+	if ipAddress == nil {
+		return false
+	}
+	return ipAddress.IsLoopback() || ipAddress.IsPrivate() || ipAddress.IsLinkLocalUnicast()
 }
 
 func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
@@ -762,6 +858,19 @@ func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
 		}
 	}
 	return attachments
+}
+
+func capabilityRecoveryActions(result json.RawMessage) []agent.RecoveryAction {
+	var document struct {
+		Recovery *agent.RecoveryAction `json:"recovery"`
+	}
+	if json.Unmarshal(result, &document) != nil || document.Recovery == nil {
+		return nil
+	}
+	if strings.TrimSpace(document.Recovery.Kind) == "" {
+		return nil
+	}
+	return []agent.RecoveryAction{*document.Recovery}
 }
 
 func mcpToolDescription(toolDefinition mcp.ToolDefinition) string {

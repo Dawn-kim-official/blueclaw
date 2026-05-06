@@ -1047,6 +1047,39 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		finalReplyDocument("말로만 답변"),
+		`{"action":"call_tool","toolName":"browser.open","toolInput":{"url":"https://console.cloud.google.com/"}}`,
+		finalReplyWithEvidence("열었습니다", "obs-002", "browser.open", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolRegistry([]string{"browser.open"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `{"url":"https://console.cloud.google.com/"}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "다시 열어봐",
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
+			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
+			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
+		}},
+		ToolRegistry: toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinalReply != "열었습니다" {
+		t.Fatalf("expected browser-backed reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "browser.") {
+		t.Fatal("expected browser follow-up completion gate to reject tool-free reply")
+	}
+}
+
 func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 	runner := NewAgentTurnRunner(nil, nil, nil, nil, TurnOptions{})
 	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.click", "browser.fill", "browser.select", "browser.wait"})

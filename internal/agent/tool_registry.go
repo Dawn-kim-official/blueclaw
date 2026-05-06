@@ -28,10 +28,19 @@ type FileAttachment struct {
 	ContentBase64 string `json:"-"`
 }
 
+type RecoveryAction struct {
+	Kind           string `json:"kind"`
+	Delivery       string `json:"delivery"`
+	DownloadURL    string `json:"downloadURL,omitempty"`
+	ConnectCommand string `json:"connectCommand,omitempty"`
+	PlatformUserID string `json:"platformUserID,omitempty"`
+}
+
 type ToolResult struct {
-	Content     string           `json:"content"`
-	IsError     bool             `json:"isError"`
-	Attachments []FileAttachment `json:"attachments,omitempty"`
+	Content         string           `json:"content"`
+	IsError         bool             `json:"isError"`
+	Attachments     []FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions []RecoveryAction `json:"recoveryActions,omitempty"`
 }
 
 type ToolHandler func(context.Context, ToolInvocation) (ToolResult, error)

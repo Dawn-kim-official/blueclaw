@@ -59,9 +59,10 @@ type AgentTurnRequest struct {
 }
 
 type AgentTurnResult struct {
-	TaskRun     task.TaskRun
-	FinalReply  string
-	Attachments []FileAttachment
+	TaskRun         task.TaskRun
+	FinalReply      string
+	Attachments     []FileAttachment
+	RecoveryActions []RecoveryAction
 }
 
 type turnActionDocument struct {
@@ -81,13 +82,14 @@ type turnActionDocument struct {
 }
 
 type turnObservation struct {
-	ObservationID string           `json:"observationID"`
-	Action        string           `json:"action"`
-	Tool          string           `json:"tool,omitempty"`
-	Content       string           `json:"content"`
-	Summary       string           `json:"summary,omitempty"`
-	IsError       bool             `json:"isError"`
-	Attachments   []FileAttachment `json:"attachments,omitempty"`
+	ObservationID   string           `json:"observationID"`
+	Action          string           `json:"action"`
+	Tool            string           `json:"tool,omitempty"`
+	Content         string           `json:"content"`
+	Summary         string           `json:"summary,omitempty"`
+	IsError         bool             `json:"isError"`
+	Attachments     []FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions []RecoveryAction `json:"recoveryActions,omitempty"`
 }
 
 type completionEvidenceReference struct {
@@ -264,7 +266,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "final_reply", reply)
 			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
-			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments}, nil
+			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 		case "call_tool":
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
 				observation := turnObservation{ObservationID: nextObservationID(len(observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
@@ -353,7 +355,7 @@ func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, obser
 		return AgentTurnResult{}, false
 	}
 	reply := firstNonEmptyString(taskRun.FailureReason, toolObservationMessage(observation), observation.Content)
-	return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments}, true
+	return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
 }
 
 func isWaitingForUser(status task.TaskStatus) bool {
@@ -728,16 +730,33 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, ob
 		}
 	}
 	observation := turnObservation{
-		ObservationID: observationID,
-		Action:        "call_tool",
-		Tool:          toolName,
-		Content:       content,
-		Summary:       buildToolResultSummary(toolName, originalContent, isError, attachments, artifactID),
-		IsError:       isError,
-		Attachments:   attachments,
+		ObservationID:   observationID,
+		Action:          "call_tool",
+		Tool:            toolName,
+		Content:         content,
+		Summary:         buildToolResultSummary(toolName, originalContent, isError, attachments, artifactID),
+		IsError:         isError,
+		Attachments:     attachments,
+		RecoveryActions: append([]RecoveryAction{}, toolResult.RecoveryActions...),
 	}
 	agentTurnRunner.appendEvent(taskRunID, "tool."+toolName+".result", marshalEventBody(observation))
 	return observation
+}
+
+func recoveryActionsFromObservations(observations []turnObservation) []RecoveryAction {
+	recoveryActions := []RecoveryAction{}
+	seen := map[string]bool{}
+	for _, observation := range observations {
+		for _, recoveryAction := range observation.RecoveryActions {
+			key := recoveryAction.Kind + "\x00" + recoveryAction.Delivery + "\x00" + recoveryAction.DownloadURL + "\x00" + recoveryAction.ConnectCommand
+			if strings.TrimSpace(recoveryAction.Kind) == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			recoveryActions = append(recoveryActions, recoveryAction)
+		}
+	}
+	return recoveryActions
 }
 
 func buildToolResultSummary(toolName string, content string, isError bool, attachments []FileAttachment, artifactID string) string {
@@ -795,7 +814,7 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 	reply, replyStatus := agentTurnRunner.generateFailureReply(request, reason, observations, attachments)
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
 	failedTaskRun.Result = reply
-	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: reply}, nil
+	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
 func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion) completionTransition {
@@ -899,7 +918,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 	return completionTransition{
 		Observations:  observations,
 		Attachments:   appendUniqueAttachments(attachments, completionGateResult.Attachments),
-		Result:        AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments},
+		Result:        AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)},
 		IsCompleted:   true,
 		DidTransition: true,
 		Action:        completionActionFinalizeWithEvidence,
@@ -1085,7 +1104,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		return AgentTurnResult{}, false
 	}
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
-	return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments}, true
+	return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation) (turnActionDocument, error) {
@@ -1145,7 +1164,7 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	reply, replyStatus := agentTurnRunner.generateLimitReachedReply(request, reason, observations, nil)
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	blockedTaskRun.Result = reply
-	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply}, nil
+	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
 func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {

@@ -31,11 +31,12 @@ type capabilityProgressRequest struct {
 }
 
 type capabilityReplyRequest struct {
-	ReplyTargetID string                      `json:"replyTargetID"`
-	Message       string                      `json:"message"`
-	RawEventID    string                      `json:"rawEventID,omitempty"`
-	OutboxID      string                      `json:"outboxID,omitempty"`
-	Attachments   []capabilityReplyAttachment `json:"attachments,omitempty"`
+	ReplyTargetID   string                      `json:"replyTargetID"`
+	Message         string                      `json:"message"`
+	RawEventID      string                      `json:"rawEventID,omitempty"`
+	OutboxID        string                      `json:"outboxID,omitempty"`
+	Attachments     []capabilityReplyAttachment `json:"attachments,omitempty"`
+	RecoveryActions []agent.RecoveryAction      `json:"recoveryActions,omitempty"`
 }
 
 type capabilityReplyAttachment struct {
@@ -113,11 +114,12 @@ func (adapter CapabilityPlatformAdapter) StopProgress(ctx context.Context, reply
 func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTarget ReplyTarget, reply OutboundReply) (string, error) {
 	var response capabilityReplyResponse
 	errorValue := adapter.post(ctx, "reply.send", capabilityReplyRequest{
-		ReplyTargetID: replyTarget.ReplyTargetID,
-		Message:       reply.Message,
-		RawEventID:    reply.RawEventID,
-		OutboxID:      reply.OutboxID,
-		Attachments:   buildCapabilityReplyAttachments(reply.Attachments),
+		ReplyTargetID:   replyTarget.ReplyTargetID,
+		Message:         reply.Message,
+		RawEventID:      reply.RawEventID,
+		OutboxID:        reply.OutboxID,
+		Attachments:     buildCapabilityReplyAttachments(reply.Attachments),
+		RecoveryActions: reply.RecoveryActions,
 	}, &response)
 	if errorValue != nil {
 		return "", errorValue

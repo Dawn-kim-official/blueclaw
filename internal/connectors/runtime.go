@@ -65,17 +65,19 @@ type ReplyTarget struct {
 }
 
 type OutboundReply struct {
-	Message     string                 `json:"message"`
-	RawEventID  string                 `json:"rawEventID,omitempty"`
-	OutboxID    string                 `json:"outboxID,omitempty"`
-	Attachments []agent.FileAttachment `json:"attachments,omitempty"`
+	Message         string                 `json:"message"`
+	RawEventID      string                 `json:"rawEventID,omitempty"`
+	OutboxID        string                 `json:"outboxID,omitempty"`
+	Attachments     []agent.FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions []agent.RecoveryAction `json:"recoveryActions,omitempty"`
 }
 
 type outboundReplyDocument struct {
-	Message     string                    `json:"message"`
-	RawEventID  string                    `json:"rawEventID,omitempty"`
-	OutboxID    string                    `json:"outboxID,omitempty"`
-	Attachments []outboundReplyAttachment `json:"attachments,omitempty"`
+	Message         string                    `json:"message"`
+	RawEventID      string                    `json:"rawEventID,omitempty"`
+	OutboxID        string                    `json:"outboxID,omitempty"`
+	Attachments     []outboundReplyAttachment `json:"attachments,omitempty"`
+	RecoveryActions []agent.RecoveryAction    `json:"recoveryActions,omitempty"`
 }
 
 type outboundReplyAttachment struct {
@@ -89,10 +91,11 @@ type outboundReplyAttachment struct {
 
 func (reply OutboundReply) MarshalJSON() ([]byte, error) {
 	document := outboundReplyDocument{
-		Message:     reply.Message,
-		RawEventID:  reply.RawEventID,
-		OutboxID:    reply.OutboxID,
-		Attachments: outboundReplyAttachments(reply.Attachments),
+		Message:         reply.Message,
+		RawEventID:      reply.RawEventID,
+		OutboxID:        reply.OutboxID,
+		Attachments:     outboundReplyAttachments(reply.Attachments),
+		RecoveryActions: reply.RecoveryActions,
 	}
 	return json.Marshal(document)
 }
@@ -106,6 +109,7 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 	reply.RawEventID = document.RawEventID
 	reply.OutboxID = document.OutboxID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
+	reply.RecoveryActions = append([]agent.RecoveryAction{}, document.RecoveryActions...)
 	return nil
 }
 
@@ -718,8 +722,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{
-		Message:     turnResult.FinalReply,
-		Attachments: turnResult.Attachments,
+		Message:         turnResult.FinalReply,
+		Attachments:     turnResult.Attachments,
+		RecoveryActions: recoveryActionsForEvent(turnResult.RecoveryActions, event),
 	})
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
@@ -740,7 +745,7 @@ func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Co
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.recovered_blocked", "incomplete task reply claimed unavailable artifact delivery")
 		reply = agent.BuildIncompleteTaskRecoveryReply(event.Prompt, "attachment unavailable")
 	}
-	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply})
+	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply, RecoveryActions: recoveryActionsForEvent(turnResult.RecoveryActions, event)})
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
 		return "", false
@@ -748,6 +753,20 @@ func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Co
 	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.enqueued_blocked", "incomplete task reply enqueued")
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID), slog.String("reason", "task_not_completed"))
 	return dispatchID, true
+}
+
+func recoveryActionsForEvent(recoveryActions []agent.RecoveryAction, event PlatformInboundEvent) []agent.RecoveryAction {
+	enrichedRecoveryActions := []agent.RecoveryAction{}
+	for _, recoveryAction := range recoveryActions {
+		if strings.TrimSpace(recoveryAction.Kind) == "" {
+			continue
+		}
+		if strings.TrimSpace(recoveryAction.PlatformUserID) == "" {
+			recoveryAction.PlatformUserID = strings.TrimSpace(event.SenderID)
+		}
+		enrichedRecoveryActions = append(enrichedRecoveryActions, recoveryAction)
+	}
+	return enrichedRecoveryActions
 }
 
 func (connectorRuntime *ConnectorRuntime) Health() ConnectorRuntimeHealth {

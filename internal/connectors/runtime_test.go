@@ -203,6 +203,41 @@ func TestConnectorRuntimeRecoversIncompleteUnattachedFilenames(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+	event.SenderID = "sender-user-1"
+
+	_, isSent := connectorRuntime.sendIncompleteTaskReply(
+		context.Background(),
+		"test",
+		event,
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{
+			FinalReply: "Companion 연결이 필요합니다.",
+			RecoveryActions: []agent.RecoveryAction{{
+				Kind:           "companion_connect",
+				Delivery:       "dm_preferred",
+				DownloadURL:    "https://example.com/companion.dmg",
+				ConnectCommand: "/connect",
+			}},
+		},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if !isSent || len(sentReplies) != 1 || len(sentReplies[0].RecoveryActions) != 1 {
+		t.Fatalf("expected recovery reply, got sent=%v replies=%+v", isSent, sentReplies)
+	}
+	if sentReplies[0].RecoveryActions[0].PlatformUserID != "sender-user-1" {
+		t.Fatalf("expected sender recovery target, got %+v", sentReplies[0].RecoveryActions[0])
+	}
+}
+
 func TestConnectorRuntimeUsesOpaqueReplyTarget(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "reply"})
 	event := testInboundEvent("message-1")
@@ -652,9 +687,10 @@ type testAdapter struct {
 }
 
 type testReply struct {
-	target      ReplyTarget
-	message     string
-	attachments []agent.FileAttachment
+	target          ReplyTarget
+	message         string
+	attachments     []agent.FileAttachment
+	recoveryActions []agent.RecoveryAction
 }
 
 type testConnectorQueueRepository struct {
@@ -785,7 +821,7 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, rep
 	if adapter.sendReplyError != nil {
 		return "", adapter.sendReplyError
 	}
-	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, attachments: reply.Attachments})
+	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
 

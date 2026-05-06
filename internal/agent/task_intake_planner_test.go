@@ -118,6 +118,30 @@ func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerPromotesBrowserFollowUpDespiteQuickModelDecision(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"looks conversational","userFacingReply":""}`,
+	}}
+	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.snapshot"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:       "다시 열어봐",
+		ToolRegistry: toolRegistry,
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
+			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
+			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
+		}},
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask || decision.TaskShape != TaskShapeBrowserHandoffTask {
+		t.Fatalf("expected browser follow-up to stay bounded, got %+v", decision)
+	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "구글 클라우드 콘솔") {
+		t.Fatal("expected intake planner to receive visible context")
+	}
+}
+
 func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
