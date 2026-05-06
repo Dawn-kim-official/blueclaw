@@ -437,7 +437,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext
 	if errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
-	requestDocument := capabilityToolRequest("browser.open", handlerContext.request, inputDocument)
+	requestDocument := capabilityToolRequest("browser.handoff", handlerContext.request, inputDocument)
 	requestDocument["executionMode"] = "companion"
 	requestDocument["requiresUserPresence"] = true
 	requestDocument["privacyClass"] = "user_browser"
@@ -447,12 +447,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext
 		Status  string          `json:"status"`
 		Result  json.RawMessage `json:"result"`
 	}
-	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/browser.open/invoke", requestDocument, &response)
+	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/browser.handoff/invoke", requestDocument, &response)
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
 	content := firstNonEmptyString(response.Content, string(response.Result))
 	isError := response.IsError || response.Status == "error" || response.Status == "denied"
+	if response.Status == "waiting_for_user" {
+		if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
+			_, _ = toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, content)
+		}
+	}
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, browserHandoffEventName(isError), marshalToolResult(map[string]string{"url": input.URL, "content": content}))
 	}
