@@ -443,10 +443,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext
 		return agent.ToolResult{}, errorValue
 	}
 	content := firstNonEmptyString(response.Content, string(response.Result))
+	isError := response.IsError || response.Status == "error" || response.Status == "denied"
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
-		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "browser_handoff.opened", marshalToolResult(map[string]string{"url": input.URL, "content": content}))
+		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, browserHandoffEventName(isError), marshalToolResult(map[string]string{"url": input.URL, "content": content}))
 	}
-	return agent.ToolResult{Content: content, IsError: response.IsError || response.Status == "error" || response.Status == "denied", Attachments: capabilityAttachments(response.Result)}, nil
+	return agent.ToolResult{Content: content, IsError: isError, Attachments: capabilityAttachments(response.Result)}, nil
+}
+
+func browserHandoffEventName(isError bool) string {
+	if isError {
+		return "browser_handoff.failed"
+	}
+	return "browser_handoff.opened"
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {

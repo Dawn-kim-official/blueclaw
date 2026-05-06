@@ -222,6 +222,37 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	}
 }
 
+func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"content":"Companion is not connected, so the browser was not opened. Ask the user to run /connect before retrying.","status":"denied","isError":true}`}
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "open browser")
+
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, nil)
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"browser_handoff.openURL"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
+
+	toolResult, errorValue := toolRegistry.InvokeTool(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "browser_handoff.openURL",
+		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected browser handoff denial result: %v", errorValue)
+	}
+	if !toolResult.IsError || !strings.Contains(toolResult.Content, "/connect") {
+		t.Fatalf("expected /connect denial result, got %+v", toolResult)
+	}
+	taskEvents := taskEventService.ListTaskEvent(taskRun.TaskRunID)
+	if !containsTaskEvent(taskEvents, "browser_handoff.failed") || containsTaskEvent(taskEvents, "browser_handoff.opened") {
+		t.Fatalf("expected failed browser handoff audit event, got %+v", taskEvents)
+	}
+}
+
 func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	resourceAccessRules := []policy.ResourceAccessPolicy{{
 		Resource: "tool:company.broadcast.send",
@@ -338,17 +369,22 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 }
 
 type recordingHTTPClient struct {
-	requestPath string
-	requestBody string
+	requestPath  string
+	requestBody  string
+	responseBody string
 }
 
 func (httpClient *recordingHTTPClient) Do(request *http.Request) (*http.Response, error) {
 	body, _ := io.ReadAll(request.Body)
 	httpClient.requestPath = request.URL.Path
 	httpClient.requestBody = string(body)
+	responseBody := httpClient.responseBody
+	if responseBody == "" {
+		responseBody = `{"content":"opened","status":"ok"}`
+	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(`{"content":"opened","status":"ok"}`)),
+		Body:       io.NopCloser(strings.NewReader(responseBody)),
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 	}, nil
 }
