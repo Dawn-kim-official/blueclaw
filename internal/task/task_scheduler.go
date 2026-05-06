@@ -140,15 +140,19 @@ func (taskScheduler TaskScheduler) calculateCronNextRunAt(taskSchedule TaskSched
 	if strings.TrimSpace(taskSchedule.CronExpression) == "" {
 		return time.Time{}, false, errorInvalidTaskSchedule
 	}
+	location, errorValue := taskScheduler.taskScheduleLocation(taskSchedule)
+	if errorValue != nil {
+		return time.Time{}, false, errorValue
+	}
 
 	parsedExpression, errorValue := parseCronExpression(taskSchedule.CronExpression)
 	if errorValue != nil {
 		return time.Time{}, false, errorValue
 	}
 
-	searchTime := referenceTime
-	if taskSchedule.RunAt != nil && taskSchedule.RunAt.After(searchTime) {
-		searchTime = taskSchedule.RunAt.Add(-time.Minute)
+	searchTime := referenceTime.In(location)
+	if taskSchedule.RunAt != nil && taskSchedule.RunAt.After(referenceTime) {
+		searchTime = taskSchedule.RunAt.In(location).Add(-time.Minute)
 	}
 
 	nextRunAt, errorValue := parsedExpression.findNextRunAt(searchTime)
@@ -156,7 +160,19 @@ func (taskScheduler TaskScheduler) calculateCronNextRunAt(taskSchedule TaskSched
 		return time.Time{}, false, errorValue
 	}
 
-	return nextRunAt, true, nil
+	return nextRunAt.UTC(), true, nil
+}
+
+func (taskScheduler TaskScheduler) taskScheduleLocation(taskSchedule TaskSchedule) (*time.Location, error) {
+	timeZone := strings.TrimSpace(taskSchedule.TimeZone)
+	if timeZone == "" {
+		timeZone = "Asia/Seoul"
+	}
+	location, errorValue := time.LoadLocation(timeZone)
+	if errorValue != nil {
+		return nil, errorInvalidTaskSchedule
+	}
+	return location, nil
 }
 
 func parseCronExpression(cronExpression string) (parsedCronExpression, error) {

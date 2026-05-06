@@ -139,6 +139,11 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	classification := IntakeClassificationQuickReply
 	reason := "short request can be answered directly"
 	effortLevel := EffortLevelQuick
+	if hasTool(request.ToolRegistry, "schedule.create") && looksLikeScheduleRequest(prompt) {
+		classification = IntakeClassificationBoundedTask
+		reason = "request asks to create a recurring or scheduled task"
+		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
+	}
 	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
 		classification = IntakeClassificationBoundedTask
 		reason = "request may benefit from bounded tool use"
@@ -231,7 +236,7 @@ func deterministicTaskShape(request AgentRequest, classification IntakeClassific
 	if hasToolPrefix(request.ToolRegistry, "browser.") && containsAny(prompt, []string{"browser", "website", "web", "브라우저", "사이트", "페이지"}) {
 		return TaskShapeBrowserHandoffTask
 	}
-	if containsAny(prompt, []string{"schedule", "scheduled", "cron", "매일", "매주", "정기", "예약"}) {
+	if looksLikeScheduleRequest(prompt) {
 		return TaskShapeScheduledTask
 	}
 	if containsAny(prompt, []string{"fix", "clean", "setup", "install", "deploy", "고쳐", "정리", "설치", "배포"}) {
@@ -275,6 +280,10 @@ func defaultUserFacingReply(classification IntakeClassification) string {
 func looksLikeToolRequest(prompt string) bool {
 	toolWords := []string{"search", "find", "lookup", "check", "read", "fetch", "compare", "analyze", "summarize", "browser", "screenshot", "click", "fill", "press", "create", "write", "attach", "run", "검색", "찾", "확인", "읽", "분석", "요약", "브라우저", "인터넷", "스크린샷", "클릭", "입력", "만들", "작성", "첨부", "실행"}
 	return containsAny(prompt, toolWords)
+}
+
+func looksLikeScheduleRequest(prompt string) bool {
+	return containsAny(prompt, []string{"schedule", "scheduled", "cron", "daily", "weekly", "monthly", "every day", "every week", "매일", "매주", "매월", "매달", "정기", "예약"})
 }
 
 func looksLikeLargeRequest(prompt string) bool {
@@ -321,6 +330,18 @@ func hasAllTools(toolRegistry *ToolRegistry, toolNames []string) bool {
 		}
 	}
 	return true
+}
+
+func hasTool(toolRegistry *ToolRegistry, toolName string) bool {
+	if toolRegistry == nil {
+		return false
+	}
+	for _, availableToolName := range toolRegistry.ListToolNames() {
+		if availableToolName == toolName {
+			return true
+		}
+	}
+	return false
 }
 
 func containsAny(value string, candidates []string) bool {

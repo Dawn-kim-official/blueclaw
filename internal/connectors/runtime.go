@@ -269,7 +269,7 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		logger = slog.Default()
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "schedule.create"})
 
 	return &ConnectorRuntime{
 		identityService:    identityService,
@@ -310,6 +310,10 @@ func (connectorRuntime *ConnectorRuntime) UseTerminalService(terminalService *se
 	connectorRuntime.toolCatalogBuilder.UseTerminalService(terminalService)
 }
 
+func (connectorRuntime *ConnectorRuntime) UseTaskScheduleRepository(taskScheduleRepository task.TaskScheduleRepository) {
+	connectorRuntime.toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
+}
+
 func (connectorRuntime *ConnectorRuntime) UseEventRepository(eventRepository ConnectorEventRepository) {
 	connectorRuntime.eventRepository = eventRepository
 }
@@ -329,7 +333,7 @@ func (connectorRuntime *ConnectorRuntime) UseCapabilityTools(capabilityClient ca
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNames(allowedToolNames []string) {
 	trimmedToolNames := trimNonEmptyStrings(allowedToolNames)
 	if len(trimmedToolNames) == 0 {
-		trimmedToolNames = []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach"}
+		trimmedToolNames = []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "schedule.create"}
 	}
 	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, trimmedToolNames)
 }
@@ -680,6 +684,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		ConversationType:          event.Context.ConversationType,
 		ConversationChannelID:     event.Context.ChannelID,
 		ConversationChannelName:   event.Context.ChannelName,
+		ReplyTargetID:             event.ReplyTargetID,
 		Prompt:                    event.Prompt,
 		VisibleContext:            event.Context.ToAgentVisibleContext(),
 		HistoryProvider:           connectorHistoryProvider{adapter: adapter},
@@ -856,6 +861,7 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter Platform
 		ConversationType:          event.Context.ConversationType,
 		ConversationChannelID:     event.Context.ChannelID,
 		ConversationChannelName:   event.Context.ChannelName,
+		ReplyTargetID:             event.ReplyTargetID,
 		Platform:                  adapter.Name(),
 		HistoryCursor:             event.Context.HistoryCursor,
 		HistoryProvider:           connectorHistoryProvider{adapter: adapter},

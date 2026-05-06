@@ -81,6 +81,10 @@ type TaskSchedule struct {
 	Name             string           `json:"name"`
 	Prompt           string           `json:"prompt"`
 	AgentProfileName string           `json:"agentProfileName"`
+	Platform         string           `json:"platform"`
+	ConversationID   string           `json:"conversationID"`
+	ReplyTargetID    string           `json:"replyTargetID"`
+	TimeZone         string           `json:"timeZone"`
 	Kind             TaskScheduleKind `json:"kind"`
 	RunAt            *time.Time       `json:"runAt"`
 	IntervalSecond   int              `json:"intervalSecond"`
@@ -89,6 +93,11 @@ type TaskSchedule struct {
 	LastRunAt        *time.Time       `json:"lastRunAt"`
 	LastTaskRunID    string           `json:"lastTaskRunID"`
 	IsPaused         bool             `json:"isPaused"`
+	LeaseOwner       string           `json:"leaseOwner"`
+	LeasedUntil      *time.Time       `json:"leasedUntil"`
+	FailureCount     int              `json:"failureCount"`
+	LastError        string           `json:"lastError"`
+	NextAttemptAt    *time.Time       `json:"nextAttemptAt"`
 	CreatedAt        time.Time        `json:"createdAt"`
 	UpdatedAt        time.Time        `json:"updatedAt"`
 }

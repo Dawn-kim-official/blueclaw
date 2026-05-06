@@ -37,6 +37,7 @@ type ToolCatalogBuilder struct {
 	capabilityToolNames       []string
 	terminalService           *security.TerminalSessionService
 	taskRunService            *task.TaskRunService
+	taskScheduleRepository    task.TaskScheduleRepository
 	workspaceRootPath         string
 	skillChangeHandler        func(context.Context)
 }
@@ -57,6 +58,7 @@ type ToolCatalogRequest struct {
 	ConversationType          string
 	ConversationChannelID     string
 	ConversationChannelName   string
+	ReplyTargetID             string
 	Platform                  string
 	HistoryCursor             string
 	HistoryProvider           HistoryProvider
@@ -107,6 +109,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskRunService(taskRunService *
 	toolCatalogBuilder.taskRunService = taskRunService
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskScheduleRepository(taskScheduleRepository task.TaskScheduleRepository) {
+	toolCatalogBuilder.taskScheduleRepository = taskScheduleRepository
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) UseWorkspaceRootPath(workspaceRootPath string) {
 	trimmedWorkspaceRootPath := strings.TrimSpace(workspaceRootPath)
 	if trimmedWorkspaceRootPath != "" {
@@ -144,7 +150,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
 		return append([]string{}, toolCatalogBuilder.fallbackAllowedToolNames...)
 	}
-	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove"}
+	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "schedule.create"}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolRegistry, request ToolCatalogRequest) {
@@ -264,6 +270,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
 		return toolCatalogBuilder.attachFileTool(toolContext, toolInvocation, handlerContext)
 	})
+	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
 }
 

@@ -79,6 +79,27 @@ func TestAdvanceTaskScheduleForCronRun(t *testing.T) {
 	}
 }
 
+func TestAdvanceTaskScheduleForCronRunUsesScheduleTimeZone(t *testing.T) {
+	taskScheduler := TaskScheduler{}
+	executedAt := time.Date(2026, 5, 5, 22, 0, 0, 0, time.UTC)
+
+	taskSchedule, errorValue := taskScheduler.AdvanceTaskSchedule(TaskSchedule{
+		TaskScheduleID: "schedule-seoul-morning",
+		Name:           "morning research",
+		Kind:           TaskScheduleKindCron,
+		CronExpression: "0 7 * * *",
+		TimeZone:       "Asia/Seoul",
+	}, executedAt)
+	if errorValue != nil {
+		t.Fatalf("expected cron task schedule to advance: %v", errorValue)
+	}
+
+	expectedNextRunAt := time.Date(2026, 5, 6, 22, 0, 0, 0, time.UTC)
+	if taskSchedule.NextRunAt == nil || !taskSchedule.NextRunAt.Equal(expectedNextRunAt) {
+		t.Fatalf("expected next run time to be %s, got %+v", expectedNextRunAt.Format(time.RFC3339), taskSchedule.NextRunAt)
+	}
+}
+
 func TestIsTaskScheduleDue(t *testing.T) {
 	taskScheduler := TaskScheduler{}
 	nextRunAt := time.Date(2026, 4, 23, 10, 0, 0, 0, time.UTC)
