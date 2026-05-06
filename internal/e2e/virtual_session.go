@@ -166,7 +166,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(memoryStore)
 	runtime.UseMemoryService(memoryService)
-	runtime.UseMemoryScopeRouter(memory.NewMemoryScopeRouter(nil, "e2e"))
+	runtime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(nil, "e2e"))
 
 	return &VirtualSessionHarness{
 		scenario:         scenario,
@@ -724,7 +724,7 @@ func newVirtualMemoryStore(initialFacts []memory.MemoryFact) *virtualMemoryStore
 	return &virtualMemoryStore{facts: append([]memory.MemoryFact{}, initialFacts...)}
 }
 
-func (store *virtualMemoryStore) AddEpisode(_ context.Context, episode memory.MemoryEpisode) error {
+func (store *virtualMemoryStore) AddEpisode(_ context.Context, episode memory.MemoryEpisode) (memory.MemoryIngestionResult, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	validAt := episode.OccurredAt
@@ -739,12 +739,13 @@ func (store *virtualMemoryStore) AddEpisode(_ context.Context, episode memory.Me
 			Content:           episode.Prompt,
 			Score:             0.5,
 			SourceEpisodeID:   episode.EpisodeID,
+			SourceKind:        memory.MemorySourceKindFact,
 			ValidAt:           validAt,
 			SecurityLevelRank: namespace.SecurityLevelRank,
 			RequiredClasses:   append([]string{}, namespace.RequiredClasses...),
 		})
 	}
-	return nil
+	return memory.MemoryIngestionResult{EpisodeID: episode.EpisodeID, NamespaceCount: len(episode.Namespaces)}, nil
 }
 
 func (store *virtualMemoryStore) SearchFacts(_ context.Context, request memory.MemorySearchRequest) ([]memory.MemoryFact, error) {

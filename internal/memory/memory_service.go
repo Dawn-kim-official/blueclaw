@@ -5,15 +5,18 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/policy"
 )
 
 type GraphMemoryStore interface {
-	AddEpisode(context.Context, MemoryEpisode) error
+	AddEpisode(context.Context, MemoryEpisode) (MemoryIngestionResult, error)
 	SearchFacts(context.Context, MemorySearchRequest) ([]MemoryFact, error)
+}
+
+type GraphMemoryHealthChecker interface {
+	CheckHealth(context.Context) error
 }
 
 type GraphMemoryMirror interface {
@@ -36,10 +39,12 @@ type MemorySearchRequest struct {
 }
 
 type MemoryService struct {
-	mutex       sync.RWMutex
-	memoryFacts []MemoryFact
-	store       GraphMemoryStore
-	mirror      GraphMemoryMirror
+	mutex              sync.RWMutex
+	memoryFacts        []MemoryFact
+	store              GraphMemoryStore
+	mirror             GraphMemoryMirror
+	lastSearchError    string
+	lastIngestionError string
 }
 
 func (memoryService *MemoryService) UseGraphStore(store GraphMemoryStore) {
@@ -56,15 +61,17 @@ func (memoryService *MemoryService) StoreMemoryFact(memoryFact MemoryFact) {
 	memoryService.memoryFacts = append(memoryService.memoryFacts, memoryFact)
 }
 
-func (memoryService *MemoryService) AddEpisode(ctx context.Context, episode MemoryEpisode) error {
+func (memoryService *MemoryService) AddEpisode(ctx context.Context, episode MemoryEpisode) (MemoryIngestionResult, error) {
 	if memoryService.mirror != nil {
 		_ = memoryService.mirror.SaveGraphNamespaces(ctx, episode.Namespaces)
 	}
 	if memoryService.store == nil {
-		return nil
+		result := MemoryIngestionResult{EpisodeID: episode.EpisodeID, NamespaceCount: len(episode.Namespaces)}
+		memoryService.recordIngestionError("")
+		return result, nil
 	}
 
-	errorValue := memoryService.store.AddEpisode(ctx, episode)
+	result, errorValue := memoryService.store.AddEpisode(ctx, episode)
 	if memoryService.mirror != nil {
 		status := "succeeded"
 		errorMessage := ""
@@ -74,7 +81,18 @@ func (memoryService *MemoryService) AddEpisode(ctx context.Context, episode Memo
 		}
 		_ = memoryService.mirror.SaveGraphEpisode(ctx, episode, status, errorMessage)
 	}
-	return errorValue
+	if errorValue != nil {
+		memoryService.recordIngestionError(errorValue.Error())
+		return MemoryIngestionResult{}, errorValue
+	}
+	if result.EpisodeID == "" {
+		result.EpisodeID = episode.EpisodeID
+	}
+	if result.NamespaceCount == 0 {
+		result.NamespaceCount = len(episode.Namespaces)
+	}
+	memoryService.recordIngestionError("")
+	return result, nil
 }
 
 func (memoryService *MemoryService) SearchMemory(ctx context.Context, request MemorySearchRequest) ([]MemoryFact, error) {
@@ -85,20 +103,19 @@ func (memoryService *MemoryService) SearchMemory(ctx context.Context, request Me
 	if memoryService.store != nil {
 		memoryFacts, errorValue := memoryService.store.SearchFacts(ctx, request)
 		if errorValue != nil {
+			memoryService.recordSearchError(errorValue.Error())
 			return nil, errorValue
 		}
-		return filterReadableMemoryFacts(request, memoryFacts), nil
+		memoryService.recordSearchError("")
+		return limitMemoryFacts(rankMemoryFacts(deduplicateMemoryFacts(filterReadableMemoryFacts(request, memoryFacts)), request.Query), request.Limit), nil
 	}
 
 	memoryService.mutex.RLock()
 	defer memoryService.mutex.RUnlock()
 
 	filteredMemoryFacts := filterReadableMemoryFacts(request, memoryService.memoryFacts)
-	rankedMemoryFacts := rankMemoryFacts(filteredMemoryFacts, request.Query)
-	if len(rankedMemoryFacts) > request.Limit {
-		return rankedMemoryFacts[:request.Limit], nil
-	}
-	return rankedMemoryFacts, nil
+	rankedMemoryFacts := rankMemoryFacts(deduplicateMemoryFacts(filteredMemoryFacts), request.Query)
+	return limitMemoryFacts(rankedMemoryFacts, request.Limit), nil
 }
 
 func filterReadableMemoryFacts(request MemorySearchRequest, memoryFacts []MemoryFact) []MemoryFact {
@@ -125,6 +142,11 @@ func rankMemoryFacts(memoryFacts []MemoryFact, query string) []MemoryFact {
 		if !leftMemoryFact.ValidAt.Equal(rightMemoryFact.ValidAt) {
 			return leftMemoryFact.ValidAt.After(rightMemoryFact.ValidAt)
 		}
+		leftSourceRank := memorySourceKindRank(leftMemoryFact.SourceKind)
+		rightSourceRank := memorySourceKindRank(rightMemoryFact.SourceKind)
+		if leftSourceRank != rightSourceRank {
+			return leftSourceRank > rightSourceRank
+		}
 		return memoryFactStableKey(leftMemoryFact) < memoryFactStableKey(rightMemoryFact)
 	})
 	return rankedMemoryFacts
@@ -132,6 +154,7 @@ func rankMemoryFacts(memoryFacts []MemoryFact, query string) []MemoryFact {
 
 func relevanceScore(memoryFact MemoryFact, normalizedQuery string) float64 {
 	score := memoryFact.Score
+	score += float64(memorySourceKindRank(memoryFact.SourceKind)) * 0.01
 	normalizedContent := strings.ToLower(memoryFact.Content)
 	if normalizedQuery == "" {
 		return score
@@ -145,6 +168,71 @@ func relevanceScore(memoryFact MemoryFact, normalizedQuery string) float64 {
 		}
 	}
 	return score
+}
+
+func memorySourceKindRank(sourceKind string) int {
+	switch strings.TrimSpace(sourceKind) {
+	case MemorySourceKindFact:
+		return 3
+	case MemorySourceKindNode:
+		return 2
+	case MemorySourceKindEpisode:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func deduplicateMemoryFacts(memoryFacts []MemoryFact) []MemoryFact {
+	memoryFactByKey := map[string]MemoryFact{}
+	orderedKeys := []string{}
+	for _, memoryFact := range memoryFacts {
+		key := memoryFactDeduplicationKey(memoryFact)
+		if key == "" {
+			continue
+		}
+		currentMemoryFact, isFound := memoryFactByKey[key]
+		if !isFound {
+			orderedKeys = append(orderedKeys, key)
+			memoryFactByKey[key] = memoryFact
+			continue
+		}
+		if isBetterDuplicate(memoryFact, currentMemoryFact) {
+			memoryFactByKey[key] = memoryFact
+		}
+	}
+	deduplicatedMemoryFacts := []MemoryFact{}
+	for _, key := range orderedKeys {
+		deduplicatedMemoryFacts = append(deduplicatedMemoryFacts, memoryFactByKey[key])
+	}
+	return deduplicatedMemoryFacts
+}
+
+func isBetterDuplicate(candidate MemoryFact, current MemoryFact) bool {
+	candidateSourceRank := memorySourceKindRank(candidate.SourceKind)
+	currentSourceRank := memorySourceKindRank(current.SourceKind)
+	if candidateSourceRank != currentSourceRank {
+		return candidateSourceRank > currentSourceRank
+	}
+	if candidate.Score != current.Score {
+		return candidate.Score > current.Score
+	}
+	return candidate.ValidAt.After(current.ValidAt)
+}
+
+func memoryFactDeduplicationKey(memoryFact MemoryFact) string {
+	content := strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(memoryFact.Content))), " ")
+	if content == "" {
+		return ""
+	}
+	return memoryFact.NamespaceID + ":" + content
+}
+
+func limitMemoryFacts(memoryFacts []MemoryFact, limit int) []MemoryFact {
+	if limit <= 0 || len(memoryFacts) <= limit {
+		return memoryFacts
+	}
+	return memoryFacts[:limit]
 }
 
 func memoryFactStableKey(memoryFact MemoryFact) string {
@@ -241,14 +329,46 @@ func containsAll(grantedClasses []string, requiredClasses []string) bool {
 	return true
 }
 
-func (memoryService *MemoryService) ExpireRawContent(expiresBefore time.Time, contentSegments []ContentSegment) []ContentSegment {
-	activeContentSegments := []ContentSegment{}
+func (memoryService *MemoryService) Health(ctx context.Context) MemoryHealth {
+	memoryService.mutex.RLock()
+	lastSearchError := memoryService.lastSearchError
+	lastIngestionError := memoryService.lastIngestionError
+	store := memoryService.store
+	memoryService.mutex.RUnlock()
 
-	for _, contentSegment := range contentSegments {
-		if contentSegment.ExpiresAt.After(expiresBefore) {
-			activeContentSegments = append(activeContentSegments, contentSegment)
+	if store == nil {
+		return MemoryHealth{
+			Configured:         false,
+			LastSearchError:    lastSearchError,
+			LastIngestionError: lastIngestionError,
+			Error:              "graphiti store is not configured",
 		}
 	}
+	health := MemoryHealth{
+		Configured:         true,
+		Reachable:          true,
+		LastSearchError:    lastSearchError,
+		LastIngestionError: lastIngestionError,
+	}
+	healthChecker, hasHealthChecker := store.(GraphMemoryHealthChecker)
+	if !hasHealthChecker {
+		return health
+	}
+	if errorValue := healthChecker.CheckHealth(ctx); errorValue != nil {
+		health.Reachable = false
+		health.Error = errorValue.Error()
+	}
+	return health
+}
 
-	return activeContentSegments
+func (memoryService *MemoryService) recordSearchError(errorMessage string) {
+	memoryService.mutex.Lock()
+	defer memoryService.mutex.Unlock()
+	memoryService.lastSearchError = strings.TrimSpace(errorMessage)
+}
+
+func (memoryService *MemoryService) recordIngestionError(errorMessage string) {
+	memoryService.mutex.Lock()
+	defer memoryService.mutex.Unlock()
+	memoryService.lastIngestionError = strings.TrimSpace(errorMessage)
 }

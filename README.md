@@ -200,9 +200,9 @@ Blueclaw uses Graphiti as the product memory engine through the `graphiti-memory
 
 - `graphiti-memoryd` runs from `tools/graphiti-memoryd` with `graphiti-core[kuzu]`
 - Kuzu data defaults to `/workspace/.blueclaw/graphiti/kuzu`
-- accepted connector events are ingested as Graphiti episodes into `user:*` and `conversation:*` namespaces
-- workspace/business knowledge is additionally routed into `workspace:*` namespaces by `MemoryScopeRouter`
-- Postgres stores only Graphiti namespace and episode mirror metadata, not canonical memory blobs
+- accepted connector events are conservatively routed before Graphiti ingestion, skipping transient chatter and control messages
+- workspace/business knowledge is additionally routed into `workspace:*` namespaces by `GraphitiIngestionRouter`
+- Postgres stores only Graphiti namespace, episode mirror, and diagnostic metadata, not canonical memory records
 - Graphiti LLM, embedding, and rerank calls use InternKim capability endpoints and receive no provider secrets
 
 ## Migration Goal

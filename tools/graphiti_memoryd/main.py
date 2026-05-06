@@ -190,19 +190,10 @@ class GraphitiMemoryService:
         facts: list[dict[str, Any]] = []
         for namespace in namespaces:
             namespace_id = namespace["namespaceID"]
-            if namespace.get("scopeType") == "user":
-                episodes = await self.graphiti.retrieve_episodes(
-                    datetime.now(timezone.utc),
-                    last_n=limit,
-                    group_ids=[graphiti_group_id(namespace_id)],
-                    source=EpisodeType.message,
-                )
-                facts.extend(facts_from_episodes(episodes, namespace, limit - len(facts)))
-            if len(facts) >= limit:
-                continue
+            namespace_facts: list[dict[str, Any]] = []
             results = await self.graphiti.search(query=query, group_ids=[graphiti_group_id(namespace_id)], num_results=limit)
             for result in results:
-                facts.append(
+                namespace_facts.append(
                     {
                         "factID": getattr(result, "uuid", ""),
                         "scopeType": namespace.get("scopeType", ""),
@@ -210,27 +201,21 @@ class GraphitiMemoryService:
                         "content": getattr(result, "fact", ""),
                         "score": float(getattr(result, "score", 0) or 0),
                         "sourceEpisodeID": getattr(result, "source_node_uuid", ""),
+                        "sourceKind": "fact",
                         "validAt": serialize_datetime(getattr(result, "valid_at", None)),
                         "securityLevelRank": namespace.get("securityLevelRank", 0),
                         "requiredClasses": namespace.get("requiredClasses", []),
                     }
                 )
-            if len(facts) < limit:
+            if len(namespace_facts) < limit:
                 search_results = await self.graphiti.search_(
                     query=query,
                     config=COMBINED_HYBRID_SEARCH_RRF,
                     group_ids=[graphiti_group_id(namespace_id)],
                 )
-                facts.extend(facts_from_search_results(search_results, namespace, limit-len(facts)))
-            if len(facts) == 0:
-                episodes = await self.graphiti.retrieve_episodes(
-                    datetime.now(timezone.utc),
-                    last_n=limit,
-                    group_ids=[graphiti_group_id(namespace_id)],
-                    source=EpisodeType.message,
-                )
-                facts.extend(facts_from_episodes(episodes, namespace, limit))
-        return {"facts": facts[:limit]}
+                namespace_facts.extend(facts_from_search_results(search_results, namespace, limit-len(namespace_facts)))
+            facts.extend(namespace_facts)
+        return {"facts": facts}
 
 
 def graphiti_group_id(namespace_id: str) -> str:
@@ -300,13 +285,6 @@ async def ensure_kuzu_fulltext_indexes(graph_driver: KuzuDriver):
 def facts_from_search_results(search_results: Any, namespace: dict[str, Any], limit: int) -> list[dict[str, Any]]:
     facts: list[dict[str, Any]] = []
     namespace_id = namespace["namespaceID"]
-    for episode in getattr(search_results, "episodes", []):
-        content = str(getattr(episode, "content", "") or "").strip()
-        if content == "":
-            continue
-        facts.append(memory_fact(namespace, namespace_id, getattr(episode, "uuid", ""), content, "episode"))
-        if len(facts) >= limit:
-            return facts
     for node in getattr(search_results, "nodes", []):
         name = str(getattr(node, "name", "") or "").strip()
         summary = str(getattr(node, "summary", "") or "").strip()
@@ -319,21 +297,6 @@ def facts_from_search_results(search_results: Any, namespace: dict[str, Any], li
     return facts
 
 
-def facts_from_episodes(episodes: list[Any], namespace: dict[str, Any], limit: int) -> list[dict[str, Any]]:
-    if limit <= 0:
-        return []
-    facts: list[dict[str, Any]] = []
-    namespace_id = namespace["namespaceID"]
-    for episode in episodes:
-        content = str(getattr(episode, "content", "") or "").strip()
-        if content == "":
-            continue
-        facts.append(memory_fact(namespace, namespace_id, getattr(episode, "uuid", ""), content, "episode"))
-        if len(facts) >= limit:
-            break
-    return facts
-
-
 def memory_fact(namespace: dict[str, Any], namespace_id: str, fact_id: str, content: str, source_kind: str) -> dict[str, Any]:
     return {
         "factID": source_kind + ":" + fact_id,
@@ -342,6 +305,7 @@ def memory_fact(namespace: dict[str, Any], namespace_id: str, fact_id: str, cont
         "content": content,
         "score": 0,
         "sourceEpisodeID": fact_id,
+        "sourceKind": source_kind,
         "validAt": zero_time(),
         "securityLevelRank": namespace.get("securityLevelRank", 0),
         "requiredClasses": namespace.get("requiredClasses", []),

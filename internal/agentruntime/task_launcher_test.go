@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -70,6 +71,40 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	}
 	if !strings.Contains(taskLaunchEvent.Body, `"source":"connector"`) || !strings.Contains(taskLaunchEvent.Body, `"memoryFactCount":1`) {
 		t.Fatalf("expected launch audit body, got %s", taskLaunchEvent.Body)
+	}
+}
+
+func TestTaskLauncherAuditsMemorySearchFailureAndRunsWithoutMemory(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinalReply("done")})
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("graphiti unavailable")})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"memory.search"},
+	}, nil)
+
+	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+		Source:            TaskLaunchSourceConnector,
+		SourceReference:   "mattermost:post-1",
+		RequesterPersonID: "person-1",
+		ProfileName:       "default",
+		ConversationID:    "channel-1",
+		Prompt:            "내 이름 뭐야?",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected launch to continue without memory: %v", errorValue)
+	}
+	if len(launchResult.MemoryFacts) != 0 {
+		t.Fatalf("expected no memory facts after search failure, got %+v", launchResult.MemoryFacts)
+	}
+	taskEvents := taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID)
+	if !containsTaskEvent(taskEvents, "memory.search_failed") {
+		t.Fatalf("expected memory search failure event, got %+v", taskEvents)
 	}
 }
 
@@ -405,6 +440,18 @@ type staticHistoryProvider struct{}
 
 func (historyProvider staticHistoryProvider) FetchHistory(context.Context, string, int) (agent.VisibleContext, error) {
 	return agent.VisibleContext{}, nil
+}
+
+type failingGraphMemoryStore struct {
+	errorValue error
+}
+
+func (store failingGraphMemoryStore) AddEpisode(context.Context, memory.MemoryEpisode) (memory.MemoryIngestionResult, error) {
+	return memory.MemoryIngestionResult{}, nil
+}
+
+func (store failingGraphMemoryStore) SearchFacts(context.Context, memory.MemorySearchRequest) ([]memory.MemoryFact, error) {
+	return nil, store.errorValue
 }
 
 func runtimeFinalReply(reply string) string {

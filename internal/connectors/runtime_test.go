@@ -505,7 +505,7 @@ func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(graphStore)
 	connectorRuntime.UseMemoryService(memoryService)
-	connectorRuntime.UseMemoryScopeRouter(memory.NewMemoryScopeRouter(staticScopeLanguageModel{content: `{"storeWorkspace":false,"securityLevelRank":0,"requiredClasses":[]}`}, "default"))
+	connectorRuntime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(staticScopeLanguageModel{content: `{"shouldStore":true,"storeWorkspace":false,"securityLevelRank":0,"requiredClasses":[],"reason":"user_fact","confidence":0.9}`}, "default"))
 
 	channelEvent := testInboundEvent("message-1")
 	channelEvent.ConversationID = "channel-1"
@@ -524,13 +524,58 @@ func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
 	}
 
 	if len(graphStore.episodes) != 2 {
-		t.Fatalf("expected Graphiti episode ingestion for both messages, got %d", len(graphStore.episodes))
+		t.Fatalf("expected Graphiti episode ingestion for both routed messages, got %d", len(graphStore.episodes))
 	}
 	if !containsEpisodeNamespace(graphStore.episodes[0], "user:person-1") {
 		t.Fatalf("expected user namespace ingestion, got %+v", graphStore.episodes[0].Namespaces)
 	}
 	if !strings.Contains(languageModel.request.Messages[1].Content, "민수") {
 		t.Fatalf("expected user memory from graph search in direct reply context, got %+v", languageModel.request.Messages)
+	}
+}
+
+func TestConnectorRuntimeIngestsMemoryWhenReplySendFails(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	adapter.sendReplyError = errors.New("send failed")
+	graphStore := &fakeGraphMemoryStore{}
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(graphStore)
+	connectorRuntime.UseMemoryService(memoryService)
+	connectorRuntime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(staticScopeLanguageModel{content: `{"shouldStore":true,"storeWorkspace":false,"securityLevelRank":0,"requiredClasses":[],"reason":"user_fact","confidence":0.9}`}, "default"))
+
+	event := testInboundEvent("message-memory-reply-failed")
+	event.Prompt = "내 선호는 Graphiti-only 메모리야"
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+	if result.Reason != "reply_failed" {
+		t.Fatalf("expected reply failed result, got %+v", result)
+	}
+	if len(graphStore.episodes) != 1 {
+		t.Fatalf("expected memory ingestion before reply success, got %d", len(graphStore.episodes))
+	}
+}
+
+func TestConnectorRuntimeIngestsMemoryWhenReplyIsBlocked(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "saved at /workspace/result.md"})
+	graphStore := &fakeGraphMemoryStore{}
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(graphStore)
+	connectorRuntime.UseMemoryService(memoryService)
+	connectorRuntime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(staticScopeLanguageModel{content: `{"shouldStore":true,"storeWorkspace":false,"securityLevelRank":0,"requiredClasses":[],"reason":"user_fact","confidence":0.9}`}, "default"))
+
+	event := testInboundEvent("message-memory-blocked")
+	event.Prompt = "내 선호는 artifact 경로를 노출하지 않는 거야"
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+	if result.Reason != "task_not_completed" && result.Reason != "non_deliverable_artifact_locator" {
+		t.Fatalf("expected blocked result, got %+v", result)
+	}
+	if len(graphStore.episodes) != 1 {
+		t.Fatalf("expected memory ingestion before connector blocking, got %d", len(graphStore.episodes))
 	}
 }
 
@@ -597,6 +642,7 @@ func TestPlatformInboundEventOnlyUsesTextAndSenderCompatibilityAliases(t *testin
 
 type testAdapter struct {
 	senderEmail        string
+	sendReplyError     error
 	httpParseResult    HTTPParseResult
 	sentReplies        []testReply
 	progressStarts     []ReplyTarget
@@ -736,6 +782,9 @@ func (adapter *testAdapter) StopProgress(ctx context.Context, target ReplyTarget
 }
 
 func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, reply OutboundReply) (string, error) {
+	if adapter.sendReplyError != nil {
+		return "", adapter.sendReplyError
+	}
 	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, attachments: reply.Attachments})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
@@ -808,7 +857,7 @@ func (languageModel staticScopeLanguageModel) GenerateResponse(context.Context, 
 }
 
 func (languageModel staticScopeLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_memory_scope_route" {
+	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_graphiti_ingestion_route" {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinalReply("ok")}, nil
@@ -819,9 +868,9 @@ type fakeGraphMemoryStore struct {
 	facts    []memory.MemoryFact
 }
 
-func (store *fakeGraphMemoryStore) AddEpisode(_ context.Context, episode memory.MemoryEpisode) error {
+func (store *fakeGraphMemoryStore) AddEpisode(_ context.Context, episode memory.MemoryEpisode) (memory.MemoryIngestionResult, error) {
 	store.episodes = append(store.episodes, episode)
-	return nil
+	return memory.MemoryIngestionResult{EpisodeID: episode.EpisodeID, NamespaceCount: len(episode.Namespaces)}, nil
 }
 
 func (store *fakeGraphMemoryStore) SearchFacts(_ context.Context, request memory.MemorySearchRequest) ([]memory.MemoryFact, error) {

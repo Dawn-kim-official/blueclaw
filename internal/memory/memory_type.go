@@ -10,32 +10,11 @@ const (
 	ScopeTypePrivate      = "private"
 )
 
-type ContentSegment struct {
-	ContentSegmentID     string    `json:"contentSegmentID"`
-	SourceConversationID string    `json:"sourceConversationID"`
-	OwnerPersonID        string    `json:"ownerPersonID"`
-	ContentCiphertext    []byte    `json:"contentCiphertext"`
-	SecurityLevelRank    int       `json:"securityLevelRank"`
-	RequiredClasses      []string  `json:"requiredClasses"`
-	OccurredAt           time.Time `json:"occurredAt"`
-	ExpiresAt            time.Time `json:"expiresAt"`
-}
-
-type MemoryRecord struct {
-	MemoryRecordID       string    `json:"memoryRecordID"`
-	ScopeType            string    `json:"scopeType"`
-	ScopePersonID        string    `json:"scopePersonID"`
-	ScopeConversationID  string    `json:"scopeConversationID"`
-	SourceConversationID string    `json:"sourceConversationID"`
-	Title                string    `json:"title"`
-	MemoryType           string    `json:"memoryType"`
-	SourcePlatform       string    `json:"sourcePlatform"`
-	SourceMessageID      string    `json:"sourceMessageID"`
-	ContentCiphertext    []byte    `json:"contentCiphertext"`
-	SecurityLevelRank    int       `json:"securityLevelRank"`
-	RequiredClasses      []string  `json:"requiredClasses"`
-	UpdatedAt            time.Time `json:"updatedAt"`
-}
+const (
+	MemorySourceKindFact    = "fact"
+	MemorySourceKindNode    = "node"
+	MemorySourceKindEpisode = "episode"
+)
 
 type MemoryNamespace struct {
 	NamespaceID         string   `json:"namespaceID"`
@@ -60,6 +39,11 @@ type MemoryEpisode struct {
 	SourceReference string            `json:"sourceReference"`
 }
 
+type MemoryIngestionResult struct {
+	EpisodeID      string `json:"episodeID"`
+	NamespaceCount int    `json:"namespaceCount"`
+}
+
 type MemoryFact struct {
 	FactID            string    `json:"factID"`
 	ScopeType         string    `json:"scopeType"`
@@ -67,7 +51,16 @@ type MemoryFact struct {
 	Content           string    `json:"content"`
 	Score             float64   `json:"score"`
 	SourceEpisodeID   string    `json:"sourceEpisodeID"`
+	SourceKind        string    `json:"sourceKind"`
 	ValidAt           time.Time `json:"validAt"`
 	SecurityLevelRank int       `json:"securityLevelRank"`
 	RequiredClasses   []string  `json:"requiredClasses"`
+}
+
+type MemoryHealth struct {
+	Configured         bool   `json:"configured"`
+	Reachable          bool   `json:"reachable"`
+	LastSearchError    string `json:"lastSearchError,omitempty"`
+	LastIngestionError string `json:"lastIngestionError,omitempty"`
+	Error              string `json:"error,omitempty"`
 }

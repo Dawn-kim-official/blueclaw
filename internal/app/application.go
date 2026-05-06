@@ -130,7 +130,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if database.SQL != nil {
 		memoryService.UseMirror(postgres.NewGraphitiMemoryRepository(database))
 	}
-	memoryScopeRouter := memory.NewMemoryScopeRouter(languageModelProvider, runtimeConfiguration.Memory.WorkspaceID)
+	graphitiIngestionRouter := memory.NewGraphitiIngestionRouter(languageModelProvider, runtimeConfiguration.Memory.WorkspaceID)
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	mcpRegistry := mcp.NewMcpRegistry()
 	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
@@ -167,7 +167,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.UseTaskLauncher(taskLauncher)
 	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	connectorRuntime.UseMemoryService(memoryService)
-	connectorRuntime.UseMemoryScopeRouter(memoryScopeRouter)
+	connectorRuntime.UseGraphitiIngestionRouter(graphitiIngestionRouter)
 	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
 	connectorRuntime.UseIngressGate(backupCoordinator)
 	if database.SQL != nil {
@@ -182,6 +182,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		HealthHandler: httpserver.HealthHandler{
 			Database:         database,
 			ConnectorRuntime: connectorRuntime,
+			MemoryService:    memoryService,
 			MaximumBacklog:   1000,
 		},
 		PolicyHandler: adminapi.PolicyHandler{
