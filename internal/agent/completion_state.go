@@ -242,6 +242,9 @@ func completionRequirementStateLabel(requirement CompletionRequirementState) str
 
 func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, state CompletionState) completionRecommendedAction {
 	if len(state.MissingRequirements) == 0 {
+		if requestOnlyOpensBrowser(request) {
+			return completionActionFinalizeWithEvidence
+		}
 		if !allRequirementsAreFileAttachments(requirements) {
 			return completionActionContinueWork
 		}

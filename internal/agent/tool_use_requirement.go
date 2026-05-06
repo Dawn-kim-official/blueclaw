@@ -81,6 +81,17 @@ func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
 	return containsAny(prompt, []string{"google", "구글"}) && !mentionsGoogleWorkspaceAvoidance(prompt)
 }
 
+func requestOnlyOpensBrowser(request AgentTurnRequest) bool {
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if prompt == "" {
+		return false
+	}
+	if containsAny(prompt, []string{"검색", "search", "find", "찾", "스크린샷", "screenshot", "click", "클릭", "입력", "type", "go to", "이동", "페이지"}) {
+		return false
+	}
+	return containsAny(prompt, []string{"브라우저 열", "브라우저 켜", "open browser", "open the browser"})
+}
+
 func mentionsGoogleWorkspaceAvoidance(prompt string) bool {
 	if !containsAny(prompt, []string{"google workspace", "구글 워크스페이스", "gws"}) {
 		return false

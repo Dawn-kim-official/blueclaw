@@ -711,7 +711,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) agentWorkspacePath(path string) st
 }
 
 func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {
-	return map[string]any{
+	requestDocument := map[string]any{
 		"toolName": toolName,
 		"input":    toolInput,
 		"context": map[string]any{
@@ -726,6 +726,19 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 			"platform":                request.Platform,
 		},
 	}
+	if shouldRequireCompanionBrowser(toolName, request) {
+		requestDocument["executionMode"] = "companion"
+		requestDocument["requiresUserPresence"] = true
+		requestDocument["privacyClass"] = "user_browser"
+	}
+	return requestDocument
+}
+
+func shouldRequireCompanionBrowser(toolName string, request ToolCatalogRequest) bool {
+	if !strings.HasPrefix(toolName, "browser.") {
+		return false
+	}
+	return strings.TrimSpace(request.RequesterPersonID) != "" || strings.TrimSpace(request.Platform) != ""
 }
 
 func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
