@@ -160,6 +160,150 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	}
 }
 
+func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "notes.md",
+			"content": "private",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected private write success, got %+v", result)
+	}
+	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "notes.md")
+	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "private" {
+		t.Fatalf("expected private file at %s, got %q and %v", expectedPath, string(document), errorValue)
+	}
+	if !strings.Contains(result.Content, `"/workspace/private/people/person-1/notes.md"`) {
+		t.Fatalf("expected private agent path in result, got %s", result.Content)
+	}
+}
+
+func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:             "default",
+		RequesterPersonID:       "person-1",
+		ConversationID:          "channel:channel-1",
+		ConversationType:        "P",
+		ConversationChannelID:   "channel-1",
+		ConversationChannelName: "circle-finance",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff", "finance"},
+		},
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "report.md",
+			"content": "finance",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected circle write success, got %+v", result)
+	}
+	expectedPath := filepath.Join(workspacePath, "circles", "finance", "report.md")
+	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "finance" {
+		t.Fatalf("expected finance file at %s, got %q and %v", expectedPath, string(document), errorValue)
+	}
+}
+
+func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:             "default",
+		RequesterPersonID:       "person-1",
+		ConversationID:          "thread:channel-1:post-1",
+		ConversationType:        "O",
+		ConversationChannelID:   "channel-1",
+		ConversationChannelName: "town-square",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "status.md",
+			"content": "staff",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected staff write success, got %+v", result)
+	}
+	expectedPath := filepath.Join(workspacePath, "circles", "staff", "status.md")
+	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "staff" {
+		t.Fatalf("expected staff file at %s, got %q and %v", expectedPath, string(document), errorValue)
+	}
+}
+
+func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
+	workspacePath := t.TempDir()
+	privateDirectoryPath := filepath.Join(workspacePath, "private", "people", "person-1")
+	if errorValue := os.MkdirAll(privateDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeTestFile(t, filepath.Join(privateDirectoryPath, "notes.md"), "private")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "file.attach",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "notes.md",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected private attach success, got %+v", result)
+	}
+	if result.Attachments[0].DevicePath != "/workspace/private/people/person-1/notes.md" {
+		t.Fatalf("expected private device path, got %+v", result.Attachments[0])
+	}
+}
+
 func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
@@ -192,6 +336,49 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 	if string(content) != "ok" {
 		t.Fatalf("expected translated workspace command to write file, got %q", string(content))
+	}
+}
+
+func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
+		WorkspaceRootPath: workspacePath,
+		Mode:              "firecrackerGuest",
+		TimeoutSecond:     5,
+		OutputMaxBytes:    4096,
+		SessionMaxCount:   2,
+	}))
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command": "pwd",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected terminal.run success, got %s", result.Content)
+	}
+	var commandResult security.CommandResult
+	if errorValue := json.Unmarshal([]byte(result.Content), &commandResult); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	expectedSuffix := filepath.Join("private", "people", "person-1")
+	if !strings.HasSuffix(strings.TrimSpace(commandResult.Stdout), expectedSuffix) {
+		t.Fatalf("expected terminal cwd under %s, got %q", expectedSuffix, commandResult.Stdout)
 	}
 }
 

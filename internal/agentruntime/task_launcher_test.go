@@ -251,6 +251,63 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	}
 }
 
+func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
+	resourceAccessRules := []policy.ResourceAccessPolicy{{
+		Resource: "tool:flow.task.add",
+		Actions:  []string{"execute"},
+		Circles:  []string{"staff"},
+	}}
+	httpClient := &recordingHTTPClient{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"flow.task.add"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"flow.task.add"},
+	}, nil)
+
+	guestToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID:            "person-1",
+			ResourceAccessRules: resourceAccessRules,
+		},
+	})
+	guestResult, errorValue := guestToolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "flow.task.add",
+		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected denied tool result: %v", errorValue)
+	}
+	if !guestResult.IsError {
+		t.Fatalf("expected guest execution denial, got %+v", guestResult)
+	}
+	if httpClient.requestPath != "" {
+		t.Fatalf("expected denied Flow tool not to call capability bridge, got path=%s", httpClient.requestPath)
+	}
+
+	staffToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID:            "person-2",
+			Circles:             []string{"staff"},
+			ResourceAccessRules: resourceAccessRules,
+		},
+	})
+	staffResult, errorValue := staffToolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "flow.task.add",
+		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected staff tool result: %v", errorValue)
+	}
+	if staffResult.IsError {
+		t.Fatalf("expected staff execution success, got %+v", staffResult)
+	}
+	if httpClient.requestPath != "/v1/tools/flow.task.add/invoke" {
+		t.Fatalf("expected Flow capability bridge call, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
+	}
+}
+
 type recordingHTTPClient struct {
 	requestPath string
 	requestBody string

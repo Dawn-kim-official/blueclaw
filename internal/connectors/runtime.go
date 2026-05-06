@@ -155,10 +155,13 @@ type QueuedConnectorReply struct {
 }
 
 type VisibleContext struct {
-	Messages      []VisibleContextMessage `json:"messages"`
-	HasMoreBefore bool                    `json:"hasMoreBefore"`
-	HistoryCursor string                  `json:"historyCursor"`
-	Sender        VisibleContextSender    `json:"sender,omitempty"`
+	Messages         []VisibleContextMessage `json:"messages"`
+	HasMoreBefore    bool                    `json:"hasMoreBefore"`
+	HistoryCursor    string                  `json:"historyCursor"`
+	Sender           VisibleContextSender    `json:"sender,omitempty"`
+	ConversationType string                  `json:"conversationType,omitempty"`
+	ChannelID        string                  `json:"channelID,omitempty"`
+	ChannelName      string                  `json:"channelName,omitempty"`
 }
 
 type VisibleContextSender struct {
@@ -673,6 +676,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		ProfileName:               "default",
 		Platform:                  platform,
 		ConversationID:            event.ConversationID,
+		ConversationType:          event.Context.ConversationType,
+		ConversationChannelID:     event.Context.ChannelID,
+		ConversationChannelName:   event.Context.ChannelName,
 		Prompt:                    event.Prompt,
 		VisibleContext:            event.Context.ToAgentVisibleContext(),
 		HistoryProvider:           connectorHistoryProvider{adapter: adapter},
@@ -844,6 +850,9 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter Platform
 		RequesterPersonID:         personID,
 		RequesterEmail:            connectorRuntime.identityService.ResolvePersonPrimaryEmail(personID),
 		ConversationID:            event.ConversationID,
+		ConversationType:          event.Context.ConversationType,
+		ConversationChannelID:     event.Context.ChannelID,
+		ConversationChannelName:   event.Context.ChannelName,
 		Platform:                  adapter.Name(),
 		HistoryCursor:             event.Context.HistoryCursor,
 		HistoryProvider:           connectorHistoryProvider{adapter: adapter},

@@ -32,6 +32,9 @@ type TaskLaunchRequest struct {
 	ProfileName               string
 	Platform                  string
 	ConversationID            string
+	ConversationType          string
+	ConversationChannelID     string
+	ConversationChannelName   string
 	Prompt                    string
 	VisibleContext            agent.VisibleContext
 	HistoryProvider           HistoryProvider
@@ -74,6 +77,9 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		RequesterPersonID:         request.RequesterPersonID,
 		RequesterEmail:            request.RequesterEmail,
 		ConversationID:            request.ConversationID,
+		ConversationType:          request.ConversationType,
+		ConversationChannelID:     request.ConversationChannelID,
+		ConversationChannelName:   request.ConversationChannelName,
 		Platform:                  request.Platform,
 		HistoryCursor:             request.VisibleContext.HistoryCursor,
 		HistoryProvider:           request.HistoryProvider,
@@ -112,6 +118,14 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	}
 	if turnResult.TaskRun.TaskRunID != "" {
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, toolNames, len(memoryFacts)))
+		conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{
+			RequesterPersonID:       request.RequesterPersonID,
+			ConversationID:          request.ConversationID,
+			ConversationType:        request.ConversationType,
+			ConversationChannelID:   request.ConversationChannelID,
+			ConversationChannelName: request.ConversationChannelName,
+		})
+		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.conversation_scope", marshalToolResult(conversationScope))
 	}
 	return TaskLaunchResult{
 		TurnResult:            turnResult,
