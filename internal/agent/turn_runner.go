@@ -43,7 +43,7 @@ type AgentTurnRequest struct {
 	Prompt                     string
 	VisibleContext             VisibleContext
 	MemoryFacts                []memory.MemoryFact
-	ToolRegistry               *ToolRegistry
+	ToolSet                    *ToolSet
 	WorkspaceRootPath          string
 	ActivePaths                []string
 	InstructionPrompt          string
@@ -70,7 +70,6 @@ type turnActionDocument struct {
 	FinalReply         string                        `json:"finalReply"`
 	ToolName           string                        `json:"toolName"`
 	ToolInput          json.RawMessage               `json:"toolInput"`
-	Query              string                        `json:"query"`
 	Reason             string                        `json:"reason"`
 	Reply              string                        `json:"reply"`
 	GoalStatus         string                        `json:"goalStatus"`
@@ -300,7 +299,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
 				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, qualityCriteria, iteration, agentTurnRunner.options.MaxToolCallCount)
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolSet, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 			observations = append(observations, observation)
 			attachments = appendObservationAttachments(attachments, observation)
 			if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRun.TaskRunID, observation, attachments); isPaused {
@@ -311,30 +310,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)] = observation
 			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
-		case "fetch_history":
-			toolCallCount++
-			if toolCallCount > agentTurnRunner.options.MaxToolCallCount {
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
-				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, qualityCriteria, iteration, agentTurnRunner.options.MaxToolCallCount)
-			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "conversation.history", actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
-			observations = append(observations, observation)
-			attachments = appendObservationAttachments(attachments, observation)
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "fetch_history", observation.Content)
-		case "search_memory":
-			toolCallCount++
-			if toolCallCount > agentTurnRunner.options.MaxToolCallCount {
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
-				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, qualityCriteria, iteration, agentTurnRunner.options.MaxToolCallCount)
-			}
-			toolInput := actionDocument.ToolInput
-			if len(toolInput) == 0 {
-				toolInput = MarshalToolInput(map[string]string{"query": firstNonEmptyString(actionDocument.Query, request.Prompt)})
-			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolRegistry, taskRun.TaskRunID, nextObservationID(len(observations)+1), "memory.search", toolInput, request.WorkspaceRootPath, request.TurnStartedAt)
-			observations = append(observations, observation)
-			attachments = appendObservationAttachments(attachments, observation)
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "search_memory", observation.Content)
 		case "fail":
 			reason := firstNonEmptyString(actionDocument.Reason, "agent reported failure")
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
@@ -373,12 +348,12 @@ func toolObservationMessage(observation turnObservation) string {
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {
-	blockedToolNames := blockedToolNamesForPreconditions(request.ToolRegistry, requirements, observations)
+	blockedToolNames := blockedToolNamesForPreconditions(request.ToolSet, requirements, observations)
 	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: agentTurnRunner.buildTurnMessages(request, observations),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
-			Document:           agentTurnRunner.buildActionSchema(request.ToolRegistry, allowQualityCriteria, blockedToolNames),
+			Document:           agentTurnRunner.buildActionSchema(request.ToolSet, allowQualityCriteria, blockedToolNames),
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -403,7 +378,7 @@ func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnReque
 		request,
 		observations,
 		agentTurnRunner.buildSystemInstruction(request),
-		agentTurnRunner.buildToolDescription(request.ToolRegistry),
+		agentTurnRunner.buildToolDescription(request.ToolSet),
 	)
 }
 
@@ -420,27 +395,11 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 	return instruction
 }
 
-func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolRegistry) string {
+func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolSet) string {
 	if toolRegistry == nil {
 		return ""
 	}
-	toolDefinitions := toolRegistry.ListToolDefinitions()
-	if len(toolDefinitions) == 0 {
-		return ""
-	}
-	lines := []string{"Available tools:"}
-	for _, toolDefinition := range toolDefinitions {
-		line := "- " + toolDefinition.Name
-		description := firstNonEmptyString(specificToolDescription(toolDefinition.Name), toolDefinition.Description)
-		if strings.TrimSpace(description) != "" {
-			line += ": " + strings.TrimSpace(description)
-		}
-		if inputSchema := toolDefinitionInputSchema(toolDefinition); len(inputSchema) > 0 {
-			line += " Input schema: " + strings.TrimSpace(string(inputSchema))
-		}
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n")
+	return toolRegistry.Descriptions()
 }
 
 func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string, request AgentTurnRequest) {
@@ -665,7 +624,7 @@ func isTerminalExecutionTool(toolName string) bool {
 	}
 }
 
-func blockedToolNamesForPreconditions(toolRegistry *ToolRegistry, requirements []toolUseRequirement, observations []turnObservation) map[string]bool {
+func blockedToolNamesForPreconditions(toolRegistry *ToolSet, requirements []toolUseRequirement, observations []turnObservation) map[string]bool {
 	return map[string]bool{}
 }
 
@@ -688,7 +647,7 @@ func numberValue(value any) float64 {
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolRegistry, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolSet, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if toolRegistry == nil {
 		return turnObservation{ObservationID: observationID, Action: "call_tool", Tool: trimmedToolName, Content: "tool registry was not configured", IsError: true}
@@ -698,7 +657,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 		"toolName":      trimmedToolName,
 		"input":         json.RawMessage(toolInput),
 	}))
-	toolResult, errorValue := toolRegistry.InvokeTool(WithTaskRunID(ctx, taskRunID), ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
+	toolResult, errorValue := toolRegistry.Invoke(WithTaskRunID(ctx, taskRunID), ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
 		toolResult = ToolResult{Content: errorValue.Error(), IsError: true}
 	}
@@ -833,7 +792,7 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
 	agentTurnRunner.appendValidityReview(taskRunID, "pre_attach", state.ValidityState)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolRegistry, taskRunID, nextObservationID(len(observations)+1), "file.attach", MarshalToolInput(map[string]any{"paths": state.AttachmentPaths}), request.WorkspaceRootPath, request.TurnStartedAt)
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), "file.attach", MarshalToolInput(map[string]any{"paths": state.AttachmentPaths}), request.WorkspaceRootPath, request.TurnStartedAt)
 	if observation.IsError {
 		observation.Content = completionAttachmentFailureContent(observation.Content, state.AttachmentPaths)
 	}

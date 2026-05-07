@@ -14,7 +14,7 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"bounded tool work","userFacingReply":""}`,
 	}}
-	toolRegistry := NewToolRegistry([]string{"memory.search"})
+	toolRegistry := newTestToolSet([]string{"memory.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, nil
 	})
@@ -24,8 +24,8 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "search memory",
-		ToolRegistry: toolRegistry,
+		Prompt:  "search memory",
+		ToolSet: toolRegistry,
 	})
 
 	if decision.Classification != IntakeClassificationBoundedTask {
@@ -58,12 +58,12 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
-	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.attach"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "html만 주면 돼",
-		ToolRegistry: toolRegistry,
+		Prompt:  "html만 주면 돼",
+		ToolSet: toolRegistry,
 	})
 
 	if strings.Join(decision.RequestedOutputFormats, ",") != "html" {
@@ -89,11 +89,11 @@ func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
 
 func TestTaskIntakePlannerFallbackDefaultsUncertainWorkToStandard(t *testing.T) {
 	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
-	toolRegistry := NewToolRegistry([]string{"memory.search"})
+	toolRegistry := newTestToolSet([]string{"memory.search"})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "please search memory",
-		ToolRegistry: toolRegistry,
+		Prompt:  "please search memory",
+		ToolSet: toolRegistry,
 	})
 
 	if decision.EffortLevel != EffortLevelStandard {
@@ -105,12 +105,12 @@ func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"bounded_task","taskShape":"browser_handoff_task","effortLevel":"quick","requestedOutputFormats":null,"reason":"browser control","userFacingReply":""}`,
 	}}
-	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.screenshot"})
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.screenshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "open google and take a screenshot",
-		ToolRegistry: toolRegistry,
+		Prompt:  "open google and take a screenshot",
+		ToolSet: toolRegistry,
 	})
 
 	if decision.EffortLevel != EffortLevelDeep {
@@ -122,12 +122,12 @@ func TestTaskIntakePlannerPromotesBrowserFollowUpDespiteQuickModelDecision(t *te
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"looks conversational","userFacingReply":""}`,
 	}}
-	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.snapshot"})
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "다시 열어봐",
-		ToolRegistry: toolRegistry,
+		Prompt:  "다시 열어봐",
+		ToolSet: toolRegistry,
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
@@ -146,12 +146,12 @@ func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testin
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
 	}}
-	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "너 뭐 할 수 있는지 피피티 만들어서 pdf로 보내줘",
-		ToolRegistry: toolRegistry,
+		Prompt:  "너 뭐 할 수 있는지 피피티 만들어서 pdf로 보내줘",
+		ToolSet: toolRegistry,
 	})
 
 	if decision.Classification != IntakeClassificationBoundedTask {
@@ -169,12 +169,12 @@ func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
 	}}
-	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "전체 자료를 삭제하고 새 피피티 만들어줘",
-		ToolRegistry: toolRegistry,
+		Prompt:  "전체 자료를 삭제하고 새 피피티 만들어줘",
+		ToolSet: toolRegistry,
 	})
 
 	if decision.Classification != IntakeClassificationNeedsConfirmation {
@@ -184,19 +184,19 @@ func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T
 
 func TestTaskIntakePlannerPromotesDeepAndExtendedRequests(t *testing.T) {
 	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
-	toolRegistry := NewToolRegistry([]string{"terminal.run"})
+	toolRegistry := newTestToolSet([]string{"terminal.run"})
 
 	deepDecision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "꼼꼼히 디버그하고 검증해줘",
-		ToolRegistry: toolRegistry,
+		Prompt:  "꼼꼼히 디버그하고 검증해줘",
+		ToolSet: toolRegistry,
 	})
 	if deepDecision.EffortLevel != EffortLevelDeep {
 		t.Fatalf("expected deep effort, got %+v", deepDecision)
 	}
 
 	extendedDecision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:       "backup restore migration workflow를 처리해줘",
-		ToolRegistry: toolRegistry,
+		Prompt:  "backup restore migration workflow를 처리해줘",
+		ToolSet: toolRegistry,
 	})
 	if extendedDecision.EffortLevel != EffortLevelExtended {
 		t.Fatalf("expected extended effort, got %+v", extendedDecision)
@@ -219,7 +219,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 		finalReplyDocument("should not run"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := NewToolRegistry([]string{"expensive"})
+	toolRegistry := newTestToolSet([]string{"expensive"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "expensive result"}, nil
 	})
@@ -228,7 +228,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do the entire thing",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected intake-only result: %v", errorValue)
@@ -255,7 +255,7 @@ func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 		finalReplyDocument("hello"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := NewToolRegistry([]string{"expensive"})
+	toolRegistry := newTestToolSet([]string{"expensive"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "expensive result"}, nil
 	})
@@ -264,7 +264,7 @@ func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "hello",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected quick reply: %v", errorValue)
@@ -288,17 +288,17 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{
 			Skills: []SkillInstruction{{
-				Name:          "simple-slides",
-				Description:   "Create presentation slides.",
-				WhenToUse:     "Use for 피피티 and PPTX requests.",
-				Prompt:        "Create and attach PPTX files.",
-				TriggerHints:  []string{"피피티"},
-				RequiredTools: []string{"terminal.run", "file.write", "file.attach"},
-				Source:        InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Name:         "simple-slides",
+				Description:  "Create presentation slides.",
+				WhenToUse:    "Use for 피피티 and PPTX requests.",
+				Prompt:       "Create and attach PPTX files.",
+				TriggerHints: []string{"피피티"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			}},
 		}
 	})
-	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -310,7 +310,7 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected promoted bounded task: %v", errorValue)
@@ -339,7 +339,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: "file attached",
@@ -355,7 +355,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "html만 주면 돼",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured output format task to complete: %v", errorValue)

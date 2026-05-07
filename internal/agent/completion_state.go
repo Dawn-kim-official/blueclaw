@@ -259,7 +259,7 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 	if !allMissingRequirementsAreFileAttachments(requirements, state.Requirements) {
 		return completionActionContinueWork
 	}
-	if request.ToolRegistry == nil || !request.ToolRegistry.IsAllowed("file.attach") {
+	if request.ToolSet == nil || !request.ToolSet.IsAllowed("file.attach") {
 		return completionActionBlockedMissingTool
 	}
 	if hasFailedFileAttachForPaths(observations, state.AttachmentPaths) {

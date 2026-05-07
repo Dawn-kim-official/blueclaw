@@ -28,7 +28,6 @@ type SkillInstruction struct {
 	Activation             SkillActivation `json:"activation,omitempty"`
 	Completion             SkillCompletion `json:"completion,omitempty"`
 	Quality                SkillQuality    `json:"quality,omitempty"`
-	RequiredTools          []string        `json:"requiredTools,omitempty"`
 	AllowedTools           []string        `json:"allowedTools,omitempty"`
 	AllowedProfiles        []string        `json:"allowedProfiles,omitempty"`
 	HiddenFromCircles      []string        `json:"hiddenFromCircles,omitempty"`

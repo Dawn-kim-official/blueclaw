@@ -125,7 +125,7 @@ func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
 		"default": {"allowed.tool", "memory.search"},
 	}, nil)
 
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	toolNames := toolRegistry.ListToolNames()
 	if containsString(toolNames, "conversation.history") {
 		t.Fatalf("expected history tool to be hidden without provider, got %+v", toolNames)
@@ -137,7 +137,7 @@ func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
 		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolNames)
 	}
 
-	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected denied tool as result: %v", errorValue)
 	}
@@ -153,14 +153,14 @@ func TestToolCatalogProfileFiltersBuiltInTerminalTools(t *testing.T) {
 		"developer": {"memory.search", "terminal.run", "terminal.session"},
 	}, nil)
 
-	plannerToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "planner"})
-	developerToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "developer"})
+	plannerToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "planner"})
+	developerToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "developer"})
 
-	if containsString(plannerToolRegistry.ListToolNames(), "terminal.run") || containsString(plannerToolRegistry.ListToolNames(), "terminal.session") {
-		t.Fatalf("expected planner terminal tools to be hidden, got %+v", plannerToolRegistry.ListToolNames())
+	if containsString(plannerToolSet.ListToolNames(), "terminal.run") || containsString(plannerToolSet.ListToolNames(), "terminal.session") {
+		t.Fatalf("expected planner terminal tools to be hidden, got %+v", plannerToolSet.ListToolNames())
 	}
-	if !containsString(developerToolRegistry.ListToolNames(), "terminal.run") || !containsString(developerToolRegistry.ListToolNames(), "terminal.session") {
-		t.Fatalf("expected developer terminal tools, got %+v", developerToolRegistry.ListToolNames())
+	if !containsString(developerToolSet.ListToolNames(), "terminal.run") || !containsString(developerToolSet.ListToolNames(), "terminal.session") {
+		t.Fatalf("expected developer terminal tools, got %+v", developerToolSet.ListToolNames())
 	}
 }
 
@@ -173,9 +173,9 @@ func TestApprovalRequestPausesActiveTaskRun(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"approval.request"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "approval.request",
 		Input:    json.RawMessage(`{"message":"Approve browser login?"}`),
 	})
@@ -207,7 +207,7 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser_handoff.openURL"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		RequesterPersonID:       "person-1",
 		RequesterName:           "Dongha",
@@ -217,7 +217,7 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "browser_handoff.openURL",
 		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
 	})
@@ -269,7 +269,7 @@ func TestBrowserHandoffPausesTaskWhileWaitingForUser(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser_handoff.openURL"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		RequesterPersonID:       "person-1",
 		RequesterName:           "Dongha",
@@ -279,7 +279,7 @@ func TestBrowserHandoffPausesTaskWhileWaitingForUser(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "browser_handoff.openURL",
 		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
 	})
@@ -306,7 +306,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		Prompt:                  "로그인해서 계정을 확인해줘",
 		RequesterPersonID:       "person-1",
@@ -315,7 +315,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -346,7 +346,7 @@ func TestPublicBrowserCapabilityWithRequesterKeepsDeviceFallback(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		Prompt:                  "https://example.com 열어줘",
 		RequesterPersonID:       "person-1",
@@ -355,7 +355,7 @@ func TestPublicBrowserCapabilityWithRequesterKeepsDeviceFallback(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -382,9 +382,9 @@ func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"http://127.0.0.1:3000"}`),
 	})
@@ -415,7 +415,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		Prompt:      "다시 열어봐",
 		VisibleContext: agent.VisibleContext{Messages: []agent.VisibleContextMessage{
@@ -424,7 +424,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 		}},
 	})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://console.cloud.google.com/"}`),
 	})
@@ -455,12 +455,12 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		Prompt:      "브라우저 열어줘",
 	})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -484,9 +484,9 @@ func TestPublicBrowserCapabilityKeepsDeviceFallback(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser.open"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -521,9 +521,9 @@ func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testi
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"browser_handoff.openURL"},
 	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", RequesterPersonID: "person-1"})
 
-	toolResult, errorValue := toolRegistry.InvokeTool(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "browser_handoff.openURL",
 		Input:    json.RawMessage(`{"url":"https://example.com/login"}`),
 	})
@@ -540,6 +540,40 @@ func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testi
 	}
 }
 
+func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
+	httpClient := &recordingHTTPClient{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:             "browser.open",
+		InputSchema:      json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
+		OutputSchema:     json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}}}`),
+		PolicyResource:   "tool:browser.open",
+		SideEffectClass:  "browser",
+		RequiresApproval: true,
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"browser.open"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	descriptions := toolRegistry.Descriptions()
+	actionSchema := toolRegistry.ActionSchema(false, nil)
+	if !strings.Contains(descriptions, `"url"`) || !strings.Contains(actionSchema, `"browser.open"`) {
+		t.Fatalf("expected descriptor schema in prompt and action schema, got prompt=%s schema=%s", descriptions, actionSchema)
+	}
+
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "browser.open",
+		Input:    json.RawMessage(`{"url":"https://example.com"}`),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected capability descriptor invocation: %v", errorValue)
+	}
+	if toolResult.IsError || httpClient.requestPath != "/v1/tools/browser.open/invoke" {
+		t.Fatalf("expected capability bridge invocation, got result=%+v path=%s", toolResult, httpClient.requestPath)
+	}
+}
+
 func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	resourceAccessRules := []policy.ResourceAccessPolicy{{
 		Resource: "tool:company.broadcast.send",
@@ -553,7 +587,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 		"default": {"company.broadcast.send"},
 	}, nil)
 
-	staffToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	staffToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID:            "person-1",
@@ -561,7 +595,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	staffResult, errorValue := staffToolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	staffResult, errorValue := staffToolSet.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "company.broadcast.send",
 		Input:    json.RawMessage(`{"message":"hello"}`),
 	})
@@ -575,7 +609,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 		t.Fatalf("expected denied tool not to call capability bridge, got path=%s", httpClient.requestPath)
 	}
 
-	representativeToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	representativeToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID:            "person-2",
@@ -583,7 +617,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	representativeResult, errorValue := representativeToolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	representativeResult, errorValue := representativeToolSet.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "company.broadcast.send",
 		Input:    json.RawMessage(`{"message":"hello"}`),
 	})
@@ -611,14 +645,14 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 		"default": {"flow.task.add"},
 	}, nil)
 
-	guestToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	guestToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID:            "person-1",
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	guestResult, errorValue := guestToolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	guestResult, errorValue := guestToolSet.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "flow.task.add",
 		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
 	})
@@ -632,7 +666,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 		t.Fatalf("expected denied Flow tool not to call capability bridge, got path=%s", httpClient.requestPath)
 	}
 
-	staffToolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	staffToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID:            "person-2",
@@ -640,7 +674,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 			ResourceAccessRules: resourceAccessRules,
 		},
 	})
-	staffResult, errorValue := staffToolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	staffResult, errorValue := staffToolSet.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "flow.task.add",
 		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
 	})

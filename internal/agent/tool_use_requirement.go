@@ -68,7 +68,7 @@ func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []str
 }
 
 func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
-	if !hasToolPrefix(request.ToolRegistry, "browser.") {
+	if !hasToolPrefix(request.ToolSet, "browser.") {
 		return false
 	}
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
@@ -130,7 +130,7 @@ func mentionsGoogleWorkspaceAvoidance(prompt string) bool {
 }
 
 func requestRequiresBrowserScreenshot(request AgentTurnRequest) bool {
-	if !hasToolPrefix(request.ToolRegistry, "browser.screenshot") {
+	if !hasToolPrefix(request.ToolSet, "browser.screenshot") {
 		return false
 	}
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))

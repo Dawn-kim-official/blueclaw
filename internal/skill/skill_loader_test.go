@@ -20,9 +20,8 @@ activation:
     - 피피티
     - pptx
   toolNames: [file.write, file.attach]
-requiredTools:
-  - terminal.run
 allowed-tools:
+  - terminal.run
   - file.write
 disable-model-invocation: true
 paths:
@@ -83,10 +82,7 @@ Build slides.
 	if !containsString(skillBundle.Activation.ToolNames, "file.write") || !containsString(skillBundle.Activation.ToolNames, "file.attach") {
 		t.Fatalf("expected activation tool names, got %+v", skillBundle.Activation.ToolNames)
 	}
-	if !containsString(skillBundle.RequiredTools, "terminal.run") {
-		t.Fatalf("expected required tools, got %+v", skillBundle.RequiredTools)
-	}
-	if !containsString(skillBundle.AllowedTools, "file.write") {
+	if !containsString(skillBundle.AllowedTools, "terminal.run") || !containsString(skillBundle.AllowedTools, "file.write") {
 		t.Fatalf("expected allowed tools, got %+v", skillBundle.AllowedTools)
 	}
 	if !skillBundle.DisableModelInvocation {
@@ -151,7 +147,7 @@ func TestSkillLoaderFallsBackForLegacySkillDocument(t *testing.T) {
 	if skillBundle.Description != "Use this legacy skill." {
 		t.Fatalf("expected first paragraph description fallback, got %q", skillBundle.Description)
 	}
-	if len(skillBundle.TriggerHints) != 0 || len(skillBundle.RequiredTools) != 0 {
+	if len(skillBundle.TriggerHints) != 0 || len(skillBundle.AllowedTools) != 0 {
 		t.Fatalf("expected empty metadata fallback, got %+v", skillBundle)
 	}
 }

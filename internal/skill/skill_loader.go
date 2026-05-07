@@ -32,7 +32,6 @@ func (skillLoader SkillLoader) LoadSkillBundle(directoryPath string) (SkillBundl
 		Activation:             metadata.Activation,
 		Completion:             metadata.Completion,
 		Quality:                metadata.Quality,
-		RequiredTools:          metadata.RequiredTools,
 		AllowedTools:           metadata.AllowedTools,
 		AllowedProfiles:        metadata.AllowedProfiles,
 		HiddenFromCircles:      metadata.HiddenFromCircles,
@@ -56,7 +55,6 @@ type skillMetadata struct {
 	Activation             SkillActivation
 	Completion             SkillCompletion
 	Quality                SkillQuality
-	RequiredTools          []string
 	AllowedTools           []string
 	AllowedProfiles        []string
 	HiddenFromCircles      []string
@@ -144,8 +142,6 @@ func setSkillMetadataValue(metadata skillMetadata, key string, value string) ski
 		metadata.Category = cleanSkillScalar(value)
 	case "tags":
 		metadata.Tags = append(metadata.Tags, parseSkillList(value)...)
-	case "requiredTools":
-		metadata.RequiredTools = append(metadata.RequiredTools, parseSkillList(value)...)
 	case "allowed-tools":
 		metadata.AllowedTools = append(metadata.AllowedTools, parseSkillSpaceSeparatedList(value)...)
 	case "allowedProfiles":

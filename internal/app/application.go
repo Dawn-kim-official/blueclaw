@@ -141,6 +141,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
 	toolCatalogBuilder.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	toolCatalogBuilder.UseTerminalService(terminalService)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
@@ -389,7 +390,6 @@ func readSkillInstructions(rootPath string) []agent.SkillInstruction {
 						Activation:             agent.SkillActivation(skillBundle.Activation),
 						Completion:             agent.SkillCompletion(skillBundle.Completion),
 						Quality:                agent.SkillQuality(skillBundle.Quality),
-						RequiredTools:          append([]string{}, skillBundle.RequiredTools...),
 						AllowedTools:           append([]string{}, skillBundle.AllowedTools...),
 						AllowedProfiles:        append([]string{}, skillBundle.AllowedProfiles...),
 						HiddenFromCircles:      append([]string{}, skillBundle.HiddenFromCircles...),
@@ -510,11 +510,51 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 			allowedToolNameByName[trimmedToolName] = true
 		}
 	}
+	for _, toolDescriptor := range runtimeConfiguration.Capabilities.ToolDescriptors {
+		trimmedToolName := strings.TrimSpace(toolDescriptor.Name)
+		if trimmedToolName != "" {
+			allowedToolNameByName[trimmedToolName] = true
+		}
+	}
 	allowedToolNames := []string{}
 	for allowedToolName := range allowedToolNameByName {
 		allowedToolNames = append(allowedToolNames, allowedToolName)
 	}
 	return allowedToolNames
+}
+
+func capabilityToolDescriptors(toolDescriptors []config.CapabilityToolDescriptor) []agentruntime.CapabilityToolDescriptor {
+	catalogToolDescriptors := []agentruntime.CapabilityToolDescriptor{}
+	for _, toolDescriptor := range toolDescriptors {
+		trimmedName := strings.TrimSpace(toolDescriptor.Name)
+		if trimmedName == "" {
+			continue
+		}
+		catalogToolDescriptors = append(catalogToolDescriptors, agentruntime.CapabilityToolDescriptor{
+			Name:             trimmedName,
+			Description:      capabilityToolDescription(toolDescriptor),
+			InputSchema:      toolDescriptor.InputSchema,
+			OutputSchema:     toolDescriptor.OutputSchema,
+			PolicyResource:   toolDescriptor.PolicyResource,
+			SideEffectClass:  toolDescriptor.SideEffectClass,
+			RequiresApproval: toolDescriptor.RequiresApproval,
+		})
+	}
+	return catalogToolDescriptors
+}
+
+func capabilityToolDescription(toolDescriptor config.CapabilityToolDescriptor) string {
+	if strings.TrimSpace(toolDescriptor.PrivacyClass) == "" && strings.TrimSpace(toolDescriptor.EstimatedLatency) == "" {
+		return ""
+	}
+	descriptionParts := []string{"InternKim capability tool"}
+	if strings.TrimSpace(toolDescriptor.PrivacyClass) != "" {
+		descriptionParts = append(descriptionParts, "privacy="+strings.TrimSpace(toolDescriptor.PrivacyClass))
+	}
+	if strings.TrimSpace(toolDescriptor.EstimatedLatency) != "" {
+		descriptionParts = append(descriptionParts, "latency="+strings.TrimSpace(toolDescriptor.EstimatedLatency))
+	}
+	return strings.Join(descriptionParts, ", ")
 }
 
 func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfiguration) map[string][]string {

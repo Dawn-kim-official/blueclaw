@@ -21,23 +21,23 @@ type scheduleCreateToolInput struct {
 	TimeZone         string `json:"timeZone"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolRegistry, handlerContext toolHandlerContext) {
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "schedule.create",
-		Description: "Create a scheduled agent task for the current requester and reply target. Use this for recurring or future work such as daily research, calendar briefings, reminders, reports, or follow-up tasks. The input prompt is the task to run at schedule time, not a confirmation message.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"}},"required":["prompt","kind"],"additionalProperties":false}`),
-	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-		return toolCatalogBuilder.createScheduleTool(toolContext, toolInvocation, handlerContext)
+func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "schedule.create",
+			Description: "Create a scheduled agent task for the current requester and reply target. Use this for recurring or future work such as daily research, calendar briefings, reminders, reports, or follow-up tasks. The input prompt is the task to run at schedule time, not a confirmation message.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"}},"required":["prompt","kind"],"additionalProperties":false}`),
+		},
+		Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext context.Context, input scheduleCreateToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.taskScheduleRepository == nil {
 		return agent.ToolResult{Content: "task schedule repository is unavailable", IsError: true}, nil
-	}
-	var input scheduleCreateToolInput
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
 	taskSchedule, errorValue := toolCatalogBuilder.buildTaskSchedule(input, handlerContext)
 	if errorValue != nil {

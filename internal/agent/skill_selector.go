@@ -17,9 +17,9 @@ func (skillSelector SkillSelector) Evaluate(skillInstruction SkillInstruction, r
 	if !skillProfileAllows(skillInstruction, normalizedProfileName) {
 		return skippedSkillDecision(skillInstruction, normalizedProfileName, "profile_not_allowed", nil)
 	}
-	missingTools := missingRequiredTools(skillInstruction, request)
+	missingTools := missingAllowedTools(skillInstruction, request)
 	if len(missingTools) > 0 {
-		return skippedSkillDecision(skillInstruction, normalizedProfileName, "missing_required_tools", missingTools)
+		return skippedSkillDecision(skillInstruction, normalizedProfileName, "missing_allowed_tools", missingTools)
 	}
 	if skillSelector.hasPromptTriggerHint(skillInstruction, request.Prompt) {
 		return selectedSkillDecision(skillInstruction, normalizedProfileName, "prompt_matched_trigger_hint")
@@ -45,14 +45,18 @@ func skillProfileAllows(skillInstruction SkillInstruction, profileName string) b
 	return false
 }
 
-func missingRequiredTools(skillInstruction SkillInstruction, request AgentRequest) []string {
+func missingAllowedTools(skillInstruction SkillInstruction, request AgentRequest) []string {
 	missingTools := []string{}
-	for _, toolName := range appendUniqueStrings(skillInstruction.RequiredTools, skillInstruction.AllowedTools...) {
+	for _, toolName := range SkillToolNames(skillInstruction) {
 		if !requestHasToolName(request, toolName) {
 			missingTools = append(missingTools, strings.TrimSpace(toolName))
 		}
 	}
 	return missingTools
+}
+
+func SkillToolNames(skillInstruction SkillInstruction) []string {
+	return appendUniqueStrings(skillInstruction.AllowedTools)
 }
 
 func skillPathsAllow(skillInstruction SkillInstruction, request AgentRequest) bool {
@@ -104,14 +108,14 @@ func (skillSelector SkillSelector) hasExplicitToolActivation(skillInstruction Sk
 }
 
 func requestHasToolName(request AgentRequest, toolName string) bool {
-	if request.ToolRegistry == nil {
+	if request.ToolSet == nil {
 		return false
 	}
 	trimmedToolName := strings.TrimSpace(toolName)
 	if trimmedToolName == "" {
 		return false
 	}
-	for _, availableToolName := range request.ToolRegistry.ListToolNames() {
+	for _, availableToolName := range request.ToolSet.ListToolNames() {
 		if availableToolName == trimmedToolName {
 			return true
 		}
@@ -120,14 +124,14 @@ func requestHasToolName(request AgentRequest, toolName string) bool {
 }
 
 func requestHasToolPrefix(request AgentRequest, toolPrefix string) bool {
-	if request.ToolRegistry == nil {
+	if request.ToolSet == nil {
 		return false
 	}
 	trimmedToolPrefix := strings.TrimSpace(toolPrefix)
 	if trimmedToolPrefix == "" {
 		return false
 	}
-	for _, availableToolName := range request.ToolRegistry.ListToolNames() {
+	for _, availableToolName := range request.ToolSet.ListToolNames() {
 		if strings.HasPrefix(availableToolName, trimmedToolPrefix) {
 			return true
 		}

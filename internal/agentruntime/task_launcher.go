@@ -73,7 +73,7 @@ func NewTaskLauncher(agentKernel *agent.AgentKernel, toolCatalogBuilder *ToolCat
 
 func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunchRequest) (TaskLaunchResult, error) {
 	normalizedProfileName := normalizeProfileName(request.ProfileName)
-	toolRegistry := taskLauncher.toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolSet := taskLauncher.toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:               normalizedProfileName,
 		Prompt:                    request.Prompt,
 		VisibleContext:            request.VisibleContext,
@@ -93,7 +93,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		MemoryNamespaces:          request.MemoryNamespaces,
 		AccessibleConversationIDs: request.AccessibleConversationIDs,
 	})
-	toolNames := toolRegistry.ListToolNames()
+	toolNames := toolSet.ListToolNames()
 	memoryFacts, errorValue := taskLauncher.toolCatalogBuilder.SearchMemory(ctx, TaskMemoryRequest{
 		Query:                     request.Prompt,
 		RequesterPersonID:         request.RequesterPersonID,
@@ -121,7 +121,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		Prompt:                  request.Prompt,
 		VisibleContext:          request.VisibleContext,
 		MemoryFacts:             memoryFacts,
-		ToolRegistry:            toolRegistry,
+		ToolSet:                 toolSet,
 		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 	})
 	if errorValue != nil {

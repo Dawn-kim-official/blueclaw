@@ -5,24 +5,34 @@ import (
 	"strings"
 )
 
-func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolRegistry, allowQualityCriteria bool, blockedToolNames map[string]bool) string {
+func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool) string {
+	if toolRegistry != nil {
+		return toolRegistry.ActionSchema(allowQualityCriteria, blockedToolNames)
+	}
+	return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames)
+}
+
+func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool) string {
+	if toolSet == nil {
+		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames)
+	}
+	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames)
+}
+
+func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool) string {
 	var variants []any
 	variants = append(variants,
 		finalReplyActionSchema(),
-		fetchHistoryActionSchema(),
-		searchMemoryActionSchema(),
 		failActionSchema(),
 	)
 	if allowQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
 	}
-	if toolRegistry != nil {
-		for _, toolDefinition := range toolRegistry.ListToolDefinitions() {
-			if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
-				continue
-			}
-			variants = append(variants, callToolActionSchema(toolDefinition))
+	for _, toolDefinition := range toolDefinitions {
+		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
+			continue
 		}
+		variants = append(variants, callToolActionSchema(toolDefinition))
 	}
 
 	document, errorValue := json.Marshal(map[string]any{"oneOf": variants})
@@ -62,38 +72,6 @@ func setQualityCriteriaActionSchema() map[string]any {
 			"remainingWork":   stringSchema(),
 		},
 		"required":             []string{"action", "qualityCriteria"},
-		"additionalProperties": false,
-	}
-}
-
-func fetchHistoryActionSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":        enumStringSchema("fetch_history"),
-			"toolInput":     objectSchema(),
-			"reason":        stringSchema(),
-			"goalStatus":    enumValuesStringSchema([]string{"in_progress", "blocked"}),
-			"goalSatisfied": booleanSchema(),
-			"remainingWork": stringSchema(),
-		},
-		"required":             []string{"action"},
-		"additionalProperties": false,
-	}
-}
-
-func searchMemoryActionSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":        enumStringSchema("search_memory"),
-			"query":         stringSchema(),
-			"reason":        stringSchema(),
-			"goalStatus":    enumValuesStringSchema([]string{"in_progress", "blocked"}),
-			"goalSatisfied": booleanSchema(),
-			"remainingWork": stringSchema(),
-		},
-		"required":             []string{"action"},
 		"additionalProperties": false,
 	}
 }
@@ -245,7 +223,7 @@ func qualityReviewSchema() map[string]any {
 }
 
 func fallbackActionSchema() string {
-	return `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","set_quality_criteria","call_tool","fetch_history","search_memory","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"query":{"type":"string"},"reason":{"type":"string"},"reply":{"type":"string"},"goalStatus":{"type":"string"},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityCriteria":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action"],"additionalProperties":false}`
+	return `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","set_quality_criteria","call_tool","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"reason":{"type":"string"},"reply":{"type":"string"},"goalStatus":{"type":"string"},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityCriteria":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action"],"additionalProperties":false}`
 }
 
 func finalizerActionSchema() string {

@@ -23,7 +23,7 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 		finalReplyDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := NewToolRegistry([]string{"alpha", "beta"})
+	toolRegistry := newTestToolSet([]string{"alpha", "beta"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "alpha result"}, nil
 	})
@@ -35,7 +35,7 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -149,7 +149,7 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 		`{"action":"fail","reason":"blocked_by_captcha"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := NewToolRegistry([]string{"browser.snapshot"})
+	toolRegistry := newTestToolSet([]string{"browser.snapshot"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "blocked_by_captcha: bot-detection wall", IsError: true}, nil
 	})
@@ -159,7 +159,7 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 		RequesterCallingName:  "동하",
 		ConversationID:        "conversation-1",
 		Prompt:                "내일 서울 날씨 검색해줘",
-		ToolRegistry:          toolRegistry,
+		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"browser.snapshot"},
 	})
 	if errorValue != nil {
@@ -180,7 +180,7 @@ func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T)
 		`{"action":"fail","reason":"html attachment missing"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: "file attached",
@@ -195,7 +195,7 @@ func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T)
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "html만 주면 돼",
-		ToolRegistry:               toolRegistry,
+		ToolSet:                    toolRegistry,
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".html"},
 	})
@@ -216,7 +216,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 		finalReplyWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: "file attached",
@@ -232,7 +232,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "html만 주면 돼",
-		ToolRegistry:               toolRegistry,
+		ToolSet:                    toolRegistry,
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".html"},
 	})
@@ -273,7 +273,7 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 		finalReplyDocument("recovered"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"allowed"})
+	toolRegistry := newTestToolSet([]string{"allowed"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "forbidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "should not run"}, nil
 	})
@@ -282,7 +282,7 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover: %v", errorValue)
@@ -301,7 +301,7 @@ func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 		finalReplyDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"alpha"})
+	toolRegistry := newTestToolSet([]string{"alpha"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "alpha result"}, nil
 	})
@@ -310,7 +310,7 @@ func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -332,7 +332,7 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 		finalReplyWithEvidence("observed", "obs-004", "browser.screenshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"browser.screenshot", "memory.search"})
+	toolRegistry := newTestToolSet([]string{"browser.screenshot", "memory.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `[]`}, nil
 	})
@@ -350,7 +350,7 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected browser tool requirement to recover: %v", errorValue)
@@ -379,7 +379,7 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 		finalReplyWithEvidence("PPTX를 첨부했습니다.", "obs-002", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: "file attached",
@@ -394,7 +394,7 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "피피티 만들어줘",
-		ToolRegistry:          toolRegistry,
+		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"file.attach"},
 	})
 	if errorValue != nil {
@@ -418,7 +418,7 @@ func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *t
 		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-002", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := NewToolRegistry([]string{"file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.write", "file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"path":"/workspace/.blueclaw/tmp/deck/presentation.md","sizeBytes":6}`}, nil
 	})
@@ -436,7 +436,7 @@ func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *t
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "html 만들어줘",
-		ToolRegistry:          toolRegistry,
+		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"file.write", "file.attach"},
 	})
 	if errorValue != nil {
@@ -458,7 +458,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 		finalReplyWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
 			Path string `json:"path"`
@@ -479,7 +479,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
-		ToolRegistry:               toolRegistry,
+		ToolSet:                    toolRegistry,
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 	})
@@ -509,7 +509,7 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/deck.html"}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: "file attached",
@@ -525,7 +525,7 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "html 만들어줘",
 		WorkspaceRootPath:     workspaceRootPath,
-		ToolRegistry:          toolRegistry,
+		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"file.attach"},
 	})
 	if errorValue != nil {
@@ -554,7 +554,7 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 
 	languageModel := &sequenceLanguageModel{contents: []string{finalReplyDocument("unused")}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
 			Paths []string `json:"paths"`
@@ -576,7 +576,7 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
-		ToolRegistry:               toolRegistry,
+		ToolSet:                    toolRegistry,
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
@@ -611,7 +611,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build another deck"}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.attach"})
 	terminalCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
@@ -640,7 +640,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
-		ToolRegistry:               toolRegistry,
+		ToolSet:                    toolRegistry,
 		WorkspaceRootPath:          workspaceRootPath,
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
@@ -672,7 +672,7 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 		`{"action":"fail","reason":"attachment unavailable"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	attachmentCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		attachmentCallCount++
@@ -683,7 +683,7 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
-		ToolRegistry:               toolRegistry,
+		ToolSet:                    toolRegistry,
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
@@ -710,7 +710,7 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 		`{"action":"fail","reason":"artifact invalid"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	attachmentCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		attachmentCallCount++
@@ -727,7 +727,7 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
-		ToolRegistry:               toolRegistry,
+		ToolSet:                    toolRegistry,
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
@@ -759,7 +759,7 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 
 	languageModel := &sequenceLanguageModel{contents: []string{finalReplyDocument("unused")}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
 			Paths []string `json:"paths"`
@@ -778,7 +778,7 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
-		ToolRegistry:               toolRegistry,
+		ToolSet:                    toolRegistry,
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
@@ -862,7 +862,7 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 		`{"action":"fail","reason":"tool failed"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"unstable"})
+	toolRegistry := newTestToolSet([]string{"unstable"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "unstable"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "failed", IsError: true}, nil
 	})
@@ -871,7 +871,7 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to fail safely: %v", errorValue)
@@ -890,7 +890,7 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 		finalReplyDocument("handled failure"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"unstable"})
+	toolRegistry := newTestToolSet([]string{"unstable"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "unstable"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, errors.New("tool failed")
 	})
@@ -899,7 +899,7 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover: %v", errorValue)
@@ -917,7 +917,7 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	pressCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"browser.fill", "browser.press"})
+	toolRegistry := newTestToolSet([]string{"browser.fill", "browser.press"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"ok":true}`}, nil
 	})
@@ -930,7 +930,7 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "입력칸에 hello world라고 입력해줘",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -954,7 +954,7 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	fillCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"browser.snapshot", "browser.fill"})
+	toolRegistry := newTestToolSet([]string{"browser.snapshot", "browser.fill"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"snapshotText":"- textbox \"Google 검색\" [ref=e5]"}`}, nil
 	})
@@ -967,7 +967,7 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "입력칸에 hello world라고 입력해줘",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -991,7 +991,7 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	navigateCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"browser.open"})
+	toolRegistry := newTestToolSet([]string{"browser.open"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		navigateCallCount++
 		return ToolResult{Content: `{"url":"https://www.google.com"}`}, nil
@@ -1001,7 +1001,7 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1022,7 +1022,7 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 		`{"action":"call_tool","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"browser.open"})
+	toolRegistry := newTestToolSet([]string{"browser.open"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"url":"https://www.google.com/"}`}, nil
 	})
@@ -1031,7 +1031,7 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "브라우저 열어줘.",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1054,7 +1054,7 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 		finalReplyWithEvidence("열었습니다", "obs-002", "browser.open", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"browser.open"})
+	toolRegistry := newTestToolSet([]string{"browser.open"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"url":"https://console.cloud.google.com/"}`}, nil
 	})
@@ -1067,7 +1067,7 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
 		}},
-		ToolRegistry: toolRegistry,
+		ToolSet: toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1082,7 +1082,7 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 
 func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 	runner := NewAgentTurnRunner(nil, nil, nil, nil, TurnOptions{})
-	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.click", "browser.fill", "browser.select", "browser.wait"})
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.click", "browser.fill", "browser.select", "browser.wait"})
 	for _, toolName := range []string{"browser.open", "browser.click", "browser.fill", "browser.select", "browser.wait"} {
 		toolRegistry.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolResult{}, nil
@@ -1119,7 +1119,7 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 		`{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"alpha"}],"qualityReview":[{"id":"done-once","passed":true,"evidence":[{"observationID":"obs-002","toolName":"alpha"}]}],"finalReply":"done"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := NewToolRegistry([]string{"alpha"})
+	toolRegistry := newTestToolSet([]string{"alpha"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "alpha result"}, nil
 	})
@@ -1128,7 +1128,7 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 		RequesterPersonID:         "person-1",
 		ConversationID:            "conversation-1",
 		Prompt:                    "make an artifact",
-		ToolRegistry:              toolRegistry,
+		ToolSet:                   toolRegistry,
 		QualityAcceptanceGuidance: []string{"declare criteria first"},
 	})
 	if errorValue != nil {
@@ -1155,7 +1155,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	fillCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"browser.fill"})
+	toolRegistry := newTestToolSet([]string{"browser.fill"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		fillCallCount++
 		return ToolResult{Content: `{"ok":true}`}, nil
@@ -1165,7 +1165,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "fill the search box",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -1195,7 +1195,7 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 		finalReplyDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 2})
-	toolRegistry := NewToolRegistry([]string{"browser.fill", "alpha", "beta"})
+	toolRegistry := newTestToolSet([]string{"browser.fill", "alpha", "beta"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: `{"ok":true}`}, nil
 	})
@@ -1210,7 +1210,7 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1231,7 +1231,7 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"terminal.run"})
+	toolRegistry := newTestToolSet([]string{"terminal.run"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolResult{Content: `{"exitCode":0,"stdout":"@marp-team/marp-cli v4.3.1\n","stderr":"","timedOut":false}`}, nil
@@ -1241,7 +1241,7 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "marp 버전 확인해줘",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected duplicate completion: %v", errorValue)
@@ -1270,7 +1270,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
 	terminalCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
 		if terminalCallCount == 1 {
@@ -1292,7 +1292,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "build deck",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1318,7 +1318,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
 	terminalCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
 		if terminalCallCount == 1 {
@@ -1340,7 +1340,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "build deck",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1365,7 +1365,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 5})
 	terminalCallCount := 0
-	toolRegistry := NewToolRegistry([]string{"terminal.run", "file.write"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
 		return ToolResult{Content: `{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`}, nil
@@ -1384,7 +1384,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "build deck",
-		ToolRegistry:          toolRegistry,
+		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"file.write"},
 	})
 	if errorValue != nil {
@@ -1409,7 +1409,7 @@ func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 		textResponses: []string{"검색은 시작했지만 결과 정리는 아직 남았습니다. 지금 확인된 내용은 다시 이어서 처리할 수 있게 저장했습니다."},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
-	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry := newTestToolSet([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "again"}, nil
 	})
@@ -1418,7 +1418,7 @@ func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "구글에서 검색해줘",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -1442,7 +1442,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
-	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry := newTestToolSet([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: "started",
@@ -1457,7 +1457,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "html 파일 만들어줘",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -1490,7 +1490,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t 
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
-	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry := newTestToolSet([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "started"}, nil
 	})
@@ -1499,7 +1499,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t 
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "html 파일 만들어줘",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -1524,7 +1524,7 @@ func TestAgentTurnRunnerUsesDynamicLimitReplyWhenFinalizationLeaksDiagnostics(t 
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
-	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry := newTestToolSet([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "again"}, nil
 	})
@@ -1533,7 +1533,7 @@ func TestAgentTurnRunnerUsesDynamicLimitReplyWhenFinalizationLeaksDiagnostics(t 
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -1584,7 +1584,7 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 		finalReplyWithEvidence("캡처했습니다.", "obs-002", "browser.screenshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
-	toolRegistry := NewToolRegistry([]string{"browser.screenshot"})
+	toolRegistry := newTestToolSet([]string{"browser.screenshot"})
 	screenshotIndex := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		screenshotIndex++
@@ -1604,7 +1604,7 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "스크린샷 줘",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected attachment completion, got error: %v", errorValue)
@@ -1629,7 +1629,7 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 		`{"action":"fail","reason":"not complete"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
-	toolRegistry := NewToolRegistry([]string{"browser.screenshot"})
+	toolRegistry := newTestToolSet([]string{"browser.screenshot"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.screenshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: `{"devicePath":"/tmp/internkim-companion-files/browser-screenshot.png"}`,
@@ -1646,7 +1646,7 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "스크린샷 줘",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected effort result, got error: %v", errorValue)
@@ -1667,7 +1667,7 @@ func TestAgentTurnRunnerDoesNotCompleteEffortStopFromUnrequestedAttachment(t *te
 		`{"action":"call_tool","toolName":"file.pick","toolInput":{}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
-	toolRegistry := NewToolRegistry([]string{"file.pick"})
+	toolRegistry := newTestToolSet([]string{"file.pick"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.pick"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Content: `{"devicePath":"/tmp/internkim-companion-files/report.txt"}`,
@@ -1684,7 +1684,7 @@ func TestAgentTurnRunnerDoesNotCompleteEffortStopFromUnrequestedAttachment(t *te
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do some work",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected effort result, got error: %v", errorValue)
@@ -1703,7 +1703,7 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 		finalReplyDocument("summarized"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{ToolResultMaxBytes: 8})
-	toolRegistry := NewToolRegistry([]string{"large"})
+	toolRegistry := newTestToolSet([]string{"large"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "large"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: strings.Repeat("x", 32)}, nil
 	})
@@ -1712,7 +1712,7 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1730,7 +1730,7 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 		textResponses: []string{"작업을 시작했지만 완료 전에 멈췄습니다. 다시 시도하면 이어서 처리할 수 있어요."},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
-	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry := newTestToolSet([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "again"}, nil
 	})
@@ -1739,7 +1739,7 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected fallback result, got error: %v", errorValue)
@@ -1761,7 +1761,7 @@ func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 		textResponses: []string{"도구 호출이 더 진행되기 전에 멈췄습니다. 확인된 내용까지만 바탕으로 다시 이어갈 수 있어요."},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3, MaxToolCallCount: 1})
-	toolRegistry := NewToolRegistry([]string{"loop"})
+	toolRegistry := newTestToolSet([]string{"loop"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "loop"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "again"}, nil
 	})
@@ -1770,7 +1770,7 @@ func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
-		ToolRegistry:      toolRegistry,
+		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)

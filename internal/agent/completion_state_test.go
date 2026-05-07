@@ -22,7 +22,7 @@ func TestCompletionStateFindsNewestArtifactByRequiredSuffix(t *testing.T) {
 	}
 
 	state := buildCompletionState(
-		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolRegistry: NewToolRegistry([]string{"file.attach"})},
+		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.attach"})},
 		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
 		nil,
 	)
@@ -96,7 +96,7 @@ func TestCompletionStateDoesNotRepeatFailedAttachment(t *testing.T) {
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 
 	state := buildCompletionState(
-		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolRegistry: NewToolRegistry([]string{"file.attach"})},
+		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.attach"})},
 		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
 		[]turnObservation{{ObservationID: "obs-001", Tool: "file.attach", Content: filepath.Join(artifactDirectoryPath, "deck.pptx"), IsError: true}},
 	)
@@ -121,7 +121,7 @@ func TestCompletionStateIgnoresArtifactsOlderThanTurn(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{
 			WorkspaceRootPath: workspaceRootPath,
-			ToolRegistry:      NewToolRegistry([]string{"file.attach"}),
+			ToolSet:           newTestToolSet([]string{"file.attach"}),
 			TurnStartedAt:     time.Now().Add(-time.Minute),
 		},
 		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
@@ -149,7 +149,7 @@ func TestCompletionStateFindsArtifactsNewerThanTurn(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{
 			WorkspaceRootPath: workspaceRootPath,
-			ToolRegistry:      NewToolRegistry([]string{"file.attach"}),
+			ToolSet:           newTestToolSet([]string{"file.attach"}),
 			TurnStartedAt:     turnStartedAt,
 		},
 		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx", ".pdf"}}},
@@ -172,7 +172,7 @@ func TestCompletionStateAllowsReadableImperfectArtifactCandidate(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{
 			WorkspaceRootPath: workspaceRootPath,
-			ToolRegistry:      NewToolRegistry([]string{"file.attach"}),
+			ToolSet:           newTestToolSet([]string{"file.attach"}),
 			TurnStartedAt:     time.Now().Add(-time.Minute),
 		},
 		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},

@@ -867,8 +867,8 @@ func latestTime(values []time.Time) time.Time {
 	return latest
 }
 
-func (connectorRuntime *ConnectorRuntime) buildTurnToolRegistry(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *agent.ToolRegistry {
-	return connectorRuntime.toolCatalogBuilder.BuildToolRegistry(agentruntime.ToolCatalogRequest{
+func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *agent.ToolSet {
+	return connectorRuntime.toolCatalogBuilder.BuildToolSet(agentruntime.ToolCatalogRequest{
 		ProfileName:               "default",
 		Prompt:                    event.Prompt,
 		RequesterPersonID:         personID,
