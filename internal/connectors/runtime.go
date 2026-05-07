@@ -317,6 +317,10 @@ func (connectorRuntime *ConnectorRuntime) UseTaskScheduleRepository(taskSchedule
 	connectorRuntime.toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
 }
 
+func (connectorRuntime *ConnectorRuntime) UseTaskRunService(taskRunService *task.TaskRunService) {
+	connectorRuntime.toolCatalogBuilder.UseTaskRunService(taskRunService)
+}
+
 func (connectorRuntime *ConnectorRuntime) UseEventRepository(eventRepository ConnectorEventRepository) {
 	connectorRuntime.eventRepository = eventRepository
 }

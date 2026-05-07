@@ -112,6 +112,37 @@ func TestGWSDisabled(t *testing.T) {
 	}
 }
 
+func TestScheduleCreateAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), ScheduleCreateAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected schedule acceptance scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if !eventsContain(turnResult.Events, "schedule.created", `"intervalSecond":60`) {
+		t.Fatal("expected schedule.create to persist an interval schedule")
+	}
+	if !strings.Contains(turnResult.ModelContext, "schedule.create") {
+		t.Fatal("expected model context to expose schedule.create")
+	}
+}
+
+func TestSitePrototypeAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), SitePrototypeAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected site prototype acceptance scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "site-prototype") {
+		t.Fatal("expected site-prototype skill to be selected")
+	}
+	if !eventsContain(turnResult.Events, "tool.site.app.publish.result", "publishedURL") {
+		t.Fatal("expected site publish result to include a public URL")
+	}
+	if !strings.Contains(turnResult.ModelContext, "site.app.create") || !strings.Contains(turnResult.ModelContext, "site.app.publish") {
+		t.Fatal("expected model context to expose site app tools")
+	}
+}
+
 func firstNonEmptyTestString(values ...string) string {
 	for _, value := range values {
 		trimmedValue := strings.TrimSpace(value)

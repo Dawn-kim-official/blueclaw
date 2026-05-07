@@ -63,6 +63,7 @@ type AgentTurnResult struct {
 	FinalReply      string
 	Attachments     []FileAttachment
 	RecoveryActions []RecoveryAction
+	ToolNames       []string
 }
 
 type turnActionDocument struct {
@@ -405,6 +406,7 @@ func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolS
 func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string, request AgentTurnRequest) {
 	body := map[string]any{
 		"profileName":    normalizedAgentProfileName(request.ProfileName),
+		"toolNames":      toolNamesForEvent(request.ToolSet),
 		"sourceCount":    len(request.InstructionSources),
 		"sources":        request.InstructionSources,
 		"skillNames":     instructionSkillNames(request.InstructionSources),
@@ -419,6 +421,13 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 		body["status"] = "loaded"
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.instructions_loaded", marshalEventBody(body))
+}
+
+func toolNamesForEvent(toolSet *ToolSet) []string {
+	if toolSet == nil {
+		return nil
+	}
+	return toolSet.ListToolNames()
 }
 
 func instructionSkillNames(sources []InstructionSource) []string {
