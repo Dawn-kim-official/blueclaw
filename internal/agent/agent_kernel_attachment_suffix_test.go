@@ -20,6 +20,32 @@ func TestSelectedRequiredAttachmentSuffixesStayAdvisoryForSlides(t *testing.T) {
 	}
 }
 
+func TestSelectedRequiredEvidenceToolsComeFromSelectedSkills(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name: "site-prototype",
+				Completion: SkillCompletion{
+					RequiredEvidenceTools: []string{"site.app.create", "terminal.run", "site.app.publish"},
+				},
+			},
+			{
+				Name: "calendar",
+				Completion: SkillCompletion{
+					RequiredEvidenceTools: []string{"calendar.event.add"},
+				},
+			},
+		},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+
+	toolNames := selectedRequiredEvidenceTools(instructionBundle)
+
+	if len(toolNames) != 3 || toolNames[0] != "site.app.create" || toolNames[1] != "terminal.run" || toolNames[2] != "site.app.publish" {
+		t.Fatalf("expected selected skill evidence tools, got %+v", toolNames)
+	}
+}
+
 func TestAttachmentSuffixesComeFromStructuredOutputFormats(t *testing.T) {
 	suffixes := attachmentSuffixesForRequestedOutputFormats([]string{"html", "pdf", "html"})
 
