@@ -350,6 +350,7 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 		connectorFinalReply("매일 아침 7시에 조사해서 알려드릴게요."),
 	}}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	useTestConnectorSkill(connectorRuntime, connectorScheduledTaskSkill())
 	repository := &connectorTaskScheduleRepository{}
 	connectorRuntime.UseTaskScheduleRepository(repository)
 	event := testInboundEvent("message-1")
@@ -387,6 +388,7 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 		connectorFinalReplyWithEvidence("브라우저를 확인했습니다", "obs-001", "browser.snapshot", 0),
 	}}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	useTestConnectorSkill(connectorRuntime, connectorBrowserSnapshotSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "browser.snapshot"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
@@ -989,6 +991,36 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter
+}
+
+func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction agent.SkillInstruction) {
+	connectorRuntime.agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{skillInstruction}}
+	})
+}
+
+func connectorScheduledTaskSkill() agent.SkillInstruction {
+	return agent.SkillInstruction{
+		Name:         "scheduled-task",
+		Description:  "Create scheduled tasks.",
+		WhenToUse:    "Use for schedule, remind, 매일, 예약, 알림, and 마다 requests.",
+		Prompt:       "Use schedule.create for scheduled tasks.",
+		TriggerHints: []string{"schedule", "remind", "매일", "예약", "알림", "마다"},
+		AllowedTools: []string{"schedule.create"},
+		Source:       agent.InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
+	}
+}
+
+func connectorBrowserSnapshotSkill() agent.SkillInstruction {
+	return agent.SkillInstruction{
+		Name:         "browser-snapshot",
+		Description:  "Observe browser pages.",
+		WhenToUse:    "Use for browser observe, snapshot, screenshot, 브라우저, and 화면 확인 requests.",
+		Prompt:       "Use browser.snapshot to observe the current browser state.",
+		TriggerHints: []string{"browser", "observe", "snapshot", "브라우저", "화면"},
+		AllowedTools: []string{"browser.snapshot"},
+		Source:       agent.InstructionSource{Path: "skills/browser-snapshot/SKILL.md", SkillName: "browser-snapshot"},
+	}
 }
 
 func testInboundEvent(messageID string) PlatformInboundEvent {

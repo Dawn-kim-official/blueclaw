@@ -165,6 +165,64 @@ func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testin
 	}
 }
 
+func TestTaskIntakePlannerTreatsSupportedScheduleOverRefusalAsBoundedTask(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"unsupported","taskShape":"scheduled_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
+	}}
+	toolRegistry := newTestToolSet([]string{"schedule.create"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "scheduled"}, nil
+	})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
+		IsEnabled:          true,
+		DefaultEffortLevel: EffortLevelStandard,
+	})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "1분마다 \"1분 지났습니다\"라고 보내줘",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask || decision.TaskShape != TaskShapeScheduledTask {
+		t.Fatalf("expected supported schedule request to be bounded, got %+v", decision)
+	}
+	if decision.UserFacingReply != "" {
+		t.Fatalf("expected over-refusal reply to be cleared, got %q", decision.UserFacingReply)
+	}
+}
+
+func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
+	}}
+	toolRegistry := newTestToolSet([]string{"site.app.create", "site.app.publish"})
+	for _, toolName := range toolRegistry.ListToolNames() {
+		currentToolName := toolName
+		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolResult{Content: "ok"}, nil
+		})
+	}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
+		IsEnabled:          true,
+		DefaultEffortLevel: EffortLevelStandard,
+	})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "웹사이트 하나 만들어서 배포해봐",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected supported site prototype request to be bounded, got %+v", decision)
+	}
+	if decision.TaskShape == TaskShapeApprovalGatedTask {
+		t.Fatalf("expected non-approval task shape, got %+v", decision)
+	}
+	if decision.UserFacingReply != "" {
+		t.Fatalf("expected confirmation reply to be cleared, got %q", decision.UserFacingReply)
+	}
+}
+
 func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
@@ -339,6 +397,17 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
+		return InstructionBundle{Skills: []SkillInstruction{{
+			Name:         "html-attachment",
+			Description:  "Attach HTML deliverables.",
+			WhenToUse:    "Use for html output requests.",
+			Prompt:       "Use file.attach for HTML deliverables.",
+			TriggerHints: []string{"html"},
+			AllowedTools: []string{"file.attach"},
+			Source:       InstructionSource{Path: "skills/html-attachment/SKILL.md", SkillName: "html-attachment"},
+		}}}
+	})
 	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{

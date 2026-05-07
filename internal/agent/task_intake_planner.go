@@ -121,7 +121,7 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"].",
+			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"].",
 		},
 		{
 			Role:    "system",
@@ -192,6 +192,16 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision) {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
+		decision.UserFacingReply = ""
+	}
+	if shouldTreatAsBoundedScheduledTask(request, decision) {
+		decision.Classification = IntakeClassificationBoundedTask
+		decision.Reason = "available schedule.create tool can create the requested scheduled task"
+		decision.UserFacingReply = ""
+	}
+	if shouldTreatAsBoundedSitePrototype(request, decision) {
+		decision.Classification = IntakeClassificationBoundedTask
+		decision.Reason = "available site.app tools can create and publish the requested prototype"
 		decision.UserFacingReply = ""
 	}
 	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
@@ -307,7 +317,7 @@ func requestRequiresFollowUpToolWork(request AgentRequest) bool {
 }
 
 func looksLikeScheduleRequest(prompt string) bool {
-	return containsAny(prompt, []string{"schedule", "scheduled", "cron", "daily", "weekly", "monthly", "every day", "every week", "매일", "매주", "매월", "매달", "정기", "예약"})
+	return containsAny(prompt, []string{"schedule", "scheduled", "cron", "daily", "weekly", "monthly", "every day", "every week", "every minute", "every hour", "remind", "reminder", "매일", "매주", "매월", "매달", "정기", "예약", "알림", "리마인드", "마다", "분마다", "시간마다"})
 }
 
 func looksLikeLargeRequest(prompt string) bool {
@@ -333,6 +343,35 @@ func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decisio
 	}
 	artifactWords := []string{"slide", "slides", "deck", "presentation", "ppt", "pptx", "pdf", "html", "artifact", "attach", "피피티", "파워포인트", "발표자료", "슬라이드", "자료", "첨부", "보내"}
 	return containsAny(prompt, artifactWords) && containsAny(prompt, []string{"create", "make", "write", "generate", "export", "만들", "작성", "생성", "줘", "보내"})
+}
+
+func shouldTreatAsBoundedScheduledTask(request AgentRequest, decision IntakeDecision) bool {
+	if decision.Classification != IntakeClassificationUnsupported && decision.Classification != IntakeClassificationNeedsConfirmation {
+		return false
+	}
+	if !hasTool(request.ToolSet, "schedule.create") {
+		return false
+	}
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if looksUnsupported(prompt) {
+		return false
+	}
+	return looksLikeScheduleRequest(prompt)
+}
+
+func shouldTreatAsBoundedSitePrototype(request AgentRequest, decision IntakeDecision) bool {
+	if decision.Classification != IntakeClassificationUnsupported && decision.Classification != IntakeClassificationNeedsConfirmation {
+		return false
+	}
+	if !hasAllTools(request.ToolSet, []string{"site.app.create", "site.app.publish"}) {
+		return false
+	}
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if looksLikeDestructiveLocalWork(prompt) || looksLikeLargeRequest(prompt) {
+		return false
+	}
+	return containsAny(prompt, []string{"website", "web app", "site", "landing page", "prototype", "demo", "웹사이트", "사이트", "랜딩", "프로토타입", "데모"}) &&
+		containsAny(prompt, []string{"create", "make", "build", "publish", "deploy", "만들", "생성", "배포", "올려"})
 }
 
 func looksLikeDestructiveLocalWork(prompt string) bool {
