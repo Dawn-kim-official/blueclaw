@@ -187,14 +187,14 @@ func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecif
 	configurationDocument := ConfigurationDocument{
 		BootSource: BootSourceConfiguration{
 			KernelImagePath: kernelImagePath,
-			BootArguments:   "console=ttyS0 reboot=k panic=1 pci=off",
+			BootArguments:   "console=ttyS0 reboot=k panic=1 pci=off rw",
 		},
 		DriveConfigurations: []DriveConfiguration{
 			{
 				DriveID:      "rootfs",
 				PathOnHost:   rootfsImagePath,
 				IsRootDevice: true,
-				IsReadOnly:   true,
+				IsReadOnly:   false,
 			},
 			{
 				DriveID:      "workspace",
