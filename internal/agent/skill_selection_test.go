@@ -78,6 +78,71 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 	}
 }
 
+func TestSelectInstructionBundleUsesTriggerHintWhenSearchTextMissesKoreanPrompt(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Prompt: "base",
+		Skills: []SkillInstruction{
+			{
+				Name:         "site-prototype",
+				Description:  "Create and publish web prototypes.",
+				WhenToUse:    "Use for website prototype requests.",
+				Prompt:       "Use site.app.create, terminal.run, and site.app.publish.",
+				TriggerHints: []string{"웹사이트", "배포"},
+				AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+			},
+		},
+	}
+
+	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
+		Prompt:  "웹사이트 하나 만들어서 배포해봐",
+		ToolSet: testToolSet([]string{"terminal.run", "site.app.create", "site.app.publish"}),
+	})
+
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected trigger hint to select site-prototype, got %+v", selectedBundle.SkillDecisions)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "Use site.app.create") {
+		t.Fatalf("expected selected site skill prompt, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
+	fullToolSet := testToolSet([]string{
+		"conversation.history",
+		"memory.search",
+		"approval.request",
+		"terminal.run",
+		"site.app.create",
+		"site.app.publish",
+		"schedule.create",
+	})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:         "site-prototype",
+				AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+			},
+			{
+				Name:         "scheduled-task",
+				AllowedTools: []string{"schedule.create"},
+			},
+		},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+
+	filteredToolSet := toolSetForSelectedSkills(fullToolSet, instructionBundle)
+
+	for _, toolName := range []string{"conversation.history", "memory.search", "approval.request", "terminal.run", "site.app.create", "site.app.publish"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+	if filteredToolSet.IsAllowed("schedule.create") {
+		t.Fatalf("expected unrelated schedule.create to be hidden, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
 func TestSkillSelectorIncludesSimpleSlidesInstructionForPresentationAliases(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{

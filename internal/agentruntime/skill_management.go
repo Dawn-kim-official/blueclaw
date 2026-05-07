@@ -44,6 +44,7 @@ var builtInSkillNames = map[string]bool{
 	"naver-news-search":                 true,
 	"pdf":                               true,
 	"real-estate-search":                true,
+	"scheduled-task":                    true,
 	"rhwp-edit":                         true,
 	"simple-slides":                     true,
 	"site-prototype":                    true,
