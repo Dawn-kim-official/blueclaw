@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"blueclaw/internal/config"
@@ -61,8 +62,14 @@ func TestBuildBootSpecificationIncludesWorkspaceAndVSock(t *testing.T) {
 	if bootSpecification.ConfigurationDocument.BootSource.KernelImagePath != "/vmlinux.bin" {
 		t.Fatalf("expected jailed kernel path, got %q", bootSpecification.ConfigurationDocument.BootSource.KernelImagePath)
 	}
+	if !strings.Contains(bootSpecification.ConfigurationDocument.BootSource.BootArguments, " rw") {
+		t.Fatalf("expected guest rootfs to boot writable, got %q", bootSpecification.ConfigurationDocument.BootSource.BootArguments)
+	}
 	if bootSpecification.ConfigurationDocument.DriveConfigurations[0].PathOnHost != "/rootfs.ext4" {
 		t.Fatalf("expected jailed rootfs path, got %q", bootSpecification.ConfigurationDocument.DriveConfigurations[0].PathOnHost)
+	}
+	if bootSpecification.ConfigurationDocument.DriveConfigurations[0].IsReadOnly {
+		t.Fatal("expected jailed rootfs drive to be writable")
 	}
 	if bootSpecification.ConfigurationDocument.DriveConfigurations[1].PathOnHost != "/workspace.ext4" {
 		t.Fatalf("expected jailed workspace path, got %q", bootSpecification.ConfigurationDocument.DriveConfigurations[1].PathOnHost)
