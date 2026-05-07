@@ -256,8 +256,26 @@ func coreAgentToolNames() []string {
 	return []string{"conversation.history", "memory.search", "approval.request"}
 }
 
-func selectedRequiredEvidenceTools(_ InstructionBundle) []string {
-	return nil
+func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string {
+	toolNames := []string{}
+	selectedSkillNames := selectedSkillNameSet(instructionBundle.SkillDecisions)
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !selectedSkillNames[skillInstruction.Name] {
+			continue
+		}
+		toolNames = append(toolNames, skillInstruction.Completion.RequiredEvidenceTools...)
+	}
+	return appendUniqueStrings(toolNames)
+}
+
+func selectedSkillNameSet(skillDecisions []SkillSelectionDecision) map[string]bool {
+	selectedSkillNames := map[string]bool{}
+	for _, skillDecision := range skillDecisions {
+		if skillDecision.Status == "selected" {
+			selectedSkillNames[skillDecision.Name] = true
+		}
+	}
+	return selectedSkillNames
 }
 
 func selectedRequiredAttachmentSuffixes(_ InstructionBundle, _ string) []string {
