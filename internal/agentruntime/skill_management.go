@@ -43,6 +43,8 @@ var standardSkillFrontmatterKeys = map[string]bool{
 	"hooks":                    true,
 	"hiddenFromCircles":        true,
 	"model":                    true,
+	"license":                  true,
+	"metadata":                 true,
 	"name":                     true,
 	"paths":                    true,
 	"shell":                    true,
