@@ -15,7 +15,18 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     "endpoint": "http://127.0.0.1:7781",
     "unixSocketPath": "/run/internkim/capability.sock",
     "timeoutSecond": 15,
-    "toolNames": ["google.search"]
+    "toolNames": ["google.search"],
+    "toolDescriptors": [
+      {
+        "name": "browser.open",
+        "inputSchema": {"type": "object"},
+        "sideEffectClass": "browser"
+      },
+      {
+        "name": "user.confirm",
+        "requiresApproval": true
+      }
+    ]
   },
   "languageModel": {
     "defaultProvider": "capabilityLLM",
@@ -124,6 +135,15 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Capabilities.Endpoint != "http://127.0.0.1:7781" {
 		t.Fatalf("expected capability endpoint to match, got %q", runtimeConfiguration.Capabilities.Endpoint)
+	}
+	if len(runtimeConfiguration.Capabilities.ToolDescriptors) != 2 {
+		t.Fatalf("expected capability descriptors to load, got %+v", runtimeConfiguration.Capabilities.ToolDescriptors)
+	}
+	if string(runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema) != `{"type": "object"}` && string(runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema) != `{"type":"object"}` {
+		t.Fatalf("expected descriptor input schema to load, got %s", runtimeConfiguration.Capabilities.ToolDescriptors[0].InputSchema)
+	}
+	if !runtimeConfiguration.Capabilities.ToolDescriptors[1].RequiresApproval {
+		t.Fatalf("expected descriptor approval flag to load, got %+v", runtimeConfiguration.Capabilities.ToolDescriptors[1])
 	}
 	if runtimeConfiguration.Capabilities.UnixSocketPath != "/run/internkim/capability.sock" {
 		t.Fatalf("expected capability unix socket path to match, got %q", runtimeConfiguration.Capabilities.UnixSocketPath)

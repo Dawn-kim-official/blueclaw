@@ -116,8 +116,8 @@ func simpleSlidesSkill() agent.SkillInstruction {
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},
-		RequiredTools: []string{"file.write", "terminal.run", "file.attach"},
-		TriggerHints:  []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
+		AllowedTools: []string{"file.write", "terminal.run", "file.attach"},
+		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		Source: agent.InstructionSource{
 			Path:      "skills/simple-slides/SKILL.md",
 			SkillName: "simple-slides",

@@ -70,24 +70,32 @@ type skillAddResult struct {
 	Warnings      []string `json:"warnings"`
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolRegistry *agent.ToolRegistry) {
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "skill.add",
-		Description: "Create or update a user-managed SKILL.md under /workspace/.agents/skills/<name>.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}}},"required":["name","content"],"additionalProperties":false}`),
-	}, toolCatalogBuilder.addSkillTool)
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "skill.remove",
-		Description: "Remove a user-managed skill under /workspace/.agents/skills/<name>.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}`),
-	}, toolCatalogBuilder.removeSkillTool)
+func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolRegistry *agent.ToolSet) {
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillAddInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "skill.add",
+			Description: "Create or update a user-managed SKILL.md under /workspace/.agents/skills/<name>.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}}},"required":["name","content"],"additionalProperties":false}`),
+		},
+		Handler: toolCatalogBuilder.addSkillTool,
+		Result:  agent.IdentityToolResult,
+	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillRemoveInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "skill.remove",
+			Description: "Remove a user-managed skill under /workspace/.agents/skills/<name>.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}`),
+		},
+		Handler: toolCatalogBuilder.removeSkillTool,
+		Result:  agent.IdentityToolResult,
+	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-	var input skillAddInput
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
-	}
+type skillRemoveInput struct {
+	Name string `json:"name"`
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.Context, input skillAddInput) (agent.ToolResult, error) {
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
@@ -126,13 +134,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 	})}, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-	var input struct {
-		Name string `json:"name"`
-	}
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
-	}
+func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (agent.ToolResult, error) {
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil

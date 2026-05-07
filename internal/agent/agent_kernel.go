@@ -151,7 +151,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		Prompt:               request.Prompt,
 		VisibleContext:       request.VisibleContext,
 		MemoryFacts:          request.MemoryFacts,
-		ToolRegistry:         request.ToolRegistry,
+		ToolSet:              request.ToolSet,
 		WorkspaceRootPath:    request.WorkspaceRootPath,
 		ActivePaths:          request.ActivePaths,
 	})
@@ -187,7 +187,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		Prompt:                     request.Prompt,
 		VisibleContext:             request.VisibleContext,
 		MemoryFacts:                request.MemoryFacts,
-		ToolRegistry:               request.ToolRegistry,
+		ToolSet:                    request.ToolSet,
 		WorkspaceRootPath:          request.WorkspaceRootPath,
 		InstructionPrompt:          instructionBundle.Prompt,
 		InstructionSources:         append([]InstructionSource{}, instructionBundle.Sources...),
@@ -201,7 +201,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 	if intakeDecision.Classification == IntakeClassificationQuickReply {
-		turnRequest.ToolRegistry = nil
+		turnRequest.ToolSet = nil
 		turnOptions.MaxIterationCount = 1
 	}
 
@@ -299,7 +299,7 @@ func appendUniqueQualityGuidance(guidance []string, seenGuidance map[string]bool
 }
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultEffortLevel EffortLevel) IntakeDecision {
-	if decision.Classification != IntakeClassificationQuickReply || !hasSelectedSkillWithRequiredTools(instructionBundle) {
+	if decision.Classification != IntakeClassificationQuickReply || !hasSelectedSkillWithAllowedTools(instructionBundle) {
 		return decision
 	}
 	decision.Classification = IntakeClassificationBoundedTask
@@ -312,13 +312,13 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	return decision
 }
 
-func hasSelectedSkillWithRequiredTools(instructionBundle InstructionBundle) bool {
-	requiredToolCountBySkillName := map[string]int{}
+func hasSelectedSkillWithAllowedTools(instructionBundle InstructionBundle) bool {
+	allowedToolCountBySkillName := map[string]int{}
 	for _, skillInstruction := range instructionBundle.Skills {
-		requiredToolCountBySkillName[skillInstruction.Name] = len(appendUniqueStrings(skillInstruction.RequiredTools, skillInstruction.AllowedTools...))
+		allowedToolCountBySkillName[skillInstruction.Name] = len(SkillToolNames(skillInstruction))
 	}
 	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Status == "selected" && requiredToolCountBySkillName[skillDecision.Name] > 0 {
+		if skillDecision.Status == "selected" && allowedToolCountBySkillName[skillDecision.Name] > 0 {
 			return true
 		}
 	}

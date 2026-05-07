@@ -210,7 +210,7 @@ func skillInstructionFromBundle(skillBundle skill.SkillBundle) agent.SkillInstru
 		Activation:      agent.SkillActivation(skillBundle.Activation),
 		Completion:      agent.SkillCompletion(skillBundle.Completion),
 		Quality:         agent.SkillQuality(skillBundle.Quality),
-		RequiredTools:   append([]string{}, skillBundle.RequiredTools...),
+		AllowedTools:    append([]string{}, skillBundle.AllowedTools...),
 		AllowedProfiles: append([]string{}, skillBundle.AllowedProfiles...),
 		TriggerHints:    append([]string{}, skillBundle.TriggerHints...),
 		References:      append([]string{}, skillBundle.References...),

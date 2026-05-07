@@ -3,7 +3,88 @@
   "capabilities": {
     "endpoint": "http://127.0.0.1:7781",
     "unixSocketPath": "/run/internkim/capability.sock",
-    "timeoutSecond": 15
+    "timeoutSecond": 15,
+    "toolNames": [
+      "browser.open",
+      "user.confirm",
+      "file.pick"
+    ],
+    "toolDescriptors": [
+      {
+        "name": "browser.open",
+        "version": "1",
+        "privacyClass": "user_browser",
+        "estimatedLatency": "interactive",
+        "requiresUserPresence": true,
+        "worksOffline": false,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "startURL": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "sideEffectClass": "browser"
+      },
+      {
+        "name": "user.confirm",
+        "version": "1",
+        "privacyClass": "user_input",
+        "estimatedLatency": "interactive",
+        "requiresUserPresence": true,
+        "worksOffline": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        "sideEffectClass": "approval",
+        "requiresApproval": true
+      },
+      {
+        "name": "file.pick",
+        "version": "1",
+        "privacyClass": "local_file",
+        "estimatedLatency": "interactive",
+        "requiresUserPresence": true,
+        "worksOffline": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "accept": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "multiple": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "sideEffectClass": "local_file",
+        "requiresApproval": true
+      }
+    ]
   },
   "languageModel": {
     "defaultProvider": "capabilityLLM",

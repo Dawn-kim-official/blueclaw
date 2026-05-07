@@ -25,9 +25,9 @@ func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
 		Input: agent.MarshalToolInput(map[string]any{
 			"paths": []string{"deck.pptx", "deck.pdf", "deck.html", "deck-notes.txt"},
@@ -52,7 +52,7 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		Platform:          "mattermost",
@@ -60,7 +60,7 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 		ReplyTargetID:     "reply-target-1",
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
 			"name":           "daily research",
@@ -95,14 +95,14 @@ func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		Platform:          "mattermost",
 		ConversationID:    "channel-1",
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
 			"prompt":         "오늘 일정을 보고 매일 아침 브리핑해줘.",
@@ -147,9 +147,9 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	writeResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path":    "/workspace/deck/presentation.md",
@@ -169,7 +169,7 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 		t.Fatal(errorValue)
 	}
 
-	attachResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path": "/workspace/deck/presentation.md",
@@ -195,7 +195,7 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
@@ -203,7 +203,7 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 		},
 	})
 
-	writeResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path":    "/workspace/circles/finance/report.md",
@@ -217,7 +217,7 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 		t.Fatalf("expected file.write denial, got %+v", writeResult)
 	}
 
-	attachResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path": "/workspace/circles/finance/report.md",
@@ -235,7 +235,7 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
@@ -243,7 +243,7 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path":    "/workspace/circles/finance/report.md",
@@ -262,7 +262,7 @@ func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		ConversationID:    "dm:channel-1",
@@ -272,7 +272,7 @@ func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path":    "notes.md",
@@ -298,7 +298,7 @@ func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		RequesterPersonID:       "person-1",
 		ConversationID:          "channel:channel-1",
@@ -311,7 +311,7 @@ func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path":    "report.md",
@@ -334,7 +334,7 @@ func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		RequesterPersonID:       "person-1",
 		ConversationID:          "thread:channel-1:post-1",
@@ -347,7 +347,7 @@ func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path":    "status.md",
@@ -375,7 +375,7 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	writeTestFile(t, filepath.Join(privateDirectoryPath, "notes.md"), "private")
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		ConversationID:    "dm:channel-1",
@@ -385,7 +385,7 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
 		Input: agent.MarshalToolInput(map[string]string{
 			"path": "notes.md",
@@ -413,9 +413,9 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 		OutputMaxBytes:    4096,
 		SessionMaxCount:   2,
 	}))
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
 		Input: agent.MarshalToolInput(map[string]any{
 			"command":              "mkdir -p /workspace/deck && printf ok > /workspace/deck/result.txt",
@@ -448,7 +448,7 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		OutputMaxBytes:    4096,
 		SessionMaxCount:   2,
 	}))
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
 		ConversationID:    "dm:channel-1",
@@ -458,7 +458,7 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
 		Input: agent.MarshalToolInput(map[string]any{
 			"command": "pwd",
@@ -491,7 +491,7 @@ func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
 		OutputMaxBytes:    4096,
 		SessionMaxCount:   2,
 	}))
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
@@ -499,7 +499,7 @@ func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
 		},
 	})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
 		Input: agent.MarshalToolInput(map[string]any{
 			"command":              "printf no",
@@ -522,9 +522,9 @@ func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 	toolCatalogBuilder.UseSkillChangeHandler(func(context.Context) {
 		refreshCount++
 	})
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.add",
 		Input: agent.MarshalToolInput(map[string]string{
 			"name":    "research-helper",
@@ -561,7 +561,7 @@ func TestSkillAddWritesAllowedResources(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: report-helper
 description: Help create reports from source material.
@@ -570,7 +570,7 @@ when_to_use: Use for report writing requests.
 Use references/reporting.md and scripts/build_report.sh when needed.
 `
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.add",
 		Input: agent.MarshalToolInput(map[string]any{
 			"name":    "report-helper",
@@ -608,9 +608,9 @@ func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
 	writeTestFile(t, filepath.Join(skillDirectoryPath, "SKILL.md"), userSkillDocument("research-helper"))
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.remove",
 		Input: agent.MarshalToolInput(map[string]string{
 			"name": "research-helper",
@@ -631,9 +631,9 @@ func TestSkillRemoveMissingSkillIsNonFatal(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.remove",
 		Input: agent.MarshalToolInput(map[string]string{
 			"name": "missing-skill",
@@ -651,12 +651,12 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, input := range []map[string]string{
 		{"name": "../escape", "content": userSkillDocument("escape")},
 		{"name": "simple-slides", "content": userSkillDocument("simple-slides")},
 	} {
-		result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: "skill.add",
 			Input:    agent.MarshalToolInput(input),
 		})
@@ -668,7 +668,7 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 		}
 	}
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.remove",
 		Input: agent.MarshalToolInput(map[string]string{
 			"name": "agent-browser",
@@ -686,16 +686,16 @@ func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, content := range []string{
 		"---\nname: broken\ndescription: Broken",
 		"---\nname: custom\nsummary: no\n---\nBody.",
 		"---\nname: custom\ntags: [one]\n---\nBody.",
 		"---\nname: custom\ntriggerHints: [one]\n---\nBody.",
-		"---\nname: custom\nrequiredTools: [terminal.run]\n---\nBody.",
+		"---\nname: custom\ncustomToolDependency: [terminal.run]\n---\nBody.",
 		"---\nname: custom\nallowedProfiles: [default]\n---\nBody.",
 	} {
-		result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: "skill.add",
 			Input: agent.MarshalToolInput(map[string]string{
 				"name":    "broken",
@@ -715,7 +715,7 @@ func TestSkillAddRejectsInvalidResourcePaths(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, resourcePath := range []string{
 		"../escape.md",
 		"/workspace/escape.md",
@@ -723,7 +723,7 @@ func TestSkillAddRejectsInvalidResourcePaths(t *testing.T) {
 		".hidden/file.md",
 		"notes/file.md",
 	} {
-		result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: "skill.add",
 			Input: agent.MarshalToolInput(map[string]any{
 				"name":    "resource-helper",
@@ -747,7 +747,7 @@ func TestSkillAddReturnsQualityWarnings(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: tiny-helper
 description: Tiny.
@@ -755,7 +755,7 @@ description: Tiny.
 Use references/missing.md.
 `
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.add",
 		Input: agent.MarshalToolInput(map[string]any{
 			"name":    "tiny-helper",
@@ -789,7 +789,7 @@ func TestSkillAddReturnsLongBodyAndMissingScriptWarnings(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: long-helper
 description: Help with long deterministic workflows.
@@ -798,7 +798,7 @@ when_to_use: Use for long workflow requests.
 Use scripts/missing.sh when needed.
 ` + strings.Repeat("step\n", longSkillBodyLineCount+1)
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.add",
 		Input: agent.MarshalToolInput(map[string]string{
 			"name":    "long-helper",
@@ -826,13 +826,13 @@ func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, path := range []string{
 		"/workspace/skills/bash/SKILL.md",
 		"/workspace/skills/.internkim-skills-manifest.json",
 		"/workspace/.agents/skills/agent-browser/SKILL.md",
 	} {
-		result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: "file.write",
 			Input: agent.MarshalToolInput(map[string]string{
 				"path":    path,

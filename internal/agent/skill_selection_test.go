@@ -14,22 +14,22 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 		Prompt: "base",
 		Skills: []SkillInstruction{
 			{
-				Name:          "simple-slides",
-				Description:   "Create presentation decks.",
-				WhenToUse:     "Use for 피피티, 파워포인트, 발표자료, and PPTX requests.",
-				Category:      "document-generation",
-				Tags:          []string{"slides", "pptx"},
-				Prompt:        "Generate PPTX with Marp.",
-				TriggerHints:  []string{"피피티", "파워포인트", "발표자료", "pptx"},
-				RequiredTools: []string{"terminal.run", "file.write", "file.attach"},
-				Source:        InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Name:         "simple-slides",
+				Description:  "Create presentation decks.",
+				WhenToUse:    "Use for 피피티, 파워포인트, 발표자료, and PPTX requests.",
+				Category:     "document-generation",
+				Tags:         []string{"slides", "pptx"},
+				Prompt:       "Generate PPTX with Marp.",
+				TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
 		},
 	}
 
 	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
-		Prompt:       "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
-		ToolRegistry: testToolRegistry([]string{"terminal.run", "file.write", "file.attach"}),
+		Prompt:  "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
+		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.attach"}),
 	})
 
 	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
@@ -51,13 +51,13 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 		Prompt: "base",
 		Skills: []SkillInstruction{
 			{
-				Name:          "simple-slides",
-				Description:   "Create presentation decks.",
-				WhenToUse:     "Use for 피피티 and PPTX requests.",
-				Prompt:        "Generate PPTX with Marp.",
-				TriggerHints:  []string{"피피티", "pptx"},
-				RequiredTools: []string{"terminal.run", "file.write", "file.attach"},
-				Source:        InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Name:         "simple-slides",
+				Description:  "Create presentation decks.",
+				WhenToUse:    "Use for 피피티 and PPTX requests.",
+				Prompt:       "Generate PPTX with Marp.",
+				TriggerHints: []string{"피피티", "pptx"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
 		},
 	}
@@ -67,7 +67,7 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "user", Text: "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐"},
 		}},
-		ToolRegistry: testToolRegistry([]string{"terminal.run", "file.write", "file.attach"}),
+		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.attach"}),
 	})
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
@@ -81,9 +81,9 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 func TestSkillSelectorIncludesSimpleSlidesInstructionForPresentationAliases(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
-		Name:          "simple-slides",
-		TriggerHints:  []string{"피피티", "파워포인트", "발표자료", "pptx"},
-		RequiredTools: []string{"terminal.run", "file.write", "file.attach"},
+		Name:         "simple-slides",
+		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx"},
+		AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
 	}
 	for _, prompt := range []string{
 		"피피티 만들어줘",
@@ -91,30 +91,30 @@ func TestSkillSelectorIncludesSimpleSlidesInstructionForPresentationAliases(t *t
 		"발표자료 만들어줘",
 		"pptx 파일로 보내줘",
 	} {
-		request := AgentRequest{Prompt: prompt, ToolRegistry: testToolRegistry([]string{"terminal.run", "file.write", "file.attach"})}
+		request := AgentRequest{Prompt: prompt, ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.attach"})}
 		if !skillSelector.ShouldInclude(skillInstruction, request) {
 			t.Fatalf("expected simple-slides for prompt %q", prompt)
 		}
 	}
 }
 
-func TestSkillSelectorSkipsSkillWhenRequiredToolIsMissing(t *testing.T) {
+func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
-		Name:          "simple-slides",
-		TriggerHints:  []string{"피피티"},
-		RequiredTools: []string{"terminal.run", "file.write", "file.attach"},
+		Name:         "simple-slides",
+		TriggerHints: []string{"피피티"},
+		AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
 	}
 	request := AgentRequest{
-		Prompt:       "피피티 만들어줘",
-		ToolRegistry: testToolRegistry([]string{"terminal.run", "file.write"}),
+		Prompt:  "피피티 만들어줘",
+		ToolSet: testToolSet([]string{"terminal.run", "file.write"}),
 	}
 
 	decision := skillSelector.Evaluate(skillInstruction, request, "default")
 	if decision.Status == "selected" {
 		t.Fatal("expected simple-slides to be skipped without file.attach")
 	}
-	if decision.Reason != "missing_required_tools" || len(decision.MissingTools) != 1 || decision.MissingTools[0] != "file.attach" {
+	if decision.Reason != "missing_allowed_tools" || len(decision.MissingTools) != 1 || decision.MissingTools[0] != "file.attach" {
 		t.Fatalf("expected missing tool reason, got %+v", decision)
 	}
 }
@@ -167,25 +167,25 @@ func TestSelectInstructionBundleKeepsUnselectedFullSkillBodyOutOfPrompt(t *testi
 		Prompt: "base",
 		Skills: []SkillInstruction{
 			{
-				Name:          "simple-slides",
-				Description:   "Create decks.",
-				Prompt:        "Generate PPTX with Marp.",
-				TriggerHints:  []string{"피피티"},
-				RequiredTools: []string{"terminal.run"},
+				Name:         "simple-slides",
+				Description:  "Create decks.",
+				Prompt:       "Generate PPTX with Marp.",
+				TriggerHints: []string{"피피티"},
+				AllowedTools: []string{"terminal.run"},
 			},
 			{
-				Name:          "create-gws-file",
-				Description:   "Create spreadsheets.",
-				Prompt:        "SECRET FULL BODY",
-				TriggerHints:  []string{"spreadsheet"},
-				RequiredTools: []string{"terminal.run"},
+				Name:         "create-gws-file",
+				Description:  "Create spreadsheets.",
+				Prompt:       "SECRET FULL BODY",
+				TriggerHints: []string{"spreadsheet"},
+				AllowedTools: []string{"terminal.run"},
 			},
 		},
 	}
 
 	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
-		Prompt:       "피피티 만들어줘",
-		ToolRegistry: testToolRegistry([]string{"terminal.run"}),
+		Prompt:  "피피티 만들어줘",
+		ToolSet: testToolSet([]string{"terminal.run"}),
 	})
 
 	if strings.Contains(selectedBundle.Prompt, "SECRET FULL BODY") {
@@ -590,8 +590,8 @@ func keywordEmbeddingValue(input string, keywords []string) float32 {
 	return 0
 }
 
-func testToolRegistry(toolNames []string) *ToolRegistry {
-	toolRegistry := NewToolRegistry(toolNames)
+func testToolSet(toolNames []string) *ToolSet {
+	toolRegistry := newTestToolSet(toolNames)
 	for _, toolName := range toolNames {
 		toolRegistry.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolResult{}, nil

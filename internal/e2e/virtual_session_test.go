@@ -93,7 +93,7 @@ func TestToolPermissionHidesSkill(t *testing.T) {
 	if eventsContain(turnResult.Events, "agent.instructions_loaded", `"status":"selected"`) {
 		t.Fatal("expected missing terminal/file attach tools to hide full skill selection")
 	}
-	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "missing_required_tools") {
+	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "missing_allowed_tools") {
 		t.Fatal("expected missing tool skip reason")
 	}
 }

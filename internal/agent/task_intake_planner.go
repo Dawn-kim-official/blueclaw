@@ -43,7 +43,7 @@ type AgentRequest struct {
 	Prompt               string
 	VisibleContext       VisibleContext
 	MemoryFacts          []memory.MemoryFact
-	ToolRegistry         *ToolRegistry
+	ToolSet              *ToolSet
 	WorkspaceRootPath    string
 	ActivePaths          []string
 	InstructionPrompt    string
@@ -114,8 +114,8 @@ func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Con
 
 func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) []llm.Message {
 	toolDescriptions := "No tools are available."
-	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 {
-		toolNames := request.ToolRegistry.ListToolNames()
+	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 {
+		toolNames := request.ToolSet.ListToolNames()
 		toolDescriptions = "Available tools: " + strings.Join(toolNames, ", ")
 	}
 	messages := []llm.Message{
@@ -140,12 +140,12 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	classification := IntakeClassificationQuickReply
 	reason := "short request can be answered directly"
 	effortLevel := EffortLevelQuick
-	if hasTool(request.ToolRegistry, "schedule.create") && looksLikeScheduleRequest(prompt) {
+	if hasTool(request.ToolSet, "schedule.create") && looksLikeScheduleRequest(prompt) {
 		classification = IntakeClassificationBoundedTask
 		reason = "request asks to create a recurring or scheduled task"
 		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
 	}
-	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
+	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
 		classification = IntakeClassificationBoundedTask
 		reason = "request may benefit from bounded tool use"
 		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
@@ -250,7 +250,7 @@ func deterministicTaskShape(request AgentRequest, classification IntakeClassific
 	if requestRequiresFollowUpToolWork(request) {
 		return TaskShapeBrowserHandoffTask
 	}
-	if hasToolPrefix(request.ToolRegistry, "browser.") && containsAny(prompt, []string{"browser", "website", "web", "브라우저", "사이트", "페이지"}) {
+	if hasToolPrefix(request.ToolSet, "browser.") && containsAny(prompt, []string{"browser", "website", "web", "브라우저", "사이트", "페이지"}) {
 		return TaskShapeBrowserHandoffTask
 	}
 	if looksLikeScheduleRequest(prompt) {
@@ -300,7 +300,7 @@ func looksLikeToolRequest(prompt string) bool {
 }
 
 func requestRequiresFollowUpToolWork(request AgentRequest) bool {
-	if !hasToolPrefix(request.ToolRegistry, "browser.") {
+	if !hasToolPrefix(request.ToolSet, "browser.") {
 		return false
 	}
 	return looksLikeBrowserFollowUp(strings.ToLower(strings.TrimSpace(request.Prompt))) && visibleContextMentionsBrowserWork(request.VisibleContext)
@@ -328,7 +328,7 @@ func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decisio
 	if looksLikeDestructiveLocalWork(prompt) {
 		return false
 	}
-	if !hasAllTools(request.ToolRegistry, []string{"terminal.run", "file.write", "file.attach"}) {
+	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.attach"}) {
 		return false
 	}
 	artifactWords := []string{"slide", "slides", "deck", "presentation", "ppt", "pptx", "pdf", "html", "artifact", "attach", "피피티", "파워포인트", "발표자료", "슬라이드", "자료", "첨부", "보내"}
@@ -340,7 +340,7 @@ func looksLikeDestructiveLocalWork(prompt string) bool {
 	return containsAny(prompt, destructiveWords)
 }
 
-func hasAllTools(toolRegistry *ToolRegistry, toolNames []string) bool {
+func hasAllTools(toolRegistry *ToolSet, toolNames []string) bool {
 	if toolRegistry == nil {
 		return false
 	}
@@ -356,7 +356,7 @@ func hasAllTools(toolRegistry *ToolRegistry, toolNames []string) bool {
 	return true
 }
 
-func hasTool(toolRegistry *ToolRegistry, toolName string) bool {
+func hasTool(toolRegistry *ToolSet, toolName string) bool {
 	if toolRegistry == nil {
 		return false
 	}
@@ -388,24 +388,24 @@ func minimumEffortLevelForRequest(request AgentRequest) EffortLevel {
 	if deterministicTaskShape(request, IntakeClassificationBoundedTask) == TaskShapeScheduledTask {
 		return EffortLevelExtended
 	}
-	if hasToolPrefix(request.ToolRegistry, "browser.") {
+	if hasToolPrefix(request.ToolSet, "browser.") {
 		if looksLikeBrowserControlSequence(prompt) {
 			return EffortLevelDeep
 		}
-		if !hasToolPrefix(request.ToolRegistry, "web.") {
+		if !hasToolPrefix(request.ToolSet, "web.") {
 			return EffortLevelDeep
 		}
 	}
-	if hasToolPrefix(request.ToolRegistry, "file.") || hasToolPrefix(request.ToolRegistry, "user.") {
+	if hasToolPrefix(request.ToolSet, "file.") || hasToolPrefix(request.ToolSet, "user.") {
 		return EffortLevelStandard
 	}
-	if request.ToolRegistry != nil && len(request.ToolRegistry.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
+	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
 		return EffortLevelStandard
 	}
 	return EffortLevelQuick
 }
 
-func hasToolPrefix(toolRegistry *ToolRegistry, prefix string) bool {
+func hasToolPrefix(toolRegistry *ToolSet, prefix string) bool {
 	if toolRegistry == nil {
 		return false
 	}

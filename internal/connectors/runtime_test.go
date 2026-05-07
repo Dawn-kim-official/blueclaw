@@ -317,7 +317,7 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 
 func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T) {
 	languageModel := &connectorSequenceLanguageModel{contents: []string{
-		`{"action":"fetch_history","toolInput":{"limit":20}}`,
+		`{"action":"call_tool","toolName":"conversation.history","toolInput":{"limit":20}}`,
 		connectorFinalReplyWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
 	}}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -436,7 +436,7 @@ func TestConnectorRuntimeExposesAllowedMcpSchemaCatalog(t *testing.T) {
 	})
 	connectorRuntime.UseMCPRegistry(mcpRegistry)
 
-	toolRegistry := connectorRuntime.buildTurnToolRegistry(adapter, testInboundEvent("message-1"), "person-1", policy.PersonAccess{})
+	toolRegistry := connectorRuntime.buildTurnToolSet(adapter, testInboundEvent("message-1"), "person-1", policy.PersonAccess{})
 	allowedToolDefinition, isFound := findAgentToolDefinition(toolRegistry.ListToolDefinitions(), "allowed.tool")
 	if !isFound {
 		t.Fatalf("expected allowed MCP tool definition, got %+v", toolRegistry.ListToolDefinitions())
@@ -451,7 +451,7 @@ func TestConnectorRuntimeExposesAllowedMcpSchemaCatalog(t *testing.T) {
 		t.Fatalf("expected blocked MCP tool to be hidden, got %+v", toolRegistry.ListToolDefinitions())
 	}
 
-	toolResult, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
+	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{ToolName: "blocked.tool", Input: json.RawMessage(`{}`)})
 	if errorValue != nil {
 		t.Fatalf("expected policy denial as tool result: %v", errorValue)
 	}

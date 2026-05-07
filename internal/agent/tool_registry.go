@@ -9,9 +9,12 @@ import (
 )
 
 type ToolDefinition struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description"`
+	InputSchema     json.RawMessage `json:"inputSchema,omitempty"`
+	OutputSchema    json.RawMessage `json:"outputSchema,omitempty"`
+	PolicyResource  string          `json:"policyResource,omitempty"`
+	SideEffectClass string          `json:"sideEffectClass,omitempty"`
 }
 
 type ToolInvocation struct {
@@ -45,13 +48,36 @@ type ToolResult struct {
 
 type ToolHandler func(context.Context, ToolInvocation) (ToolResult, error)
 
-type ToolRegistry struct {
-	allowedToolNameByName map[string]bool
-	definitionByName      map[string]ToolDefinition
-	handlerByName         map[string]ToolHandler
+const (
+	ToolAvailabilityAvailable   = "available"
+	ToolAvailabilityAsk         = "ask"
+	ToolAvailabilityUnavailable = "unavailable"
+	ToolAvailabilityDenied      = "denied"
+)
+
+type ToolAvailability struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
 }
 
-func NewToolRegistry(allowedToolNames []string) *ToolRegistry {
+type BoundTool struct {
+	Definition   ToolDefinition
+	Availability ToolAvailability
+	Handler      ToolHandler
+}
+
+type ToolFunction[Input any, Output any] struct {
+	Definition ToolDefinition
+	Handler    func(context.Context, Input) (Output, error)
+	Result     func(Output) ToolResult
+}
+
+type ToolSet struct {
+	allowedToolNameByName map[string]bool
+	boundToolByName       map[string]BoundTool
+}
+
+func NewToolSet(allowedToolNames []string) *ToolSet {
 	allowedToolNameByName := map[string]bool{}
 	for _, allowedToolName := range allowedToolNames {
 		trimmedToolName := strings.TrimSpace(allowedToolName)
@@ -59,74 +85,138 @@ func NewToolRegistry(allowedToolNames []string) *ToolRegistry {
 			allowedToolNameByName[trimmedToolName] = true
 		}
 	}
-	return &ToolRegistry{
+	return &ToolSet{
 		allowedToolNameByName: allowedToolNameByName,
-		definitionByName:      map[string]ToolDefinition{},
-		handlerByName:         map[string]ToolHandler{},
+		boundToolByName:       map[string]BoundTool{},
 	}
 }
 
-func (toolRegistry *ToolRegistry) RegisterTool(toolDefinition ToolDefinition, toolHandler ToolHandler) {
-	toolName := strings.TrimSpace(toolDefinition.Name)
-	if toolName == "" || toolHandler == nil {
+func (toolSet *ToolSet) RegisterTool(toolDefinition ToolDefinition, toolHandler ToolHandler) {
+	toolSet.RegisterBoundTool(BoundTool{
+		Definition:   toolDefinition,
+		Availability: ToolAvailability{Status: ToolAvailabilityAvailable},
+		Handler:      toolHandler,
+	})
+}
+
+func (toolSet *ToolSet) RegisterTypedTool(toolDefinition ToolDefinition, toolHandler ToolHandler) {
+	toolSet.RegisterTool(toolDefinition, toolHandler)
+}
+
+func RegisterToolFunction[Input any, Output any](toolSet *ToolSet, toolFunction ToolFunction[Input, Output]) {
+	if toolSet == nil || toolFunction.Handler == nil {
 		return
 	}
-	toolDefinition.Name = toolName
-	toolRegistry.definitionByName[toolName] = toolDefinition
-	toolRegistry.handlerByName[toolName] = toolHandler
+	toolSet.RegisterTool(toolFunction.Definition, func(toolContext context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+		var input Input
+		if errorValue := UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
+			return ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		}
+		output, errorValue := toolFunction.Handler(toolContext, input)
+		if errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		if toolFunction.Result != nil {
+			return toolFunction.Result(output), nil
+		}
+		return ToolResult{Content: marshalTypedToolOutput(output)}, nil
+	})
 }
 
-func (toolRegistry *ToolRegistry) IsAllowed(toolName string) bool {
+func IdentityToolResult(toolResult ToolResult) ToolResult {
+	return toolResult
+}
+
+func (toolSet *ToolSet) RegisterBoundTool(boundTool BoundTool) {
+	if toolSet == nil {
+		return
+	}
+	toolDefinition := boundTool.Definition
+	toolName := strings.TrimSpace(toolDefinition.Name)
+	if toolName == "" || boundTool.Handler == nil {
+		return
+	}
+	if strings.TrimSpace(boundTool.Availability.Status) == "" {
+		boundTool.Availability.Status = ToolAvailabilityAvailable
+	}
+	toolDefinition.Name = toolName
+	boundTool.Definition = toolDefinition
+	toolSet.boundToolByName[toolName] = boundTool
+}
+
+func (toolSet *ToolSet) IsAllowed(toolName string) bool {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if trimmedToolName == "" {
 		return false
 	}
-	if len(toolRegistry.allowedToolNameByName) == 0 {
-		_, isRegistered := toolRegistry.handlerByName[trimmedToolName]
-		return isRegistered
+	boundTool, isRegistered := toolSet.boundToolByName[trimmedToolName]
+	if !isRegistered {
+		return false
 	}
-	return toolRegistry.allowedToolNameByName[trimmedToolName]
+	if len(toolSet.allowedToolNameByName) > 0 && !toolSet.allowedToolNameByName[trimmedToolName] {
+		return false
+	}
+	return isExposedToolAvailability(boundTool.Availability)
 }
 
-func (toolRegistry *ToolRegistry) InvokeTool(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+func (toolSet *ToolSet) Invoke(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 	toolName := strings.TrimSpace(toolInvocation.ToolName)
-	if !toolRegistry.IsAllowed(toolName) {
+	if !toolSet.IsAllowed(toolName) {
 		return ToolResult{Content: "tool is not allowed", IsError: true}, nil
 	}
-	toolHandler, isFound := toolRegistry.handlerByName[toolName]
+	boundTool, isFound := toolSet.boundToolByName[toolName]
 	if !isFound {
 		return ToolResult{Content: "tool is not registered", IsError: true}, nil
 	}
 	toolInvocation.ToolName = toolName
-	return toolHandler(ctx, toolInvocation)
+	return boundTool.Handler(ctx, toolInvocation)
 }
 
-func (toolRegistry *ToolRegistry) ListToolDefinitions() []ToolDefinition {
+func (toolSet *ToolSet) ListToolDefinitions() []ToolDefinition {
 	toolDefinitions := []ToolDefinition{}
-	for toolName, toolDefinition := range toolRegistry.definitionByName {
-		if toolRegistry.IsAllowed(toolName) {
-			toolDefinitions = append(toolDefinitions, toolDefinition)
+	for toolName, boundTool := range toolSet.boundToolByName {
+		if toolSet.IsAllowed(toolName) {
+			toolDefinitions = append(toolDefinitions, boundTool.Definition)
 		}
 	}
+	sort.SliceStable(toolDefinitions, func(leftIndex int, rightIndex int) bool {
+		return toolDefinitions[leftIndex].Name < toolDefinitions[rightIndex].Name
+	})
 	return toolDefinitions
 }
 
-func (toolRegistry *ToolRegistry) ListToolNames() []string {
-	toolNameByName := map[string]bool{}
-	for toolName := range toolRegistry.allowedToolNameByName {
-		toolNameByName[toolName] = true
-	}
-	for toolName := range toolRegistry.definitionByName {
-		if toolRegistry.IsAllowed(toolName) {
-			toolNameByName[toolName] = true
-		}
-	}
+func (toolSet *ToolSet) ListToolNames() []string {
 	toolNames := []string{}
-	for toolName := range toolNameByName {
-		toolNames = append(toolNames, toolName)
+	for toolName := range toolSet.boundToolByName {
+		if toolSet.IsAllowed(toolName) {
+			toolNames = append(toolNames, toolName)
+		}
 	}
 	sort.Strings(toolNames)
 	return toolNames
+}
+
+func (toolSet *ToolSet) Descriptions() string {
+	if toolSet == nil {
+		return ""
+	}
+	toolDefinitions := toolSet.ListToolDefinitions()
+	if len(toolDefinitions) == 0 {
+		return ""
+	}
+	lines := []string{"Available tools:"}
+	for _, toolDefinition := range toolDefinitions {
+		line := "- " + toolDefinition.Name
+		description := firstNonEmptyString(specificToolDescription(toolDefinition.Name), toolDefinition.Description)
+		if strings.TrimSpace(description) != "" {
+			line += ": " + strings.TrimSpace(description)
+		}
+		if inputSchema := toolDefinitionInputSchema(toolDefinition); len(inputSchema) > 0 {
+			line += " Input schema: " + strings.TrimSpace(string(inputSchema))
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func MarshalToolInput(value any) json.RawMessage {
@@ -146,4 +236,21 @@ func UnmarshalToolInput(input json.RawMessage, value any) error {
 		return errors.New("tool input is not valid json: " + errorValue.Error())
 	}
 	return nil
+}
+
+func isExposedToolAvailability(toolAvailability ToolAvailability) bool {
+	switch strings.TrimSpace(toolAvailability.Status) {
+	case "", ToolAvailabilityAvailable, ToolAvailabilityAsk:
+		return true
+	default:
+		return false
+	}
+}
+
+func marshalTypedToolOutput(value any) string {
+	document, errorValue := json.Marshal(value)
+	if errorValue != nil {
+		return ""
+	}
+	return string(document)
 }

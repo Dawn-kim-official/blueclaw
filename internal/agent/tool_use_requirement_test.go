@@ -3,11 +3,11 @@ package agent
 import "testing"
 
 func TestGoogleWorkspaceAvoidanceDoesNotRequireBrowserEvidence(t *testing.T) {
-	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.snapshot", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "file.attach"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:       "구글 워크스페이스는 쓰지 말고 Marp로 로컬 PPTX PDF HTML notes 파일을 첨부해줘.",
-		ToolRegistry: toolRegistry,
+		Prompt:  "구글 워크스페이스는 쓰지 말고 Marp로 로컬 PPTX PDF HTML notes 파일을 첨부해줘.",
+		ToolSet: toolRegistry,
 	})
 
 	for _, requirement := range requirements {
@@ -18,11 +18,11 @@ func TestGoogleWorkspaceAvoidanceDoesNotRequireBrowserEvidence(t *testing.T) {
 }
 
 func TestGoogleSearchStillRequiresBrowserEvidence(t *testing.T) {
-	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.snapshot"})
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:       "구글에서 회사 정보를 검색해줘",
-		ToolRegistry: toolRegistry,
+		Prompt:  "구글에서 회사 정보를 검색해줘",
+		ToolSet: toolRegistry,
 	})
 
 	if len(requirements) != 1 || requirements[0].ToolPrefix != "browser." {
@@ -31,11 +31,11 @@ func TestGoogleSearchStillRequiresBrowserEvidence(t *testing.T) {
 }
 
 func TestBrowserRetryWithVisibleContextRequiresBrowserEvidence(t *testing.T) {
-	toolRegistry := NewToolRegistry([]string{"browser.open", "browser.snapshot"})
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:       "다시 열어봐",
-		ToolRegistry: toolRegistry,
+		Prompt:  "다시 열어봐",
+		ToolSet: toolRegistry,
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},

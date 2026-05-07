@@ -36,6 +36,7 @@ type ToolCatalogBuilder struct {
 	mcpRegistry               *mcp.McpRegistry
 	capabilityClient          capability.Client
 	capabilityToolNames       []string
+	capabilityToolDescriptors []CapabilityToolDescriptor
 	terminalService           *security.TerminalSessionService
 	taskRunService            *task.TaskRunService
 	taskScheduleRepository    task.TaskScheduleRepository
@@ -69,6 +70,16 @@ type ToolCatalogRequest struct {
 	AccessibleConversationIDs []string
 }
 
+type CapabilityToolDescriptor struct {
+	Name             string
+	Description      string
+	InputSchema      json.RawMessage
+	OutputSchema     json.RawMessage
+	PolicyResource   string
+	SideEffectClass  string
+	RequiresApproval bool
+}
+
 type terminalSessionToolInput struct {
 	Action               string            `json:"action"`
 	SessionID            string            `json:"sessionID"`
@@ -77,6 +88,39 @@ type terminalSessionToolInput struct {
 	WorkingDirectoryPath string            `json:"workingDirectoryPath"`
 	EnvironmentVariables map[string]string `json:"environmentVariables"`
 	TimeoutSecond        int               `json:"timeoutSecond"`
+}
+
+type historyToolInput struct {
+	HistoryCursor string `json:"historyCursor"`
+	Limit         int    `json:"limit"`
+	Direction     string `json:"direction"`
+}
+
+type memorySearchToolInput struct {
+	Query string `json:"query"`
+}
+
+type browserHandoffOpenURLToolInput struct {
+	URL string `json:"url"`
+}
+
+type approvalRequestToolInput struct {
+	Message string `json:"message"`
+	Reason  string `json:"reason"`
+}
+
+type fileWriteToolInput struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Mode    uint32 `json:"mode"`
+}
+
+type fileAttachToolInput struct {
+	Path        string   `json:"path"`
+	Paths       []string `json:"paths"`
+	Filename    string   `json:"filename"`
+	ContentType string   `json:"contentType"`
+	Title       string   `json:"title"`
 }
 
 func NewToolCatalogBuilder() *ToolCatalogBuilder {
@@ -101,6 +145,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPRegistry(mcpRegistry *mcp.Mc
 func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityTools(capabilityClient capability.Client, toolNames []string) {
 	toolCatalogBuilder.capabilityClient = capabilityClient
 	toolCatalogBuilder.capabilityToolNames = trimNonEmptyStrings(toolNames)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityToolDescriptors(capabilityClient capability.Client, toolDescriptors []CapabilityToolDescriptor) {
+	toolCatalogBuilder.capabilityClient = capabilityClient
+	toolCatalogBuilder.capabilityToolDescriptors = copyCapabilityToolDescriptors(toolDescriptors)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTerminalService(terminalService *security.TerminalSessionService) {
@@ -130,18 +179,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) WorkspaceRootPath() string {
 	return strings.TrimSpace(toolCatalogBuilder.workspaceRootPath)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistry(request ToolCatalogRequest) *agent.ToolRegistry {
-	toolRegistry := agent.NewToolRegistry(toolCatalogBuilder.allowedToolNames(request.ProfileName))
+func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRequest) *agent.ToolSet {
+	toolSet := agent.NewToolSet(toolCatalogBuilder.allowedToolNames(request.ProfileName))
 	handlerContext := toolHandlerContext{
 		request:           request,
 		conversationScope: toolCatalogBuilder.conversationScope(request),
 	}
-	toolCatalogBuilder.registerHistoryTool(toolRegistry, request)
-	toolCatalogBuilder.registerMemoryTool(toolRegistry, request)
-	toolCatalogBuilder.registerBuiltInTools(toolRegistry, handlerContext)
-	toolCatalogBuilder.registerMCPTools(toolRegistry)
-	toolCatalogBuilder.registerCapabilityTools(toolRegistry, request)
-	return toolRegistry
+	toolCatalogBuilder.registerHistoryTool(toolSet, request)
+	toolCatalogBuilder.registerMemoryTool(toolSet, request)
+	toolCatalogBuilder.registerBuiltInTools(toolSet, handlerContext)
+	toolCatalogBuilder.registerMCPTools(toolSet)
+	toolCatalogBuilder.registerCapabilityTools(toolSet, request)
+	return toolSet
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName string) []string {
@@ -155,63 +204,65 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "schedule.create"}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolRegistry, request ToolCatalogRequest) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
 	if request.HistoryProvider == nil {
 		return
 	}
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "conversation.history",
-		Description: "Fetch earlier visible messages for this conversation using the opaque history cursor.",
-	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-		var input struct {
-			HistoryCursor string `json:"historyCursor"`
-			Limit         int    `json:"limit"`
-			Direction     string `json:"direction"`
-		}
-		if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-			return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
-		}
-		historyCursor := firstNonEmptyString(input.HistoryCursor, request.HistoryCursor)
-		if historyCursor == "" {
-			return agent.ToolResult{Content: "history cursor is unavailable", IsError: true}, nil
-		}
-		limit := input.Limit
-		if limit <= 0 || limit > 50 {
-			limit = 20
-		}
-		visibleContext, errorValue := request.HistoryProvider.FetchHistory(toolContext, historyCursor, limit)
-		if errorValue != nil {
-			return agent.ToolResult{}, errorValue
-		}
-		return agent.ToolResult{Content: marshalToolResult(visibleContext)}, nil
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[historyToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "conversation.history",
+			Description: "Fetch earlier visible messages for this conversation using the opaque history cursor.",
+		},
+		Handler: func(toolContext context.Context, input historyToolInput) (agent.ToolResult, error) {
+			return fetchHistoryTool(toolContext, input, request)
+		},
+		Result: agent.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerMemoryTool(toolRegistry *agent.ToolRegistry, request ToolCatalogRequest) {
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "memory.search",
-		Description: "Search Blueclaw graph memory allowed for this requester and conversation.",
-	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-		var input struct {
-			Query string `json:"query"`
-		}
-		if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-			return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
-		}
-		query := firstNonEmptyString(input.Query, request.Prompt)
-		memoryFacts, errorValue := toolCatalogBuilder.SearchMemory(toolContext, TaskMemoryRequest{
-			Query:                     query,
-			RequesterPersonID:         request.RequesterPersonID,
-			ConversationID:            request.ConversationID,
-			PersonAccess:              request.PersonAccess,
-			MemoryNamespaces:          request.MemoryNamespaces,
-			AccessibleConversationIDs: request.AccessibleConversationIDs,
-		})
-		if errorValue != nil {
-			return agent.ToolResult{}, errorValue
-		}
-		return agent.ToolResult{Content: marshalToolResult(memoryFacts)}, nil
+func (toolCatalogBuilder *ToolCatalogBuilder) registerMemoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memorySearchToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "memory.search",
+			Description: "Search Blueclaw graph memory allowed for this requester and conversation.",
+		},
+		Handler: func(toolContext context.Context, input memorySearchToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.searchMemoryTool(toolContext, input, request)
+		},
+		Result: agent.IdentityToolResult,
 	})
+}
+
+func fetchHistoryTool(toolContext context.Context, input historyToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
+	historyCursor := firstNonEmptyString(input.HistoryCursor, request.HistoryCursor)
+	if historyCursor == "" {
+		return agent.ToolResult{Content: "history cursor is unavailable", IsError: true}, nil
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	visibleContext, errorValue := request.HistoryProvider.FetchHistory(toolContext, historyCursor, limit)
+	if errorValue != nil {
+		return agent.ToolResult{}, errorValue
+	}
+	return agent.ToolResult{Content: marshalToolResult(visibleContext)}, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input memorySearchToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
+	query := firstNonEmptyString(input.Query, request.Prompt)
+	memoryFacts, errorValue := toolCatalogBuilder.SearchMemory(toolContext, TaskMemoryRequest{
+		Query:                     query,
+		RequesterPersonID:         request.RequesterPersonID,
+		ConversationID:            request.ConversationID,
+		PersonAccess:              request.PersonAccess,
+		MemoryNamespaces:          request.MemoryNamespaces,
+		AccessibleConversationIDs: request.AccessibleConversationIDs,
+	})
+	if errorValue != nil {
+		return agent.ToolResult{}, errorValue
+	}
+	return agent.ToolResult{Content: marshalToolResult(memoryFacts)}, nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) SearchMemory(ctx context.Context, request TaskMemoryRequest) ([]memory.MemoryFact, error) {
@@ -231,52 +282,76 @@ func (toolCatalogBuilder *ToolCatalogBuilder) SearchMemory(ctx context.Context, 
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolRegistry, handlerContext toolHandlerContext) {
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "terminal.run",
-		Description: "Run a guarded non-interactive command inside the Blueclaw workspace.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["command"],"additionalProperties":false}`),
-	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-		return toolCatalogBuilder.runTerminalTool(toolContext, toolInvocation, handlerContext)
+func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[security.CommandRequest, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "terminal.run",
+			Description: "Run a guarded non-interactive command inside the Blueclaw workspace.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["command"],"additionalProperties":false}`),
+		},
+		Handler: func(toolContext context.Context, input security.CommandRequest) (agent.ToolResult, error) {
+			return toolCatalogBuilder.runTerminalTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
 	})
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "terminal.session",
-		Description: "Manage a PTY terminal session inside the Blueclaw workspace with action start, write, status, or close.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["action"],"additionalProperties":false}`),
-	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-		return toolCatalogBuilder.sessionTerminalTool(toolContext, toolInvocation, handlerContext)
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[terminalSessionToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "terminal.session",
+			Description: "Manage a PTY terminal session inside the Blueclaw workspace with action start, write, status, or close.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["action"],"additionalProperties":false}`),
+		},
+		Handler: func(toolContext context.Context, input terminalSessionToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.sessionTerminalTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
 	})
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "browser_handoff.openURL",
-		Description: "Ask the Companion bridge to open a URL on the user's computer without running shell commands.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
-	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-		return toolCatalogBuilder.openBrowserHandoffTool(toolContext, toolInvocation, handlerContext)
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[browserHandoffOpenURLToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "browser_handoff.openURL",
+			Description: "Ask the Companion bridge to open a URL on the user's computer without running shell commands.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
+		},
+		Handler: func(toolContext context.Context, input browserHandoffOpenURLToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.openBrowserHandoffTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
 	})
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "approval.request",
-		Description: "Pause the current task while waiting for explicit user approval.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"},"reason":{"type":"string"}},"required":["message"],"additionalProperties":false}`),
-	}, toolCatalogBuilder.requestApprovalTool)
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "file.write",
-		Description: "Write a UTF-8 text file under the Blueclaw workspace. Use this for markdown, scripts, and source files instead of shell redirection.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`),
-	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-		return toolCatalogBuilder.writeFileTool(toolContext, toolInvocation, handlerContext)
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[approvalRequestToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "approval.request",
+			Description: "Pause the current task while waiting for explicit user approval.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"},"reason":{"type":"string"}},"required":["message"],"additionalProperties":false}`),
+		},
+		Handler: toolCatalogBuilder.requestApprovalTool,
+		Result:  agent.IdentityToolResult,
 	})
-	toolRegistry.RegisterTool(agent.ToolDefinition{
-		Name:        "file.attach",
-		Description: "Attach one or more existing workspace files to the final reply evidence. Use paths for related artifact sets.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"filename":{"type":"string"},"contentType":{"type":"string"},"title":{"type":"string"}},"additionalProperties":false}`),
-	}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-		return toolCatalogBuilder.attachFileTool(toolContext, toolInvocation, handlerContext)
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileWriteToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "file.write",
+			Description: "Write a UTF-8 text file under the Blueclaw workspace. Use this for markdown, scripts, and source files instead of shell redirection.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`),
+		},
+		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
+	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileAttachToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "file.attach",
+			Description: "Attach one or more existing workspace files to the final reply evidence. Use paths for related artifact sets.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"filename":{"type":"string"},"contentType":{"type":"string"},"title":{"type":"string"}},"additionalProperties":false}`),
+		},
+		Handler: func(toolContext context.Context, input fileAttachToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.attachFileTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
 	})
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *agent.ToolRegistry) {
+func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *agent.ToolSet) {
 	if toolCatalogBuilder.mcpRegistry == nil {
 		return
 	}
@@ -300,43 +375,70 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *age
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegistry *agent.ToolRegistry, request ToolCatalogRequest) {
-	for _, capabilityToolName := range toolCatalogBuilder.capabilityToolNames {
-		toolName := capabilityToolName
-		toolRegistry.RegisterTool(agent.ToolDefinition{
-			Name:        toolName,
-			Description: "InternKim capability tool",
-		}, func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-			var response struct {
-				Content string          `json:"content"`
-				IsError bool            `json:"isError"`
-				Status  string          `json:"status"`
-				Result  json.RawMessage `json:"result"`
-			}
-			if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: "tool:" + toolName}) {
-				return agent.ToolResult{Content: "current account cannot execute this tool", IsError: true}, nil
-			}
-			errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, json.RawMessage(toolInvocation.Input)), &response)
-			if errorValue != nil {
-				return agent.ToolResult{}, errorValue
-			}
-			content := strings.TrimSpace(response.Content)
-			if content == "" && len(response.Result) > 0 {
-				content = string(response.Result)
-			}
-			isError := response.IsError || response.Status == "error" || response.Status == "denied"
-			return agent.ToolResult{Content: content, IsError: isError, Attachments: capabilityAttachments(response.Result), RecoveryActions: capabilityRecoveryActions(response.Result)}, nil
+func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
+	for _, capabilityToolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
+		toolDescriptor := capabilityToolDescriptor
+		toolName := toolDescriptor.Name
+		toolRegistry.RegisterBoundTool(agent.BoundTool{
+			Definition: agent.ToolDefinition{
+				Name:            toolName,
+				Description:     firstNonEmptyString(toolDescriptor.Description, "InternKim capability tool"),
+				InputSchema:     toolDescriptor.InputSchema,
+				OutputSchema:    toolDescriptor.OutputSchema,
+				PolicyResource:  toolDescriptor.PolicyResource,
+				SideEffectClass: toolDescriptor.SideEffectClass,
+			},
+			Availability: capabilityToolAvailability(toolDescriptor),
+			Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+				var response struct {
+					Content string          `json:"content"`
+					IsError bool            `json:"isError"`
+					Status  string          `json:"status"`
+					Result  json.RawMessage `json:"result"`
+				}
+				policyResource := firstNonEmptyString(toolDescriptor.PolicyResource, "tool:"+toolName)
+				if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
+					return agent.ToolResult{Content: "current account cannot execute this tool", IsError: true}, nil
+				}
+				errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, json.RawMessage(toolInvocation.Input)), &response)
+				if errorValue != nil {
+					return agent.ToolResult{}, errorValue
+				}
+				content := strings.TrimSpace(response.Content)
+				if content == "" && len(response.Result) > 0 {
+					content = string(response.Result)
+				}
+				isError := response.IsError || response.Status == "error" || response.Status == "denied"
+				return agent.ToolResult{Content: content, IsError: isError, Attachments: capabilityAttachments(response.Result), RecoveryActions: capabilityRecoveryActions(response.Result)}, nil
+			},
 		})
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) capabilityToolDefinitions() []CapabilityToolDescriptor {
+	toolDescriptors := copyCapabilityToolDescriptors(toolCatalogBuilder.capabilityToolDescriptors)
+	toolNameByName := map[string]bool{}
+	for _, toolDescriptor := range toolDescriptors {
+		toolNameByName[strings.TrimSpace(toolDescriptor.Name)] = true
+	}
+	for _, toolName := range toolCatalogBuilder.capabilityToolNames {
+		if !toolNameByName[toolName] {
+			toolDescriptors = append(toolDescriptors, CapabilityToolDescriptor{Name: toolName})
+		}
+	}
+	return toolDescriptors
+}
+
+func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor) agent.ToolAvailability {
+	if toolDescriptor.RequiresApproval {
+		return agent.ToolAvailability{Status: agent.ToolAvailabilityAsk, Reason: "requires approval"}
+	}
+	return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, input security.CommandRequest, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.terminalService == nil {
 		return agent.ToolResult{Content: "terminal service is unavailable", IsError: true}, nil
-	}
-	var input security.CommandRequest
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
 	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
 	input.Stdin = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Stdin)
@@ -359,13 +461,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	return agent.ToolResult{Content: content}, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.terminalService == nil {
 		return agent.ToolResult{Content: "terminal service is unavailable", IsError: true}, nil
-	}
-	var input terminalSessionToolInput
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
 	switch strings.TrimSpace(input.Action) {
 	case "start":
@@ -425,15 +523,9 @@ func statusToolResult(status security.TerminalSessionStatus, errorValue error) a
 	return agent.ToolResult{Content: content}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext context.Context, input browserHandoffOpenURLToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.capabilityClient.HTTPClient == nil {
 		return agent.ToolResult{Content: "companion bridge capability client is unavailable", IsError: true}, nil
-	}
-	var input struct {
-		URL string `json:"url"`
-	}
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
 	inputDocument, errorValue := json.Marshal(map[string]string{"url": input.URL})
 	if errorValue != nil {
@@ -473,14 +565,7 @@ func browserHandoffEventName(isError bool) string {
 	return "browser_handoff.opened"
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-	var input struct {
-		Message string `json:"message"`
-		Reason  string `json:"reason"`
-	}
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
-	}
+func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext context.Context, input approvalRequestToolInput) (agent.ToolResult, error) {
 	taskRunID := agent.TaskRunIDFromContext(toolContext)
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
 		return agent.ToolResult{Content: "approval requires an active task run", IsError: true}, nil
@@ -494,15 +579,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext co
 	return agent.ToolResult{Content: marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "message": input.Message})}, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	var input struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-		Mode    uint32 `json:"mode"`
-	}
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
-	}
+func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(input.Path, handlerContext.conversationScope)
 	if errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
@@ -530,17 +607,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	})}, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, toolInvocation agent.ToolInvocation, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	var input struct {
-		Path        string   `json:"path"`
-		Paths       []string `json:"paths"`
-		Filename    string   `json:"filename"`
-		ContentType string   `json:"contentType"`
-		Title       string   `json:"title"`
-	}
-	if errorValue := agent.UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
-	}
+func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	attachmentPaths := requestedAttachmentPaths(input.Path, input.Paths)
 	if len(attachmentPaths) == 0 {
 		return agent.ToolResult{Content: "path is required", IsError: true}, nil
@@ -568,13 +635,7 @@ func requestedAttachmentPaths(path string, paths []string) []string {
 	return attachmentPaths
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input struct {
-	Path        string   `json:"path"`
-	Paths       []string `json:"paths"`
-	Filename    string   `json:"filename"`
-	ContentType string   `json:"contentType"`
-	Title       string   `json:"title"`
-}, handlerContext toolHandlerContext) (agent.FileAttachment, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.FileAttachment, error) {
 	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(path, handlerContext.conversationScope)
 	if errorValue != nil {
 		return agent.FileAttachment{}, errorValue
@@ -625,13 +686,7 @@ func inlineAttachmentContent(path string, sizeBytes int64) (string, error) {
 	return base64.StdEncoding.EncodeToString(document), nil
 }
 
-func attachmentFilename(input struct {
-	Path        string   `json:"path"`
-	Paths       []string `json:"paths"`
-	Filename    string   `json:"filename"`
-	ContentType string   `json:"contentType"`
-	Title       string   `json:"title"`
-}, resolvedPath string) string {
+func attachmentFilename(input fileAttachToolInput, resolvedPath string) string {
 	if len(input.Paths) == 0 && strings.TrimSpace(input.Filename) != "" {
 		return strings.TrimSpace(input.Filename)
 	}
@@ -901,6 +956,19 @@ func copyAllowedToolNamesByProfile(allowedToolNamesByProfile map[string][]string
 		copiedAllowedToolNamesByProfile[normalizeProfileName(profileName)] = trimNonEmptyStrings(allowedToolNames)
 	}
 	return copiedAllowedToolNamesByProfile
+}
+
+func copyCapabilityToolDescriptors(toolDescriptors []CapabilityToolDescriptor) []CapabilityToolDescriptor {
+	copiedToolDescriptors := []CapabilityToolDescriptor{}
+	for _, toolDescriptor := range toolDescriptors {
+		trimmedName := strings.TrimSpace(toolDescriptor.Name)
+		if trimmedName == "" {
+			continue
+		}
+		toolDescriptor.Name = trimmedName
+		copiedToolDescriptors = append(copiedToolDescriptors, toolDescriptor)
+	}
+	return copiedToolDescriptors
 }
 
 func trimNonEmptyStrings(values []string) []string {

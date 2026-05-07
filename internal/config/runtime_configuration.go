@@ -23,13 +23,28 @@ type RuntimeConfiguration struct {
 }
 
 type CapabilityConfiguration struct {
-	Endpoint       string   `json:"endpoint"`
-	Transport      string   `json:"transport"`
-	UnixSocketPath string   `json:"unixSocketPath"`
-	TimeoutSecond  int      `json:"timeoutSecond"`
-	VSockCID       uint32   `json:"vsockCID"`
-	VSockPort      uint32   `json:"vsockPort"`
-	ToolNames      []string `json:"toolNames"`
+	Endpoint        string                     `json:"endpoint"`
+	Transport       string                     `json:"transport"`
+	UnixSocketPath  string                     `json:"unixSocketPath"`
+	TimeoutSecond   int                        `json:"timeoutSecond"`
+	VSockCID        uint32                     `json:"vsockCID"`
+	VSockPort       uint32                     `json:"vsockPort"`
+	ToolNames       []string                   `json:"toolNames"`
+	ToolDescriptors []CapabilityToolDescriptor `json:"toolDescriptors,omitempty"`
+}
+
+type CapabilityToolDescriptor struct {
+	Name                 string          `json:"name"`
+	Version              string          `json:"version,omitempty"`
+	PrivacyClass         string          `json:"privacyClass,omitempty"`
+	EstimatedLatency     string          `json:"estimatedLatency,omitempty"`
+	RequiresUserPresence bool            `json:"requiresUserPresence,omitempty"`
+	WorksOffline         bool            `json:"worksOffline,omitempty"`
+	InputSchema          json.RawMessage `json:"inputSchema,omitempty"`
+	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
+	PolicyResource       string          `json:"policyResource,omitempty"`
+	SideEffectClass      string          `json:"sideEffectClass,omitempty"`
+	RequiresApproval     bool            `json:"requiresApproval,omitempty"`
 }
 
 type AgentProfileConfiguration struct {
