@@ -715,7 +715,7 @@ func TestSkillAddAcceptsStandardOptionalMetadata(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: metadata-helper
 description: Help with metadata-backed standard skill imports.
@@ -727,7 +727,7 @@ metadata:
 Use this skill when standard skill metadata should be preserved.
 `
 
-	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.add",
 		Input: agent.MarshalToolInput(map[string]string{
 			"name":    "metadata-helper",
