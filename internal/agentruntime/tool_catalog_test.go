@@ -711,6 +711,37 @@ func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 	}
 }
 
+func TestSkillAddAcceptsStandardOptionalMetadata(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolRegistry(ToolCatalogRequest{ProfileName: "default"})
+	content := `---
+name: metadata-helper
+description: Help with metadata-backed standard skill imports.
+license: MIT
+metadata:
+  category: productivity
+  locale: ko-KR
+---
+Use this skill when standard skill metadata should be preserved.
+`
+
+	result, errorValue := toolRegistry.InvokeTool(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.add",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name":    "metadata-helper",
+			"content": content,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected standard optional metadata to be accepted, got %s", result.Content)
+	}
+}
+
 func TestSkillAddRejectsInvalidResourcePaths(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
