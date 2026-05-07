@@ -349,6 +349,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
 		return agent.ToolResult{Content: "current account cannot use this workspace path", IsError: true}, nil
 	}
+	input.ExecutionIdentity = security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath)
 	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(input)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
@@ -399,6 +400,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input termina
 		TimeoutSecond:        input.TimeoutSecond,
 		IsInteractive:        true,
 		IsPTY:                true,
+		ExecutionIdentity:    security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath),
 	})
 	if errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
@@ -511,11 +513,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath) {
 		return agent.ToolResult{Content: "current account cannot write this file", IsError: true}, nil
 	}
-	fileMode := os.FileMode(0600)
+	fileMode := os.FileMode(0660)
 	if input.Mode != 0 {
 		fileMode = os.FileMode(input.Mode)
 	}
-	if errorValue := os.MkdirAll(filepath.Dir(resolvedPath), 0700); errorValue != nil {
+	if errorValue := os.MkdirAll(filepath.Dir(resolvedPath), 0770); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
 	if errorValue := os.WriteFile(resolvedPath, []byte(input.Content), fileMode); errorValue != nil {

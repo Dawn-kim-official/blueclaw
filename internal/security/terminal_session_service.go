@@ -205,7 +205,7 @@ func (terminalSessionService *TerminalSessionService) prepareWorkingDirectory(wo
 	if terminalSessionService.commandGuardrailService.terminalConfiguration.Mode != "firecrackerGuest" {
 		return nil
 	}
-	return os.MkdirAll(workingDirectoryPath, 0700)
+	return os.MkdirAll(workingDirectoryPath, 0770)
 }
 
 func (terminalSessionService *TerminalSessionService) StartInteractiveSession(commandRequest CommandRequest) (string, error) {

@@ -147,6 +147,7 @@ type TerminalConfiguration struct {
 	Mode                   string   `json:"mode"`
 	SandboxProvider        string   `json:"sandboxProvider"`
 	WorkspaceRootPath      string   `json:"workspaceRootPath"`
+	POSIXHelperPath        string   `json:"posixHelperPath"`
 	AllowedExecutableNames []string `json:"allowedExecutableNames"`
 	DeniedExecutableNames  []string `json:"deniedExecutableNames"`
 	DeniedPathPrefixes     []string `json:"deniedPathPrefixes"`

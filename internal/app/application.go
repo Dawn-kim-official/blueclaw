@@ -65,6 +65,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	policyLoader := policy.PolicyLoader{}
 	policyDocument, _ := policyLoader.LoadPolicyDocument(policyPath)
+	posixSynchronizer := security.NewPOSIXSynchronizer(runtimeConfiguration.Terminal, policyPath)
+	if errorValue := posixSynchronizer.Synchronize(); errorValue != nil && startupError == nil {
+		startupError = errorValue
+	}
 	if database.SQL != nil {
 		_ = postgres.NewPersonRepository(database).UpsertPeople(policyDocument)
 	}
@@ -197,6 +201,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 					_ = postgres.NewPersonRepository(database).UpsertPeople(policyDocument)
 				}
 				identityService.ReloadPolicyProjection(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
+				_ = posixSynchronizer.Synchronize()
 			},
 		},
 		AuditHandler: auditHandler,
