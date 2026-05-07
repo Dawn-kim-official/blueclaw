@@ -159,6 +159,17 @@ func (toolSet *ToolSet) IsAllowed(toolName string) bool {
 	return isExposedToolAvailability(boundTool.Availability)
 }
 
+func (toolSet *ToolSet) WithAllowedToolNames(toolNames []string) *ToolSet {
+	if toolSet == nil {
+		return nil
+	}
+	filteredToolSet := NewToolSet(toolNames)
+	for toolName, boundTool := range toolSet.boundToolByName {
+		filteredToolSet.boundToolByName[toolName] = boundTool
+	}
+	return filteredToolSet
+}
+
 func (toolSet *ToolSet) Invoke(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 	toolName := strings.TrimSpace(toolInvocation.ToolName)
 	if !toolSet.IsAllowed(toolName) {

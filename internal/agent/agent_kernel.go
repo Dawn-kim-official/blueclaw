@@ -160,14 +160,17 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
 	instructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle = selectInstructionBundleForRequestWithRetriever(responseContext, instructionBundle, request, agentKernel.skillRetriever)
+	turnToolSet := toolSetForSelectedSkills(request.ToolSet, instructionBundle)
+	intakeRequest := request
+	intakeRequest.ToolSet = turnToolSet
 	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
-	intakeDecision := intakePlanner.Plan(responseContext, request)
+	intakeDecision := intakePlanner.Plan(responseContext, intakeRequest)
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
-		return agentKernel.completeIntakeOnlyRequest(request, intakeDecision, task.TaskStatusWaitingUserInput)
+		return agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
-		return agentKernel.completeIntakeOnlyRequest(request, intakeDecision, task.TaskStatusBlocked)
+		return agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusBlocked)
 	}
 
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
@@ -187,7 +190,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		Prompt:                     request.Prompt,
 		VisibleContext:             request.VisibleContext,
 		MemoryFacts:                request.MemoryFacts,
-		ToolSet:                    request.ToolSet,
+		ToolSet:                    turnToolSet,
 		WorkspaceRootPath:          request.WorkspaceRootPath,
 		InstructionPrompt:          instructionBundle.Prompt,
 		InstructionSources:         append([]InstructionSource{}, instructionBundle.Sources...),
@@ -213,10 +216,44 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		turnOptions,
 	)
 	result, errorValue := agentTurnRunner.RunTurn(responseContext, turnRequest)
+	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	}
 	return result, errorValue
+}
+
+func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBundle) *ToolSet {
+	if toolSet == nil {
+		return nil
+	}
+	return toolSet.WithAllowedToolNames(toolNamesForSelectedSkills(instructionBundle))
+}
+
+func toolNamesForSelectedSkills(instructionBundle InstructionBundle) []string {
+	toolNames := append([]string{}, coreAgentToolNames()...)
+	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !selectedSkillName[skillInstruction.Name] {
+			continue
+		}
+		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
+	}
+	return toolNames
+}
+
+func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool {
+	selectedSkillName := map[string]bool{}
+	for _, skillDecision := range skillDecisions {
+		if skillDecision.Status == "selected" {
+			selectedSkillName[skillDecision.Name] = true
+		}
+	}
+	return selectedSkillName
+}
+
+func coreAgentToolNames() []string {
+	return []string{"conversation.history", "memory.search", "approval.request"}
 }
 
 func selectedRequiredEvidenceTools(_ InstructionBundle) []string {
@@ -374,6 +411,7 @@ func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instruc
 	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever)
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
 	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
+	candidateInstructions = appendSkillInstructions(candidateInstructions, promptTriggeredSkillInstructions(instructionBundle.Skills, selectionRequest, candidateByName, request.RequesterCircles)...)
 	for _, skillInstruction := range candidateInstructions {
 		skillDecision := skillSelector.Evaluate(skillInstruction, selectionRequest, normalizedAgentProfileName(request.ProfileName))
 		if skillCandidate, isFound := candidateByName[skillInstruction.Name]; isFound {
@@ -400,8 +438,54 @@ func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instruc
 		SkillDecisions: skillDecisions,
 		RetrievalMode:  retrievalResult.RetrievalMode,
 		IndexStatus:    retrievalResult.IndexStatus,
-		CandidateCount: retrievalResult.CandidateCount,
+		CandidateCount: len(candidateInstructions),
 	}
+}
+
+func promptTriggeredSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, candidateByName map[string]SkillCandidate, requesterCircles []string) []SkillInstruction {
+	skillSelector := SkillSelector{}
+	triggeredSkillInstructions := []SkillInstruction{}
+	for _, skillInstruction := range skillInstructions {
+		if _, isCandidate := candidateByName[skillInstruction.Name]; isCandidate {
+			continue
+		}
+		if skillHiddenFromRequester(skillInstruction, requesterCircles) {
+			continue
+		}
+		if !skillProfileAllows(skillInstruction, normalizedAgentProfileName(request.ProfileName)) {
+			continue
+		}
+		if len(missingAllowedTools(skillInstruction, request)) > 0 {
+			continue
+		}
+		if !skillPathsAllow(skillInstruction, request) {
+			continue
+		}
+		if skillSelector.hasPromptTriggerHint(skillInstruction, request.Prompt) || skillSelector.hasPromptKeyword(skillInstruction, request.Prompt) {
+			triggeredSkillInstructions = append(triggeredSkillInstructions, skillInstruction)
+		}
+	}
+	return triggeredSkillInstructions
+}
+
+func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction) []SkillInstruction {
+	seenSkillNames := map[string]bool{}
+	result := []SkillInstruction{}
+	for _, skillInstruction := range left {
+		if strings.TrimSpace(skillInstruction.Name) == "" || seenSkillNames[skillInstruction.Name] {
+			continue
+		}
+		seenSkillNames[skillInstruction.Name] = true
+		result = append(result, skillInstruction)
+	}
+	for _, skillInstruction := range right {
+		if strings.TrimSpace(skillInstruction.Name) == "" || seenSkillNames[skillInstruction.Name] {
+			continue
+		}
+		seenSkillNames[skillInstruction.Name] = true
+		result = append(result, skillInstruction)
+	}
+	return result
 }
 
 func visibleCandidateSkillInstructions(skillInstructions []SkillInstruction, candidateByName map[string]SkillCandidate, requesterCircles []string) []SkillInstruction {
@@ -693,7 +777,7 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 		return AgentTurnResult{}, errorValue
 	}
 	blockedTaskRun.Result = finalReply
-	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: finalReply}, nil
+	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: finalReply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {

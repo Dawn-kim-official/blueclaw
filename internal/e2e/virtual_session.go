@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/identity"
@@ -37,6 +39,7 @@ type VirtualSessionScenario struct {
 	SkillDirectoryPaths   []string
 	Skills                []agent.SkillInstruction
 	AllowedTools          []string
+	CapabilityToolNames   []string
 	InitialMemory         []memory.MemoryFact
 	Turns                 []VirtualTurn
 }
@@ -51,6 +54,8 @@ type VirtualTurn struct {
 	ExpectedEventCounts     []VirtualEventCount
 	ExpectedAttachments     []string
 	ExpectedWorkspaceFiles  []VirtualWorkspaceFileExpectation
+	ExpectedModelContexts   []string
+	ForbiddenModelContexts  []string
 	ExpectedReplyFragments  []string
 	ForbiddenReplyFragments []string
 }
@@ -74,10 +79,11 @@ type VirtualSessionResult struct {
 }
 
 type VirtualTurnResult struct {
-	TaskRunID   string
-	FinalReply  string
-	Attachments []agent.FileAttachment
-	Events      []task.TaskEvent
+	TaskRunID    string
+	FinalReply   string
+	Attachments  []agent.FileAttachment
+	Events       []task.TaskEvent
+	ModelContext string
 }
 
 type VirtualSessionHarness struct {
@@ -90,6 +96,7 @@ type VirtualSessionHarness struct {
 	runtime          *connectors.ConnectorRuntime
 	adapter          *virtualAdapter
 	history          []connectors.VisibleContextMessage
+	cleanup          func()
 }
 
 func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionScenario, error) {
@@ -102,6 +109,10 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return ToolPermissionHidesSkillScenario(artifactDirectoryPath), nil
 	case "gws_disabled":
 		return GWSDisabledScenario(artifactDirectoryPath), nil
+	case "schedule_create_acceptance":
+		return ScheduleCreateAcceptanceScenario(artifactDirectoryPath), nil
+	case "site_prototype_acceptance":
+		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
 	default:
 		return VirtualSessionScenario{}, fmt.Errorf("unknown virtual session scenario: %s", name)
 	}
@@ -161,6 +172,14 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	runtime.UseWorkspaceRootPath(workspacePath)
 	runtime.UseAllowedToolNames(allowedToolsOrDefault(scenario.AllowedTools))
 	runtime.UseTerminalService(security.NewTerminalSessionService(terminalConfiguration(workspacePath)))
+	runtime.UseTaskRunService(taskRunService)
+	runtime.UseTaskScheduleRepository(&virtualTaskScheduleRepository{})
+	cleanup := func() {}
+	if len(scenario.CapabilityToolNames) > 0 {
+		capabilityClient, capabilityCleanup := startVirtualCapabilityServer(scenario.CapabilityToolNames)
+		runtime.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
+		cleanup = capabilityCleanup
+	}
 
 	memoryStore := newVirtualMemoryStore(scenario.InitialMemory)
 	memoryService := &memory.MemoryService{}
@@ -177,6 +196,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		memoryStore:      memoryStore,
 		runtime:          runtime,
 		adapter:          adapter,
+		cleanup:          cleanup,
 	}, nil
 }
 
@@ -270,7 +290,46 @@ func fileSHA256(path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()) {
+	toolNameByName := map[string]bool{}
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName != "" {
+			toolNameByName[trimmedToolName] = true
+		}
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
+		toolName = strings.TrimSuffix(toolName, "/invoke")
+		if !toolNameByName[toolName] {
+			http.Error(responseWriter, "unknown virtual capability tool", http.StatusNotFound)
+			return
+		}
+		responseWriter.Header().Set("Content-Type", "application/json")
+		_, _ = responseWriter.Write([]byte(virtualCapabilityResponse(toolName)))
+	}))
+	return capability.Client{Endpoint: server.URL, HTTPClient: server.Client()}, server.Close
+}
+
+func virtualCapabilityResponse(toolName string) string {
+	switch toolName {
+	case "site.app.create":
+		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/sites/site-1","hostSourcePath":"/workspace/sites/site-1"}}`
+	case "site.app.publish":
+		return `{"status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.intern.kim"}}`
+	case "site.app.status":
+		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/sites/site-1"}}`
+	case "site.app.logs":
+		return `{"status":"ok","result":{"logs":[]}}`
+	default:
+		return `{"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true}}`
+	}
+}
+
 func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionResult, error) {
+	if harness.cleanup != nil {
+		defer harness.cleanup()
+	}
 	result := VirtualSessionResult{
 		ScenarioName:          harness.scenario.Name,
 		ArtifactDirectoryPath: harness.artifactPath,
@@ -302,6 +361,10 @@ func scriptedLanguageModelForScenario(scenario VirtualSessionScenario) *scripted
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {
+	modelRequestStartIndex := 0
+	if harness.scriptedModel != nil {
+		modelRequestStartIndex = harness.scriptedModel.RequestCount()
+	}
 	event := connectors.PlatformInboundEvent{
 		Platform:       "virtual",
 		Source:         "e2e",
@@ -335,11 +398,19 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		return VirtualTurnResult{}, errors.New("virtual turn did not dispatch a reply")
 	}
 	return VirtualTurnResult{
-		TaskRunID:   runtimeResult.TaskRunID,
-		FinalReply:  outboundReply.Message,
-		Attachments: outboundReply.Attachments,
-		Events:      harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
+		TaskRunID:    runtimeResult.TaskRunID,
+		FinalReply:   outboundReply.Message,
+		Attachments:  outboundReply.Attachments,
+		Events:       harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
+		ModelContext: harness.modelContextSince(modelRequestStartIndex),
 	}, nil
+}
+
+func (harness *VirtualSessionHarness) modelContextSince(startIndex int) string {
+	if harness.scriptedModel == nil {
+		return ""
+	}
+	return harness.scriptedModel.ContextSince(startIndex)
 }
 
 func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turnResult VirtualTurnResult) {
@@ -352,7 +423,7 @@ func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turn
 func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
 	for _, skillName := range virtualTurn.ExpectedSelectedSkills {
 		if !eventsContain(turnResult.Events, "agent.instructions_loaded", skillName) {
-			return fmt.Errorf("expected selected skill %q", skillName)
+			return fmt.Errorf("expected selected skill %q; events: %s", skillName, summarizeEvents(turnResult.Events))
 		}
 	}
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
@@ -389,6 +460,16 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 	for _, expectedWorkspaceFile := range virtualTurn.ExpectedWorkspaceFiles {
 		if errorValue := validateExpectedWorkspaceFile(workspacePath, expectedWorkspaceFile); errorValue != nil {
 			return errorValue
+		}
+	}
+	for _, fragment := range virtualTurn.ExpectedModelContexts {
+		if !strings.Contains(turnResult.ModelContext, fragment) {
+			return fmt.Errorf("expected model context fragment %q", fragment)
+		}
+	}
+	for _, fragment := range virtualTurn.ForbiddenModelContexts {
+		if strings.Contains(turnResult.ModelContext, fragment) {
+			return fmt.Errorf("forbidden model context fragment %q found", fragment)
 		}
 	}
 	for _, fragment := range virtualTurn.ExpectedReplyFragments {
@@ -641,6 +722,28 @@ func (languageModel *scriptedLanguageModel) Enqueue(contents ...string) {
 	languageModel.contents = append(languageModel.contents, contents...)
 }
 
+func (languageModel *scriptedLanguageModel) RequestCount() int {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	return len(languageModel.requests)
+}
+
+func (languageModel *scriptedLanguageModel) ContextSince(startIndex int) string {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(languageModel.requests) {
+		startIndex = 0
+	}
+	parts := []string{}
+	for _, request := range languageModel.requests[startIndex:] {
+		for _, message := range request.Messages {
+			parts = append(parts, message.Role+": "+message.Content)
+		}
+		parts = append(parts, request.StructuredOutputSchema.Document)
+	}
+	return strings.Join(parts, "\n")
+}
+
 func (languageModel *scriptedLanguageModel) GenerateResponse(context.Context, string) (string, error) {
 	return "", nil
 }
@@ -718,6 +821,30 @@ func (adapter *virtualAdapter) NotInvitedReply() string {
 type virtualMemoryStore struct {
 	mutex sync.Mutex
 	facts []memory.MemoryFact
+}
+
+type virtualTaskScheduleRepository struct {
+	mutex         sync.Mutex
+	taskSchedules []task.TaskSchedule
+}
+
+func (repository *virtualTaskScheduleRepository) UpsertTaskSchedule(taskSchedule task.TaskSchedule) error {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	repository.taskSchedules = append(repository.taskSchedules, taskSchedule)
+	return nil
+}
+
+func (repository *virtualTaskScheduleRepository) ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]task.TaskSchedule, error) {
+	return nil, nil
+}
+
+func (repository *virtualTaskScheduleRepository) MarkTaskScheduleSucceeded(task.TaskSchedule) error {
+	return nil
+}
+
+func (repository *virtualTaskScheduleRepository) MarkTaskScheduleFailed(task.TaskSchedule, string, time.Time) error {
+	return nil
 }
 
 func newVirtualMemoryStore(initialFacts []memory.MemoryFact) *virtualMemoryStore {
