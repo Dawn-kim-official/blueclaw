@@ -10,4 +10,5 @@ type CommandRequest struct {
 	TimeoutSecond        int               `json:"timeoutSecond"`
 	IsInteractive        bool              `json:"isInteractive"`
 	IsPTY                bool              `json:"isPTY"`
+	ExecutionIdentity    ExecutionIdentity `json:"-"`
 }

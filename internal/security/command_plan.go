@@ -11,4 +11,5 @@ type CommandPlan struct {
 	Timeout              time.Duration     `json:"timeout"`
 	UsesSandbox          bool              `json:"usesSandbox"`
 	IsPTY                bool              `json:"isPTY"`
+	ExecutionIdentity    ExecutionIdentity `json:"-"`
 }

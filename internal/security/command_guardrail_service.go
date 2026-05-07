@@ -70,6 +70,7 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 		WorkingDirectoryPath: workingDirectoryPath,
 		EnvironmentVariables: sanitizeEnvironmentVariables(commandRequest.EnvironmentVariables, workspaceRootPath),
 		Timeout:              time.Duration(commandGuardrailService.timeoutSecond(commandRequest.TimeoutSecond)) * time.Second,
+		ExecutionIdentity:    commandRequest.ExecutionIdentity,
 	}
 
 	if commandGuardrailService.terminalConfiguration.Mode == "sandbox" {
@@ -83,7 +84,7 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 		return CommandPlan{}, errors.New("native execution without network is not allowed when terminal.allowNetwork is false")
 	}
 
-	return commandPlan, nil
+	return commandGuardrailService.applyPOSIXRunner(commandPlan)
 }
 
 func (commandGuardrailService CommandGuardrailService) buildBashCommandPlan(commandRequest CommandRequest, workingDirectoryPath string, workspaceRootPath string) (CommandPlan, error) {
@@ -106,7 +107,7 @@ func (commandGuardrailService CommandGuardrailService) buildBashCommandPlan(comm
 	if commandRequest.IsPTY {
 		arguments = []string{"-i"}
 	}
-	return CommandPlan{
+	commandPlan := CommandPlan{
 		ExecutablePath:       resolvedExecutablePath,
 		Arguments:            arguments,
 		Stdin:                joinCommandInput(commandRequest.Command, commandRequest.Stdin),
@@ -114,7 +115,38 @@ func (commandGuardrailService CommandGuardrailService) buildBashCommandPlan(comm
 		EnvironmentVariables: sanitizeEnvironmentVariables(commandRequest.EnvironmentVariables, workspaceRootPath),
 		Timeout:              time.Duration(commandGuardrailService.timeoutSecond(commandRequest.TimeoutSecond)) * time.Second,
 		IsPTY:                commandRequest.IsPTY,
-	}, nil
+		ExecutionIdentity:    commandRequest.ExecutionIdentity,
+	}
+	return commandGuardrailService.applyPOSIXRunner(commandPlan)
+}
+
+func (commandGuardrailService CommandGuardrailService) applyPOSIXRunner(commandPlan CommandPlan) (CommandPlan, error) {
+	if strings.TrimSpace(commandGuardrailService.terminalConfiguration.POSIXHelperPath) == "" {
+		return commandPlan, nil
+	}
+	if strings.TrimSpace(commandPlan.ExecutionIdentity.UserName) == "" {
+		return commandPlan, nil
+	}
+
+	resolvedIdentity, errorValue := ResolveExecutionIdentity(commandPlan.ExecutionIdentity)
+	if errorValue != nil {
+		return CommandPlan{}, errorValue
+	}
+	helperArguments := []string{
+		"exec",
+		"--uid", formatUnsignedID(resolvedIdentity.UserID),
+		"--gid", formatUnsignedID(resolvedIdentity.GroupID),
+		"--groups", joinUnsignedIDs(resolvedIdentity.SupplementaryGroupIDs),
+		"--cwd", commandPlan.WorkingDirectoryPath,
+		"--",
+		commandPlan.ExecutablePath,
+	}
+	helperArguments = append(helperArguments, commandPlan.Arguments...)
+	commandPlan.ExecutablePath = commandGuardrailService.terminalConfiguration.POSIXHelperPath
+	commandPlan.Arguments = helperArguments
+	commandPlan.EnvironmentVariables = applyPOSIXEnvironment(commandPlan.EnvironmentVariables, resolvedIdentity)
+	commandPlan.ExecutionIdentity = resolvedIdentity
+	return commandPlan, nil
 }
 
 func (commandGuardrailService CommandGuardrailService) sandboxProvider() string {
