@@ -3,6 +3,8 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +21,20 @@ type scheduleCreateToolInput struct {
 	IntervalSecond   int    `json:"intervalSecond"`
 	CronExpression   string `json:"cronExpression"`
 	TimeZone         string `json:"timeZone"`
+}
+
+type scheduleIntervalPattern struct {
+	expression *regexp.Regexp
+	multiplier int
+}
+
+var scheduleIntervalPatterns = []scheduleIntervalPattern{
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*분\s*마다`), multiplier: 60},
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*시간\s*마다`), multiplier: 60 * 60},
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*일\s*마다`), multiplier: 24 * 60 * 60},
+	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+minute`), multiplier: 60},
+	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+hour`), multiplier: 60 * 60},
+	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+day`), multiplier: 24 * 60 * 60},
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
@@ -83,7 +99,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		ReplyTargetID:    strings.TrimSpace(handlerContext.request.ReplyTargetID),
 		TimeZone:         timeZone,
 		Kind:             normalizeTaskScheduleKind(input),
-		IntervalSecond:   input.IntervalSecond,
+		IntervalSecond:   normalizeScheduleIntervalSecond(input, handlerContext.request.Prompt),
 		CronExpression:   strings.TrimSpace(input.CronExpression),
 		CreatedAt:        now,
 		UpdatedAt:        now,
@@ -93,6 +109,37 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		return task.TaskSchedule{}, errorValue
 	}
 	return taskSchedule, nil
+}
+
+func normalizeScheduleIntervalSecond(input scheduleCreateToolInput, requestPrompt string) int {
+	if input.IntervalSecond > 0 {
+		return input.IntervalSecond
+	}
+	if normalizeTaskScheduleKind(input) != task.TaskScheduleKindInterval {
+		return 0
+	}
+	return inferScheduleIntervalSecond(requestPrompt)
+}
+
+func inferScheduleIntervalSecond(prompt string) int {
+	normalizedPrompt := strings.TrimSpace(prompt)
+	if normalizedPrompt == "" {
+		return 0
+	}
+	if strings.Contains(normalizedPrompt, "매분") || strings.Contains(strings.ToLower(normalizedPrompt), "every minute") {
+		return 60
+	}
+	for _, pattern := range scheduleIntervalPatterns {
+		match := pattern.expression.FindStringSubmatch(normalizedPrompt)
+		if len(match) != 2 {
+			continue
+		}
+		count, errorValue := strconv.Atoi(match[1])
+		if errorValue == nil && count > 0 {
+			return count * pattern.multiplier
+		}
+	}
+	return 0
 }
 
 func validateScheduleCreateContext(request ToolCatalogRequest) error {

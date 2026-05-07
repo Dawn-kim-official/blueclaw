@@ -91,6 +91,43 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	}
 }
 
+func TestScheduleCreateToolInfersIntervalFromPrompt(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		Prompt:            "1분마다 \"1분 지났습니다\"라고 보내줘",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"prompt":   "1분 지났습니다",
+			"kind":     "interval",
+			"timeZone": "Asia/Seoul",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected schedule.create success, got %s", result.Content)
+	}
+	if len(repository.taskSchedules) != 1 {
+		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
+	}
+	if repository.taskSchedules[0].IntervalSecond != 60 {
+		t.Fatalf("expected inferred one minute interval, got %+v", repository.taskSchedules[0])
+	}
+}
+
 func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
