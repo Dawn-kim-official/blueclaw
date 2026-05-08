@@ -94,8 +94,80 @@ func (agentKernel *AgentKernel) AppendTaskEvent(taskRunID string, name string, b
 	agentKernel.taskRunService.AppendTaskEvent(taskRunID, name, body)
 }
 
+func (agentKernel *AgentKernel) ListTaskRunByPersonID(personID string) []task.TaskRun {
+	return agentKernel.taskRunService.ListTaskRunByPersonID(personID)
+}
+
+func (agentKernel *AgentKernel) ListTaskEvent(taskRunID string) []task.TaskEvent {
+	return agentKernel.taskRunService.ListTaskEvent(taskRunID)
+}
+
+func (agentKernel *AgentKernel) CompleteTask(taskRunID string, result string) (task.TaskRun, error) {
+	return agentKernel.taskRunService.CompleteTaskRun(taskRunID, result)
+}
+
 func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, prompt string) (string, error) {
 	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
+}
+
+type ApprovalReplyDecision struct {
+	IsApproval bool   `json:"isApproval"`
+	Reason     string `json:"reason"`
+}
+
+func (agentKernel *AgentKernel) ClassifyApprovalReply(responseContext context.Context, pendingPrompt string, approvalQuestion string, reply string) (ApprovalReplyDecision, error) {
+	if agentKernel.languageModel == nil {
+		return ApprovalReplyDecision{}, errors.New("language model provider is not configured")
+	}
+
+	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
+		responseContext,
+		llm.StructuredResponseRequest{
+			Messages: approvalReplyMessages(pendingPrompt, approvalQuestion, reply),
+			StructuredOutputSchema: llm.StructuredOutputSchema{
+				Name:               "blueclaw_approval_reply_decision",
+				Document:           `{"type":"object","properties":{"isApproval":{"type":"boolean"},"reason":{"type":"string"}},"required":["isApproval","reason"],"additionalProperties":false}`,
+				IsStrictlyEnforced: true,
+			},
+		},
+	)
+	if errorValue != nil {
+		return ApprovalReplyDecision{}, errorValue
+	}
+
+	var decision ApprovalReplyDecision
+	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &decision); errorValue != nil {
+		return ApprovalReplyDecision{}, errorValue
+	}
+	decision.Reason = strings.TrimSpace(decision.Reason)
+	return decision, nil
+}
+
+func approvalReplyMessages(pendingPrompt string, approvalQuestion string, reply string) []llm.Message {
+	return []llm.Message{
+		{
+			Role: "system",
+			Content: strings.Join([]string{
+				"You decide whether the latest user message approves a pending action.",
+				"Return isApproval true only when the latest message authorizes proceeding with the pending action.",
+				"Short Korean affirmatives such as 응, 네, 좋아, 진행해, 해줘, 그래 are approvals when they answer the pending approval question.",
+				"Return false for cancellation, hesitation, a new unrelated request, or a question.",
+			}, "\n"),
+		},
+		{
+			Role: "user",
+			Content: strings.Join([]string{
+				"Pending task:",
+				strings.TrimSpace(pendingPrompt),
+				"",
+				"Approval question:",
+				strings.TrimSpace(approvalQuestion),
+				"",
+				"Latest user message:",
+				strings.TrimSpace(reply),
+			}, "\n"),
+		},
+	}
 }
 
 func (agentKernel *AgentKernel) GenerateReplyWithMemory(responseContext context.Context, prompt string, memoryFacts []memory.MemoryFact) (string, error) {

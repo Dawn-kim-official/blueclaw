@@ -267,6 +267,12 @@ type ConnectorRuntimeHealth struct {
 	Passed                      bool      `json:"passed"`
 }
 
+type pendingApproval struct {
+	TaskRun          task.TaskRun
+	IntentPrompt     string
+	ApprovalQuestion string
+}
+
 func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
 	if logger == nil {
 		logger = slog.Default()
@@ -672,6 +678,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 
 	connectorRuntime.logger.Info("connector."+platform+".auth.allowed", slog.String("messageID", event.MessageID), slog.String("personID", personID))
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
+	pendingApproval, isApprovalContinuation := connectorRuntime.resolveApprovalContinuation(ctx, platform, personID, event)
+	if isApprovalContinuation {
+		event = approvedContinuationEvent(event, pendingApproval)
+	}
 	stopProgress := connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
 	defer stopProgress()
 
@@ -705,6 +715,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 	turnResult := launchResult.TurnResult
 	taskRunID := turnResult.TaskRun.TaskRunID
+	if isApprovalContinuation {
+		connectorRuntime.completeApprovedPendingTask(pendingApproval.TaskRun, taskRunID, turnResult.FinalReply)
+	}
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
 	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
@@ -737,6 +750,153 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID))
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) resolveApprovalContinuation(ctx context.Context, platform string, personID string, event PlatformInboundEvent) (pendingApproval, bool) {
+	approval, isFound := connectorRuntime.findPendingApproval(personID, event.ConversationID)
+	if !isFound {
+		return pendingApproval{}, false
+	}
+	decision, errorValue := connectorRuntime.agentKernel.ClassifyApprovalReply(ctx, approval.IntentPrompt, approval.ApprovalQuestion, event.Prompt)
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".approval.classify_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
+		return pendingApproval{}, false
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "approval.reply_classified", marshalConnectorEventBody(map[string]any{
+		"messageID":   event.MessageID,
+		"isApproval":  decision.IsApproval,
+		"reason":      decision.Reason,
+		"replyPrompt": strings.TrimSpace(event.Prompt),
+	}))
+	if !decision.IsApproval {
+		return pendingApproval{}, false
+	}
+	connectorRuntime.logger.Info("connector."+platform+".approval.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
+	return approval, true
+}
+
+func (connectorRuntime *ConnectorRuntime) findPendingApproval(personID string, conversationID string) (pendingApproval, bool) {
+	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
+	var selectedTaskRun task.TaskRun
+	isSelected := false
+	for _, taskRun := range taskRuns {
+		if taskRun.Status != task.TaskStatusWaitingApproval {
+			continue
+		}
+		if taskRun.OriginConversationID != conversationID {
+			continue
+		}
+		if time.Since(taskRun.UpdatedAt) > 24*time.Hour {
+			continue
+		}
+		if isSelected && !taskRun.UpdatedAt.After(selectedTaskRun.UpdatedAt) {
+			continue
+		}
+		selectedTaskRun = taskRun
+		isSelected = true
+	}
+	if !isSelected {
+		return pendingApproval{}, false
+	}
+	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(selectedTaskRun.TaskRunID)
+	approvalQuestion := latestApprovalQuestion(taskEvents)
+	return pendingApproval{
+		TaskRun:          selectedTaskRun,
+		IntentPrompt:     pendingApprovalIntentPrompt(selectedTaskRun.Prompt, approvalQuestion),
+		ApprovalQuestion: approvalQuestion,
+	}, true
+}
+
+func approvedContinuationEvent(event PlatformInboundEvent, approval pendingApproval) PlatformInboundEvent {
+	event.Prompt = approvedContinuationPrompt(approval.IntentPrompt, event.Prompt)
+	return event
+}
+
+func approvedContinuationPrompt(intentPrompt string, approvalReply string) string {
+	lines := []string{
+		strings.TrimSpace(intentPrompt),
+		"",
+		"The user has approved this pending action. Proceed now without calling approval.request again.",
+		"Approval reply: " + strings.TrimSpace(approvalReply),
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func pendingApprovalIntentPrompt(taskPrompt string, approvalQuestion string) string {
+	taskPrompt = strings.TrimSpace(taskPrompt)
+	if shouldUseApprovalQuestionAsIntent(taskPrompt, approvalQuestion) {
+		return approvalQuestion
+	}
+	return firstNonEmptyString(taskPrompt, approvalQuestion)
+}
+
+func shouldUseApprovalQuestionAsIntent(taskPrompt string, approvalQuestion string) bool {
+	if strings.TrimSpace(approvalQuestion) == "" {
+		return false
+	}
+	normalizedPrompt := strings.TrimSpace(strings.ToLower(taskPrompt))
+	if normalizedPrompt == "" {
+		return true
+	}
+	approvalReplies := map[string]bool{
+		"ㅇ":        true,
+		"응":        true,
+		"네":        true,
+		"예":        true,
+		"그래":       true,
+		"좋아":       true,
+		"진행해":      true,
+		"진행해줘":     true,
+		"해":        true,
+		"해줘":       true,
+		"yes":      true,
+		"y":        true,
+		"ok":       true,
+		"okay":     true,
+		"go ahead": true,
+	}
+	return approvalReplies[normalizedPrompt]
+}
+
+func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name != "approval.requested" {
+			continue
+		}
+		var approvalRequest struct {
+			Message string `json:"message"`
+			Reason  string `json:"reason"`
+		}
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &approvalRequest); errorValue != nil {
+			continue
+		}
+		question := firstNonEmptyString(approvalRequest.Message, approvalRequest.Reason)
+		if strings.TrimSpace(question) != "" {
+			return strings.TrimSpace(question)
+		}
+	}
+	return ""
+}
+
+func (connectorRuntime *ConnectorRuntime) completeApprovedPendingTask(pendingTaskRun task.TaskRun, continuationTaskRunID string, finalReply string) {
+	result := strings.TrimSpace(finalReply)
+	if result == "" {
+		result = "Approved and continued in task " + continuationTaskRunID + "."
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(pendingTaskRun.TaskRunID, "approval.continued", marshalConnectorEventBody(map[string]string{
+		"continuationTaskRunID": continuationTaskRunID,
+		"result":                result,
+	}))
+	_, _ = connectorRuntime.agentKernel.CompleteTask(pendingTaskRun.TaskRunID, result)
+}
+
+func marshalConnectorEventBody(value any) string {
+	document, errorValue := json.Marshal(value)
+	if errorValue != nil {
+		return fmt.Sprint(value)
+	}
+	return string(document)
 }
 
 func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Context, platform string, event PlatformInboundEvent, taskRunID string, replyTarget ReplyTarget, turnResult agent.AgentTurnResult, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {

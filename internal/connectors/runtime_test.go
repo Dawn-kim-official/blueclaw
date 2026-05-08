@@ -382,6 +382,114 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 	}
 }
 
+func TestConnectorRuntimeClassifiesApprovalReplyBeforeStartingNewTask(t *testing.T) {
+	invokedTools := []string{}
+	languageModel := &connectorSequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"calendar delete needs approval first","userFacingReply":""}`,
+		`{"action":"call_tool","toolName":"approval.request","toolInput":{"message":"내일 휴가 일정을 캘린더에서 삭제하겠습니다. 진행해도 될까요?"}}`,
+		`{"isApproval":true,"reason":"응 is an affirmative answer to the pending approval question."}`,
+		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"approved calendar tool work","userFacingReply":""}`,
+		`{"action":"call_tool","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+		connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
+	}}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "approval.request", "calendar.event.add", "calendar.event.delete"})
+	connectorRuntime.UseCapabilityTools(capability.Client{
+		Endpoint: "http://capability.test",
+		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+			}, nil
+		}),
+	}, []string{"calendar.event.add", "calendar.event.delete"})
+	firstEvent := testInboundEvent("message-1")
+	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
+
+	firstResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, firstEvent)
+	if errorValue != nil {
+		t.Fatalf("expected first event to process: %v", errorValue)
+	}
+	if firstResult.TaskRunID == "" {
+		t.Fatal("expected first task run id")
+	}
+
+	secondEvent := testInboundEvent("message-2")
+	secondEvent.Prompt = "응"
+	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
+	if errorValue != nil {
+		t.Fatalf("expected approval reply to process: %v", errorValue)
+	}
+
+	if secondResult.TaskRunID == firstResult.TaskRunID || secondResult.TaskRunID == "" {
+		t.Fatalf("expected approved continuation task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
+	}
+	if len(languageModel.requests) != 6 {
+		t.Fatalf("expected approval classification before continuation turn, got %d requests", len(languageModel.requests))
+	}
+	if languageModel.requests[2].StructuredOutputSchema.Name != "blueclaw_approval_reply_decision" {
+		t.Fatalf("expected third model request to classify approval, got %q", languageModel.requests[2].StructuredOutputSchema.Name)
+	}
+	if !structuredMessagesContain(languageModel.requests[4].Messages, "The user has approved this pending action") {
+		t.Fatalf("expected continuation prompt to carry approval context, got %+v", languageModel.requests[4].Messages)
+	}
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
+		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
+	}
+	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "내일 휴가 일정을 캘린더에서 삭제했습니다." {
+		t.Fatalf("expected final approved reply, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
+	invokedTools := []string{}
+	languageModel := &connectorSequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
+		`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
+		connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.event.add", 0),
+	}}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "approval.request", "calendar.event.add", "calendar.event.delete"})
+	connectorRuntime.UseCapabilityTools(capability.Client{
+		Endpoint: "http://capability.test",
+		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","content":"calendar event created","result":{"eventID":"event-1"}}`)),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+			}, nil
+		}),
+	}, []string{"calendar.event.add", "calendar.event.delete"})
+	event := testInboundEvent("message-1")
+	event.Prompt = "나 내일 휴가라고 달력에 추가해줘"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected calendar add to process: %v", errorValue)
+	}
+	if result.TaskRunID == "" {
+		t.Fatal("expected task run id")
+	}
+	if connectorContainsSchemaName(languageModel.requests, "blueclaw_approval_reply_decision") {
+		t.Fatalf("expected no approval continuation classification, got %+v", connectorRequestSchemaNames(languageModel.requests))
+	}
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.add/invoke" {
+		t.Fatalf("expected direct calendar add invocation, got %+v", invokedTools)
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "내일 휴가 일정을 캘린더에 추가했습니다." {
+		t.Fatalf("expected final add reply, got %+v", adapter.sentReplies)
+	}
+}
+
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := &connectorSequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
@@ -956,6 +1064,23 @@ func messageIndex(messages []llm.Message, fragment string) int {
 	return -1
 }
 
+func connectorRequestSchemaNames(requests []llm.StructuredResponseRequest) []string {
+	names := []string{}
+	for _, request := range requests {
+		names = append(names, request.StructuredOutputSchema.Name)
+	}
+	return names
+}
+
+func connectorContainsSchemaName(requests []llm.StructuredResponseRequest, schemaName string) bool {
+	for _, request := range requests {
+		if request.StructuredOutputSchema.Name == schemaName {
+			return true
+		}
+	}
+	return false
+}
+
 func findAgentToolDefinition(toolDefinitions []agent.ToolDefinition, toolName string) (agent.ToolDefinition, bool) {
 	for _, toolDefinition := range toolDefinitions {
 		if toolDefinition.Name == toolName {
@@ -988,6 +1113,7 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	agentKernel.UseLanguageModelProvider(languageModel)
 
 	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	connectorRuntime.UseTaskRunService(taskRunService)
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter
@@ -1008,6 +1134,18 @@ func connectorScheduledTaskSkill() agent.SkillInstruction {
 		TriggerHints: []string{"schedule", "remind", "매일", "예약", "알림", "마다"},
 		AllowedTools: []string{"schedule.create"},
 		Source:       agent.InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
+	}
+}
+
+func connectorCalendarSkill() agent.SkillInstruction {
+	return agent.SkillInstruction{
+		Name:         "calendar",
+		Description:  "Create or list calendar events.",
+		WhenToUse:    "Use for calendar, event, 일정, 달력, 캘린더, and 휴가 requests.",
+		Prompt:       "Use calendar.event.add to create calendar events without approval. Use calendar.event.delete only after approval.",
+		TriggerHints: []string{"calendar", "event", "일정", "달력", "캘린더", "휴가"},
+		AllowedTools: []string{"calendar.event.add", "calendar.event.delete"},
+		Source:       agent.InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
 	}
 }
 
