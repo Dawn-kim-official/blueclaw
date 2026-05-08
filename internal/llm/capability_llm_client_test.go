@@ -52,6 +52,9 @@ func TestCapabilityLLMClientSendsStructuredRequestWithoutAuthorization(t *testin
 	if string(receivedDocument.StructuredOutputSchema.Document) != `{"type":"object","properties":{"reply":{"type":"string"}},"required":["reply"],"additionalProperties":false}` {
 		t.Fatalf("expected schema document to be unchanged, got %s", string(receivedDocument.StructuredOutputSchema.Document))
 	}
+	if receivedDocument.GenerationOptions != nil {
+		t.Fatalf("expected empty generation options to be omitted, got %+v", receivedDocument.GenerationOptions)
+	}
 	if structuredResponse.Content != `{"reply":"안녕하세요"}` {
 		t.Fatalf("expected capability content to be returned, got %q", structuredResponse.Content)
 	}
@@ -79,6 +82,39 @@ func TestCapabilityLLMClientReturnsCapabilityError(t *testing.T) {
 	}
 	if errorValue.Error() != "local model unavailable" {
 		t.Fatalf("expected capability error body, got %q", errorValue.Error())
+	}
+}
+
+func TestCapabilityLLMClientForwardsGenerationOptions(t *testing.T) {
+	seed := int64(1234)
+	temperature := 0.2
+	var receivedDocument capabilityStructuredResponseRequestDocument
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected request document to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"content":"{\"reply\":\"ok\"}"}`), nil
+	}}
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName: "gemma",
+	}
+	request := buildTestStructuredResponseRequest()
+	request.GenerationOptions = GenerationOptions{Seed: &seed, Temperature: &temperature}
+
+	_, errorValue := client.GenerateStructuredResponse(context.Background(), request)
+
+	if errorValue != nil {
+		t.Fatalf("expected structured response: %v", errorValue)
+	}
+	if receivedDocument.GenerationOptions == nil || receivedDocument.GenerationOptions.Seed == nil || *receivedDocument.GenerationOptions.Seed != seed {
+		t.Fatalf("expected seed to be forwarded, got %+v", receivedDocument.GenerationOptions)
+	}
+	if receivedDocument.GenerationOptions.Temperature == nil || *receivedDocument.GenerationOptions.Temperature != temperature {
+		t.Fatalf("expected temperature to be forwarded, got %+v", receivedDocument.GenerationOptions)
 	}
 }
 

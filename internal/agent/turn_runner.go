@@ -19,6 +19,7 @@ type TurnOptions struct {
 	MaxElapsedSecond   int
 	EffortLevel        EffortLevel
 	ToolResultMaxBytes int
+	GenerationOptions  llm.GenerationOptions
 }
 
 type AgentTurnRunner struct {
@@ -189,25 +190,24 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 	agentTurnRunner.appendInstructionEvent(taskRun.TaskRunID, request)
 
-	observations := []turnObservation{}
-	attachments := []FileAttachment{}
-	qualityCriteria := []qualityCriterion{}
-	toolUseRequirements := deriveToolUseRequirements(request)
-	toolCallCount := 0
+	state := buildInitialAgentTaskState(request, agentTurnRunner.options, taskRun.TaskRunID)
+	state.Status = taskRun.Status
+	toolUseRequirements := state.Requirements
 	successfulToolCalls := map[string]turnObservation{}
 	limitPressureWarnings := map[string]bool{}
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterationCount; iteration++ {
-		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, toolCallCount, len(observations)+1, limitPressureWarnings); warning != nil {
-			observations = append(observations, warning.Observation)
+		state.IterationCount = iteration - 1
+		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, state.ToolCallCount, len(state.Observations)+1, limitPressureWarnings); warning != nil {
+			state.Observations = append(state.Observations, warning.Observation)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.limit_pressure", marshalEventBody(warning.EventBody))
 			limitPressureWarnings[warning.Level] = true
 		}
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
 
-		transition := agentTurnRunner.applyCompletionState(turnContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, observations, attachments, qualityCriteria)
-		observations = transition.Observations
-		attachments = transition.Attachments
+		transition := agentTurnRunner.applyCompletionState(turnContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria)
+		state.Observations = transition.Observations
+		state.Attachments = transition.Attachments
 		if transition.IsCompleted {
 			return transition.Result, nil
 		}
@@ -216,94 +216,94 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			continue
 		}
 
-		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, toolUseRequirements, observations, len(qualityCriteria) == 0)
+		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, toolUseRequirements, state.Observations, len(state.QualityCriteria) == 0)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.DeadlineExceeded) {
-				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", observations, attachments, iteration-1, toolCallCount)
+				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", state.Observations, state.Attachments, iteration-1, state.ToolCallCount)
 			}
-			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), observations, attachments)
+			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), state.Observations, state.Attachments)
 		}
 
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
 		case "set_quality_criteria":
-			qualityCriteria = normalizeQualityCriteria(actionDocument.QualityCriteria)
+			state.QualityCriteria = normalizeQualityCriteria(actionDocument.QualityCriteria)
 			observation := turnObservation{
-				ObservationID: nextObservationID(len(observations) + 1),
+				ObservationID: nextObservationID(len(state.Observations) + 1),
 				Action:        "set_quality_criteria",
-				Content:       marshalEventBody(map[string]any{"criteria": qualityCriteria}),
+				Content:       marshalEventBody(map[string]any{"criteria": state.QualityCriteria}),
 			}
-			observations = append(observations, observation)
+			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.quality_criteria", marshalEventBody(map[string]any{
-				"criteria": qualityCriteria,
+				"criteria": state.QualityCriteria,
 			}))
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "set_quality_criteria", marshalEventBody(map[string]any{"criteria": qualityCriteria}))
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "set_quality_criteria", marshalEventBody(map[string]any{"criteria": state.QualityCriteria}))
 			continue
 		case "final_reply":
-			completionGateResult := validateCompletionGateForRequest(request, toolUseRequirements, observations, qualityCriteria, actionDocument)
+			completionGateResult := validateCompletionGateForRequest(request, toolUseRequirements, state.Observations, state.QualityCriteria, actionDocument)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "final_reply", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
 				observation := turnObservation{
-					ObservationID: nextObservationID(len(observations) + 1),
+					ObservationID: nextObservationID(len(state.Observations) + 1),
 					Action:        "policy",
 					Content:       completionGateResult.Message,
 					IsError:       true,
 				}
-				observations = append(observations, observation)
+				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_required", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "completion_required", observation.Content)
 				continue
 			}
-			agentTurnRunner.appendQualityReview(taskRun.TaskRunID, qualityCriteria, actionDocument.QualityReview, observations)
+			agentTurnRunner.appendQualityReview(taskRun.TaskRunID, state.QualityCriteria, actionDocument.QualityReview, state.Observations)
 			reply := strings.TrimSpace(actionDocument.FinalReply)
 			if reply == "" {
 				reply = strings.TrimSpace(actionDocument.Reply)
 			}
 			if reply == "" {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "final_reply", "empty final reply")
-				return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "empty final reply", observations, attachments)
+				return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "empty final reply", state.Observations, state.Attachments)
 			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "final_reply", reply)
 			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
-			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
 		case "call_tool":
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				observation := turnObservation{ObservationID: nextObservationID(len(observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
-				observations = append(observations, observation)
+				observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
+				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
 				continue
 			}
 			if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				observation := turnObservation{ObservationID: nextObservationID(len(observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
-				observations = append(observations, observation)
+				observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
+				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
 				continue
 			}
 			if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName) {
 				observation := turnObservation{
-					ObservationID: nextObservationID(len(observations) + 1),
+					ObservationID: nextObservationID(len(state.Observations) + 1),
 					Action:        "policy",
 					Tool:          strings.TrimSpace(actionDocument.ToolName),
 					Content:       "This exact tool call already succeeded as " + duplicateObservation.ObservationID + ". Use that observation for completionEvidence instead of running it again.",
 					IsError:       true,
 				}
-				observations = append(observations, observation)
+				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.duplicate_tool_call_rejected", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "duplicate_tool_call "+actionDocument.ToolName, observation.Content)
 				continue
 			}
-			toolCallCount++
-			if toolCallCount > agentTurnRunner.options.MaxToolCallCount {
+			state.ToolCallCount++
+			if state.ToolCallCount > agentTurnRunner.options.MaxToolCallCount {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
-				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, observations, attachments, qualityCriteria, iteration, agentTurnRunner.options.MaxToolCallCount)
+				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, iteration, agentTurnRunner.options.MaxToolCallCount)
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolSet, taskRun.TaskRunID, nextObservationID(len(observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
-			observations = append(observations, observation)
-			attachments = appendObservationAttachments(attachments, observation)
-			if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRun.TaskRunID, observation, attachments); isPaused {
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolSet, taskRun.TaskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
+			state.Observations = append(state.Observations, observation)
+			state.Attachments = appendObservationAttachments(state.Attachments, observation)
+			if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRun.TaskRunID, observation, state.Attachments); isPaused {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, pausedResult.TaskRun.Status, "call_tool "+actionDocument.ToolName, observation.Content)
 				return pausedResult, nil
 			}
@@ -314,15 +314,15 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		case "fail":
 			reason := firstNonEmptyString(actionDocument.Reason, "agent reported failure")
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
-			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, observations, attachments)
+			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments)
 		default:
-			observation := turnObservation{ObservationID: nextObservationID(len(observations) + 1), Action: "invalid_action", Content: "unknown action: " + actionDocument.Action, IsError: true}
-			observations = append(observations, observation)
+			observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "invalid_action", Content: "unknown action: " + actionDocument.Action, IsError: true}
+			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_action", observation.Content)
 		}
 	}
 
-	return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, observations, attachments, qualityCriteria, agentTurnRunner.options.MaxIterationCount, toolCallCount)
+	return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, agentTurnRunner.options.MaxIterationCount, state.ToolCallCount)
 }
 
 func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, observation turnObservation, attachments []FileAttachment) (AgentTurnResult, bool) {
@@ -349,27 +349,16 @@ func toolObservationMessage(observation turnObservation) string {
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {
-	blockedToolNames := blockedToolNamesForPreconditions(request.ToolSet, requirements, observations)
-	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: agentTurnRunner.buildTurnMessages(request, observations),
-		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:               "blueclaw_agent_turn_action",
-			Document:           agentTurnRunner.buildActionSchema(request.ToolSet, allowQualityCriteria, blockedToolNames),
-			IsStrictlyEnforced: true,
-		},
-	})
+	state := agentTaskState{
+		Request:         request,
+		Options:         agentTurnRunner.options,
+		Observations:    append([]turnObservation{}, observations...),
+		QualityCriteria: qualityCriteriaForActionRequest(allowQualityCriteria),
+		Requirements:    append([]toolUseRequirement{}, requirements...),
+	}
+	actionDocument, errorValue := DecideAgentAction(ctx, agentTurnRunner.languageModel, state)
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
-	}
-
-	var actionDocument turnActionDocument
-	errorValue = json.Unmarshal([]byte(structuredResponse.Content), &actionDocument)
-	if errorValue != nil {
-		return turnActionDocument{}, errorValue
-	}
-	if strings.TrimSpace(actionDocument.Action) == "" && strings.TrimSpace(actionDocument.Reply) != "" {
-		actionDocument.Action = "final_reply"
-		actionDocument.FinalReply = actionDocument.Reply
 	}
 	return actionDocument, nil
 }
@@ -378,12 +367,16 @@ func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnReque
 	return (PromptAssembler{}).BuildTurnMessages(
 		request,
 		observations,
-		agentTurnRunner.buildSystemInstruction(request),
-		agentTurnRunner.buildToolDescription(request.ToolSet),
+		buildAgentSystemInstruction(request),
+		buildAgentToolDescription(request.ToolSet),
 	)
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurnRequest) string {
+	return buildAgentSystemInstruction(request)
+}
+
+func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction := "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply only when goalSatisfied is true. Every final_reply must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
 	instruction += " Ask for approval only before destructive, high-risk, external-send, credential, paid-service, or tool-availability ask actions. Do not ask for approval before ordinary non-destructive writes."
 	instruction += " For artifact work, set_quality_criteria and qualityReview are useful for your own acceptance criteria, but they are guidance and evidence, not a reason to withhold a usable artifact."
@@ -398,6 +391,10 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolSet) string {
+	return buildAgentToolDescription(toolRegistry)
+}
+
+func buildAgentToolDescription(toolRegistry *ToolSet) string {
 	if toolRegistry == nil {
 		return ""
 	}
@@ -788,21 +785,45 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 
 func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion) completionTransition {
 	state := buildCompletionState(request, requirements, observations)
-	switch state.RecommendedAction {
-	case completionActionAttachExistingArtifacts:
-		return agentTurnRunner.attachCompletionArtifacts(ctx, taskRunID, request, observations, attachments, state)
-	case completionActionFinalizeWithEvidence:
+	agentState := agentTaskState{
+		TaskRunID:       taskRunID,
+		Request:         request,
+		Observations:    append([]turnObservation{}, observations...),
+		Attachments:     append([]FileAttachment{}, attachments...),
+		QualityCriteria: append([]qualityCriterion{}, criteria...),
+		Requirements:    append([]toolUseRequirement{}, requirements...),
+		TurnStartedAt:   request.TurnStartedAt,
+		ToolCallCount:   len(observations),
+		IterationCount:  len(observations),
+	}
+	transition := advanceAgentTask(agentState)
+	switch transition.Effect.Kind {
+	case agentEffectCallTool:
+		if transition.Effect.ToolCall != nil && transition.Effect.ToolCall.ToolName == "file.attach" {
+			return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, *transition.Effect.ToolCall)
+		}
+	case agentEffectFinalReply:
 		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state)
-	case completionActionBlockedInvalidArtifact:
-		return agentTurnRunner.blockInvalidCompletionArtifacts(taskRunID, observations, attachments, state)
+	case agentEffectNone:
+		if len(transition.State.Observations) > len(observations) {
+			return agentTurnRunner.blockInvalidCompletionArtifactsFromTransition(taskRunID, observations, attachments, state, transition)
+		}
 	default:
 		return completionTransition{Observations: observations, Attachments: attachments}
 	}
+	return completionTransition{Observations: observations, Attachments: attachments}
 }
 
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
+	return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, ToolInvocation{
+		ToolName: "file.attach",
+		Input:    MarshalToolInput(map[string]any{"paths": state.AttachmentPaths}),
+	})
+}
+
+func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifactsFromEffect(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState, invocation ToolInvocation) completionTransition {
 	agentTurnRunner.appendValidityReview(taskRunID, "pre_attach", state.ValidityState)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), "file.attach", MarshalToolInput(map[string]any{"paths": state.AttachmentPaths}), request.WorkspaceRootPath, request.TurnStartedAt)
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), invocation.ToolName, invocation.Input, request.WorkspaceRootPath, request.TurnStartedAt)
 	if observation.IsError {
 		observation.Content = completionAttachmentFailureContent(observation.Content, state.AttachmentPaths)
 	}
@@ -833,6 +854,19 @@ func (agentTurnRunner *AgentTurnRunner) blockInvalidCompletionArtifacts(taskRunI
 	agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
 	return completionTransition{
 		Observations:  observations,
+		Attachments:   attachments,
+		DidTransition: true,
+		Action:        completionActionBlockedInvalidArtifact,
+	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) blockInvalidCompletionArtifactsFromTransition(taskRunID string, observations []turnObservation, attachments []FileAttachment, state CompletionState, transition agentTransition) completionTransition {
+	nextObservations := transition.State.Observations
+	observation := nextObservations[len(nextObservations)-1]
+	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", state.ValidityState)
+	agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
+	return completionTransition{
+		Observations:  nextObservations,
 		Attachments:   attachments,
 		DidTransition: true,
 		Action:        completionActionBlockedInvalidArtifact,

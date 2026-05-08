@@ -13,9 +13,15 @@ type StructuredOutputSchema struct {
 	IsStrictlyEnforced bool
 }
 
+type GenerationOptions struct {
+	Seed        *int64   `json:"seed,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+}
+
 type StructuredResponseRequest struct {
 	Messages               []Message
 	StructuredOutputSchema StructuredOutputSchema
+	GenerationOptions      GenerationOptions
 }
 
 type RequestContext struct {
