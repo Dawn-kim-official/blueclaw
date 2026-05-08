@@ -211,16 +211,24 @@ func (toolSet *ToolSet) Descriptions() string {
 	if toolSet == nil {
 		return ""
 	}
-	toolDefinitions := toolSet.ListToolDefinitions()
-	if len(toolDefinitions) == 0 {
+	toolNames := toolSet.ListToolNames()
+	if len(toolNames) == 0 {
 		return ""
 	}
 	lines := []string{"Available tools:"}
-	for _, toolDefinition := range toolDefinitions {
+	for _, toolName := range toolNames {
+		boundTool := toolSet.boundToolByName[toolName]
+		toolDefinition := boundTool.Definition
 		line := "- " + toolDefinition.Name
 		description := firstNonEmptyString(specificToolDescription(toolDefinition.Name), toolDefinition.Description)
 		if strings.TrimSpace(description) != "" {
 			line += ": " + strings.TrimSpace(description)
+		}
+		if strings.TrimSpace(boundTool.Availability.Status) == ToolAvailabilityAsk {
+			line += " Availability: ask approval before invoking"
+			if strings.TrimSpace(boundTool.Availability.Reason) != "" {
+				line += " (" + strings.TrimSpace(boundTool.Availability.Reason) + ")"
+			}
 		}
 		if inputSchema := toolDefinitionInputSchema(toolDefinition); len(inputSchema) > 0 {
 			line += " Input schema: " + strings.TrimSpace(string(inputSchema))

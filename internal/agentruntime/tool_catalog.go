@@ -319,7 +319,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[approvalRequestToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "approval.request",
-			Description: "Pause the current task while waiting for explicit user approval.",
+			Description: "Pause the current task while waiting for explicit user approval. Use only before destructive, high-risk, external-send, credential, paid-service, or tool-availability ask actions. Do not use for ordinary non-destructive writes such as calendar.event.add, flow.task.add, site.app.create, or site.app.publish.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"},"reason":{"type":"string"}},"required":["message"],"additionalProperties":false}`),
 		},
 		Handler: toolCatalogBuilder.requestApprovalTool,
