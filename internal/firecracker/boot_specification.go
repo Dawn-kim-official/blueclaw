@@ -3,6 +3,7 @@ package firecracker
 type BootSpecification struct {
 	InstanceID              string
 	LogDirectoryPath        string
+	JailerRootPath          string
 	ConfigurationFilePath   string
 	APIUnixSocketPath       string
 	VSockUnixSocketPath     string

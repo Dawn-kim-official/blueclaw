@@ -52,12 +52,14 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 
 	standardOutputFile, errorValue := os.OpenFile(filepath.Join(bootSpecification.LogDirectoryPath, "stdout.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if errorValue != nil {
+		_ = removeGuestJailerDirectory(bootSpecification)
 		return GuestInstance{}, errorValue
 	}
 
 	standardErrorFile, errorValue := os.OpenFile(filepath.Join(bootSpecification.LogDirectoryPath, "stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if errorValue != nil {
 		_ = standardOutputFile.Close()
+		_ = removeGuestJailerDirectory(bootSpecification)
 		return GuestInstance{}, errorValue
 	}
 
@@ -69,6 +71,7 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 	_ = standardOutputFile.Close()
 	_ = standardErrorFile.Close()
 	if errorValue != nil {
+		_ = removeGuestJailerDirectory(bootSpecification)
 		return GuestInstance{}, errorValue
 	}
 
@@ -84,21 +87,26 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 
 func (supervisorService *SupervisorService) StopGuest(guestInstance GuestInstance) error {
 	supervisorService.mutex.Lock()
-	defer supervisorService.mutex.Unlock()
-
 	command, isFound := supervisorService.commandByInstanceID[guestInstance.InstanceID]
 	if !isFound {
+		supervisorService.mutex.Unlock()
 		return errors.New("guest instance was not found")
 	}
+	delete(supervisorService.commandByInstanceID, guestInstance.InstanceID)
+	supervisorService.mutex.Unlock()
 
+	var stopError error
 	if command.Process != nil {
-		errorValue := command.Process.Kill()
-		delete(supervisorService.commandByInstanceID, guestInstance.InstanceID)
-		return errorValue
+		if errorValue := command.Process.Kill(); errorValue != nil && !errors.Is(errorValue, os.ErrProcessDone) {
+			stopError = errorValue
+		}
+		_ = command.Wait()
 	}
 
-	delete(supervisorService.commandByInstanceID, guestInstance.InstanceID)
-	return nil
+	if cleanupError := removeGuestJailerDirectory(guestInstance.BootSpecification); cleanupError != nil && stopError == nil {
+		stopError = cleanupError
+	}
+	return stopError
 }
 
 func (supervisorService *SupervisorService) RestartGuest(bootContext context.Context, guestInstance GuestInstance) (GuestInstance, error) {
@@ -164,6 +172,9 @@ func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecif
 	if errorValue != nil {
 		return BootSpecification{}, errorValue
 	}
+	if errorValue := supervisorService.removeInactiveJailerDirectories(chrootBaseDirectoryPath); errorValue != nil {
+		return BootSpecification{}, errorValue
+	}
 
 	jailerRootPath := buildJailerRootPath(chrootBaseDirectoryPath, instanceID)
 	apiUnixSocketPath := filepath.Join(jailerRootPath, "firecracker-api.socket")
@@ -216,6 +227,7 @@ func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecif
 	return BootSpecification{
 		InstanceID:              instanceID,
 		LogDirectoryPath:        logDirectoryPath,
+		JailerRootPath:          jailerRootPath,
 		ConfigurationFilePath:   configurationFilePath,
 		APIUnixSocketPath:       apiUnixSocketPath,
 		VSockUnixSocketPath:     vsockUnixSocketPath,
@@ -271,6 +283,46 @@ func replaceHardLink(sourcePath string, destinationPath string) error {
 
 func buildJailerRootPath(instanceDirectoryPath string, instanceID string) string {
 	return filepath.Join(instanceDirectoryPath, "firecracker", instanceID, "root")
+}
+
+func removeGuestJailerDirectory(bootSpecification BootSpecification) error {
+	if bootSpecification.JailerRootPath == "" {
+		return nil
+	}
+	return os.RemoveAll(filepath.Dir(bootSpecification.JailerRootPath))
+}
+
+func (supervisorService *SupervisorService) removeInactiveJailerDirectories(instanceDirectoryPath string) error {
+	firecrackerDirectoryPath := filepath.Join(instanceDirectoryPath, "firecracker")
+	entries, errorValue := os.ReadDir(firecrackerDirectoryPath)
+	if os.IsNotExist(errorValue) {
+		return nil
+	}
+	if errorValue != nil {
+		return errorValue
+	}
+
+	activeInstanceIDs := supervisorService.activeInstanceIDs()
+	for _, entry := range entries {
+		if !entry.IsDir() || activeInstanceIDs[entry.Name()] {
+			continue
+		}
+		if removeError := os.RemoveAll(filepath.Join(firecrackerDirectoryPath, entry.Name())); removeError != nil {
+			return removeError
+		}
+	}
+	return nil
+}
+
+func (supervisorService *SupervisorService) activeInstanceIDs() map[string]bool {
+	supervisorService.mutex.RLock()
+	defer supervisorService.mutex.RUnlock()
+
+	activeInstanceIDs := map[string]bool{}
+	for instanceID := range supervisorService.commandByInstanceID {
+		activeInstanceIDs[instanceID] = true
+	}
+	return activeInstanceIDs
 }
 
 func (supervisorService *SupervisorService) runtimeDirectoryPath() string {

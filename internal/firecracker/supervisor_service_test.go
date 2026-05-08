@@ -3,6 +3,7 @@ package firecracker
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,10 +78,72 @@ func TestBuildBootSpecificationIncludesWorkspaceAndVSock(t *testing.T) {
 	if bootSpecification.ConfigurationDocument.VSockConfiguration.UnixSocketPath != "/firecracker-vsock.socket" {
 		t.Fatalf("expected jailed vsock path, got %q", bootSpecification.ConfigurationDocument.VSockConfiguration.UnixSocketPath)
 	}
+	if bootSpecification.JailerRootPath == "" {
+		t.Fatal("expected jailer root path")
+	}
 	if len(bootSpecification.ConfigurationDocument.DriveConfigurations) != 2 {
 		t.Fatalf("expected rootfs and workspace drives, got %d", len(bootSpecification.ConfigurationDocument.DriveConfigurations))
 	}
 	if bootSpecification.WorkspaceVolumeMetadata.GuestMountPath != "/workspace" {
 		t.Fatalf("expected workspace mount path to match, got %q", bootSpecification.WorkspaceVolumeMetadata.GuestMountPath)
+	}
+}
+
+func TestStopGuestRemovesJailerDirectory(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	instanceID := "testinstance"
+	jailerRootPath := buildJailerRootPath(temporaryDirectory, instanceID)
+	if errorValue := os.MkdirAll(filepath.Join(jailerRootPath, "nested"), 0o700); errorValue != nil {
+		t.Fatalf("expected jailer fixture: %v", errorValue)
+	}
+
+	command := exec.Command("sleep", "30")
+	if errorValue := command.Start(); errorValue != nil {
+		t.Fatalf("expected process fixture: %v", errorValue)
+	}
+
+	supervisorService := NewSupervisorService(config.FirecrackerConfiguration{}, WorkspaceVolumeService{}, readyGuestHealthClient{})
+	supervisorService.commandByInstanceID[instanceID] = command
+
+	errorValue := supervisorService.StopGuest(GuestInstance{
+		InstanceID: instanceID,
+		BootSpecification: BootSpecification{
+			JailerRootPath: jailerRootPath,
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected stop to succeed: %v", errorValue)
+	}
+
+	if _, errorValue := os.Stat(filepath.Dir(jailerRootPath)); !os.IsNotExist(errorValue) {
+		t.Fatalf("expected jailer directory to be removed, got %v", errorValue)
+	}
+}
+
+func TestRemoveInactiveJailerDirectoriesKeepsActiveInstance(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	activeInstanceID := "active"
+	inactiveInstanceID := "inactive"
+	activeRootPath := buildJailerRootPath(temporaryDirectory, activeInstanceID)
+	inactiveRootPath := buildJailerRootPath(temporaryDirectory, inactiveInstanceID)
+	if errorValue := os.MkdirAll(activeRootPath, 0o700); errorValue != nil {
+		t.Fatalf("expected active jailer fixture: %v", errorValue)
+	}
+	if errorValue := os.MkdirAll(inactiveRootPath, 0o700); errorValue != nil {
+		t.Fatalf("expected inactive jailer fixture: %v", errorValue)
+	}
+
+	supervisorService := NewSupervisorService(config.FirecrackerConfiguration{}, WorkspaceVolumeService{}, readyGuestHealthClient{})
+	supervisorService.commandByInstanceID[activeInstanceID] = exec.Command("sleep", "30")
+
+	if errorValue := supervisorService.removeInactiveJailerDirectories(temporaryDirectory); errorValue != nil {
+		t.Fatalf("expected inactive cleanup to succeed: %v", errorValue)
+	}
+
+	if _, errorValue := os.Stat(filepath.Dir(activeRootPath)); errorValue != nil {
+		t.Fatalf("expected active jailer directory to remain: %v", errorValue)
+	}
+	if _, errorValue := os.Stat(filepath.Dir(inactiveRootPath)); !os.IsNotExist(errorValue) {
+		t.Fatalf("expected inactive jailer directory to be removed, got %v", errorValue)
 	}
 }
