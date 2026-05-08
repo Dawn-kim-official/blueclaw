@@ -21,6 +21,7 @@ type capabilityStructuredResponseRequestDocument struct {
 	Context                *RequestContext                  `json:"context,omitempty"`
 	Messages               []Message                        `json:"messages"`
 	StructuredOutputSchema capabilityStructuredOutputSchema `json:"structuredOutputSchema"`
+	GenerationOptions      *GenerationOptions               `json:"generationOptions,omitempty"`
 }
 
 type capabilityTextResponseRequestDocument struct {
@@ -126,16 +127,24 @@ func (capabilityLLMClient CapabilityLLMClient) buildStructuredRequestDocument(re
 	}
 
 	return capabilityStructuredResponseRequestDocument{
-		Model:         capabilityLLMClient.ModelName,
-		ExecutionMode: capabilityLLMClient.executionMode(),
-		Context:       requestContextPointer(responseContext),
-		Messages:      append([]Message{}, structuredResponseRequest.Messages...),
+		Model:             capabilityLLMClient.ModelName,
+		ExecutionMode:     capabilityLLMClient.executionMode(),
+		Context:           requestContextPointer(responseContext),
+		Messages:          append([]Message{}, structuredResponseRequest.Messages...),
+		GenerationOptions: generationOptionsPointer(structuredResponseRequest.GenerationOptions),
 		StructuredOutputSchema: capabilityStructuredOutputSchema{
 			Name:               structuredResponseRequest.StructuredOutputSchema.Name,
 			Document:           jsonSchemaDocument,
 			IsStrictlyEnforced: structuredResponseRequest.StructuredOutputSchema.IsStrictlyEnforced,
 		},
 	}, nil
+}
+
+func generationOptionsPointer(options GenerationOptions) *GenerationOptions {
+	if options.Seed == nil && options.Temperature == nil {
+		return nil
+	}
+	return &options
 }
 
 func requestContextPointer(ctx context.Context) *RequestContext {
