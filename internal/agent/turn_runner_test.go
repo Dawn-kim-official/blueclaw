@@ -810,7 +810,7 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{
 			Name:   "simple-slides",
 			Status: "selected",
-			Reason: "prompt_matched_trigger_hint",
+			Reason: "embedding_similarity",
 			Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides", SHA256: "abc"},
 		}},
 	})
@@ -824,7 +824,7 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "simple-slides") {
 		t.Fatal("expected selected skill in instructions event")
 	}
-	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "prompt_matched_trigger_hint") {
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "embedding_similarity") {
 		t.Fatal("expected selected skill reason in instructions event")
 	}
 	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "skills/simple-slides/SKILL.md") {
@@ -1257,6 +1257,82 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_rejected", "obs-001") {
 		t.Fatal("expected duplicate rejection event")
+	}
+}
+
+func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"approval.request","toolInput":{"message":"배포는 외부 영향이 있는 작업이므로 확인이 필요합니다."}}`,
+		`{"action":"call_tool","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish prototype"}}`,
+		finalReplyWithEvidence("배포했습니다.", "obs-002", "site.app.publish", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 4})
+	publishCallCount := 0
+	toolRegistry := newTestToolSet([]string{"approval.request", "terminal.run", "site.app.create", "site.app.publish"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		publishCallCount++
+		return ToolResult{Content: `{"siteID":"site-1","status":"published","publishedURL":"https://demo.example"}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "웹사이트 만들어서 배포해",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"site.app.publish"},
+		WorkspaceRootPath:     t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected site publish to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if publishCallCount != 1 {
+		t.Fatalf("expected site.app.publish to run once, got %d", publishCallCount)
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "approval.requested", "") {
+		t.Fatal("unexpected waiting approval request")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "site.app.publish") {
+		t.Fatal("expected unnecessary approval rejection event")
+	}
+}
+
+func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-10T00:00:00+09:00","endISO":"2026-05-13T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}`,
+		`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-11T00:00:00+09:00","endISO":"2026-05-14T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
+	toolCallCount := 0
+	toolRegistry := newTestToolSet([]string{"calendar.event.add"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "calendar.event.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolResult{Content: `{"id":"event-1","title":"휴가","startISO":"2026-05-10T00:00:00+09:00","endISO":"2026-05-13T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "내일부터 화요일까지 휴가 등록해줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"calendar.event.add"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected completed calendar turn: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected one calendar write, got %d", toolCallCount)
+	}
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected no second model action after evidence success, got %d requests", len(languageModel.requests))
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "calendar.event.add") {
+		t.Fatal("expected completion state finalization with calendar evidence")
 	}
 }
 

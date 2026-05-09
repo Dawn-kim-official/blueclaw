@@ -245,6 +245,9 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 		if requestOnlyOpensBrowser(request) {
 			return completionActionFinalizeWithEvidence
 		}
+		if satisfiedOneShotEvidenceRequirementsCanFinalize(requirements) {
+			return completionActionFinalizeWithEvidence
+		}
 		if !allRequirementsAreFileAttachments(requirements) {
 			return completionActionContinueWork
 		}
@@ -275,6 +278,27 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 		return completionActionAttachExistingArtifacts
 	}
 	return completionActionContinueWork
+}
+
+func satisfiedOneShotEvidenceRequirementsCanFinalize(requirements []toolUseRequirement) bool {
+	if len(requirements) == 0 {
+		return false
+	}
+	for _, requirement := range requirements {
+		if requirement.RequiresAttachment || strings.TrimSpace(requirement.ToolPrefix) != "" || !isOneShotCompletionEvidenceTool(requirement.ToolName) {
+			return false
+		}
+	}
+	return true
+}
+
+func isOneShotCompletionEvidenceTool(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "calendar.event.add", "calendar.event.update", "calendar.event.delete", "flow.task.add", "schedule.create", "google.calendar.event", "google.gmail.send":
+		return true
+	default:
+		return false
+	}
 }
 
 func buildAttachedEvidenceValidityState(workspaceRootPath string, attachedEvidence []CompletionAttachedEvidence, minimumModifiedAt time.Time) ValidityState {

@@ -78,7 +78,7 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 	}
 }
 
-func TestSelectInstructionBundleUsesTriggerHintWhenSearchTextMissesKoreanPrompt(t *testing.T) {
+func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Prompt: "base",
 		Skills: []SkillInstruction{
@@ -99,11 +99,13 @@ func TestSelectInstructionBundleUsesTriggerHintWhenSearchTextMissesKoreanPrompt(
 		ToolSet: testToolSet([]string{"terminal.run", "site.app.create", "site.app.publish"}),
 	})
 
-	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
-		t.Fatalf("expected trigger hint to select site-prototype, got %+v", selectedBundle.SkillDecisions)
+	if strings.Contains(selectedBundle.Prompt, "Use site.app.create") {
+		t.Fatalf("expected trigger hint not to load full skill body, got %q", selectedBundle.Prompt)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "Use site.app.create") {
-		t.Fatalf("expected selected site skill prompt, got %q", selectedBundle.Prompt)
+	for _, skillDecision := range selectedBundle.SkillDecisions {
+		if skillDecision.Name == "site-prototype" && skillDecision.Status == "selected" {
+			t.Fatalf("expected trigger hint not to select site-prototype, got %+v", selectedBundle.SkillDecisions)
+		}
 	}
 }
 
@@ -143,23 +145,17 @@ func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
 	}
 }
 
-func TestSkillSelectorIncludesSimpleSlidesInstructionForPresentationAliases(t *testing.T) {
+func TestSkillSelectorOnlyChecksSkillAvailability(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
 		Name:         "simple-slides",
 		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx"},
 		AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
 	}
-	for _, prompt := range []string{
-		"피피티 만들어줘",
-		"파워포인트 자료로 정리해줘",
-		"발표자료 만들어줘",
-		"pptx 파일로 보내줘",
-	} {
-		request := AgentRequest{Prompt: prompt, ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.attach"})}
-		if !skillSelector.ShouldInclude(skillInstruction, request) {
-			t.Fatalf("expected simple-slides for prompt %q", prompt)
-		}
+	request := AgentRequest{Prompt: "피피티 만들어줘", ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.attach"})}
+
+	if skillSelector.ShouldInclude(skillInstruction, request) {
+		t.Fatal("expected prompt hints not to select skills outside retrieval")
 	}
 }
 
@@ -331,6 +327,43 @@ func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
 	}
 	if strings.Contains(selectedBundle.Prompt, "Use calendar tools.") {
 		t.Fatalf("expected unselected skill body to stay out of prompt, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestEmbeddingRetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:         "scheduled-task",
+				Description:  "Create scheduled, recurring, and finite repeated messages.",
+				WhenToUse:    "Use for reminders, interval messages, 1분에 한 번씩, 10번, finite repeated message, and repeat N times requests.",
+				Prompt:       "Use schedule.create with intervalSecond and maxRunCount.",
+				AllowedTools: []string{"schedule.create"},
+				Source:       InstructionSource{Path: "skills/scheduled-task/SKILL.md", SHA256: "schedule", SkillName: "scheduled-task"},
+			},
+			{
+				Name:        "simple-slides",
+				Description: "Create presentation slides and PPTX decks.",
+				Prompt:      "Generate slides.",
+				Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "slides", SkillName: "simple-slides"},
+			},
+		},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:  `1분에 한 번씩 나한테 "죄송합니다" 10번 해봐`,
+		ToolSet: testToolSet([]string{"schedule.create"}),
+	}, retriever)
+
+	if selectedBundle.RetrievalMode != "embedding" || selectedBundle.IndexStatus != "ready" {
+		t.Fatalf("expected embedding retrieval, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
+	}
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "scheduled-task" || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected scheduled-task selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "maxRunCount") {
+		t.Fatalf("expected scheduled-task body, got %q", selectedBundle.Prompt)
 	}
 }
 
@@ -630,6 +663,8 @@ func (provider keywordEmbeddingProvider) GenerateEmbedding(_ context.Context, in
 		keywordEmbeddingValue(normalizedInput, []string{"calendar", "event", "일정", "캘린더"}),
 		keywordEmbeddingValue(normalizedInput, []string{"archive", "unrelated"}),
 		keywordEmbeddingValue(normalizedInput, []string{"skill", "skills", "스킬", "skill.md"}),
+		keywordEmbeddingValue(normalizedInput, []string{"schedule", "scheduled", "reminder", "repeat", "finite", "repeated", "1분에", "한", "번씩", "10번"}),
+		keywordEmbeddingValue(normalizedInput, []string{"html"}),
 	}, nil
 }
 

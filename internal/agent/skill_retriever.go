@@ -15,7 +15,6 @@ import (
 )
 
 const defaultEmbeddingModelName = "embedding.create"
-const minimumEmbeddingSelectionScore = 0.35
 
 type SkillRetriever interface {
 	Retrieve(context.Context, AgentRequest, []SkillInstruction, int) SkillRetrievalResult

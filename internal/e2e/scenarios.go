@@ -135,11 +135,11 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 func scheduledTaskSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:        "scheduled-task",
-		Description: "Create recurring reminders, periodic reports, and future follow-up tasks with schedule.create.",
-		WhenToUse:   "Use when the user asks to schedule, remind, repeat, send something every minute/hour/day/week/month, or says 예약, 알림, 리마인드, 마다, 분마다, 시간마다, 매일, 매주, or 매월.",
+		Description: "Create scheduled, recurring, and finite repeated reminders, messages, reports, and follow-up tasks with schedule.create.",
+		WhenToUse:   "Use when the user asks to schedule, remind, repeat, send something every minute/hour/day/week/month, repeat N times, send a finite repeated message, or says 예약, 알림, 리마인드, 마다, 분마다, 시간마다, 한 번씩, 1분에 한 번씩, 10번, 매일, 매주, or 매월.",
 		Category:    "automation",
 		Tags:        []string{"schedule", "reminder", "cron"},
-		Prompt:      "Use schedule.create to create scheduled agent tasks. For repeated reminders like every minute, use kind interval with intervalSecond. Put the future task instruction in prompt. Do not claim background loops are unsupported when schedule.create is available.",
+		Prompt:      "Use schedule.create to create scheduled agent tasks. For repeated reminders like every minute, use kind interval with intervalSecond. Set maxRunCount for finite repeats like 10번 or repeat N times. Put the future task instruction in prompt. Do not claim background loops are unsupported when schedule.create is available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
 		},
@@ -165,7 +165,7 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 			Prompt: "웹사이트 하나 만들어서 배포해봐",
 			ModelResponses: []string{
 				actionCallTool("site.app.create", `{"slug":"demo","title":"Demo Website"}`),
-				actionCallTool("terminal.run", `{"command":"mkdir -p sites/site-1/app/dist && printf '<!doctype html><html><body>demo site</body></html>' > sites/site-1/app/dist/index.html","workingDirectoryPath":"/workspace","timeoutSecond":30}`),
+				actionCallTool("terminal.run", `{"command":"mkdir -p app/dist && printf 'demo site' > app/dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/site-1","timeoutSecond":30}`),
 				actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Initial demo website"}`),
 				actionFinalReply("웹사이트 프로토타입을 배포했습니다: https://demo.device.example.test"),
 			},

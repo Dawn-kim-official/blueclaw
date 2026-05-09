@@ -3,6 +3,7 @@ package agent
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -25,6 +26,19 @@ func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	}
 	if !strings.Contains(body, "Progress ledger") || !strings.Contains(body, "obs-001") || !strings.Contains(body, "@e1") {
 		t.Fatalf("expected compact progress with observation and refs, got %s", body)
+	}
+}
+
+func TestPromptAssemblerIncludesTurnDateContext(t *testing.T) {
+	turnStartedAt := time.Date(2026, time.May, 8, 18, 1, 10, 0, time.UTC)
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt:        "내일부터 화요일까지 휴가 등록해줘",
+		TurnStartedAt: turnStartedAt,
+	}, nil, "base", "")
+	body := joinMessageContent(messages)
+
+	if !strings.Contains(body, "Runtime context") || !strings.Contains(body, "Current turn date: 2026-05-09") || !strings.Contains(body, "Default calendar timezone: Asia/Seoul") {
+		t.Fatalf("expected turn date context, got %s", body)
 	}
 }
 

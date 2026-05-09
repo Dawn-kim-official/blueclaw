@@ -268,6 +268,13 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
 			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
 		case "call_tool":
+			if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
+				observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "policy", Tool: strings.TrimSpace(actionDocument.ToolName), Content: unnecessarySiteApprovalMessage(), IsError: true}
+				state.Observations = append(state.Observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.Content)
+				continue
+			}
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
 				observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
 				state.Observations = append(state.Observations, observation)
@@ -622,6 +629,47 @@ func handlesDuplicateSuccessfulToolCall(toolName string) bool {
 	return strings.TrimSpace(toolName) == "terminal.run"
 }
 
+func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolName string, toolInput json.RawMessage) bool {
+	if strings.TrimSpace(toolName) != "approval.request" {
+		return false
+	}
+	if !sitePublishTaskToolsAreAvailable(request.ToolSet) {
+		return false
+	}
+	approvalText := strings.ToLower(strings.TrimSpace(string(toolInput)))
+	if containsAny(approvalText, []string{"rollback", "roll back", "unpublish", "delete", "remove", "take down", "삭제", "되돌", "내려", "중단"}) {
+		return false
+	}
+	if requiredEvidenceContains(request.RequiredEvidenceTools, "site.app.publish") {
+		return true
+	}
+	return containsAny(approvalText, []string{"deploy", "publish", "external", "website", "site", "배포", "웹사이트", "외부"})
+}
+
+func sitePublishTaskToolsAreAvailable(toolSet *ToolSet) bool {
+	if toolSet == nil {
+		return false
+	}
+	toolNames := map[string]bool{}
+	for _, toolName := range toolSet.ListToolNames() {
+		toolNames[strings.TrimSpace(toolName)] = true
+	}
+	return toolNames["site.app.create"] && toolNames["site.app.publish"] && toolNames["terminal.run"]
+}
+
+func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
+	for _, toolName := range requiredEvidenceTools {
+		if strings.TrimSpace(toolName) == expectedToolName {
+			return true
+		}
+	}
+	return false
+}
+
+func unnecessarySiteApprovalMessage() string {
+	return "Approval is not required for site.app.create, terminal.run builds, or site.app.publish. Continue with the site tools directly. Ask approval only for site.app.rollback, site.app.unpublish, or site.app.delete."
+}
+
 func isTerminalExecutionTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
 	case "terminal.run", "terminal.session":
@@ -914,6 +962,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 	agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_finalized", marshalEventBody(map[string]any{
 		"attachmentCount": len(completionGateResult.Attachments),
 		"evidenceCount":   len(state.EvidenceReferences),
+		"evidence":        state.EvidenceReferences,
 	}))
 	reply := strings.TrimSpace(actionDocument.FinalReply)
 	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)

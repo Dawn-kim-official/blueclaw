@@ -330,7 +330,7 @@ func fakeRewriteExecutable(t *testing.T, originalCommand string, rewrittenComman
 func fakeSlowRewriteExecutable(t *testing.T) string {
 	t.Helper()
 	executablePath := t.TempDir() + "/fake-slow-rtk"
-	script := "#!/bin/sh\nsleep 2\nprintf '%s\\n' 'printf rewritten'\n"
+	script := "#!/bin/sh\nsleep 11\nprintf '%s\\n' 'printf rewritten'\n"
 	if errorValue := os.WriteFile(executablePath, []byte(script), 0o755); errorValue != nil {
 		t.Fatalf("expected fake slow rewrite executable to be written: %v", errorValue)
 	}

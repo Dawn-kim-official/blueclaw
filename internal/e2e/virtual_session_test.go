@@ -136,7 +136,7 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 		t.Fatal("expected site-prototype skill to be selected")
 	}
 	if !eventsContain(turnResult.Events, "tool.site.app.publish.result", "publishedURL") {
-		t.Fatal("expected site publish result to include a public URL")
+		t.Fatalf("expected site publish result to include a public URL; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.ModelContext, "site.app.create") || !strings.Contains(turnResult.ModelContext, "site.app.publish") {
 		t.Fatal("expected model context to expose site app tools")

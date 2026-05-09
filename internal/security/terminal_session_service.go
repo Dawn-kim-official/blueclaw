@@ -19,7 +19,7 @@ import (
 const (
 	terminalRunToolName      = "terminal.run"
 	defaultRTKExecutablePath = "/workspace/.blueclaw/runtime/current/bin/rtk"
-	defaultRTKRewriteTimeout = time.Second
+	defaultRTKRewriteTimeout = 10 * time.Second
 )
 
 type CommandResult struct {
