@@ -626,7 +626,10 @@ func canonicalToolInput(toolInput json.RawMessage) string {
 }
 
 func handlesDuplicateSuccessfulToolCall(toolName string) bool {
-	return strings.TrimSpace(toolName) == "terminal.run"
+	if strings.TrimSpace(toolName) == "terminal.run" {
+		return true
+	}
+	return isOneShotCompletionEvidenceTool(toolName)
 }
 
 func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolName string, toolInput json.RawMessage) bool {
@@ -991,9 +994,29 @@ func completionStateFinalReplyDocument(state CompletionState) turnActionDocument
 func completionStateFinalReply(state CompletionState) string {
 	filenames := completionStateFilenames(state)
 	if len(filenames) == 0 {
-		return "요청하신 작업을 완료했습니다."
+		return completionStateToolReply(state)
 	}
 	return "요청하신 파일을 생성해 첨부했습니다: " + strings.Join(filenames, ", ")
+}
+
+func completionStateToolReply(state CompletionState) string {
+	for _, reference := range state.EvidenceReferences {
+		switch strings.TrimSpace(reference.ToolName) {
+		case "schedule.create":
+			return "예약을 만들었습니다."
+		case "calendar.event.add":
+			return "일정을 등록했습니다."
+		case "calendar.event.update":
+			return "일정을 수정했습니다."
+		case "calendar.event.delete":
+			return "일정을 삭제했습니다."
+		case "flow.task.add":
+			return "업무를 등록했습니다."
+		case "google.gmail.send":
+			return "메일을 보냈습니다."
+		}
+	}
+	return "요청하신 작업을 완료했습니다."
 }
 
 func completionStateFilenames(state CompletionState) []string {
