@@ -143,6 +143,9 @@ func scheduledTaskSkill() agent.SkillInstruction {
 		Activation: agent.SkillActivation{
 			Keywords: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
 		},
+		Completion: agent.SkillCompletion{
+			RequiredEvidenceTools: []string{"schedule.create"},
+		},
 		AllowedTools: []string{"schedule.create"},
 		TriggerHints: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
 		Source: agent.InstructionSource{

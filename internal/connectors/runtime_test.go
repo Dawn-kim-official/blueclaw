@@ -377,7 +377,7 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 	if taskSchedule.Platform != event.Platform || taskSchedule.ConversationID != event.ConversationID || taskSchedule.ReplyTargetID != event.ReplyTargetID {
 		t.Fatalf("expected connector context delivery target, got %+v", taskSchedule)
 	}
-	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "매일 아침 7시에 조사해서 알려드릴게요." {
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "예약을 만들었습니다." {
 		t.Fatalf("expected confirmation reply, got %+v", adapter.sentReplies)
 	}
 }
@@ -1153,6 +1153,9 @@ func connectorScheduledTaskSkill() agent.SkillInstruction {
 		WhenToUse:    "Use for schedule, remind, 매일, 예약, 알림, and 마다 requests.",
 		Prompt:       "Use schedule.create for scheduled tasks.",
 		TriggerHints: []string{"schedule", "remind", "매일", "예약", "알림", "마다"},
+		Completion: agent.SkillCompletion{
+			RequiredEvidenceTools: []string{"schedule.create"},
+		},
 		AllowedTools: []string{"schedule.create"},
 		Source:       agent.InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 	}

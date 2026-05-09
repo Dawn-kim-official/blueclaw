@@ -1336,6 +1336,77 @@ func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
+		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
+	toolCallCount := 0
+	toolRegistry := newTestToolSet([]string{"schedule.create"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolResult{Content: `{"taskScheduleID":"schedule-1","prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"nextRunAt":"2026-05-09T05:07:00Z"}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "1분에 한 번씩 나한테 죄송합니다 10번 해봐",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"schedule.create"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected completed schedule turn: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected one schedule create, got %d", toolCallCount)
+	}
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected no second model action after schedule success, got %d requests", len(languageModel.requests))
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "schedule.create") {
+		t.Fatal("expected completion state finalization with schedule evidence")
+	}
+}
+
+func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
+		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"intervalSecond":60,"kind":"interval","prompt":"죄송합니다."}}`,
+		finalReplyDocument("예약을 만들었습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
+	toolCallCount := 0
+	toolRegistry := newTestToolSet([]string{"schedule.create"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolResult{Content: `{"taskScheduleID":"schedule-1","prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "1분에 한 번씩 나한테 죄송합니다 10번 해봐",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected duplicate schedule turn to finish: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected duplicate schedule create not to execute, got %d calls", toolCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_rejected", "obs-001") {
+		t.Fatal("expected duplicate schedule rejection event")
+	}
+}
+
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
