@@ -1,11 +1,15 @@
 package agentruntime
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net"
 	"net/url"
@@ -24,6 +28,7 @@ import (
 )
 
 const inlineAttachmentMaximumBytes = 25 * 1024 * 1024
+const siteSourceBundleMaximumBytes = 64 * 1024 * 1024
 
 type HistoryProvider interface {
 	FetchHistory(context.Context, string, int) (agent.VisibleContext, error)
@@ -400,7 +405,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
 					return agent.ToolResult{Content: "current account cannot execute this tool", IsError: true}, nil
 				}
-				errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, json.RawMessage(toolInvocation.Input)), &response)
+				toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput(toolName, request, json.RawMessage(toolInvocation.Input))
+				if errorValue != nil {
+					return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+				}
+				errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, toolInput), &response)
 				if errorValue != nil {
 					return agent.ToolResult{}, errorValue
 				}
@@ -796,6 +805,125 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 		requestDocument["privacyClass"] = "user_browser"
 	}
 	return requestDocument
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
+	if strings.TrimSpace(toolName) != "site.app.publish" {
+		return toolInput, nil
+	}
+	inputDocument := map[string]any{}
+	if len(toolInput) > 0 {
+		if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
+			return nil, errorValue
+		}
+	}
+	sourceWorkspacePath := siteSourceWorkspacePath(inputDocument)
+	if sourceWorkspacePath == "" {
+		sourceWorkspacePath = defaultSiteSourceWorkspacePath(inputDocument)
+	}
+	if sourceWorkspacePath == "" {
+		return toolInput, nil
+	}
+	resolvedSourcePath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePath(sourceWorkspacePath)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedSourcePath) {
+		return nil, errors.New("current account cannot publish this site workspace path")
+	}
+	sourceBundleBase64, errorValue := buildSiteSourceBundleBase64(resolvedSourcePath)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	inputDocument["sourceWorkspacePath"] = toolCatalogBuilder.agentWorkspacePath(resolvedSourcePath)
+	inputDocument["sourceBundleBase64"] = sourceBundleBase64
+	inputDocument["sourceBundleFormat"] = "tar.gz"
+	return json.Marshal(inputDocument)
+}
+
+func siteSourceWorkspacePath(inputDocument map[string]any) string {
+	value, isString := inputDocument["sourceWorkspacePath"].(string)
+	if !isString {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func defaultSiteSourceWorkspacePath(inputDocument map[string]any) string {
+	siteID, isString := inputDocument["siteID"].(string)
+	if !isString || strings.TrimSpace(siteID) == "" {
+		return ""
+	}
+	return filepath.Join("/workspace", "circles", "staff", "sites", strings.TrimSpace(siteID))
+}
+
+func buildSiteSourceBundleBase64(sourceWorkspacePath string) (string, error) {
+	buffer := bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	errorValue := filepath.Walk(sourceWorkspacePath, func(path string, information os.FileInfo, walkError error) error {
+		if walkError != nil {
+			return walkError
+		}
+		relativePath, errorValue := filepath.Rel(sourceWorkspacePath, path)
+		if errorValue != nil || relativePath == "." {
+			return errorValue
+		}
+		if shouldSkipSiteSourceBundlePath(relativePath, information) {
+			if information.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		return writeSiteSourceBundleEntry(tarWriter, path, relativePath, information)
+	})
+	closeError := tarWriter.Close()
+	gzipCloseError := gzipWriter.Close()
+	if errorValue != nil {
+		return "", errorValue
+	}
+	if closeError != nil {
+		return "", closeError
+	}
+	if gzipCloseError != nil {
+		return "", gzipCloseError
+	}
+	if buffer.Len() > siteSourceBundleMaximumBytes {
+		return "", errors.New("site source bundle is too large")
+	}
+	return base64.StdEncoding.EncodeToString(buffer.Bytes()), nil
+}
+
+func shouldSkipSiteSourceBundlePath(relativePath string, information os.FileInfo) bool {
+	_ = information
+	for _, component := range strings.Split(filepath.Clean(relativePath), string(os.PathSeparator)) {
+		switch component {
+		case ".git", "node_modules":
+			return true
+		}
+	}
+	return false
+}
+
+func writeSiteSourceBundleEntry(tarWriter *tar.Writer, path string, relativePath string, information os.FileInfo) error {
+	header, errorValue := tar.FileInfoHeader(information, "")
+	if errorValue != nil {
+		return errorValue
+	}
+	header.Name = filepath.ToSlash(relativePath)
+	if errorValue := tarWriter.WriteHeader(header); errorValue != nil {
+		return errorValue
+	}
+	if information.IsDir() {
+		return nil
+	}
+	file, errorValue := os.Open(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer file.Close()
+	_, errorValue = io.Copy(tarWriter, file)
+	return errorValue
 }
 
 func shouldRequireCompanionBrowser(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) bool {

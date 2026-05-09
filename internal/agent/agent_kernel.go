@@ -150,7 +150,7 @@ func approvalReplyMessages(pendingPrompt string, approvalQuestion string, reply 
 			Content: strings.Join([]string{
 				"You decide whether the latest user message approves a pending action.",
 				"Return isApproval true only when the latest message authorizes proceeding with the pending action.",
-				"Short Korean affirmatives such as 응, 네, 좋아, 진행해, 해줘, 그래 are approvals when they answer the pending approval question.",
+				"Short Korean affirmatives such as 응, 네, 좋아, 진행해, 해줘, 그래, 해 are approvals when they answer the pending approval question.",
 				"Return false for cancellation, hesitation, a new unrelated request, or a question.",
 			}, "\n"),
 		},
@@ -426,17 +426,34 @@ func appendUniqueQualityGuidance(guidance []string, seenGuidance map[string]bool
 }
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultEffortLevel EffortLevel) IntakeDecision {
-	if decision.Classification != IntakeClassificationQuickReply || !hasSelectedSkillWithAllowedTools(instructionBundle) {
+	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !hasSelectedSkillWithAllowedTools(instructionBundle) {
 		return decision
 	}
 	decision.Classification = IntakeClassificationBoundedTask
-	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply {
-		decision.TaskShape = TaskShapeResearchTask
+	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply || decision.TaskShape == TaskShapeApprovalGatedTask {
+		decision.TaskShape = taskShapeForSelectedSkills(instructionBundle)
 	}
 	decision.EffortLevel = LargerEffortLevel(decision.EffortLevel, defaultEffortLevel)
 	decision.Reason = "selected skill requires bounded tool execution"
 	decision.UserFacingReply = ""
 	return decision
+}
+
+func canPromoteIntakeDecisionForSelectedSkills(decision IntakeDecision) bool {
+	switch decision.Classification {
+	case IntakeClassificationQuickReply, IntakeClassificationNeedsConfirmation, IntakeClassificationUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
+	selectedSkillNames := selectedSkillNameSet(instructionBundle.SkillDecisions)
+	if selectedSkillNames["scheduled-task"] {
+		return TaskShapeScheduledTask
+	}
+	return TaskShapeResearchTask
 }
 
 func hasSelectedSkillWithAllowedTools(instructionBundle InstructionBundle) bool {
@@ -494,22 +511,20 @@ func selectInstructionBundleForRequest(instructionBundle InstructionBundle, requ
 func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instructionBundle InstructionBundle, request AgentRequest, skillRetriever SkillRetriever) InstructionBundle {
 	prompts := []string{strings.TrimSpace(instructionBundle.Prompt)}
 	sources := append([]InstructionSource{}, instructionBundle.Sources...)
-	skillSelector := SkillSelector{}
-	selectionRequest := requestForSkillSelection(request)
 	skillDecisions := []SkillSelectionDecision{}
 	selectedSkillInstructions := []SkillInstruction{}
 	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever)
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
 	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
-	candidateInstructions = appendSkillInstructions(candidateInstructions, promptTriggeredSkillInstructions(instructionBundle.Skills, selectionRequest, candidateByName, request.RequesterCircles)...)
 	for _, skillInstruction := range candidateInstructions {
-		skillDecision := skillSelector.Evaluate(skillInstruction, selectionRequest, normalizedAgentProfileName(request.ProfileName))
-		if skillCandidate, isFound := candidateByName[skillInstruction.Name]; isFound {
-			skillDecision = skillDecisionForCandidate(skillInstruction, skillDecision, skillCandidate, normalizedAgentProfileName(request.ProfileName))
+		skillCandidate, isFound := candidateByName[skillInstruction.Name]
+		if !isFound {
+			continue
 		}
+		skillDecision := skillDecisionForCandidate(skillInstruction, skillCandidate, normalizedAgentProfileName(request.ProfileName))
 		if skillDecision.Status == "selected" && len(selectedSkillInstructions) >= maxSelectedSkillInstructionCount {
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "selected_skill_limit_reached", nil)
-			skillDecision.Score = candidateByName[skillInstruction.Name].Score
+			skillDecision.Score = skillCandidate.Score
 		}
 		skillDecisions = append(skillDecisions, skillDecision)
 		if skillDecision.Status != "selected" {
@@ -518,7 +533,7 @@ func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instruc
 		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
 		sources = append(sources, skillInstruction.Source)
 	}
-	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, selectionRequest, normalizedAgentProfileName(request.ProfileName))...)
+	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
 	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
 	return InstructionBundle{
@@ -530,32 +545,6 @@ func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instruc
 		IndexStatus:    retrievalResult.IndexStatus,
 		CandidateCount: len(candidateInstructions),
 	}
-}
-
-func promptTriggeredSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, candidateByName map[string]SkillCandidate, requesterCircles []string) []SkillInstruction {
-	skillSelector := SkillSelector{}
-	triggeredSkillInstructions := []SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		if _, isCandidate := candidateByName[skillInstruction.Name]; isCandidate {
-			continue
-		}
-		if skillHiddenFromRequester(skillInstruction, requesterCircles) {
-			continue
-		}
-		if !skillProfileAllows(skillInstruction, normalizedAgentProfileName(request.ProfileName)) {
-			continue
-		}
-		if len(missingAllowedTools(skillInstruction, request)) > 0 {
-			continue
-		}
-		if !skillPathsAllow(skillInstruction, request) {
-			continue
-		}
-		if skillSelector.hasPromptTriggerHint(skillInstruction, request.Prompt) || skillSelector.hasPromptKeyword(skillInstruction, request.Prompt) {
-			triggeredSkillInstructions = append(triggeredSkillInstructions, skillInstruction)
-		}
-	}
-	return triggeredSkillInstructions
 }
 
 func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction) []SkillInstruction {
@@ -609,7 +598,6 @@ func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existi
 	for _, skillDecision := range existingSkillDecisions {
 		existingDecisionByName[skillDecision.Name] = true
 	}
-	skillSelector := SkillSelector{}
 	blockedDecisions := []SkillSelectionDecision{}
 	for _, skillInstruction := range skillInstructions {
 		if existingDecisionByName[skillInstruction.Name] {
@@ -618,7 +606,7 @@ func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existi
 		if skillHiddenFromRequester(skillInstruction, request.RequesterCircles) {
 			continue
 		}
-		skillDecision := skillSelector.Evaluate(skillInstruction, request, profileName)
+		skillDecision := skillAvailabilityDecision(skillInstruction, request, profileName)
 		if skillDecision.Status == "skipped" && skillDecision.Reason != "no_trigger_matched" {
 			blockedDecisions = append(blockedDecisions, skillDecision)
 		}
@@ -652,8 +640,8 @@ func skillCandidateByName(skillCandidates []SkillCandidate) map[string]SkillCand
 	return candidateByName
 }
 
-func skillDecisionForCandidate(skillInstruction SkillInstruction, skillDecision SkillSelectionDecision, skillCandidate SkillCandidate, profileName string) SkillSelectionDecision {
-	if skillDecision.Status == "selected" || skillCandidate.Reason == "direct_skill_name" || skillCandidate.Score >= minimumSelectionScoreForCandidate(skillCandidate) {
+func skillDecisionForCandidate(skillInstruction SkillInstruction, skillCandidate SkillCandidate, profileName string) SkillSelectionDecision {
+	if skillCandidate.Score >= minimumSelectionScoreForCandidate(skillCandidate) {
 		return SkillSelectionDecision{
 			Name:        skillInstruction.Name,
 			Status:      "selected",
@@ -663,18 +651,21 @@ func skillDecisionForCandidate(skillInstruction SkillInstruction, skillDecision 
 			Source:      skillInstruction.Source,
 		}
 	}
-	skillDecision.Score = skillCandidate.Score
-	if skillDecision.Reason == "no_trigger_matched" {
-		skillDecision.Reason = "candidate_below_selection_threshold"
+	return SkillSelectionDecision{
+		Name:        skillInstruction.Name,
+		Status:      "skipped",
+		Reason:      "candidate_below_selection_threshold",
+		ProfileName: profileName,
+		Score:       skillCandidate.Score,
+		Source:      skillInstruction.Source,
 	}
-	return skillDecision
 }
 
 func minimumSelectionScoreForCandidate(skillCandidate SkillCandidate) float64 {
 	if skillCandidate.Reason == "bm25_fallback" {
 		return minimumBM25SelectionScore
 	}
-	return minimumEmbeddingSelectionScore
+	return 0
 }
 
 func requestForSkillSelection(request AgentRequest) AgentRequest {

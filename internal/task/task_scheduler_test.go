@@ -50,6 +50,30 @@ func TestInitializeTaskScheduleForIntervalRun(t *testing.T) {
 	}
 }
 
+func TestAdvanceTaskScheduleStopsAtMaxRunCount(t *testing.T) {
+	taskScheduler := TaskScheduler{}
+	runAt := time.Date(2026, 4, 23, 9, 0, 0, 0, time.UTC)
+
+	taskSchedule, errorValue := taskScheduler.AdvanceTaskSchedule(TaskSchedule{
+		TaskScheduleID:    "schedule-limited",
+		Name:              "limited interval",
+		Kind:              TaskScheduleKindInterval,
+		RunAt:             &runAt,
+		IntervalSecond:    60,
+		MaxRunCount:       10,
+		CompletedRunCount: 9,
+	}, time.Date(2026, 4, 23, 9, 10, 0, 0, time.UTC))
+	if errorValue != nil {
+		t.Fatalf("expected limited interval schedule to advance: %v", errorValue)
+	}
+	if taskSchedule.CompletedRunCount != 10 {
+		t.Fatalf("expected completed run count to reach limit, got %+v", taskSchedule)
+	}
+	if taskSchedule.NextRunAt != nil {
+		t.Fatalf("expected limited interval schedule to stop, got %+v", taskSchedule.NextRunAt)
+	}
+}
+
 func TestAdvanceTaskScheduleForCronRun(t *testing.T) {
 	taskScheduler := TaskScheduler{}
 	executedAt := time.Date(2026, 4, 23, 10, 15, 0, 0, time.UTC)

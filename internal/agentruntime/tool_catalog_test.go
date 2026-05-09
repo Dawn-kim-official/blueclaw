@@ -1,8 +1,13 @@
 package agentruntime
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,6 +130,45 @@ func TestScheduleCreateToolInfersIntervalFromPrompt(t *testing.T) {
 	}
 	if repository.taskSchedules[0].IntervalSecond != 60 {
 		t.Fatalf("expected inferred one minute interval, got %+v", repository.taskSchedules[0])
+	}
+}
+
+func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		Prompt:            `1분에 한 번씩 나한테 "죄송합니다" 10번 해봐`,
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"prompt":         "죄송합니다라고 말해줘.",
+			"kind":           "interval",
+			"intervalSecond": 60,
+			"maxRunCount":    10,
+			"timeZone":       "Asia/Seoul",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected schedule.create success, got %s", result.Content)
+	}
+	if len(repository.taskSchedules) != 1 {
+		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
+	}
+	if repository.taskSchedules[0].MaxRunCount != 10 {
+		t.Fatalf("expected max run count 10, got %+v", repository.taskSchedules[0])
 	}
 }
 
@@ -471,6 +515,58 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 	if string(content) != "ok" {
 		t.Fatalf("expected translated workspace command to write file, got %q", string(content))
+	}
+}
+
+func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<html>ok</html>")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "node_modules", "ignored.js"), "ignored")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "DESIGN.md"), "custom design")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+
+	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
+		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	}, agent.MarshalToolInput(map[string]any{"siteID": "site-1"}))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var inputDocument map[string]any
+	if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if inputDocument["sourceWorkspacePath"] != "/workspace/circles/staff/sites/site-1" {
+		t.Fatalf("unexpected source workspace path: %+v", inputDocument)
+	}
+	if inputDocument["sourceBundleFormat"] != "tar.gz" {
+		t.Fatalf("unexpected source bundle format: %+v", inputDocument)
+	}
+	bundledPaths := siteSourceBundlePaths(t, inputDocument["sourceBundleBase64"].(string))
+	if !containsTestString(bundledPaths, "app/dist/index.html") || !containsTestString(bundledPaths, "DESIGN.md") {
+		t.Fatalf("expected source files in bundle, got %+v", bundledPaths)
+	}
+	if containsTestString(bundledPaths, "app/node_modules/ignored.js") {
+		t.Fatalf("expected node_modules to be omitted from bundle: %+v", bundledPaths)
+	}
+}
+
+func TestSitePublishInputRejectsInaccessibleWorkspaceBundle(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "finance", "sites", "site-1")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<html>ok</html>")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+
+	_, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
+		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	}, agent.MarshalToolInput(map[string]any{
+		"siteID":              "site-1",
+		"sourceWorkspacePath": "/workspace/circles/finance/sites/site-1",
+	}))
+	if errorValue == nil {
+		t.Fatal("expected inaccessible workspace rejection")
 	}
 }
 
@@ -918,8 +1014,36 @@ func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
+	if errorValue := os.MkdirAll(filepath.Dir(path), 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
 	if errorValue := os.WriteFile(path, []byte(content), 0600); errorValue != nil {
 		t.Fatal(errorValue)
+	}
+}
+
+func siteSourceBundlePaths(t *testing.T, bundleBase64 string) []string {
+	t.Helper()
+	document, errorValue := base64.StdEncoding.DecodeString(bundleBase64)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	gzipReader, errorValue := gzip.NewReader(bytes.NewReader(document))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	defer gzipReader.Close()
+	tarReader := tar.NewReader(gzipReader)
+	paths := []string{}
+	for {
+		header, errorValue := tarReader.Next()
+		if errorValue == io.EOF {
+			return paths
+		}
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		paths = append(paths, header.Name)
 	}
 }
 

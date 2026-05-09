@@ -13,6 +13,10 @@ func (skillSelector SkillSelector) ShouldInclude(skillInstruction SkillInstructi
 }
 
 func (skillSelector SkillSelector) Evaluate(skillInstruction SkillInstruction, request AgentRequest, profileName string) SkillSelectionDecision {
+	return skillAvailabilityDecision(skillInstruction, request, profileName)
+}
+
+func skillAvailabilityDecision(skillInstruction SkillInstruction, request AgentRequest, profileName string) SkillSelectionDecision {
 	normalizedProfileName := firstNonEmptySkillSelectionString(profileName, "default")
 	if !skillProfileAllows(skillInstruction, normalizedProfileName) {
 		return skippedSkillDecision(skillInstruction, normalizedProfileName, "profile_not_allowed", nil)
@@ -20,15 +24,6 @@ func (skillSelector SkillSelector) Evaluate(skillInstruction SkillInstruction, r
 	missingTools := missingAllowedTools(skillInstruction, request)
 	if len(missingTools) > 0 {
 		return skippedSkillDecision(skillInstruction, normalizedProfileName, "missing_allowed_tools", missingTools)
-	}
-	if skillSelector.hasPromptTriggerHint(skillInstruction, request.Prompt) {
-		return selectedSkillDecision(skillInstruction, normalizedProfileName, "prompt_matched_trigger_hint")
-	}
-	if skillSelector.hasPromptKeyword(skillInstruction, request.Prompt) {
-		return selectedSkillDecision(skillInstruction, normalizedProfileName, "prompt_matched_activation_keyword")
-	}
-	if skillSelector.hasExplicitToolActivation(skillInstruction, request) {
-		return selectedSkillDecision(skillInstruction, normalizedProfileName, "tool_activation_available")
 	}
 	return skippedSkillDecision(skillInstruction, normalizedProfileName, "no_trigger_matched", nil)
 }
@@ -79,28 +74,6 @@ func skillPathMatchesAny(path string, patterns []string) bool {
 	for _, pattern := range patterns {
 		isMatched, errorValue := filepath.Match(strings.TrimSpace(pattern), trimmedPath)
 		if errorValue == nil && isMatched {
-			return true
-		}
-	}
-	return false
-}
-
-func (skillSelector SkillSelector) hasPromptTriggerHint(skillInstruction SkillInstruction, prompt string) bool {
-	return promptMentionsAnySkillSelectionText(prompt, skillInstruction.TriggerHints)
-}
-
-func (skillSelector SkillSelector) hasPromptKeyword(skillInstruction SkillInstruction, prompt string) bool {
-	return promptMentionsAnySkillSelectionText(prompt, skillInstruction.Activation.Keywords)
-}
-
-func (skillSelector SkillSelector) hasExplicitToolActivation(skillInstruction SkillInstruction, request AgentRequest) bool {
-	for _, toolName := range skillInstruction.Activation.ToolNames {
-		if requestHasToolName(request, toolName) {
-			return true
-		}
-	}
-	for _, toolPrefix := range skillInstruction.Activation.ToolPrefixes {
-		if requestHasToolPrefix(request, toolPrefix) {
 			return true
 		}
 	}

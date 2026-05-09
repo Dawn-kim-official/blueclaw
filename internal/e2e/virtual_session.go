@@ -163,6 +163,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: append([]agent.SkillInstruction{}, skillInstructions...)}
 	})
+	agentKernel.UseSkillRetriever(agent.NewEmbeddingSkillRetriever(virtualSkillEmbeddingProvider{}, ""))
 
 	identityService := identity.NewIdentityService(testPolicyProjection())
 	runtime := connectors.NewConnectorRuntime(identityService, agentKernel, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
@@ -198,6 +199,26 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		adapter:          adapter,
 		cleanup:          cleanup,
 	}, nil
+}
+
+type virtualSkillEmbeddingProvider struct{}
+
+func (provider virtualSkillEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
+	normalizedInput := strings.ToLower(input)
+	return []float32{
+		virtualSkillEmbeddingValue(normalizedInput, []string{"피피티", "pptx", "slides", "presentation", "파워포인트", "발표자료"}),
+		virtualSkillEmbeddingValue(normalizedInput, []string{"schedule", "scheduled", "cron", "remind", "reminder", "repeat", "예약", "알림", "리마인드", "마다", "분마다", "한 번씩", "10번"}),
+		virtualSkillEmbeddingValue(normalizedInput, []string{"website", "web app", "site", "prototype", "deploy", "웹사이트", "사이트", "프로토타입", "배포"}),
+	}, nil
+}
+
+func virtualSkillEmbeddingValue(input string, keywords []string) float32 {
+	for _, keyword := range keywords {
+		if strings.Contains(input, keyword) {
+			return 1
+		}
+	}
+	return 0
 }
 
 func loadVirtualSkillInstructions(scenario VirtualSessionScenario, workspacePath string) ([]agent.SkillInstruction, error) {
@@ -314,11 +335,11 @@ func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()
 func virtualCapabilityResponse(toolName string) string {
 	switch toolName {
 	case "site.app.create":
-		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/sites/site-1","hostSourcePath":"/workspace/sites/site-1"}}`
+		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/site-1","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1"}}`
 	case "site.app.publish":
 		return `{"status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.intern.kim"}}`
 	case "site.app.status":
-		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/sites/site-1"}}`
+		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/site-1","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1"}}`
 	case "site.app.logs":
 		return `{"status":"ok","result":{"logs":[]}}`
 	default:
@@ -692,8 +713,14 @@ func testPolicyProjection() policy.PolicyProjection {
 			PersonID:          "person-1",
 			DisplayName:       "동하",
 			Emails:            []string{"dongha@example.com"},
+			Circles:           []string{"staff"},
 			SecurityLevelRank: 0,
 			GrantedClasses:    []string{},
+		}},
+		Circles: []policy.CirclePolicy{{
+			CircleID:               "staff",
+			DisplayName:            "Staff",
+			WorkspaceDirectoryPath: "/workspace/circles/staff",
 		}},
 		Channels: []policy.ChannelPolicy{{
 			Platform:                 "virtual",

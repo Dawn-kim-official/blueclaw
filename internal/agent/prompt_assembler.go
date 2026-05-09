@@ -2,6 +2,7 @@ package agent
 
 import (
 	"strings"
+	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -12,6 +13,7 @@ func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnReques
 	messages := []llm.Message{{Role: "system", Content: strings.TrimSpace(baseInstruction)}}
 	promptAssembler.appendInstructionMessages(&messages, request.InstructionPrompt)
 	promptAssembler.appendToolMessage(&messages, toolDescription)
+	promptAssembler.appendRuntimeContextMessage(&messages, request)
 	promptAssembler.appendSenderAddressingMessage(&messages, buildSenderAddressingDescription(request))
 	promptAssembler.appendVisibleContextMessage(&messages, request.VisibleContext)
 	promptAssembler.appendMemoryMessage(&messages, buildMemoryContext(request.MemoryFacts))
@@ -50,6 +52,17 @@ func (promptAssembler PromptAssembler) appendToolMessage(messages *[]llm.Message
 	})
 }
 
+func (promptAssembler PromptAssembler) appendRuntimeContextMessage(messages *[]llm.Message, request AgentTurnRequest) {
+	runtimeContextDescription := buildRuntimeContextDescription(request)
+	if runtimeContextDescription == "" {
+		return
+	}
+	*messages = append(*messages, llm.Message{
+		Role:    "system",
+		Content: runtimeContextDescription,
+	})
+}
+
 func (promptAssembler PromptAssembler) appendSenderAddressingMessage(messages *[]llm.Message, senderAddressingDescription string) {
 	if strings.TrimSpace(senderAddressingDescription) == "" {
 		return
@@ -58,6 +71,29 @@ func (promptAssembler PromptAssembler) appendSenderAddressingMessage(messages *[
 		Role:    "system",
 		Content: strings.TrimSpace(senderAddressingDescription),
 	})
+}
+
+func buildRuntimeContextDescription(request AgentTurnRequest) string {
+	if request.TurnStartedAt.IsZero() {
+		return ""
+	}
+	localTime := request.TurnStartedAt.In(defaultTurnLocation())
+	lines := []string{
+		"Runtime context:",
+		"Current turn datetime: " + localTime.Format(time.RFC3339),
+		"Current turn date: " + localTime.Format("2006-01-02"),
+		"Default calendar timezone: " + defaultTurnLocation().String(),
+		"Resolve relative dates such as today, tomorrow, and this Tuesday from the current turn date before calling tools.",
+	}
+	return strings.Join(lines, "\n")
+}
+
+func defaultTurnLocation() *time.Location {
+	location, errorValue := time.LoadLocation("Asia/Seoul")
+	if errorValue != nil {
+		return time.Local
+	}
+	return location
 }
 
 func (promptAssembler PromptAssembler) appendVisibleContextMessage(messages *[]llm.Message, visibleContext VisibleContext) {

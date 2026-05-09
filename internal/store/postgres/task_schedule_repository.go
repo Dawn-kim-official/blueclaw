@@ -30,8 +30,9 @@ INSERT INTO task_schedule (
   schedule_kind, run_at, interval_second, cron_expression, next_run_at,
   last_run_at, last_task_run_id, is_paused, created_at, updated_at,
   platform, delivery_conversation_id, reply_target_id, time_zone,
-  lease_owner, leased_until, failure_count, last_error, next_attempt_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+  lease_owner, leased_until, failure_count, last_error, next_attempt_at,
+  max_run_count, completed_run_count
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
 ON CONFLICT (task_schedule_id) DO UPDATE SET
   name = EXCLUDED.name,
   prompt = EXCLUDED.prompt,
@@ -53,7 +54,9 @@ ON CONFLICT (task_schedule_id) DO UPDATE SET
   leased_until = EXCLUDED.leased_until,
   failure_count = EXCLUDED.failure_count,
   last_error = EXCLUDED.last_error,
-  next_attempt_at = EXCLUDED.next_attempt_at`,
+  next_attempt_at = EXCLUDED.next_attempt_at,
+  max_run_count = EXCLUDED.max_run_count,
+  completed_run_count = EXCLUDED.completed_run_count`,
 		taskSchedule.TaskScheduleID,
 		emptyStringAsNil(taskSchedule.CreatorPersonID),
 		taskSchedule.Name,
@@ -78,6 +81,8 @@ ON CONFLICT (task_schedule_id) DO UPDATE SET
 		taskSchedule.FailureCount,
 		taskSchedule.LastError,
 		firstNonNilTaskScheduleTime(taskSchedule.NextAttemptAt, taskSchedule.CreatedAt),
+		zeroAsNil(taskSchedule.MaxRunCount),
+		taskSchedule.CompletedRunCount,
 	)
 	return errorValue
 }
@@ -114,7 +119,8 @@ RETURNING task_schedule_id, COALESCE(creator_person_id, ''), name, prompt, agent
   schedule_kind, run_at, interval_second, cron_expression, next_run_at,
   last_run_at, COALESCE(last_task_run_id, ''), is_paused, created_at, updated_at,
   platform, delivery_conversation_id, reply_target_id, time_zone,
-  lease_owner, leased_until, failure_count, last_error, next_attempt_at`,
+  lease_owner, leased_until, failure_count, last_error, next_attempt_at,
+  max_run_count, completed_run_count`,
 		referenceTime,
 		limit,
 		leaseOwner,
@@ -139,6 +145,7 @@ SET next_run_at = $2,
   failure_count = 0,
   last_error = '',
   next_attempt_at = $1,
+  completed_run_count = $6,
   updated_at = $1
 WHERE task_schedule_id = $5`,
 		now,
@@ -146,6 +153,7 @@ WHERE task_schedule_id = $5`,
 		taskSchedule.LastRunAt,
 		emptyStringAsNil(taskSchedule.LastTaskRunID),
 		taskSchedule.TaskScheduleID,
+		taskSchedule.CompletedRunCount,
 	)
 	return errorValue
 }
@@ -191,6 +199,7 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 	var taskSchedule task.TaskSchedule
 	var kind string
 	var intervalSecond sql.NullInt64
+	var maxRunCount sql.NullInt64
 	var runAt sql.NullTime
 	var nextRunAt sql.NullTime
 	var lastRunAt sql.NullTime
@@ -221,10 +230,15 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 		&taskSchedule.FailureCount,
 		&taskSchedule.LastError,
 		&nextAttemptAt,
+		&maxRunCount,
+		&taskSchedule.CompletedRunCount,
 	)
 	taskSchedule.Kind = task.TaskScheduleKind(kind)
 	if intervalSecond.Valid {
 		taskSchedule.IntervalSecond = int(intervalSecond.Int64)
+	}
+	if maxRunCount.Valid {
+		taskSchedule.MaxRunCount = int(maxRunCount.Int64)
 	}
 	taskSchedule.RunAt = nullableTaskScheduleTime(runAt)
 	taskSchedule.NextRunAt = nullableTaskScheduleTime(nextRunAt)

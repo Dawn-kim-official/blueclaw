@@ -21,6 +21,7 @@ type scheduleCreateToolInput struct {
 	IntervalSecond   int    `json:"intervalSecond"`
 	CronExpression   string `json:"cronExpression"`
 	TimeZone         string `json:"timeZone"`
+	MaxRunCount      int    `json:"maxRunCount"`
 }
 
 type scheduleIntervalPattern struct {
@@ -30,19 +31,30 @@ type scheduleIntervalPattern struct {
 
 var scheduleIntervalPatterns = []scheduleIntervalPattern{
 	{expression: regexp.MustCompile(`(?i)(\d+)\s*분\s*마다`), multiplier: 60},
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*분\s*(에|간격으로)\s*(한\s*)?번씩`), multiplier: 60},
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*분\s*간격`), multiplier: 60},
 	{expression: regexp.MustCompile(`(?i)(\d+)\s*시간\s*마다`), multiplier: 60 * 60},
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*시간\s*(에|간격으로)\s*(한\s*)?번씩`), multiplier: 60 * 60},
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*시간\s*간격`), multiplier: 60 * 60},
 	{expression: regexp.MustCompile(`(?i)(\d+)\s*일\s*마다`), multiplier: 24 * 60 * 60},
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*일\s*(에|간격으로)\s*(한\s*)?번씩`), multiplier: 24 * 60 * 60},
+	{expression: regexp.MustCompile(`(?i)(\d+)\s*일\s*간격`), multiplier: 24 * 60 * 60},
 	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+minute`), multiplier: 60},
 	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+hour`), multiplier: 60 * 60},
 	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+day`), multiplier: 24 * 60 * 60},
+}
+
+var scheduleRunCountPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(\d+)\s*(번|회)\s*(만|해|반복|보내|전송|말|알려)?`),
+	regexp.MustCompile(`(?i)(\d+)\s+times`),
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.create",
-			Description: "Create a scheduled agent task for the current requester and reply target. Use this for recurring or future work such as daily research, calendar briefings, reminders, reports, or follow-up tasks. The input prompt is the task to run at schedule time, not a confirmation message.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"}},"required":["prompt","kind"],"additionalProperties":false}`),
+			Description: "Create a scheduled agent task for the current requester and reply target. Use this for recurring, finite repeated, or future work such as daily research, calendar briefings, reminders, reports, messages, or follow-up tasks. The input prompt is the task to run at schedule time, not a confirmation message. Set maxRunCount for finite repeats.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","kind"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
@@ -101,6 +113,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		Kind:             normalizeTaskScheduleKind(input),
 		IntervalSecond:   normalizeScheduleIntervalSecond(input, handlerContext.request.Prompt),
 		CronExpression:   strings.TrimSpace(input.CronExpression),
+		MaxRunCount:      normalizeScheduleMaxRunCount(input, handlerContext.request.Prompt),
 		CreatedAt:        now,
 		UpdatedAt:        now,
 		NextAttemptAt:    &now,
@@ -109,6 +122,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		return task.TaskSchedule{}, errorValue
 	}
 	return taskSchedule, nil
+}
+
+func normalizeScheduleMaxRunCount(input scheduleCreateToolInput, requestPrompt string) int {
+	if input.MaxRunCount > 0 {
+		return input.MaxRunCount
+	}
+	return inferScheduleMaxRunCount(requestPrompt)
 }
 
 func normalizeScheduleIntervalSecond(input scheduleCreateToolInput, requestPrompt string) int {
@@ -131,12 +151,30 @@ func inferScheduleIntervalSecond(prompt string) int {
 	}
 	for _, pattern := range scheduleIntervalPatterns {
 		match := pattern.expression.FindStringSubmatch(normalizedPrompt)
-		if len(match) != 2 {
+		if len(match) < 2 {
 			continue
 		}
 		count, errorValue := strconv.Atoi(match[1])
 		if errorValue == nil && count > 0 {
 			return count * pattern.multiplier
+		}
+	}
+	return 0
+}
+
+func inferScheduleMaxRunCount(prompt string) int {
+	normalizedPrompt := strings.TrimSpace(prompt)
+	if normalizedPrompt == "" {
+		return 0
+	}
+	for _, pattern := range scheduleRunCountPatterns {
+		match := pattern.FindStringSubmatch(normalizedPrompt)
+		if len(match) < 2 {
+			continue
+		}
+		count, errorValue := strconv.Atoi(match[1])
+		if errorValue == nil && count > 0 {
+			return count
 		}
 	}
 	return 0

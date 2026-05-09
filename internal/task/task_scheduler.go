@@ -38,6 +38,10 @@ func (taskScheduler TaskScheduler) InitializeTaskSchedule(taskSchedule TaskSched
 		taskSchedule.NextRunAt = nil
 		return taskSchedule, nil
 	}
+	if taskScheduleReachedRunLimit(taskSchedule) {
+		taskSchedule.NextRunAt = nil
+		return taskSchedule, nil
+	}
 
 	nextRunAt, isActive, errorValue := taskScheduler.calculateNextRunAt(taskSchedule, referenceTime)
 	if errorValue != nil {
@@ -54,8 +58,13 @@ func (taskScheduler TaskScheduler) InitializeTaskSchedule(taskSchedule TaskSched
 
 func (taskScheduler TaskScheduler) AdvanceTaskSchedule(taskSchedule TaskSchedule, executedAt time.Time) (TaskSchedule, error) {
 	taskSchedule.LastRunAt = &executedAt
+	taskSchedule.CompletedRunCount++
 
 	if taskSchedule.IsPaused {
+		taskSchedule.NextRunAt = nil
+		return taskSchedule, nil
+	}
+	if taskScheduleReachedRunLimit(taskSchedule) {
 		taskSchedule.NextRunAt = nil
 		return taskSchedule, nil
 	}
@@ -71,6 +80,10 @@ func (taskScheduler TaskScheduler) AdvanceTaskSchedule(taskSchedule TaskSchedule
 
 	taskSchedule.NextRunAt = &nextRunAt
 	return taskSchedule, nil
+}
+
+func taskScheduleReachedRunLimit(taskSchedule TaskSchedule) bool {
+	return taskSchedule.MaxRunCount > 0 && taskSchedule.CompletedRunCount >= taskSchedule.MaxRunCount
 }
 
 func (taskScheduler TaskScheduler) IsTaskScheduleDue(taskSchedule TaskSchedule, referenceTime time.Time) bool {

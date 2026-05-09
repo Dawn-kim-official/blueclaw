@@ -165,7 +165,7 @@ func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testin
 	}
 }
 
-func TestTaskIntakePlannerTreatsSupportedScheduleOverRefusalAsBoundedTask(t *testing.T) {
+func TestTaskIntakePlannerDoesNotOverrideScheduleRefusalWithoutSelectedSkill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"unsupported","taskShape":"scheduled_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
@@ -183,11 +183,53 @@ func TestTaskIntakePlannerTreatsSupportedScheduleOverRefusalAsBoundedTask(t *tes
 		ToolSet: toolRegistry,
 	})
 
-	if decision.Classification != IntakeClassificationBoundedTask || decision.TaskShape != TaskShapeScheduledTask {
-		t.Fatalf("expected supported schedule request to be bounded, got %+v", decision)
+	if decision.Classification != IntakeClassificationUnsupported || decision.TaskShape != TaskShapeScheduledTask {
+		t.Fatalf("expected raw intake refusal to remain unsupported without selected skill, got %+v", decision)
 	}
-	if decision.UserFacingReply != "" {
-		t.Fatalf("expected over-refusal reply to be cleared, got %q", decision.UserFacingReply)
+	if decision.UserFacingReply == "" {
+		t.Fatal("expected unsupported reply to remain")
+	}
+}
+
+func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"unsupported","taskShape":"scheduled_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다라고 말해줘.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
+		finalReplyDocument("1분 간격으로 10번 보내도록 예약했습니다."),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
+	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
+		return InstructionBundle{Skills: []SkillInstruction{{
+			Name:         "scheduled-task",
+			Description:  "Create scheduled, recurring, and finite repeated messages.",
+			WhenToUse:    "Use for reminders, interval messages, 1분에 한 번씩, 10번, finite repeated message, and repeat N times requests.",
+			Prompt:       "Use schedule.create with intervalSecond and maxRunCount.",
+			AllowedTools: []string{"schedule.create"},
+			Source:       InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
+		}}}
+	})
+	toolRegistry := newTestToolSet([]string{"schedule.create"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "scheduled"}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            `1분에 한 번씩 나한테 "죄송합니다" 10번 해봐`,
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected promoted scheduled task: %v", errorValue)
+	}
+	if result.FinalReply != "1분 간격으로 10번 보내도록 예약했습니다." {
+		t.Fatalf("expected schedule final reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
+		t.Fatal("expected selected scheduled skill to promote intake")
 	}
 }
 
@@ -343,6 +385,7 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 		finalReplyDocument("deck created"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{
 			Skills: []SkillInstruction{{
@@ -397,6 +440,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
 			Name:         "html-attachment",
