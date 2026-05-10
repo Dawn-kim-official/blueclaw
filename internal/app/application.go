@@ -161,6 +161,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			PersonAccessResolver:   identityService,
 			WorkspaceID:            runtimeConfiguration.Memory.WorkspaceID,
 			WorkerID:               "blueclaw-app",
+			Logger:                 logger,
 		}
 		taskSchedulePoller = &poller
 	}

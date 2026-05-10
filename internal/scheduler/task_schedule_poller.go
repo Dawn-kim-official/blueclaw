@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ type TaskSchedulePoller struct {
 	PersonAccessResolver   PersonAccessResolver
 	WorkspaceID            string
 	WorkerID               string
+	Logger                 *slog.Logger
 }
 
 func (taskSchedulePoller TaskSchedulePoller) Start(ctx context.Context, interval time.Duration) {
@@ -38,8 +40,13 @@ func (taskSchedulePoller TaskSchedulePoller) Start(ctx context.Context, interval
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	taskSchedulePoller.logger().Info("task_schedule.poller.started", "intervalSecond", int(interval.Seconds()), "workerID", taskSchedulePoller.workerID())
 	for ctx.Err() == nil {
-		_, _ = taskSchedulePoller.RunDue(ctx, time.Now().UTC(), 10)
+		if runCount, errorValue := taskSchedulePoller.RunDue(ctx, time.Now().UTC(), 10); errorValue != nil {
+			taskSchedulePoller.logger().Error("task_schedule.poller.failed", "error", errorValue.Error())
+		} else if runCount > 0 {
+			taskSchedulePoller.logger().Info("task_schedule.poller.completed", "runCount", runCount)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -62,9 +69,19 @@ func (taskSchedulePoller TaskSchedulePoller) RunDue(ctx context.Context, referen
 			return runCount, ctx.Err()
 		}
 		if errorValue := taskSchedulePoller.runTaskSchedule(ctx, taskSchedule, referenceTime); errorValue != nil {
+			taskSchedulePoller.logger().Error(
+				"task_schedule.run.failed",
+				"taskScheduleID",
+				taskSchedule.TaskScheduleID,
+				"nextRunAt",
+				taskSchedule.NextRunAt,
+				"error",
+				errorValue.Error(),
+			)
 			_ = taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleFailed(taskSchedule, errorValue.Error(), referenceTime)
 			continue
 		}
+		taskSchedulePoller.logger().Info("task_schedule.run.completed", "taskScheduleID", taskSchedule.TaskScheduleID)
 		runCount++
 	}
 	return runCount, nil
@@ -93,6 +110,13 @@ func (taskSchedulePoller TaskSchedulePoller) runTaskSchedule(ctx context.Context
 	if errorValue := taskSchedulePoller.enqueueTaskScheduleReply(result); errorValue != nil {
 		return errorValue
 	}
+	taskSchedulePoller.logger().Info(
+		"task_schedule.reply.enqueued",
+		"taskScheduleID",
+		result.TaskSchedule.TaskScheduleID,
+		"taskRunID",
+		result.LaunchResult.TurnResult.TaskRun.TaskRunID,
+	)
 	return taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleSucceeded(result.TaskSchedule)
 }
 
@@ -150,4 +174,11 @@ func (taskSchedulePoller TaskSchedulePoller) workerID() string {
 		return strings.TrimSpace(taskSchedulePoller.WorkerID)
 	}
 	return "blueclaw-task-schedule-poller"
+}
+
+func (taskSchedulePoller TaskSchedulePoller) logger() *slog.Logger {
+	if taskSchedulePoller.Logger != nil {
+		return taskSchedulePoller.Logger
+	}
+	return slog.Default()
 }
