@@ -35,6 +35,7 @@ type AgentTurnRequest struct {
 	RequesterEmail             string
 	RequesterName              string
 	RequesterPlatformUserID    string
+	IsApprovalContinuation     bool
 	Platform                   string
 	RequesterCallingName       string
 	RequesterHandle            string
