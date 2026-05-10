@@ -62,6 +62,50 @@ func TestTaskSchedulePollerRunsDueScheduleAndEnqueuesReply(t *testing.T) {
 	}
 }
 
+func TestTaskSchedulePollerDeliversMessageScheduleWithoutAgentRun(t *testing.T) {
+	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
+	nextRunAt := runAt
+	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:  "schedule-1",
+		CreatorPersonID: "person-1",
+		Name:            "apology repeat",
+		Prompt:          "죄송합니다.",
+		ExecutionMode:   task.TaskScheduleExecutionModeMessage,
+		Platform:        "mattermost",
+		ConversationID:  "channel-1",
+		ReplyTargetID:   "reply-target-1",
+		TimeZone:        "Asia/Seoul",
+		Kind:            task.TaskScheduleKindInterval,
+		IntervalSecond:  60,
+		MaxRunCount:     1,
+		NextRunAt:       &nextRunAt,
+	}}}
+	deliveryRepository := &pollerDeliveryRepository{}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		DeliveryRepository:     deliveryRepository,
+		TaskRunService:         task.NewTaskRunService(task.NewTaskEventService()),
+	}
+
+	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runCount != 1 {
+		t.Fatalf("expected one run, got %d", runCount)
+	}
+	if len(deliveryRepository.replies) != 1 || deliveryRepository.replies[0].Message != "죄송합니다." {
+		t.Fatalf("expected direct scheduled message delivery, got %+v", deliveryRepository.replies)
+	}
+	if repository.succeeded == nil || repository.succeeded.LastTaskRunID == "" {
+		t.Fatalf("expected audited schedule success, got %+v", repository.succeeded)
+	}
+	if repository.succeeded.NextRunAt != nil || repository.succeeded.CompletedRunCount != 1 {
+		t.Fatalf("expected limited message schedule to complete, got %+v", repository.succeeded)
+	}
+}
+
 func TestTaskSchedulePollerRetriesFailedDeliveryWithoutAdvancing(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
 	nextRunAt := runAt

@@ -158,6 +158,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskScheduleRepository: taskScheduleRepository,
 			DeliveryRepository:     scheduledDeliveryRepository,
 			TaskScheduleRunner:     agentruntime.NewTaskScheduleRunner(taskLauncher),
+			TaskRunService:         taskRunService,
 			PersonAccessResolver:   identityService,
 			WorkspaceID:            runtimeConfiguration.Memory.WorkspaceID,
 			WorkerID:               "blueclaw-app",

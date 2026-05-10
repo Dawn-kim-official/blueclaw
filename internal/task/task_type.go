@@ -23,6 +23,13 @@ const (
 	TaskScheduleKindCron     TaskScheduleKind = "cron"
 )
 
+type TaskScheduleExecutionMode string
+
+const (
+	TaskScheduleExecutionModeAgent   TaskScheduleExecutionMode = "agent"
+	TaskScheduleExecutionModeMessage TaskScheduleExecutionMode = "message"
+)
+
 type TaskRun struct {
 	TaskRunID               string     `json:"taskRunID"`
 	RequesterPersonID       string     `json:"requesterPersonID"`
@@ -76,30 +83,31 @@ type TaskSession struct {
 }
 
 type TaskSchedule struct {
-	TaskScheduleID    string           `json:"taskScheduleID"`
-	CreatorPersonID   string           `json:"creatorPersonID"`
-	Name              string           `json:"name"`
-	Prompt            string           `json:"prompt"`
-	AgentProfileName  string           `json:"agentProfileName"`
-	Platform          string           `json:"platform"`
-	ConversationID    string           `json:"conversationID"`
-	ReplyTargetID     string           `json:"replyTargetID"`
-	TimeZone          string           `json:"timeZone"`
-	Kind              TaskScheduleKind `json:"kind"`
-	RunAt             *time.Time       `json:"runAt"`
-	IntervalSecond    int              `json:"intervalSecond"`
-	CronExpression    string           `json:"cronExpression"`
-	MaxRunCount       int              `json:"maxRunCount,omitempty"`
-	CompletedRunCount int              `json:"completedRunCount"`
-	NextRunAt         *time.Time       `json:"nextRunAt"`
-	LastRunAt         *time.Time       `json:"lastRunAt"`
-	LastTaskRunID     string           `json:"lastTaskRunID"`
-	IsPaused          bool             `json:"isPaused"`
-	LeaseOwner        string           `json:"leaseOwner"`
-	LeasedUntil       *time.Time       `json:"leasedUntil"`
-	FailureCount      int              `json:"failureCount"`
-	LastError         string           `json:"lastError"`
-	NextAttemptAt     *time.Time       `json:"nextAttemptAt"`
-	CreatedAt         time.Time        `json:"createdAt"`
-	UpdatedAt         time.Time        `json:"updatedAt"`
+	TaskScheduleID    string                    `json:"taskScheduleID"`
+	CreatorPersonID   string                    `json:"creatorPersonID"`
+	Name              string                    `json:"name"`
+	Prompt            string                    `json:"prompt"`
+	ExecutionMode     TaskScheduleExecutionMode `json:"executionMode"`
+	AgentProfileName  string                    `json:"agentProfileName"`
+	Platform          string                    `json:"platform"`
+	ConversationID    string                    `json:"conversationID"`
+	ReplyTargetID     string                    `json:"replyTargetID"`
+	TimeZone          string                    `json:"timeZone"`
+	Kind              TaskScheduleKind          `json:"kind"`
+	RunAt             *time.Time                `json:"runAt"`
+	IntervalSecond    int                       `json:"intervalSecond"`
+	CronExpression    string                    `json:"cronExpression"`
+	MaxRunCount       int                       `json:"maxRunCount,omitempty"`
+	CompletedRunCount int                       `json:"completedRunCount"`
+	NextRunAt         *time.Time                `json:"nextRunAt"`
+	LastRunAt         *time.Time                `json:"lastRunAt"`
+	LastTaskRunID     string                    `json:"lastTaskRunID"`
+	IsPaused          bool                      `json:"isPaused"`
+	LeaseOwner        string                    `json:"leaseOwner"`
+	LeasedUntil       *time.Time                `json:"leasedUntil"`
+	FailureCount      int                       `json:"failureCount"`
+	LastError         string                    `json:"lastError"`
+	NextAttemptAt     *time.Time                `json:"nextAttemptAt"`
+	CreatedAt         time.Time                 `json:"createdAt"`
+	UpdatedAt         time.Time                 `json:"updatedAt"`
 }

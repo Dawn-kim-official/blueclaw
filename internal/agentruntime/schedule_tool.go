@@ -15,6 +15,7 @@ import (
 type scheduleCreateToolInput struct {
 	Name             string `json:"name"`
 	Prompt           string `json:"prompt"`
+	ExecutionMode    string `json:"executionMode"`
 	AgentProfileName string `json:"agentProfileName"`
 	Kind             string `json:"kind"`
 	RunAt            string `json:"runAt"`
@@ -53,8 +54,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.create",
-			Description: "Create a scheduled agent task for the current requester and reply target. Use this for recurring, finite repeated, or future work such as daily research, calendar briefings, reminders, reports, messages, or follow-up tasks. The input prompt is the task to run at schedule time, not a confirmation message. Set maxRunCount for finite repeats.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","kind"],"additionalProperties":false}`),
+			Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. Set maxRunCount for finite repeats.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","kind"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
@@ -105,6 +106,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		CreatorPersonID:  strings.TrimSpace(handlerContext.request.RequesterPersonID),
 		Name:             firstNonEmptyString(input.Name, prompt),
 		Prompt:           prompt,
+		ExecutionMode:    normalizeTaskScheduleExecutionMode(input.ExecutionMode),
 		AgentProfileName: firstNonEmptyString(input.AgentProfileName, handlerContext.request.ProfileName, "default"),
 		Platform:         strings.TrimSpace(handlerContext.request.Platform),
 		ConversationID:   strings.TrimSpace(handlerContext.request.ConversationID),
@@ -122,6 +124,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		return task.TaskSchedule{}, errorValue
 	}
 	return taskSchedule, nil
+}
+
+func normalizeTaskScheduleExecutionMode(value string) task.TaskScheduleExecutionMode {
+	switch strings.TrimSpace(value) {
+	case string(task.TaskScheduleExecutionModeMessage):
+		return task.TaskScheduleExecutionModeMessage
+	default:
+		return task.TaskScheduleExecutionModeAgent
+	}
 }
 
 func normalizeScheduleMaxRunCount(input scheduleCreateToolInput, requestPrompt string) int {

@@ -26,16 +26,17 @@ func (taskScheduleRepository TaskScheduleRepository) UpsertTaskSchedule(taskSche
 	}
 	_, errorValue := taskScheduleRepository.database.SQL.ExecContext(context.Background(), `
 INSERT INTO task_schedule (
-  task_schedule_id, creator_person_id, name, prompt, agent_profile_name,
+  task_schedule_id, creator_person_id, name, prompt, execution_mode, agent_profile_name,
   schedule_kind, run_at, interval_second, cron_expression, next_run_at,
   last_run_at, last_task_run_id, is_paused, created_at, updated_at,
   platform, delivery_conversation_id, reply_target_id, time_zone,
   lease_owner, leased_until, failure_count, last_error, next_attempt_at,
   max_run_count, completed_run_count
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
 ON CONFLICT (task_schedule_id) DO UPDATE SET
   name = EXCLUDED.name,
   prompt = EXCLUDED.prompt,
+  execution_mode = EXCLUDED.execution_mode,
   agent_profile_name = EXCLUDED.agent_profile_name,
   schedule_kind = EXCLUDED.schedule_kind,
   run_at = EXCLUDED.run_at,
@@ -61,6 +62,7 @@ ON CONFLICT (task_schedule_id) DO UPDATE SET
 		emptyStringAsNil(taskSchedule.CreatorPersonID),
 		taskSchedule.Name,
 		taskSchedule.Prompt,
+		normalizedTaskScheduleExecutionMode(taskSchedule.ExecutionMode),
 		taskSchedule.AgentProfileName,
 		string(taskSchedule.Kind),
 		taskSchedule.RunAt,
@@ -116,7 +118,7 @@ SET lease_owner = $3,
   updated_at = $1
 WHERE task_schedule_id IN (SELECT task_schedule_id FROM claim)
 RETURNING task_schedule_id, COALESCE(creator_person_id, ''), name, prompt, agent_profile_name,
-  schedule_kind, run_at, interval_second, cron_expression, next_run_at,
+  execution_mode, schedule_kind, run_at, interval_second, cron_expression, next_run_at,
   last_run_at, COALESCE(last_task_run_id, ''), is_paused, created_at, updated_at,
   platform, delivery_conversation_id, reply_target_id, time_zone,
   lease_owner, leased_until, failure_count, last_error, next_attempt_at,
@@ -197,6 +199,7 @@ type taskScheduleScanner interface {
 
 func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 	var taskSchedule task.TaskSchedule
+	var executionMode string
 	var kind string
 	var cronExpression sql.NullString
 	var intervalSecond sql.NullInt64
@@ -212,6 +215,7 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 		&taskSchedule.Name,
 		&taskSchedule.Prompt,
 		&taskSchedule.AgentProfileName,
+		&executionMode,
 		&kind,
 		&runAt,
 		&intervalSecond,
@@ -234,6 +238,7 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 		&maxRunCount,
 		&taskSchedule.CompletedRunCount,
 	)
+	taskSchedule.ExecutionMode = task.TaskScheduleExecutionMode(normalizedTaskScheduleExecutionMode(task.TaskScheduleExecutionMode(executionMode)))
 	taskSchedule.Kind = task.TaskScheduleKind(kind)
 	if intervalSecond.Valid {
 		taskSchedule.IntervalSecond = int(intervalSecond.Int64)
@@ -250,6 +255,15 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 	taskSchedule.LeasedUntil = nullableTaskScheduleTime(leasedUntil)
 	taskSchedule.NextAttemptAt = nullableTaskScheduleTime(nextAttemptAt)
 	return taskSchedule, errorValue
+}
+
+func normalizedTaskScheduleExecutionMode(value task.TaskScheduleExecutionMode) string {
+	switch value {
+	case task.TaskScheduleExecutionModeMessage:
+		return string(task.TaskScheduleExecutionModeMessage)
+	default:
+		return string(task.TaskScheduleExecutionModeAgent)
+	}
 }
 
 func scanTaskSchedules(rows *sql.Rows) ([]task.TaskSchedule, error) {
