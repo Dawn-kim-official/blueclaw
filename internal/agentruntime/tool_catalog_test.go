@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
@@ -99,6 +100,25 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	}
 }
 
+func TestScheduleCreateSchemaRequiresExecutionMode(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	toolDefinition, isFound := findToolDefinition(toolRegistry.ListToolDefinitions(), "schedule.create")
+	if !isFound {
+		t.Fatal("expected schedule.create definition")
+	}
+	var schema struct {
+		Required []string `json:"required"`
+	}
+	if errorValue := json.Unmarshal(toolDefinition.InputSchema, &schema); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !containsString(schema.Required, "executionMode") {
+		t.Fatalf("expected executionMode to be required, got %+v", schema.Required)
+	}
+}
+
 func TestScheduleCreateToolStoresMessageExecutionMode(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
@@ -134,6 +154,53 @@ func TestScheduleCreateToolStoresMessageExecutionMode(t *testing.T) {
 	}
 	if repository.taskSchedules[0].ExecutionMode != task.TaskScheduleExecutionModeMessage {
 		t.Fatalf("expected message execution mode, got %+v", repository.taskSchedules[0])
+	}
+}
+
+func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:             "platform.dm.send",
+		Description:      "Send a direct message",
+		RequiresApproval: true,
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"platform.dm.send"})
+
+	immediateToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	if !strings.Contains(immediateToolSet.Descriptions(), "ask approval before invoking") {
+		t.Fatalf("expected immediate DM to ask approval, got %s", immediateToolSet.Descriptions())
+	}
+	scheduledToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsScheduledRun: true})
+	if strings.Contains(scheduledToolSet.Descriptions(), "ask approval before invoking") {
+		t.Fatalf("expected scheduled DM to be available, got %s", scheduledToolSet.Descriptions())
+	}
+	approvedToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsApprovalContinuation: true})
+	if strings.Contains(approvedToolSet.Descriptions(), "ask approval before invoking") {
+		t.Fatalf("expected approved continuation DM to be available, got %s", approvedToolSet.Descriptions())
+	}
+}
+
+func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
+	requestDocument := capabilityToolRequest("platform.dm.send", ToolCatalogRequest{
+		TaskSource:              TaskLaunchSourceScheduled,
+		IsScheduledRun:          true,
+		IsApprovalContinuation:  true,
+		RequesterPersonID:       "person-1",
+		RequesterPlatformUserID: "mattermost-user-1",
+		ConversationID:          "conversation-1",
+		ConversationChannelID:   "channel-1",
+		ReplyTargetID:           "reply-target-1",
+		Platform:                "mattermost",
+	}, json.RawMessage(`{"recipientHint":"샘플","message":"테스트"}`))
+	contextDocument, isFound := requestDocument["context"].(map[string]any)
+	if !isFound {
+		t.Fatalf("expected context document, got %+v", requestDocument)
+	}
+	if contextDocument["taskSource"] != string(TaskLaunchSourceScheduled) || contextDocument["isScheduledRun"] != true || contextDocument["isApprovalContinuation"] != true {
+		t.Fatalf("expected trusted execution context, got %+v", contextDocument)
+	}
+	if contextDocument["replyTargetID"] != "reply-target-1" {
+		t.Fatalf("expected reply target in context, got %+v", contextDocument)
 	}
 }
 
@@ -1061,6 +1128,15 @@ func writeTestFile(t *testing.T, path string, content string) {
 	if errorValue := os.WriteFile(path, []byte(content), 0600); errorValue != nil {
 		t.Fatal(errorValue)
 	}
+}
+
+func findToolDefinition(toolDefinitions []agent.ToolDefinition, toolName string) (agent.ToolDefinition, bool) {
+	for _, toolDefinition := range toolDefinitions {
+		if toolDefinition.Name == toolName {
+			return toolDefinition, true
+		}
+	}
+	return agent.ToolDefinition{}, false
 }
 
 func siteSourceBundlePaths(t *testing.T, bundleBase64 string) []string {

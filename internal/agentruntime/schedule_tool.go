@@ -55,7 +55,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.create",
 			Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. Set maxRunCount for finite repeats.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","kind"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","executionMode","kind"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)

@@ -62,6 +62,9 @@ type ToolCatalogRequest struct {
 	RequesterName             string
 	RequesterEmail            string
 	RequesterPlatformUserID   string
+	TaskSource                TaskLaunchSource
+	IsScheduledRun            bool
+	IsApprovalContinuation    bool
 	ConversationID            string
 	ConversationType          string
 	ConversationChannelID     string
@@ -393,7 +396,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				PolicyResource:  toolDescriptor.PolicyResource,
 				SideEffectClass: toolDescriptor.SideEffectClass,
 			},
-			Availability: capabilityToolAvailability(toolDescriptor),
+			Availability: capabilityToolAvailability(toolDescriptor, request),
 			Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
 				var response struct {
 					Content string          `json:"content"`
@@ -438,11 +441,21 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityToolDefinitions() []Capa
 	return toolDescriptors
 }
 
-func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor) agent.ToolAvailability {
+func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest) agent.ToolAvailability {
 	if toolDescriptor.RequiresApproval {
+		if isApprovalExemptCapabilityTool(toolDescriptor.Name, request) {
+			return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
+		}
 		return agent.ToolAvailability{Status: agent.ToolAvailabilityAsk, Reason: "requires approval"}
 	}
 	return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
+}
+
+func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest) bool {
+	if strings.TrimSpace(toolName) != "platform.dm.send" {
+		return false
+	}
+	return request.IsScheduledRun || request.IsApprovalContinuation
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, input security.CommandRequest, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -792,10 +805,14 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 			"requesterEmail":          request.RequesterEmail,
 			"requesterName":           request.RequesterName,
 			"requesterPlatformUserID": request.RequesterPlatformUserID,
+			"taskSource":              string(request.TaskSource),
+			"isScheduledRun":          request.IsScheduledRun,
+			"isApprovalContinuation":  request.IsApprovalContinuation,
 			"conversationID":          request.ConversationID,
 			"conversationType":        request.ConversationType,
 			"channelID":               request.ConversationChannelID,
 			"channelName":             request.ConversationChannelName,
+			"replyTargetID":           request.ReplyTargetID,
 			"platform":                request.Platform,
 		},
 	}

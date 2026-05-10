@@ -695,6 +695,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		RequesterHandle:           event.Context.Sender.Handle,
 		RequesterEmail:            connectorRuntime.identityService.ResolvePersonPrimaryEmail(personID),
 		RequesterPlatformUserID:   event.SenderID,
+		IsApprovalContinuation:    isApprovalContinuation,
 		ProfileName:               "default",
 		Platform:                  platform,
 		ConversationID:            event.ConversationID,
