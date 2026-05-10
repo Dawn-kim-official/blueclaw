@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS task_schedule (
   creator_person_id text REFERENCES person(person_id),
   name text NOT NULL,
   prompt text NOT NULL,
+  execution_mode text NOT NULL DEFAULT 'agent' CHECK (execution_mode IN ('agent', 'message')),
   agent_profile_name text NOT NULL,
   schedule_kind text NOT NULL CHECK (schedule_kind IN ('once', 'interval', 'cron')),
   run_at timestamptz,

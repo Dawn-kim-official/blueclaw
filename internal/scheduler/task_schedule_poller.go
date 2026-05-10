@@ -28,10 +28,18 @@ type TaskSchedulePoller struct {
 	TaskScheduleRepository task.TaskScheduleRepository
 	DeliveryRepository     TaskScheduleDeliveryRepository
 	TaskScheduleRunner     agentruntime.TaskScheduleRunner
+	TaskRunService         *task.TaskRunService
 	PersonAccessResolver   PersonAccessResolver
 	WorkspaceID            string
 	WorkerID               string
 	Logger                 *slog.Logger
+}
+
+type taskScheduleExecutionResult struct {
+	TaskSchedule task.TaskSchedule
+	TaskRunID    string
+	Reply        connectors.OutboundReply
+	DidRun       bool
 }
 
 func (taskSchedulePoller TaskSchedulePoller) Start(ctx context.Context, interval time.Duration) {
@@ -91,16 +99,7 @@ func (taskSchedulePoller TaskSchedulePoller) runTaskSchedule(ctx context.Context
 	if errorValue := validateTaskScheduleDeliveryTarget(taskSchedule); errorValue != nil {
 		return errorValue
 	}
-	personAccess := policy.PersonAccess{PersonID: taskSchedule.CreatorPersonID}
-	if taskSchedulePoller.PersonAccessResolver != nil {
-		personAccess = taskSchedulePoller.PersonAccessResolver.ResolvePersonAccess(taskSchedule.CreatorPersonID)
-	}
-	result, errorValue := taskSchedulePoller.TaskScheduleRunner.RunIfDue(ctx, agentruntime.TaskScheduleRunRequest{
-		TaskSchedule:  taskSchedule,
-		ReferenceTime: referenceTime,
-		PersonAccess:  personAccess,
-		WorkspaceID:   taskSchedulePoller.WorkspaceID,
-	})
+	result, errorValue := taskSchedulePoller.executeTaskSchedule(ctx, taskSchedule, referenceTime)
 	if errorValue != nil {
 		return errorValue
 	}
@@ -115,20 +114,80 @@ func (taskSchedulePoller TaskSchedulePoller) runTaskSchedule(ctx context.Context
 		"taskScheduleID",
 		result.TaskSchedule.TaskScheduleID,
 		"taskRunID",
-		result.LaunchResult.TurnResult.TaskRun.TaskRunID,
+		result.TaskRunID,
 	)
 	return taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleSucceeded(result.TaskSchedule)
 }
 
-func (taskSchedulePoller TaskSchedulePoller) enqueueTaskScheduleReply(result agentruntime.TaskScheduleRunResult) error {
-	if taskSchedulePoller.DeliveryRepository == nil {
-		return errors.New("task schedule delivery repository is unavailable")
+func (taskSchedulePoller TaskSchedulePoller) executeTaskSchedule(ctx context.Context, taskSchedule task.TaskSchedule, referenceTime time.Time) (taskScheduleExecutionResult, error) {
+	if taskSchedule.ExecutionMode == task.TaskScheduleExecutionModeMessage {
+		return taskSchedulePoller.executeMessageTaskSchedule(taskSchedule, referenceTime)
+	}
+	return taskSchedulePoller.executeAgentTaskSchedule(ctx, taskSchedule, referenceTime)
+}
+
+func (taskSchedulePoller TaskSchedulePoller) executeAgentTaskSchedule(ctx context.Context, taskSchedule task.TaskSchedule, referenceTime time.Time) (taskScheduleExecutionResult, error) {
+	personAccess := policy.PersonAccess{PersonID: taskSchedule.CreatorPersonID}
+	if taskSchedulePoller.PersonAccessResolver != nil {
+		personAccess = taskSchedulePoller.PersonAccessResolver.ResolvePersonAccess(taskSchedule.CreatorPersonID)
+	}
+	result, errorValue := taskSchedulePoller.TaskScheduleRunner.RunIfDue(ctx, agentruntime.TaskScheduleRunRequest{
+		TaskSchedule:  taskSchedule,
+		ReferenceTime: referenceTime,
+		PersonAccess:  personAccess,
+		WorkspaceID:   taskSchedulePoller.WorkspaceID,
+	})
+	if errorValue != nil {
+		return taskScheduleExecutionResult{}, errorValue
+	}
+	if !result.DidRun {
+		return taskScheduleExecutionResult{TaskSchedule: result.TaskSchedule}, nil
 	}
 	reply, errorValue := scheduledTaskReply(result)
 	if errorValue != nil {
-		return errorValue
+		return taskScheduleExecutionResult{}, errorValue
 	}
-	_, errorValue = taskSchedulePoller.DeliveryRepository.EnqueueScheduledConnectorReply(result.TaskSchedule, result.LaunchResult.TurnResult.TaskRun.TaskRunID, reply)
+	return taskScheduleExecutionResult{
+		TaskSchedule: result.TaskSchedule,
+		TaskRunID:    result.LaunchResult.TurnResult.TaskRun.TaskRunID,
+		Reply:        reply,
+		DidRun:       true,
+	}, nil
+}
+
+func (taskSchedulePoller TaskSchedulePoller) executeMessageTaskSchedule(taskSchedule task.TaskSchedule, referenceTime time.Time) (taskScheduleExecutionResult, error) {
+	if !(task.TaskScheduler{}).IsTaskScheduleDue(taskSchedule, referenceTime) {
+		return taskScheduleExecutionResult{TaskSchedule: taskSchedule}, nil
+	}
+	if taskSchedulePoller.TaskRunService == nil {
+		return taskScheduleExecutionResult{}, errors.New("task run service is unavailable")
+	}
+	taskRun := taskSchedulePoller.TaskRunService.CreateTaskRun(taskSchedule.CreatorPersonID, "schedule:"+taskSchedule.TaskScheduleID, taskSchedule.Prompt)
+	if _, errorValue := taskSchedulePoller.TaskRunService.AdvanceTaskRun(taskRun.TaskRunID, firstNonEmptyString(taskSchedule.AgentProfileName, "default")); errorValue != nil {
+		return taskScheduleExecutionResult{}, errorValue
+	}
+	completedTaskRun, errorValue := taskSchedulePoller.TaskRunService.CompleteTaskRun(taskRun.TaskRunID, taskSchedule.Prompt)
+	if errorValue != nil {
+		return taskScheduleExecutionResult{}, errorValue
+	}
+	advancedTaskSchedule, errorValue := (task.TaskScheduler{}).AdvanceTaskSchedule(taskSchedule, referenceTime)
+	if errorValue != nil {
+		return taskScheduleExecutionResult{}, errorValue
+	}
+	advancedTaskSchedule.LastTaskRunID = completedTaskRun.TaskRunID
+	return taskScheduleExecutionResult{
+		TaskSchedule: advancedTaskSchedule,
+		TaskRunID:    completedTaskRun.TaskRunID,
+		Reply:        connectors.OutboundReply{Message: taskSchedule.Prompt},
+		DidRun:       true,
+	}, nil
+}
+
+func (taskSchedulePoller TaskSchedulePoller) enqueueTaskScheduleReply(result taskScheduleExecutionResult) error {
+	if taskSchedulePoller.DeliveryRepository == nil {
+		return errors.New("task schedule delivery repository is unavailable")
+	}
+	_, errorValue := taskSchedulePoller.DeliveryRepository.EnqueueScheduledConnectorReply(result.TaskSchedule, result.TaskRunID, result.Reply)
 	return errorValue
 }
 
@@ -167,6 +226,15 @@ func validateTaskScheduleDeliveryTarget(taskSchedule task.TaskSchedule) error {
 		return errors.New("scheduled task reply target is required")
 	}
 	return nil
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (taskSchedulePoller TaskSchedulePoller) workerID() string {

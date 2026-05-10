@@ -1151,7 +1151,7 @@ func connectorScheduledTaskSkill() agent.SkillInstruction {
 		Name:         "scheduled-task",
 		Description:  "Create scheduled tasks.",
 		WhenToUse:    "Use for schedule, remind, 매일, 예약, 알림, and 마다 requests.",
-		Prompt:       "Use schedule.create for scheduled tasks.",
+		Prompt:       "Use schedule.create with executionMode message for exact reminders and executionMode agent for scheduled work.",
 		TriggerHints: []string{"schedule", "remind", "매일", "예약", "알림", "마다"},
 		Completion: agent.SkillCompletion{
 			RequiredEvidenceTools: []string{"schedule.create"},

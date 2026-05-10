@@ -91,8 +91,49 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	if taskSchedule.Prompt != "매일 중요한 업계 뉴스를 조사해서 아침 7시에 알려줘." {
 		t.Fatalf("expected arbitrary scheduled task prompt, got %q", taskSchedule.Prompt)
 	}
+	if taskSchedule.ExecutionMode != task.TaskScheduleExecutionModeAgent {
+		t.Fatalf("expected default agent execution mode, got %+v", taskSchedule)
+	}
 	if taskSchedule.TimeZone != "Asia/Seoul" || taskSchedule.NextRunAt == nil {
 		t.Fatalf("expected default timezone and next run, got %+v", taskSchedule)
+	}
+}
+
+func TestScheduleCreateToolStoresMessageExecutionMode(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"prompt":         "죄송합니다.",
+			"executionMode":  "message",
+			"kind":           "interval",
+			"intervalSecond": 60,
+			"maxRunCount":    10,
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected schedule.create success, got %s", result.Content)
+	}
+	if len(repository.taskSchedules) != 1 {
+		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
+	}
+	if repository.taskSchedules[0].ExecutionMode != task.TaskScheduleExecutionModeMessage {
+		t.Fatalf("expected message execution mode, got %+v", repository.taskSchedules[0])
 	}
 }
 

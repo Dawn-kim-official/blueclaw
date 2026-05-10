@@ -40,6 +40,7 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 		"limited reminder",
 		"죄송합니다라고 말해줘.",
 		"default",
+		"message",
 		"interval",
 		sql.NullTime{},
 		sql.NullInt64{Int64: 60, Valid: true},
@@ -67,6 +68,9 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 	}
 	if taskSchedule.MaxRunCount != 10 || taskSchedule.CompletedRunCount != 4 {
 		t.Fatalf("expected run limit fields to scan, got %+v", taskSchedule)
+	}
+	if taskSchedule.ExecutionMode != "message" {
+		t.Fatalf("expected execution mode to scan, got %+v", taskSchedule)
 	}
 	if taskSchedule.CronExpression != "" {
 		t.Fatalf("expected nullable cron expression to scan as empty, got %q", taskSchedule.CronExpression)
