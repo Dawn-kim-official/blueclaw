@@ -105,7 +105,7 @@ WITH claim AS (
     AND next_run_at IS NOT NULL
     AND next_run_at <= $1
     AND next_attempt_at <= $1
-    AND (leased_until IS NULL OR leased_until <= $1)
+    AND (leased_until IS NULL OR leased_until <= $1 OR lease_owner = $3)
   ORDER BY next_run_at ASC
   LIMIT $2
   FOR UPDATE SKIP LOCKED
