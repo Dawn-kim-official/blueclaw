@@ -1,8 +1,10 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -99,6 +101,62 @@ func TestTaskSchedulePollerRetriesFailedDeliveryWithoutAdvancing(t *testing.T) {
 	}
 }
 
+func TestTaskSchedulePollerLogsClaimErrors(t *testing.T) {
+	var logBuffer bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: &pollerScheduleRepository{
+			claimError:    errors.New("database unavailable"),
+			claimCallback: cancel,
+		},
+		Logger: slog.New(slog.NewTextHandler(&logBuffer, nil)),
+	}
+
+	poller.Start(ctx, time.Nanosecond)
+
+	logDocument := logBuffer.String()
+	if !strings.Contains(logDocument, "task_schedule.poller.failed") || !strings.Contains(logDocument, "database unavailable") {
+		t.Fatalf("expected poller claim error log, got %q", logDocument)
+	}
+}
+
+func TestTaskSchedulePollerLogsRunFailures(t *testing.T) {
+	var logBuffer bytes.Buffer
+	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
+	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:   "schedule-1",
+		CreatorPersonID:  "person-1",
+		Prompt:           "매일 업계 뉴스를 조사해서 알려줘.",
+		AgentProfileName: "default",
+		Platform:         "mattermost",
+		ConversationID:   "channel-1",
+		ReplyTargetID:    "reply-target-1",
+		TimeZone:         "Asia/Seoul",
+		Kind:             task.TaskScheduleKindCron,
+		CronExpression:   "0 7 * * *",
+		NextRunAt:        &runAt,
+	}}}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		DeliveryRepository:     &pollerDeliveryRepository{errorValue: errors.New("outbox unavailable")},
+		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		Logger:                 slog.New(slog.NewTextHandler(&logBuffer, nil)),
+	}
+
+	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runCount != 0 {
+		t.Fatalf("expected failed run not to count, got %d", runCount)
+	}
+	logDocument := logBuffer.String()
+	if !strings.Contains(logDocument, "task_schedule.run.failed") || !strings.Contains(logDocument, "schedule-1") || !strings.Contains(logDocument, "outbox unavailable") {
+		t.Fatalf("expected run failure log, got %q", logDocument)
+	}
+}
+
 func TestTaskSchedulePollerEnqueuesWaitingTaskReply(t *testing.T) {
 	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{waitingTaskSchedule(time.Now().UTC())}}
 	deliveryRepository := &pollerDeliveryRepository{}
@@ -126,6 +184,8 @@ type pollerScheduleRepository struct {
 	taskSchedules []task.TaskSchedule
 	succeeded     *task.TaskSchedule
 	failed        []string
+	claimError    error
+	claimCallback func()
 }
 
 func (repository *pollerScheduleRepository) UpsertTaskSchedule(taskSchedule task.TaskSchedule) error {
@@ -134,6 +194,12 @@ func (repository *pollerScheduleRepository) UpsertTaskSchedule(taskSchedule task
 }
 
 func (repository *pollerScheduleRepository) ClaimDueTaskSchedules(limit int, _ time.Duration, _ time.Time, _ string) ([]task.TaskSchedule, error) {
+	if repository.claimCallback != nil {
+		repository.claimCallback()
+	}
+	if repository.claimError != nil {
+		return nil, repository.claimError
+	}
 	if limit <= 0 || limit > len(repository.taskSchedules) {
 		limit = len(repository.taskSchedules)
 	}
