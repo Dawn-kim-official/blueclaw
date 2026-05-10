@@ -122,6 +122,29 @@ func (taskRunService *TaskRunService) CancelTaskRun(taskRunID string, requesterP
 	return taskRun, nil
 }
 
+func (taskRunService *TaskRunService) CancelWaitingTaskRuns(requesterPersonID string, originConversationID string, reason string) []TaskRun {
+	cancelledTaskRuns := []TaskRun{}
+	for _, taskRun := range taskRunService.ListTaskRunByPersonID(requesterPersonID) {
+		if !taskRunIsWaiting(taskRun) {
+			continue
+		}
+		if originConversationID != "" && taskRun.OriginConversationID != originConversationID {
+			continue
+		}
+		cancelledTaskRun, errorValue := taskRunService.CancelTaskRun(taskRun.TaskRunID, requesterPersonID)
+		if errorValue != nil {
+			continue
+		}
+		taskRunService.taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.wait_cancelled", reason)
+		cancelledTaskRuns = append(cancelledTaskRuns, cancelledTaskRun)
+	}
+	return cancelledTaskRuns
+}
+
+func taskRunIsWaiting(taskRun TaskRun) bool {
+	return taskRun.Status == TaskStatusWaitingApproval || taskRun.Status == TaskStatusWaitingUserInput
+}
+
 func (taskRunService *TaskRunService) CompleteTaskRun(taskRunID string, result string) (TaskRun, error) {
 	taskRunService.mutex.Lock()
 	defer taskRunService.mutex.Unlock()

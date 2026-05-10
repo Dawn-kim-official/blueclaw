@@ -48,7 +48,7 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 		sql.NullTime{},
 		sql.NullTime{},
 		"",
-		false,
+		sql.NullTime{Time: createdAt.Add(time.Hour), Valid: true},
 		createdAt,
 		createdAt,
 		"mattermost",

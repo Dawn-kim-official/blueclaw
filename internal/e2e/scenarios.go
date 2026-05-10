@@ -111,7 +111,7 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		Name:                  "schedule_create_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
-		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
 		Turns: []VirtualTurn{{
 			Prompt: "1분마다 \"1분 지났습니다\"라고 보내줘",
 			ModelResponses: []string{
@@ -135,8 +135,8 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 func scheduledTaskSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:        "scheduled-task",
-		Description: "Create scheduled, recurring, and finite repeated reminders, messages, reports, and follow-up tasks with schedule.create.",
-		WhenToUse:   "Use when the user asks to schedule, remind, repeat, send something every minute/hour/day/week/month, repeat N times, send a finite repeated message, or says 예약, 알림, 리마인드, 마다, 분마다, 시간마다, 한 번씩, 1분에 한 번씩, 10번, 매일, 매주, or 매월.",
+		Description: "Create or cancel scheduled, recurring, and finite repeated reminders, messages, reports, and follow-up tasks with schedule tools.",
+		WhenToUse:   "Use when the user asks to schedule, remind, repeat, cancel schedules, stop reminders, send something every minute/hour/day/week/month, repeat N times, send a finite repeated message, or says 예약, 알림, 리마인드, 취소, 중지, 마다, 분마다, 시간마다, 한 번씩, 1분에 한 번씩, 10번, 매일, 매주, or 매월.",
 		Category:    "automation",
 		Tags:        []string{"schedule", "reminder", "cron"},
 		Prompt:      "Use schedule.create to create schedules. Use executionMode message when the scheduled run should send the prompt verbatim, such as reminders, repeated messages, or say/send this exact text requests. Use executionMode agent only for schedules that need reasoning, research, checks, summaries, or tool work at run time. For repeated reminders like every minute, use kind interval with intervalSecond. Set maxRunCount for finite repeats like 10번 or repeat N times. Do not claim background loops are unsupported when schedule.create is available.",
@@ -146,7 +146,7 @@ func scheduledTaskSkill() agent.SkillInstruction {
 		Completion: agent.SkillCompletion{
 			RequiredEvidenceTools: []string{"schedule.create"},
 		},
-		AllowedTools: []string{"schedule.create"},
+		AllowedTools: []string{"schedule.create", "schedule.cancel"},
 		TriggerHints: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
 		Source: agent.InstructionSource{
 			Path:      "skills/scheduled-task/SKILL.md",

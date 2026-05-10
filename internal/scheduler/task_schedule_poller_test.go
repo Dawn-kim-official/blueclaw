@@ -145,6 +145,40 @@ func TestTaskSchedulePollerRetriesFailedDeliveryWithoutAdvancing(t *testing.T) {
 	}
 }
 
+func TestTaskSchedulePollerDoesNotRunExpiredSchedule(t *testing.T) {
+	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
+	expiredAt := runAt.Add(-time.Minute)
+	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:  "schedule-expired",
+		CreatorPersonID: "person-1",
+		Prompt:          "만료된 알림",
+		ExecutionMode:   task.TaskScheduleExecutionModeMessage,
+		Platform:        "mattermost",
+		ConversationID:  "channel-1",
+		ReplyTargetID:   "reply-target-1",
+		TimeZone:        "Asia/Seoul",
+		Kind:            task.TaskScheduleKindInterval,
+		IntervalSecond:  60,
+		NextRunAt:       &runAt,
+		ExpiresAt:       expiredAt,
+	}}}
+	deliveryRepository := &pollerDeliveryRepository{}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		DeliveryRepository:     deliveryRepository,
+		TaskRunService:         task.NewTaskRunService(task.NewTaskEventService()),
+	}
+
+	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runCount != 0 || len(deliveryRepository.replies) != 0 {
+		t.Fatalf("expected expired schedule not to run, count=%d replies=%+v", runCount, deliveryRepository.replies)
+	}
+}
+
 func TestTaskSchedulePollerLogsClaimErrors(t *testing.T) {
 	var logBuffer bytes.Buffer
 	ctx, cancel := context.WithCancel(context.Background())
@@ -237,17 +271,23 @@ func (repository *pollerScheduleRepository) UpsertTaskSchedule(taskSchedule task
 	return nil
 }
 
-func (repository *pollerScheduleRepository) ClaimDueTaskSchedules(limit int, _ time.Duration, _ time.Time, _ string) ([]task.TaskSchedule, error) {
+func (repository *pollerScheduleRepository) ClaimDueTaskSchedules(limit int, _ time.Duration, referenceTime time.Time, _ string) ([]task.TaskSchedule, error) {
 	if repository.claimCallback != nil {
 		repository.claimCallback()
 	}
 	if repository.claimError != nil {
 		return nil, repository.claimError
 	}
-	if limit <= 0 || limit > len(repository.taskSchedules) {
-		limit = len(repository.taskSchedules)
+	dueTaskSchedules := []task.TaskSchedule{}
+	for _, taskSchedule := range repository.taskSchedules {
+		if (task.TaskScheduler{}).IsTaskScheduleDue(taskSchedule, referenceTime) {
+			dueTaskSchedules = append(dueTaskSchedules, taskSchedule)
+		}
 	}
-	return append([]task.TaskSchedule{}, repository.taskSchedules[:limit]...), nil
+	if limit <= 0 || limit > len(dueTaskSchedules) {
+		limit = len(dueTaskSchedules)
+	}
+	return append([]task.TaskSchedule{}, dueTaskSchedules[:limit]...), nil
 }
 
 func (repository *pollerScheduleRepository) MarkTaskScheduleSucceeded(taskSchedule task.TaskSchedule) error {
@@ -258,6 +298,10 @@ func (repository *pollerScheduleRepository) MarkTaskScheduleSucceeded(taskSchedu
 func (repository *pollerScheduleRepository) MarkTaskScheduleFailed(_ task.TaskSchedule, errorMessage string, _ time.Time) error {
 	repository.failed = append(repository.failed, errorMessage)
 	return nil
+}
+
+func (repository *pollerScheduleRepository) CancelTaskSchedules(task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
+	return task.TaskScheduleCancelResult{}, nil
 }
 
 type pollerDeliveryRepository struct {

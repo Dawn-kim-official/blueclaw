@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"strconv"
+	"strings"
 	"time"
 
 	"blueclaw/internal/task"
@@ -28,7 +30,7 @@ func (taskScheduleRepository TaskScheduleRepository) UpsertTaskSchedule(taskSche
 INSERT INTO task_schedule (
   task_schedule_id, creator_person_id, name, prompt, execution_mode, agent_profile_name,
   schedule_kind, run_at, interval_second, cron_expression, next_run_at,
-  last_run_at, last_task_run_id, is_paused, created_at, updated_at,
+  last_run_at, last_task_run_id, expires_at, created_at, updated_at,
   platform, delivery_conversation_id, reply_target_id, time_zone,
   lease_owner, leased_until, failure_count, last_error, next_attempt_at,
   max_run_count, completed_run_count
@@ -45,7 +47,7 @@ ON CONFLICT (task_schedule_id) DO UPDATE SET
   next_run_at = EXCLUDED.next_run_at,
   last_run_at = EXCLUDED.last_run_at,
   last_task_run_id = EXCLUDED.last_task_run_id,
-  is_paused = EXCLUDED.is_paused,
+  expires_at = EXCLUDED.expires_at,
   updated_at = EXCLUDED.updated_at,
   platform = EXCLUDED.platform,
   delivery_conversation_id = EXCLUDED.delivery_conversation_id,
@@ -71,7 +73,7 @@ ON CONFLICT (task_schedule_id) DO UPDATE SET
 		taskSchedule.NextRunAt,
 		taskSchedule.LastRunAt,
 		emptyStringAsNil(taskSchedule.LastTaskRunID),
-		taskSchedule.IsPaused,
+		taskScheduleExpiresAt(taskSchedule),
 		taskSchedule.CreatedAt,
 		taskSchedule.UpdatedAt,
 		taskSchedule.Platform,
@@ -103,10 +105,10 @@ func (taskScheduleRepository TaskScheduleRepository) ClaimDueTaskSchedules(limit
 	rows, errorValue := taskScheduleRepository.database.SQL.QueryContext(context.Background(), `
 WITH claim AS (
   SELECT task_schedule_id FROM task_schedule
-  WHERE is_paused = false
-    AND next_run_at IS NOT NULL
+  WHERE next_run_at IS NOT NULL
     AND next_run_at <= $1
     AND next_attempt_at <= $1
+    AND expires_at > $1
     AND (leased_until IS NULL OR leased_until <= $1 OR lease_owner = $3)
   ORDER BY next_run_at ASC
   LIMIT $2
@@ -117,12 +119,7 @@ SET lease_owner = $3,
   leased_until = $1 + ($4 * interval '1 second'),
   updated_at = $1
 WHERE task_schedule_id IN (SELECT task_schedule_id FROM claim)
-RETURNING task_schedule_id, COALESCE(creator_person_id, ''), name, prompt, agent_profile_name,
-  execution_mode, schedule_kind, run_at, interval_second, cron_expression, next_run_at,
-  last_run_at, COALESCE(last_task_run_id, ''), is_paused, created_at, updated_at,
-  platform, delivery_conversation_id, reply_target_id, time_zone,
-  lease_owner, leased_until, failure_count, last_error, next_attempt_at,
-  max_run_count, completed_run_count`,
+RETURNING `+taskScheduleReturningColumns(),
 		referenceTime,
 		limit,
 		leaseOwner,
@@ -182,6 +179,77 @@ WHERE task_schedule_id = $4`,
 	return errorValue
 }
 
+func (taskScheduleRepository TaskScheduleRepository) CancelTaskSchedules(request task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
+	cancelledAt := request.CancelledAt
+	if cancelledAt.IsZero() {
+		cancelledAt = time.Now().UTC()
+	}
+	requesterPersonID := strings.TrimSpace(request.RequesterPersonID)
+	if requesterPersonID == "" {
+		return task.TaskScheduleCancelResult{}, nil
+	}
+	conditions := []string{
+		"creator_person_id = $2",
+		"next_run_at IS NOT NULL",
+		"expires_at > $1",
+	}
+	arguments := []any{cancelledAt, requesterPersonID}
+	switch request.Scope {
+	case task.TaskScheduleCancelScopeCurrentConversation:
+		conversationID := strings.TrimSpace(request.ConversationID)
+		if conversationID == "" {
+			return task.TaskScheduleCancelResult{}, nil
+		}
+		arguments = append(arguments, conversationID)
+		conditions = append(conditions, "delivery_conversation_id = $3")
+	case task.TaskScheduleCancelScopeScheduleIDs:
+		condition, values := taskScheduleIDCondition(request.TaskScheduleIDs, len(arguments)+1)
+		if condition == "" {
+			return task.TaskScheduleCancelResult{}, nil
+		}
+		conditions = append(conditions, condition)
+		arguments = append(arguments, values...)
+	default:
+	}
+	query := `UPDATE task_schedule
+SET expires_at = $1,
+  next_run_at = NULL,
+  lease_owner = '',
+  leased_until = NULL,
+  updated_at = $1
+WHERE ` + strings.Join(conditions, " AND ") + `
+RETURNING ` + taskScheduleReturningColumns()
+	rows, errorValue := taskScheduleRepository.database.SQL.QueryContext(context.Background(), query, arguments...)
+	if errorValue != nil {
+		return task.TaskScheduleCancelResult{}, errorValue
+	}
+	defer rows.Close()
+	taskSchedules, errorValue := scanTaskSchedules(rows)
+	if errorValue != nil {
+		return task.TaskScheduleCancelResult{}, errorValue
+	}
+	return task.TaskScheduleCancelResult{TaskSchedules: taskSchedules}, nil
+}
+
+func taskScheduleIDCondition(taskScheduleIDs []string, firstPlaceholderIndex int) (string, []any) {
+	placeholders := []string{}
+	values := []any{}
+	seenValues := map[string]bool{}
+	for _, taskScheduleID := range taskScheduleIDs {
+		trimmedTaskScheduleID := strings.TrimSpace(taskScheduleID)
+		if trimmedTaskScheduleID == "" || seenValues[trimmedTaskScheduleID] {
+			continue
+		}
+		seenValues[trimmedTaskScheduleID] = true
+		values = append(values, trimmedTaskScheduleID)
+		placeholders = append(placeholders, "$"+strconv.Itoa(firstPlaceholderIndex+len(values)-1))
+	}
+	if len(placeholders) == 0 {
+		return "", nil
+	}
+	return "task_schedule_id IN (" + strings.Join(placeholders, ",") + ")", values
+}
+
 func taskScheduleRetryDelay(failureCount int) time.Duration {
 	if failureCount <= 0 {
 		return time.Minute
@@ -209,6 +277,7 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 	var lastRunAt sql.NullTime
 	var leasedUntil sql.NullTime
 	var nextAttemptAt sql.NullTime
+	var expiresAt sql.NullTime
 	errorValue := scanner.Scan(
 		&taskSchedule.TaskScheduleID,
 		&taskSchedule.CreatorPersonID,
@@ -223,7 +292,7 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 		&nextRunAt,
 		&lastRunAt,
 		&taskSchedule.LastTaskRunID,
-		&taskSchedule.IsPaused,
+		&expiresAt,
 		&taskSchedule.CreatedAt,
 		&taskSchedule.UpdatedAt,
 		&taskSchedule.Platform,
@@ -254,6 +323,9 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 	taskSchedule.LastRunAt = nullableTaskScheduleTime(lastRunAt)
 	taskSchedule.LeasedUntil = nullableTaskScheduleTime(leasedUntil)
 	taskSchedule.NextAttemptAt = nullableTaskScheduleTime(nextAttemptAt)
+	if expiresAt.Valid {
+		taskSchedule.ExpiresAt = expiresAt.Time
+	}
 	return taskSchedule, errorValue
 }
 
@@ -276,6 +348,26 @@ func scanTaskSchedules(rows *sql.Rows) ([]task.TaskSchedule, error) {
 		taskSchedules = append(taskSchedules, taskSchedule)
 	}
 	return taskSchedules, rows.Err()
+}
+
+func taskScheduleReturningColumns() string {
+	return `task_schedule_id, COALESCE(creator_person_id, ''), name, prompt, agent_profile_name,
+  execution_mode, schedule_kind, run_at, interval_second, cron_expression, next_run_at,
+  last_run_at, COALESCE(last_task_run_id, ''), expires_at, created_at, updated_at,
+  platform, delivery_conversation_id, reply_target_id, time_zone,
+  lease_owner, leased_until, failure_count, last_error, next_attempt_at,
+  max_run_count, completed_run_count`
+}
+
+func taskScheduleExpiresAt(taskSchedule task.TaskSchedule) time.Time {
+	if taskSchedule.ExpiresAt.IsZero() {
+		return defaultTaskScheduleExpiresAt()
+	}
+	return taskSchedule.ExpiresAt.UTC()
+}
+
+func defaultTaskScheduleExpiresAt() time.Time {
+	return time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 }
 
 func zeroAsNil(value int) any {

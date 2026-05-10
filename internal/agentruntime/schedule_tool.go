@@ -25,6 +25,11 @@ type scheduleCreateToolInput struct {
 	MaxRunCount      int    `json:"maxRunCount"`
 }
 
+type scheduleCancelToolInput struct {
+	Scope           string   `json:"scope"`
+	TaskScheduleIDs []string `json:"scheduleIDs"`
+}
+
 type scheduleIntervalPattern struct {
 	expression *regexp.Regexp
 	multiplier int
@@ -62,6 +67,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 		},
 		Result: agent.IdentityToolResult,
 	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCancelToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "schedule.cancel",
+			Description: "Cancel active scheduled tasks and pending approval or user-input waits created by the current requester. Use scope mine for all requester schedules, currentConversation for this conversation, and scheduleIDs for explicit schedule IDs. Cancellation expires records instead of deleting audit history.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","enum":["currentConversation","mine","scheduleIDs"]},"scheduleIDs":{"type":"array","items":{"type":"string"}}},"required":["scope"],"additionalProperties":false}`),
+		},
+		Handler: func(toolContext context.Context, input scheduleCancelToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.cancelScheduleTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
+	})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext context.Context, input scheduleCreateToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -86,6 +102,49 @@ func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext con
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.created", marshalToolResult(initializedTaskSchedule))
 	}
 	return agent.ToolResult{Content: marshalToolResult(initializedTaskSchedule)}, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext context.Context, input scheduleCancelToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	if toolCatalogBuilder.taskScheduleRepository == nil {
+		return agent.ToolResult{Content: "task schedule repository is unavailable", IsError: true}, nil
+	}
+	cancelledAt := time.Now().UTC()
+	cancelRequest := task.TaskScheduleCancelRequest{
+		Scope:             normalizeScheduleCancelScope(input.Scope),
+		RequesterPersonID: strings.TrimSpace(handlerContext.request.RequesterPersonID),
+		ConversationID:    strings.TrimSpace(handlerContext.request.ConversationID),
+		TaskScheduleIDs:   trimNonEmptyStrings(input.TaskScheduleIDs),
+		CancelledAt:       cancelledAt,
+	}
+	result, errorValue := toolCatalogBuilder.taskScheduleRepository.CancelTaskSchedules(cancelRequest)
+	if errorValue != nil {
+		return agent.ToolResult{}, errorValue
+	}
+	cancelledWaitCount := toolCatalogBuilder.cancelPendingWaits(cancelRequest, cancelledAt)
+	response := map[string]any{
+		"cancelledScheduleCount": len(result.TaskSchedules),
+		"cancelledWaitCount":     cancelledWaitCount,
+		"taskSchedules":          result.TaskSchedules,
+	}
+	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
+		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.cancelled", marshalToolResult(response))
+	}
+	return agent.ToolResult{Content: marshalToolResult(response)}, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) cancelPendingWaits(cancelRequest task.TaskScheduleCancelRequest, cancelledAt time.Time) int {
+	if toolCatalogBuilder.taskRunService == nil {
+		return 0
+	}
+	if toolCatalogBuilder.taskWaitTokenRepository != nil && cancelRequest.Scope == task.TaskScheduleCancelScopeMine {
+		_, _ = toolCatalogBuilder.taskWaitTokenRepository.ExpireTaskWaitTokensForPerson(cancelRequest.RequesterPersonID, cancelledAt)
+	}
+	originConversationID := ""
+	if cancelRequest.Scope == task.TaskScheduleCancelScopeCurrentConversation {
+		originConversationID = cancelRequest.ConversationID
+	}
+	cancelledTaskRuns := toolCatalogBuilder.taskRunService.CancelWaitingTaskRuns(cancelRequest.RequesterPersonID, originConversationID, "schedule.cancel")
+	return len(cancelledTaskRuns)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCreateToolInput, handlerContext toolHandlerContext) (task.TaskSchedule, error) {
@@ -116,6 +175,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		IntervalSecond:   normalizeScheduleIntervalSecond(input, handlerContext.request.Prompt),
 		CronExpression:   strings.TrimSpace(input.CronExpression),
 		MaxRunCount:      normalizeScheduleMaxRunCount(input, handlerContext.request.Prompt),
+		ExpiresAt:        defaultScheduleExpiresAt(),
 		CreatedAt:        now,
 		UpdatedAt:        now,
 		NextAttemptAt:    &now,
@@ -126,6 +186,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 	return taskSchedule, nil
 }
 
+func normalizeScheduleCancelScope(value string) task.TaskScheduleCancelScope {
+	switch strings.TrimSpace(value) {
+	case string(task.TaskScheduleCancelScopeCurrentConversation):
+		return task.TaskScheduleCancelScopeCurrentConversation
+	case string(task.TaskScheduleCancelScopeScheduleIDs):
+		return task.TaskScheduleCancelScopeScheduleIDs
+	default:
+		return task.TaskScheduleCancelScopeMine
+	}
+}
+
 func normalizeTaskScheduleExecutionMode(value string) task.TaskScheduleExecutionMode {
 	switch strings.TrimSpace(value) {
 	case string(task.TaskScheduleExecutionModeMessage):
@@ -133,6 +204,10 @@ func normalizeTaskScheduleExecutionMode(value string) task.TaskScheduleExecution
 	default:
 		return task.TaskScheduleExecutionModeAgent
 	}
+}
+
+func defaultScheduleExpiresAt() time.Time {
+	return time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 }
 
 func normalizeScheduleMaxRunCount(input scheduleCreateToolInput, requestPrompt string) int {

@@ -831,6 +831,10 @@ func (repository *connectorTaskScheduleRepository) MarkTaskScheduleFailed(task.T
 	return nil
 }
 
+func (repository *connectorTaskScheduleRepository) CancelTaskSchedules(task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
+	return task.TaskScheduleCancelResult{}, nil
+}
+
 func (repository *testConnectorQueueRepository) TryInsertConnectorEvent(PlatformInboundEvent) (bool, ConnectorRuntimeResult, error) {
 	return false, ConnectorRuntimeResult{}, nil
 }

@@ -34,11 +34,11 @@ func (taskScheduler TaskScheduler) ScheduleTask(taskRun TaskRun) TaskRun {
 }
 
 func (taskScheduler TaskScheduler) InitializeTaskSchedule(taskSchedule TaskSchedule, referenceTime time.Time) (TaskSchedule, error) {
-	if taskSchedule.IsPaused {
+	if taskScheduleReachedRunLimit(taskSchedule) {
 		taskSchedule.NextRunAt = nil
 		return taskSchedule, nil
 	}
-	if taskScheduleReachedRunLimit(taskSchedule) {
+	if taskScheduleExpired(taskSchedule, referenceTime) {
 		taskSchedule.NextRunAt = nil
 		return taskSchedule, nil
 	}
@@ -60,11 +60,11 @@ func (taskScheduler TaskScheduler) AdvanceTaskSchedule(taskSchedule TaskSchedule
 	taskSchedule.LastRunAt = &executedAt
 	taskSchedule.CompletedRunCount++
 
-	if taskSchedule.IsPaused {
+	if taskScheduleReachedRunLimit(taskSchedule) {
 		taskSchedule.NextRunAt = nil
 		return taskSchedule, nil
 	}
-	if taskScheduleReachedRunLimit(taskSchedule) {
+	if taskScheduleExpired(taskSchedule, executedAt) {
 		taskSchedule.NextRunAt = nil
 		return taskSchedule, nil
 	}
@@ -86,8 +86,12 @@ func taskScheduleReachedRunLimit(taskSchedule TaskSchedule) bool {
 	return taskSchedule.MaxRunCount > 0 && taskSchedule.CompletedRunCount >= taskSchedule.MaxRunCount
 }
 
+func taskScheduleExpired(taskSchedule TaskSchedule, referenceTime time.Time) bool {
+	return !taskSchedule.ExpiresAt.IsZero() && !taskSchedule.ExpiresAt.After(referenceTime)
+}
+
 func (taskScheduler TaskScheduler) IsTaskScheduleDue(taskSchedule TaskSchedule, referenceTime time.Time) bool {
-	if taskSchedule.IsPaused {
+	if taskScheduleExpired(taskSchedule, referenceTime) {
 		return false
 	}
 	if taskSchedule.NextRunAt == nil {

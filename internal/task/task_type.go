@@ -99,10 +99,10 @@ type TaskSchedule struct {
 	CronExpression    string                    `json:"cronExpression"`
 	MaxRunCount       int                       `json:"maxRunCount,omitempty"`
 	CompletedRunCount int                       `json:"completedRunCount"`
+	ExpiresAt         time.Time                 `json:"expiresAt"`
 	NextRunAt         *time.Time                `json:"nextRunAt"`
 	LastRunAt         *time.Time                `json:"lastRunAt"`
 	LastTaskRunID     string                    `json:"lastTaskRunID"`
-	IsPaused          bool                      `json:"isPaused"`
 	LeaseOwner        string                    `json:"leaseOwner"`
 	LeasedUntil       *time.Time                `json:"leasedUntil"`
 	FailureCount      int                       `json:"failureCount"`
