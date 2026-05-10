@@ -23,6 +23,8 @@ func (scanner taskScheduleScannerStub) Scan(targets ...any) error {
 			*target = value.(time.Time)
 		case *sql.NullInt64:
 			*target = value.(sql.NullInt64)
+		case *sql.NullString:
+			*target = value.(sql.NullString)
 		case *sql.NullTime:
 			*target = value.(sql.NullTime)
 		}
@@ -41,7 +43,7 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 		"interval",
 		sql.NullTime{},
 		sql.NullInt64{Int64: 60, Valid: true},
-		"",
+		sql.NullString{},
 		sql.NullTime{},
 		sql.NullTime{},
 		"",
@@ -65,5 +67,8 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 	}
 	if taskSchedule.MaxRunCount != 10 || taskSchedule.CompletedRunCount != 4 {
 		t.Fatalf("expected run limit fields to scan, got %+v", taskSchedule)
+	}
+	if taskSchedule.CronExpression != "" {
+		t.Fatalf("expected nullable cron expression to scan as empty, got %q", taskSchedule.CronExpression)
 	}
 }

@@ -198,6 +198,7 @@ type taskScheduleScanner interface {
 func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 	var taskSchedule task.TaskSchedule
 	var kind string
+	var cronExpression sql.NullString
 	var intervalSecond sql.NullInt64
 	var maxRunCount sql.NullInt64
 	var runAt sql.NullTime
@@ -214,7 +215,7 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 		&kind,
 		&runAt,
 		&intervalSecond,
-		&taskSchedule.CronExpression,
+		&cronExpression,
 		&nextRunAt,
 		&lastRunAt,
 		&taskSchedule.LastTaskRunID,
@@ -239,6 +240,9 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 	}
 	if maxRunCount.Valid {
 		taskSchedule.MaxRunCount = int(maxRunCount.Int64)
+	}
+	if cronExpression.Valid {
+		taskSchedule.CronExpression = cronExpression.String
 	}
 	taskSchedule.RunAt = nullableTaskScheduleTime(runAt)
 	taskSchedule.NextRunAt = nullableTaskScheduleTime(nextRunAt)
