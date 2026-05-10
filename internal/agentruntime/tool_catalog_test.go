@@ -155,6 +155,77 @@ func TestScheduleCreateToolStoresMessageExecutionMode(t *testing.T) {
 	if repository.taskSchedules[0].ExecutionMode != task.TaskScheduleExecutionModeMessage {
 		t.Fatalf("expected message execution mode, got %+v", repository.taskSchedules[0])
 	}
+	if repository.taskSchedules[0].ExpiresAt.IsZero() {
+		t.Fatalf("expected schedule expiration to be initialized, got %+v", repository.taskSchedules[0])
+	}
+}
+
+func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Minute)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:   "schedule-owned",
+		CreatorPersonID:  "person-1",
+		ConversationID:   "channel-1",
+		Prompt:           "owned",
+		Kind:             task.TaskScheduleKindInterval,
+		IntervalSecond:   60,
+		NextRunAt:        &nextRunAt,
+		ExpiresAt:        nextRunAt.Add(time.Hour),
+		AgentProfileName: "default",
+	}, {
+		TaskScheduleID:   "schedule-other",
+		CreatorPersonID:  "person-2",
+		ConversationID:   "channel-1",
+		Prompt:           "other",
+		Kind:             task.TaskScheduleKindInterval,
+		IntervalSecond:   60,
+		NextRunAt:        &nextRunAt,
+		ExpiresAt:        nextRunAt.Add(time.Hour),
+		AgentProfileName: "default",
+	}}}
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	waitingTaskRun := taskRunService.CreateTaskRun("person-1", "channel-1", "승인 필요")
+	if _, errorValue := taskRunService.PauseTaskRun(waitingTaskRun.TaskRunID, task.TaskStatusWaitingApproval, "approval"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "channel-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.cancel",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scope": "mine",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected schedule.cancel success, got %s", result.Content)
+	}
+	if !strings.Contains(result.Content, `"cancelledScheduleCount":1`) || !strings.Contains(result.Content, `"cancelledWaitCount":1`) {
+		t.Fatalf("expected one schedule and one wait cancelled, got %s", result.Content)
+	}
+	ownedSchedule := repository.taskSchedules[1]
+	if ownedSchedule.TaskScheduleID != "schedule-owned" || ownedSchedule.NextRunAt != nil || ownedSchedule.ExpiresAt.After(time.Now().UTC().Add(time.Second)) {
+		t.Fatalf("expected owned schedule to expire, got %+v", ownedSchedule)
+	}
+	otherSchedule := repository.taskSchedules[0]
+	if otherSchedule.TaskScheduleID != "schedule-other" || otherSchedule.NextRunAt == nil {
+		t.Fatalf("expected other schedule to remain active, got %+v", otherSchedule)
+	}
+	cancelledTaskRun, isFound := taskRunService.FindTaskRun(waitingTaskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected waiting task run to be cancelled, got found=%v task=%+v", isFound, cancelledTaskRun)
+	}
 }
 
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
@@ -330,6 +401,36 @@ func (repository *memoryTaskScheduleRepository) MarkTaskScheduleSucceeded(taskSc
 func (repository *memoryTaskScheduleRepository) MarkTaskScheduleFailed(_ task.TaskSchedule, errorMessage string, _ time.Time) error {
 	repository.failed = append(repository.failed, errorMessage)
 	return nil
+}
+
+func (repository *memoryTaskScheduleRepository) CancelTaskSchedules(request task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
+	cancelledTaskSchedules := []task.TaskSchedule{}
+	remainingTaskSchedules := []task.TaskSchedule{}
+	for _, taskSchedule := range repository.taskSchedules {
+		if memoryTaskScheduleMatchesCancelRequest(taskSchedule, request) {
+			taskSchedule.ExpiresAt = request.CancelledAt
+			taskSchedule.NextRunAt = nil
+			cancelledTaskSchedules = append(cancelledTaskSchedules, taskSchedule)
+			continue
+		}
+		remainingTaskSchedules = append(remainingTaskSchedules, taskSchedule)
+	}
+	repository.taskSchedules = append(remainingTaskSchedules, cancelledTaskSchedules...)
+	return task.TaskScheduleCancelResult{TaskSchedules: cancelledTaskSchedules}, nil
+}
+
+func memoryTaskScheduleMatchesCancelRequest(taskSchedule task.TaskSchedule, request task.TaskScheduleCancelRequest) bool {
+	if taskSchedule.CreatorPersonID != request.RequesterPersonID || taskSchedule.NextRunAt == nil {
+		return false
+	}
+	switch request.Scope {
+	case task.TaskScheduleCancelScopeCurrentConversation:
+		return taskSchedule.ConversationID == request.ConversationID
+	case task.TaskScheduleCancelScopeScheduleIDs:
+		return containsString(request.TaskScheduleIDs, taskSchedule.TaskScheduleID)
+	default:
+		return true
+	}
 }
 
 func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) {

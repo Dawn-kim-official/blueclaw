@@ -45,6 +45,7 @@ type ToolCatalogBuilder struct {
 	terminalService           *security.TerminalSessionService
 	taskRunService            *task.TaskRunService
 	taskScheduleRepository    task.TaskScheduleRepository
+	taskWaitTokenRepository   task.TaskWaitTokenRepository
 	workspaceRootPath         string
 	skillChangeHandler        func(context.Context)
 }
@@ -172,6 +173,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskScheduleRepository(taskSche
 	toolCatalogBuilder.taskScheduleRepository = taskScheduleRepository
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskWaitTokenRepository(taskWaitTokenRepository task.TaskWaitTokenRepository) {
+	toolCatalogBuilder.taskWaitTokenRepository = taskWaitTokenRepository
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) UseWorkspaceRootPath(workspaceRootPath string) {
 	trimmedWorkspaceRootPath := strings.TrimSpace(workspaceRootPath)
 	if trimmedWorkspaceRootPath != "" {
@@ -209,7 +214,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
 		return append([]string{}, toolCatalogBuilder.fallbackAllowedToolNames...)
 	}
-	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "schedule.create"}
+	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "schedule.create", "schedule.cancel"}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {

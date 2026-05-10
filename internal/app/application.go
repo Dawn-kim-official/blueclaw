@@ -86,6 +86,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	taskArtifactService := task.NewTaskArtifactService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	var taskScheduleRepository task.TaskScheduleRepository
+	var taskWaitTokenRepository task.TaskWaitTokenRepository
 	var scheduledDeliveryRepository scheduler.TaskScheduleDeliveryRepository
 	if database.SQL != nil {
 		taskEventService.UseRepository(postgres.NewTaskEventRepository(database))
@@ -93,6 +94,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskArtifactService.UseRepository(postgres.NewTaskArtifactRepository(database))
 		taskRunService.UseRepository(postgres.NewTaskRunRepository(database))
 		taskScheduleRepository = postgres.NewTaskScheduleRepository(database)
+		taskWaitTokenRepository = postgres.NewTaskWaitTokenRepository(database)
 		scheduledDeliveryRepository = postgres.NewRawEventRepository(database)
 	}
 	magicLinkService := auth.NewMagicLinkService()
@@ -146,6 +148,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseTerminalService(terminalService)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
+	toolCatalogBuilder.UseTaskWaitTokenRepository(taskWaitTokenRepository)
 	toolCatalogBuilder.UseWorkspaceRootPath(runtimeConfiguration.Terminal.WorkspaceRootPath)
 	toolCatalogBuilder.UseSkillChangeHandler(func(ctx context.Context) {
 		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
@@ -483,6 +486,7 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 		"conversation.history": true,
 		"memory.search":        true,
 		"schedule.create":      true,
+		"schedule.cancel":      true,
 	}
 	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
 		for _, allowedToolName := range agentProfile.AllowedToolNames {
@@ -575,6 +579,9 @@ func appendDefaultBuiltInToolNames(toolNames []string) []string {
 	result := append([]string{}, toolNames...)
 	if !containsString(result, "schedule.create") {
 		result = append(result, "schedule.create")
+	}
+	if !containsString(result, "schedule.cancel") {
+		result = append(result, "schedule.cancel")
 	}
 	return result
 }

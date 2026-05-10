@@ -874,6 +874,21 @@ func (repository *virtualTaskScheduleRepository) MarkTaskScheduleFailed(task.Tas
 	return nil
 }
 
+func (repository *virtualTaskScheduleRepository) CancelTaskSchedules(request task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	cancelledTaskSchedules := []task.TaskSchedule{}
+	for index, taskSchedule := range repository.taskSchedules {
+		if taskSchedule.CreatorPersonID != request.RequesterPersonID || taskSchedule.NextRunAt == nil {
+			continue
+		}
+		repository.taskSchedules[index].ExpiresAt = request.CancelledAt
+		repository.taskSchedules[index].NextRunAt = nil
+		cancelledTaskSchedules = append(cancelledTaskSchedules, repository.taskSchedules[index])
+	}
+	return task.TaskScheduleCancelResult{TaskSchedules: cancelledTaskSchedules}, nil
+}
+
 func newVirtualMemoryStore(initialFacts []memory.MemoryFact) *virtualMemoryStore {
 	return &virtualMemoryStore{facts: append([]memory.MemoryFact{}, initialFacts...)}
 }
