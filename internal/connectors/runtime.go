@@ -46,16 +46,17 @@ type ConnectorOutboxRepository interface {
 }
 
 type PlatformInboundEvent struct {
-	Platform       string                 `json:"-"`
-	Source         string                 `json:"-"`
-	ConversationID string                 `json:"conversationID"`
-	MessageID      string                 `json:"messageID"`
-	SenderID       string                 `json:"senderID"`
-	ReplyTargetID  string                 `json:"replyTargetID"`
-	Prompt         string                 `json:"prompt"`
-	Context        VisibleContext         `json:"context"`
-	RawReceivedAt  time.Time              `json:"-"`
-	LegacyFields   map[string]interface{} `json:"-"`
+	Platform         string                 `json:"-"`
+	Source           string                 `json:"-"`
+	ConversationID   string                 `json:"conversationID"`
+	MessageID        string                 `json:"messageID"`
+	SenderID         string                 `json:"senderID"`
+	ReplyTargetID    string                 `json:"replyTargetID"`
+	Prompt           string                 `json:"prompt"`
+	ResponseLanguage string                 `json:"responseLanguage,omitempty"`
+	Context          VisibleContext         `json:"context"`
+	RawReceivedAt    time.Time              `json:"-"`
+	LegacyFields     map[string]interface{} `json:"-"`
 }
 
 type ReplyTarget struct {
@@ -161,6 +162,7 @@ type VisibleContext struct {
 	Messages         []VisibleContextMessage `json:"messages"`
 	HasMoreBefore    bool                    `json:"hasMoreBefore"`
 	HistoryCursor    string                  `json:"historyCursor"`
+	ResponseLanguage string                  `json:"responseLanguage,omitempty"`
 	Sender           VisibleContextSender    `json:"sender,omitempty"`
 	ConversationType string                  `json:"conversationType,omitempty"`
 	ChannelID        string                  `json:"channelID,omitempty"`
@@ -271,6 +273,7 @@ type pendingApproval struct {
 	TaskRun          task.TaskRun
 	IntentPrompt     string
 	ApprovalQuestion string
+	ResponseLanguage string
 }
 
 func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
@@ -278,7 +281,7 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		logger = slog.Default()
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "schedule.create", "schedule.cancel"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"conversation.history", "memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "schedule.create", "schedule.cancel"})
 
 	return &ConnectorRuntime{
 		identityService:    identityService,
@@ -350,7 +353,7 @@ func (connectorRuntime *ConnectorRuntime) UseCapabilityTools(capabilityClient ca
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNames(allowedToolNames []string) {
 	trimmedToolNames := trimNonEmptyStrings(allowedToolNames)
 	if len(trimmedToolNames) == 0 {
-		trimmedToolNames = []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "schedule.create", "schedule.cancel"}
+		trimmedToolNames = []string{"conversation.history", "memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "schedule.create", "schedule.cancel"}
 	}
 	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, trimmedToolNames)
 }
@@ -708,6 +711,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		ConversationChannelName:   event.Context.ChannelName,
 		ReplyTargetID:             event.ReplyTargetID,
 		Prompt:                    event.Prompt,
+		ResponseLanguage:          responseLanguageForEvent(event),
 		VisibleContext:            event.Context.ToAgentVisibleContext(),
 		HistoryProvider:           connectorHistoryProvider{adapter: adapter},
 		PersonAccess:              personAccess,
@@ -805,15 +809,18 @@ func (connectorRuntime *ConnectorRuntime) findPendingApproval(personID string, c
 	}
 	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(selectedTaskRun.TaskRunID)
 	approvalQuestion := latestApprovalQuestion(taskEvents)
+	responseLanguage := latestApprovalResponseLanguage(taskEvents)
 	return pendingApproval{
 		TaskRun:          selectedTaskRun,
 		IntentPrompt:     pendingApprovalIntentPrompt(selectedTaskRun.Prompt, approvalQuestion),
 		ApprovalQuestion: approvalQuestion,
+		ResponseLanguage: responseLanguage,
 	}, true
 }
 
 func approvedContinuationEvent(event PlatformInboundEvent, approval pendingApproval) PlatformInboundEvent {
 	event.Prompt = approvedContinuationPrompt(approval.IntentPrompt, event.Prompt)
+	event.ResponseLanguage = agent.ResolveResponseLanguage(event.ResponseLanguage, approval.ResponseLanguage)
 	return event
 }
 
@@ -879,6 +886,25 @@ func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
 		question := firstNonEmptyString(approvalRequest.Message, approvalRequest.Reason)
 		if strings.TrimSpace(question) != "" {
 			return strings.TrimSpace(question)
+		}
+	}
+	return ""
+}
+
+func latestApprovalResponseLanguage(taskEvents []task.TaskEvent) string {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name != "approval.requested" {
+			continue
+		}
+		var approvalRequest struct {
+			ResponseLanguage string `json:"responseLanguage"`
+		}
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &approvalRequest); errorValue != nil {
+			continue
+		}
+		if responseLanguage := agent.NormalizeResponseLanguage(approvalRequest.ResponseLanguage); responseLanguage != "" {
+			return responseLanguage
 		}
 	}
 	return ""
@@ -1403,10 +1429,15 @@ func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContex
 	}
 
 	return agent.VisibleContext{
-		Messages:      messages,
-		HasMoreBefore: visibleContext.HasMoreBefore,
-		HistoryCursor: visibleContext.HistoryCursor,
+		Messages:         messages,
+		HasMoreBefore:    visibleContext.HasMoreBefore,
+		HistoryCursor:    visibleContext.HistoryCursor,
+		ResponseLanguage: visibleContext.ResponseLanguage,
 	}
+}
+
+func responseLanguageForEvent(event PlatformInboundEvent) string {
+	return agent.ResolveResponseLanguage(event.ResponseLanguage, event.Context.ResponseLanguage)
 }
 
 func stringField(fields map[string]interface{}, name string) string {

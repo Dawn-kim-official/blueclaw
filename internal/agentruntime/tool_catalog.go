@@ -118,6 +118,10 @@ type approvalRequestToolInput struct {
 	Reason  string `json:"reason"`
 }
 
+type mathCalculateToolInput struct {
+	Expression string `json:"expression"`
+}
+
 type fileWriteToolInput struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
@@ -214,7 +218,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
 		return append([]string{}, toolCatalogBuilder.fallbackAllowedToolNames...)
 	}
-	return []string{"memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "schedule.create", "schedule.cancel"}
+	return []string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "schedule.create", "schedule.cancel"}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -296,6 +300,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) SearchMemory(ctx context.Context, 
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[mathCalculateToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "math.calculate",
+			Description: "Evaluate a safe arithmetic expression using bc. Supports numbers, parentheses, +, -, *, /, %, ^, and **.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"expression":{"type":"string"}},"required":["expression"],"additionalProperties":false}`),
+		},
+		Handler: toolCatalogBuilder.calculateMathTool,
+		Result:  agent.IdentityToolResult,
+	})
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[security.CommandRequest, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "terminal.run",
@@ -617,7 +630,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext co
 	if errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
-	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "approval.requested", marshalToolResult(input))
+	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "approval.requested", marshalToolResult(map[string]string{
+		"message":          input.Message,
+		"reason":           input.Reason,
+		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
+	}))
 	return agent.ToolResult{Content: marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "message": input.Message})}, nil
 }
 

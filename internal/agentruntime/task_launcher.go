@@ -39,6 +39,7 @@ type TaskLaunchRequest struct {
 	ConversationChannelName   string
 	ReplyTargetID             string
 	Prompt                    string
+	ResponseLanguage          string
 	VisibleContext            agent.VisibleContext
 	HistoryProvider           HistoryProvider
 	PersonAccess              policy.PersonAccess
@@ -124,6 +125,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ProfileName:             normalizedProfileName,
 		ConversationID:          request.ConversationID,
 		Prompt:                  request.Prompt,
+		ResponseLanguage:        request.ResponseLanguage,
 		VisibleContext:          request.VisibleContext,
 		MemoryFacts:             memoryFacts,
 		ToolSet:                 toolSet,

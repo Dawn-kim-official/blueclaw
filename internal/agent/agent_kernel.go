@@ -221,6 +221,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		ProfileName:          request.ProfileName,
 		ConversationID:       request.ConversationID,
 		Prompt:               request.Prompt,
+		ResponseLanguage:     request.ResponseLanguage,
 		VisibleContext:       request.VisibleContext,
 		MemoryFacts:          request.MemoryFacts,
 		ToolSet:              request.ToolSet,
@@ -230,14 +231,16 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
+	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
 	instructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle = selectInstructionBundleForRequestWithRetriever(responseContext, instructionBundle, request, agentKernel.skillRetriever)
-	turnToolSet := toolSetForSelectedSkills(request.ToolSet, instructionBundle)
+	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
 	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
 	intakeDecision := intakePlanner.Plan(responseContext, intakeRequest)
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
+	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
 		return agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
 	}
@@ -246,7 +249,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
-	requiredEvidenceTools := selectedRequiredEvidenceTools(instructionBundle)
+	requiredEvidenceTools := requiredEvidenceToolsForIntake(intakeDecision, instructionBundle)
 	if len(requiredAttachmentSuffixes) > 0 {
 		requiredEvidenceTools = appendUniqueStrings(requiredEvidenceTools, "file.attach")
 	}
@@ -260,6 +263,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		ProfileName:                normalizedAgentProfileName(request.ProfileName),
 		ConversationID:             request.ConversationID,
 		Prompt:                     request.Prompt,
+		ResponseLanguage:           request.ResponseLanguage,
 		VisibleContext:             request.VisibleContext,
 		MemoryFacts:                request.MemoryFacts,
 		ToolSet:                    turnToolSet,
@@ -275,10 +279,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
-	if intakeDecision.Classification == IntakeClassificationQuickReply {
-		turnRequest.ToolSet = nil
-		turnOptions.MaxIterationCount = 1
-	}
 
 	agentTurnRunner := NewAgentTurnRunner(
 		agentKernel.taskRunService,
@@ -338,6 +338,13 @@ func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string
 		toolNames = append(toolNames, skillInstruction.Completion.RequiredEvidenceTools...)
 	}
 	return appendUniqueStrings(toolNames)
+}
+
+func requiredEvidenceToolsForIntake(intakeDecision IntakeDecision, instructionBundle InstructionBundle) []string {
+	if intakeDecision.Classification == IntakeClassificationQuickReply {
+		return nil
+	}
+	return selectedRequiredEvidenceTools(instructionBundle)
 }
 
 func selectedSkillNameSet(skillDecisions []SkillSelectionDecision) map[string]bool {
@@ -426,7 +433,7 @@ func appendUniqueQualityGuidance(guidance []string, seenGuidance map[string]bool
 }
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultEffortLevel EffortLevel) IntakeDecision {
-	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !hasSelectedSkillWithAllowedTools(instructionBundle) {
+	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle) {
 		return decision
 	}
 	decision.Classification = IntakeClassificationBoundedTask
@@ -434,7 +441,7 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 		decision.TaskShape = taskShapeForSelectedSkills(instructionBundle)
 	}
 	decision.EffortLevel = LargerEffortLevel(decision.EffortLevel, defaultEffortLevel)
-	decision.Reason = "selected skill requires bounded tool execution"
+	decision.Reason = "selected skill requires bounded completion evidence"
 	decision.UserFacingReply = ""
 	return decision
 }
@@ -456,13 +463,18 @@ func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
 	return TaskShapeResearchTask
 }
 
-func hasSelectedSkillWithAllowedTools(instructionBundle InstructionBundle) bool {
+func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle) bool {
+	requiredEvidenceCountBySkillName := map[string]int{}
 	allowedToolCountBySkillName := map[string]int{}
 	for _, skillInstruction := range instructionBundle.Skills {
+		requiredEvidenceCountBySkillName[skillInstruction.Name] = len(skillInstruction.Completion.RequiredEvidenceTools)
 		allowedToolCountBySkillName[skillInstruction.Name] = len(SkillToolNames(skillInstruction))
 	}
 	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Status == "selected" && allowedToolCountBySkillName[skillDecision.Name] > 0 {
+		if skillDecision.Status == "selected" && requiredEvidenceCountBySkillName[skillDecision.Name] > 0 {
+			return true
+		}
+		if skillDecision.Status == "selected" && skillDecision.Name == "scheduled-task" && allowedToolCountBySkillName[skillDecision.Name] > 0 {
 			return true
 		}
 	}
@@ -470,9 +482,10 @@ func hasSelectedSkillWithAllowedTools(instructionBundle InstructionBundle) bool 
 }
 
 type VisibleContext struct {
-	Messages      []VisibleContextMessage
-	HasMoreBefore bool
-	HistoryCursor string
+	Messages         []VisibleContextMessage
+	HasMoreBefore    bool
+	HistoryCursor    string
+	ResponseLanguage string
 }
 
 type VisibleContextMessage struct {
@@ -848,10 +861,10 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	finalReply := strings.TrimSpace(intakeDecision.UserFacingReply)
 	if finalReply == "" {
-		finalReply = defaultUserFacingReply(intakeDecision.Classification)
+		finalReply = defaultUserFacingReplyForLanguage(intakeDecision.Classification, request.ResponseLanguage)
 	}
 	if finalReply == "" {
-		finalReply = "I cannot complete that within the current execution boundary."
+		finalReply = defaultExecutionBoundaryReply(request.ResponseLanguage)
 	}
 	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, status, intakeDecision.Reason)
 	if errorValue != nil {
@@ -859,6 +872,27 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 	}
 	blockedTaskRun.Result = finalReply
 	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: finalReply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
+}
+
+func defaultUserFacingReplyForLanguage(classification IntakeClassification, responseLanguage string) string {
+	if ResolveResponseLanguage(responseLanguage) == ResponseLanguageEnglish {
+		return defaultUserFacingReply(classification)
+	}
+	switch classification {
+	case IntakeClassificationNeedsConfirmation:
+		return "진행하기 전에 범위를 조금 더 좁혀주세요."
+	case IntakeClassificationUnsupported:
+		return "현재 실행 범위에서는 안전하게 처리할 수 없습니다."
+	default:
+		return ""
+	}
+}
+
+func defaultExecutionBoundaryReply(responseLanguage string) string {
+	if ResolveResponseLanguage(responseLanguage) == ResponseLanguageEnglish {
+		return "I cannot complete that within the current execution boundary."
+	}
+	return "현재 실행 범위에서는 요청을 완료할 수 없습니다."
 }
 
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {

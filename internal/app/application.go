@@ -485,6 +485,7 @@ func instructionSource(path string, skillName string, document []byte) agent.Ins
 func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []string {
 	allowedToolNameByName := map[string]bool{
 		"conversation.history": true,
+		"math.calculate":       true,
 		"memory.search":        true,
 		"schedule.create":      true,
 		"schedule.cancel":      true,
@@ -578,6 +579,9 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 
 func appendDefaultBuiltInToolNames(toolNames []string) []string {
 	result := append([]string{}, toolNames...)
+	if !containsString(result, "math.calculate") {
+		result = append(result, "math.calculate")
+	}
 	if !containsString(result, "schedule.create") {
 		result = append(result, "schedule.create")
 	}

@@ -41,6 +41,7 @@ type AgentRequest struct {
 	ProfileName          string
 	ConversationID       string
 	Prompt               string
+	ResponseLanguage     string
 	VisibleContext       VisibleContext
 	MemoryFacts          []memory.MemoryFact
 	ToolSet              *ToolSet
@@ -54,6 +55,7 @@ type IntakeDecision struct {
 	TaskShape                 TaskShape            `json:"taskShape"`
 	EffortLevel               EffortLevel          `json:"effortLevel"`
 	RequestedOutputFormats    []string             `json:"requestedOutputFormats"`
+	ResponseLanguage          string               `json:"responseLanguage"`
 	Reason                    string               `json:"reason"`
 	UserFacingReply           string               `json:"userFacingReply"`
 	UsedDeterministicFallback bool                 `json:"usedDeterministicFallback"`
@@ -96,7 +98,7 @@ func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Con
 		Messages: taskIntakePlanner.buildMessages(request),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_task_intake_effort",
-			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"taskShape":{"type":"string","enum":["immediate_reply","research_task","maintenance_task","scheduled_task","browser_handoff_task","approval_gated_task"]},"effortLevel":{"type":"string","enum":["quick","standard","deep","extended"]},"requestedOutputFormats":{"anyOf":[{"type":"array","items":{"type":"string","enum":["html","pptx","pdf","txt","docx","xlsx","csv"]}},{"type":"null"}]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","taskShape","effortLevel","requestedOutputFormats","reason","userFacingReply"],"additionalProperties":false}`,
+			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"taskShape":{"type":"string","enum":["immediate_reply","research_task","maintenance_task","scheduled_task","browser_handoff_task","approval_gated_task"]},"effortLevel":{"type":"string","enum":["quick","standard","deep","extended"]},"requestedOutputFormats":{"anyOf":[{"type":"array","items":{"type":"string","enum":["html","pptx","pdf","txt","docx","xlsx","csv"]}},{"type":"null"}]},"responseLanguage":{"type":"string","enum":["ko","en","same_as_conversation"]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","taskShape","effortLevel","requestedOutputFormats","responseLanguage","reason","userFacingReply"],"additionalProperties":false}`,
 			IsStrictlyEnforced: true,
 		},
 	})
@@ -121,7 +123,11 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"].",
+			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+		},
+		{
+			Role:    "system",
+			Content: responseLanguageInstruction(request.ResponseLanguage),
 		},
 		{
 			Role:    "system",
@@ -163,12 +169,14 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 		classification = IntakeClassificationUnsupported
 		reason = "request is outside the available execution boundary"
 	}
+	responseLanguage := ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
 	return IntakeDecision{
 		Classification:            classification,
 		TaskShape:                 deterministicTaskShape(request, classification),
 		EffortLevel:               LargerEffortLevel(effortLevel, minimumEffortLevelForRequest(request)),
 		Reason:                    reason,
-		UserFacingReply:           defaultUserFacingReply(classification),
+		ResponseLanguage:          responseLanguage,
+		UserFacingReply:           defaultUserFacingReplyForLanguage(classification, responseLanguage),
 		UsedDeterministicFallback: true,
 	}
 }
@@ -211,13 +219,22 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 	}
 	decision.EffortLevel = LargerEffortLevel(normalizedEffortLevel, minimumEffortLevelForRequest(request))
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
+	decision.ResponseLanguage = resolveDecisionResponseLanguage(decision.ResponseLanguage, request.ResponseLanguage)
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
 	}
 	if strings.TrimSpace(decision.UserFacingReply) == "" {
-		decision.UserFacingReply = defaultUserFacingReply(decision.Classification)
+		decision.UserFacingReply = defaultUserFacingReplyForLanguage(decision.Classification, decision.ResponseLanguage)
 	}
 	return decision
+}
+
+func resolveDecisionResponseLanguage(decisionLanguage string, requestLanguage string) string {
+	normalizedDecisionLanguage := NormalizeResponseLanguage(decisionLanguage)
+	if normalizedDecisionLanguage == ResponseLanguageSameAsConversation {
+		return ResolveResponseLanguage(requestLanguage)
+	}
+	return ResolveResponseLanguage(normalizedDecisionLanguage, requestLanguage)
 }
 
 func normalizeRequestedOutputFormats(formats []string) []string {

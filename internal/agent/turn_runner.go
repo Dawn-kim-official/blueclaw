@@ -46,6 +46,7 @@ type AgentTurnRequest struct {
 	ProfileName                string
 	ConversationID             string
 	Prompt                     string
+	ResponseLanguage           string
 	VisibleContext             VisibleContext
 	MemoryFacts                []memory.MemoryFact
 	ToolSet                    *ToolSet
@@ -197,6 +198,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	if request.TurnStartedAt.IsZero() {
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
+	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage)
 
 	taskRun := agentTurnRunner.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
 	runningTaskRun, errorValue := agentTurnRunner.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
@@ -260,15 +262,13 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			completionGateResult := validateCompletionGateForRequest(request, toolUseRequirements, state.Observations, state.QualityCriteria, actionDocument)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "final_reply", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
-				observation := turnObservation{
-					ObservationID: nextObservationID(len(state.Observations) + 1),
-					Action:        "policy",
-					Content:       completionGateResult.Message,
-					IsError:       true,
-				}
+				observation := completionGateObservation(len(state.Observations)+1, completionGateResult.Message)
 				state.Observations = append(state.Observations, observation)
-				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_required", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "completion_required", observation.Content)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, completionGateEventName(observation), marshalEventBody(observation))
+				if observation.Action == "evidence_missing" {
+					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_required", marshalEventBody(observation))
+				}
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, observation.Action, observation.Content)
 				continue
 			}
 			agentTurnRunner.appendQualityReview(taskRun.TaskRunID, state.QualityCriteria, actionDocument.QualityReview, state.Observations)
@@ -284,6 +284,13 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
 			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
 		case "call_tool":
+			if !toolAvailableForAction(request.ToolSet, actionDocument.ToolName) {
+				observation := invalidToolRequestedObservation(len(state.Observations)+1, actionDocument.ToolName)
+				state.Observations = append(state.Observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.invalid_tool_requested", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_tool_requested "+actionDocument.ToolName, observation.Content)
+				continue
+			}
 			if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
 				observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "policy", Tool: strings.TrimSpace(actionDocument.ToolName), Content: unnecessarySiteApprovalMessage(), IsError: true}
 				state.Observations = append(state.Observations, observation)
@@ -341,7 +348,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
 				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, iteration, agentTurnRunner.options.MaxToolCallCount)
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolSet, taskRun.TaskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
+			observation := agentTurnRunner.invokeTool(turnContext, request.ToolSet, taskRun.TaskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage)
 			state.Observations = append(state.Observations, observation)
 			state.Attachments = appendObservationAttachments(state.Attachments, observation)
 			if retriedObservation, didRetry := agentTurnRunner.retryFailedToolObservation(turnContext, request, taskRun.TaskRunID, observation, actionDocument, recoveryAttempts, &state); didRetry {
@@ -435,7 +442,9 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 
 func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction := "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply only when goalSatisfied is true. Every final_reply must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
+	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Ask for approval only before destructive, high-risk, external-send, credential, paid-service, or tool-availability ask actions. Do not ask for approval before ordinary non-destructive writes."
+	instruction += " When calling approval.request, write the approval message in the same response language."
 	instruction += " For artifact work, set_quality_criteria and qualityReview are useful for your own acceptance criteria, but they are guidance and evidence, not a reason to withhold a usable artifact."
 	if len(request.QualityAcceptanceGuidance) > 0 {
 		instruction += " Quality guidance: " + strings.Join(request.QualityAcceptanceGuidance, " ")
@@ -780,6 +789,32 @@ func blockedToolNamesForPreconditions(toolRegistry *ToolSet, requirements []tool
 	return map[string]bool{}
 }
 
+func toolAvailableForAction(toolRegistry *ToolSet, toolName string) bool {
+	if toolRegistry == nil {
+		return false
+	}
+	return toolRegistry.IsAllowed(strings.TrimSpace(toolName))
+}
+
+func invalidToolRequestedObservation(index int, toolName string) turnObservation {
+	trimmedToolName := strings.TrimSpace(toolName)
+	content := "The requested tool is not available in this run. Choose one of the listed tools, answer without a tool if possible, or explain the missing capability."
+	if trimmedToolName != "" {
+		content = "The requested tool " + trimmedToolName + " is not available in this run. Choose one of the listed tools, answer without a tool if possible, or explain the missing capability."
+	}
+	return turnObservation{
+		ObservationID: nextObservationID(index),
+		Action:        "policy",
+		Tool:          trimmedToolName,
+		Content:       content,
+		Summary:       content,
+		IsError:       true,
+		Message:       content,
+		ErrorCode:     "invalid_tool_requested",
+		FailureStage:  firstNonEmptyString(trimmedToolName, "tool_selection"),
+	}
+}
+
 func stringValue(value any) string {
 	typedValue, isString := value.(string)
 	if !isString {
@@ -799,7 +834,7 @@ func numberValue(value any) float64 {
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolSet, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolSet, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time, responseLanguage string) turnObservation {
 	trimmedToolName := strings.TrimSpace(toolName)
 	toolInputKey := canonicalToolCallKey(trimmedToolName, toolInput)
 	if toolRegistry == nil {
@@ -812,7 +847,8 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 		"toolName":      trimmedToolName,
 		"input":         json.RawMessage(toolInput),
 	}))
-	toolResult, errorValue := toolRegistry.Invoke(WithTaskRunID(ctx, taskRunID), ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
+	toolContext := WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage)
+	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
 		toolResult = ToolResult{Content: errorValue.Error(), Message: errorValue.Error(), IsError: true, ErrorCode: "tool_failed", FailureStage: trimmedToolName}
 	}
@@ -866,7 +902,7 @@ func (agentTurnRunner *AgentTurnRunner) retryFailedToolObservation(ctx context.C
 		"errorCode":     observation.ErrorCode,
 		"failureStage":  observation.FailureStage,
 	}))
-	retryObservation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
+	retryObservation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage)
 	retryObservation.RecoveryAttemptKey = recoveryKey
 	retryObservation.RecoveryAttemptSpent = true
 	state.Observations = append(state.Observations, retryObservation)
@@ -1117,7 +1153,7 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Co
 
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifactsFromEffect(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState, invocation ToolInvocation) completionTransition {
 	agentTurnRunner.appendValidityReview(taskRunID, "pre_attach", state.ValidityState)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), invocation.ToolName, invocation.Input, request.WorkspaceRootPath, request.TurnStartedAt)
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), invocation.ToolName, invocation.Input, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage)
 	if observation.IsError {
 		observation.Content = completionAttachmentFailureContent(observation.Content, state.AttachmentPaths)
 	}
@@ -1525,6 +1561,69 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 	return result
 }
 
+func completionGateObservation(index int, message string) turnObservation {
+	evidenceKind := evidenceMissingKind(message)
+	if evidenceKind == "" {
+		return turnObservation{
+			ObservationID: nextObservationID(index),
+			Action:        "policy",
+			Content:       message,
+			IsError:       true,
+		}
+	}
+	content := evidenceMissingGuidance(evidenceKind, message)
+	return turnObservation{
+		ObservationID: nextObservationID(index),
+		Action:        "evidence_missing",
+		Content:       content,
+		Summary:       content,
+		IsError:       true,
+		Message:       message,
+		ErrorCode:     "evidence_missing",
+		FailureStage:  evidenceKind,
+		Retryable:     true,
+		SafeRetry:     true,
+	}
+}
+
+func completionGateEventName(observation turnObservation) string {
+	if observation.Action == "evidence_missing" {
+		return "agent.evidence_missing"
+	}
+	return "agent.completion_required"
+}
+
+func evidenceMissingKind(message string) string {
+	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
+	switch {
+	case strings.Contains(normalizedMessage, "requires successful observation"):
+		return "required_tool_missing"
+	case strings.Contains(normalizedMessage, "must include an attachment"):
+		return "attachment_missing"
+	case strings.Contains(normalizedMessage, "must include attachment suffix") || strings.Contains(normalizedMessage, "artifact"):
+		return "attachment_invalid"
+	case strings.Contains(normalizedMessage, "unknown or failed observation") || strings.Contains(normalizedMessage, "completionevidence"):
+		return "evidence_reference_invalid"
+	default:
+		return ""
+	}
+}
+
+func evidenceMissingGuidance(evidenceKind string, message string) string {
+	switch evidenceKind {
+	case "required_tool_missing":
+		return "The final reply needs successful tool evidence before completion. Use the required tool if it has not run, or cite an existing successful observation. " + message
+	case "attachment_missing":
+		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use file.attach before final_reply. " + message
+	case "attachment_invalid":
+		return "The final reply needs valid attachment evidence. Recheck the artifact path and required suffix, then attach a valid file. " + message
+	case "evidence_reference_invalid":
+		return "The final reply cited missing or failed evidence. Cite only existing successful observations, or run the missing tool first. " + message
+	default:
+		return message
+	}
+}
+
 func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
 	if len(requirements) == 0 {
 		return collectReferencedAttachments(observations, references)
@@ -1822,7 +1921,8 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (str
 func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment) string {
 	sections := []string{
 		"You are writing a short user-facing final reply after an assistant run failed before completing the user's request.",
-		"Generate the reply in the user's language. Be transparent about the current situation, error, or limitation without exposing internal logs, provider names, URLs, stack traces, hidden policy, tokens, or secrets.",
+		responseLanguageInstruction(request.ResponseLanguage),
+		"Be transparent about the current situation, error, or limitation without exposing internal logs, provider names, URLs, stack traces, hidden policy, tokens, or secrets.",
 		"Do not use or paraphrase a canned outage message. Do not say the model configuration was logged or needs to be fixed.",
 		"Do not say only that an error occurred. Include the methods attempted, the last failure stage and error code when available, and the next check or alternate path.",
 		"Say what could not be completed and the best next step the user can take. Keep it to one or two natural sentences.",
@@ -2006,7 +2106,7 @@ func recoverySituationFor(reason string, observations []turnObservation, attachm
 }
 
 func requestUsesKorean(request AgentTurnRequest) bool {
-	return containsKoreanText(strings.Join([]string{request.Prompt, request.RequesterCallingName, request.RequesterName}, " "))
+	return ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageKorean
 }
 
 func koreanRequesterPrefix(request AgentTurnRequest) string {
@@ -2073,18 +2173,6 @@ func containsFailureDetail(reply string, value string) bool {
 	return strings.Contains(strings.ToLower(reply), strings.ToLower(trimmedValue))
 }
 
-func containsKoreanText(value string) bool {
-	for _, character := range value {
-		if character >= '\uac00' && character <= '\ud7a3' {
-			return true
-		}
-		if character >= '\u3131' && character <= '\u318e' {
-			return true
-		}
-	}
-	return false
-}
-
 func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
 	reply, _ := agentTurnRunner.generateLimitReachedReply(request, stopReason, observations, attachments)
 	return reply
@@ -2093,6 +2181,7 @@ func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentT
 func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
 	sections := []string{
 		"You are writing a short user-facing final reply after a Blueclaw run reached its scope limit.",
+		responseLanguageInstruction(request.ResponseLanguage),
 		"Do not mention internal runtime jargon, counters, percentages, elapsed time, or exact limits.",
 		"Say what was completed, what remains, and the best partial answer available from completed work.",
 		"Do not claim a tool result or attachment exists unless it appears below.",
