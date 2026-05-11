@@ -240,6 +240,14 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			if errors.Is(actionError, context.DeadlineExceeded) {
 				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", state.Observations, state.Attachments, iteration-1, state.ToolCallCount)
 			}
+			if capabilityReply, isCapabilityReply := capabilityFallbackReply(request); isCapabilityReply {
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.capability_fallback", marshalEventBody(map[string]any{
+					"reason":    actionError.Error(),
+					"toolNames": toolNamesForEvent(request.ToolSet),
+				}))
+				completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, capabilityReply)
+				return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: capabilityReply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
+			}
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), state.Observations, state.Attachments)
 		}
 
@@ -410,6 +418,91 @@ func toolObservationMessage(observation turnObservation) string {
 		return ""
 	}
 	return strings.TrimSpace(document.Message)
+}
+
+func capabilityFallbackReply(request AgentTurnRequest) (string, bool) {
+	if !asksForCapabilities(request.Prompt) {
+		return "", false
+	}
+	capabilities := capabilityLabelsForToolNames(toolNamesForEvent(request.ToolSet), request.ResponseLanguage)
+	if len(capabilities) == 0 {
+		if requestUsesKorean(request) {
+			return "지금 이 대화에서는 바로 답변할 수 있는 요청에 응답할 수 있습니다. 연결된 도구 목록은 비어 있어 외부 작업은 실행할 수 없습니다.", true
+		}
+		return "In this conversation, I can answer directly, but there are no connected tools available for external work.", true
+	}
+	if requestUsesKorean(request) {
+		return "짧게 말하면, 지금 저는 " + strings.Join(capabilities, ", ") + "를 할 수 있습니다. 간단한 질문은 바로 답하고, 작업이 필요한 요청은 가능한 도구를 써서 진행합니다.", true
+	}
+	return "Briefly, I can help with " + strings.Join(capabilities, ", ") + ". I answer simple questions directly and use available tools when a task needs them.", true
+}
+
+func asksForCapabilities(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return false
+	}
+	return containsAny(normalizedPrompt, []string{
+		"뭐 할",
+		"할줄",
+		"할 줄",
+		"기능",
+		"가능",
+		"어디까지",
+		"what can you do",
+		"what are you able",
+		"capabilities",
+	})
+}
+
+func capabilityLabelsForToolNames(toolNames []string, responseLanguage string) []string {
+	labels := []string{}
+	categories := capabilityCategoriesForLanguage(responseLanguage)
+	for _, category := range categories {
+		if toolNamesContainPrefix(toolNames, category.Prefixes) {
+			labels = append(labels, category.Label)
+		}
+	}
+	return labels
+}
+
+type capabilityCategory struct {
+	Label    string
+	Prefixes []string
+}
+
+func capabilityCategoriesForLanguage(responseLanguage string) []capabilityCategory {
+	if ResolveResponseLanguage(responseLanguage) == ResponseLanguageEnglish {
+		return []capabilityCategory{
+			{Label: "arithmetic", Prefixes: []string{"math.calculate"}},
+			{Label: "conversation and memory lookup", Prefixes: []string{"conversation.", "memory."}},
+			{Label: "files and attachments", Prefixes: []string{"file."}},
+			{Label: "terminal and service work", Prefixes: []string{"terminal."}},
+			{Label: "browser handoff", Prefixes: []string{"browser", "browser_handoff."}},
+			{Label: "scheduled tasks", Prefixes: []string{"schedule."}},
+			{Label: "external sends when policy allows", Prefixes: []string{"platform.dm.", "mail.", "google.gmail."}},
+		}
+	}
+	return []capabilityCategory{
+		{Label: "간단한 계산", Prefixes: []string{"math.calculate"}},
+		{Label: "대화 맥락과 기억 조회", Prefixes: []string{"conversation.", "memory."}},
+		{Label: "파일 작성과 첨부", Prefixes: []string{"file."}},
+		{Label: "터미널 기반 작업", Prefixes: []string{"terminal."}},
+		{Label: "브라우저 열기와 확인", Prefixes: []string{"browser", "browser_handoff."}},
+		{Label: "예약 작업", Prefixes: []string{"schedule."}},
+		{Label: "정책이 허용하는 외부 전송", Prefixes: []string{"platform.dm.", "mail.", "google.gmail."}},
+	}
+}
+
+func toolNamesContainPrefix(toolNames []string, prefixes []string) bool {
+	for _, toolName := range toolNames {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {
@@ -2139,6 +2232,15 @@ func failureReplyIsInvalid(reply string, attachments []FileAttachment) bool {
 		return true
 	}
 	if strings.Contains(reply, "configuration can be fixed") {
+		return true
+	}
+	if strings.Contains(reply, "예상치 못한 중단") {
+		return true
+	}
+	if strings.Contains(reply, "정보를 정리하여 답변") {
+		return true
+	}
+	if strings.Contains(reply, "창을 새로고침") {
 		return true
 	}
 	if ValidateFinalReplyDelivery(reply, attachments, true) != nil {
