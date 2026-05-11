@@ -404,10 +404,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 			Availability: capabilityToolAvailability(toolDescriptor, request),
 			Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
 				var response struct {
-					Content string          `json:"content"`
-					IsError bool            `json:"isError"`
-					Status  string          `json:"status"`
-					Result  json.RawMessage `json:"result"`
+					Content      string          `json:"content"`
+					IsError      bool            `json:"isError"`
+					Status       string          `json:"status"`
+					Message      string          `json:"message"`
+					ErrorCode    string          `json:"errorCode"`
+					FailureStage string          `json:"failureStage"`
+					Retryable    bool            `json:"retryable"`
+					SafeRetry    bool            `json:"safeRetry"`
+					Result       json.RawMessage `json:"result"`
 				}
 				policyResource := firstNonEmptyString(toolDescriptor.PolicyResource, "tool:"+toolName)
 				if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
@@ -426,7 +431,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 					content = string(response.Result)
 				}
 				isError := response.IsError || response.Status == "error" || response.Status == "denied"
-				return agent.ToolResult{Content: content, IsError: isError, Attachments: capabilityAttachments(response.Result), RecoveryActions: capabilityRecoveryActions(response.Result)}, nil
+				return agent.ToolResult{
+					Content:         content,
+					IsError:         isError,
+					Message:         firstNonEmptyString(response.Message, capabilityResultString(response.Result, "message"), content),
+					ErrorCode:       firstNonEmptyString(response.ErrorCode, capabilityResultString(response.Result, "errorCode")),
+					FailureStage:    firstNonEmptyString(response.FailureStage, capabilityResultString(response.Result, "failureStage")),
+					Retryable:       response.Retryable || capabilityResultBoolean(response.Result, "retryable"),
+					SafeRetry:       response.SafeRetry || capabilityResultBoolean(response.Result, "safeRetry"),
+					Attachments:     capabilityAttachments(response.Result),
+					RecoveryActions: capabilityRecoveryActions(response.Result),
+				}, nil
 			},
 		})
 	}
@@ -1083,6 +1098,33 @@ func capabilityRecoveryActions(result json.RawMessage) []agent.RecoveryAction {
 		return nil
 	}
 	return []agent.RecoveryAction{*document.Recovery}
+}
+
+func capabilityResultString(result json.RawMessage, fieldName string) string {
+	if len(result) == 0 {
+		return ""
+	}
+	var document map[string]any
+	if json.Unmarshal(result, &document) != nil {
+		return ""
+	}
+	value, isString := document[fieldName].(string)
+	if !isString {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func capabilityResultBoolean(result json.RawMessage, fieldName string) bool {
+	if len(result) == 0 {
+		return false
+	}
+	var document map[string]any
+	if json.Unmarshal(result, &document) != nil {
+		return false
+	}
+	value, isBoolean := document[fieldName].(bool)
+	return isBoolean && value
 }
 
 func mcpToolDescription(toolDefinition mcp.ToolDefinition) string {

@@ -909,6 +909,278 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
+		`{"action":"fail","reason":"recipient missing"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1})
+	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Content:      "recipient not found",
+			Message:      "approved active Mattermost recipient was not found",
+			IsError:      true,
+			ErrorCode:    "recipient_not_found",
+			FailureStage: "recipient_resolve",
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		RequesterName:     "이샘플",
+		ConversationID:    "conversation-1",
+		Prompt:            "정국에게 DM 보내줘",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected structured failure result: %v", errorValue)
+	}
+	if !strings.Contains(result.FinalReply, "recipient_resolve/recipient_not_found") {
+		t.Fatalf("expected structured failure in final reply, got %q", result.FinalReply)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "tool.platform.dm.send.result", "recipient_not_found") {
+		t.Fatal("expected structured tool failure event")
+	}
+	if !taskEventsContain(taskEvents, "agent.recovery_guidance", "recipient_not_found") {
+		t.Fatal("expected recovery guidance to preserve error code")
+	}
+}
+
+func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCode(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
+			`{"action":"fail","reason":"recipient missing"}`,
+		},
+		textResponses: []string{"요청을 처리하지 못했습니다."},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1})
+	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Content:      "recipient not found",
+			Message:      "approved active Mattermost recipient was not found",
+			IsError:      true,
+			ErrorCode:    "recipient_not_found",
+			FailureStage: "recipient_resolve",
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		RequesterName:     "이샘플",
+		ConversationID:    "conversation-1",
+		Prompt:            "정국에게 DM 보내줘",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected structured failure result: %v", errorValue)
+	}
+	if !strings.Contains(result.FinalReply, "recipient_resolve/recipient_not_found") {
+		t.Fatalf("expected dynamic structured failure reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "dynamic") {
+		t.Fatal("expected invalid generated reply to fall back to dynamic")
+	}
+}
+
+func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t *testing.T) {
+	generatedReply := "recipient_resolve/recipient_not_found 단계에서 수신자를 찾지 못했습니다."
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
+			`{"action":"fail","reason":"recipient missing"}`,
+		},
+		textResponses: []string{generatedReply},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1})
+	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Content:      "recipient not found",
+			Message:      "approved active Mattermost recipient was not found",
+			IsError:      true,
+			ErrorCode:    "recipient_not_found",
+			FailureStage: "recipient_resolve",
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		RequesterName:     "이샘플",
+		ConversationID:    "conversation-1",
+		Prompt:            "정국에게 DM 보내줘",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected structured failure result: %v", errorValue)
+	}
+	if result.FinalReply != generatedReply {
+		t.Fatalf("expected generated reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
+		t.Fatal("expected generated failure reply event")
+	}
+}
+
+func TestAgentTurnRunnerRetriesSafeFailureOnce(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"확인 부탁해"}}`,
+		finalReplyWithEvidence("sent", "obs-002", "platform.dm.send", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
+	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
+	callCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		callCount++
+		if callCount == 1 {
+			return ToolResult{
+				Content:      "temporary user lookup timeout",
+				Message:      "temporary user lookup timeout",
+				IsError:      true,
+				ErrorCode:    "mattermost_unavailable",
+				FailureStage: "mattermost_lookup",
+				Retryable:    true,
+				SafeRetry:    true,
+			}, nil
+		}
+		return ToolResult{Content: `{"dispatchID":"post-1"}`}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "send dm",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected retry recovery: %v", errorValue)
+	}
+	if callCount != 2 {
+		t.Fatalf("expected one automatic retry, got %d calls", callCount)
+	}
+	if result.FinalReply != "sent" {
+		t.Fatalf("expected final reply after retry, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recovery_attempt", "retrying") {
+		t.Fatal("expected recovery retry event")
+	}
+}
+
+func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
+	failure := turnObservation{
+		ObservationID: "obs-001",
+		Action:        "call_tool",
+		Tool:          "platform.dm.send",
+		Content:       "failed",
+		IsError:       true,
+		ErrorCode:     "send_failed",
+		FailureStage:  "message_send",
+	}
+	passiveGuidance := recoveryGuidanceObservation(2, failure)
+	spentGuidance := recoveryGuidanceObservation(3, failure)
+	spentGuidance.RecoveryAttemptSpent = true
+	retryObservation := failure
+	retryObservation.ObservationID = "obs-004"
+	retryObservation.RecoveryAttemptKey = "platform.dm.send\x00{}"
+	retryObservation.RecoveryAttemptSpent = true
+
+	if count := recoveryAttemptCount([]turnObservation{failure, passiveGuidance}); count != 0 {
+		t.Fatalf("expected passive guidance not to spend recovery budget, got %d", count)
+	}
+	if count := recoveryAttemptCount([]turnObservation{failure, passiveGuidance, spentGuidance, retryObservation}); count != 2 {
+		t.Fatalf("expected spent guidance and retry to consume budget, got %d", count)
+	}
+}
+
+func TestAgentTurnRunnerDoesNotRetrySafeFailureMoreThanOnce(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"fail","reason":"mattermost still unavailable"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
+	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
+	callCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		callCount++
+		return ToolResult{
+			Content:      "temporary user lookup timeout",
+			Message:      "temporary user lookup timeout",
+			IsError:      true,
+			ErrorCode:    "mattermost_unavailable",
+			FailureStage: "mattermost_lookup",
+			Retryable:    true,
+			SafeRetry:    true,
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		RequesterName:     "이샘플",
+		ConversationID:    "conversation-1",
+		Prompt:            "샘플에게 DM 보내줘",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected exhausted retry failure result: %v", errorValue)
+	}
+	if callCount != 2 {
+		t.Fatalf("expected initial call plus one automatic retry, got %d calls", callCount)
+	}
+	if !strings.Contains(result.FinalReply, "mattermost_lookup/mattermost_unavailable") {
+		t.Fatalf("expected final reply to report lookup failure, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.safe_retry_exhausted", "one safe retry") {
+		t.Fatal("expected safe retry exhaustion event")
+	}
+}
+
+func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"확인 부탁해"}}`,
+		`{"action":"fail","reason":"send failed"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2})
+	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
+	callCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		callCount++
+		return ToolResult{
+			Content:      "Mattermost returned 503 after post create",
+			Message:      "Mattermost returned 503 after post create",
+			IsError:      true,
+			ErrorCode:    "send_failed",
+			FailureStage: "message_send",
+			Retryable:    true,
+			SafeRetry:    false,
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		RequesterName:     "이샘플",
+		ConversationID:    "conversation-1",
+		Prompt:            "샘플에게 DM 보내줘",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected safe failure: %v", errorValue)
+	}
+	if callCount != 1 {
+		t.Fatalf("expected unsafe repeat to be rejected before second send, got %d calls", callCount)
+	}
+	if !strings.Contains(result.FinalReply, "message_send/send_failed") {
+		t.Fatalf("expected final reply to report send failure, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.unsafe_retry_rejected", "not safe to repeat") {
+		t.Fatal("expected unsafe retry rejection event")
+	}
+}
+
 func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
