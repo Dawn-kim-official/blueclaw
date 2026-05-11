@@ -347,7 +347,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	}
 }
 
-func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
+func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
@@ -372,8 +372,68 @@ func TestAgentKernelQuickReplyDoesNotExposeTools(t *testing.T) {
 	if result.FinalReply != "hello" {
 		t.Fatalf("expected final reply, got %q", result.FinalReply)
 	}
-	if strings.Contains(replyLanguageModel.requests[0].Messages[0].Content, "Available tools") {
-		t.Fatal("expected quick reply to hide tools")
+	if len(replyLanguageModel.requests) != 1 {
+		t.Fatalf("expected one direct reply request, got %d", len(replyLanguageModel.requests))
+	}
+	requestContent := joinedMessageContent(replyLanguageModel.requests[0].Messages)
+	if !strings.Contains(requestContent, "Available tools") {
+		t.Fatal("expected quick reply to expose tools")
+	}
+	if !strings.Contains(strings.Join(result.ToolNames, ","), "expensive") {
+		t.Fatalf("expected quick reply result to preserve tools, got %+v", result.ToolNames)
+	}
+}
+
+func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
+	}}
+	services := newKernelIntakeTestServices(failingLanguageModel{}, intakeLanguageModel)
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "1+1=",
+	})
+	if errorValue != nil {
+		t.Fatalf("expected direct reply failure result: %v", errorValue)
+	}
+	if strings.Contains(strings.ToLower(result.FinalReply), "calculation tool") || strings.Contains(strings.ToLower(result.FinalReply), "data processing") {
+		t.Fatalf("expected no invented tool failure, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "dynamic") {
+		t.Fatal("expected normal failure reply event")
+	}
+}
+
+func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"math.calculate","toolInput":{"expression":"1+1"}}`,
+		finalReplyWithEvidence("2", "obs-001", "math.calculate", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	toolRegistry := newTestToolSet([]string{"math.calculate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: `{"expression":"1+1","result":"2"}`}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "1+1=",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected quick calculator reply: %v", errorValue)
+	}
+	if result.FinalReply != "2" {
+		t.Fatalf("expected calculator final reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", "result") {
+		t.Fatal("expected calculator tool event")
 	}
 }
 
@@ -382,7 +442,9 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("deck created"),
+		finalReplyDocument("deck created too early"),
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
+		finalReplyWithEvidence("deck created", "obs-002", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -395,7 +457,10 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 				Prompt:       "Create and attach PPTX files.",
 				TriggerHints: []string{"피피티"},
 				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
-				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Completion: SkillCompletion{
+					RequiredEvidenceTools: []string{"file.attach"},
+				},
+				Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			}},
 		}
 	})
@@ -403,6 +468,15 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			if currentToolName == "file.attach" {
+				return ToolResult{
+					Content: "attached",
+					Attachments: []FileAttachment{{
+						DevicePath: "/workspace/deck.pptx",
+						Filename:   "deck.pptx",
+					}},
+				}, nil
+			}
 			return ToolResult{Content: "ok"}, nil
 		})
 	}
@@ -416,7 +490,7 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 	if errorValue != nil {
 		t.Fatalf("expected promoted bounded task: %v", errorValue)
 	}
-	if result.FinalReply != "deck created" {
+	if !strings.Contains(result.FinalReply, "deck.pptx") {
 		t.Fatalf("expected final reply, got %q", result.FinalReply)
 	}
 	requestContent := joinedMessageContent(replyLanguageModel.requests[0].Messages)

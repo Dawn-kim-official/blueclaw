@@ -223,7 +223,7 @@ func qualityReviewSchema() map[string]any {
 }
 
 func fallbackActionSchema() string {
-	return `{"type":"object","properties":{"action":{"type":"string","enum":["final_reply","set_quality_criteria","call_tool","fail"]},"finalReply":{"type":"string"},"toolName":{"type":"string"},"toolInput":{"type":"object"},"reason":{"type":"string"},"reply":{"type":"string"},"goalStatus":{"type":"string"},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityCriteria":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action"],"additionalProperties":false}`
+	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["final_reply"]},"finalReply":{"type":"string"},"reply":{"type":"string"},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason"],"additionalProperties":false}]}`
 }
 
 func finalizerActionSchema() string {

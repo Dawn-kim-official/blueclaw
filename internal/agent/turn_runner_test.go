@@ -143,6 +143,27 @@ func TestAgentTurnRunnerUsesDynamicReplyWhenAllModelCallsFail(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerUsesResponseLanguageForDynamicFailureReply(t *testing.T) {
+	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("model unavailable")}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "What can you do?",
+		ResponseLanguage:  ResponseLanguageEnglish,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected dynamic failure reply: %v", errorValue)
+	}
+	if !strings.Contains(result.FinalReply, "could not finish") && !strings.Contains(result.FinalReply, "model call") {
+		t.Fatalf("expected English failure reply, got %q", result.FinalReply)
+	}
+	if strings.Contains(result.FinalReply, "요청") || strings.Contains(result.FinalReply, "못했") {
+		t.Fatalf("expected no Korean fallback when response language is English, got %q", result.FinalReply)
+	}
+}
+
 func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
@@ -290,8 +311,8 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	if result.FinalReply != "recovered" {
 		t.Fatalf("expected recovered reply, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.forbidden.result", "not allowed") {
-		t.Fatal("expected denied tool event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.invalid_tool_requested", "forbidden") {
+		t.Fatal("expected invalid tool event")
 	}
 }
 
@@ -408,6 +429,9 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.attach") {
 		t.Fatal("expected completion required event for selected skill evidence")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.evidence_missing", "evidence_missing") {
+		t.Fatal("expected structured evidence missing event")
 	}
 }
 
@@ -1181,6 +1205,38 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"calculation_tool","toolInput":{"expression":"1+1"}}`,
+		finalReplyDocument("I can answer without that unavailable tool."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := newTestToolSet([]string{"math.calculate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		t.Fatal("unexpected math.calculate invocation")
+		return ToolResult{}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "1+1=",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to recover from unavailable tool: %v", errorValue)
+	}
+	if result.FinalReply != "I can answer without that unavailable tool." {
+		t.Fatalf("expected final reply after unavailable tool observation, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.invalid_tool_requested", "calculation_tool") {
+		t.Fatal("expected invalid tool event")
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.requested", "") {
+		t.Fatal("unexpected unavailable tool request event")
+	}
+}
+
 func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
@@ -1448,7 +1504,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusBlocked {
 		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
 	}
-	if !strings.Contains(result.FinalReply, "could not finish") && !strings.Contains(result.FinalReply, "try again") {
+	if !strings.Contains(result.FinalReply, "could not finish") && !strings.Contains(result.FinalReply, "try again") && !strings.Contains(result.FinalReply, "마치지 못했") {
 		t.Fatalf("expected natural dynamic limit reply, got %q", result.FinalReply)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "dynamic") {

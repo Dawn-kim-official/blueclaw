@@ -52,6 +52,13 @@ func TestToolSetDescriptionsAndActionSchemaShareExposedTools(t *testing.T) {
 	}
 }
 
+func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
+	actionSchema := buildActionSchemaFromToolDefinitions(nil, false, nil)
+	if strings.Contains(actionSchema, "call_tool") {
+		t.Fatalf("expected fallback schema to omit call_tool, got %s", actionSchema)
+	}
+}
+
 func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {

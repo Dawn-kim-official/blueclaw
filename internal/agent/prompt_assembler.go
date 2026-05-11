@@ -80,6 +80,7 @@ func buildRuntimeContextDescription(request AgentTurnRequest) string {
 	localTime := request.TurnStartedAt.In(defaultTurnLocation())
 	lines := []string{
 		"Runtime context:",
+		"Response language: " + ResolveResponseLanguage(request.ResponseLanguage),
 		"Current turn datetime: " + localTime.Format(time.RFC3339),
 		"Current turn date: " + localTime.Format("2006-01-02"),
 		"Default calendar timezone: " + defaultTurnLocation().String(),
