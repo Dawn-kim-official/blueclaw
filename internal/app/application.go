@@ -223,6 +223,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskLauncher:    taskLauncher,
 			IdentityService: identityService,
 			WorkspaceID:     runtimeConfiguration.Memory.WorkspaceID,
+			TaskRunService:  taskRunService,
 		},
 		BackupHandler: adminapi.BackupHandler{
 			Coordinator: backupCoordinator,

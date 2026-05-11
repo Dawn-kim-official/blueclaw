@@ -235,7 +235,7 @@ func TestTaskSchedulePollerLogsRunFailures(t *testing.T) {
 	}
 }
 
-func TestTaskSchedulePollerEnqueuesWaitingTaskReply(t *testing.T) {
+func TestTaskSchedulePollerDoesNotDeliverWaitingTaskReply(t *testing.T) {
 	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{waitingTaskSchedule(time.Now().UTC())}}
 	deliveryRepository := &pollerDeliveryRepository{}
 	poller := TaskSchedulePoller{
@@ -250,11 +250,61 @@ func TestTaskSchedulePollerEnqueuesWaitingTaskReply(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if len(deliveryRepository.replies) != 1 || !strings.Contains(deliveryRepository.replies[0].Message, "확인이 필요해요") {
-		t.Fatalf("expected waiting task reply, got %+v", deliveryRepository.replies)
+	if len(deliveryRepository.replies) != 0 {
+		t.Fatalf("expected no waiting task reply, got %+v", deliveryRepository.replies)
 	}
-	if repository.succeeded == nil {
-		t.Fatal("expected waiting scheduled task to advance after notifying the user")
+	if repository.succeeded != nil {
+		t.Fatalf("expected waiting scheduled task not to advance, got %+v", repository.succeeded)
+	}
+	if len(repository.failed) != 1 || !strings.Contains(repository.failed[0], "waiting_approval") {
+		t.Fatalf("expected waiting task failure to be recorded, got %+v", repository.failed)
+	}
+}
+
+func TestTaskSchedulePollerDoesNotDeliverFailedTaskReply(t *testing.T) {
+	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{waitingTaskSchedule(time.Now().UTC())}}
+	deliveryRepository := &pollerDeliveryRepository{}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		DeliveryRepository:     deliveryRepository,
+		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"fail","reason":"calendar unavailable"}`),
+		PersonAccessResolver:   staticPersonAccessResolver{},
+	}
+
+	_, errorValue := poller.RunDue(context.Background(), *repository.taskSchedules[0].NextRunAt, 1)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(deliveryRepository.replies) != 0 {
+		t.Fatalf("expected no failed task reply, got %+v", deliveryRepository.replies)
+	}
+	if len(repository.failed) != 1 || !strings.Contains(repository.failed[0], "failed") {
+		t.Fatalf("expected failed task status to be recorded, got %+v", repository.failed)
+	}
+}
+
+func TestTaskSchedulePollerCancelsStaleScheduledTaskRuns(t *testing.T) {
+	referenceTime := time.Now().UTC().Add(time.Hour)
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "schedule:schedule-1", "stale schedule")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: &pollerScheduleRepository{},
+		TaskRunService:         taskRunService,
+		StaleTaskRunTimeout:    time.Minute,
+	}
+
+	_, errorValue := poller.RunDue(context.Background(), referenceTime, 1)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	cancelledTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected stale scheduled task run to be cancelled, got found=%v run=%+v", isFound, cancelledTaskRun)
 	}
 }
 

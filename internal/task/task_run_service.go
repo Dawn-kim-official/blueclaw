@@ -2,6 +2,7 @@ package task
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,6 +19,16 @@ type TaskRunService struct {
 	taskRuns         map[string]TaskRun
 	taskEventService *TaskEventService
 	repository       TaskRunRepository
+}
+
+type TaskRunCancelRequest struct {
+	TaskRunIDs                 []string
+	RequesterPersonID          string
+	OriginConversationIDs      []string
+	OriginConversationIDPrefix string
+	ScheduleOnly               bool
+	StaleBefore                *time.Time
+	Reason                     string
 }
 
 func NewTaskRunService(taskEventService *TaskEventService) *TaskRunService {
@@ -100,26 +111,7 @@ func (taskRunService *TaskRunService) ResumeTaskRun(taskRunID string) (TaskRun, 
 }
 
 func (taskRunService *TaskRunService) CancelTaskRun(taskRunID string, requesterPersonID string) (TaskRun, error) {
-	taskRunService.mutex.Lock()
-	defer taskRunService.mutex.Unlock()
-
-	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
-	if !isFound {
-		return TaskRun{}, errors.New("task run not found")
-	}
-	if taskRun.RequesterPersonID != requesterPersonID {
-		return TaskRun{}, errors.New("task run access denied")
-	}
-	if taskRun.Status == TaskStatusCompleted || taskRun.Status == TaskStatusCancelled {
-		return TaskRun{}, errors.New("task run cannot be cancelled")
-	}
-
-	taskRun.Status = TaskStatusCancelled
-	taskRun.UpdatedAt = time.Now()
-	taskRunService.taskRuns[taskRunID] = taskRun
-	_ = taskRunService.saveTaskRun(taskRun)
-	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.cancelled", requesterPersonID)
-	return taskRun, nil
+	return taskRunService.cancelTaskRun(taskRunID, requesterPersonID, requesterPersonID)
 }
 
 func (taskRunService *TaskRunService) CancelWaitingTaskRuns(requesterPersonID string, originConversationID string, reason string) []TaskRun {
@@ -131,7 +123,7 @@ func (taskRunService *TaskRunService) CancelWaitingTaskRuns(requesterPersonID st
 		if originConversationID != "" && taskRun.OriginConversationID != originConversationID {
 			continue
 		}
-		cancelledTaskRun, errorValue := taskRunService.CancelTaskRun(taskRun.TaskRunID, requesterPersonID)
+		cancelledTaskRun, errorValue := taskRunService.cancelTaskRun(taskRun.TaskRunID, requesterPersonID, reason)
 		if errorValue != nil {
 			continue
 		}
@@ -141,8 +133,94 @@ func (taskRunService *TaskRunService) CancelWaitingTaskRuns(requesterPersonID st
 	return cancelledTaskRuns
 }
 
+func (taskRunService *TaskRunService) CancelActiveTaskRuns(request TaskRunCancelRequest) []TaskRun {
+	cancelledTaskRuns := []TaskRun{}
+	for _, taskRun := range taskRunService.taskRunsForCancelRequest(request) {
+		if !taskRunMatchesCancelRequest(taskRun, request) {
+			continue
+		}
+		cancelledTaskRun, errorValue := taskRunService.cancelTaskRun(taskRun.TaskRunID, request.RequesterPersonID, request.Reason)
+		if errorValue != nil {
+			continue
+		}
+		cancelledTaskRuns = append(cancelledTaskRuns, cancelledTaskRun)
+	}
+	return cancelledTaskRuns
+}
+
+func (taskRunService *TaskRunService) taskRunsForCancelRequest(request TaskRunCancelRequest) []TaskRun {
+	if len(request.TaskRunIDs) > 0 {
+		taskRuns := []TaskRun{}
+		for _, taskRunID := range trimUniqueTaskRunIDs(request.TaskRunIDs) {
+			taskRun, isFound := taskRunService.FindTaskRun(taskRunID)
+			if isFound {
+				taskRuns = append(taskRuns, taskRun)
+			}
+		}
+		return taskRuns
+	}
+	if strings.TrimSpace(request.RequesterPersonID) != "" {
+		return taskRunService.ListTaskRunByPersonID(request.RequesterPersonID)
+	}
+	return taskRunService.ListTaskRun()
+}
+
+func taskRunMatchesCancelRequest(taskRun TaskRun, request TaskRunCancelRequest) bool {
+	if !taskRunIsActive(taskRun) {
+		return false
+	}
+	if requesterPersonID := strings.TrimSpace(request.RequesterPersonID); requesterPersonID != "" && taskRun.RequesterPersonID != requesterPersonID {
+		return false
+	}
+	if request.ScheduleOnly && !strings.HasPrefix(taskRun.OriginConversationID, "schedule:") {
+		return false
+	}
+	if originConversationIDPrefix := strings.TrimSpace(request.OriginConversationIDPrefix); originConversationIDPrefix != "" && !strings.HasPrefix(taskRun.OriginConversationID, originConversationIDPrefix) {
+		return false
+	}
+	if len(request.OriginConversationIDs) > 0 && !containsTrimmedString(request.OriginConversationIDs, taskRun.OriginConversationID) {
+		return false
+	}
+	if request.StaleBefore != nil && !taskRun.UpdatedAt.Before(*request.StaleBefore) {
+		return false
+	}
+	return true
+}
+
+func taskRunIsActive(taskRun TaskRun) bool {
+	switch taskRun.Status {
+	case TaskStatusPlanned, TaskStatusRunning, TaskStatusWaitingApproval, TaskStatusWaitingUserInput, TaskStatusBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
 func taskRunIsWaiting(taskRun TaskRun) bool {
 	return taskRun.Status == TaskStatusWaitingApproval || taskRun.Status == TaskStatusWaitingUserInput
+}
+
+func trimUniqueTaskRunIDs(taskRunIDs []string) []string {
+	seenTaskRunIDs := map[string]bool{}
+	trimmedTaskRunIDs := []string{}
+	for _, taskRunID := range taskRunIDs {
+		trimmedTaskRunID := strings.TrimSpace(taskRunID)
+		if trimmedTaskRunID == "" || seenTaskRunIDs[trimmedTaskRunID] {
+			continue
+		}
+		seenTaskRunIDs[trimmedTaskRunID] = true
+		trimmedTaskRunIDs = append(trimmedTaskRunIDs, trimmedTaskRunID)
+	}
+	return trimmedTaskRunIDs
+}
+
+func containsTrimmedString(values []string, expectedValue string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == expectedValue {
+			return true
+		}
+	}
+	return false
 }
 
 func (taskRunService *TaskRunService) CompleteTaskRun(taskRunID string, result string) (TaskRun, error) {
@@ -216,6 +294,40 @@ func (taskRunService *TaskRunService) saveTaskRun(taskRun TaskRun) error {
 		return nil
 	}
 	return taskRunService.repository.SaveTaskRun(taskRun)
+}
+
+func (taskRunService *TaskRunService) cancelTaskRun(taskRunID string, requesterPersonID string, reason string) (TaskRun, error) {
+	taskRunService.mutex.Lock()
+	defer taskRunService.mutex.Unlock()
+
+	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
+	if !isFound {
+		return TaskRun{}, errors.New("task run not found")
+	}
+	if requesterPersonID != "" && taskRun.RequesterPersonID != requesterPersonID {
+		return TaskRun{}, errors.New("task run access denied")
+	}
+	if !taskRunIsActive(taskRun) {
+		return TaskRun{}, errors.New("task run cannot be cancelled")
+	}
+
+	taskRun.Status = TaskStatusCancelled
+	taskRun.FailureReason = strings.TrimSpace(reason)
+	taskRun.UpdatedAt = time.Now()
+	taskRunService.taskRuns[taskRunID] = taskRun
+	_ = taskRunService.saveTaskRun(taskRun)
+	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.cancelled", firstNonEmptyTaskRunString(reason, requesterPersonID))
+	return taskRun, nil
+}
+
+func firstNonEmptyTaskRunString(values ...string) string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
 }
 
 func (taskRunService *TaskRunService) findTaskRunForMutation(taskRunID string) (TaskRun, bool) {

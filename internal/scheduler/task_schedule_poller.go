@@ -15,6 +15,7 @@ import (
 )
 
 const taskScheduleLeaseDuration = 15 * time.Minute
+const defaultStaleScheduledTaskRunTimeout = 30 * time.Minute
 
 type TaskScheduleDeliveryRepository interface {
 	EnqueueScheduledConnectorReply(task.TaskSchedule, string, connectors.OutboundReply) (string, error)
@@ -33,6 +34,7 @@ type TaskSchedulePoller struct {
 	WorkspaceID            string
 	WorkerID               string
 	Logger                 *slog.Logger
+	StaleTaskRunTimeout    time.Duration
 }
 
 type taskScheduleExecutionResult struct {
@@ -67,6 +69,7 @@ func (taskSchedulePoller TaskSchedulePoller) RunDue(ctx context.Context, referen
 	if taskSchedulePoller.TaskScheduleRepository == nil {
 		return 0, errors.New("task schedule repository is unavailable")
 	}
+	taskSchedulePoller.cancelStaleScheduledTaskRuns(referenceTime)
 	taskSchedules, errorValue := taskSchedulePoller.TaskScheduleRepository.ClaimDueTaskSchedules(limit, taskScheduleLeaseDuration, referenceTime, taskSchedulePoller.workerID())
 	if errorValue != nil {
 		return 0, errorValue
@@ -195,13 +198,7 @@ func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.O
 	turnResult := result.LaunchResult.TurnResult
 	reply := strings.TrimSpace(turnResult.FinalReply)
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
-		if reply == "" {
-			reply = strings.TrimSpace(turnResult.TaskRun.FailureReason)
-		}
-		if reply == "" {
-			reply = agent.BuildIncompleteTaskRecoveryReply(result.TaskSchedule.Prompt, "task_not_completed")
-		}
-		return connectors.OutboundReply{Message: reply, Attachments: turnResult.Attachments}, nil
+		return connectors.OutboundReply{}, errors.New("scheduled task did not complete: taskRunID=" + turnResult.TaskRun.TaskRunID + " status=" + string(turnResult.TaskRun.Status))
 	}
 	if reply == "" {
 		return connectors.OutboundReply{}, errors.New("scheduled task completed without a reply")
@@ -213,6 +210,32 @@ func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.O
 		return connectors.OutboundReply{}, errors.New("scheduled task reply claims attachments without evidence")
 	}
 	return connectors.OutboundReply{Message: reply, Attachments: turnResult.Attachments}, nil
+}
+
+func (taskSchedulePoller TaskSchedulePoller) cancelStaleScheduledTaskRuns(referenceTime time.Time) {
+	if taskSchedulePoller.TaskRunService == nil {
+		return
+	}
+	if referenceTime.IsZero() {
+		referenceTime = time.Now().UTC()
+	}
+	staleBefore := referenceTime.Add(-taskSchedulePoller.staleTaskRunTimeout())
+	cancelledTaskRuns := taskSchedulePoller.TaskRunService.CancelActiveTaskRuns(task.TaskRunCancelRequest{
+		OriginConversationIDPrefix: "schedule:",
+		ScheduleOnly:               true,
+		StaleBefore:                &staleBefore,
+		Reason:                     "scheduled task stale timeout",
+	})
+	if len(cancelledTaskRuns) > 0 {
+		taskSchedulePoller.logger().Warn("task_schedule.stale_runs_cancelled", "count", len(cancelledTaskRuns))
+	}
+}
+
+func (taskSchedulePoller TaskSchedulePoller) staleTaskRunTimeout() time.Duration {
+	if taskSchedulePoller.StaleTaskRunTimeout > 0 {
+		return taskSchedulePoller.StaleTaskRunTimeout
+	}
+	return defaultStaleScheduledTaskRunTimeout
 }
 
 func validateTaskScheduleDeliveryTarget(taskSchedule task.TaskSchedule) error {

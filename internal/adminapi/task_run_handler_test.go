@@ -47,6 +47,30 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 	}
 }
 
+func TestTaskRunHandlerCancelsActiveTaskRun(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "schedule:schedule-1", "stale schedule")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	handler := TaskRunHandler{TaskRunService: taskRunService}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/cancel", strings.NewReader(`{"taskRunIDs":["`+taskRun.TaskRunID+`"],"reason":"cleanup"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleCancelTaskRun(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	cancelledTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected cancelled task run, got found=%v run=%+v", isFound, cancelledTaskRun)
+	}
+	if !strings.Contains(responseRecorder.Body.String(), `"cancelledTaskRunCount":1`) {
+		t.Fatalf("expected cancel count in response, got %s", responseRecorder.Body.String())
+	}
+}
+
 type staticAdminLanguageModel struct {
 	content string
 }

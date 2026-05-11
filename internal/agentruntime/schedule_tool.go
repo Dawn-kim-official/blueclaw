@@ -120,9 +120,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext con
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
+	cancelledTaskRunCount := toolCatalogBuilder.cancelScheduledTaskRuns(cancelRequest, result)
 	cancelledWaitCount := toolCatalogBuilder.cancelPendingWaits(cancelRequest, cancelledAt)
 	response := map[string]any{
 		"cancelledScheduleCount": len(result.TaskSchedules),
+		"cancelledTaskRunCount":  cancelledTaskRunCount,
 		"cancelledWaitCount":     cancelledWaitCount,
 		"taskSchedules":          result.TaskSchedules,
 	}
@@ -130,6 +132,23 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext con
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.cancelled", marshalToolResult(response))
 	}
 	return agent.ToolResult{Content: marshalToolResult(response)}, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduledTaskRuns(cancelRequest task.TaskScheduleCancelRequest, result task.TaskScheduleCancelResult) int {
+	if toolCatalogBuilder.taskRunService == nil {
+		return 0
+	}
+	taskRunCancelRequest := task.TaskRunCancelRequest{
+		RequesterPersonID: strings.TrimSpace(cancelRequest.RequesterPersonID),
+		ScheduleOnly:      true,
+		Reason:            "schedule.cancel",
+	}
+	if cancelRequest.Scope == task.TaskScheduleCancelScopeMine {
+		taskRunCancelRequest.OriginConversationIDPrefix = "schedule:"
+	} else {
+		taskRunCancelRequest.OriginConversationIDs = scheduleOriginConversationIDs(result.TaskSchedules)
+	}
+	return len(toolCatalogBuilder.taskRunService.CancelActiveTaskRuns(taskRunCancelRequest))
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) cancelPendingWaits(cancelRequest task.TaskScheduleCancelRequest, cancelledAt time.Time) int {
@@ -145,6 +164,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelPendingWaits(cancelRequest t
 	}
 	cancelledTaskRuns := toolCatalogBuilder.taskRunService.CancelWaitingTaskRuns(cancelRequest.RequesterPersonID, originConversationID, "schedule.cancel")
 	return len(cancelledTaskRuns)
+}
+
+func scheduleOriginConversationIDs(taskSchedules []task.TaskSchedule) []string {
+	originConversationIDs := []string{}
+	for _, taskSchedule := range taskSchedules {
+		if strings.TrimSpace(taskSchedule.TaskScheduleID) == "" {
+			continue
+		}
+		originConversationIDs = append(originConversationIDs, "schedule:"+taskSchedule.TaskScheduleID)
+	}
+	return originConversationIDs
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCreateToolInput, handlerContext toolHandlerContext) (task.TaskSchedule, error) {

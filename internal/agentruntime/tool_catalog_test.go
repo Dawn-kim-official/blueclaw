@@ -351,6 +351,55 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 	}
 }
 
+func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
+	runAt := time.Now().UTC().Add(time.Hour)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:  "schedule-1",
+		CreatorPersonID: "person-1",
+		Prompt:          "테스트",
+		Platform:        "mattermost",
+		ConversationID:  "channel-1",
+		ReplyTargetID:   "reply-target-1",
+		TimeZone:        "Asia/Seoul",
+		Kind:            task.TaskScheduleKindOnce,
+		RunAt:           &runAt,
+		NextRunAt:       &runAt,
+		ExpiresAt:       runAt.Add(time.Hour),
+	}}}
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "schedule:schedule-1", "테스트")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.cancel",
+		Input:    agent.MarshalToolInput(map[string]any{"scope": "mine"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected schedule.cancel success, got %s", result.Content)
+	}
+	cancelledTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected scheduled task run to be cancelled, got found=%v run=%+v", isFound, cancelledTaskRun)
+	}
+}
+
 func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
