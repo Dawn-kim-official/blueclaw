@@ -42,6 +42,11 @@ type RecoveryAction struct {
 type ToolResult struct {
 	Content         string           `json:"content"`
 	IsError         bool             `json:"isError"`
+	Message         string           `json:"message,omitempty"`
+	ErrorCode       string           `json:"errorCode,omitempty"`
+	FailureStage    string           `json:"failureStage,omitempty"`
+	Retryable       bool             `json:"retryable,omitempty"`
+	SafeRetry       bool             `json:"safeRetry,omitempty"`
 	Attachments     []FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions []RecoveryAction `json:"recoveryActions,omitempty"`
 }

@@ -220,13 +220,19 @@ func applyAgentAction(state agentTaskState, action agentAction) (agentTaskState,
 }
 
 func applyToolResult(state agentTaskState, invocation ToolInvocation, result ToolResult) agentTaskState {
+	result = normalizeToolFailureResult(invocation.ToolName, result)
 	observation := turnObservation{
 		ObservationID:   nextObservationID(len(state.Observations) + 1),
 		Action:          "call_tool",
 		Tool:            strings.TrimSpace(invocation.ToolName),
 		Content:         result.Content,
-		Summary:         buildToolResultSummary(invocation.ToolName, result.Content, result.IsError, result.Attachments, ""),
+		Summary:         buildToolResultSummary(invocation.ToolName, result.Content, result.IsError, result.Attachments, "", result),
 		IsError:         result.IsError,
+		Message:         result.Message,
+		ErrorCode:       result.ErrorCode,
+		FailureStage:    result.FailureStage,
+		Retryable:       result.Retryable,
+		SafeRetry:       result.SafeRetry,
 		RecoveryActions: append([]RecoveryAction{}, result.RecoveryActions...),
 	}
 	if !result.IsError {

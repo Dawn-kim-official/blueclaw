@@ -143,6 +143,11 @@ func summarizeObservationContent(observation turnObservation) string {
 	if strings.TrimSpace(observation.Summary) != "" {
 		return truncateText(compactWhitespace(observation.Summary), maxSummaryTextLength)
 	}
+	if observation.IsError {
+		if summary := summarizeStructuredFailure(observation); summary != "" {
+			return summary
+		}
+	}
 	switch strings.TrimSpace(observation.Tool) {
 	case "browser.snapshot", "browser.observe":
 		return summarizeBrowserSnapshot(observation.Content)
@@ -172,6 +177,26 @@ func summarizeObservationContent(observation turnObservation) string {
 		}
 		return summarizeSafeJSONFields(observation.Content, []string{"ok", "status", "message", "error", "url", "title", "filename", "sizeBytes", "contentType"})
 	}
+}
+
+func summarizeStructuredFailure(observation turnObservation) string {
+	parts := []string{}
+	if strings.TrimSpace(observation.ErrorCode) != "" {
+		parts = append(parts, "errorCode="+strings.TrimSpace(observation.ErrorCode))
+	}
+	if strings.TrimSpace(observation.FailureStage) != "" {
+		parts = append(parts, "failureStage="+strings.TrimSpace(observation.FailureStage))
+	}
+	if strings.TrimSpace(observation.Message) != "" {
+		parts = append(parts, "message="+truncateText(compactWhitespace(observation.Message), 240))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if strings.TrimSpace(observation.Message) == "" {
+		parts = append(parts, "message="+truncateText(compactWhitespace(redactUnsafeText(observation.Content)), 240))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func summarizeBrowserSnapshot(content string) string {
