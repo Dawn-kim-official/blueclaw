@@ -150,7 +150,7 @@ func TestAgentTurnRunnerUsesResponseLanguageForDynamicFailureReply(t *testing.T)
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "What can you do?",
+		Prompt:            "Summarize the current thread.",
 		ResponseLanguage:  ResponseLanguageEnglish,
 	})
 	if errorValue != nil {
@@ -161,6 +161,42 @@ func TestAgentTurnRunnerUsesResponseLanguageForDynamicFailureReply(t *testing.T)
 	}
 	if strings.Contains(result.FinalReply, "요청") || strings.Contains(result.FinalReply, "못했") {
 		t.Fatalf("expected no Korean fallback when response language is English, got %q", result.FinalReply)
+	}
+}
+
+func TestAgentTurnRunnerAnswersCapabilityQuestionWhenActionModelFails(t *testing.T) {
+	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("structured action unavailable")}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"math.calculate", "file.write", "schedule.create"})
+	for _, toolName := range toolRegistry.ListToolNames() {
+		currentToolName := toolName
+		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolResult{Content: "unused"}, nil
+		})
+	}
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:    "person-1",
+		RequesterCallingName: "동하",
+		ConversationID:       "conversation-1",
+		Prompt:               "너 뭐 할줄 알아? 짧게 설명해봐",
+		ResponseLanguage:     ResponseLanguageKorean,
+		ToolSet:              toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected capability fallback reply: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed capability reply, got %s", result.TaskRun.Status)
+	}
+	if !strings.Contains(result.FinalReply, "간단한 계산") || !strings.Contains(result.FinalReply, "파일 작성") {
+		t.Fatalf("expected useful capability summary, got %q", result.FinalReply)
+	}
+	if strings.Contains(result.FinalReply, "예상치 못한 중단") || strings.Contains(result.FinalReply, "다시 입력") {
+		t.Fatalf("expected no generic interruption message, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "math.calculate") {
+		t.Fatal("expected capability fallback event")
 	}
 }
 
