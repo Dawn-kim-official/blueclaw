@@ -221,6 +221,7 @@ func applyAgentAction(state agentTaskState, action agentAction) (agentTaskState,
 
 func applyToolResult(state agentTaskState, invocation ToolInvocation, result ToolResult) agentTaskState {
 	result = normalizeToolFailureResult(invocation.ToolName, result)
+	toolInputKey := canonicalToolCallKey(invocation.ToolName, invocation.Input)
 	observation := turnObservation{
 		ObservationID:   nextObservationID(len(state.Observations) + 1),
 		Action:          "call_tool",
@@ -233,7 +234,11 @@ func applyToolResult(state agentTaskState, invocation ToolInvocation, result Too
 		FailureStage:    result.FailureStage,
 		Retryable:       result.Retryable,
 		SafeRetry:       result.SafeRetry,
+		ToolInputKey:    toolInputKey,
 		RecoveryActions: append([]RecoveryAction{}, result.RecoveryActions...),
+	}
+	if observation.IsError {
+		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.ErrorCode)
 	}
 	if !result.IsError {
 		observation.Attachments = append([]FileAttachment{}, result.Attachments...)

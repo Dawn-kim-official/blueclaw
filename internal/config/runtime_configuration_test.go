@@ -71,7 +71,17 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
       "executionMode": "auto"
     },
     "defaultEffortLevel": "standard",
-    "toolResultMaxBytes": 32768
+    "toolResultMaxBytes": 32768,
+    "failureRecovery": {
+      "failureDebtFinalizationGate": true,
+      "attemptFingerprint": "tool_input_error_code",
+      "recoveryBudget": {
+        "correctedRetry": 1,
+        "alternateRoute": 1,
+        "adjacentTool": 2,
+        "noToolFallback": 1
+      }
+    }
   },
   "agentProfiles": [
     {
@@ -201,6 +211,15 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Agent.ToolResultMaxBytes != 32768 {
 		t.Fatalf("expected agent tool result limit to match, got %d", runtimeConfiguration.Agent.ToolResultMaxBytes)
+	}
+	if !runtimeConfiguration.Agent.FailureRecovery.FailureDebtFinalizationGate {
+		t.Fatal("expected agent failure debt finalization gate to load")
+	}
+	if runtimeConfiguration.Agent.FailureRecovery.AttemptFingerprint != "tool_input_error_code" {
+		t.Fatalf("expected attempt fingerprint mode to match, got %q", runtimeConfiguration.Agent.FailureRecovery.AttemptFingerprint)
+	}
+	if runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.CorrectedRetry != 1 || runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AdjacentTool != 2 {
+		t.Fatalf("expected recovery budget to load, got %+v", runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget)
 	}
 	if len(runtimeConfiguration.AgentProfiles) != 1 || runtimeConfiguration.AgentProfiles[0].AllowedToolNames[2] != "echo" {
 		t.Fatalf("expected agent profile tool allowlist to load, got %+v", runtimeConfiguration.AgentProfiles)

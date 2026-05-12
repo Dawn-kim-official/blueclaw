@@ -18,6 +18,8 @@ type TurnProgress struct {
 	LastSuccessfulObservationID   string                `json:"lastSuccessfulObservationID,omitempty"`
 	LastSuccessfulObservationTool string                `json:"lastSuccessfulObservationTool,omitempty"`
 	AttachmentCandidates          []ProgressAttachment  `json:"attachmentCandidates,omitempty"`
+	FailureDebt                   *ProgressFailureDebt  `json:"failureDebt,omitempty"`
+	AttemptLedger                 []attemptLedgerEntry  `json:"attemptLedger,omitempty"`
 	CompletionState               *CompletionState      `json:"completionState,omitempty"`
 	ValidityState                 *ValidityState        `json:"validityState,omitempty"`
 	RemainingWork                 string                `json:"remainingWork"`
@@ -25,12 +27,24 @@ type TurnProgress struct {
 }
 
 type ProgressObservation struct {
-	ObservationID  string               `json:"observationID"`
-	ToolName       string               `json:"toolName,omitempty"`
-	Status         string               `json:"status"`
-	ShortSummary   string               `json:"shortSummary"`
-	AttachmentRefs []ProgressAttachment `json:"attachmentRefs,omitempty"`
-	RepeatCount    int                  `json:"repeatCount,omitempty"`
+	ObservationID      string               `json:"observationID"`
+	ToolName           string               `json:"toolName,omitempty"`
+	Status             string               `json:"status"`
+	ShortSummary       string               `json:"shortSummary"`
+	AttachmentRefs     []ProgressAttachment `json:"attachmentRefs,omitempty"`
+	AttemptFingerprint string               `json:"attemptFingerprint,omitempty"`
+	RecoveryStep       string               `json:"recoveryStep,omitempty"`
+	RepeatCount        int                  `json:"repeatCount,omitempty"`
+}
+
+type ProgressFailureDebt struct {
+	ObservationID           string         `json:"observationID"`
+	ToolName                string         `json:"toolName"`
+	FailureStage            string         `json:"failureStage,omitempty"`
+	ErrorCode               string         `json:"errorCode,omitempty"`
+	AttemptFingerprint      string         `json:"attemptFingerprint,omitempty"`
+	RemainingRecoveryBudget RecoveryBudget `json:"remainingRecoveryBudget"`
+	AllowedFinalResolutions []string       `json:"allowedFinalResolutions"`
 }
 
 type ProgressAttachment struct {
@@ -58,9 +72,13 @@ func buildTurnProgress(request AgentTurnRequest, observations []turnObservation)
 			progress.FailedOrBlockedSteps = append(progress.FailedOrBlockedSteps, observation)
 		}
 	}
+	progress.AttemptLedger = attemptLedger(observations)
 	progress.OmittedObservationCount = omittedObservationCount(progress)
 	progress.CompletedSteps = keepLatestProgressObservations(progress.CompletedSteps)
 	progress.FailedOrBlockedSteps = keepLatestProgressObservations(progress.FailedOrBlockedSteps)
+	if failureDebt, hasFailureDebt := activeFailureDebt(observations); hasFailureDebt {
+		progress.FailureDebt = buildProgressFailureDebt(failureDebt, observations)
+	}
 	if len(observations) > 0 && progress.LastSuccessfulObservationID == "" {
 		progress.RemainingWork = "Resolve the latest failed or blocked step, or return a truthful failure if the goal cannot be completed."
 	}
@@ -131,12 +149,44 @@ func summarizeObservation(observation turnObservation) ProgressObservation {
 		status = "error"
 	}
 	return ProgressObservation{
-		ObservationID:  observation.ObservationID,
-		ToolName:       observation.Tool,
-		Status:         status,
-		ShortSummary:   summarizeObservationContent(observation),
-		AttachmentRefs: progressAttachments(observation),
+		ObservationID:      observation.ObservationID,
+		ToolName:           observation.Tool,
+		Status:             status,
+		ShortSummary:       summarizeObservationContent(observation),
+		AttachmentRefs:     progressAttachments(observation),
+		AttemptFingerprint: strings.TrimSpace(observation.AttemptFingerprint),
+		RecoveryStep:       strings.TrimSpace(observation.RecoveryStep),
 	}
+}
+
+func buildProgressFailureDebt(failureDebt FailureDebt, observations []turnObservation) *ProgressFailureDebt {
+	budget := defaultRecoveryBudget()
+	return &ProgressFailureDebt{
+		ObservationID:           failureDebt.LatestFailure.ObservationID,
+		ToolName:                strings.TrimSpace(failureDebt.LatestFailure.Tool),
+		FailureStage:            strings.TrimSpace(failureDebt.LatestFailure.FailureStage),
+		ErrorCode:               strings.TrimSpace(failureDebt.LatestFailure.ErrorCode),
+		AttemptFingerprint:      strings.TrimSpace(failureDebt.LatestFailure.AttemptFingerprint),
+		RemainingRecoveryBudget: remainingRecoveryBudget(observations, budget),
+		AllowedFinalResolutions: []string{failureResolutionNoToolFallback, failureResolutionFailureReport},
+	}
+}
+
+func remainingRecoveryBudget(observations []turnObservation, budget RecoveryBudget) RecoveryBudget {
+	budget = normalizeRecoveryBudget(budget)
+	return RecoveryBudget{
+		CorrectedRetry: maxInt(0, budget.CorrectedRetry-recoveryStepUseCount(observations, recoveryStepCorrectedRetry)),
+		AlternateRoute: maxInt(0, budget.AlternateRoute-recoveryStepUseCount(observations, recoveryStepAlternateRoute)),
+		AdjacentTool:   maxInt(0, budget.AdjacentTool-recoveryStepUseCount(observations, recoveryStepAdjacentTool)),
+		NoToolFallback: budget.NoToolFallback,
+	}
+}
+
+func maxInt(first int, second int) int {
+	if first > second {
+		return first
+	}
+	return second
 }
 
 func summarizeObservationContent(observation turnObservation) string {
