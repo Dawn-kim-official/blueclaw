@@ -5,25 +5,25 @@ import (
 	"strings"
 )
 
-func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool) string {
+func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
 	if toolRegistry != nil {
-		return toolRegistry.ActionSchema(allowQualityCriteria, blockedToolNames)
+		return toolRegistry.ActionSchema(allowQualityCriteria, blockedToolNames, hasFailureDebt)
 	}
-	return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames)
+	return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt)
 }
 
-func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool) string {
+func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
 	if toolSet == nil {
-		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames)
+		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt)
 	}
-	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames)
+	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames, hasFailureDebt)
 }
 
-func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool) string {
+func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
 	var variants []any
 	variants = append(variants,
-		finalReplyActionSchema(),
-		failActionSchema(),
+		finalReplyActionSchema(hasFailureDebt),
+		failActionSchema(hasFailureDebt),
 	)
 	if allowQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
@@ -42,21 +42,27 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	return string(document)
 }
 
-func finalReplyActionSchema() map[string]any {
+func finalReplyActionSchema(hasFailureDebt bool) map[string]any {
+	failureResolutionValues := []string{"none", "recovered_with_success", "no_tool_fallback"}
+	requiredFields := []string{"action", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview"}
+	if hasFailureDebt {
+		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback", "failure_report"}
+		requiredFields = append(requiredFields, "failureResolution")
+	}
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"action":             enumStringSchema("final_reply"),
 			"finalReply":         stringSchema(),
 			"reply":              stringSchema(),
-			"failureResolution":  enumValuesStringSchema([]string{"none", "recovered_with_success", "no_tool_fallback"}),
+			"failureResolution":  enumValuesStringSchema(failureResolutionValues),
 			"goalStatus":         enumValuesStringSchema([]string{"satisfied"}),
 			"goalSatisfied":      booleanSchema(),
 			"completionEvidence": completionEvidenceSchema(),
 			"qualityReview":      qualityReviewSchema(),
 			"remainingWork":      stringSchema(),
 		},
-		"required":             []string{"action", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview"},
+		"required":             requiredFields,
 		"additionalProperties": false,
 	}
 }
@@ -77,17 +83,24 @@ func setQualityCriteriaActionSchema() map[string]any {
 	}
 }
 
-func failActionSchema() map[string]any {
+func failActionSchema(hasFailureDebt bool) map[string]any {
+	properties := map[string]any{
+		"action":        enumStringSchema("fail"),
+		"reason":        stringSchema(),
+		"goalStatus":    enumValuesStringSchema([]string{"blocked"}),
+		"goalSatisfied": booleanSchema(),
+		"remainingWork": stringSchema(),
+	}
+	requiredFields := []string{"action", "reason"}
+	if hasFailureDebt {
+		properties["failureResolution"] = enumValuesStringSchema([]string{"failure_report"})
+		properties["usedFailureFacts"] = failureReportFactsSchema()
+		requiredFields = append(requiredFields, "failureResolution", "usedFailureFacts")
+	}
 	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":        enumStringSchema("fail"),
-			"reason":        stringSchema(),
-			"goalStatus":    enumValuesStringSchema([]string{"blocked"}),
-			"goalSatisfied": booleanSchema(),
-			"remainingWork": stringSchema(),
-		},
-		"required":             []string{"action", "reason"},
+		"type":                 "object",
+		"properties":           properties,
+		"required":             requiredFields,
 		"additionalProperties": false,
 	}
 }
@@ -223,12 +236,38 @@ func qualityReviewSchema() map[string]any {
 	}
 }
 
+func failureReportFactsSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"attempts": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"toolName":     stringSchema(),
+						"inputSummary": stringSchema(),
+						"errorCode":    stringSchema(),
+						"failureStage": stringSchema(),
+						"message":      stringSchema(),
+					},
+					"required":             []string{"toolName", "inputSummary", "errorCode", "failureStage", "message"},
+					"additionalProperties": false,
+				},
+			},
+			"budgetState": stringSchema(),
+		},
+		"required":             []string{"attempts", "budgetState"},
+		"additionalProperties": false,
+	}
+}
+
 func fallbackActionSchema() string {
 	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["final_reply"]},"finalReply":{"type":"string"},"reply":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason"],"additionalProperties":false}]}`
 }
 
 func finalizerActionSchema() string {
-	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finalReplyActionSchema(), failActionSchema()}})
+	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finalReplyActionSchema(false), failActionSchema(false)}})
 	if errorValue != nil {
 		return fallbackActionSchema()
 	}

@@ -43,7 +43,7 @@ func TestToolSetDescriptionsAndActionSchemaShareExposedTools(t *testing.T) {
 	})
 
 	descriptions := toolSet.Descriptions()
-	actionSchema := toolSet.ActionSchema(false, nil)
+	actionSchema := toolSet.ActionSchema(false, nil, false)
 	if !strings.Contains(descriptions, "visible.tool") || !strings.Contains(actionSchema, "visible.tool") {
 		t.Fatalf("expected visible tool in prompt and schema, got prompt=%s schema=%s", descriptions, actionSchema)
 	}
@@ -53,7 +53,7 @@ func TestToolSetDescriptionsAndActionSchemaShareExposedTools(t *testing.T) {
 }
 
 func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
-	actionSchema := buildActionSchemaFromToolDefinitions(nil, false, nil)
+	actionSchema := buildActionSchemaFromToolDefinitions(nil, false, nil, false)
 	if strings.Contains(actionSchema, "call_tool") {
 		t.Fatalf("expected fallback schema to omit call_tool, got %s", actionSchema)
 	}

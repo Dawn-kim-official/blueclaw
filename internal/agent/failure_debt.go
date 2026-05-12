@@ -31,6 +31,19 @@ type attemptLedgerEntry struct {
 	Status             string `json:"status"`
 }
 
+type failureReportFacts struct {
+	Attempts    []failureReportAttempt `json:"attempts"`
+	BudgetState string                 `json:"budgetState"`
+}
+
+type failureReportAttempt struct {
+	ToolName     string `json:"toolName"`
+	InputSummary string `json:"inputSummary"`
+	ErrorCode    string `json:"errorCode"`
+	FailureStage string `json:"failureStage"`
+	Message      string `json:"message"`
+}
+
 func defaultRecoveryBudget() RecoveryBudget {
 	return RecoveryBudget{
 		CorrectedRetry: 1,
@@ -197,9 +210,10 @@ func recoveryBudgetExhaustedObservation(index int, failedObservation turnObserva
 func activeFailureDebtEventBody(observations []turnObservation, budget RecoveryBudget) map[string]any {
 	failureDebt, _ := activeFailureDebt(observations)
 	return map[string]any{
-		"failureDebt":    failureDebt,
-		"attemptLedger":  attemptLedger(observations),
-		"recoveryBudget": normalizeRecoveryBudget(budget),
+		"failureDebt":        failureDebt,
+		"failureReportFacts": buildFailureReportFacts(observations, budget),
+		"attemptLedger":      attemptLedger(observations),
+		"recoveryBudget":     normalizeRecoveryBudget(budget),
 	}
 }
 
@@ -245,6 +259,114 @@ func failureDebtFinalizationGate(observations []turnObservation, actionDocument 
 	default:
 		return completionGateResult{Message: failureDebtFinalizationMessage(failureDebt)}
 	}
+}
+
+func buildFailureReportFacts(observations []turnObservation, budget RecoveryBudget) failureReportFacts {
+	facts := failureReportFacts{BudgetState: failureReportBudgetState(observations, budget)}
+	for _, observation := range observations {
+		if observation.Action != "call_tool" || !observation.IsError {
+			continue
+		}
+		facts.Attempts = append(facts.Attempts, failureReportAttempt{
+			ToolName:     strings.TrimSpace(observation.Tool),
+			InputSummary: failureReportInputSummary(observation.ToolInputKey),
+			ErrorCode:    firstNonEmptyString(strings.TrimSpace(observation.ErrorCode), "tool_failed"),
+			FailureStage: firstNonEmptyString(strings.TrimSpace(observation.FailureStage), strings.TrimSpace(observation.Tool)),
+			Message:      failureReportMessage(observation),
+		})
+	}
+	return facts
+}
+
+func failureReportBudgetState(observations []turnObservation, budget RecoveryBudget) string {
+	budget = normalizeRecoveryBudget(budget)
+	if budget.NoToolFallback > 0 {
+		return "no_tool_fallback_available"
+	}
+	if recoveryStepUseCount(observations, recoveryStepCorrectedRetry) < budget.CorrectedRetry ||
+		recoveryStepUseCount(observations, recoveryStepAlternateRoute) < budget.AlternateRoute ||
+		recoveryStepUseCount(observations, recoveryStepAdjacentTool) < budget.AdjacentTool {
+		return "recovery_tools_available"
+	}
+	return "failure_report_required"
+}
+
+func failureReportInputSummary(toolInputKey string) string {
+	parts := strings.SplitN(toolInputKey, "\x00", 2)
+	if len(parts) != 2 {
+		return truncateText(compactWhitespace(redactUnsafeText(toolInputKey)), 120)
+	}
+	var document map[string]any
+	if json.Unmarshal([]byte(parts[1]), &document) == nil {
+		for _, fieldName := range []string{"expression", "query", "url", "recipientHint", "message", "command"} {
+			if value, isString := document[fieldName].(string); isString && strings.TrimSpace(value) != "" {
+				return truncateText(compactWhitespace(redactUnsafeText(value)), 120)
+			}
+		}
+	}
+	return truncateText(compactWhitespace(redactUnsafeText(parts[1])), 120)
+}
+
+func failureReportMessage(observation turnObservation) string {
+	message := strings.TrimSpace(observation.Message)
+	if message == "" {
+		message = strings.TrimSpace(observation.Content)
+	}
+	return truncateText(compactWhitespace(redactUnsafeText(message)), 240)
+}
+
+func failureDebtActionContractMessage(facts failureReportFacts) string {
+	return strings.Join([]string{
+		"FailureDebt is active. The action schema now requires failureResolution.",
+		"If you can answer directly without tools, return final_reply with failureResolution=no_tool_fallback and do not apologize or mention the failed tool unless the user asked about internals.",
+		"If you cannot answer directly and recovery budget is exhausted, return fail with failureResolution=failure_report and copy the relevant facts into usedFailureFacts.",
+		"FailureReportFacts:\n" + marshalEventBody(facts),
+	}, "\n")
+}
+
+func validateFailureReportAction(actionDocument turnActionDocument, facts failureReportFacts) completionGateResult {
+	if strings.TrimSpace(actionDocument.FailureResolution) != failureResolutionFailureReport {
+		return completionGateResult{Message: "FailureDebt failure reports require failureResolution=failure_report"}
+	}
+	if len(actionDocument.UsedFailureFacts.Attempts) == 0 {
+		return completionGateResult{Message: "FailureDebt failure reports require usedFailureFacts.attempts"}
+	}
+	if strings.TrimSpace(actionDocument.UsedFailureFacts.BudgetState) == "" {
+		return completionGateResult{Message: "FailureDebt failure reports require usedFailureFacts.budgetState"}
+	}
+	expectedAttempt, hasExpectedAttempt := latestFailureReportAttempt(facts)
+	if hasExpectedAttempt && !usedFailureFactsContainAttempt(actionDocument.UsedFailureFacts.Attempts, expectedAttempt) {
+		return completionGateResult{Message: "FailureDebt failure reports must preserve toolName, errorCode, failureStage, and message from FailureReportFacts"}
+	}
+	return completionGateResult{IsSatisfied: true}
+}
+
+func latestFailureReportAttempt(facts failureReportFacts) (failureReportAttempt, bool) {
+	for index := len(facts.Attempts) - 1; index >= 0; index-- {
+		if strings.TrimSpace(facts.Attempts[index].ToolName) != "" {
+			return facts.Attempts[index], true
+		}
+	}
+	return failureReportAttempt{}, false
+}
+
+func usedFailureFactsContainAttempt(attempts []failureReportAttempt, expectedAttempt failureReportAttempt) bool {
+	for _, attempt := range attempts {
+		if strings.TrimSpace(attempt.ToolName) != strings.TrimSpace(expectedAttempt.ToolName) {
+			continue
+		}
+		if strings.TrimSpace(attempt.ErrorCode) == "" || strings.TrimSpace(attempt.FailureStage) == "" || strings.TrimSpace(attempt.Message) == "" {
+			continue
+		}
+		if strings.TrimSpace(expectedAttempt.ErrorCode) != "" && strings.TrimSpace(attempt.ErrorCode) != strings.TrimSpace(expectedAttempt.ErrorCode) {
+			continue
+		}
+		if strings.TrimSpace(expectedAttempt.FailureStage) != "" && strings.TrimSpace(attempt.FailureStage) != strings.TrimSpace(expectedAttempt.FailureStage) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func failureDebtFinalizationMessage(failureDebt FailureDebt) string {
