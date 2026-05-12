@@ -160,7 +160,7 @@ func TestTaskSchedulePollerDoesNotRunExpiredSchedule(t *testing.T) {
 		Kind:            task.TaskScheduleKindInterval,
 		IntervalSecond:  60,
 		NextRunAt:       &runAt,
-		ExpiresAt:       expiredAt,
+		ExpiresAt:       &expiredAt,
 	}}}
 	deliveryRepository := &pollerDeliveryRepository{}
 	poller := TaskSchedulePoller{

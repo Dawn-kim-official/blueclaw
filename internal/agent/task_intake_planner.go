@@ -33,21 +33,23 @@ type IntakeOptions struct {
 }
 
 type AgentRequest struct {
-	RequesterPersonID    string
-	RequesterName        string
-	RequesterCallingName string
-	RequesterHandle      string
-	RequesterCircles     []string
-	ProfileName          string
-	ConversationID       string
-	Prompt               string
-	ResponseLanguage     string
-	VisibleContext       VisibleContext
-	MemoryFacts          []memory.MemoryFact
-	ToolSet              *ToolSet
-	WorkspaceRootPath    string
-	ActivePaths          []string
-	InstructionPrompt    string
+	RequesterPersonID      string
+	RequesterName          string
+	RequesterCallingName   string
+	RequesterHandle        string
+	RequesterCircles       []string
+	IsApprovalContinuation bool
+	ExistingTaskRunID      string
+	ProfileName            string
+	ConversationID         string
+	Prompt                 string
+	ResponseLanguage       string
+	VisibleContext         VisibleContext
+	MemoryFacts            []memory.MemoryFact
+	ToolSet                *ToolSet
+	WorkspaceRootPath      string
+	ActivePaths            []string
+	InstructionPrompt      string
 }
 
 type IntakeDecision struct {

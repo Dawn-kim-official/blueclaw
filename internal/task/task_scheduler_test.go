@@ -50,6 +50,24 @@ func TestInitializeTaskScheduleForIntervalRun(t *testing.T) {
 	}
 }
 
+func TestInitializeTaskScheduleForIntervalRunWithoutRunAtStartsNow(t *testing.T) {
+	taskScheduler := TaskScheduler{}
+	referenceTime := time.Date(2026, 4, 23, 9, 7, 0, 0, time.UTC)
+
+	taskSchedule, errorValue := taskScheduler.InitializeTaskSchedule(TaskSchedule{
+		TaskScheduleID: "schedule-immediate",
+		Name:           "interval",
+		Kind:           TaskScheduleKindInterval,
+		IntervalSecond: 60,
+	}, referenceTime)
+	if errorValue != nil {
+		t.Fatalf("expected interval task schedule to initialize: %v", errorValue)
+	}
+	if taskSchedule.NextRunAt == nil || !taskSchedule.NextRunAt.Equal(referenceTime) {
+		t.Fatalf("expected interval next run time to start at %s, got %+v", referenceTime.Format(time.RFC3339), taskSchedule.NextRunAt)
+	}
+}
+
 func TestAdvanceTaskScheduleStopsAtMaxRunCount(t *testing.T) {
 	taskScheduler := TaskScheduler{}
 	runAt := time.Date(2026, 4, 23, 9, 0, 0, 0, time.UTC)

@@ -882,7 +882,7 @@ func (repository *virtualTaskScheduleRepository) CancelTaskSchedules(request tas
 		if taskSchedule.CreatorPersonID != request.RequesterPersonID || taskSchedule.NextRunAt == nil {
 			continue
 		}
-		repository.taskSchedules[index].ExpiresAt = request.CancelledAt
+		repository.taskSchedules[index].ExpiresAt = &request.CancelledAt
 		repository.taskSchedules[index].NextRunAt = nil
 		cancelledTaskSchedules = append(cancelledTaskSchedules, repository.taskSchedules[index])
 	}

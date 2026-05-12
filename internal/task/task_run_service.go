@@ -114,6 +114,10 @@ func (taskRunService *TaskRunService) CancelTaskRun(taskRunID string, requesterP
 	return taskRunService.cancelTaskRun(taskRunID, requesterPersonID, requesterPersonID)
 }
 
+func (taskRunService *TaskRunService) CancelTaskRunWithReason(taskRunID string, requesterPersonID string, reason string) (TaskRun, error) {
+	return taskRunService.cancelTaskRun(taskRunID, requesterPersonID, reason)
+}
+
 func (taskRunService *TaskRunService) CancelWaitingTaskRuns(requesterPersonID string, originConversationID string, reason string) []TaskRun {
 	cancelledTaskRuns := []TaskRun{}
 	for _, taskRun := range taskRunService.ListTaskRunByPersonID(requesterPersonID) {

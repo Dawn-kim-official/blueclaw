@@ -106,6 +106,10 @@ func (agentKernel *AgentKernel) CompleteTask(taskRunID string, result string) (t
 	return agentKernel.taskRunService.CompleteTaskRun(taskRunID, result)
 }
 
+func (agentKernel *AgentKernel) CancelTask(taskRunID string, requesterPersonID string, reason string) (task.TaskRun, error) {
+	return agentKernel.taskRunService.CancelTaskRunWithReason(taskRunID, requesterPersonID, reason)
+}
+
 func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, prompt string) (string, error) {
 	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
 }
@@ -116,58 +120,14 @@ type ApprovalReplyDecision struct {
 }
 
 func (agentKernel *AgentKernel) ClassifyApprovalReply(responseContext context.Context, pendingPrompt string, approvalQuestion string, reply string) (ApprovalReplyDecision, error) {
-	if agentKernel.languageModel == nil {
-		return ApprovalReplyDecision{}, errors.New("language model provider is not configured")
-	}
-
-	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
-		responseContext,
-		llm.StructuredResponseRequest{
-			Messages: approvalReplyMessages(pendingPrompt, approvalQuestion, reply),
-			StructuredOutputSchema: llm.StructuredOutputSchema{
-				Name:               "blueclaw_approval_reply_decision",
-				Document:           `{"type":"object","properties":{"isApproval":{"type":"boolean"},"reason":{"type":"string"}},"required":["isApproval","reason"],"additionalProperties":false}`,
-				IsStrictlyEnforced: true,
-			},
-		},
-	)
+	decision, errorValue := agentKernel.ClassifyConfirmationReply(responseContext, pendingPrompt, approvalQuestion, reply)
 	if errorValue != nil {
 		return ApprovalReplyDecision{}, errorValue
 	}
-
-	var decision ApprovalReplyDecision
-	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &decision); errorValue != nil {
-		return ApprovalReplyDecision{}, errorValue
-	}
-	decision.Reason = strings.TrimSpace(decision.Reason)
-	return decision, nil
-}
-
-func approvalReplyMessages(pendingPrompt string, approvalQuestion string, reply string) []llm.Message {
-	return []llm.Message{
-		{
-			Role: "system",
-			Content: strings.Join([]string{
-				"You decide whether the latest user message approves a pending action.",
-				"Return isApproval true only when the latest message authorizes proceeding with the pending action.",
-				"Short Korean affirmatives such as 응, 네, 좋아, 진행해, 해줘, 그래, 해 are approvals when they answer the pending approval question.",
-				"Return false for cancellation, hesitation, a new unrelated request, or a question.",
-			}, "\n"),
-		},
-		{
-			Role: "user",
-			Content: strings.Join([]string{
-				"Pending task:",
-				strings.TrimSpace(pendingPrompt),
-				"",
-				"Approval question:",
-				strings.TrimSpace(approvalQuestion),
-				"",
-				"Latest user message:",
-				strings.TrimSpace(reply),
-			}, "\n"),
-		},
-	}
+	return ApprovalReplyDecision{
+		IsApproval: decision.Decision == "approved",
+		Reason:     decision.Reason,
+	}, nil
 }
 
 func (agentKernel *AgentKernel) GenerateReplyWithMemory(responseContext context.Context, prompt string, memoryFacts []memory.MemoryFact) (string, error) {
@@ -213,20 +173,22 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 
 func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request AgentTurnRequest) (AgentTurnResult, error) {
 	return agentKernel.RunAgentRequest(responseContext, AgentRequest{
-		RequesterPersonID:    request.RequesterPersonID,
-		RequesterName:        request.RequesterName,
-		RequesterCallingName: request.RequesterCallingName,
-		RequesterHandle:      request.RequesterHandle,
-		RequesterCircles:     append([]string{}, request.RequesterCircles...),
-		ProfileName:          request.ProfileName,
-		ConversationID:       request.ConversationID,
-		Prompt:               request.Prompt,
-		ResponseLanguage:     request.ResponseLanguage,
-		VisibleContext:       request.VisibleContext,
-		MemoryFacts:          request.MemoryFacts,
-		ToolSet:              request.ToolSet,
-		WorkspaceRootPath:    request.WorkspaceRootPath,
-		ActivePaths:          request.ActivePaths,
+		RequesterPersonID:      request.RequesterPersonID,
+		RequesterName:          request.RequesterName,
+		RequesterCallingName:   request.RequesterCallingName,
+		RequesterHandle:        request.RequesterHandle,
+		RequesterCircles:       append([]string{}, request.RequesterCircles...),
+		IsApprovalContinuation: request.IsApprovalContinuation,
+		ExistingTaskRunID:      request.ExistingTaskRunID,
+		ProfileName:            request.ProfileName,
+		ConversationID:         request.ConversationID,
+		Prompt:                 request.Prompt,
+		ResponseLanguage:       request.ResponseLanguage,
+		VisibleContext:         request.VisibleContext,
+		MemoryFacts:            request.MemoryFacts,
+		ToolSet:                request.ToolSet,
+		WorkspaceRootPath:      request.WorkspaceRootPath,
+		ActivePaths:            request.ActivePaths,
 	})
 }
 
@@ -259,6 +221,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	if len(requiredAttachmentSuffixes) > 0 {
 		requiredEvidenceTools = appendUniqueStrings(requiredEvidenceTools, "file.attach")
 	}
+	if confirmationResult, isBlocked, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, requiredEvidenceTools); isBlocked || errorValue != nil {
+		return confirmationResult, errorValue
+	}
 
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
@@ -266,6 +231,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequesterCallingName:       request.RequesterCallingName,
 		RequesterHandle:            request.RequesterHandle,
 		RequesterCircles:           append([]string{}, request.RequesterCircles...),
+		IsApprovalContinuation:     request.IsApprovalContinuation,
+		ExistingTaskRunID:          request.ExistingTaskRunID,
 		ProfileName:                normalizedAgentProfileName(request.ProfileName),
 		ConversationID:             request.ConversationID,
 		Prompt:                     request.Prompt,
@@ -300,6 +267,91 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	}
 	return result, errorValue
+}
+
+func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, requiredEvidenceTools []string) (AgentTurnResult, bool, error) {
+	if request.IsApprovalContinuation || strings.TrimSpace(request.ExistingTaskRunID) != "" {
+		return AgentTurnResult{}, false, nil
+	}
+	if !shouldBuildExecutionPlanForConfirmation(request, intakeDecision, requiredEvidenceTools) {
+		return AgentTurnResult{}, false, nil
+	}
+	executionPlan, errorValue := agentKernel.BuildExecutionPlan(responseContext, request, requiredEvidenceTools)
+	if errorValue != nil {
+		return AgentTurnResult{}, false, errorValue
+	}
+	decision := EvaluateConfirmationPolicy(executionPlan)
+	if !decision.RequiresConfirmation && !decision.RequiresClarification {
+		return AgentTurnResult{}, false, nil
+	}
+
+	taskRun := agentKernel.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.plan_created", marshalEventBody(executionPlan))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.policy_decision", marshalEventBody(decision))
+
+	if decision.RequiresClarification {
+		reply, errorValue := agentKernel.GenerateClarificationMessage(responseContext, request, executionPlan, decision)
+		if errorValue != nil {
+			return AgentTurnResult{}, false, errorValue
+		}
+		waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, reply)
+		if errorValue != nil {
+			return AgentTurnResult{}, false, errorValue
+		}
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
+		return AgentTurnResult{TaskRun: waitingTaskRun, FinalReply: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, nil
+	}
+
+	reply, errorValue := agentKernel.GenerateConfirmationMessage(responseContext, request, executionPlan, decision)
+	if errorValue != nil {
+		return AgentTurnResult{}, false, errorValue
+	}
+	waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingApproval, reply)
+	if errorValue != nil {
+		return AgentTurnResult{}, false, errorValue
+	}
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalEventBody(map[string]string{
+		"message":                 reply,
+		"reason":                  decision.Reason,
+		"responseLanguage":        request.ResponseLanguage,
+		"continuationInstruction": executionPlan.ContinuationInstruction,
+	}))
+	return AgentTurnResult{TaskRun: waitingTaskRun, FinalReply: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, nil
+}
+
+func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecision IntakeDecision, requiredEvidenceTools []string) bool {
+	if intakeDecision.Classification != IntakeClassificationBoundedTask {
+		return false
+	}
+	if intakeDecision.TaskShape == TaskShapeApprovalGatedTask {
+		return true
+	}
+	for _, toolName := range requiredEvidenceTools {
+		if confirmationRiskyEvidenceTool(toolName) {
+			return true
+		}
+	}
+	return promptLooksLikeConfirmationCandidate(request.Prompt)
+}
+
+func confirmationRiskyEvidenceTool(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "platform.dm.send", "mail.message.send", "google.gmail.send", "slack.message.send", "site.app.publish":
+		return true
+	default:
+		return false
+	}
+}
+
+func promptLooksLikeConfirmationCandidate(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return false
+	}
+	return containsAny(normalizedPrompt, []string{
+		"dm", "direct message", "email", "mail", "delete", "remove", "cancel", "deploy", "publish", "permission", "invite", "every minute", "every hour",
+		"전송", "삭제", "취소", "배포", "공개", "권한", "초대", "분마다", "시간마다", "1분마다", "반복",
+	})
 }
 
 func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBundle) *ToolSet {
