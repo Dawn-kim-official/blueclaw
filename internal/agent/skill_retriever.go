@@ -15,16 +15,39 @@ import (
 )
 
 const defaultEmbeddingModelName = "embedding.create"
+const skillSearchDocumentVersion = "skill-description-v2"
+const maxGeneratedSkillSearchQueries = 5
 
 type SkillRetriever interface {
 	Retrieve(context.Context, AgentRequest, []SkillInstruction, int) SkillRetrievalResult
+	Search(context.Context, AgentRequest, []SkillInstruction, SkillSearchQuerySet, int) SkillRetrievalResult
 	Refresh(context.Context, []SkillInstruction)
+}
+
+type SkillSearchQuery struct {
+	Description string `json:"description"`
+}
+
+type SkillSearchQuerySet struct {
+	Queries []SkillSearchQuery `json:"queries"`
+}
+
+type SkillSearchResult struct {
+	Skills []SkillSearchResultItem `json:"skills"`
+}
+
+type SkillSearchResultItem struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Score       float64  `json:"score"`
+	Tools       []string `json:"tools"`
 }
 
 type SkillRetrievalResult struct {
 	RetrievalMode      string
 	IndexStatus        string
 	CandidateCount     int
+	QueryDescriptions  []string
 	SelectedCandidates []SkillCandidate
 }
 
@@ -63,6 +86,12 @@ func NewEmbeddingSkillRetriever(embeddingProvider llm.EmbeddingProvider, indexPa
 }
 
 func (skillRetriever *EmbeddingSkillRetriever) Retrieve(ctx context.Context, request AgentRequest, skillInstructions []SkillInstruction, limit int) SkillRetrievalResult {
+	return skillRetriever.Search(ctx, request, skillInstructions, SkillSearchQuerySet{
+		Queries: []SkillSearchQuery{{Description: skillSelectionPrompt(request)}},
+	}, limit)
+}
+
+func (skillRetriever *EmbeddingSkillRetriever) Search(ctx context.Context, request AgentRequest, skillInstructions []SkillInstruction, querySet SkillSearchQuerySet, limit int) SkillRetrievalResult {
 	if directCandidate, isFound := directSkillCandidate(request, skillInstructions); isFound {
 		return SkillRetrievalResult{
 			RetrievalMode:      "direct",
@@ -71,24 +100,33 @@ func (skillRetriever *EmbeddingSkillRetriever) Retrieve(ctx context.Context, req
 			SelectedCandidates: []SkillCandidate{directCandidate},
 		}
 	}
+	querySet = normalizeSkillSearchQuerySet(querySet)
+	queryText := skillSearchQueryText(querySet)
+	if len(querySet.Queries) == 0 {
+		return SkillRetrievalResult{
+			RetrievalMode: "structured_query",
+			IndexStatus:   "empty_query",
+		}
+	}
 	if skillRetriever == nil || skillRetriever.EmbeddingProvider == nil {
-		return retrieveSkillsWithBM25(request, skillInstructions, limit, "embedding_unavailable")
+		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_unavailable")
 	}
 	if errorValue := skillRetriever.refresh(ctx, skillInstructions); errorValue != nil {
-		return retrieveSkillsWithBM25(request, skillInstructions, limit, "embedding_index_unavailable")
+		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_index_unavailable")
 	}
-	queryEmbedding, errorValue := skillRetriever.EmbeddingProvider.GenerateEmbedding(ctx, skillSelectionPrompt(request))
-	if errorValue != nil || len(queryEmbedding) == 0 {
-		return retrieveSkillsWithBM25(request, skillInstructions, limit, "embedding_query_failed")
+	queryEmbeddings := skillRetriever.queryEmbeddings(ctx, querySet)
+	if len(queryEmbeddings) == 0 {
+		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, "embedding_query_failed")
 	}
-	candidates, indexStatus := skillRetriever.embeddingCandidates(request, skillInstructions, queryEmbedding, limit)
+	candidates, indexStatus := skillRetriever.embeddingCandidates(request, skillInstructions, queryEmbeddings, limit)
 	if indexStatus != "ready" {
-		return retrieveSkillsWithBM25(request, skillInstructions, limit, indexStatus)
+		return retrieveSkillsWithBM25(request, skillInstructions, queryText, limit, indexStatus)
 	}
 	return SkillRetrievalResult{
 		RetrievalMode:      "embedding",
 		IndexStatus:        indexStatus,
 		CandidateCount:     len(candidates),
+		QueryDescriptions:  skillSearchQueryDescriptions(querySet),
 		SelectedCandidates: candidates,
 	}
 }
@@ -141,7 +179,19 @@ func (skillRetriever *EmbeddingSkillRetriever) refresh(ctx context.Context, skil
 	return skillRetriever.writeIndex(nextDocuments)
 }
 
-func (skillRetriever *EmbeddingSkillRetriever) embeddingCandidates(request AgentRequest, skillInstructions []SkillInstruction, queryEmbedding []float32, limit int) ([]SkillCandidate, string) {
+func (skillRetriever *EmbeddingSkillRetriever) queryEmbeddings(ctx context.Context, querySet SkillSearchQuerySet) [][]float32 {
+	embeddings := [][]float32{}
+	for _, query := range querySet.Queries {
+		embedding, errorValue := skillRetriever.EmbeddingProvider.GenerateEmbedding(ctx, query.Description)
+		if errorValue != nil || len(embedding) == 0 {
+			continue
+		}
+		embeddings = append(embeddings, embedding)
+	}
+	return embeddings
+}
+
+func (skillRetriever *EmbeddingSkillRetriever) embeddingCandidates(request AgentRequest, skillInstructions []SkillInstruction, queryEmbeddings [][]float32, limit int) ([]SkillCandidate, string) {
 	skillInstructionByName := skillInstructionByName(skillInstructions)
 	candidates := []SkillCandidate{}
 	hasDimensionMismatch := false
@@ -150,11 +200,11 @@ func (skillRetriever *EmbeddingSkillRetriever) embeddingCandidates(request Agent
 		if !isFound || !isSkillAllowedForAutomaticRetrieval(skillInstruction, request) {
 			continue
 		}
-		if len(document.Embedding) != len(queryEmbedding) {
+		score, hasMatchedDimension := maximumCosineSimilarity(queryEmbeddings, document.Embedding)
+		if !hasMatchedDimension {
 			hasDimensionMismatch = true
 			continue
 		}
-		score := cosineSimilarity(queryEmbedding, document.Embedding)
 		if score <= 0 {
 			continue
 		}
@@ -203,13 +253,13 @@ func (skillRetriever *EmbeddingSkillRetriever) writeIndex(searchDocuments []Skil
 
 func (skillRetriever *EmbeddingSkillRetriever) embeddingModel() string {
 	if strings.TrimSpace(skillRetriever.EmbeddingModel) != "" {
-		return strings.TrimSpace(skillRetriever.EmbeddingModel)
+		return strings.TrimSpace(skillRetriever.EmbeddingModel) + ":" + skillSearchDocumentVersion
 	}
-	return defaultEmbeddingModelName
+	return defaultEmbeddingModelName + ":" + skillSearchDocumentVersion
 }
 
-func retrieveSkillsWithBM25(request AgentRequest, skillInstructions []SkillInstruction, limit int, indexStatus string) SkillRetrievalResult {
-	scores := rankSkillInstructionsByBM25(skillInstructions, nil, skillSelectionPrompt(request))
+func retrieveSkillsWithBM25(request AgentRequest, skillInstructions []SkillInstruction, queryText string, limit int, indexStatus string) SkillRetrievalResult {
+	scores := rankSkillInstructionsByBM25(skillInstructions, nil, queryText)
 	candidates := []SkillCandidate{}
 	for _, score := range scores {
 		skillInstruction, isFound := skillInstructionByName(skillInstructions)[score.Name]
@@ -228,6 +278,7 @@ func retrieveSkillsWithBM25(request AgentRequest, skillInstructions []SkillInstr
 		RetrievalMode:      "bm25_fallback",
 		IndexStatus:        firstNonEmptySkillSelectionString(indexStatus, "fallback"),
 		CandidateCount:     len(candidates),
+		QueryDescriptions:  skillSearchQueryDescriptions(SkillSearchQuerySet{Queries: []SkillSearchQuery{{Description: queryText}}}),
 		SelectedCandidates: candidates,
 	}
 }
@@ -327,4 +378,44 @@ func cosineSimilarity(left []float32, right []float32) float64 {
 		return 0
 	}
 	return dotProduct / (math.Sqrt(leftMagnitude) * math.Sqrt(rightMagnitude))
+}
+
+func normalizeSkillSearchQuerySet(querySet SkillSearchQuerySet) SkillSearchQuerySet {
+	queries := []SkillSearchQuery{}
+	for _, query := range querySet.Queries {
+		description := strings.TrimSpace(query.Description)
+		if description == "" {
+			continue
+		}
+		queries = append(queries, SkillSearchQuery{Description: description})
+		if len(queries) >= maxGeneratedSkillSearchQueries {
+			break
+		}
+	}
+	return SkillSearchQuerySet{Queries: queries}
+}
+
+func skillSearchQueryText(querySet SkillSearchQuerySet) string {
+	return strings.Join(skillSearchQueryDescriptions(querySet), "\n")
+}
+
+func skillSearchQueryDescriptions(querySet SkillSearchQuerySet) []string {
+	descriptions := []string{}
+	for _, query := range normalizeSkillSearchQuerySet(querySet).Queries {
+		descriptions = append(descriptions, query.Description)
+	}
+	return descriptions
+}
+
+func maximumCosineSimilarity(queryEmbeddings [][]float32, documentEmbedding []float32) (float64, bool) {
+	score := 0.0
+	hasMatchedDimension := false
+	for _, queryEmbedding := range queryEmbeddings {
+		if len(queryEmbedding) != len(documentEmbedding) {
+			continue
+		}
+		hasMatchedDimension = true
+		score = math.Max(score, cosineSimilarity(queryEmbedding, documentEmbedding))
+	}
+	return score, hasMatchedDimension
 }

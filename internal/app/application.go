@@ -145,6 +145,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	toolCatalogBuilder.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, capabilityToolDescriptors(runtimeConfiguration.Capabilities.ToolDescriptors))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
+	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
 	toolCatalogBuilder.UseTerminalService(terminalService)
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
@@ -587,6 +588,9 @@ func appendDefaultBuiltInToolNames(toolNames []string) []string {
 	}
 	if !containsString(result, "schedule.cancel") {
 		result = append(result, "schedule.cancel")
+	}
+	if !containsString(result, "skill.search") {
+		result = append(result, "skill.search")
 	}
 	return result
 }
