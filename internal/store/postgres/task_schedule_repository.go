@@ -108,7 +108,7 @@ WITH claim AS (
   WHERE next_run_at IS NOT NULL
     AND next_run_at <= $1
     AND next_attempt_at <= $1
-    AND expires_at > $1
+    AND (expires_at IS NULL OR expires_at > $1)
     AND (leased_until IS NULL OR leased_until <= $1 OR lease_owner = $3)
   ORDER BY next_run_at ASC
   LIMIT $2
@@ -191,7 +191,7 @@ func (taskScheduleRepository TaskScheduleRepository) CancelTaskSchedules(request
 	conditions := []string{
 		"creator_person_id = $2",
 		"next_run_at IS NOT NULL",
-		"expires_at > $1",
+		"(expires_at IS NULL OR expires_at > $1)",
 	}
 	arguments := []any{cancelledAt, requesterPersonID}
 	switch request.Scope {
@@ -324,7 +324,7 @@ func scanTaskSchedule(scanner taskScheduleScanner) (task.TaskSchedule, error) {
 	taskSchedule.LeasedUntil = nullableTaskScheduleTime(leasedUntil)
 	taskSchedule.NextAttemptAt = nullableTaskScheduleTime(nextAttemptAt)
 	if expiresAt.Valid {
-		taskSchedule.ExpiresAt = expiresAt.Time
+		taskSchedule.ExpiresAt = &expiresAt.Time
 	}
 	return taskSchedule, errorValue
 }
@@ -359,15 +359,11 @@ func taskScheduleReturningColumns() string {
   max_run_count, completed_run_count`
 }
 
-func taskScheduleExpiresAt(taskSchedule task.TaskSchedule) time.Time {
-	if taskSchedule.ExpiresAt.IsZero() {
-		return defaultTaskScheduleExpiresAt()
+func taskScheduleExpiresAt(taskSchedule task.TaskSchedule) any {
+	if taskSchedule.ExpiresAt == nil || taskSchedule.ExpiresAt.IsZero() {
+		return nil
 	}
 	return taskSchedule.ExpiresAt.UTC()
-}
-
-func defaultTaskScheduleExpiresAt() time.Time {
-	return time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 }
 
 func zeroAsNil(value int) any {

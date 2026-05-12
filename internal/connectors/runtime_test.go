@@ -393,12 +393,13 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 	}
 }
 
-func TestConnectorRuntimeClassifiesApprovalReplyBeforeStartingNewTask(t *testing.T) {
+func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t *testing.T) {
 	invokedTools := []string{}
 	languageModel := &connectorSequenceLanguageModel{contents: []string{
 		`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"calendar delete needs approval first","userFacingReply":""}`,
-		`{"action":"call_tool","toolName":"approval.request","toolInput":{"message":"내일 휴가 일정을 캘린더에서 삭제하겠습니다. 진행해도 될까요?"}}`,
-		`{"isApproval":true,"reason":"응 is an affirmative answer to the pending approval question."}`,
+		`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
+		`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
+		`{"decision":"approved","reason":"응 is an affirmative answer to the pending confirmation question."}`,
 		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"approved calendar tool work","userFacingReply":""}`,
 		`{"action":"call_tool","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
 		connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
@@ -429,6 +430,9 @@ func TestConnectorRuntimeClassifiesApprovalReplyBeforeStartingNewTask(t *testing
 	if firstResult.TaskRunID == "" {
 		t.Fatal("expected first task run id")
 	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다." {
+		t.Fatalf("expected confirmation reply, got %+v", adapter.sentReplies)
+	}
 
 	secondEvent := testInboundEvent("message-2")
 	secondEvent.Prompt = "응"
@@ -437,17 +441,17 @@ func TestConnectorRuntimeClassifiesApprovalReplyBeforeStartingNewTask(t *testing
 		t.Fatalf("expected approval reply to process: %v", errorValue)
 	}
 
-	if secondResult.TaskRunID == firstResult.TaskRunID || secondResult.TaskRunID == "" {
-		t.Fatalf("expected approved continuation task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
+	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.TaskRunID == "" {
+		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
-	if len(languageModel.requests) != 6 {
+	if len(languageModel.requests) != 7 {
 		t.Fatalf("expected approval classification before continuation turn, got %d requests", len(languageModel.requests))
 	}
-	if languageModel.requests[2].StructuredOutputSchema.Name != "blueclaw_approval_reply_decision" {
-		t.Fatalf("expected third model request to classify approval, got %q", languageModel.requests[2].StructuredOutputSchema.Name)
+	if languageModel.requests[3].StructuredOutputSchema.Name != "blueclaw_confirmation_reply_decision" {
+		t.Fatalf("expected fourth model request to classify confirmation, got %q", languageModel.requests[3].StructuredOutputSchema.Name)
 	}
-	if !structuredMessagesContain(languageModel.requests[4].Messages, "The user has approved this pending action") {
-		t.Fatalf("expected continuation prompt to carry approval context, got %+v", languageModel.requests[4].Messages)
+	if !structuredMessagesContain(languageModel.requests[5].Messages, "The user has approved this pending action") {
+		t.Fatalf("expected continuation prompt to carry approval context, got %+v", languageModel.requests[5].Messages)
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)

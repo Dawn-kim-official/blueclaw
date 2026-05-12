@@ -31,6 +31,7 @@ type TaskLaunchRequest struct {
 	RequesterEmail            string
 	RequesterPlatformUserID   string
 	IsApprovalContinuation    bool
+	ExistingTaskRunID         string
 	ProfileName               string
 	Platform                  string
 	ConversationID            string
@@ -118,6 +119,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		RequesterName:           request.RequesterName,
 		RequesterPlatformUserID: request.RequesterPlatformUserID,
 		IsApprovalContinuation:  request.IsApprovalContinuation,
+		ExistingTaskRunID:       request.ExistingTaskRunID,
 		Platform:                request.Platform,
 		RequesterCallingName:    request.RequesterCallingName,
 		RequesterHandle:         request.RequesterHandle,

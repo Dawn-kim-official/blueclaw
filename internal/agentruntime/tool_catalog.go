@@ -703,6 +703,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext co
 		"reason":           input.Reason,
 		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
 	}))
+	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "confirmation.requested", marshalToolResult(map[string]string{
+		"message":          input.Message,
+		"reason":           input.Reason,
+		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
+	}))
 	return agent.ToolResult{Content: marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "message": input.Message})}, nil
 }
 

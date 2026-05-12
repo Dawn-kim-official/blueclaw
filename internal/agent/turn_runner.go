@@ -45,6 +45,7 @@ type AgentTurnRequest struct {
 	RequesterName              string
 	RequesterPlatformUserID    string
 	IsApprovalContinuation     bool
+	ExistingTaskRunID          string
 	Platform                   string
 	RequesterCallingName       string
 	RequesterHandle            string
@@ -216,7 +217,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage)
 
-	taskRun := agentTurnRunner.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
+	taskRun := agentTurnRunner.taskRunForRequest(request)
 	runningTaskRun, errorValue := agentTurnRunner.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
 	if errorValue == nil {
 		taskRun = runningTaskRun
@@ -427,6 +428,15 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 
 	return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, agentTurnRunner.options.MaxIterationCount, state.ToolCallCount)
+}
+
+func (agentTurnRunner *AgentTurnRunner) taskRunForRequest(request AgentTurnRequest) task.TaskRun {
+	if taskRunID := strings.TrimSpace(request.ExistingTaskRunID); taskRunID != "" {
+		if taskRun, isFound := agentTurnRunner.taskRunService.FindTaskRun(taskRunID); isFound {
+			return taskRun
+		}
+	}
+	return agentTurnRunner.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
 }
 
 func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, observation turnObservation, attachments []FileAttachment) (AgentTurnResult, bool) {

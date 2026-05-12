@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -116,6 +117,7 @@ func waitForScheduledDelivery(t *testing.T, adapter *scheduledDeliveryAdapter, t
 }
 
 type scheduledDeliveryRepository struct {
+	mutex          sync.Mutex
 	taskSchedules  []task.TaskSchedule
 	succeeded      *task.TaskSchedule
 	failed         []string
@@ -152,7 +154,13 @@ func (repository *scheduledDeliveryRepository) MarkTaskScheduleFailed(_ task.Tas
 	return nil
 }
 
+func (repository *scheduledDeliveryRepository) CancelTaskSchedules(task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
+	return task.TaskScheduleCancelResult{}, nil
+}
+
 func (repository *scheduledDeliveryRepository) EnqueueScheduledConnectorReply(taskSchedule task.TaskSchedule, taskRunID string, reply connectors.OutboundReply) (string, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
 	if taskSchedule.ReplyTargetID == "" {
 		return "", errors.New("reply target is required")
 	}
@@ -204,6 +212,8 @@ func (repository *scheduledDeliveryRepository) EnqueueConnectorReply(event conne
 }
 
 func (repository *scheduledDeliveryRepository) ClaimPendingConnectorReplies(limit int, _ time.Duration) ([]connectors.QueuedConnectorReply, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
 	if limit <= 0 || len(repository.pendingReplies) == 0 {
 		return nil, nil
 	}
@@ -216,11 +226,15 @@ func (repository *scheduledDeliveryRepository) ClaimPendingConnectorReplies(limi
 }
 
 func (repository *scheduledDeliveryRepository) MarkConnectorReplySent(_ connectors.QueuedConnectorReply, dispatchID string) error {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
 	repository.sentReplies = append(repository.sentReplies, dispatchID)
 	return nil
 }
 
 func (repository *scheduledDeliveryRepository) MarkConnectorReplyFailed(queuedReply connectors.QueuedConnectorReply, _ error, _ time.Time) error {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
 	repository.pendingReplies = append(repository.pendingReplies, queuedReply)
 	return nil
 }

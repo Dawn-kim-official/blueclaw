@@ -19,6 +19,7 @@ type scheduleCreateToolInput struct {
 	AgentProfileName string `json:"agentProfileName"`
 	Kind             string `json:"kind"`
 	RunAt            string `json:"runAt"`
+	ExpiresAt        string `json:"expiresAt"`
 	IntervalSecond   int    `json:"intervalSecond"`
 	CronExpression   string `json:"cronExpression"`
 	TimeZone         string `json:"timeZone"`
@@ -59,8 +60,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.create",
-			Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. Set maxRunCount for finite repeats.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","executionMode","kind"],"additionalProperties":false}`),
+			Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. Use expiresAt for requests that say until/by/까지만/까지. Set maxRunCount for finite repeats. High-frequency or third-party external repeated sends must include expiresAt or maxRunCount.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","executionMode","kind"],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
@@ -205,13 +206,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		IntervalSecond:   normalizeScheduleIntervalSecond(input, handlerContext.request.Prompt),
 		CronExpression:   strings.TrimSpace(input.CronExpression),
 		MaxRunCount:      normalizeScheduleMaxRunCount(input, handlerContext.request.Prompt),
-		ExpiresAt:        defaultScheduleExpiresAt(),
 		CreatedAt:        now,
 		UpdatedAt:        now,
 		NextAttemptAt:    &now,
 	}
 	if errorValue := applyScheduleRunAt(&taskSchedule, input.RunAt); errorValue != nil {
 		return task.TaskSchedule{}, errorValue
+	}
+	if errorValue := applyScheduleExpiresAt(&taskSchedule, input.ExpiresAt, now); errorValue != nil {
+		return task.TaskSchedule{}, errorValue
+	}
+	if scheduleCreateNeedsFiniteBound(input, taskSchedule, handlerContext.request.Prompt) {
+		return task.TaskSchedule{}, errScheduleFiniteBoundRequired
 	}
 	return taskSchedule, nil
 }
@@ -236,15 +242,49 @@ func normalizeTaskScheduleExecutionMode(value string) task.TaskScheduleExecution
 	}
 }
 
-func defaultScheduleExpiresAt() time.Time {
-	return time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
-}
-
 func normalizeScheduleMaxRunCount(input scheduleCreateToolInput, requestPrompt string) int {
 	if input.MaxRunCount > 0 {
 		return input.MaxRunCount
 	}
 	return inferScheduleMaxRunCount(requestPrompt)
+}
+
+func applyScheduleExpiresAt(taskSchedule *task.TaskSchedule, value string, referenceTime time.Time) error {
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return nil
+	}
+	expiresAt, errorValue := time.Parse(time.RFC3339, trimmedValue)
+	if errorValue != nil {
+		return errScheduleInvalidExpiresAt
+	}
+	expiresAt = expiresAt.UTC()
+	if !expiresAt.After(referenceTime) {
+		return errScheduleInvalidExpiresAt
+	}
+	taskSchedule.ExpiresAt = &expiresAt
+	return nil
+}
+
+func scheduleCreateNeedsFiniteBound(input scheduleCreateToolInput, taskSchedule task.TaskSchedule, requestPrompt string) bool {
+	if taskSchedule.Kind != task.TaskScheduleKindInterval {
+		return false
+	}
+	if taskSchedule.MaxRunCount > 0 || taskSchedule.ExpiresAt != nil {
+		return false
+	}
+	if taskSchedule.IntervalSecond > 0 && taskSchedule.IntervalSecond < 3600 {
+		return true
+	}
+	return looksLikeExternalRepeatedSend(input.Prompt) || looksLikeExternalRepeatedSend(requestPrompt)
+}
+
+func looksLikeExternalRepeatedSend(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return false
+	}
+	return containsAny(normalizedPrompt, []string{"dm", "direct message", "email", "mail", "slack", "mattermost", "보내", "전송", "메일", "디엠"})
 }
 
 func normalizeScheduleIntervalSecond(input scheduleCreateToolInput, requestPrompt string) int {

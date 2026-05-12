@@ -191,8 +191,8 @@ func TestScheduleCreateToolStoresMessageExecutionMode(t *testing.T) {
 	if repository.taskSchedules[0].ExecutionMode != task.TaskScheduleExecutionModeMessage {
 		t.Fatalf("expected message execution mode, got %+v", repository.taskSchedules[0])
 	}
-	if repository.taskSchedules[0].ExpiresAt.IsZero() {
-		t.Fatalf("expected schedule expiration to be initialized, got %+v", repository.taskSchedules[0])
+	if repository.taskSchedules[0].ExpiresAt != nil {
+		t.Fatalf("expected schedule expiration to default to nil, got %+v", repository.taskSchedules[0])
 	}
 }
 
@@ -206,7 +206,7 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 		Kind:             task.TaskScheduleKindInterval,
 		IntervalSecond:   60,
 		NextRunAt:        &nextRunAt,
-		ExpiresAt:        nextRunAt.Add(time.Hour),
+		ExpiresAt:        timePointer(nextRunAt.Add(time.Hour)),
 		AgentProfileName: "default",
 	}, {
 		TaskScheduleID:   "schedule-other",
@@ -216,7 +216,7 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 		Kind:             task.TaskScheduleKindInterval,
 		IntervalSecond:   60,
 		NextRunAt:        &nextRunAt,
-		ExpiresAt:        nextRunAt.Add(time.Hour),
+		ExpiresAt:        timePointer(nextRunAt.Add(time.Hour)),
 		AgentProfileName: "default",
 	}}}
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
@@ -251,7 +251,7 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 		t.Fatalf("expected one schedule and one wait cancelled, got %s", result.Content)
 	}
 	ownedSchedule := repository.taskSchedules[1]
-	if ownedSchedule.TaskScheduleID != "schedule-owned" || ownedSchedule.NextRunAt != nil || ownedSchedule.ExpiresAt.After(time.Now().UTC().Add(time.Second)) {
+	if ownedSchedule.TaskScheduleID != "schedule-owned" || ownedSchedule.NextRunAt != nil || ownedSchedule.ExpiresAt == nil || ownedSchedule.ExpiresAt.After(time.Now().UTC().Add(time.Second)) {
 		t.Fatalf("expected owned schedule to expire, got %+v", ownedSchedule)
 	}
 	otherSchedule := repository.taskSchedules[0]
@@ -328,9 +328,10 @@ func TestScheduleCreateToolInfersIntervalFromPrompt(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"prompt":   "1분 지났습니다",
-			"kind":     "interval",
-			"timeZone": "Asia/Seoul",
+			"prompt":      "1분 지났습니다",
+			"kind":        "interval",
+			"timeZone":    "Asia/Seoul",
+			"maxRunCount": 10,
 		}),
 	})
 
@@ -400,7 +401,7 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 		Kind:            task.TaskScheduleKindOnce,
 		RunAt:           &runAt,
 		NextRunAt:       &runAt,
-		ExpiresAt:       runAt.Add(time.Hour),
+		ExpiresAt:       timePointer(runAt.Add(time.Hour)),
 	}}}
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	taskRun := taskRunService.CreateTaskRun("person-1", "schedule:schedule-1", "테스트")
@@ -493,7 +494,7 @@ func (repository *memoryTaskScheduleRepository) CancelTaskSchedules(request task
 	remainingTaskSchedules := []task.TaskSchedule{}
 	for _, taskSchedule := range repository.taskSchedules {
 		if memoryTaskScheduleMatchesCancelRequest(taskSchedule, request) {
-			taskSchedule.ExpiresAt = request.CancelledAt
+			taskSchedule.ExpiresAt = timePointer(request.CancelledAt)
 			taskSchedule.NextRunAt = nil
 			cancelledTaskSchedules = append(cancelledTaskSchedules, taskSchedule)
 			continue
@@ -516,6 +517,10 @@ func memoryTaskScheduleMatchesCancelRequest(taskSchedule task.TaskSchedule, requ
 	default:
 		return true
 	}
+}
+
+func timePointer(value time.Time) *time.Time {
+	return &value
 }
 
 func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) {

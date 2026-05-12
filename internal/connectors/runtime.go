@@ -270,10 +270,11 @@ type ConnectorRuntimeHealth struct {
 }
 
 type pendingApproval struct {
-	TaskRun          task.TaskRun
-	IntentPrompt     string
-	ApprovalQuestion string
-	ResponseLanguage string
+	TaskRun                 task.TaskRun
+	IntentPrompt            string
+	ApprovalQuestion        string
+	ResponseLanguage        string
+	ContinuationInstruction string
 }
 
 func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
@@ -685,7 +686,11 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 
 	connectorRuntime.logger.Info("connector."+platform+".auth.allowed", slog.String("messageID", event.MessageID), slog.String("personID", personID))
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
-	pendingApproval, isApprovalContinuation := connectorRuntime.resolveApprovalContinuation(ctx, platform, personID, event)
+	pendingApproval, confirmationDecision, hasPendingConfirmation := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event)
+	isApprovalContinuation := hasPendingConfirmation && confirmationDecision.Decision == "approved"
+	if hasPendingConfirmation && confirmationDecision.Decision == "rejected" {
+		return connectorRuntime.handleRejectedConfirmation(ctx, platform, adapter, event, replyTarget, pendingApproval, confirmationDecision, sendReply)
+	}
 	if isApprovalContinuation {
 		event = approvedContinuationEvent(event, pendingApproval)
 	}
@@ -704,6 +709,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		RequesterEmail:            connectorRuntime.identityService.ResolvePersonPrimaryEmail(personID),
 		RequesterPlatformUserID:   event.SenderID,
 		IsApprovalContinuation:    isApprovalContinuation,
+		ExistingTaskRunID:         pendingConfirmationTaskRunID(pendingApproval, isApprovalContinuation),
 		ProfileName:               "default",
 		Platform:                  platform,
 		ConversationID:            event.ConversationID,
@@ -725,9 +731,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 	turnResult := launchResult.TurnResult
 	taskRunID := turnResult.TaskRun.TaskRunID
-	if isApprovalContinuation {
-		connectorRuntime.completeApprovedPendingTask(pendingApproval.TaskRun, taskRunID, turnResult.FinalReply)
-	}
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
 	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
@@ -762,27 +765,29 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
 }
 
-func (connectorRuntime *ConnectorRuntime) resolveApprovalContinuation(ctx context.Context, platform string, personID string, event PlatformInboundEvent) (pendingApproval, bool) {
+func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent) (pendingApproval, agent.ConfirmationReplyDecision, bool) {
 	approval, isFound := connectorRuntime.findPendingApproval(personID, event.ConversationID)
 	if !isFound {
-		return pendingApproval{}, false
+		return pendingApproval{}, agent.ConfirmationReplyDecision{}, false
 	}
-	decision, errorValue := connectorRuntime.agentKernel.ClassifyApprovalReply(ctx, approval.IntentPrompt, approval.ApprovalQuestion, event.Prompt)
+	decision, errorValue := connectorRuntime.agentKernel.ClassifyConfirmationReply(ctx, approval.IntentPrompt, approval.ApprovalQuestion, event.Prompt)
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".approval.classify_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
-		return pendingApproval{}, false
+		return pendingApproval{}, agent.ConfirmationReplyDecision{}, false
 	}
-	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "approval.reply_classified", marshalConnectorEventBody(map[string]any{
+	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID":   event.MessageID,
-		"isApproval":  decision.IsApproval,
+		"decision":    decision.Decision,
 		"reason":      decision.Reason,
 		"replyPrompt": strings.TrimSpace(event.Prompt),
 	}))
-	if !decision.IsApproval {
-		return pendingApproval{}, false
+	if decision.Decision != "approved" && decision.Decision != "rejected" {
+		return approval, decision, false
 	}
-	connectorRuntime.logger.Info("connector."+platform+".approval.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
-	return approval, true
+	if decision.Decision == "approved" {
+		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
+	}
+	return approval, decision, true
 }
 
 func (connectorRuntime *ConnectorRuntime) findPendingApproval(personID string, conversationID string) (pendingApproval, bool) {
@@ -811,16 +816,18 @@ func (connectorRuntime *ConnectorRuntime) findPendingApproval(personID string, c
 	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(selectedTaskRun.TaskRunID)
 	approvalQuestion := latestApprovalQuestion(taskEvents)
 	responseLanguage := latestApprovalResponseLanguage(taskEvents)
+	continuationInstruction := latestConfirmationContinuationInstruction(taskEvents)
 	return pendingApproval{
-		TaskRun:          selectedTaskRun,
-		IntentPrompt:     pendingApprovalIntentPrompt(selectedTaskRun.Prompt, approvalQuestion),
-		ApprovalQuestion: approvalQuestion,
-		ResponseLanguage: responseLanguage,
+		TaskRun:                 selectedTaskRun,
+		IntentPrompt:            pendingApprovalIntentPrompt(selectedTaskRun.Prompt, approvalQuestion),
+		ApprovalQuestion:        approvalQuestion,
+		ResponseLanguage:        responseLanguage,
+		ContinuationInstruction: continuationInstruction,
 	}, true
 }
 
 func approvedContinuationEvent(event PlatformInboundEvent, approval pendingApproval) PlatformInboundEvent {
-	event.Prompt = approvedContinuationPrompt(approval.IntentPrompt, event.Prompt)
+	event.Prompt = approvedContinuationPrompt(firstNonEmptyString(approval.ContinuationInstruction, approval.IntentPrompt), event.Prompt)
 	event.ResponseLanguage = agent.ResolveResponseLanguage(event.ResponseLanguage, approval.ResponseLanguage)
 	return event
 }
@@ -833,6 +840,48 @@ func approvedContinuationPrompt(intentPrompt string, approvalReply string) strin
 		"Approval reply: " + strings.TrimSpace(approvalReply),
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func pendingConfirmationTaskRunID(approval pendingApproval, isApprovalContinuation bool) string {
+	if !isApprovalContinuation {
+		return ""
+	}
+	return strings.TrimSpace(approval.TaskRun.TaskRunID)
+}
+
+func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision agent.ConfirmationReplyDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {
+	_, _ = connectorRuntime.agentKernel.CancelTask(approval.TaskRun.TaskRunID, approval.TaskRun.RequesterPersonID, "confirmation.rejected")
+	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.rejected", marshalConnectorEventBody(map[string]string{
+		"messageID": event.MessageID,
+		"reason":    decision.Reason,
+	}))
+	reply, errorValue := connectorRuntime.agentKernel.GenerateReply(ctx, rejectedConfirmationReplyPrompt(event.Prompt, approval.ResponseLanguage))
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".confirmation.reject_reply_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: approval.TaskRun.TaskRunID, Reason: "confirmation_rejected"}, nil
+	}
+	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply})
+	if errorValue != nil {
+		connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: approval.TaskRun.TaskRunID, Reason: "reply_failed"}, nil
+	}
+	connectorRuntime.logger.Info("connector."+adapter.Name()+".confirmation.rejected", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("replyDispatchID", dispatchID))
+	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: approval.TaskRun.TaskRunID, Reason: "confirmation_rejected", ReplyDispatchID: dispatchID}, nil
+}
+
+func rejectedConfirmationReplyPrompt(reply string, responseLanguage string) string {
+	return strings.Join([]string{
+		connectorResponseLanguageInstruction(responseLanguage),
+		"The user rejected a pending confirmation. Write one brief user-facing reply saying the pending action has been cancelled.",
+		"Latest user reply: " + strings.TrimSpace(reply),
+	}, "\n")
+}
+
+func connectorResponseLanguageInstruction(responseLanguage string) string {
+	if agent.ResolveResponseLanguage(responseLanguage) == agent.ResponseLanguageEnglish {
+		return "Write in English."
+	}
+	return "Write in Korean."
 }
 
 func pendingApprovalIntentPrompt(taskPrompt string, approvalQuestion string) string {
@@ -874,7 +923,7 @@ func shouldUseApprovalQuestionAsIntent(taskPrompt string, approvalQuestion strin
 func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
-		if taskEvent.Name != "approval.requested" {
+		if taskEvent.Name != "approval.requested" && taskEvent.Name != "confirmation.requested" {
 			continue
 		}
 		var approvalRequest struct {
@@ -895,7 +944,7 @@ func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
 func latestApprovalResponseLanguage(taskEvents []task.TaskEvent) string {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
-		if taskEvent.Name != "approval.requested" {
+		if taskEvent.Name != "approval.requested" && taskEvent.Name != "confirmation.requested" {
 			continue
 		}
 		var approvalRequest struct {
@@ -906,6 +955,25 @@ func latestApprovalResponseLanguage(taskEvents []task.TaskEvent) string {
 		}
 		if responseLanguage := agent.NormalizeResponseLanguage(approvalRequest.ResponseLanguage); responseLanguage != "" {
 			return responseLanguage
+		}
+	}
+	return ""
+}
+
+func latestConfirmationContinuationInstruction(taskEvents []task.TaskEvent) string {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name != "confirmation.requested" {
+			continue
+		}
+		var request struct {
+			ContinuationInstruction string `json:"continuationInstruction"`
+		}
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &request); errorValue != nil {
+			continue
+		}
+		if instruction := strings.TrimSpace(request.ContinuationInstruction); instruction != "" {
+			return instruction
 		}
 	}
 	return ""
