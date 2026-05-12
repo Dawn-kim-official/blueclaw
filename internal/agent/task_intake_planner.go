@@ -123,7 +123,7 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -187,6 +187,14 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		return defaultDecision
 	}
 	decision.Classification = normalizedClassification
+	if looksLikeSyntheticConnectorVerificationProbe(request.Prompt) {
+		decision.Classification = IntakeClassificationQuickReply
+		decision.TaskShape = TaskShapeImmediateReply
+		decision.EffortLevel = EffortLevelQuick
+		decision.RequestedOutputFormats = nil
+		decision.Reason = firstNonEmptyString(decision.Reason, "synthetic connector verification probe")
+		decision.UserFacingReply = ""
+	}
 	if requestRequiresFollowUpToolWork(request) && decision.Classification == IntakeClassificationQuickReply {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = firstNonEmptyString(decision.Reason, "request resumes previous visible tool work")
@@ -404,6 +412,9 @@ func containsAny(value string, candidates []string) bool {
 
 func minimumEffortLevelForRequest(request AgentRequest) EffortLevel {
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if looksLikeSyntheticConnectorVerificationProbe(prompt) {
+		return EffortLevelQuick
+	}
 	if containsAny(prompt, []string{"migration", "backup", "restore", "delegated", "delegate", "scheduled workflow", "long-running", "마이그레이션", "백업", "복구", "위임", "장기", "예약 실행"}) {
 		return EffortLevelExtended
 	}
@@ -425,6 +436,32 @@ func minimumEffortLevelForRequest(request AgentRequest) EffortLevel {
 		return EffortLevelStandard
 	}
 	return EffortLevelQuick
+}
+
+func looksLikeSyntheticConnectorVerificationProbe(prompt string) bool {
+	fields := strings.Fields(strings.ToLower(strings.TrimSpace(prompt)))
+	if len(fields) != 3 {
+		return false
+	}
+	if fields[0] != "verify" {
+		return false
+	}
+	if fields[1] != "invited" && fields[1] != "uninvited" {
+		return false
+	}
+	return isDigitString(fields[2])
+}
+
+func isDigitString(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func hasToolPrefix(toolRegistry *ToolSet, prefix string) bool {
