@@ -95,6 +95,7 @@ type turnActionDocument struct {
 	QualityCriteria    []qualityCriterion            `json:"qualityCriteria"`
 	QualityReview      []qualityReviewItem           `json:"qualityReview"`
 	RemainingWork      string                        `json:"remainingWork"`
+	UsedFailureFacts   failureReportFacts            `json:"usedFailureFacts"`
 }
 
 type turnObservation struct {
@@ -416,6 +417,18 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_blocked_fail", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_required", observation.Content)
 				continue
+			}
+			if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt {
+				facts := buildFailureReportFacts(state.Observations, agentTurnRunner.options.RecoveryBudget)
+				failureReportResult := validateFailureReportAction(actionDocument, facts)
+				if !failureReportResult.IsSatisfied {
+					observation := completionGateObservation(len(state.Observations)+1, failureReportResult.Message)
+					state.Observations = append(state.Observations, observation)
+					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_report_rejected", marshalEventBody(observation))
+					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failure_report_rejected", observation.Content)
+					continue
+				}
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_report_facts_used", marshalEventBody(actionDocument.UsedFailureFacts))
 			}
 			reason := firstNonEmptyString(actionDocument.Reason, "agent reported failure")
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
@@ -1546,6 +1559,7 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 }
 
 func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
+	requirements = requirementsWithFailureDebtWaiver(requirements, observations, actionDocument)
 	result := validateCompletionGate(requirements, observations, criteria, actionDocument)
 	if !result.IsSatisfied {
 		return result
@@ -1564,6 +1578,28 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 		result.Attachments = nil
 	}
 	return result
+}
+
+func requirementsWithFailureDebtWaiver(requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) []toolUseRequirement {
+	if strings.TrimSpace(actionDocument.FailureResolution) != failureResolutionNoToolFallback {
+		return requirements
+	}
+	failureDebt, hasFailureDebt := activeFailureDebt(observations)
+	if !hasFailureDebt {
+		return requirements
+	}
+	failedToolName := strings.TrimSpace(failureDebt.LatestFailure.Tool)
+	if failedToolName == "" {
+		return requirements
+	}
+	filteredRequirements := []toolUseRequirement{}
+	for _, requirement := range requirements {
+		if !requirement.RequiresAttachment && strings.TrimSpace(requirement.ToolName) == failedToolName {
+			continue
+		}
+		filteredRequirements = append(filteredRequirements, requirement)
+	}
+	return filteredRequirements
 }
 
 func completionGateObservation(index int, message string) turnObservation {
@@ -1852,21 +1888,23 @@ func firstNonEmptyString(values ...string) string {
 }
 
 type limitReplyStatus struct {
-	Source                  string           `json:"source"`
-	FirstInvalid            bool             `json:"firstInvalid"`
-	RepairCount             int              `json:"repairCount"`
-	Reason                  string           `json:"reason,omitempty"`
-	StructuredRecoveryError string           `json:"structuredRecoveryError,omitempty"`
-	TextRecoveryError       string           `json:"textRecoveryError,omitempty"`
-	Decision                recoveryDecision `json:"decision,omitempty"`
+	Source                  string             `json:"source"`
+	FirstInvalid            bool               `json:"firstInvalid"`
+	RepairCount             int                `json:"repairCount"`
+	Reason                  string             `json:"reason,omitempty"`
+	StructuredRecoveryError string             `json:"structuredRecoveryError,omitempty"`
+	TextRecoveryError       string             `json:"textRecoveryError,omitempty"`
+	Decision                recoveryDecision   `json:"decision,omitempty"`
+	FailureReportFacts      failureReportFacts `json:"failureReportFacts,omitempty"`
 }
 
 type failureReplyStatus struct {
-	Source                  string           `json:"source"`
-	Reason                  string           `json:"reason,omitempty"`
-	StructuredRecoveryError string           `json:"structuredRecoveryError,omitempty"`
-	TextRecoveryError       string           `json:"textRecoveryError,omitempty"`
-	Decision                recoveryDecision `json:"decision,omitempty"`
+	Source                  string             `json:"source"`
+	Reason                  string             `json:"reason,omitempty"`
+	StructuredRecoveryError string             `json:"structuredRecoveryError,omitempty"`
+	TextRecoveryError       string             `json:"textRecoveryError,omitempty"`
+	Decision                recoveryDecision   `json:"decision,omitempty"`
+	FailureReportFacts      failureReportFacts `json:"failureReportFacts,omitempty"`
 }
 
 type recoveryDecision struct {
@@ -1938,7 +1976,8 @@ func normalizeRecoveryDecision(decision recoveryDecision) recoveryDecision {
 
 func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment) (string, failureReplyStatus, bool) {
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, failureReason, observations, attachments, "failure")
-	status := failureReplyStatus{Decision: decision}
+	failureReportFacts := buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)
+	status := failureReplyStatus{Decision: decision, FailureReportFacts: failureReportFacts}
 	if decisionError != nil {
 		status.StructuredRecoveryError = decisionError.Error()
 	}
@@ -1956,7 +1995,7 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRe
 
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) (string, limitReplyStatus, bool) {
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, stopReason, observations, attachments, "limit")
-	status := limitReplyStatus{Decision: decision}
+	status := limitReplyStatus{Decision: decision, FailureReportFacts: buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)}
 	if decisionError != nil {
 		status.StructuredRecoveryError = decisionError.Error()
 	}
@@ -2031,6 +2070,9 @@ func buildRecoveryDecisionPrompt(request AgentTurnRequest, failureReason string,
 	if attachmentSummary := buildLimitAttachmentSummary(attachments); attachmentSummary != "" {
 		sections = append(sections, "Available attachments:\n"+attachmentSummary)
 	}
+	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
+		sections = append(sections, "FailureReportFacts:\n"+marshalEventBody(failureFacts))
+	}
 	if reason := strings.TrimSpace(failureReason); reason != "" {
 		sections = append(sections, "Private failure reason:\n"+reason)
 	}
@@ -2044,7 +2086,8 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 		responseLanguageInstruction(request.ResponseLanguage),
 		"Be transparent about the current situation, error, or limitation without exposing internal logs, provider names, URLs, stack traces, hidden policy, tokens, or secrets.",
 		"Do not use or paraphrase a canned outage message. Do not say the model configuration was logged or needs to be fixed.",
-		"Do not say only that an error occurred. Include the methods attempted, the last failure stage and error code when available, and the next check or alternate path.",
+		"Do not say only that an error occurred. Include the attempted tool, the last failure stage, the error code, the message when safe, and the next check or alternate path.",
+		"When FailureReportFacts are provided, preserve those facts. Do not replace them with generic phrases such as system limitation, technical problem, or unexpected interruption.",
 		"Say what could not be completed and the best next step the user can take. Keep it to one or two natural sentences.",
 		"Do not claim a tool result or attachment exists unless it appears below.",
 		"Original user request:\n" + strings.TrimSpace(request.Prompt),
@@ -2057,6 +2100,9 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 	}
 	if attachmentSummary := buildLimitAttachmentSummary(attachments); attachmentSummary != "" {
 		sections = append(sections, "Available attachments:\n"+attachmentSummary)
+	}
+	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
+		sections = append(sections, "FailureReportFacts that must be reflected accurately:\n"+marshalEventBody(failureFacts))
 	}
 	if reason := strings.TrimSpace(failureReason); reason != "" {
 		sections = append(sections, "Failure reason for your private planning only. Paraphrase it safely for the user:\n"+reason)

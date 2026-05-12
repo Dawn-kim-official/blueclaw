@@ -557,7 +557,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	descriptions := toolRegistry.Descriptions()
-	actionSchema := toolRegistry.ActionSchema(false, nil)
+	actionSchema := toolRegistry.ActionSchema(false, nil, false)
 	if !strings.Contains(descriptions, `"url"`) || !strings.Contains(actionSchema, `"browser.open"`) {
 		t.Fatalf("expected descriptor schema in prompt and action schema, got prompt=%s schema=%s", descriptions, actionSchema)
 	}

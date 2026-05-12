@@ -908,7 +908,7 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"unstable","toolInput":{}}`,
 		finalReplyWithEvidence("done", "obs-001", "unstable", 0),
-		`{"action":"fail","reason":"tool failed"}`,
+		failureReportDocument("tool failed", "unstable", "{}", "tool_failed", "unstable", "failed"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestToolSet([]string{"unstable"})
@@ -962,11 +962,90 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
+		noToolFallbackFinalReplyDocument("1 + 2/4 = 1.5"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := newTestToolSet([]string{"math.calculate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Content:      "exec: \"bc\": executable file not found in $PATH",
+			Message:      "bc: command not found",
+			IsError:      true,
+			ErrorCode:    "calculator_failed",
+			FailureStage: "bc_execution",
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "1+2/4=",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"math.calculate"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected no-tool fallback to complete: %v", errorValue)
+	}
+	if result.FinalReply != "1 + 2/4 = 1.5" {
+		t.Fatalf("expected direct fallback answer, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", "calculator_failed") {
+		t.Fatal("expected internal tool failure event to remain recorded")
+	}
+}
+
+func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T) {
+	request := BuildAgentActionRequest(agentTaskState{
+		Request: AgentTurnRequest{ToolSet: newTestToolSet(nil)},
+		Options: TurnOptions{RecoveryBudget: defaultRecoveryBudget()},
+		Observations: []turnObservation{{
+			ObservationID:      "obs-001",
+			Action:             "call_tool",
+			Tool:               "math.calculate",
+			IsError:            true,
+			ErrorCode:          "calculator_failed",
+			FailureStage:       "bc_execution",
+			Message:            "bc: command not found",
+			ToolInputKey:       "math.calculate\x00{\"expression\":\"1+2/4\"}",
+			AttemptFingerprint: "math.calculate\x00{\"expression\":\"1+2/4\"}\x00calculator_failed",
+		}},
+	})
+	schemaDocument := request.StructuredOutputSchema.Document
+	if !strings.Contains(schemaDocument, `"failureResolution"`) || !strings.Contains(schemaDocument, `"usedFailureFacts"`) {
+		t.Fatalf("expected debt-aware schema, got %s", schemaDocument)
+	}
+	if !structuredRequestsContain([]llm.StructuredResponseRequest{request}, "FailureReportFacts") {
+		t.Fatal("expected debt-aware request to inject FailureReportFacts")
+	}
+}
+
+func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
+	result := validateFailureReportAction(turnActionDocument{
+		Action:            "fail",
+		Reason:            "calculator failed",
+		FailureResolution: failureResolutionFailureReport,
+	}, failureReportFacts{
+		Attempts: []failureReportAttempt{{
+			ToolName:     "math.calculate",
+			InputSummary: "1+2/4",
+			ErrorCode:    "calculator_failed",
+			FailureStage: "bc_execution",
+			Message:      "bc: command not found",
+		}},
+		BudgetState: "failure_report_required",
+	})
+	if result.IsSatisfied {
+		t.Fatal("expected missing usedFailureFacts to be rejected")
+	}
+}
+
 func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-		`{"action":"fail","reason":"recipient missing"}`,
-		`{"action":"fail","reason":"recipient missing"}`,
+		failureReportDocument("recipient missing", "platform.dm.send", "정국", "recipient_not_found", "recipient_resolve", "approved active Mattermost recipient was not found"),
 		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 	}, textResponses: []string{
 		"recipient_resolve/recipient_not_found 단계에서 수신자를 찾지 못해 DM을 보내지 못했습니다.",
@@ -1006,8 +1085,7 @@ func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCod
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-			`{"action":"fail","reason":"recipient missing"}`,
-			`{"action":"fail","reason":"recipient missing"}`,
+			failureReportDocument("recipient missing", "platform.dm.send", "정국", "recipient_not_found", "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{"요청을 처리하지 못했습니다."},
@@ -1047,8 +1125,7 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-			`{"action":"fail","reason":"recipient missing"}`,
-			`{"action":"fail","reason":"recipient missing"}`,
+			failureReportDocument("recipient missing", "platform.dm.send", "정국", "recipient_not_found", "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{generatedReply},
@@ -1197,7 +1274,7 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 		`{"action":"call_tool","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"샘플"}}`,
 		`{"action":"call_tool","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"이샘플"}}`,
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-		`{"action":"fail","reason":"mattermost still unavailable"}`,
+		failureReportDocument("mattermost still unavailable", "platform.dm.send", "정국", "mattermost_unavailable", "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/mattermost_unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
 		"mattermost_lookup/mattermost_unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
@@ -1256,7 +1333,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"확인 부탁해"}}`,
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"확인 부탁해"}}`,
-		`{"action":"fail","reason":"send failed"}`,
+		failureReportDocument("send failed", "platform.dm.send", "샘플", "send_failed", "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("message send failed", "message_send/send_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
 		"message_send/send_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
@@ -1509,7 +1586,7 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 			return ToolResult{}, nil
 		})
 	}
-	schemaDocument := runner.buildActionSchema(toolRegistry, true, nil)
+	schemaDocument := runner.buildActionSchema(toolRegistry, true, nil, false)
 
 	if strings.Contains(schemaDocument, "anyOf") {
 		t.Fatalf("expected browser action schema to avoid anyOf, got %s", schemaDocument)
@@ -2522,6 +2599,28 @@ func finalReplyDocument(reply string) string {
 
 func noToolFallbackFinalReplyDocument(reply string) string {
 	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"failureResolution":"no_tool_fallback","finalReply":` + strconv.Quote(reply) + `}`
+}
+
+func failureReportDocument(reason string, toolName string, inputSummary string, errorCode string, failureStage string, message string) string {
+	document, errorValue := json.Marshal(map[string]any{
+		"action":            "fail",
+		"reason":            reason,
+		"failureResolution": failureResolutionFailureReport,
+		"usedFailureFacts": failureReportFacts{
+			Attempts: []failureReportAttempt{{
+				ToolName:     toolName,
+				InputSummary: inputSummary,
+				ErrorCode:    errorCode,
+				FailureStage: failureStage,
+				Message:      message,
+			}},
+			BudgetState: "failure_report_required",
+		},
+	})
+	if errorValue != nil {
+		return `{"action":"fail","reason":"failed","failureResolution":"failure_report","usedFailureFacts":{"attempts":[],"budgetState":"failure_report_required"}}`
+	}
+	return string(document)
 }
 
 func exhaustedRecoveryBudgetForTest() RecoveryBudget {
