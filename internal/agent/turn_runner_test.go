@@ -1123,6 +1123,42 @@ func TestAgentTurnRunnerRetriesSafeFailureOnce(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"첫 번째"}}`,
+		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"두 번째"}}`,
+		finalReplyWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "platform.dm.send", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
+	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
+	sendCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		sendCallCount++
+		return ToolResult{Content: "sent"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "샘플에게 DM 보내줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"platform.dm.send"},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to complete from first send: %v", errorValue)
+	}
+	if sendCallCount != 1 {
+		t.Fatalf("expected exactly one DM send, got %d", sendCallCount)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.external_send_repeat_rejected", "obs-001") {
+		t.Fatal("expected second DM send to be rejected")
+	}
+}
+
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 	failure := turnObservation{
 		ObservationID: "obs-001",
@@ -1647,6 +1683,7 @@ func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 		Prompt:                "웹사이트 만들어서 배포해",
 		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"site.app.publish"},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 		WorkspaceRootPath:     t.TempDir(),
 	})
 	if errorValue != nil {
@@ -1663,6 +1700,41 @@ func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "site.app.publish") {
 		t.Fatal("expected unnecessary approval rejection event")
+	}
+}
+
+func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"approval.request","toolInput":{"message":"샘플 님에게 DM을 보내도 될까요?","reason":"external send"}}`,
+		finalReplyDocument("승인 요청했습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestToolSet([]string{"approval.request", "terminal.run", "site.app.create", "site.app.publish", "platform.dm.send"})
+	approvalCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "approval.request"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		approvalCallCount++
+		return ToolResult{Content: "approval requested"}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "샘플에게 DM 보내줘",
+		ToolSet:           toolRegistry,
+		SkillDecisions:    []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		WorkspaceRootPath: t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected approval request to pause: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if approvalCallCount != 1 {
+		t.Fatalf("expected approval request tool to run, got %d", approvalCallCount)
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "") {
+		t.Fatal("site approval rejection must not apply to direct-message tasks")
 	}
 }
 

@@ -94,6 +94,10 @@ func (client *mattermostIntegrationConversationClient) PublishTyping(string, str
 	return nil
 }
 
+func (client *mattermostIntegrationConversationClient) FetchPosts(string, string, int) ([]mattermost.ConversationPost, error) {
+	return nil, nil
+}
+
 func newMattermostIdentityService(personID string, email string) *identity.IdentityService {
 	policyDocument := policy.PolicyDocument{
 		People: []policy.PersonPolicy{

@@ -306,6 +306,26 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testing.T) {
+	languageModel := &recordingLanguageModel{reply: "맥락 확인"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testInboundEvent("message-1")
+	event.Context.HasMoreBefore = true
+	event.Context.HistoryCursor = "cursor-1"
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+
+	if len(adapter.historyCursors) != 1 || adapter.historyCursors[0] != "cursor-1" {
+		t.Fatalf("expected initial history fetch, got %+v", adapter.historyCursors)
+	}
+	if !structuredMessagesContain(languageModel.request.Messages, "admin: older message") {
+		t.Fatalf("expected fetched visible context in model messages, got %+v", languageModel.request.Messages)
+	}
+}
+
 func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T) {
 	languageModel := &connectorSequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"conversation.history","toolInput":{"limit":20}}`,
@@ -324,7 +344,7 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T)
 	if result.TaskRunID == "" {
 		t.Fatal("expected task run id")
 	}
-	if len(adapter.historyCursors) != 1 || adapter.historyCursors[0] != "cursor-1" {
+	if len(adapter.historyCursors) != 2 || adapter.historyCursors[0] != "cursor-1" || adapter.historyCursors[1] != "cursor-1" {
 		t.Fatalf("expected history fetch with cursor, got %+v", adapter.historyCursors)
 	}
 	if len(adapter.sentReplies) != 1 {

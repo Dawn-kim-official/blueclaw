@@ -14,6 +14,9 @@ type toolUseRequirement struct {
 
 func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
 	requirements := evidenceToolRequirements(request)
+	if directMessageEvidenceRequired(request) {
+		return requirements
+	}
 	if requestRequiresBrowserScreenshot(request) {
 		requirements = append(requirements, toolUseRequirement{
 			ToolName:           "browser.screenshot",
@@ -29,6 +32,13 @@ func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
 		})
 	}
 	return requirements
+}
+
+func directMessageEvidenceRequired(request AgentTurnRequest) bool {
+	if requiredEvidenceContains(request.RequiredEvidenceTools, "platform.dm.send") {
+		return true
+	}
+	return selectedSkillNameSet(request.SkillDecisions)["direct-message"]
 }
 
 func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {

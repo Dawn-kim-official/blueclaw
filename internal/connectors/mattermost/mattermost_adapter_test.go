@@ -71,6 +71,32 @@ func TestAdapterSendsMattermostDirectAndThreadReplies(t *testing.T) {
 	}
 }
 
+func TestAdapterFetchesVisibleHistoryBeforeCurrentPost(t *testing.T) {
+	conversationClient := &testMattermostConversationClient{
+		historyPosts: []ConversationPost{
+			{ID: "post-2", UserID: "user-2", Message: "이전 답변", CreateAt: 20},
+			{ID: "post-current", UserID: "user-1", Message: "지금 질문", CreateAt: 30},
+			{ID: "post-1", UserID: "user-1", Message: "이전 질문", CreateAt: 10},
+		},
+	}
+	adapter := NewAdapter(testMattermostIdentityClient{}, conversationClient)
+
+	visibleContext, errorValue := adapter.FetchHistory(context.Background(), "channel-1:post-current", 20)
+	if errorValue != nil {
+		t.Fatalf("expected history fetch: %v", errorValue)
+	}
+
+	if conversationClient.historyConversationID != "channel-1" || conversationClient.historyBeforePostID != "post-current" {
+		t.Fatalf("expected parsed cursor, got conversation=%q before=%q", conversationClient.historyConversationID, conversationClient.historyBeforePostID)
+	}
+	if len(visibleContext.Messages) != 2 {
+		t.Fatalf("expected previous messages only, got %+v", visibleContext.Messages)
+	}
+	if visibleContext.Messages[0].Text != "이전 질문" || visibleContext.Messages[1].Text != "이전 답변" {
+		t.Fatalf("expected chronological visible context, got %+v", visibleContext.Messages)
+	}
+}
+
 type testMattermostIdentityClient struct{}
 
 func (client testMattermostIdentityClient) ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error) {
@@ -83,8 +109,11 @@ func (client testMattermostIdentityClient) ResolveUserIdentity(externalUserID st
 }
 
 type testMattermostConversationClient struct {
-	posts           []testMattermostPost
-	typingParentIDs []string
+	posts                 []testMattermostPost
+	typingParentIDs       []string
+	historyPosts          []ConversationPost
+	historyConversationID string
+	historyBeforePostID   string
 }
 
 type testMattermostPost struct {
@@ -101,6 +130,12 @@ func (client *testMattermostConversationClient) CreatePost(conversationID string
 func (client *testMattermostConversationClient) PublishTyping(_ string, _ string, parentID string) error {
 	client.typingParentIDs = append(client.typingParentIDs, parentID)
 	return nil
+}
+
+func (client *testMattermostConversationClient) FetchPosts(conversationID string, beforePostID string, _ int) ([]ConversationPost, error) {
+	client.historyConversationID = conversationID
+	client.historyBeforePostID = beforePostID
+	return client.historyPosts, nil
 }
 
 func httptestRequest(payload []byte) *http.Request {

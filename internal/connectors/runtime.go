@@ -689,6 +689,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if isApprovalContinuation {
 		event = approvedContinuationEvent(event, pendingApproval)
 	}
+	event = connectorRuntime.withInitialVisibleContext(ctx, adapter, event)
 	stopProgress := connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
 	defer stopProgress()
 
@@ -964,6 +965,35 @@ func recoveryActionsForEvent(recoveryActions []agent.RecoveryAction, event Platf
 		enrichedRecoveryActions = append(enrichedRecoveryActions, recoveryAction)
 	}
 	return enrichedRecoveryActions
+}
+
+func (connectorRuntime *ConnectorRuntime) withInitialVisibleContext(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) PlatformInboundEvent {
+	if len(event.Context.Messages) > 0 {
+		return event
+	}
+	if !event.Context.HasMoreBefore && strings.TrimSpace(event.Context.HistoryCursor) == "" {
+		return event
+	}
+	historyCursor := firstNonEmptyString(event.Context.HistoryCursor, event.ConversationID)
+	if historyCursor == "" {
+		return event
+	}
+	visibleContext, errorValue := adapter.FetchHistory(ctx, historyCursor, 20)
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+adapter.Name()+".history.fetch_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
+		return event
+	}
+	if strings.TrimSpace(event.Context.HistoryCursor) == "" {
+		event.Context.HistoryCursor = historyCursor
+	}
+	if len(visibleContext.Messages) == 0 {
+		return event
+	}
+	event.Context.Messages = visibleContext.Messages
+	event.Context.HasMoreBefore = visibleContext.HasMoreBefore
+	event.Context.HistoryCursor = firstNonEmptyString(visibleContext.HistoryCursor, event.Context.HistoryCursor)
+	event.Context.ResponseLanguage = firstNonEmptyString(event.Context.ResponseLanguage, visibleContext.ResponseLanguage)
+	return event
 }
 
 func (connectorRuntime *ConnectorRuntime) Health() ConnectorRuntimeHealth {
