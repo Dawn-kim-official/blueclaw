@@ -58,6 +58,7 @@ type AgentTurnRequest struct {
 	SkillRetrievalMode         string
 	SkillIndexStatus           string
 	SkillCandidateCount        int
+	SkillQueries               []string
 	RequiredEvidenceTools      []string
 	RequiredAttachmentSuffixes []string
 	QualityAcceptanceGuidance  []string
@@ -493,6 +494,7 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 		"retrievalMode":  request.SkillRetrievalMode,
 		"indexStatus":    request.SkillIndexStatus,
 		"candidateCount": request.SkillCandidateCount,
+		"skillQueries":   request.SkillQueries,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"

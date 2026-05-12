@@ -53,6 +53,42 @@ func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	}
 }
 
+func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
+			Name:         "mail",
+			Description:  "Read, search, summarize, reply to, and send email messages.",
+			AllowedTools: []string{"mail.message.search", "mail.message.read"},
+		}}}
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.search",
+		Input: agent.MarshalToolInput(map[string]any{
+			"queries": []map[string]string{{"description": "Search and read recent email messages."}},
+			"limit":   5,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected skill.search success, got %s", result.Content)
+	}
+	var resultDocument agent.SkillSearchResult
+	if errorValue := json.Unmarshal([]byte(result.Content), &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Name != "mail" {
+		t.Fatalf("expected mail skill result, got %+v", resultDocument)
+	}
+	if !containsTestString(resultDocument.Skills[0].Tools, "mail.message.search") {
+		t.Fatalf("expected mail tools in result, got %+v", resultDocument.Skills[0].Tools)
+	}
+}
+
 func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
@@ -1342,3 +1378,26 @@ func containsTestString(values []string, target string) bool {
 	}
 	return false
 }
+
+type skillSearchTestRetriever struct{}
+
+func (skillSearchTestRetriever) Retrieve(context.Context, agent.AgentRequest, []agent.SkillInstruction, int) agent.SkillRetrievalResult {
+	return agent.SkillRetrievalResult{}
+}
+
+func (skillSearchTestRetriever) Search(_ context.Context, _ agent.AgentRequest, _ []agent.SkillInstruction, querySet agent.SkillSearchQuerySet, _ int) agent.SkillRetrievalResult {
+	if len(querySet.Queries) == 0 {
+		return agent.SkillRetrievalResult{}
+	}
+	return agent.SkillRetrievalResult{
+		RetrievalMode: "embedding",
+		IndexStatus:   "ready",
+		SelectedCandidates: []agent.SkillCandidate{{
+			Name:   "mail",
+			Score:  0.91,
+			Reason: "embedding_similarity",
+		}},
+	}
+}
+
+func (skillSearchTestRetriever) Refresh(context.Context, []agent.SkillInstruction) {}

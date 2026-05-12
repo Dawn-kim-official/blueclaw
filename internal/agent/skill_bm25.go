@@ -10,7 +10,6 @@ import (
 const maxSkillIndexCandidateCount = 8
 const maxSelectedSkillInstructionCount = 3
 const minimumBM25SelectionScore = 0.25
-const skillListTextMaxLength = 1536
 
 type skillBM25Score struct {
 	Name  string
@@ -130,21 +129,10 @@ func averageSkillTokenCount(documents []skillBM25Document) float64 {
 }
 
 func skillSearchText(skillInstruction SkillInstruction) string {
-	return strings.Join(nonEmptyStrings([]string{
-		skillInstruction.Name,
-		skillListText(skillInstruction),
-	}), "\n")
-}
-
-func skillListText(skillInstruction SkillInstruction) string {
-	text := strings.Join(nonEmptyStrings([]string{
-		skillInstruction.Description,
-		skillInstruction.WhenToUse,
-	}), "\n")
-	if len(text) <= skillListTextMaxLength {
-		return text
+	if strings.TrimSpace(skillInstruction.Description) != "" {
+		return strings.TrimSpace(skillInstruction.Description)
 	}
-	return text[:skillListTextMaxLength]
+	return strings.TrimSpace(skillInstruction.Name)
 }
 
 func skillSearchTokens(value string) []string {

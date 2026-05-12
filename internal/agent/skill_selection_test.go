@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"blueclaw/internal/llm"
 )
 
 func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testing.T) {
@@ -15,7 +17,7 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 		Skills: []SkillInstruction{
 			{
 				Name:         "simple-slides",
-				Description:  "Create presentation decks.",
+				Description:  "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
 				WhenToUse:    "Use for 피피티, 파워포인트, 발표자료, and PPTX requests.",
 				Category:     "document-generation",
 				Tags:         []string{"slides", "pptx"},
@@ -35,7 +37,7 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
 		t.Fatalf("expected simple-slides skill prompt for Korean PPT request, got %q", selectedBundle.Prompt)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "Available skill index") || !strings.Contains(selectedBundle.Prompt, "simple-slides: Create presentation decks.") {
+	if !strings.Contains(selectedBundle.Prompt, "Available skill index") || !strings.Contains(selectedBundle.Prompt, "simple-slides: Create presentation decks, 피피티") {
 		t.Fatalf("expected compact skill index, got %q", selectedBundle.Prompt)
 	}
 	if len(selectedBundle.Sources) != 1 || selectedBundle.Sources[0].SkillName != "simple-slides" {
@@ -52,7 +54,7 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 		Skills: []SkillInstruction{
 			{
 				Name:         "simple-slides",
-				Description:  "Create presentation decks.",
+				Description:  "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
 				WhenToUse:    "Use for 피피티 and PPTX requests.",
 				Prompt:       "Generate PPTX with Marp.",
 				TriggerHints: []string{"피피티", "pptx"},
@@ -259,7 +261,7 @@ func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
 		Skills: []SkillInstruction{
 			{
 				Name:        "simple-slides",
-				Description: "Create presentation slides and PPTX decks.",
+				Description: "Create presentation slides, 피피티, and PPTX decks.",
 				WhenToUse:   "Use for pitch decks, 발표자료, 피피티, and PowerPoint requests.",
 				Prompt:      "Generate slides.",
 				Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
@@ -297,7 +299,7 @@ func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
 		Skills: []SkillInstruction{
 			{
 				Name:        "skill-management",
-				Description: "Create, add, update, or remove user-managed Blueclaw skills.",
+				Description: "Create, add, update, or remove user-managed Blueclaw skills, 스킬, and SKILL.md files.",
 				WhenToUse:   "Use for skill 만들기, 스킬 추가, 스킬 삭제, SKILL.md 작성, and /skill-management.",
 				Prompt:      "Use skill.add and skill.remove.",
 				Source:      InstructionSource{Path: "skills/skill-management/SKILL.md", SHA256: "one", SkillName: "skill-management"},
@@ -335,7 +337,7 @@ func TestEmbeddingRetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 		Skills: []SkillInstruction{
 			{
 				Name:         "scheduled-task",
-				Description:  "Create scheduled, recurring, and finite repeated messages.",
+				Description:  "Create scheduled, recurring, and finite repeated messages, 1분에 한 번씩, 10번, reminders, and repeats.",
 				WhenToUse:    "Use for reminders, interval messages, 1분에 한 번씩, 10번, finite repeated message, and repeat N times requests.",
 				Prompt:       "Use schedule.create with executionMode message for exact repeated messages, intervalSecond, and maxRunCount.",
 				AllowedTools: []string{"schedule.create"},
@@ -364,6 +366,82 @@ func TestEmbeddingRetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 	}
 	if !strings.Contains(selectedBundle.Prompt, "maxRunCount") {
 		t.Fatalf("expected scheduled-task body, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestStructuredSkillQueryCanSkipSkillSearch(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Prompt: "base",
+		Skills: []SkillInstruction{{
+			Name:        "mail",
+			Description: "Read, search, summarize, reply to, and send email messages.",
+			Prompt:      "Use mail tools.",
+		}},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[]}`})
+
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "고마워",
+	}, retriever, router)
+
+	if selectedBundle.RetrievalMode != "structured_query" || selectedBundle.IndexStatus != "empty_query" {
+		t.Fatalf("expected empty structured query, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
+	}
+	if len(selectedBundle.SkillDecisions) != 0 || strings.Contains(selectedBundle.Prompt, "Use mail tools.") {
+		t.Fatalf("expected no selected skills, got decisions=%+v prompt=%q", selectedBundle.SkillDecisions, selectedBundle.Prompt)
+	}
+}
+
+func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Prompt: "base",
+		Skills: []SkillInstruction{
+			{
+				Name:         "mail",
+				Description:  "Read, search, summarize, reply to, and send email messages.",
+				Prompt:       "Use mail.message.search and mail.message.read.",
+				AllowedTools: []string{"mail.message.search", "mail.message.read"},
+				Source:       InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
+			},
+			{
+				Name:        "calendar",
+				Description: "Create and list calendar events.",
+				Prompt:      "Use calendar tools.",
+			},
+		},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Search and read recent email messages from GitHub."}]}`})
+
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
+		Prompt:  "나 최근 github한테 온 메일 있어?",
+		ToolSet: testToolSet([]string{"mail.message.search", "mail.message.read"}),
+	}, retriever, router)
+
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "mail" || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected mail selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	if len(selectedBundle.SkillQueries) != 1 || !strings.Contains(selectedBundle.SkillQueries[0], "email messages") {
+		t.Fatalf("expected structured skill query to be recorded, got %+v", selectedBundle.SkillQueries)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "mail.message.search") {
+		t.Fatalf("expected selected mail instructions, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestStructuredSkillQueryUsesAtMostFiveQueries(t *testing.T) {
+	querySet := normalizeSkillSearchQuerySet(SkillSearchQuerySet{Queries: []SkillSearchQuery{
+		{Description: "one"},
+		{Description: "two"},
+		{Description: "three"},
+		{Description: "four"},
+		{Description: "five"},
+		{Description: "six"},
+	}})
+
+	if len(querySet.Queries) != 5 {
+		t.Fatalf("expected five queries, got %+v", querySet.Queries)
 	}
 }
 
@@ -536,7 +614,7 @@ func TestSelectedFullSkillBodiesAreLimited(t *testing.T) {
 	for index := 0; index < 5; index++ {
 		skills = append(skills, SkillInstruction{
 			Name:        fmt.Sprintf("slides-%d", index),
-			Description: "Create presentation slides.",
+			Description: "Create presentation slides and 피피티.",
 			WhenToUse:   "Use for 피피티.",
 			Prompt:      fmt.Sprintf("BODY %d", index),
 			Source:      InstructionSource{Path: fmt.Sprintf("skills/slides-%d/SKILL.md", index), SHA256: fmt.Sprintf("sha-%d", index)},
@@ -557,7 +635,7 @@ func TestSelectedFullSkillBodiesAreLimited(t *testing.T) {
 func TestSkillIndexPromptStaysBoundedForManySkills(t *testing.T) {
 	skills := []SkillInstruction{{
 		Name:        "simple-slides",
-		Description: "Create presentation slides.",
+		Description: "Create presentation slides and 피피티.",
 		WhenToUse:   "Use for 피피티.",
 		Prompt:      "Generate slides.",
 		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "match", SkillName: "simple-slides"},
@@ -589,7 +667,7 @@ func TestBM25FallbackIsObservableWhenEmbeddingUnavailable(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:        "simple-slides",
-			Description: "Create presentation slides.",
+			Description: "Create presentation slides and 피피티.",
 			WhenToUse:   "Use for 피피티.",
 			Prompt:      "Generate slides.",
 		}},
@@ -608,7 +686,7 @@ func TestBM25FallbackIsObservableWhenEmbeddingDimensionMismatches(t *testing.T) 
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:        "simple-slides",
-			Description: "Create presentation slides.",
+			Description: "Create presentation slides and 피피티.",
 			WhenToUse:   "Use for 피피티.",
 			Prompt:      "Generate slides.",
 			Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
@@ -633,7 +711,7 @@ func TestSkillIndexRefreshesWhenSourceHashChanges(t *testing.T) {
 	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, indexPath)
 	firstBundle := []SkillInstruction{{
 		Name:        "simple-slides",
-		Description: "Create presentation slides.",
+		Description: "Create presentation slides and 피피티.",
 		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
 	}}
 	secondBundle := []SkillInstruction{{
@@ -654,6 +732,32 @@ func TestSkillIndexRefreshesWhenSourceHashChanges(t *testing.T) {
 	}
 }
 
+func TestSkillIndexRefreshesWhenSearchDocumentVersionChanges(t *testing.T) {
+	indexPath := filepath.Join(t.TempDir(), "skill-index.json")
+	legacyDocument := `[{"skillName":"simple-slides","sourcePath":"skills/simple-slides/SKILL.md","sourceSHA256":"one","searchText":"Create presentation slides.","embeddingModel":"embedding.create","embedding":[1],"indexedAt":"2026-01-01T00:00:00Z"}]`
+	if errorValue := os.WriteFile(indexPath, []byte(legacyDocument), 0o644); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, indexPath)
+
+	retriever.Refresh(context.Background(), []SkillInstruction{{
+		Name:        "simple-slides",
+		Description: "Create presentation slides.",
+		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
+	}})
+
+	document, errorValue := os.ReadFile(indexPath)
+	if errorValue != nil {
+		t.Fatalf("expected materialized skill index: %v", errorValue)
+	}
+	if !strings.Contains(string(document), skillSearchDocumentVersion) {
+		t.Fatalf("expected versioned skill index, got %s", string(document))
+	}
+	if strings.Contains(string(document), `"embeddingModel": "embedding.create"`) {
+		t.Fatalf("expected legacy embedding model key to be replaced, got %s", string(document))
+	}
+}
+
 type keywordEmbeddingProvider struct{}
 
 func (provider keywordEmbeddingProvider) GenerateEmbedding(_ context.Context, input string) ([]float32, error) {
@@ -665,6 +769,7 @@ func (provider keywordEmbeddingProvider) GenerateEmbedding(_ context.Context, in
 		keywordEmbeddingValue(normalizedInput, []string{"skill", "skills", "스킬", "skill.md"}),
 		keywordEmbeddingValue(normalizedInput, []string{"schedule", "scheduled", "reminder", "repeat", "finite", "repeated", "1분에", "한", "번씩", "10번"}),
 		keywordEmbeddingValue(normalizedInput, []string{"html"}),
+		keywordEmbeddingValue(normalizedInput, []string{"mail", "email", "inbox", "message", "messages", "github"}),
 	}, nil
 }
 
@@ -688,6 +793,18 @@ func keywordEmbeddingValue(input string, keywords []string) float32 {
 		}
 	}
 	return 0
+}
+
+type staticStructuredLanguageModel struct {
+	content string
+}
+
+func (languageModel staticStructuredLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (languageModel staticStructuredLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
 
 func testToolSet(toolNames []string) *ToolSet {

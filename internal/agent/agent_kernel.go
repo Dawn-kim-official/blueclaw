@@ -233,7 +233,13 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
 	instructionBundle := agentKernel.currentInstructionBundle()
-	instructionBundle = selectInstructionBundleForRequestWithRetriever(responseContext, instructionBundle, request, agentKernel.skillRetriever)
+	instructionBundle = selectInstructionBundleForRequestWithRetrieverAndRouter(
+		responseContext,
+		instructionBundle,
+		request,
+		agentKernel.skillRetriever,
+		NewSkillSearchQueryRouter(agentKernel.intakeLanguageModel),
+	)
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
@@ -274,6 +280,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		SkillRetrievalMode:         instructionBundle.RetrievalMode,
 		SkillIndexStatus:           instructionBundle.IndexStatus,
 		SkillCandidateCount:        instructionBundle.CandidateCount,
+		SkillQueries:               append([]string{}, instructionBundle.SkillQueries...),
 		RequiredEvidenceTools:      requiredEvidenceTools,
 		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
@@ -325,7 +332,7 @@ func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool
 }
 
 func coreAgentToolNames() []string {
-	return []string{"conversation.history", "memory.search", "approval.request"}
+	return []string{"conversation.history", "memory.search", "approval.request", "skill.search"}
 }
 
 func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string {
@@ -522,11 +529,16 @@ func selectInstructionBundleForRequest(instructionBundle InstructionBundle, requ
 }
 
 func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instructionBundle InstructionBundle, request AgentRequest, skillRetriever SkillRetriever) InstructionBundle {
+	return selectInstructionBundleForRequestWithRetrieverAndRouter(ctx, instructionBundle, request, skillRetriever, SkillSearchQueryRouter{})
+}
+
+func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context, instructionBundle InstructionBundle, request AgentRequest, skillRetriever SkillRetriever, skillSearchQueryRouter SkillSearchQueryRouter) InstructionBundle {
 	prompts := []string{strings.TrimSpace(instructionBundle.Prompt)}
 	sources := append([]InstructionSource{}, instructionBundle.Sources...)
 	skillDecisions := []SkillSelectionDecision{}
 	selectedSkillInstructions := []SkillInstruction{}
-	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever)
+	querySet, hasStructuredQueries := skillSearchQueryRouter.Build(ctx, request)
+	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever, querySet, hasStructuredQueries)
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
 	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
 	for _, skillInstruction := range candidateInstructions {
@@ -557,6 +569,7 @@ func selectInstructionBundleForRequestWithRetriever(ctx context.Context, instruc
 		RetrievalMode:  retrievalResult.RetrievalMode,
 		IndexStatus:    retrievalResult.IndexStatus,
 		CandidateCount: len(candidateInstructions),
+		SkillQueries:   append([]string{}, retrievalResult.QueryDescriptions...),
 	}
 }
 
@@ -627,11 +640,23 @@ func blockedSkillSelectionDecisions(skillInstructions []SkillInstruction, existi
 	return blockedDecisions
 }
 
-func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillInstructions []SkillInstruction, skillRetriever SkillRetriever) SkillRetrievalResult {
+func retrieveSkillCandidates(ctx context.Context, request AgentRequest, skillInstructions []SkillInstruction, skillRetriever SkillRetriever, querySet SkillSearchQuerySet, hasStructuredQueries bool) SkillRetrievalResult {
+	if hasStructuredQueries {
+		querySet = normalizeSkillSearchQuerySet(querySet)
+		if len(querySet.Queries) == 0 {
+			return SkillRetrievalResult{RetrievalMode: "structured_query", IndexStatus: "empty_query"}
+		}
+	}
 	if skillRetriever != nil {
+		if hasStructuredQueries {
+			return skillRetriever.Search(ctx, request, skillInstructions, querySet, maxSkillIndexCandidateCount)
+		}
 		return skillRetriever.Retrieve(ctx, request, skillInstructions, maxSkillIndexCandidateCount)
 	}
-	return retrieveSkillsWithBM25(request, skillInstructions, maxSkillIndexCandidateCount, "embedding_unconfigured")
+	if hasStructuredQueries {
+		return retrieveSkillsWithBM25(request, skillInstructions, skillSearchQueryText(querySet), maxSkillIndexCandidateCount, "embedding_unconfigured")
+	}
+	return retrieveSkillsWithBM25(request, skillInstructions, skillSelectionPrompt(request), maxSkillIndexCandidateCount, "embedding_unconfigured")
 }
 
 func candidateSkillInstructions(skillInstructions []SkillInstruction, skillCandidates []SkillCandidate) []SkillInstruction {
@@ -733,7 +758,7 @@ func buildCompactSkillIndexPrompt(skillInstructions []SkillInstruction) string {
 
 func compactSkillIndexLine(skillInstruction SkillInstruction) string {
 	parts := []string{skillInstruction.Name}
-	if text := skillListText(skillInstruction); strings.TrimSpace(text) != "" {
+	if text := strings.TrimSpace(skillInstruction.Description); text != "" {
 		parts = append(parts, strings.TrimSpace(text))
 	}
 	return strings.Join(parts, ": ")

@@ -16,6 +16,7 @@ type InstructionBundle struct {
 	RetrievalMode  string                   `json:"retrievalMode,omitempty"`
 	IndexStatus    string                   `json:"indexStatus,omitempty"`
 	CandidateCount int                      `json:"candidateCount,omitempty"`
+	SkillQueries   []string                 `json:"skillQueries,omitempty"`
 }
 
 type SkillInstruction struct {
