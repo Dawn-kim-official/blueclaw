@@ -404,6 +404,54 @@ func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 	}
 }
 
+func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"quick with useful tool","userFacingReply":""}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"primary.lookup","toolInput":{"query":"hello"}}`,
+		`{"action":"call_tool","toolName":"backup.lookup","toolInput":{"query":"hello"}}`,
+		finalReplyWithEvidence("backup answer", "obs-003", "backup.lookup", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	toolRegistry := newTestToolSet([]string{"primary.lookup", "backup.lookup"})
+	primaryCallCount := 0
+	backupCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "primary.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		primaryCallCount++
+		return ToolResult{
+			Content:      "primary lookup failed",
+			Message:      "primary lookup failed",
+			IsError:      true,
+			ErrorCode:    "lookup_failed",
+			FailureStage: "primary_lookup",
+		}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "backup.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		backupCallCount++
+		return ToolResult{Content: "backup result"}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "lookup hello",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected quick recovery: %v", errorValue)
+	}
+	if result.FinalReply != "backup answer" {
+		t.Fatalf("expected recovered final reply, got %q", result.FinalReply)
+	}
+	if primaryCallCount != 1 || backupCallCount != 1 {
+		t.Fatalf("expected one primary failure and one backup recovery, got primary=%d backup=%d", primaryCallCount, backupCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recovery_attempt", "adjacent_tool") {
+		t.Fatal("expected adjacent recovery event")
+	}
+}
+
 func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,

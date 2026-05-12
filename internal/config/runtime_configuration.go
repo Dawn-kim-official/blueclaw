@@ -72,12 +72,26 @@ type AgentConfiguration struct {
 	Intake             AgentIntakeConfiguration `json:"intake"`
 	DefaultEffortLevel string                   `json:"defaultEffortLevel"`
 	ToolResultMaxBytes int                      `json:"toolResultMaxBytes"`
+	FailureRecovery    AgentFailureRecovery     `json:"failureRecovery"`
 }
 
 type AgentIntakeConfiguration struct {
 	Enabled       bool   `json:"enabled"`
 	Model         string `json:"model"`
 	ExecutionMode string `json:"executionMode"`
+}
+
+type AgentFailureRecovery struct {
+	FailureDebtFinalizationGate bool                `json:"failureDebtFinalizationGate"`
+	AttemptFingerprint          string              `json:"attemptFingerprint"`
+	RecoveryBudget              AgentRecoveryBudget `json:"recoveryBudget"`
+}
+
+type AgentRecoveryBudget struct {
+	CorrectedRetry int `json:"correctedRetry"`
+	AlternateRoute int `json:"alternateRoute"`
+	AdjacentTool   int `json:"adjacentTool"`
+	NoToolFallback int `json:"noToolFallback"`
 }
 
 type LanguageModelConfiguration struct {
