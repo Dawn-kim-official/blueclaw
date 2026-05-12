@@ -49,6 +49,7 @@ func finalReplyActionSchema() map[string]any {
 			"action":             enumStringSchema("final_reply"),
 			"finalReply":         stringSchema(),
 			"reply":              stringSchema(),
+			"failureResolution":  enumValuesStringSchema([]string{"none", "recovered_with_success", "no_tool_fallback"}),
 			"goalStatus":         enumValuesStringSchema([]string{"satisfied"}),
 			"goalSatisfied":      booleanSchema(),
 			"completionEvidence": completionEvidenceSchema(),
@@ -223,7 +224,7 @@ func qualityReviewSchema() map[string]any {
 }
 
 func fallbackActionSchema() string {
-	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["final_reply"]},"finalReply":{"type":"string"},"reply":{"type":"string"},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason"],"additionalProperties":false}]}`
+	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["final_reply"]},"finalReply":{"type":"string"},"reply":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason"],"additionalProperties":false}]}`
 }
 
 func finalizerActionSchema() string {
