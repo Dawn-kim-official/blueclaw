@@ -275,6 +275,12 @@ func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) ag
 		MaxElapsedSecond:   int(effortProfile.Duration.Seconds()),
 		EffortLevel:        effortProfile.EffortLevel,
 		ToolResultMaxBytes: runtimeConfiguration.Agent.ToolResultMaxBytes,
+		RecoveryBudget: agent.RecoveryBudget{
+			CorrectedRetry: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.CorrectedRetry,
+			AlternateRoute: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AlternateRoute,
+			AdjacentTool:   runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AdjacentTool,
+			NoToolFallback: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.NoToolFallback,
+		},
 	}
 }
 

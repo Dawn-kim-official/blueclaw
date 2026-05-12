@@ -130,7 +130,17 @@
       "executionMode": "auto"
     },
     "defaultEffortLevel": "standard",
-    "toolResultMaxBytes": 32768
+    "toolResultMaxBytes": 32768,
+    "failureRecovery": {
+      "failureDebtFinalizationGate": true,
+      "attemptFingerprint": "tool_input_error_code",
+      "recoveryBudget": {
+        "correctedRetry": 1,
+        "alternateRoute": 1,
+        "adjacentTool": 2,
+        "noToolFallback": 1
+      }
+    }
   },
   "connectors": {
     "mattermost": {},
