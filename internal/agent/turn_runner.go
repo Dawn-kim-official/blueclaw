@@ -313,6 +313,19 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
 				continue
 			}
+			if sentObservation, wasSent := previousSuccessfulExternalSend(state.Observations, actionDocument.ToolName); wasSent {
+				observation := turnObservation{
+					ObservationID: nextObservationID(len(state.Observations) + 1),
+					Action:        "policy",
+					Tool:          strings.TrimSpace(actionDocument.ToolName),
+					Content:       "This task already completed an external send as " + sentObservation.ObservationID + ". Do not send another message in the same task. Use that observation for completionEvidence and finish.",
+					IsError:       true,
+				}
+				state.Observations = append(state.Observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.external_send_repeat_rejected", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "external_send_repeat_rejected "+actionDocument.ToolName, observation.Content)
+				continue
+			}
 			if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName) {
 				observation := turnObservation{
 					ObservationID: nextObservationID(len(state.Observations) + 1),
@@ -709,6 +722,22 @@ func previousUnsafeFailedToolCall(observations []turnObservation, toolName strin
 	return turnObservation{}, false
 }
 
+func previousSuccessfulExternalSend(observations []turnObservation, toolName string) (turnObservation, bool) {
+	if !isUnsafeRepeatSensitiveTool(toolName) {
+		return turnObservation{}, false
+	}
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		if observation.Action != "call_tool" || observation.IsError {
+			continue
+		}
+		if strings.TrimSpace(observation.Tool) == strings.TrimSpace(toolName) {
+			return observation, true
+		}
+	}
+	return turnObservation{}, false
+}
+
 func previousExhaustedSafeRetry(observations []turnObservation, toolName string, toolInput json.RawMessage, recoveryAttempts map[string]int) (turnObservation, bool) {
 	expectedKey := canonicalToolCallKey(toolName, toolInput)
 	if recoveryAttempts[expectedKey] == 0 {
@@ -741,6 +770,9 @@ func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolNa
 		return false
 	}
 	if !sitePublishTaskToolsAreAvailable(request.ToolSet) {
+		return false
+	}
+	if !selectedSkillNameSet(request.SkillDecisions)["site-prototype"] {
 		return false
 	}
 	approvalText := strings.ToLower(strings.TrimSpace(string(toolInput)))

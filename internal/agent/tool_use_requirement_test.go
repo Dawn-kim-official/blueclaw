@@ -30,6 +30,21 @@ func TestGoogleSearchStillRequiresBrowserEvidence(t *testing.T) {
 	}
 }
 
+func TestDirectMessageEvidenceSuppressesImplicitBrowserRequirement(t *testing.T) {
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "platform.dm.send"})
+
+	requirements := deriveToolUseRequirements(AgentTurnRequest{
+		Prompt:                "동하에게 구글에서 검색해보라고 DM 보내줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"platform.dm.send"},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	})
+
+	if len(requirements) != 1 || requirements[0].ToolName != "platform.dm.send" {
+		t.Fatalf("expected only DM send evidence, got %+v", requirements)
+	}
+}
+
 func TestBrowserRetryWithVisibleContextRequiresBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
