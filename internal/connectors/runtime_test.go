@@ -120,7 +120,7 @@ func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSendsDynamicReplyWhenTaskDoesNotComplete(t *testing.T) {
+func TestConnectorRuntimeSkipsReplyWhenTaskDoesNotCompleteWithoutLLMReply(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
@@ -134,18 +134,15 @@ func TestConnectorRuntimeSendsDynamicReplyWhenTaskDoesNotComplete(t *testing.T) 
 	if result.Reason != "task_not_completed" {
 		t.Fatalf("expected task_not_completed result, got %+v", result)
 	}
-	if result.ReplyDispatchID != "dispatch-1" {
-		t.Fatalf("expected dynamic failure reply dispatch id, got %q", result.ReplyDispatchID)
+	if result.ReplyDispatchID != "" {
+		t.Fatalf("expected no fallback reply dispatch id, got %q", result.ReplyDispatchID)
 	}
-	if len(adapter.sentReplies) != 1 {
-		t.Fatalf("expected one dynamic failure reply, got %+v", adapter.sentReplies)
-	}
-	if strings.Contains(adapter.sentReplies[0].message, "I am having trouble reaching the language model") || strings.Contains(adapter.sentReplies[0].message, "model configuration") {
-		t.Fatalf("expected non-static failure reply, got %q", adapter.sentReplies[0].message)
+	if len(adapter.sentReplies) != 0 {
+		t.Fatalf("expected no fallback reply, got %+v", adapter.sentReplies)
 	}
 }
 
-func TestConnectorRuntimeRecoversIncompleteAttachmentClaims(t *testing.T) {
+func TestConnectorRuntimeSkipsIncompleteAttachmentClaims(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -163,18 +160,15 @@ func TestConnectorRuntimeRecoversIncompleteAttachmentClaims(t *testing.T) {
 		},
 	)
 
-	if !isSent || dispatchID != "dispatch-1" {
-		t.Fatalf("expected recovered incomplete reply, got dispatchID=%q sent=%v", dispatchID, isSent)
+	if isSent || dispatchID != "" {
+		t.Fatalf("expected skipped incomplete reply, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
-	if len(sentReplies) != 1 {
-		t.Fatalf("expected one recovered reply, got %+v", sentReplies)
-	}
-	if strings.Contains(sentReplies[0].Message, "첨부했습니다") || strings.Contains(sentReplies[0].Message, "보냈습니다") {
-		t.Fatalf("expected recovered reply without delivery claim, got %q", sentReplies[0].Message)
+	if len(sentReplies) != 0 {
+		t.Fatalf("expected no recovered reply, got %+v", sentReplies)
 	}
 }
 
-func TestConnectorRuntimeRecoversIncompleteUnattachedFilenames(t *testing.T) {
+func TestConnectorRuntimeSkipsIncompleteUnattachedFilenames(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -192,14 +186,11 @@ func TestConnectorRuntimeRecoversIncompleteUnattachedFilenames(t *testing.T) {
 		},
 	)
 
-	if !isSent || dispatchID != "dispatch-1" {
-		t.Fatalf("expected recovered incomplete reply, got dispatchID=%q sent=%v", dispatchID, isSent)
+	if isSent || dispatchID != "" {
+		t.Fatalf("expected skipped incomplete reply, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
-	if len(sentReplies) != 1 {
-		t.Fatalf("expected one recovered reply, got %+v", sentReplies)
-	}
-	if strings.Contains(sentReplies[0].Message, "Hermes_Agent_Slide_Part1.html") {
-		t.Fatalf("expected recovered reply without unattached filename, got %q", sentReplies[0].Message)
+	if len(sentReplies) != 0 {
+		t.Fatalf("expected no recovered reply, got %+v", sentReplies)
 	}
 }
 

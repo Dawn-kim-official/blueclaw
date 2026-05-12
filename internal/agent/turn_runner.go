@@ -67,6 +67,7 @@ type AgentTurnRequest struct {
 type AgentTurnResult struct {
 	TaskRun         task.TaskRun
 	FinalReply      string
+	ReplySuppressed bool
 	Attachments     []FileAttachment
 	RecoveryActions []RecoveryAction
 	ToolNames       []string
@@ -240,14 +241,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			if errors.Is(actionError, context.DeadlineExceeded) {
 				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", state.Observations, state.Attachments, iteration-1, state.ToolCallCount)
 			}
-			if capabilityReply, isCapabilityReply := capabilityFallbackReply(request); isCapabilityReply {
-				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.capability_fallback", marshalEventBody(map[string]any{
-					"reason":    actionError.Error(),
-					"toolNames": toolNamesForEvent(request.ToolSet),
-				}))
-				completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, capabilityReply)
-				return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: capabilityReply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
-			}
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), state.Observations, state.Attachments)
 		}
 
@@ -418,91 +411,6 @@ func toolObservationMessage(observation turnObservation) string {
 		return ""
 	}
 	return strings.TrimSpace(document.Message)
-}
-
-func capabilityFallbackReply(request AgentTurnRequest) (string, bool) {
-	if !asksForCapabilities(request.Prompt) {
-		return "", false
-	}
-	capabilities := capabilityLabelsForToolNames(toolNamesForEvent(request.ToolSet), request.ResponseLanguage)
-	if len(capabilities) == 0 {
-		if requestUsesKorean(request) {
-			return "지금 이 대화에서는 바로 답변할 수 있는 요청에 응답할 수 있습니다. 연결된 도구 목록은 비어 있어 외부 작업은 실행할 수 없습니다.", true
-		}
-		return "In this conversation, I can answer directly, but there are no connected tools available for external work.", true
-	}
-	if requestUsesKorean(request) {
-		return "짧게 말하면, 지금 저는 " + strings.Join(capabilities, ", ") + "를 할 수 있습니다. 간단한 질문은 바로 답하고, 작업이 필요한 요청은 가능한 도구를 써서 진행합니다.", true
-	}
-	return "Briefly, I can help with " + strings.Join(capabilities, ", ") + ". I answer simple questions directly and use available tools when a task needs them.", true
-}
-
-func asksForCapabilities(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return false
-	}
-	return containsAny(normalizedPrompt, []string{
-		"뭐 할",
-		"할줄",
-		"할 줄",
-		"기능",
-		"가능",
-		"어디까지",
-		"what can you do",
-		"what are you able",
-		"capabilities",
-	})
-}
-
-func capabilityLabelsForToolNames(toolNames []string, responseLanguage string) []string {
-	labels := []string{}
-	categories := capabilityCategoriesForLanguage(responseLanguage)
-	for _, category := range categories {
-		if toolNamesContainPrefix(toolNames, category.Prefixes) {
-			labels = append(labels, category.Label)
-		}
-	}
-	return labels
-}
-
-type capabilityCategory struct {
-	Label    string
-	Prefixes []string
-}
-
-func capabilityCategoriesForLanguage(responseLanguage string) []capabilityCategory {
-	if ResolveResponseLanguage(responseLanguage) == ResponseLanguageEnglish {
-		return []capabilityCategory{
-			{Label: "arithmetic", Prefixes: []string{"math.calculate"}},
-			{Label: "conversation and memory lookup", Prefixes: []string{"conversation.", "memory."}},
-			{Label: "files and attachments", Prefixes: []string{"file."}},
-			{Label: "terminal and service work", Prefixes: []string{"terminal."}},
-			{Label: "browser handoff", Prefixes: []string{"browser", "browser_handoff."}},
-			{Label: "scheduled tasks", Prefixes: []string{"schedule."}},
-			{Label: "external sends when policy allows", Prefixes: []string{"platform.dm.", "mail.", "google.gmail."}},
-		}
-	}
-	return []capabilityCategory{
-		{Label: "간단한 계산", Prefixes: []string{"math.calculate"}},
-		{Label: "대화 맥락과 기억 조회", Prefixes: []string{"conversation.", "memory."}},
-		{Label: "파일 작성과 첨부", Prefixes: []string{"file."}},
-		{Label: "터미널 기반 작업", Prefixes: []string{"terminal."}},
-		{Label: "브라우저 열기와 확인", Prefixes: []string{"browser", "browser_handoff."}},
-		{Label: "예약 작업", Prefixes: []string{"schedule."}},
-		{Label: "정책이 허용하는 외부 전송", Prefixes: []string{"platform.dm.", "mail.", "google.gmail."}},
-	}
-}
-
-func toolNamesContainPrefix(toolNames []string, prefixes []string) bool {
-	for _, toolName := range toolNames {
-		for _, prefix := range prefixes {
-			if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {
@@ -1200,8 +1108,12 @@ func (agentTurnRunner *AgentTurnRunner) appendQualityReview(taskRunID string, cr
 
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment) (AgentTurnResult, error) {
 	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
-	reply, replyStatus := agentTurnRunner.generateFailureReply(request, reason, observations, attachments)
+	reply, replyStatus, hasReply := agentTurnRunner.generateFailureReply(request, reason, observations, attachments)
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
+	if !hasReply {
+		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
+		return AgentTurnResult{TaskRun: failedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	}
 	failedTaskRun.Result = reply
 	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
@@ -1610,8 +1522,12 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
-	reply, replyStatus := agentTurnRunner.generateLimitReachedReply(request, reason, observations, nil)
+	reply, replyStatus, hasReply := agentTurnRunner.generateLimitReachedReply(request, reason, observations, nil)
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
+	if !hasReply {
+		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", reason, replyStatus)
+		return AgentTurnResult{TaskRun: blockedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	}
 	blockedTaskRun.Result = reply
 	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
@@ -1940,55 +1856,149 @@ func firstNonEmptyString(values ...string) string {
 }
 
 type limitReplyStatus struct {
-	Source       string `json:"source"`
-	FirstInvalid bool   `json:"firstInvalid"`
-	RepairCount  int    `json:"repairCount"`
-	Fallback     bool   `json:"fallback"`
-	Reason       string `json:"reason,omitempty"`
+	Source                  string           `json:"source"`
+	FirstInvalid            bool             `json:"firstInvalid"`
+	RepairCount             int              `json:"repairCount"`
+	Reason                  string           `json:"reason,omitempty"`
+	StructuredRecoveryError string           `json:"structuredRecoveryError,omitempty"`
+	TextRecoveryError       string           `json:"textRecoveryError,omitempty"`
+	Decision                recoveryDecision `json:"decision,omitempty"`
 }
 
 type failureReplyStatus struct {
-	Source string `json:"source"`
-	Reason string `json:"reason,omitempty"`
+	Source                  string           `json:"source"`
+	Reason                  string           `json:"reason,omitempty"`
+	StructuredRecoveryError string           `json:"structuredRecoveryError,omitempty"`
+	TextRecoveryError       string           `json:"textRecoveryError,omitempty"`
+	Decision                recoveryDecision `json:"decision,omitempty"`
+}
+
+type recoveryDecision struct {
+	WhatFailed      string `json:"whatFailed"`
+	WhatWasKnown    string `json:"whatWasKnown"`
+	NextAction      string `json:"nextAction"`
+	UserReplyIntent string `json:"userReplyIntent"`
 }
 
 type recoveryLanguageModelProvider interface {
 	GenerateRecoveryResponse(context.Context, string) (string, error)
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment) (string, failureReplyStatus) {
-	prompt := buildFailureReplyPrompt(request, failureReason, observations, attachments)
-	reply, errorValue := agentTurnRunner.generateRecoveryText(prompt)
-	if errorValue == nil && reply != "" && !failureReplyIsInvalidForRequest(reply, request, failureReason, observations, attachments) {
-		return reply, failureReplyStatus{Source: "generated"}
+func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID string, phase string, reason string, replyStatus any) {
+	body := map[string]any{
+		"phase":       phase,
+		"reason":      reason,
+		"replyStatus": replyStatus,
 	}
-	fallbackReply := buildDynamicRecoveryReply(request, failureReason, observations, attachments, "failure")
-	if !failureReplyIsInvalidForRequest(fallbackReply, request, failureReason, observations, attachments) {
-		return fallbackReply, failureReplyStatus{Source: "dynamic", Reason: firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")}
-	}
-	return buildLastResortRecoveryReply(request, "failure"), failureReplyStatus{Source: "dynamic", Reason: "last_resort"}
+	agentTurnRunner.appendEvent(taskRunID, "agent.recovery_generation_failed", marshalEventBody(body))
+	agentTurnRunner.appendEvent(taskRunID, "agent.llm_unavailable", marshalEventBody(body))
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) (string, limitReplyStatus) {
-	finalizationPrompt := buildLimitReachedPrompt(request, stopReason, observations, attachments)
+func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, phase string) (recoveryDecision, error) {
+	recoveryContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	messages := []llm.Message{{
+		Role: "system",
+		Content: strings.Join([]string{
+			"You decide how Blueclaw should recover or report after an internal run could not complete.",
+			"Return only structured fields. Do not write the final user-facing answer here.",
+			"Use safe, user-visible facts only. Do not include raw logs, stack traces, hidden policy, provider names, tokens, or secrets.",
+			"The final wording will be generated by a separate LLM call from this decision.",
+			responseLanguageInstruction(request.ResponseLanguage),
+		}, "\n"),
+	}, {
+		Role:    "user",
+		Content: buildRecoveryDecisionPrompt(request, failureReason, observations, attachments, phase),
+	}}
+	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(recoveryContext, llm.StructuredResponseRequest{
+		Messages: messages,
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               "blueclaw_recovery_decision",
+			Document:           recoveryDecisionSchema(),
+			IsStrictlyEnforced: true,
+		},
+	})
+	if errorValue != nil {
+		return recoveryDecision{}, errorValue
+	}
+	var decision recoveryDecision
+	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &decision); errorValue != nil {
+		return recoveryDecision{}, errorValue
+	}
+	decision = normalizeRecoveryDecision(decision)
+	if decision == (recoveryDecision{}) {
+		return recoveryDecision{}, errors.New("empty recovery decision")
+	}
+	return decision, nil
+}
+
+func normalizeRecoveryDecision(decision recoveryDecision) recoveryDecision {
+	decision.WhatFailed = strings.TrimSpace(decision.WhatFailed)
+	decision.WhatWasKnown = strings.TrimSpace(decision.WhatWasKnown)
+	decision.NextAction = strings.TrimSpace(decision.NextAction)
+	decision.UserReplyIntent = strings.TrimSpace(decision.UserReplyIntent)
+	return decision
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment) (string, failureReplyStatus, bool) {
+	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, failureReason, observations, attachments, "failure")
+	status := failureReplyStatus{Decision: decision}
+	if decisionError != nil {
+		status.StructuredRecoveryError = decisionError.Error()
+	}
+	prompt := buildFailureReplyPrompt(request, failureReason, observations, attachments, decision)
+	reply, errorValue := agentTurnRunner.generateRecoveryText(prompt)
+	if errorValue == nil && reply != "" && !failureReplyIsInvalidForRequest(reply, request, failureReason, observations, attachments) {
+		status.Source = "generated"
+		return reply, status, true
+	}
+	status.Source = "suppressed"
+	status.Reason = "text_recovery_failed"
+	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
+	return "", status, false
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) (string, limitReplyStatus, bool) {
+	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, stopReason, observations, attachments, "limit")
+	status := limitReplyStatus{Decision: decision}
+	if decisionError != nil {
+		status.StructuredRecoveryError = decisionError.Error()
+	}
+	finalizationPrompt := buildLimitReachedPrompt(request, stopReason, observations, attachments, decision)
 	reply, errorValue := agentTurnRunner.generateRecoveryText(finalizationPrompt)
 	if errorValue != nil || reply == "" {
-		return buildDynamicRecoveryReply(request, stopReason, observations, attachments, "limit"), limitReplyStatus{Source: "dynamic", Reason: firstNonEmptyString(errorString(errorValue), "empty_reply")}
+		status.Source = "suppressed"
+		status.Reason = "text_recovery_failed"
+		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
+		return "", status, false
 	}
 	if limitReachedReplyIsInvalid(reply, attachments) {
 		for repairCount := 1; repairCount <= 2; repairCount++ {
 			repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildLimitReachedRepairPrompt(finalizationPrompt, reply, attachments, repairCount))
 			if repairError != nil || repairedReply == "" {
-				return buildDynamicRecoveryReply(request, stopReason, observations, attachments, "limit"), limitReplyStatus{Source: "dynamic", FirstInvalid: true, RepairCount: repairCount, Reason: firstNonEmptyString(errorString(repairError), "empty_repair")}
+				status.Source = "suppressed"
+				status.FirstInvalid = true
+				status.RepairCount = repairCount
+				status.Reason = "repair_failed"
+				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+				return "", status, false
 			}
 			if !limitReachedReplyIsInvalid(repairedReply, attachments) {
-				return repairedReply, limitReplyStatus{Source: "generated_repair", FirstInvalid: true, RepairCount: repairCount}
+				status.Source = "generated_repair"
+				status.FirstInvalid = true
+				status.RepairCount = repairCount
+				return repairedReply, status, true
 			}
 			reply = repairedReply
 		}
-		return buildDynamicRecoveryReply(request, stopReason, observations, attachments, "limit"), limitReplyStatus{Source: "dynamic", FirstInvalid: true, RepairCount: 2, Reason: "invalid_repair"}
+		status.Source = "suppressed"
+		status.FirstInvalid = true
+		status.RepairCount = 2
+		status.Reason = "invalid_repair"
+		return "", status, false
 	}
-	return reply, limitReplyStatus{Source: "generated"}
+	status.Source = "generated"
+	return reply, status, true
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (string, error) {
@@ -2011,7 +2021,28 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (str
 	return recoveryReply, nil
 }
 
-func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment) string {
+func buildRecoveryDecisionPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, phase string) string {
+	sections := []string{
+		"Phase: " + strings.TrimSpace(phase),
+		"Original user request:\n" + strings.TrimSpace(request.Prompt),
+	}
+	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
+		sections = append(sections, contextDescription)
+	}
+	if observationSummary := buildFailureObservationSummary(observations); observationSummary != "" {
+		sections = append(sections, "Current observations and limitations:\n"+observationSummary)
+	}
+	if attachmentSummary := buildLimitAttachmentSummary(attachments); attachmentSummary != "" {
+		sections = append(sections, "Available attachments:\n"+attachmentSummary)
+	}
+	if reason := strings.TrimSpace(failureReason); reason != "" {
+		sections = append(sections, "Private failure reason:\n"+reason)
+	}
+	sections = append(sections, "Return what failed, what is known, the next action or check, and the intent for a short user reply.")
+	return strings.Join(sections, "\n\n")
+}
+
+func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, decision recoveryDecision) string {
 	sections := []string{
 		"You are writing a short user-facing final reply after an assistant run failed before completing the user's request.",
 		responseLanguageInstruction(request.ResponseLanguage),
@@ -2034,24 +2065,8 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 	if reason := strings.TrimSpace(failureReason); reason != "" {
 		sections = append(sections, "Failure reason for your private planning only. Paraphrase it safely for the user:\n"+reason)
 	}
+	sections = append(sections, "Structured recovery decision:\n"+marshalEventBody(decision))
 	return strings.Join(sections, "\n\n")
-}
-
-func buildDynamicRecoveryReply(request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, fallbackKind string) string {
-	situation := recoverySituationFor(reason, observations, attachments, fallbackKind)
-	if situation != "general" {
-		if requestUsesKorean(request) {
-			return buildKoreanDynamicRecoveryReply(request, situation)
-		}
-		return buildEnglishDynamicRecoveryReply(situation)
-	}
-	if failure, isFound := latestStructuredFailureObservation(observations); isFound {
-		return buildStructuredFailureRecoveryReply(request, failure, observations)
-	}
-	if requestUsesKorean(request) {
-		return buildKoreanDynamicRecoveryReply(request, situation)
-	}
-	return buildEnglishDynamicRecoveryReply(situation)
 }
 
 func latestStructuredFailureObservation(observations []turnObservation) (turnObservation, bool) {
@@ -2066,116 +2081,6 @@ func latestStructuredFailureObservation(observations []turnObservation) (turnObs
 		return observation, true
 	}
 	return turnObservation{}, false
-}
-
-func buildStructuredFailureRecoveryReply(request AgentTurnRequest, observation turnObservation, observations []turnObservation) string {
-	if requestUsesKorean(request) {
-		return buildKoreanStructuredFailureRecoveryReply(request, observation, observations)
-	}
-	return buildEnglishStructuredFailureRecoveryReply(observation, observations)
-}
-
-func buildKoreanStructuredFailureRecoveryReply(request AgentTurnRequest, observation turnObservation, observations []turnObservation) string {
-	prefix := koreanRequesterPrefix(request)
-	stage := firstNonEmptyString(observation.FailureStage, observation.Tool, "tool")
-	errorCode := firstNonEmptyString(observation.ErrorCode, "unknown_error")
-	detail := firstNonEmptyString(observation.Message, observation.Content)
-	attempts := attemptedActionSummary(observations)
-	nextStep := koreanStructuredFailureNextStep(observation)
-	if attempts != "" {
-		return prefix + attempts + "까지 시도했지만 " + stage + "/" + errorCode + " 단계에서 막혔습니다. " + truncateText(compactWhitespace(detail), 180) + nextStep
-	}
-	return prefix + "요청을 끝내지 못한 지점은 " + stage + "이고 오류 코드는 " + errorCode + "입니다. " + truncateText(compactWhitespace(detail), 180) + nextStep
-}
-
-func koreanStructuredFailureNextStep(observation turnObservation) string {
-	if observation.Retryable {
-		return " 일시적 오류로 분류되어 재시도 대상이지만, 이번 실행 안에서는 완료 확인까지 가지 못했습니다."
-	}
-	return " 같은 방식의 즉시 재시도는 안전하지 않아서 추가 확인이 필요합니다."
-}
-
-func buildEnglishStructuredFailureRecoveryReply(observation turnObservation, observations []turnObservation) string {
-	stage := firstNonEmptyString(observation.FailureStage, observation.Tool, "tool")
-	errorCode := firstNonEmptyString(observation.ErrorCode, "unknown_error")
-	detail := firstNonEmptyString(observation.Message, observation.Content)
-	attempts := attemptedActionSummary(observations)
-	nextStep := " Additional verification is needed before retrying the same action."
-	if observation.Retryable {
-		nextStep = " It was classified as retryable, but this run still did not reach confirmed completion."
-	}
-	if attempts != "" {
-		return "I tried " + attempts + ", but got stuck at " + stage + "/" + errorCode + ". " + truncateText(compactWhitespace(detail), 180) + nextStep
-	}
-	return "I could not finish the request. The failed stage was " + stage + " with errorCode=" + errorCode + ". " + truncateText(compactWhitespace(detail), 180) + nextStep
-}
-
-func attemptedActionSummary(observations []turnObservation) string {
-	actions := []string{}
-	for _, observation := range observations {
-		if observation.Action != "call_tool" || strings.TrimSpace(observation.Tool) == "" {
-			continue
-		}
-		label := strings.TrimSpace(observation.Tool)
-		if observation.IsError && strings.TrimSpace(observation.FailureStage) != "" {
-			label += "(" + strings.TrimSpace(observation.FailureStage) + ")"
-		}
-		if len(actions) == 0 || actions[len(actions)-1] != label {
-			actions = append(actions, label)
-		}
-		if len(actions) >= 4 {
-			break
-		}
-	}
-	return strings.Join(actions, " -> ")
-}
-
-func BuildIncompleteTaskRecoveryReply(prompt string, reason string) string {
-	return buildDynamicRecoveryReply(AgentTurnRequest{Prompt: prompt}, reason, nil, nil, "failure")
-}
-
-func buildKoreanDynamicRecoveryReply(request AgentTurnRequest, situation string) string {
-	prefix := koreanRequesterPrefix(request)
-	switch situation {
-	case "browser_blocked":
-		return prefix + koreanRequestAction(request) + " 시도했는데 페이지가 자동화 접근을 막아서 정확한 확인을 끝내지 못했어요. 다른 출처나 직접 열 수 있는 링크가 있으면 거기서 다시 확인해볼게요."
-	case "attachment_unavailable":
-		return prefix + "파일을 만들었거나 보냈다고 확인할 첨부 근거가 없어서 완료됐다고 말할 수는 없어요. 지금 단계에서는 다시 실행해서 파일 생성부터 확인해야 해요."
-	case "limit":
-		return prefix + "요청을 진행하던 중 이번 실행에서 더 이어가기 어려운 한계에 닿아서 끝까지 마치지 못했어요. 지금까지 확인된 상태를 바탕으로 다시 시도하면 이어서 처리할 수 있어요."
-	case "model_unavailable":
-		return prefix + "지금 답을 이어서 만들 모델 호출이 끊겨서 요청을 끝까지 처리하지 못했어요. 잠시 뒤 다시 시도하면 현재 상태를 바탕으로 이어서 해볼게요."
-	default:
-		return prefix + "지금 이 방식으로는 요청을 끝까지 처리하지 못했어요. 원인을 기록해 두었으니 다시 시도하면 현재 상태를 바탕으로 이어서 확인해볼게요."
-	}
-}
-
-func buildEnglishDynamicRecoveryReply(situation string) string {
-	switch situation {
-	case "browser_blocked":
-		return "I tried to check it, but the page blocked automated access, so I could not finish verifying the exact result. If you share another source or a page I can access, I can try from there."
-	case "attachment_unavailable":
-		return "I do not have attachment evidence that the file was created or sent, so I cannot honestly say it was delivered. This run is not complete yet, and the file creation needs to be tried again."
-	case "limit":
-		return "I started working on it, but this run hit a limit before I could finish. I can try again from the current state and continue the work."
-	case "model_unavailable":
-		return "The model call I needed to continue the answer dropped, so I could not finish the request this time. If you try again shortly, I can pick it back up from the current state."
-	default:
-		return "I could not finish the request in the current run. The reason is recorded, and I can try again from the current state."
-	}
-}
-
-func buildLastResortRecoveryReply(request AgentTurnRequest, fallbackKind string) string {
-	if requestUsesKorean(request) {
-		if fallbackKind == "limit" {
-			return koreanRequesterPrefix(request) + "요청을 진행했지만 이번 실행 안에서는 끝까지 마치지 못했어요. 다시 시도하면 이어서 처리해볼게요."
-		}
-		return koreanRequesterPrefix(request) + "지금은 요청을 끝까지 처리하지 못했어요. 다시 시도하면 이어서 확인해볼게요."
-	}
-	if fallbackKind == "limit" {
-		return "I started the request but could not finish it in this run. I can try again and continue from here."
-	}
-	return "I could not finish the request this time. I can try again and pick it back up from here."
 }
 
 func recoverySituationFor(reason string, observations []turnObservation, attachments []FileAttachment, fallbackKind string) string {
@@ -2196,32 +2101,6 @@ func recoverySituationFor(reason string, observations []turnObservation, attachm
 		return "attachment_unavailable"
 	}
 	return "general"
-}
-
-func requestUsesKorean(request AgentTurnRequest) bool {
-	return ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageKorean
-}
-
-func koreanRequesterPrefix(request AgentTurnRequest) string {
-	name := firstNonEmptyString(request.RequesterCallingName, request.RequesterName)
-	if name == "" {
-		return ""
-	}
-	return name + " 님, "
-}
-
-func koreanRequestAction(request AgentTurnRequest) string {
-	prompt := strings.TrimSpace(request.Prompt)
-	switch {
-	case strings.Contains(prompt, "날씨"):
-		return "날씨를 확인하려고"
-	case strings.Contains(prompt, "검색"):
-		return "검색하려고"
-	case strings.Contains(prompt, "파일") || strings.Contains(strings.ToLower(prompt), "html") || strings.Contains(strings.ToLower(prompt), "ppt"):
-		return "파일을 만들거나 확인하려고"
-	default:
-		return "요청을 처리하려고"
-	}
 }
 
 func failureReplyIsInvalid(reply string, attachments []FileAttachment) bool {
@@ -2257,7 +2136,8 @@ func failureReplyIsInvalidForRequest(reply string, request AgentTurnRequest, fai
 }
 
 func structuredFailureDetailsAreMissing(reply string, failureReason string, observations []turnObservation, attachments []FileAttachment) bool {
-	if recoverySituationFor(failureReason, observations, attachments, "failure") != "general" {
+	situation := recoverySituationFor(failureReason, observations, attachments, "failure")
+	if situation == "browser_blocked" || situation == "attachment_unavailable" || situation == "limit" || situation == "model_unavailable" {
 		return false
 	}
 	failure, isFound := latestStructuredFailureObservation(observations)
@@ -2276,11 +2156,11 @@ func containsFailureDetail(reply string, value string) bool {
 }
 
 func (agentTurnRunner *AgentTurnRunner) GenerateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
-	reply, _ := agentTurnRunner.generateLimitReachedReply(request, stopReason, observations, attachments)
+	reply, _, _ := agentTurnRunner.generateLimitReachedReply(request, stopReason, observations, attachments)
 	return reply
 }
 
-func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment) string {
+func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, decision recoveryDecision) string {
 	sections := []string{
 		"You are writing a short user-facing final reply after a Blueclaw run reached its scope limit.",
 		responseLanguageInstruction(request.ResponseLanguage),
@@ -2307,6 +2187,7 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 	if reason := strings.TrimSpace(stopReason); reason != "" {
 		sections = append(sections, "Internal stop reason for your planning only: "+reason)
 	}
+	sections = append(sections, "Structured recovery decision:\n"+marshalEventBody(decision))
 	return strings.Join(sections, "\n\n")
 }
 

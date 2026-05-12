@@ -58,6 +58,7 @@ func TestAgentTurnRunnerRejectsAttachmentClaimWithoutAttachmentEvidence(t *testi
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("첨부된 파일들을 확인해 주세요."),
 		`{"action":"fail","reason":"attachment evidence missing"}`,
+		recoveryDecisionDocument("attachment evidence was missing", "no attachment was available", "ask the user to retry file generation", "explain that attachment evidence was missing"),
 	}, textResponses: []string{
 		"첨부 파일을 만들거나 보냈다고 확인할 근거가 없어 여기서 멈췄어요. 파일이 필요하면 다시 시도해 주세요.",
 	}}
@@ -114,7 +115,7 @@ func TestAgentTurnRunnerGeneratesFailureReplyAfterStructuredModelFailure(t *test
 	}
 }
 
-func TestAgentTurnRunnerUsesDynamicReplyWhenAllModelCallsFail(t *testing.T) {
+func TestAgentTurnRunnerSuppressesReplyWhenAllModelCallsFail(t *testing.T) {
 	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("model unavailable")}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 
@@ -129,21 +130,15 @@ func TestAgentTurnRunnerUsesDynamicReplyWhenAllModelCallsFail(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
-	if result.FinalReply == "" {
-		t.Fatal("expected dynamic failure reply")
+	if result.FinalReply != "" || !result.ReplySuppressed {
+		t.Fatalf("expected suppressed user reply, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
 	}
-	if strings.Contains(result.FinalReply, "I am having trouble reaching the language model") || strings.Contains(result.FinalReply, "model configuration") {
-		t.Fatalf("expected non-static dynamic reply, got %q", result.FinalReply)
-	}
-	if !strings.Contains(result.FinalReply, "모델 호출") {
-		t.Fatalf("expected natural model failure reply, got %q", result.FinalReply)
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "dynamic") {
-		t.Fatal("expected dynamic failure reply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.llm_unavailable", "model unavailable") {
+		t.Fatal("expected admin diagnostic event")
 	}
 }
 
-func TestAgentTurnRunnerUsesResponseLanguageForDynamicFailureReply(t *testing.T) {
+func TestAgentTurnRunnerDoesNotUseLanguageFallbackWhenAllModelCallsFail(t *testing.T) {
 	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("model unavailable")}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 
@@ -154,17 +149,14 @@ func TestAgentTurnRunnerUsesResponseLanguageForDynamicFailureReply(t *testing.T)
 		ResponseLanguage:  ResponseLanguageEnglish,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected dynamic failure reply: %v", errorValue)
+		t.Fatalf("expected suppressed failure reply: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "could not finish") && !strings.Contains(result.FinalReply, "model call") {
-		t.Fatalf("expected English failure reply, got %q", result.FinalReply)
-	}
-	if strings.Contains(result.FinalReply, "요청") || strings.Contains(result.FinalReply, "못했") {
-		t.Fatalf("expected no Korean fallback when response language is English, got %q", result.FinalReply)
+	if result.FinalReply != "" || !result.ReplySuppressed {
+		t.Fatalf("expected no deterministic language fallback, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
 	}
 }
 
-func TestAgentTurnRunnerAnswersCapabilityQuestionWhenActionModelFails(t *testing.T) {
+func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModelFails(t *testing.T) {
 	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("structured action unavailable")}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"math.calculate", "file.write", "schedule.create"})
@@ -184,19 +176,13 @@ func TestAgentTurnRunnerAnswersCapabilityQuestionWhenActionModelFails(t *testing
 		ToolSet:              toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected capability fallback reply: %v", errorValue)
+		t.Fatalf("expected failed turn without deterministic capability reply: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed capability reply, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusFailed || result.FinalReply != "" || !result.ReplySuppressed {
+		t.Fatalf("expected suppressed failed task, got status=%s reply=%q suppressed=%v", result.TaskRun.Status, result.FinalReply, result.ReplySuppressed)
 	}
-	if !strings.Contains(result.FinalReply, "간단한 계산") || !strings.Contains(result.FinalReply, "파일 작성") {
-		t.Fatalf("expected useful capability summary, got %q", result.FinalReply)
-	}
-	if strings.Contains(result.FinalReply, "예상치 못한 중단") || strings.Contains(result.FinalReply, "다시 입력") {
-		t.Fatalf("expected no generic interruption message, got %q", result.FinalReply)
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "math.calculate") {
-		t.Fatal("expected capability fallback event")
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "math.calculate") {
+		t.Fatal("expected no deterministic capability fallback event")
 	}
 }
 
@@ -204,6 +190,9 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
 		`{"action":"fail","reason":"blocked_by_captcha"}`,
+		recoveryDecisionDocument("browser access was blocked", "captcha or bot detection was observed", "ask for another source or direct access", "explain that automated access was blocked"),
+	}, textResponses: []string{
+		"동하 님, 날씨를 확인하려고 시도했지만 페이지가 자동화 접근을 막아서 정확한 확인을 끝내지 못했어요. 다른 출처를 주시면 거기서 다시 확인해볼게요.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"browser.snapshot"})
@@ -973,6 +962,10 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
 		`{"action":"fail","reason":"recipient missing"}`,
+		`{"action":"fail","reason":"recipient missing"}`,
+		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
+	}, textResponses: []string{
+		"recipient_resolve/recipient_not_found 단계에서 수신자를 찾지 못해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1})
 	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
@@ -1003,9 +996,6 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	if !taskEventsContain(taskEvents, "tool.platform.dm.send.result", "recipient_not_found") {
 		t.Fatal("expected structured tool failure event")
 	}
-	if !taskEventsContain(taskEvents, "agent.recovery_guidance", "recipient_not_found") {
-		t.Fatal("expected recovery guidance to preserve error code")
-	}
 }
 
 func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCode(t *testing.T) {
@@ -1013,6 +1003,8 @@ func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCod
 		contents: []string{
 			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
 			`{"action":"fail","reason":"recipient missing"}`,
+			`{"action":"fail","reason":"recipient missing"}`,
+			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{"요청을 처리하지 못했습니다."},
 	}
@@ -1038,11 +1030,11 @@ func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCod
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "recipient_resolve/recipient_not_found") {
-		t.Fatalf("expected dynamic structured failure reply, got %q", result.FinalReply)
+	if result.FinalReply != "" || !result.ReplySuppressed {
+		t.Fatalf("expected invalid generated reply to be suppressed, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "dynamic") {
-		t.Fatal("expected invalid generated reply to fall back to dynamic")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "suppressed") {
+		t.Fatal("expected invalid generated reply to be recorded as suppressed")
 	}
 }
 
@@ -1052,6 +1044,8 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 		contents: []string{
 			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
 			`{"action":"fail","reason":"recipient missing"}`,
+			`{"action":"fail","reason":"recipient missing"}`,
+			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{generatedReply},
 	}
@@ -1160,6 +1154,9 @@ func TestAgentTurnRunnerDoesNotRetrySafeFailureMoreThanOnce(t *testing.T) {
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
 		`{"action":"fail","reason":"mattermost still unavailable"}`,
+		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/mattermost_unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
+	}, textResponses: []string{
+		"mattermost_lookup/mattermost_unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
 	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
@@ -1203,6 +1200,9 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
 		`{"action":"fail","reason":"send failed"}`,
+		recoveryDecisionDocument("message send failed", "message_send/send_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
+	}, textResponses: []string{
+		"message_send/send_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2})
 	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
@@ -1516,6 +1516,9 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
+		recoveryDecisionDocument("browser.fill input stayed malformed", "the tool was not invoked", "ask the model to retry with valid input", "explain that the run stopped before completion"),
+	}, textResponses: []string{
+		"I could not finish the browser fill request before this run stopped. Please try again with the current page still open.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	fillCallCount := 0
@@ -1543,8 +1546,8 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	if !strings.Contains(result.FinalReply, "could not finish") && !strings.Contains(result.FinalReply, "try again") && !strings.Contains(result.FinalReply, "마치지 못했") {
 		t.Fatalf("expected natural dynamic limit reply, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "dynamic") {
-		t.Fatal("expected dynamic limit reply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "generated") {
+		t.Fatal("expected generated limit reply event")
 	}
 	if fillCallCount != 0 {
 		t.Fatalf("expected malformed fill input not to invoke tool, got %d calls", fillCallCount)
@@ -2023,7 +2026,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t 
 	}
 }
 
-func TestAgentTurnRunnerUsesDynamicLimitReplyWhenFinalizationLeaksDiagnostics(t *testing.T) {
+func TestAgentTurnRunnerSuppressesLimitReplyWhenGenerationKeepsLeakingDiagnostics(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
@@ -2049,14 +2052,11 @@ func TestAgentTurnRunnerUsesDynamicLimitReplyWhenFinalizationLeaksDiagnostics(t 
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.FinalReply == "" {
-		t.Fatal("expected dynamic fallback reply")
+	if result.FinalReply != "" || !result.ReplySuppressed {
+		t.Fatalf("expected invalid generated limit reply to be suppressed, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
 	}
-	if strings.Contains(result.FinalReply, "budget") || strings.Contains(result.FinalReply, "iterations") || strings.Contains(result.FinalReply, "minutes") {
-		t.Fatalf("expected natural dynamic limit reply without diagnostics, got %q", result.FinalReply)
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "dynamic") {
-		t.Fatal("expected dynamic limit reply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.llm_unavailable", "invalid_repair") {
+		t.Fatal("expected admin diagnostic for invalid limit reply")
 	}
 }
 
@@ -2319,6 +2319,19 @@ type sequenceLanguageModel struct {
 	textResponses []string
 	requests      []llm.StructuredResponseRequest
 	textPrompts   []string
+}
+
+func recoveryDecisionDocument(whatFailed string, whatWasKnown string, nextAction string, userReplyIntent string) string {
+	document, errorValue := json.Marshal(map[string]string{
+		"whatFailed":      whatFailed,
+		"whatWasKnown":    whatWasKnown,
+		"nextAction":      nextAction,
+		"userReplyIntent": userReplyIntent,
+	})
+	if errorValue != nil {
+		return `{"whatFailed":"failed","whatWasKnown":"unknown","nextAction":"retry","userReplyIntent":"report the failure"}`
+	}
+	return string(document)
 }
 
 func (languageModel *sequenceLanguageModel) GenerateResponse(_ context.Context, prompt string) (string, error) {

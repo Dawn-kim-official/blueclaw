@@ -933,12 +933,14 @@ func marshalConnectorEventBody(value any) string {
 func (connectorRuntime *ConnectorRuntime) sendIncompleteTaskReply(ctx context.Context, platform string, event PlatformInboundEvent, taskRunID string, replyTarget ReplyTarget, turnResult agent.AgentTurnResult, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {
 	reply := strings.TrimSpace(turnResult.FinalReply)
 	if reply == "" {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.recovered_blocked", "task run is not completed")
-		reply = agent.BuildIncompleteTaskRecoveryReply(event.Prompt, "task_not_completed")
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.skipped_no_llm_reply", "task run is not completed and no LLM-generated reply is available")
+		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "no_llm_reply"))
+		return "", false
 	}
 	if agent.FinalReplyClaimsAttachmentDelivery(reply) || agent.ValidateFinalReplyDelivery(reply, nil, true) != nil {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.recovered_blocked", "incomplete task reply claimed unavailable artifact delivery")
-		reply = agent.BuildIncompleteTaskRecoveryReply(event.Prompt, "attachment unavailable")
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.skipped_no_llm_reply", "LLM-generated incomplete task reply claimed unavailable artifact delivery")
+		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "invalid_llm_reply"))
+		return "", false
 	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply, RecoveryActions: recoveryActionsForEvent(turnResult.RecoveryActions, event)})
 	if errorValue != nil {

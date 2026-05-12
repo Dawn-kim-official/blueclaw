@@ -233,3 +233,21 @@ func finalizerActionSchema() string {
 	}
 	return string(document)
 }
+
+func recoveryDecisionSchema() string {
+	document, errorValue := json.Marshal(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"whatFailed":      stringSchema(),
+			"whatWasKnown":    stringSchema(),
+			"nextAction":      stringSchema(),
+			"userReplyIntent": stringSchema(),
+		},
+		"required":             []string{"whatFailed", "whatWasKnown", "nextAction", "userReplyIntent"},
+		"additionalProperties": false,
+	})
+	if errorValue != nil {
+		return `{"type":"object"}`
+	}
+	return string(document)
+}
