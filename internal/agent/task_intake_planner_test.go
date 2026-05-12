@@ -303,6 +303,26 @@ func TestTaskIntakePlannerPromotesDeepAndExtendedRequests(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerKeepsSyntheticConnectorVerificationQuick(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"deep","requestedOutputFormats":null,"responseLanguage":"en","reason":"contains verify","userFacingReply":""}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := newTestToolSet([]string{"web.search", "mail.message.search"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "verify invited 1778564495",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationQuickReply {
+		t.Fatalf("expected quick connector probe, got %+v", decision)
+	}
+	if decision.EffortLevel != EffortLevelQuick {
+		t.Fatalf("expected quick effort, got %+v", decision)
+	}
+}
+
 func TestEffortLimitProfileMapping(t *testing.T) {
 	profile := EffortLimitProfileForLevel(EffortLevelDeep)
 
