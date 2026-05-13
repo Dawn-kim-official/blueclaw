@@ -140,6 +140,35 @@ func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T)
 	}
 }
 
+func TestLatestApprovalQuestionUsesOnlyUserFacingMessage(t *testing.T) {
+	taskEvents := []task.TaskEvent{{
+		Name: "approval.requested",
+		Body: `{"reason":"Direct messages are external sends and require approval before immediate delivery.","reasonCode":"external_send"}`,
+	}, {
+		Name: "confirmation.requested",
+		Body: `{"userFacingMessage":"샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonDetail":"internal only"}`,
+	}}
+
+	question := latestApprovalQuestion(taskEvents)
+
+	if question != "샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트" {
+		t.Fatalf("expected user-facing approval question, got %q", question)
+	}
+}
+
+func TestLatestApprovalQuestionDoesNotFallBackToReason(t *testing.T) {
+	taskEvents := []task.TaskEvent{{
+		Name: "approval.requested",
+		Body: `{"reason":"Direct messages are external sends and require approval before immediate delivery.","reasonCode":"external_send"}`,
+	}}
+
+	question := latestApprovalQuestion(taskEvents)
+
+	if question != "" {
+		t.Fatalf("expected no question from internal reason, got %q", question)
+	}
+}
+
 func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testing.T) {
 	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassHumanRequested), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)

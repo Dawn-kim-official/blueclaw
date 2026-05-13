@@ -195,6 +195,103 @@ func TestApprovalRequestPausesActiveTaskRun(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestStoresUserFacingMessageSeparatelyFromReasonDetail(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"approval.request"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithResponseLanguage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ResponseLanguageKorean), agent.ToolInvocation{
+		ToolName: "approval.request",
+		Input:    json.RawMessage(`{"userFacingMessage":"샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected approval tool to return a result: %v", errorValue)
+	}
+	if toolResult.IsError {
+		t.Fatalf("expected approval request to succeed, got %+v", toolResult)
+	}
+	approvalEvent := findTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "approval.requested")
+	var approvalRequest map[string]string
+	if errorValue := json.Unmarshal([]byte(approvalEvent.Body), &approvalRequest); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if approvalRequest["userFacingMessage"] != "샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트" {
+		t.Fatalf("expected user-facing message in event, got %+v", approvalRequest)
+	}
+	if approvalRequest["reasonCode"] != "external_send" || approvalRequest["reasonDetail"] == "" {
+		t.Fatalf("expected internal reason fields in event, got %+v", approvalRequest)
+	}
+}
+
+func TestApprovalRequestAcceptsLegacyMessageWithoutExposingReasonAsMessage(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"approval.request"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "approval.request",
+		Input:    json.RawMessage(`{"message":"승인할까요?","reason":"legacy internal reason"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected legacy approval tool to return a result: %v", errorValue)
+	}
+	if toolResult.IsError {
+		t.Fatalf("expected legacy approval request to succeed, got %+v", toolResult)
+	}
+	approvalEvent := findTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "approval.requested")
+	if strings.Contains(approvalEvent.Body, `"reason":"legacy internal reason"`) {
+		t.Fatalf("legacy reason must not be stored as user-facing reason, got %s", approvalEvent.Body)
+	}
+	if !strings.Contains(approvalEvent.Body, `"userFacingMessage":"승인할까요?"`) {
+		t.Fatalf("expected legacy message to become userFacingMessage, got %s", approvalEvent.Body)
+	}
+}
+
+func TestApprovalRequestRejectsMissingUserFacingMessageWithoutPausing(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"approval.request"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "approval.request",
+		Input:    json.RawMessage(`{"reasonCode":"external_send","reasonDetail":"internal only"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected approval tool to return a result: %v", errorValue)
+	}
+	if !toolResult.IsError || toolResult.ErrorCode != "approval_message_required" {
+		t.Fatalf("expected missing message tool failure, got %+v", toolResult)
+	}
+	updatedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || updatedTaskRun.Status == task.TaskStatusWaitingApproval {
+		t.Fatalf("expected task not to pause, got found=%v run=%+v", isFound, updatedTaskRun)
+	}
+	if containsTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "approval.requested") {
+		t.Fatalf("unexpected approval event")
+	}
+}
+
 func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	taskEventService := task.NewTaskEventService()

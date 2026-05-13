@@ -116,8 +116,11 @@ type browserHandoffOpenURLToolInput struct {
 }
 
 type approvalRequestToolInput struct {
-	Message string `json:"message"`
-	Reason  string `json:"reason"`
+	UserFacingMessage string `json:"userFacingMessage"`
+	ReasonCode        string `json:"reasonCode"`
+	ReasonDetail      string `json:"reasonDetail"`
+	Message           string `json:"message"`
+	Reason            string `json:"reason"`
 }
 
 type mathCalculateToolInput struct {
@@ -358,8 +361,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[approvalRequestToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "approval.request",
-			Description: "Pause the current task while waiting for explicit user approval. Use only before destructive, high-risk, external-send, credential, paid-service, or tool-availability ask actions. Do not use for ordinary non-destructive writes such as calendar.event.add, flow.task.add, site.app.create, or site.app.publish.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"},"reason":{"type":"string"}},"required":["message"],"additionalProperties":false}`),
+			Description: "Pause the current task while waiting for explicit user approval. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. userFacingMessage is shown directly to the user and must use the same language as the original user request. reasonCode and reasonDetail are internal only.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."},"message":{"type":"string","description":"Legacy alias for userFacingMessage."},"reason":{"type":"string","description":"Legacy internal detail. Never shown to the user."}},"required":["userFacingMessage","reasonCode"],"additionalProperties":false}`),
 		},
 		Handler: toolCatalogBuilder.requestApprovalTool,
 		Result:  agent.IdentityToolResult,
@@ -693,22 +696,55 @@ func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext co
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
 		return agent.ToolResult{Content: "approval requires an active task run", IsError: true}, nil
 	}
-	reason := firstNonEmptyString(input.Reason, input.Message, "approval requested")
-	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, reason)
+	userFacingMessage := approvalRequestUserFacingMessage(input)
+	if userFacingMessage == "" {
+		return agent.ToolResult{Content: "approval.request requires userFacingMessage", Message: "approval.request requires userFacingMessage", IsError: true, ErrorCode: "approval_message_required", FailureStage: "approval_request"}, nil
+	}
+	reasonCode := normalizeApprovalReasonCode(input.ReasonCode)
+	reasonDetail := approvalRequestReasonDetail(input)
+	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, approvalInternalReason(reasonCode, reasonDetail))
 	if errorValue != nil {
 		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
 	}
 	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "approval.requested", marshalToolResult(map[string]string{
-		"message":          input.Message,
-		"reason":           input.Reason,
-		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
+		"userFacingMessage": userFacingMessage,
+		"message":           userFacingMessage,
+		"reasonCode":        reasonCode,
+		"reasonDetail":      reasonDetail,
+		"responseLanguage":  agent.ResponseLanguageFromContext(toolContext),
 	}))
 	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "confirmation.requested", marshalToolResult(map[string]string{
-		"message":          input.Message,
-		"reason":           input.Reason,
-		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
+		"userFacingMessage": userFacingMessage,
+		"message":           userFacingMessage,
+		"reasonCode":        reasonCode,
+		"reasonDetail":      reasonDetail,
+		"responseLanguage":  agent.ResponseLanguageFromContext(toolContext),
 	}))
-	return agent.ToolResult{Content: marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "message": input.Message})}, nil
+	return agent.ToolResult{Content: marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "userFacingMessage": userFacingMessage, "message": userFacingMessage, "reasonCode": reasonCode})}, nil
+}
+
+func approvalRequestUserFacingMessage(input approvalRequestToolInput) string {
+	return firstNonEmptyString(input.UserFacingMessage, input.Message)
+}
+
+func approvalRequestReasonDetail(input approvalRequestToolInput) string {
+	return firstNonEmptyString(input.ReasonDetail, input.Reason)
+}
+
+func approvalInternalReason(reasonCode string, reasonDetail string) string {
+	if strings.TrimSpace(reasonDetail) == "" {
+		return reasonCode
+	}
+	return reasonCode + ": " + strings.TrimSpace(reasonDetail)
+}
+
+func normalizeApprovalReasonCode(reasonCode string) string {
+	switch strings.TrimSpace(reasonCode) {
+	case "external_send", "destructive_action", "credential_access", "paid_action", "permission_change", "capability_unlock", "other_sensitive_action":
+		return strings.TrimSpace(reasonCode)
+	default:
+		return "other_sensitive_action"
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {

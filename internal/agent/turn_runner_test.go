@@ -1859,6 +1859,53 @@ func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing
 	}
 }
 
+func TestAgentTurnRunnerWaitingApprovalUsesOnlyUserFacingMessage(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"approval.request","toolInput":{"userFacingMessage":"샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
+	toolRegistry := newTestToolSet([]string{"approval.request"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "approval.request"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var input struct {
+			UserFacingMessage string `json:"userFacingMessage"`
+			ReasonCode        string `json:"reasonCode"`
+			ReasonDetail      string `json:"reasonDetail"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		taskRunID := TaskRunIDFromContext(toolContext)
+		_, _ = services.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, input.ReasonDetail)
+		return ToolResult{Content: marshalEventBody(map[string]string{
+			"userFacingMessage": input.UserFacingMessage,
+			"reasonCode":        input.ReasonCode,
+			"reasonDetail":      input.ReasonDetail,
+		})}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "샘플에게 테스트라고 DM 보내줘",
+		ResponseLanguage:  ResponseLanguageKorean,
+		ToolSet:           toolRegistry,
+		SkillDecisions:    []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		WorkspaceRootPath: t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected approval request to pause: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusWaitingApproval {
+		t.Fatalf("expected waiting approval task, got %s", result.TaskRun.Status)
+	}
+	if result.FinalReply != "샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트" {
+		t.Fatalf("expected user-facing approval message, got %q", result.FinalReply)
+	}
+	if strings.Contains(result.FinalReply, "Direct messages are external sends") {
+		t.Fatalf("internal reason detail leaked into reply: %q", result.FinalReply)
+	}
+}
+
 func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-10T00:00:00+09:00","endISO":"2026-05-13T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}`,
@@ -2489,6 +2536,7 @@ func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 
 type turnRunnerTestServices struct {
 	runner              *AgentTurnRunner
+	taskRunService      *task.TaskRunService
 	taskEventService    *task.TaskEventService
 	taskStepService     *task.TaskStepService
 	taskArtifactService *task.TaskArtifactService
@@ -2501,6 +2549,7 @@ func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options 
 	taskRunService := task.NewTaskRunService(taskEventService)
 	return turnRunnerTestServices{
 		runner:              NewAgentTurnRunner(taskRunService, taskStepService, taskArtifactService, languageModel, options),
+		taskRunService:      taskRunService,
 		taskEventService:    taskEventService,
 		taskStepService:     taskStepService,
 		taskArtifactService: taskArtifactService,

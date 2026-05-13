@@ -93,6 +93,36 @@ func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T)
 	}
 }
 
+func TestBuildAgentActionRequestIncludesApprovalUserFacingContract(t *testing.T) {
+	toolSet := NewToolSet([]string{"approval.request"})
+	toolSet.RegisterTool(ToolDefinition{
+		Name:        "approval.request",
+		Description: "Ask for approval.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string"},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string"}},"required":["userFacingMessage","reasonCode"],"additionalProperties":false}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Content: "approval requested"}, nil
+	})
+	state := agentTaskState{
+		Request: AgentTurnRequest{
+			Prompt:           "테스트이한테 DM 보내줘",
+			ResponseLanguage: ResponseLanguageKorean,
+			ToolSet:          toolSet,
+		},
+	}
+
+	request := BuildAgentActionRequest(state)
+
+	if !messagesContain(request.Messages, "same language as the original user request") {
+		t.Fatalf("expected approval language contract in messages, got %+v", request.Messages)
+	}
+	if !messagesContain(request.Messages, "테스트이한테 DM 보내줘") {
+		t.Fatalf("expected original user request in messages, got %+v", request.Messages)
+	}
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"reasonCode"`) || !strings.Contains(request.StructuredOutputSchema.Document, `"userFacingMessage"`) {
+		t.Fatalf("expected approval schema fields, got %s", request.StructuredOutputSchema.Document)
+	}
+}
+
 func TestParseAgentActionResponseNormalizesLegacyReply(t *testing.T) {
 	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"reply":"done"}`})
 	if errorValue != nil {
