@@ -199,7 +199,7 @@ func endpointForVirtualSession(arguments virtualSessionArguments) string {
 
 func isLiveVirtualScenario(scenario e2e.VirtualSessionScenario) bool {
 	for _, virtualTurn := range scenario.Turns {
-		if len(virtualTurn.ModelResponses) > 0 {
+		if len(virtualTurn.ActionResponses) > 0 {
 			return false
 		}
 	}

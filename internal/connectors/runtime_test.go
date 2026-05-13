@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 	"blueclaw/internal/identity"
@@ -327,10 +328,10 @@ func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testin
 }
 
 func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T) {
-	languageModel := &connectorSequenceLanguageModel{contents: []string{
+	languageModel := agenttest.NewActionScriptedLanguageModel(
 		`{"action":"call_tool","toolName":"conversation.history","toolInput":{"limit":20}}`,
 		connectorFinalReplyWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
-	}}
+	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-1")
 	event.Context.HasMoreBefore = true
@@ -356,10 +357,10 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T)
 }
 
 func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
-	languageModel := &connectorSequenceLanguageModel{contents: []string{
+	languageModel := agenttest.NewActionScriptedLanguageModel(
 		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"name":"daily research brief","prompt":"매일 업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"}}`,
 		connectorFinalReply("매일 아침 7시에 조사해서 알려드릴게요."),
-	}}
+	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorScheduledTaskSkill())
 	repository := &connectorTaskScheduleRepository{}
@@ -395,15 +396,27 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 
 func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t *testing.T) {
 	invokedTools := []string{}
-	languageModel := &connectorSequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"calendar delete needs approval first","userFacingReply":""}`,
-		`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
-		`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
-		`{"decision":"approved","reason":"응 is an affirmative answer to the pending confirmation question."}`,
-		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"approved calendar tool work","userFacingReply":""}`,
-		`{"action":"call_tool","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
-		connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
-	}}
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_task_intake_effort": {
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":""}`,
+			},
+			"blueclaw_execution_plan": {
+				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
+			},
+			"blueclaw_confirmation_message": {
+				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
+			},
+			"blueclaw_confirmation_reply_decision": {
+				`{"decision":"approved","reason":"응 is an affirmative answer to the pending confirmation question."}`,
+			},
+		},
+		ActionResponses: []string{
+			`{"action":"call_tool","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+			connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
+		},
+	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
@@ -444,14 +457,15 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.TaskRunID == "" {
 		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
-	if len(languageModel.requests) != 7 {
-		t.Fatalf("expected approval classification before continuation turn, got %d requests", len(languageModel.requests))
+	requests := languageModel.Requests()
+	if len(requests) != 9 {
+		t.Fatalf("expected approval classification before continuation turn, got %d requests: %+v", len(requests), connectorRequestSchemaNames(requests))
 	}
-	if languageModel.requests[3].StructuredOutputSchema.Name != "blueclaw_confirmation_reply_decision" {
-		t.Fatalf("expected fourth model request to classify confirmation, got %q", languageModel.requests[3].StructuredOutputSchema.Name)
+	if requests[4].StructuredOutputSchema.Name != "blueclaw_confirmation_reply_decision" {
+		t.Fatalf("expected fifth model request to classify confirmation, got %q", requests[4].StructuredOutputSchema.Name)
 	}
-	if !structuredMessagesContain(languageModel.requests[5].Messages, "The user has approved this pending action") {
-		t.Fatalf("expected continuation prompt to carry approval context, got %+v", languageModel.requests[5].Messages)
+	if !structuredMessagesContain(requests[7].Messages, "The user has approved this pending action") {
+		t.Fatalf("expected continuation prompt to carry approval context, got %+v", requests[7].Messages)
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
@@ -463,11 +477,15 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 
 func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	invokedTools := []string{}
-	languageModel := &connectorSequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
-		`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
-		connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.event.add", 0),
-	}}
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{"blueclaw_task_intake_effort": {
+			`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
+		}},
+		ActionResponses: []string{
+			`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
+			connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.event.add", 0),
+		},
+	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
@@ -494,8 +512,9 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	if result.TaskRunID == "" {
 		t.Fatal("expected task run id")
 	}
-	if connectorContainsSchemaName(languageModel.requests, "blueclaw_approval_reply_decision") {
-		t.Fatalf("expected no approval continuation classification, got %+v", connectorRequestSchemaNames(languageModel.requests))
+	requests := languageModel.Requests()
+	if connectorContainsSchemaName(requests, "blueclaw_approval_reply_decision") {
+		t.Fatalf("expected no approval continuation classification, got %+v", connectorRequestSchemaNames(requests))
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.add/invoke" {
 		t.Fatalf("expected direct calendar add invocation, got %+v", invokedTools)
@@ -506,10 +525,10 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 }
 
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
-	languageModel := &connectorSequenceLanguageModel{contents: []string{
+	languageModel := agenttest.NewActionScriptedLanguageModel(
 		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
 		connectorFinalReplyWithEvidence("브라우저를 확인했습니다", "obs-001", "browser.snapshot", 0),
-	}}
+	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorBrowserSnapshotSkill())
 	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "browser.snapshot"})
@@ -534,8 +553,9 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 		t.Fatalf("expected capability tool event to process: %v", errorValue)
 	}
 
-	if len(languageModel.requests) < 2 || !structuredMessagesContain(languageModel.requests[1].Messages, "https://example.com") {
-		t.Fatalf("expected typed capability result to be available as tool observation, got %+v", languageModel.requests)
+	requests := languageModel.Requests()
+	if len(requests) < 2 || !structuredMessagesContain(requests[1].Messages, "https://example.com") {
+		t.Fatalf("expected typed capability result to be available as tool observation, got %+v", requests)
 	}
 	if adapter.sentReplies[0].message != "브라우저를 확인했습니다" {
 		t.Fatalf("expected final reply, got %q", adapter.sentReplies[0].message)
@@ -993,24 +1013,6 @@ func (languageModel *recordingLanguageModel) GenerateResponse(context.Context, s
 func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.request = structuredResponseRequest
 	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
-}
-
-type connectorSequenceLanguageModel struct {
-	contents []string
-	requests []llm.StructuredResponseRequest
-}
-
-func (languageModel *connectorSequenceLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "", nil
-}
-
-func (languageModel *connectorSequenceLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	languageModel.requests = append(languageModel.requests, structuredResponseRequest)
-	index := len(languageModel.requests) - 1
-	if index >= len(languageModel.contents) {
-		index = len(languageModel.contents) - 1
-	}
-	return llm.StructuredResponse{Content: languageModel.contents[index]}, nil
 }
 
 type staticScopeLanguageModel struct {

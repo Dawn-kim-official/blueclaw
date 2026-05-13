@@ -44,9 +44,9 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 
 func finalReplyActionSchema(hasFailureDebt bool) map[string]any {
 	failureResolutionValues := []string{"none", "recovered_with_success", "no_tool_fallback"}
-	requiredFields := []string{"action", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview"}
+	requiredFields := []string{"action", "finalReply", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview"}
 	if hasFailureDebt {
-		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback", "failure_report"}
+		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback"}
 		requiredFields = append(requiredFields, "failureResolution")
 	}
 	return map[string]any{
@@ -54,7 +54,6 @@ func finalReplyActionSchema(hasFailureDebt bool) map[string]any {
 		"properties": map[string]any{
 			"action":             enumStringSchema("final_reply"),
 			"finalReply":         stringSchema(),
-			"reply":              stringSchema(),
 			"failureResolution":  enumValuesStringSchema(failureResolutionValues),
 			"goalStatus":         enumValuesStringSchema([]string{"satisfied"}),
 			"goalSatisfied":      booleanSchema(),
@@ -91,7 +90,7 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 		"goalSatisfied": booleanSchema(),
 		"remainingWork": stringSchema(),
 	}
-	requiredFields := []string{"action", "reason"}
+	requiredFields := []string{"action", "reason", "goalStatus", "goalSatisfied"}
 	if hasFailureDebt {
 		properties["failureResolution"] = enumValuesStringSchema([]string{"failure_report"})
 		properties["usedFailureFacts"] = failureReportFactsSchema()
@@ -241,7 +240,8 @@ func failureReportFactsSchema() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"attempts": map[string]any{
-				"type": "array",
+				"type":     "array",
+				"minItems": 1,
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -263,7 +263,7 @@ func failureReportFactsSchema() map[string]any {
 }
 
 func fallbackActionSchema() string {
-	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["final_reply"]},"finalReply":{"type":"string"},"reply":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason"],"additionalProperties":false}]}`
+	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["final_reply"]},"finalReply":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","finalReply","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"],"additionalProperties":false}]}`
 }
 
 func finalizerActionSchema() string {

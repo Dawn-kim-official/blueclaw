@@ -17,7 +17,7 @@ func TestSlidesScenarioDoesNotScriptToolCalls(t *testing.T) {
 	if len(scenario.Turns) != 1 {
 		t.Fatalf("expected one slides turn, got %d", len(scenario.Turns))
 	}
-	if len(scenario.Turns[0].ModelResponses) != 0 {
+	if len(scenario.Turns[0].ActionResponses) != 0 {
 		t.Fatal("slides scenario must not script model tool calls or artifact creation")
 	}
 }

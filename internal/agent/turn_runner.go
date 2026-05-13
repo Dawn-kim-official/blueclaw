@@ -302,10 +302,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
 		case "call_tool":
 			if !toolAvailableForAction(request.ToolSet, actionDocument.ToolName) {
-				observation := invalidToolRequestedObservation(len(state.Observations)+1, actionDocument.ToolName)
+				observation := agentTurnRunner.recordUnavailableToolRequest(taskRun.TaskRunID, len(state.Observations)+1, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 				state.Observations = append(state.Observations, observation)
-				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.invalid_tool_requested", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_tool_requested "+actionDocument.ToolName, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool_unavailable "+actionDocument.ToolName, observation.Content)
 				continue
 			}
 			if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
@@ -846,23 +845,25 @@ func toolAvailableForAction(toolRegistry *ToolSet, toolName string) bool {
 	return toolRegistry.IsAllowed(strings.TrimSpace(toolName))
 }
 
-func invalidToolRequestedObservation(index int, toolName string) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) recordUnavailableToolRequest(taskRunID string, index int, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
 	trimmedToolName := strings.TrimSpace(toolName)
-	content := "The requested tool is not available in this run. Choose one of the listed tools, answer without a tool if possible, or explain the missing capability."
-	if trimmedToolName != "" {
-		content = "The requested tool " + trimmedToolName + " is not available in this run. Choose one of the listed tools, answer without a tool if possible, or explain the missing capability."
+	if trimmedToolName == "" {
+		trimmedToolName = "unknown_tool"
 	}
-	return turnObservation{
-		ObservationID: nextObservationID(index),
-		Action:        "policy",
-		Tool:          trimmedToolName,
-		Content:       content,
-		Summary:       content,
-		IsError:       true,
-		Message:       content,
-		ErrorCode:     "invalid_tool_requested",
-		FailureStage:  firstNonEmptyString(trimmedToolName, "tool_selection"),
-	}
+	observationID := nextObservationID(index)
+	toolInputKey := canonicalToolCallKey(trimmedToolName, toolInput)
+	agentTurnRunner.appendEvent(taskRunID, "tool."+trimmedToolName+".requested", marshalEventBody(map[string]any{
+		"observationID": observationID,
+		"toolName":      trimmedToolName,
+		"input":         json.RawMessage(toolInput),
+	}))
+	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, ToolResult{
+		Content:      "tool is not allowed",
+		Message:      "tool is not allowed",
+		IsError:      true,
+		ErrorCode:    "tool_unavailable",
+		FailureStage: "tool_availability",
+	}, workspaceRootPath, minimumModifiedAt)
 }
 
 func stringValue(value any) string {

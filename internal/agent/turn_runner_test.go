@@ -316,9 +316,9 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"forbidden","toolInput":{}}`,
-		finalReplyDocument("recovered"),
+		noToolFallbackFinalReplyDocument("recovered"),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"allowed"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "forbidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Content: "should not run"}, nil
@@ -336,8 +336,8 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	if result.FinalReply != "recovered" {
 		t.Fatalf("expected recovered reply, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.invalid_tool_requested", "forbidden") {
-		t.Fatal("expected invalid tool event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.forbidden.result", "tool_unavailable") {
+		t.Fatal("expected denied tool result event")
 	}
 }
 
@@ -1020,6 +1020,29 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 	if !structuredRequestsContain([]llm.StructuredResponseRequest{request}, "FailureReportFacts") {
 		t.Fatal("expected debt-aware request to inject FailureReportFacts")
 	}
+	finalReplyVariant := actionSchemaVariant(t, schemaDocument, "final_reply")
+	finalReplyRequired := stringSliceFromAny(finalReplyVariant["required"])
+	if !containsString(finalReplyRequired, "finalReply") || !containsString(finalReplyRequired, "failureResolution") {
+		t.Fatalf("expected final_reply to require finalReply and failureResolution, got %+v", finalReplyRequired)
+	}
+	finalReplyProperties := mapFromAny(finalReplyVariant["properties"])
+	finalReplyFailureResolution := mapFromAny(finalReplyProperties["failureResolution"])
+	if containsString(stringSliceFromAny(finalReplyFailureResolution["enum"]), failureResolutionFailureReport) {
+		t.Fatal("final_reply schema must not allow failure_report; failure reports must use fail with usedFailureFacts")
+	}
+	failVariant := actionSchemaVariant(t, schemaDocument, "fail")
+	failRequired := stringSliceFromAny(failVariant["required"])
+	for _, fieldName := range []string{"reason", "goalStatus", "goalSatisfied", "failureResolution", "usedFailureFacts"} {
+		if !containsString(failRequired, fieldName) {
+			t.Fatalf("expected fail schema to require %s, got %+v", fieldName, failRequired)
+		}
+	}
+	failProperties := mapFromAny(failVariant["properties"])
+	usedFailureFacts := mapFromAny(failProperties["usedFailureFacts"])
+	attempts := mapFromAny(mapFromAny(usedFailureFacts["properties"])["attempts"])
+	if attempts["minItems"] != float64(1) {
+		t.Fatalf("expected usedFailureFacts.attempts minItems=1, got %+v", attempts["minItems"])
+	}
 }
 
 func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
@@ -1378,7 +1401,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"calculation_tool","toolInput":{"expression":"1+1"}}`,
-		finalReplyDocument("I can answer without that unavailable tool."),
+		noToolFallbackFinalReplyDocument("I can answer without that unavailable tool."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"math.calculate"})
@@ -1399,11 +1422,11 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 	if result.FinalReply != "I can answer without that unavailable tool." {
 		t.Fatalf("expected final reply after unavailable tool observation, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.invalid_tool_requested", "calculation_tool") {
-		t.Fatal("expected invalid tool event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.requested", "calculation_tool") {
+		t.Fatal("expected unavailable tool request event")
 	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.requested", "") {
-		t.Fatal("unexpected unavailable tool request event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.result", "tool_unavailable") {
+		t.Fatal("expected unavailable tool result event")
 	}
 }
 
@@ -2576,6 +2599,57 @@ func structuredRequestsContain(requests []llm.StructuredResponseRequest, fragmen
 	return false
 }
 
+func actionSchemaVariant(t *testing.T, schemaDocument string, actionName string) map[string]any {
+	t.Helper()
+	var schema struct {
+		OneOf []map[string]any `json:"oneOf"`
+	}
+	if errorValue := json.Unmarshal([]byte(schemaDocument), &schema); errorValue != nil {
+		t.Fatalf("expected action schema json: %v", errorValue)
+	}
+	for _, variant := range schema.OneOf {
+		properties := mapFromAny(variant["properties"])
+		actionProperty := mapFromAny(properties["action"])
+		if containsString(stringSliceFromAny(actionProperty["enum"]), actionName) {
+			return variant
+		}
+	}
+	t.Fatalf("expected action schema variant %q in %s", actionName, schemaDocument)
+	return nil
+}
+
+func mapFromAny(value any) map[string]any {
+	typedValue, isMap := value.(map[string]any)
+	if !isMap {
+		return map[string]any{}
+	}
+	return typedValue
+}
+
+func stringSliceFromAny(value any) []string {
+	values, isSlice := value.([]any)
+	if !isSlice {
+		return nil
+	}
+	result := []string{}
+	for _, item := range values {
+		stringValue, isString := item.(string)
+		if isString {
+			result = append(result, stringValue)
+		}
+	}
+	return result
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func countStringOccurrences(values []string, fragment string) int {
 	count := 0
 	for _, value := range values {
@@ -2605,6 +2679,8 @@ func failureReportDocument(reason string, toolName string, inputSummary string, 
 	document, errorValue := json.Marshal(map[string]any{
 		"action":            "fail",
 		"reason":            reason,
+		"goalStatus":        "blocked",
+		"goalSatisfied":     false,
 		"failureResolution": failureResolutionFailureReport,
 		"usedFailureFacts": failureReportFacts{
 			Attempts: []failureReportAttempt{{
@@ -2618,7 +2694,7 @@ func failureReportDocument(reason string, toolName string, inputSummary string, 
 		},
 	})
 	if errorValue != nil {
-		return `{"action":"fail","reason":"failed","failureResolution":"failure_report","usedFailureFacts":{"attempts":[],"budgetState":"failure_report_required"}}`
+		return `{"action":"fail","reason":"failed","goalStatus":"blocked","goalSatisfied":false,"failureResolution":"failure_report","usedFailureFacts":{"attempts":[],"budgetState":"failure_report_required"}}`
 	}
 	return string(document)
 }
