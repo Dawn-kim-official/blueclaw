@@ -219,13 +219,15 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
 	evidenceHints := selectedEvidenceHintTools(instructionBundle)
-	confirmationResult, isBlocked, executionPlan, hasExecutionPlan, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, evidenceHints)
+	confirmationEvidenceHints := confirmationEvidenceHintsForRequest(request, intakeDecision, evidenceHints)
+	confirmationResult, isBlocked, executionPlan, hasExecutionPlan, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, confirmationEvidenceHints)
 	if isBlocked || errorValue != nil {
 		return confirmationResult, errorValue
 	}
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
+	turnToolSet = toolSetForOutcomeReference(turnToolSet, request, executionPlan, hasExecutionPlan, outcomeContract)
 
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
@@ -393,6 +395,38 @@ func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBun
 	return toolSet.WithAllowedToolNames(toolNamesForSelectedSkills(instructionBundle))
 }
 
+func toolSetForOutcomeReference(toolSet *ToolSet, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
+	if toolSet == nil {
+		return nil
+	}
+	allowedToolNames := []string{}
+	for _, toolName := range toolSet.ListToolNames() {
+		if shouldExposeToolForOutcome(toolName, request, executionPlan, hasExecutionPlan, outcomeContract) {
+			allowedToolNames = append(allowedToolNames, toolName)
+		}
+	}
+	return toolSet.WithAllowedToolNames(allowedToolNames)
+}
+
+func shouldExposeToolForOutcome(toolName string, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if strings.HasPrefix(trimmedToolName, "site.app.") {
+		return outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, outcomeContract)
+	}
+	if isSendEvidenceTool(trimmedToolName) {
+		return outcomeAllowsExternalSendTools(request, executionPlan, hasExecutionPlan, outcomeContract)
+	}
+	return true
+}
+
+func outcomeAllowsSiteTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
+	return contractRequiresToolPrefix(outcomeContract, "site.app.") || (hasExecutionPlan && executionPlan.PublicDeploy) || promptLooksLikeSitePrototypeRequest(request.Prompt)
+}
+
+func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
+	return contractRequiresSendTool(outcomeContract) || (hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) || promptLooksLikeExternalSend(request.Prompt)
+}
+
 func toolNamesForSelectedSkills(instructionBundle InstructionBundle) []string {
 	toolNames := append([]string{}, coreAgentToolNames()...)
 	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
@@ -429,6 +463,16 @@ func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
 		toolNames = append(toolNames, skillInstruction.Completion.RequiredEvidenceTools...)
 	}
 	return appendUniqueStrings(toolNames)
+}
+
+func confirmationEvidenceHintsForRequest(request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) []string {
+	toolNames := []string{}
+	for _, toolName := range evidenceHints {
+		if evidenceHintMatchesOutcome(toolName, request, intakeDecision, ExecutionPlan{}, false, nil) {
+			toolNames = appendUniqueStrings(toolNames, toolName)
+		}
+	}
+	return toolNames
 }
 
 func selectedSkillNameSet(skillDecisions []SkillSelectionDecision) map[string]bool {
@@ -507,6 +551,32 @@ func isSendEvidenceTool(toolName string) bool {
 	default:
 		return false
 	}
+}
+
+func contractRequiresSendTool(contract OutcomeContract) bool {
+	for _, toolName := range outcomeContractRequiredToolNames(contract) {
+		if isSendEvidenceTool(toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func contractRequiresToolPrefix(contract OutcomeContract, prefix string) bool {
+	for _, toolName := range outcomeContractRequiredToolNames(contract) {
+		if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func outcomeContractRequiredToolNames(contract OutcomeContract) []string {
+	toolNames := append([]string{}, contract.RequiredEvidenceTools...)
+	for _, toolNameGroup := range contract.RequiredEvidenceAnyOf {
+		toolNames = append(toolNames, toolNameGroup...)
+	}
+	return toolNames
 }
 
 func outcomeContractSource(hasExecutionPlan bool, requiredAttachmentSuffixes []string) string {
@@ -987,7 +1057,7 @@ func buildCompactSkillIndexPrompt(skillInstructions []SkillInstruction) string {
 	if len(skillInstructions) == 0 {
 		return ""
 	}
-	lines := []string{"Available skill index. Full instructions are loaded only for selected skills:"}
+	lines := []string{"Available skill index. These are capability references, not mandatory workflows:"}
 	for _, skillInstruction := range skillInstructions {
 		lines = append(lines, "- "+compactSkillIndexLine(skillInstruction))
 	}
@@ -1006,7 +1076,10 @@ func buildSelectedSkillInstructionPrompt(skillInstructions []SkillInstruction) s
 	if len(skillInstructions) == 0 {
 		return ""
 	}
-	parts := []string{"Selected skill instructions:"}
+	parts := []string{
+		"Available skill references:",
+		"These skills/tools are available if they fit the user's current goal. They are not mandatory. Do not change the requested output type to match a skill.",
+	}
 	for _, skillInstruction := range skillInstructions {
 		if strings.TrimSpace(skillInstruction.Prompt) != "" {
 			parts = append(parts, strings.TrimSpace(skillInstruction.Prompt))

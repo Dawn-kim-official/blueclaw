@@ -326,7 +326,7 @@ func summarizeJSONValue(value any, fieldNames []string) string {
 		if !isFound {
 			continue
 		}
-		if isUnsafePromptField(fieldName) {
+		if isUnsafePromptField(fieldName, fieldValue) {
 			continue
 		}
 		parts = append(parts, fieldName+"="+truncateText(compactWhitespace(fmt.Sprintf("%v", fieldValue)), 300))
@@ -405,7 +405,19 @@ func redactUnsafeText(value string) string {
 	return strings.Join(lines, "\n")
 }
 
-func isUnsafePromptField(fieldName string) bool {
+func isUnsafePromptField(fieldName string, fieldValue any) bool {
 	normalizedFieldName := strings.ToLower(fieldName)
+	if isAgentWorkspacePathField(normalizedFieldName) && isAgentWorkspacePathValue(fieldValue) {
+		return false
+	}
 	return strings.Contains(normalizedFieldName, "path") || strings.Contains(normalizedFieldName, "cookie") || strings.Contains(normalizedFieldName, "token") || strings.Contains(normalizedFieldName, "authorization") || strings.Contains(normalizedFieldName, "cdp") || strings.Contains(normalizedFieldName, "profile")
+}
+
+func isAgentWorkspacePathField(fieldName string) bool {
+	return fieldName == "workspacepath" || fieldName == "sourceworkspacepath"
+}
+
+func isAgentWorkspacePathValue(value any) bool {
+	text, isString := value.(string)
+	return isString && strings.HasPrefix(strings.TrimSpace(text), "/workspace/")
 }

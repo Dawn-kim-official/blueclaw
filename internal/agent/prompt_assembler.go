@@ -79,7 +79,7 @@ func (promptAssembler PromptAssembler) appendInstructionMessages(messages *[]llm
 	}
 	*messages = append(*messages, llm.Message{
 		Role:    "system",
-		Content: "Workspace and skill instructions:\n" + strings.TrimSpace(instructionPrompt),
+		Content: "Workspace instructions and available skill references:\n" + strings.TrimSpace(instructionPrompt),
 	})
 }
 
