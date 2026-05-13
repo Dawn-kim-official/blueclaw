@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
@@ -46,7 +47,7 @@ type VirtualSessionScenario struct {
 
 type VirtualTurn struct {
 	Prompt                  string
-	ModelResponses          []string
+	ActionResponses         []string
 	ExpectedSelectedSkills  []string
 	ExpectedToolCalls       []string
 	ExpectedEvents          []string
@@ -90,7 +91,7 @@ type VirtualSessionHarness struct {
 	scenario         VirtualSessionScenario
 	artifactPath     string
 	workspacePath    string
-	scriptedModel    *scriptedLanguageModel
+	scriptedModel    *agenttest.ScriptedLanguageModel
 	taskEventService *task.TaskEventService
 	memoryStore      *virtualMemoryStore
 	runtime          *connectors.ConnectorRuntime
@@ -148,7 +149,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	taskRunService := task.NewTaskRunService(taskEventService)
 	taskStepService := task.NewTaskStepService()
 	taskArtifactService := task.NewTaskArtifactService()
-	scriptedModel := scriptedLanguageModelForScenario(scenario)
+	scriptedModel := actionScriptedLanguageModelForScenario(scenario)
 	languageModel := scenario.LanguageModel
 	if scriptedModel != nil {
 		languageModel = scriptedModel
@@ -357,7 +358,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 	}
 	for index, virtualTurn := range harness.scenario.Turns {
 		if harness.scriptedModel != nil {
-			harness.scriptedModel.Enqueue(virtualTurn.ModelResponses...)
+			harness.scriptedModel.EnqueueActionResponses(virtualTurn.ActionResponses...)
 		}
 		turnResult, errorValue := harness.runTurn(ctx, index, virtualTurn)
 		if errorValue != nil {
@@ -372,10 +373,10 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 	return result, nil
 }
 
-func scriptedLanguageModelForScenario(scenario VirtualSessionScenario) *scriptedLanguageModel {
+func actionScriptedLanguageModelForScenario(scenario VirtualSessionScenario) *agenttest.ScriptedLanguageModel {
 	for _, virtualTurn := range scenario.Turns {
-		if len(virtualTurn.ModelResponses) > 0 {
-			return &scriptedLanguageModel{}
+		if len(virtualTurn.ActionResponses) > 0 {
+			return agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{ProviderName: "virtual", ModelName: "scripted"})
 		}
 	}
 	return nil
@@ -416,7 +417,8 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	}
 	outboundReply, isFound := harness.adapter.FindReply(runtimeResult.ReplyDispatchID)
 	if !isFound {
-		return VirtualTurnResult{}, errors.New("virtual turn did not dispatch a reply")
+		events := harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID)
+		return VirtualTurnResult{}, fmt.Errorf("virtual turn did not dispatch a reply; events: %s", summarizeEvents(events))
 	}
 	return VirtualTurnResult{
 		TaskRunID:    runtimeResult.TaskRunID,
@@ -431,7 +433,17 @@ func (harness *VirtualSessionHarness) modelContextSince(startIndex int) string {
 	if harness.scriptedModel == nil {
 		return ""
 	}
-	return harness.scriptedModel.ContextSince(startIndex)
+	parts := []string{}
+	for _, request := range harness.scriptedModel.RequestsSince(startIndex) {
+		if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
+			continue
+		}
+		for _, message := range request.Messages {
+			parts = append(parts, message.Role+": "+message.Content)
+		}
+		parts = append(parts, request.StructuredOutputSchema.Document)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turnResult VirtualTurnResult) {
@@ -737,56 +749,6 @@ func testPolicyProjection() policy.PolicyProjection {
 	return policy.PolicyProjectionService{}.ReplacePolicyProjectionTransactionally(policyDocument)
 }
 
-type scriptedLanguageModel struct {
-	mutex    sync.Mutex
-	contents []string
-	requests []llm.StructuredResponseRequest
-}
-
-func (languageModel *scriptedLanguageModel) Enqueue(contents ...string) {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	languageModel.contents = append(languageModel.contents, contents...)
-}
-
-func (languageModel *scriptedLanguageModel) RequestCount() int {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	return len(languageModel.requests)
-}
-
-func (languageModel *scriptedLanguageModel) ContextSince(startIndex int) string {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	if startIndex < 0 || startIndex > len(languageModel.requests) {
-		startIndex = 0
-	}
-	parts := []string{}
-	for _, request := range languageModel.requests[startIndex:] {
-		for _, message := range request.Messages {
-			parts = append(parts, message.Role+": "+message.Content)
-		}
-		parts = append(parts, request.StructuredOutputSchema.Document)
-	}
-	return strings.Join(parts, "\n")
-}
-
-func (languageModel *scriptedLanguageModel) GenerateResponse(context.Context, string) (string, error) {
-	return "", nil
-}
-
-func (languageModel *scriptedLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	languageModel.mutex.Lock()
-	defer languageModel.mutex.Unlock()
-	languageModel.requests = append(languageModel.requests, request)
-	if len(languageModel.contents) == 0 {
-		return llm.StructuredResponse{}, errors.New("virtual session model response queue is empty")
-	}
-	content := languageModel.contents[0]
-	languageModel.contents = languageModel.contents[1:]
-	return llm.StructuredResponse{ProviderName: "virtual", ModelName: "scripted", Content: content}, nil
-}
-
 type virtualAdapter struct {
 	mutex   sync.Mutex
 	replies map[string]connectors.OutboundReply
@@ -966,6 +928,10 @@ func actionFinalReply(reply string, evidence ...string) string {
 		evidenceDocuments = append(evidenceDocuments, `{"observationID":`+quote(parts[0])+`,"toolName":`+quote(parts[1])+`,"attachmentIndex":`+parts[2]+`}`)
 	}
 	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[` + strings.Join(evidenceDocuments, ",") + `],"finalReply":` + quote(reply) + `}`
+}
+
+func actionNoToolFallbackFinalReply(reply string) string {
+	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"failureResolution":"no_tool_fallback","finalReply":` + quote(reply) + `}`
 }
 
 func actionCallTool(toolName string, input string) string {

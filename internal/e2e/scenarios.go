@@ -57,14 +57,14 @@ func MemoryGuidedFollowupScenario(artifactDirectoryPath string) VirtualSessionSc
 		Turns: []VirtualTurn{
 			{
 				Prompt: "내 발표 자료는 항상 짧은 문장과 한국어 제목을 선호한다고 기억해줘",
-				ModelResponses: []string{
+				ActionResponses: []string{
 					actionFinalReply("기억해둘게요."),
 				},
 				ExpectedReplyFragments: []string{"기억"},
 			},
 			{
 				Prompt: "아까 말한 선호를 반영해서 다음 발표 스타일을 한 문장으로 정리해줘",
-				ModelResponses: []string{
+				ActionResponses: []string{
 					actionFinalReply("짧은 문장과 한국어 제목 중심으로 정리하겠습니다."),
 				},
 				ExpectedReplyFragments: []string{"짧은 문장", "한국어 제목"},
@@ -81,7 +81,7 @@ func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessi
 		AllowedTools:          []string{"memory.search", "file.write"},
 		Turns: []VirtualTurn{{
 			Prompt: "피피티 만들어줘",
-			ModelResponses: []string{
+			ActionResponses: []string{
 				actionFinalReply("현재 profile에서는 필요한 도구가 없어 슬라이드 생성 skill을 실행하지 않았습니다."),
 			},
 			ExpectedReplyFragments: []string{"필요한 도구"},
@@ -96,9 +96,9 @@ func GWSDisabledScenario(artifactDirectoryPath string) VirtualSessionScenario {
 		AllowedTools:          []string{"memory.search", "terminal.run", "file.write", "file.attach"},
 		Turns: []VirtualTurn{{
 			Prompt: "구글 드라이브에 파일 올릴 수 있는지 확인해줘",
-			ModelResponses: []string{
+			ActionResponses: []string{
 				actionCallTool("google.drive.import_pptx", `{"path":"deck.pptx"}`),
-				actionFinalReply("Google Workspace 도구는 노출되지 않아 호출이 거부되었습니다. 로컬 첨부 경로만 사용할 수 있습니다."),
+				actionNoToolFallbackFinalReply("Google Workspace 도구는 노출되지 않아 호출이 거부되었습니다. 로컬 첨부 경로만 사용할 수 있습니다."),
 			},
 			ExpectedToolCalls:      []string{"google.drive.import_pptx"},
 			ExpectedReplyFragments: []string{"거부"},
@@ -114,9 +114,9 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
 		Turns: []VirtualTurn{{
 			Prompt: "1분마다 \"1분 지났습니다\"라고 보내줘",
-			ModelResponses: []string{
-				actionCallTool("schedule.create", `{"name":"1분 알림","prompt":"1분 지났습니다","executionMode":"message","kind":"interval","intervalSecond":60,"timeZone":"Asia/Seoul"}`),
-				actionFinalReply("1분마다 알림을 보내도록 예약해둘게요."),
+			ActionResponses: []string{
+				actionCallTool("schedule.create", `{"name":"1분 알림","prompt":"1분 지났습니다","executionMode":"message","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}`),
+				actionFinalReply("1분마다 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
 			},
 			ExpectedSelectedSkills: []string{"scheduled-task"},
 			ExpectedToolCalls:      []string{"schedule.create"},
@@ -162,15 +162,15 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		Name:                  "site_prototype_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:          append([]string{"conversation.history", "memory.search", "schedule.create"}, sitePrototypeToolNames()...),
+		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
 		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
 		Turns: []VirtualTurn{{
 			Prompt: "웹사이트 하나 만들어서 배포해봐",
-			ModelResponses: []string{
+			ActionResponses: []string{
 				actionCallTool("site.app.create", `{"slug":"demo","title":"Demo Website"}`),
 				actionCallTool("terminal.run", `{"command":"mkdir -p app/dist && printf 'demo site' > app/dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/site-1","timeoutSecond":30}`),
 				actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Initial demo website"}`),
-				actionFinalReply("웹사이트 프로토타입을 배포했습니다: https://demo.device.example.test"),
+				actionFinalReply("웹사이트 프로토타입을 배포했습니다: https://demo.device.example.test", "obs-003:site.app.publish:0"),
 			},
 			ExpectedSelectedSkills: []string{"site-prototype"},
 			ExpectedToolCalls:      []string{"site.app.create", "terminal.run", "site.app.publish"},
