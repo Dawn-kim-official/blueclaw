@@ -11,6 +11,7 @@ type PromptAssembler struct{}
 
 func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnRequest, observations []turnObservation, baseInstruction string, toolDescription string) []llm.Message {
 	messages := []llm.Message{{Role: "system", Content: strings.TrimSpace(baseInstruction)}}
+	promptAssembler.appendTemporalContextMessage(&messages, request.TurnStartedAt)
 	promptAssembler.appendInstructionMessages(&messages, request.InstructionPrompt)
 	promptAssembler.appendToolMessage(&messages, toolDescription)
 	promptAssembler.appendRuntimeContextMessage(&messages, request)
@@ -30,6 +31,37 @@ func (promptAssembler PromptAssembler) BuildReplyMessages(prompt string, visible
 	promptAssembler.appendMemoryMessage(&messages, memoryContext)
 	messages = append(messages, llm.Message{Role: "user", Content: prompt})
 	return messages
+}
+
+func (promptAssembler PromptAssembler) appendTemporalContextMessage(messages *[]llm.Message, turnStartedAt time.Time) {
+	*messages = append(*messages, llm.Message{
+		Role:    "system",
+		Content: buildTemporalContextDescription(turnStartedAt),
+	})
+}
+
+func buildTemporalContextDescription(turnStartedAt time.Time) string {
+	currentTime := turnStartedAt
+	if currentTime.IsZero() {
+		currentTime = time.Now()
+	}
+	location := temporalContextLocation()
+	localTime := currentTime.In(location)
+	return strings.Join([]string{
+		"Runtime temporal context:",
+		"Current date: " + localTime.Format("2006-01-02"),
+		"Current time: " + localTime.Format(time.RFC3339),
+		"Time zone: " + location.String(),
+		"Resolve relative dates such as today, tomorrow, next Friday, 오늘, 내일, and 다음 주 from this context before choosing tool inputs.",
+	}, "\n")
+}
+
+func temporalContextLocation() *time.Location {
+	location, errorValue := time.LoadLocation("Asia/Seoul")
+	if errorValue == nil {
+		return location
+	}
+	return time.FixedZone("Asia/Seoul", 9*60*60)
 }
 
 func (promptAssembler PromptAssembler) appendInstructionMessages(messages *[]llm.Message, instructionPrompt string) {
