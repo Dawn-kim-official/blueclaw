@@ -121,6 +121,170 @@ func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassHumanRequested), reply: "ok"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testInboundEvent("message-1")
+	event.Context.ConversationType = "D"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected direct message to process: %v", errorValue)
+	}
+
+	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected direct message task and reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
+	}
+	if connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+		t.Fatalf("expected direct message to skip addressing classifier, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
+	}
+}
+
+func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassHumanRequested), reply: "ok"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testChannelInboundEvent("message-1")
+	event.Context.Addressing.BotMentioned = true
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected bot mention to process: %v", errorValue)
+	}
+
+	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected bot mention task and reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
+	}
+	if connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+		t.Fatalf("expected bot mention to skip addressing classifier, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
+	}
+}
+
+func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutTask(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassAssistantRequested), reply: "unused"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testChannelInboundEvent("message-1")
+	event.Context.Addressing.OtherPersonMentioned = true
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected other mention to be ignored: %v", errorValue)
+	}
+
+	if !result.Ignored || result.Reason != "addressed_to_other_person" {
+		t.Fatalf("expected addressed_to_other_person ignore, got %+v", result)
+	}
+	if result.TaskRunID != "" || len(adapter.sentReplies) != 0 || len(adapter.progressStarts) != 0 {
+		t.Fatalf("expected no task/reply/progress, got result=%+v replies=%d progress=%d", result, len(adapter.sentReplies), len(adapter.progressStarts))
+	}
+	if len(languageModel.requests) != 0 {
+		t.Fatalf("expected no language model calls, got %d", len(languageModel.requests))
+	}
+}
+
+func TestConnectorRuntimeProcessesAssistantRequestedAmbiguousChannelMessage(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassAssistantRequested), reply: "ok"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
+	if errorValue != nil {
+		t.Fatalf("expected assistant-requested message to process: %v", errorValue)
+	}
+
+	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected assistant-requested task and reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
+	}
+	if !connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+		t.Fatalf("expected addressing classifier request, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
+	}
+}
+
+func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testing.T) {
+	replyLanguageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassHumanRequested), reply: "ok"}
+	intakeLanguageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassAssistantRequested), reply: "unused"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, replyLanguageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
+	if errorValue != nil {
+		t.Fatalf("expected intake classifier to process: %v", errorValue)
+	}
+
+	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected intake classifier result to launch task, got result=%+v replies=%d", result, len(adapter.sentReplies))
+	}
+	if !connectorContainsSchemaName(intakeLanguageModel.requests, "blueclaw_addressing_classification") {
+		t.Fatalf("expected intake language model to classify addressing, got schemas %+v", connectorRequestSchemaNames(intakeLanguageModel.requests))
+	}
+	if connectorContainsSchemaName(replyLanguageModel.requests, "blueclaw_addressing_classification") {
+		t.Fatalf("expected reply language model not to classify addressing, got schemas %+v", connectorRequestSchemaNames(replyLanguageModel.requests))
+	}
+}
+
+func TestConnectorRuntimeIgnoresNonAssistantAddressingClasses(t *testing.T) {
+	tests := []struct {
+		name            string
+		addressingClass string
+		reason          string
+	}{
+		{name: "human", addressingClass: string(agent.AddressingClassHumanRequested), reason: "addressing_human_requested"},
+		{name: "anyone", addressingClass: string(agent.AddressingClassAnyoneRequested), reason: "addressing_anyone_requested"},
+		{name: "not request", addressingClass: string(agent.AddressingClassNotARequest), reason: "addressing_not_a_request"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			languageModel := &addressingTestLanguageModel{addressingClass: test.addressingClass, reply: "unused"}
+			connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+
+			result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
+			if errorValue != nil {
+				t.Fatalf("expected message to be ignored: %v", errorValue)
+			}
+
+			if !result.Ignored || result.Reason != test.reason {
+				t.Fatalf("expected %s ignore, got %+v", test.reason, result)
+			}
+			if result.TaskRunID != "" || len(adapter.sentReplies) != 0 || len(adapter.progressStarts) != 0 {
+				t.Fatalf("expected no task/reply/progress, got result=%+v replies=%d progress=%d", result, len(adapter.sentReplies), len(adapter.progressStarts))
+			}
+		})
+	}
+}
+
+func TestConnectorRuntimeIgnoresUninvitedAmbiguousChannelMessageWithoutReply(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	adapter.senderEmail = "outside@example.com"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
+	if errorValue != nil {
+		t.Fatalf("expected uninvited ambiguous message to be ignored: %v", errorValue)
+	}
+
+	if !result.Ignored || result.Reason != "not_addressed_to_bot" {
+		t.Fatalf("expected not_addressed_to_bot ignore, got %+v", result)
+	}
+	if result.TaskRunID != "" || len(adapter.sentReplies) != 0 {
+		t.Fatalf("expected no task or not-invited reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
+	}
+}
+
+func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingError: errors.New("classifier unavailable"), reply: "unused"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
+	if errorValue != nil {
+		t.Fatalf("expected classifier failure to close the gate: %v", errorValue)
+	}
+
+	if !result.Ignored || result.Reason != "addressing_classifier_failed" {
+		t.Fatalf("expected addressing_classifier_failed ignore, got %+v", result)
+	}
+	if result.TaskRunID != "" || len(adapter.sentReplies) != 0 || len(adapter.progressStarts) != 0 {
+		t.Fatalf("expected no task/reply/progress, got result=%+v replies=%d progress=%d", result, len(adapter.sentReplies), len(adapter.progressStarts))
+	}
+}
+
 func TestConnectorRuntimeSkipsReplyWhenTaskDoesNotCompleteWithoutLLMReply(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
 
@@ -293,17 +457,15 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 
-	if !strings.Contains(languageModel.request.Messages[1].Content, "conversation.history") {
-		t.Fatalf("expected tool context first, got %q", languageModel.request.Messages[1].Content)
-	}
+	toolContextIndex := messageIndex(languageModel.request.Messages, "conversation.history")
 	visibleContextIndex := messageIndex(languageModel.request.Messages, "admin: 이전 메시지")
 	memoryIndex := messageIndex(languageModel.request.Messages, "간결한 설계")
 	promptIndex := messageIndex(languageModel.request.Messages, event.Prompt)
-	if visibleContextIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
+	if toolContextIndex < 0 || visibleContextIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
 		t.Fatalf("expected visible context, memory, and prompt messages, got %+v", languageModel.request.Messages)
 	}
-	if !(visibleContextIndex < memoryIndex && memoryIndex < promptIndex) {
-		t.Fatalf("expected visible context before memory before prompt, got visible=%d memory=%d prompt=%d", visibleContextIndex, memoryIndex, promptIndex)
+	if !(toolContextIndex < visibleContextIndex && visibleContextIndex < memoryIndex && memoryIndex < promptIndex) {
+		t.Fatalf("expected tool context before visible context before memory before prompt, got tool=%d visible=%d memory=%d prompt=%d", toolContextIndex, visibleContextIndex, memoryIndex, promptIndex)
 	}
 }
 
@@ -1001,6 +1163,28 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(context.Contex
 	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
 }
 
+type addressingTestLanguageModel struct {
+	addressingClass string
+	addressingError error
+	reply           string
+	requests        []llm.StructuredResponseRequest
+}
+
+func (languageModel *addressingTestLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return languageModel.reply, nil
+}
+
+func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.requests = append(languageModel.requests, request)
+	if request.StructuredOutputSchema.Name == "blueclaw_addressing_classification" {
+		if languageModel.addressingError != nil {
+			return llm.StructuredResponse{}, languageModel.addressingError
+		}
+		return llm.StructuredResponse{Content: `{"addressingClass":` + strconv.Quote(languageModel.addressingClass) + `}`}, nil
+	}
+	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
+}
+
 type recordingLanguageModel struct {
 	reply   string
 	request llm.StructuredResponseRequest
@@ -1216,4 +1400,17 @@ func testInboundEvent(messageID string) PlatformInboundEvent {
 		ReplyTargetID:  "reply-target-1",
 		Prompt:         "hello",
 	}
+}
+
+func testChannelInboundEvent(messageID string) PlatformInboundEvent {
+	event := testInboundEvent(messageID)
+	event.ConversationID = "channel-1"
+	event.ReplyTargetID = "channel-reply-target-1"
+	event.Prompt = "이거 정리해줘"
+	event.Context = VisibleContext{
+		ConversationType: "O",
+		ChannelID:        "channel-1",
+		ChannelName:      "random-chat",
+	}
+	return event
 }

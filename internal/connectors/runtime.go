@@ -167,6 +167,12 @@ type VisibleContext struct {
 	ConversationType string                  `json:"conversationType,omitempty"`
 	ChannelID        string                  `json:"channelID,omitempty"`
 	ChannelName      string                  `json:"channelName,omitempty"`
+	Addressing       AddressingMetadata      `json:"addressing,omitempty"`
+}
+
+type AddressingMetadata struct {
+	BotMentioned         bool `json:"botMentioned,omitempty"`
+	OtherPersonMentioned bool `json:"otherPersonMentioned,omitempty"`
 }
 
 type VisibleContextSender struct {
@@ -667,6 +673,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if errorValue != nil {
 		return ConnectorRuntimeResult{}, errorValue
 	}
+	if shouldIgnoreBeforeAuthorization(event) {
+		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "addressed_to_other_person"))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "addressed_to_other_person"}, nil
+	}
 
 	personID, isAllowed, errorValue := connectorRuntime.authorizeSender(ctx, adapter, event)
 	if errorValue != nil {
@@ -674,6 +684,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		return ConnectorRuntimeResult{}, errorValue
 	}
 	if !isAllowed {
+		if shouldIgnoreUninvitedAddressing(event) {
+			connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "not_addressed_to_bot"))
+			return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "not_addressed_to_bot"}, nil
+		}
 		connectorRuntime.logger.Info("connector."+platform+".auth.rejected", slog.String("messageID", event.MessageID), slog.String("reason", "not_invited"))
 		dispatchID, sendError := sendReply(ctx, replyTarget, OutboundReply{Message: adapter.NotInvitedReply()})
 		if sendError != nil {
@@ -695,6 +709,11 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		event = approvedContinuationEvent(event, pendingApproval)
 	}
 	event = connectorRuntime.withInitialVisibleContext(ctx, adapter, event)
+	shouldLaunch, ignoreReason := connectorRuntime.shouldLaunchForAddressing(ctx, platform, event)
+	if !shouldLaunch {
+		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", ignoreReason))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: ignoreReason}, nil
+	}
 	stopProgress := connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
 	defer stopProgress()
 
