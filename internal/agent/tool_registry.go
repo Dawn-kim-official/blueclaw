@@ -220,7 +220,7 @@ func (toolSet *ToolSet) Descriptions() string {
 	if len(toolNames) == 0 {
 		return ""
 	}
-	lines := []string{"Available tools:"}
+	lines := []string{"Available tools. Use them only when they fit the current user goal; tool availability does not make tool use mandatory:"}
 	for _, toolName := range toolNames {
 		boundTool := toolSet.boundToolByName[toolName]
 		toolDefinition := boundTool.Definition

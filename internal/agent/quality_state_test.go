@@ -78,6 +78,37 @@ func TestQualityReviewRejectsMissingEvidence(t *testing.T) {
 	}
 }
 
+func TestCompletionGateRejectsFailedDeclaredQualityCriterion(t *testing.T) {
+	criteria := normalizeQualityCriteria([]qualityCriterion{{
+		ID:          "business-plan",
+		Description: "Business plan sample is complete.",
+	}})
+	actionDocument := turnActionDocument{
+		Action:             "final_reply",
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      boolPointer(true),
+		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.app.create"}},
+		QualityReview: []qualityReviewItem{{
+			ID:       "business-plan",
+			Passed:   false,
+			Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.app.create"}},
+		}},
+		FinalReply: "완료했습니다.",
+	}
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "call_tool",
+		Tool:          "site.app.create",
+		Content:       `{"siteID":"site-1"}`,
+	}}
+
+	result := validateCompletionGateForRequest(AgentTurnRequest{}, nil, observations, criteria, actionDocument)
+
+	if result.IsSatisfied {
+		t.Fatal("expected failed declared quality criterion to block completion")
+	}
+}
+
 func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 	criteria := normalizeQualityCriteria([]qualityCriterion{{
 		ID:          "artifact-delivered",

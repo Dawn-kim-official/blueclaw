@@ -44,6 +44,9 @@ func TestToolSetDescriptionsAndActionSchemaShareExposedTools(t *testing.T) {
 
 	descriptions := toolSet.Descriptions()
 	actionSchema := toolSet.ActionSchema(false, nil, false)
+	if !strings.Contains(descriptions, "Use them only when they fit the current user goal") {
+		t.Fatalf("expected tool prompt to frame tools as optional, got prompt=%s", descriptions)
+	}
 	if !strings.Contains(descriptions, "visible.tool") || !strings.Contains(actionSchema, "visible.tool") {
 		t.Fatalf("expected visible tool in prompt and schema, got prompt=%s schema=%s", descriptions, actionSchema)
 	}

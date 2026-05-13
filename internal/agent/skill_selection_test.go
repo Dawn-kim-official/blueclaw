@@ -40,6 +40,12 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 	if !strings.Contains(selectedBundle.Prompt, "Available skill index") || !strings.Contains(selectedBundle.Prompt, "simple-slides: Create presentation decks, 피피티") {
 		t.Fatalf("expected compact skill index, got %q", selectedBundle.Prompt)
 	}
+	if !strings.Contains(selectedBundle.Prompt, "Available skill references") || !strings.Contains(selectedBundle.Prompt, "They are not mandatory") {
+		t.Fatalf("expected selected skill prompt to be framed as references, got %q", selectedBundle.Prompt)
+	}
+	if strings.Contains(selectedBundle.Prompt, "Selected skill instructions") {
+		t.Fatalf("expected no mandatory selected skill framing, got %q", selectedBundle.Prompt)
+	}
 	if len(selectedBundle.Sources) != 1 || selectedBundle.Sources[0].SkillName != "simple-slides" {
 		t.Fatalf("expected simple-slides instruction source, got %+v", selectedBundle.Sources)
 	}

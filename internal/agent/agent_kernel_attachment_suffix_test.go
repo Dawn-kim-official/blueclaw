@@ -87,6 +87,60 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 	}
 }
 
+func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.T) {
+	toolSet := testToolSet([]string{"web.fetch", "file.write", "file.attach", "site.app.create", "site.app.publish", "platform.dm.send", "mail.message.send"})
+	contract := OutcomeContract{
+		SelectedEvidenceHints: []string{"site.app.create", "site.app.publish", "platform.dm.send", "mail.message.send"},
+	}
+
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "https://example.com 참고해서 사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
+
+	for _, toolName := range []string{"web.fetch", "file.write", "file.attach"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+	for _, toolName := range []string{"site.app.create", "site.app.publish", "platform.dm.send", "mail.message.send"} {
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to be hidden for document goal, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+}
+
+func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
+	toolSet := testToolSet([]string{"web.fetch", "site.app.create", "site.app.publish"})
+
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "웹사이트 하나 만들어서 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{})
+
+	for _, toolName := range []string{"site.app.create", "site.app.publish"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to remain available for site goal, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+}
+
+func TestOutcomeReferenceToolSetKeepsSendToolsForExplicitSendGoal(t *testing.T) {
+	toolSet := testToolSet([]string{"web.fetch", "platform.dm.send", "mail.message.send"})
+
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "샘플에게 DM 보내줘"}, ExecutionPlan{}, false, OutcomeContract{})
+
+	if !filteredToolSet.IsAllowed("platform.dm.send") {
+		t.Fatalf("expected DM send to remain available, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestConfirmationHintsIgnoreUnrelatedSelectedSkillEvidence(t *testing.T) {
+	hints := confirmationEvidenceHintsForRequest(
+		AgentRequest{Prompt: "https://example.com 참고해서 사업계획서 작성해줘"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask},
+		[]string{"site.app.publish", "platform.dm.send"},
+	)
+
+	if len(hints) != 0 {
+		t.Fatalf("expected unrelated skill evidence not to force confirmation planning, got %+v", hints)
+	}
+}
+
 func TestAttachmentSuffixesComeFromStructuredOutputFormats(t *testing.T) {
 	suffixes := attachmentSuffixesForRequestedOutputFormats([]string{"html", "pdf", "html"})
 
