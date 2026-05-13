@@ -508,14 +508,12 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	}
 }
 
-func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) {
+func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceHint(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finalReplyDocument("deck created too early"),
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
-		finalReplyWithEvidence("deck created", "obs-002", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -559,20 +557,13 @@ func TestAgentKernelPromotesQuickReplyWhenSelectedSkillNeedsTools(t *testing.T) 
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected promoted bounded task: %v", errorValue)
+		t.Fatalf("expected quick reply: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "deck.pptx") {
+	if result.FinalReply != "deck created too early" {
 		t.Fatalf("expected final reply, got %q", result.FinalReply)
 	}
-	requestContent := joinedMessageContent(replyLanguageModel.requests[0].Messages)
-	if !strings.Contains(requestContent, "Available tools") {
-		t.Fatal("expected promoted request to expose tools")
-	}
-	if !strings.Contains(requestContent, "Create and attach PPTX files.") {
-		t.Fatal("expected selected skill instructions")
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
-		t.Fatal("expected promoted bounded task intake event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "quick_reply") {
+		t.Fatal("expected quick reply intake event")
 	}
 }
 

@@ -172,7 +172,7 @@ func (agentKernel *AgentKernel) ClassifyConfirmationReply(responseContext contex
 	return decision, nil
 }
 
-func confirmationPlanMessages(request AgentRequest, requiredEvidenceTools []string) []llm.Message {
+func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []llm.Message {
 	contextDescription := buildVisibleContextDescription(request.VisibleContext)
 	if contextDescription == "" {
 		contextDescription = "No recent visible context."
@@ -186,8 +186,9 @@ func confirmationPlanMessages(request AgentRequest, requiredEvidenceTools []stri
 			"Do not ask the user here. Only return the structured plan.",
 		}, "\n")},
 		{Role: "system", Content: responseLanguageInstruction(request.ResponseLanguage)},
-		{Role: "system", Content: "Required evidence tools: " + strings.Join(requiredEvidenceTools, ", ")},
+		{Role: "system", Content: "Selected skill evidence hints, not requirements: " + strings.Join(evidenceHints, ", ")},
 		{Role: "system", Content: contextDescription},
+		{Role: "system", Content: activeGoalDescription(request.ActiveGoal)},
 		{Role: "user", Content: strings.TrimSpace(request.Prompt)},
 	}
 }

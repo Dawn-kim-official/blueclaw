@@ -42,6 +42,7 @@ type TaskLaunchRequest struct {
 	Prompt                    string
 	ResponseLanguage          string
 	VisibleContext            agent.VisibleContext
+	ActiveGoal                agent.ActiveGoal
 	HistoryProvider           HistoryProvider
 	PersonAccess              policy.PersonAccess
 	MemoryNamespaces          []memory.MemoryNamespace
@@ -129,6 +130,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		Prompt:                  request.Prompt,
 		ResponseLanguage:        request.ResponseLanguage,
 		VisibleContext:          request.VisibleContext,
+		ActiveGoal:              request.ActiveGoal,
 		MemoryFacts:             memoryFacts,
 		ToolSet:                 toolSet,
 		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),

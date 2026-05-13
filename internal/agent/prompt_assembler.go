@@ -16,12 +16,21 @@ func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnReques
 	promptAssembler.appendToolMessage(&messages, toolDescription)
 	promptAssembler.appendRuntimeContextMessage(&messages, request)
 	promptAssembler.appendSenderAddressingMessage(&messages, buildSenderAddressingDescription(request))
+	promptAssembler.appendActiveGoalMessage(&messages, request.ActiveGoal)
 	promptAssembler.appendVisibleContextMessage(&messages, request.VisibleContext)
 	promptAssembler.appendMemoryMessage(&messages, buildMemoryContext(request.MemoryFacts))
 	promptAssembler.appendProgressMessage(&messages, request, observations)
 	promptAssembler.appendObservationMessage(&messages, observations)
 	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
 	return messages
+}
+
+func (promptAssembler PromptAssembler) appendActiveGoalMessage(messages *[]llm.Message, activeGoal ActiveGoal) {
+	goalDescription := activeGoalDescription(activeGoal)
+	if goalDescription == "" {
+		return
+	}
+	*messages = append(*messages, llm.Message{Role: "system", Content: goalDescription})
 }
 
 func (promptAssembler PromptAssembler) BuildReplyMessages(prompt string, visibleContext VisibleContext, memoryContext string, instructionPrompt string) []llm.Message {

@@ -189,6 +189,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		ToolSet:                request.ToolSet,
 		WorkspaceRootPath:      request.WorkspaceRootPath,
 		ActivePaths:            request.ActivePaths,
+		ActiveGoal:             request.ActiveGoal,
 	})
 }
 
@@ -217,13 +218,14 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
-	requiredEvidenceTools := requiredEvidenceToolsForIntake(intakeDecision, instructionBundle)
-	if len(requiredAttachmentSuffixes) > 0 {
-		requiredEvidenceTools = appendUniqueStrings(requiredEvidenceTools, "file.attach")
-	}
-	if confirmationResult, isBlocked, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, requiredEvidenceTools); isBlocked || errorValue != nil {
+	evidenceHints := selectedEvidenceHintTools(instructionBundle)
+	confirmationResult, isBlocked, executionPlan, hasExecutionPlan, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, evidenceHints)
+	if isBlocked || errorValue != nil {
 		return confirmationResult, errorValue
 	}
+	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
+	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
+	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
 
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
@@ -250,6 +252,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		SkillQueries:               append([]string{}, instructionBundle.SkillQueries...),
 		RequiredEvidenceTools:      requiredEvidenceTools,
 		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
+		OutcomeContract:            outcomeContract,
+		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
@@ -265,24 +269,25 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
 }
 
-func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, requiredEvidenceTools []string) (AgentTurnResult, bool, error) {
+func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) (AgentTurnResult, bool, ExecutionPlan, bool, error) {
 	if request.IsApprovalContinuation || strings.TrimSpace(request.ExistingTaskRunID) != "" {
-		return AgentTurnResult{}, false, nil
+		return AgentTurnResult{}, false, ExecutionPlan{}, false, nil
 	}
-	if !shouldBuildExecutionPlanForConfirmation(request, intakeDecision, requiredEvidenceTools) {
-		return AgentTurnResult{}, false, nil
+	if !shouldBuildExecutionPlanForConfirmation(request, intakeDecision, evidenceHints) {
+		return AgentTurnResult{}, false, ExecutionPlan{}, false, nil
 	}
-	executionPlan, errorValue := agentKernel.BuildExecutionPlan(responseContext, request, requiredEvidenceTools)
+	executionPlan, errorValue := agentKernel.BuildExecutionPlan(responseContext, request, evidenceHints)
 	if errorValue != nil {
-		return AgentTurnResult{}, false, errorValue
+		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 	}
 	decision := EvaluateConfirmationPolicy(executionPlan)
 	if !decision.RequiresConfirmation && !decision.RequiresClarification {
-		return AgentTurnResult{}, false, nil
+		return AgentTurnResult{}, false, executionPlan, true, nil
 	}
 
 	taskRun := agentKernel.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
@@ -292,31 +297,35 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 	if decision.RequiresClarification {
 		reply, errorValue := agentKernel.GenerateClarificationMessage(responseContext, request, executionPlan, decision)
 		if errorValue != nil {
-			return AgentTurnResult{}, false, errorValue
+			return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 		}
 		waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, reply)
 		if errorValue != nil {
-			return AgentTurnResult{}, false, errorValue
+			return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 		}
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)))
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
-		return AgentTurnResult{TaskRun: waitingTaskRun, FinalReply: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, nil
+		return AgentTurnResult{TaskRun: waitingTaskRun, FinalReply: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
 	}
 
 	reply, errorValue := agentKernel.GenerateConfirmationMessage(responseContext, request, executionPlan, decision)
 	if errorValue != nil {
-		return AgentTurnResult{}, false, errorValue
+		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 	}
 	waitingTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingApproval, reply)
 	if errorValue != nil {
-		return AgentTurnResult{}, false, errorValue
+		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 	}
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, evidenceHints, nil)))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_approval", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, evidenceHints, nil)))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalEventBody(map[string]string{
 		"message":                 reply,
 		"reason":                  decision.Reason,
 		"responseLanguage":        request.ResponseLanguage,
 		"continuationInstruction": executionPlan.ContinuationInstruction,
 	}))
-	return AgentTurnResult{TaskRun: waitingTaskRun, FinalReply: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, nil
+	return AgentTurnResult{TaskRun: waitingTaskRun, FinalReply: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
 }
 
 func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecision IntakeDecision, requiredEvidenceTools []string) bool {
@@ -354,6 +363,29 @@ func promptLooksLikeConfirmationCandidate(prompt string) bool {
 	})
 }
 
+func promptLooksLikeExternalSend(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{
+		"dm", "direct message", "email", "mail", "send", "message",
+		"보내", "전송", "메일", "디엠", "dm으로", "메시지", "전달", "알려줘",
+	})
+}
+
+func promptLooksLikeSitePrototypeRequest(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{
+		"website", "web app", "prototype", "landing page", "publish", "deploy",
+		"웹사이트", "웹 앱", "프로토타입", "랜딩", "배포", "공개", "사이트 만들어", "사이트를 만들어",
+	})
+}
+
+func promptLooksLikeCalendarRequest(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{
+		"calendar", "event", "일정", "캘린더", "달력", "회의", "약속", "휴가",
+	})
+}
+
 func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBundle) *ToolSet {
 	if toolSet == nil {
 		return nil
@@ -387,7 +419,7 @@ func coreAgentToolNames() []string {
 	return []string{"conversation.history", "memory.search", "approval.request", "skill.search"}
 }
 
-func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string {
+func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
 	toolNames := []string{}
 	selectedSkillNames := selectedSkillNameSet(instructionBundle.SkillDecisions)
 	for _, skillInstruction := range instructionBundle.Skills {
@@ -397,13 +429,6 @@ func selectedRequiredEvidenceTools(instructionBundle InstructionBundle) []string
 		toolNames = append(toolNames, skillInstruction.Completion.RequiredEvidenceTools...)
 	}
 	return appendUniqueStrings(toolNames)
-}
-
-func requiredEvidenceToolsForIntake(intakeDecision IntakeDecision, instructionBundle InstructionBundle) []string {
-	if intakeDecision.Classification == IntakeClassificationQuickReply {
-		return nil
-	}
-	return selectedRequiredEvidenceTools(instructionBundle)
 }
 
 func selectedSkillNameSet(skillDecisions []SkillSelectionDecision) map[string]bool {
@@ -418,6 +443,172 @@ func selectedSkillNameSet(skillDecisions []SkillSelectionDecision) map[string]bo
 
 func selectedRequiredAttachmentSuffixes(_ InstructionBundle, _ string) []string {
 	return nil
+}
+
+func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
+	if activeGoalOutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
+		contract := request.ActiveGoal.OutcomeContract
+		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHintTools(instructionBundle)...)
+		return normalizeOutcomeContract(contract)
+	}
+	contract := OutcomeContract{
+		SelectedEvidenceHints:      selectedEvidenceHintTools(instructionBundle),
+		RequiredAttachmentSuffixes: append([]string{}, requiredAttachmentSuffixes...),
+	}
+	contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
+	if len(requiredAttachmentSuffixes) > 0 {
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, "file.attach")
+	}
+	contract.Source = outcomeContractSource(hasExecutionPlan, requiredAttachmentSuffixes)
+	return normalizeOutcomeContract(contract)
+}
+
+func activeGoalOutcomeContractHasRequirements(contract OutcomeContract) bool {
+	return len(contract.RequiredEvidenceTools) > 0 || len(contract.RequiredEvidenceAnyOf) > 0 || len(contract.RequiredAttachmentSuffixes) > 0
+}
+
+func outcomeEvidenceTools(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, evidenceHints []string, requiredAttachmentSuffixes []string) []string {
+	toolNames := []string{}
+	for _, toolName := range evidenceHints {
+		if evidenceHintMatchesOutcome(toolName, request, intakeDecision, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes) {
+			toolNames = appendUniqueStrings(toolNames, toolName)
+		}
+	}
+	return toolNames
+}
+
+func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) bool {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == "" {
+		return false
+	}
+	if isSendEvidenceTool(trimmedToolName) {
+		return (hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) || promptLooksLikeExternalSend(request.Prompt)
+	}
+	if trimmedToolName == "file.attach" {
+		return len(requiredAttachmentSuffixes) > 0
+	}
+	if strings.HasPrefix(trimmedToolName, "site.app.") {
+		return (hasExecutionPlan && executionPlan.PublicDeploy) || promptLooksLikeSitePrototypeRequest(request.Prompt)
+	}
+	if strings.HasPrefix(trimmedToolName, "schedule.") {
+		return intakeDecision.TaskShape == TaskShapeScheduledTask
+	}
+	if strings.HasPrefix(trimmedToolName, "calendar.") {
+		return promptLooksLikeCalendarRequest(request.Prompt)
+	}
+	return false
+}
+
+func isSendEvidenceTool(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "platform.dm.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+		return true
+	default:
+		return false
+	}
+}
+
+func outcomeContractSource(hasExecutionPlan bool, requiredAttachmentSuffixes []string) string {
+	sources := []string{}
+	if hasExecutionPlan {
+		sources = append(sources, "execution_plan")
+	}
+	if len(requiredAttachmentSuffixes) > 0 {
+		sources = append(sources, "requested_output")
+	}
+	if len(sources) == 0 {
+		return "explicit_request"
+	}
+	return strings.Join(sources, "+")
+}
+
+func activeGoalForTurn(request AgentRequest, outcomeContract OutcomeContract, executionPlan ExecutionPlan, hasExecutionPlan bool) ActiveGoal {
+	activeGoal := request.ActiveGoal
+	activeGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
+	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
+		activeGoal.OriginalInstruction = strings.TrimSpace(request.Prompt)
+	}
+	if hasExecutionPlan {
+		activeGoal.OriginalInstruction = firstNonEmptyString(executionPlan.OriginalInstruction, activeGoal.OriginalInstruction)
+		activeGoal.CurrentObjective = firstNonEmptyString(executionPlan.Summary, activeGoal.CurrentObjective)
+		activeGoal.MissingInformation = append([]string{}, executionPlan.MissingInformation...)
+	}
+	if activeGoal.Status == "" {
+		activeGoal.Status = ActiveGoalStatusActive
+	}
+	return activeGoal
+}
+
+func activeGoalFromExecutionPlan(taskRunID string, executionPlan ExecutionPlan, status ActiveGoalStatus, evidenceHints []string, requiredAttachmentSuffixes []string) ActiveGoal {
+	outcomeContract := normalizeOutcomeContract(OutcomeContract{
+		RequiredEvidenceTools:      executionPlanEvidenceTools(executionPlan, evidenceHints),
+		RequiredAttachmentSuffixes: append([]string{}, requiredAttachmentSuffixes...),
+		SelectedEvidenceHints:      append([]string{}, evidenceHints...),
+		Source:                     "execution_plan",
+	})
+	return ActiveGoal{
+		GoalID:              strings.TrimSpace(taskRunID),
+		TaskRunID:           strings.TrimSpace(taskRunID),
+		OriginalInstruction: strings.TrimSpace(executionPlan.OriginalInstruction),
+		CurrentObjective:    strings.TrimSpace(executionPlan.Summary),
+		MissingInformation:  append([]string{}, executionPlan.MissingInformation...),
+		OutcomeContract:     outcomeContract,
+		Status:              status,
+	}
+}
+
+func activeGoalFromIntakeOnly(taskRunID string, request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus) ActiveGoal {
+	return ActiveGoal{
+		GoalID:              strings.TrimSpace(taskRunID),
+		TaskRunID:           strings.TrimSpace(taskRunID),
+		OriginalInstruction: strings.TrimSpace(request.Prompt),
+		CurrentObjective:    strings.TrimSpace(intakeDecision.Reason),
+		Status:              activeGoalStatusForTaskStatus(status),
+	}
+}
+
+func activeGoalStatusForTaskStatus(status task.TaskStatus) ActiveGoalStatus {
+	switch status {
+	case task.TaskStatusWaitingUserInput:
+		return ActiveGoalStatusWaitingUserInput
+	case task.TaskStatusWaitingApproval:
+		return ActiveGoalStatusWaitingApproval
+	case task.TaskStatusCompleted:
+		return ActiveGoalStatusCompleted
+	case task.TaskStatusBlocked, task.TaskStatusFailed, task.TaskStatusCancelled:
+		return ActiveGoalStatusBlocked
+	default:
+		return ActiveGoalStatusActive
+	}
+}
+
+func activeGoalEventNameForTaskStatus(status task.TaskStatus) string {
+	switch status {
+	case task.TaskStatusWaitingUserInput:
+		return "agent.goal.waiting_user_input"
+	case task.TaskStatusWaitingApproval:
+		return "agent.goal.waiting_approval"
+	case task.TaskStatusCompleted:
+		return "agent.goal.completed"
+	case task.TaskStatusBlocked, task.TaskStatusFailed, task.TaskStatusCancelled:
+		return "agent.goal.blocked"
+	default:
+		return "agent.goal.updated"
+	}
+}
+
+func executionPlanEvidenceTools(executionPlan ExecutionPlan, evidenceHints []string) []string {
+	toolNames := []string{}
+	for _, toolName := range evidenceHints {
+		if isSendEvidenceTool(toolName) && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend) {
+			toolNames = appendUniqueStrings(toolNames, toolName)
+		}
+		if strings.HasPrefix(strings.TrimSpace(toolName), "site.app.") && executionPlan.PublicDeploy {
+			toolNames = appendUniqueStrings(toolNames, toolName)
+		}
+	}
+	return toolNames
 }
 
 func attachmentSuffixesForRequestedOutputFormats(formats []string) []string {
@@ -523,16 +714,11 @@ func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
 }
 
 func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle) bool {
-	requiredEvidenceCountBySkillName := map[string]int{}
 	allowedToolCountBySkillName := map[string]int{}
 	for _, skillInstruction := range instructionBundle.Skills {
-		requiredEvidenceCountBySkillName[skillInstruction.Name] = len(skillInstruction.Completion.RequiredEvidenceTools)
 		allowedToolCountBySkillName[skillInstruction.Name] = len(SkillToolNames(skillInstruction))
 	}
 	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Status == "selected" && requiredEvidenceCountBySkillName[skillDecision.Name] > 0 {
-			return true
-		}
 		if skillDecision.Status == "selected" && skillDecision.Name == "scheduled-task" && allowedToolCountBySkillName[skillDecision.Name] > 0 {
 			return true
 		}
@@ -947,8 +1133,19 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 	if errorValue != nil {
 		return AgentTurnResult{}, errorValue
 	}
+	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, status))
 	blockedTaskRun.Result = finalReply
 	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: finalReply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
+}
+
+func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, activeGoal ActiveGoal) {
+	if strings.TrimSpace(taskRun.TaskRunID) == "" {
+		return
+	}
+	activeGoal.GoalID = firstNonEmptyString(activeGoal.GoalID, taskRun.TaskRunID)
+	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, taskRun.TaskRunID)
+	activeGoal.Status = activeGoalStatusForTaskStatus(taskRun.Status)
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, activeGoalEventNameForTaskStatus(taskRun.Status), marshalEventBody(activeGoal))
 }
 
 func defaultUserFacingReplyForLanguage(classification IntakeClassification, responseLanguage string) string {

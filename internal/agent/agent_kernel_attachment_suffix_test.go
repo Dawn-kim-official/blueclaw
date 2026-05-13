@@ -20,7 +20,7 @@ func TestSelectedRequiredAttachmentSuffixesStayAdvisoryForSlides(t *testing.T) {
 	}
 }
 
-func TestSelectedRequiredEvidenceToolsComeFromSelectedSkills(t *testing.T) {
+func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
@@ -39,10 +39,51 @@ func TestSelectedRequiredEvidenceToolsComeFromSelectedSkills(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 
-	toolNames := selectedRequiredEvidenceTools(instructionBundle)
+	toolNames := selectedEvidenceHintTools(instructionBundle)
 
 	if len(toolNames) != 3 || toolNames[0] != "site.app.create" || toolNames[1] != "terminal.run" || toolNames[2] != "site.app.publish" {
 		t.Fatalf("expected selected skill evidence tools, got %+v", toolNames)
+	}
+}
+
+func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "direct-message",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"platform.dm.send"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	}
+	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask}
+
+	contract := outcomeContractForRequest(AgentRequest{Prompt: "https://dawn.kim 참고해서 사업계획서 작성해줘"}, intakeDecision, instructionBundle, ExecutionPlan{}, false, nil)
+
+	if len(contract.RequiredEvidenceTools) != 0 {
+		t.Fatalf("expected no DM hard gate for non-send goal, got %+v", contract.RequiredEvidenceTools)
+	}
+	if len(contract.SelectedEvidenceHints) != 1 || contract.SelectedEvidenceHints[0] != "platform.dm.send" {
+		t.Fatalf("expected selected evidence hint to be retained, got %+v", contract.SelectedEvidenceHints)
+	}
+}
+
+func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "direct-message",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"platform.dm.send"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	}
+	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}
+
+	contract := outcomeContractForRequest(AgentRequest{Prompt: "동하에게 테스트라고 DM 보내줘"}, intakeDecision, instructionBundle, ExecutionPlan{ExternalSend: true, ThirdPartyExternalSend: true}, true, nil)
+
+	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "platform.dm.send" {
+		t.Fatalf("expected send hard gate for external send goal, got %+v", contract.RequiredEvidenceTools)
 	}
 }
 

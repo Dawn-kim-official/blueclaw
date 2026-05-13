@@ -489,7 +489,7 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	toolContextIndex := messageIndex(languageModel.request.Messages, "conversation.history")
 	visibleContextIndex := messageIndex(languageModel.request.Messages, "admin: 이전 메시지")
 	memoryIndex := messageIndex(languageModel.request.Messages, "간결한 설계")
-	promptIndex := messageIndex(languageModel.request.Messages, event.Prompt)
+	promptIndex := userMessageIndex(languageModel.request.Messages, event.Prompt)
 	if toolContextIndex < 0 || visibleContextIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
 		t.Fatalf("expected visible context, memory, and prompt messages, got %+v", languageModel.request.Messages)
 	}
@@ -655,14 +655,142 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	if requests[4].StructuredOutputSchema.Name != "blueclaw_confirmation_reply_decision" {
 		t.Fatalf("expected fifth model request to classify confirmation, got %q", requests[4].StructuredOutputSchema.Name)
 	}
-	if !structuredMessagesContain(requests[7].Messages, "The user has approved this pending action") {
-		t.Fatalf("expected continuation prompt to carry approval context, got %+v", requests[7].Messages)
+	if !structuredMessagesContain(requests[7].Messages, "The user approved the pending action") {
+		t.Fatalf("expected active goal context to carry approval context, got %+v", requests[7].Messages)
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
 	}
 	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "내일 휴가 일정을 캘린더에서 삭제했습니다." {
 		t.Fatalf("expected final approved reply, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_task_intake_effort": {
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"business plan needs enough detail","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"continue active goal","userFacingReply":""}`,
+			},
+			"blueclaw_execution_plan": {
+				`{"originalInstruction":"동하에게 DM 보내줘","summary":"동하에게 DM을 보냅니다.","targets":["동하"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"동하에게 DM을 보냅니다."}`,
+			},
+			"blueclaw_confirmation_message": {
+				`{"reply":"핵심 사업 내용을 알려주시면 더 정확히 작성하겠습니다."}`,
+			},
+		},
+		ActionResponses: []string{
+			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"우선 진행합니다.","platform":"mattermost"}}`,
+			connectorFinalReplyWithEvidence("동하에게 DM을 보냈습니다.", "obs-001", "platform.dm.send", 0),
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
+		Name:        "direct-message",
+		Description: "사업계획서 작성과 메시지 전송 후보.",
+		Prompt:      "Use platform.dm.send only for explicit DM delivery.",
+		Completion: agent.SkillCompletion{
+			RequiredEvidenceTools: []string{"platform.dm.send"},
+		},
+		AllowedTools: []string{"platform.dm.send"},
+		Source:       agent.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
+	})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "approval.request", "platform.dm.send"})
+	connectorRuntime.UseCapabilityTools(capability.Client{
+		Endpoint: "http://capability.test",
+		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","content":"sent","result":{"messageID":"dm-1"}}`)),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+			}, nil
+		}),
+	}, []string{"platform.dm.send"})
+	firstEvent := testInboundEvent("message-1")
+	firstEvent.Prompt = "동하에게 DM 보내줘"
+
+	firstResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, firstEvent)
+	if errorValue != nil {
+		t.Fatalf("expected first event to process: %v", errorValue)
+	}
+	if firstResult.TaskRunID == "" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected waiting goal reply, result=%+v replies=%+v", firstResult, adapter.sentReplies)
+	}
+
+	secondEvent := testInboundEvent("message-2")
+	secondEvent.Prompt = "우선 진행해"
+	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
+	if errorValue != nil {
+		t.Fatalf("expected continuation to process: %v", errorValue)
+	}
+	if secondResult.TaskRunID != firstResult.TaskRunID {
+		t.Fatalf("expected continuation to reuse waiting goal task, first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
+	}
+	actionRequest, isFound := connectorFirstRequestBySchema(languageModel.Requests(), "blueclaw_agent_turn_action")
+	if !isFound {
+		t.Fatalf("expected action request, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+	if !structuredMessagesContain(actionRequest.Messages, "동하에게 DM 보내줘") {
+		t.Fatalf("expected active goal original instruction in action context, got %+v", actionRequest.Messages)
+	}
+	if userMessageIndex(actionRequest.Messages, "우선 진행해") < 0 {
+		t.Fatalf("expected latest user message to stay intact, got %+v", actionRequest.Messages)
+	}
+}
+
+func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_task_intake_effort": {
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"dm needs message","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"calendar_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"new calendar request","userFacingReply":""}`,
+			},
+			"blueclaw_execution_plan": {
+				`{"originalInstruction":"동하에게 DM 보내줘","summary":"동하에게 DM을 보냅니다.","targets":["동하"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"동하에게 DM을 보냅니다."}`,
+			},
+			"blueclaw_confirmation_message": {
+				`{"reply":"보낼 메시지를 알려주세요."}`,
+			},
+		},
+		ActionResponses: []string{
+			connectorFinalReply("캘린더 요청을 처리했습니다."),
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
+		Name:         "direct-message",
+		Description:  "DM 후보.",
+		Completion:   agent.SkillCompletion{RequiredEvidenceTools: []string{"platform.dm.send"}},
+		AllowedTools: []string{"platform.dm.send"},
+	})
+
+	firstEvent := testInboundEvent("message-1")
+	firstEvent.Prompt = "동하에게 DM 보내줘"
+	firstResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, firstEvent)
+	if errorValue != nil {
+		t.Fatalf("expected first event to process: %v", errorValue)
+	}
+
+	secondEvent := testInboundEvent("message-2")
+	secondEvent.Prompt = "내일 휴가 일정 캘린더에 추가해줘"
+	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
+	if errorValue != nil {
+		t.Fatalf("expected new request to process: %v", errorValue)
+	}
+	if secondResult.TaskRunID == "" || secondResult.TaskRunID == firstResult.TaskRunID {
+		t.Fatalf("expected clear new request to start a new task, first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
+	}
+	actionRequest, isFound := connectorFirstRequestBySchema(languageModel.Requests(), "blueclaw_agent_turn_action")
+	if !isFound {
+		t.Fatalf("expected action request, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+	if structuredMessagesContain(actionRequest.Messages, "동하에게 DM 보내줘") {
+		t.Fatalf("expected new request not to inherit previous goal, got %+v", actionRequest.Messages)
 	}
 }
 
@@ -1298,6 +1426,15 @@ func messageIndex(messages []llm.Message, fragment string) int {
 	return -1
 }
 
+func userMessageIndex(messages []llm.Message, fragment string) int {
+	for index, message := range messages {
+		if message.Role == "user" && strings.Contains(message.Content, fragment) {
+			return index
+		}
+	}
+	return -1
+}
+
 func connectorRequestSchemaNames(requests []llm.StructuredResponseRequest) []string {
 	names := []string{}
 	for _, request := range requests {
@@ -1313,6 +1450,15 @@ func connectorContainsSchemaName(requests []llm.StructuredResponseRequest, schem
 		}
 	}
 	return false
+}
+
+func connectorFirstRequestBySchema(requests []llm.StructuredResponseRequest, schemaName string) (llm.StructuredResponseRequest, bool) {
+	for _, request := range requests {
+		if request.StructuredOutputSchema.Name == schemaName {
+			return request, true
+		}
+	}
+	return llm.StructuredResponseRequest{}, false
 }
 
 func findAgentToolDefinition(toolDefinitions []agent.ToolDefinition, toolName string) (agent.ToolDefinition, bool) {
