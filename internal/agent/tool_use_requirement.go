@@ -35,10 +35,7 @@ func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
 }
 
 func directMessageEvidenceRequired(request AgentTurnRequest) bool {
-	if requiredEvidenceContains(request.RequiredEvidenceTools, "platform.dm.send") {
-		return true
-	}
-	return selectedSkillNameSet(request.SkillDecisions)["direct-message"]
+	return requiredEvidenceContains(request.RequiredEvidenceTools, "platform.dm.send")
 }
 
 func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {

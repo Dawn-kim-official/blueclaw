@@ -68,6 +68,8 @@ type AgentTurnRequest struct {
 	SkillQueries               []string
 	RequiredEvidenceTools      []string
 	RequiredAttachmentSuffixes []string
+	OutcomeContract            OutcomeContract
+	ActiveGoal                 ActiveGoal
 	QualityAcceptanceGuidance  []string
 	TurnStartedAt              time.Time
 }
@@ -551,16 +553,18 @@ func buildAgentToolDescription(toolRegistry *ToolSet) string {
 
 func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string, request AgentTurnRequest) {
 	body := map[string]any{
-		"profileName":    normalizedAgentProfileName(request.ProfileName),
-		"toolNames":      toolNamesForEvent(request.ToolSet),
-		"sourceCount":    len(request.InstructionSources),
-		"sources":        request.InstructionSources,
-		"skillNames":     instructionSkillNames(request.InstructionSources),
-		"skillDecisions": request.SkillDecisions,
-		"retrievalMode":  request.SkillRetrievalMode,
-		"indexStatus":    request.SkillIndexStatus,
-		"candidateCount": request.SkillCandidateCount,
-		"skillQueries":   request.SkillQueries,
+		"profileName":     normalizedAgentProfileName(request.ProfileName),
+		"toolNames":       toolNamesForEvent(request.ToolSet),
+		"sourceCount":     len(request.InstructionSources),
+		"sources":         request.InstructionSources,
+		"skillNames":      instructionSkillNames(request.InstructionSources),
+		"skillDecisions":  request.SkillDecisions,
+		"retrievalMode":   request.SkillRetrievalMode,
+		"indexStatus":     request.SkillIndexStatus,
+		"candidateCount":  request.SkillCandidateCount,
+		"skillQueries":    request.SkillQueries,
+		"activeGoal":      request.ActiveGoal,
+		"outcomeContract": request.OutcomeContract,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"

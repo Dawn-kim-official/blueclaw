@@ -281,6 +281,7 @@ type pendingApproval struct {
 	ApprovalQuestion        string
 	ResponseLanguage        string
 	ContinuationInstruction string
+	ActiveGoal              agent.ActiveGoal
 }
 
 func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel *agent.AgentKernel, logger *slog.Logger) *ConnectorRuntime {
@@ -705,8 +706,15 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if hasPendingConfirmation && confirmationDecision.Decision == "rejected" {
 		return connectorRuntime.handleRejectedConfirmation(ctx, platform, adapter, event, replyTarget, pendingApproval, confirmationDecision, sendReply)
 	}
+	activeGoal, hasActiveGoal := connectorRuntime.findActiveGoal(personID, event.ConversationID)
+	if !isApprovalContinuation && hasActiveGoal && promptClearlyStartsNewGoal(event.Prompt, activeGoal) {
+		activeGoal = agent.ActiveGoal{}
+		hasActiveGoal = false
+	}
 	if isApprovalContinuation {
 		event = approvedContinuationEvent(event, pendingApproval)
+		activeGoal = pendingApprovalActiveGoal(pendingApproval, event.Prompt)
+		hasActiveGoal = true
 	}
 	event = connectorRuntime.withInitialVisibleContext(ctx, adapter, event)
 	shouldLaunch, ignoreReason := connectorRuntime.shouldLaunchForAddressing(ctx, platform, event)
@@ -728,7 +736,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		RequesterEmail:            connectorRuntime.identityService.ResolvePersonPrimaryEmail(personID),
 		RequesterPlatformUserID:   event.SenderID,
 		IsApprovalContinuation:    isApprovalContinuation,
-		ExistingTaskRunID:         pendingConfirmationTaskRunID(pendingApproval, isApprovalContinuation),
+		ExistingTaskRunID:         existingGoalTaskRunID(pendingApproval, isApprovalContinuation, activeGoal, hasActiveGoal),
 		ProfileName:               "default",
 		Platform:                  platform,
 		ConversationID:            event.ConversationID,
@@ -739,6 +747,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		Prompt:                    event.Prompt,
 		ResponseLanguage:          responseLanguageForEvent(event),
 		VisibleContext:            event.Context.ToAgentVisibleContext(),
+		ActiveGoal:                activeGoalForLaunch(activeGoal, hasActiveGoal),
 		HistoryProvider:           connectorHistoryProvider{adapter: adapter},
 		PersonAccess:              personAccess,
 		MemoryNamespaces:          connectorRuntime.accessibleNamespaces(personID, personAccess, event),
@@ -836,29 +845,212 @@ func (connectorRuntime *ConnectorRuntime) findPendingApproval(personID string, c
 	approvalQuestion := latestApprovalQuestion(taskEvents)
 	responseLanguage := latestApprovalResponseLanguage(taskEvents)
 	continuationInstruction := latestConfirmationContinuationInstruction(taskEvents)
+	activeGoal := latestActiveGoal(taskEvents)
 	return pendingApproval{
 		TaskRun:                 selectedTaskRun,
 		IntentPrompt:            pendingApprovalIntentPrompt(selectedTaskRun.Prompt, approvalQuestion),
 		ApprovalQuestion:        approvalQuestion,
 		ResponseLanguage:        responseLanguage,
 		ContinuationInstruction: continuationInstruction,
+		ActiveGoal:              activeGoal,
 	}, true
 }
 
+func (connectorRuntime *ConnectorRuntime) findActiveGoal(personID string, conversationID string) (agent.ActiveGoal, bool) {
+	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
+	var selectedTaskRun task.TaskRun
+	isSelected := false
+	for _, taskRun := range taskRuns {
+		if !taskRunCanContinueGoal(taskRun) {
+			continue
+		}
+		if taskRun.OriginConversationID != conversationID {
+			continue
+		}
+		if time.Since(taskRun.UpdatedAt) > 24*time.Hour {
+			continue
+		}
+		if isSelected && !taskRun.UpdatedAt.After(selectedTaskRun.UpdatedAt) {
+			continue
+		}
+		selectedTaskRun = taskRun
+		isSelected = true
+	}
+	if !isSelected {
+		return agent.ActiveGoal{}, false
+	}
+	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(selectedTaskRun.TaskRunID)
+	activeGoal := latestActiveGoal(taskEvents)
+	if strings.TrimSpace(activeGoal.TaskRunID) == "" {
+		activeGoal.TaskRunID = selectedTaskRun.TaskRunID
+	}
+	if strings.TrimSpace(activeGoal.GoalID) == "" {
+		activeGoal.GoalID = selectedTaskRun.TaskRunID
+	}
+	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
+		activeGoal.OriginalInstruction = selectedTaskRun.Prompt
+	}
+	if activeGoal.Status == "" {
+		activeGoal.Status = activeGoalStatusForTaskRun(selectedTaskRun)
+	}
+	return activeGoal, true
+}
+
+func taskRunCanContinueGoal(taskRun task.TaskRun) bool {
+	switch taskRun.Status {
+	case task.TaskStatusWaitingUserInput, task.TaskStatusWaitingApproval:
+		return true
+	default:
+		return false
+	}
+}
+
+func latestActiveGoal(taskEvents []task.TaskEvent) agent.ActiveGoal {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if !strings.HasPrefix(taskEvent.Name, "agent.goal.") {
+			continue
+		}
+		var activeGoal agent.ActiveGoal
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &activeGoal); errorValue != nil {
+			continue
+		}
+		return activeGoal
+	}
+	return activeGoalFromConfirmationPlan(taskEvents)
+}
+
+func activeGoalFromConfirmationPlan(taskEvents []task.TaskEvent) agent.ActiveGoal {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name != "confirmation.plan_created" {
+			continue
+		}
+		var executionPlan agent.ExecutionPlan
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &executionPlan); errorValue != nil {
+			continue
+		}
+		return agent.ActiveGoal{
+			OriginalInstruction: strings.TrimSpace(executionPlan.OriginalInstruction),
+			CurrentObjective:    strings.TrimSpace(executionPlan.Summary),
+			MissingInformation:  append([]string{}, executionPlan.MissingInformation...),
+			Status:              agent.ActiveGoalStatusWaitingUserInput,
+		}
+	}
+	return agent.ActiveGoal{}
+}
+
+func activeGoalStatusForTaskRun(taskRun task.TaskRun) agent.ActiveGoalStatus {
+	switch taskRun.Status {
+	case task.TaskStatusWaitingApproval:
+		return agent.ActiveGoalStatusWaitingApproval
+	case task.TaskStatusWaitingUserInput:
+		return agent.ActiveGoalStatusWaitingUserInput
+	default:
+		return agent.ActiveGoalStatusActive
+	}
+}
+
+func promptClearlyStartsNewGoal(prompt string, activeGoal agent.ActiveGoal) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return false
+	}
+	if promptLooksLikeGoalContinuation(normalizedPrompt) {
+		return false
+	}
+	if promptSharesActiveGoalTerms(normalizedPrompt, activeGoal) {
+		return false
+	}
+	return promptLooksLikeIndependentRequest(normalizedPrompt)
+}
+
+func promptLooksLikeGoalContinuation(prompt string) bool {
+	trimmedPrompt := strings.Trim(prompt, " \t\n\r.,!?()[]{}\"'`~")
+	for _, value := range []string{"응", "네", "ㅇㅇ", "yes", "ok"} {
+		if trimmedPrompt == value {
+			return true
+		}
+	}
+	return containsConnectorText(prompt, []string{
+		"우선", "계속", "진행", "그대로", "좋아", "해봐", "다시 해", "다시 진행", "그럼",
+		"continue", "go ahead", "proceed", "retry",
+	})
+}
+
+func promptSharesActiveGoalTerms(prompt string, activeGoal agent.ActiveGoal) bool {
+	values := []string{activeGoal.OriginalInstruction, activeGoal.CurrentObjective}
+	values = append(values, activeGoal.KnownContext...)
+	values = append(values, activeGoal.MissingInformation...)
+	for _, value := range values {
+		for _, term := range meaningfulGoalTerms(value) {
+			if strings.Contains(prompt, term) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func meaningfulGoalTerms(value string) []string {
+	terms := []string{}
+	seenTerms := map[string]bool{}
+	for _, field := range strings.Fields(strings.ToLower(value)) {
+		term := strings.Trim(field, " \t\n\r.,!?()[]{}\"'`~:;<>/@#")
+		if !meaningfulGoalTerm(term) || seenTerms[term] {
+			continue
+		}
+		seenTerms[term] = true
+		terms = append(terms, term)
+	}
+	return terms
+}
+
+func meaningfulGoalTerm(term string) bool {
+	if len([]rune(term)) < 2 {
+		return false
+	}
+	return !containsConnectorText(term, []string{"the", "and", "with", "for", "해서", "해줘", "해주세요", "합니다", "진행"})
+}
+
+func promptLooksLikeIndependentRequest(prompt string) bool {
+	return containsConnectorText(prompt, []string{
+		"캘린더", "일정", "회의", "휴가", "알림", "예약", "dm", "메일", "보내", "전송",
+		"검색", "찾아", "조사", "작성", "만들", "수정", "삭제", "배포", "열어",
+		"calendar", "meeting", "remind", "schedule", "send", "email", "search", "write", "create", "delete", "deploy",
+	})
+}
+
+func containsConnectorText(value string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 func approvedContinuationEvent(event PlatformInboundEvent, approval pendingApproval) PlatformInboundEvent {
-	event.Prompt = approvedContinuationPrompt(firstNonEmptyString(approval.ContinuationInstruction, approval.IntentPrompt), event.Prompt)
 	event.ResponseLanguage = agent.ResolveResponseLanguage(event.ResponseLanguage, approval.ResponseLanguage)
 	return event
 }
 
-func approvedContinuationPrompt(intentPrompt string, approvalReply string) string {
-	lines := []string{
-		strings.TrimSpace(intentPrompt),
-		"",
-		"The user has approved this pending action. Proceed now without calling approval.request again.",
-		"Approval reply: " + strings.TrimSpace(approvalReply),
+func pendingApprovalActiveGoal(approval pendingApproval, approvalReply string) agent.ActiveGoal {
+	activeGoal := approval.ActiveGoal
+	activeGoal.GoalID = firstNonEmptyString(activeGoal.GoalID, approval.TaskRun.TaskRunID)
+	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, approval.TaskRun.TaskRunID)
+	activeGoal.OriginalInstruction = firstNonEmptyString(activeGoal.OriginalInstruction, approval.IntentPrompt)
+	activeGoal.CurrentObjective = firstNonEmptyString(activeGoal.CurrentObjective, approval.ContinuationInstruction)
+	activeGoal.KnownContext = append(activeGoal.KnownContext, "The user approved the pending action in the latest message: "+strings.TrimSpace(approvalReply))
+	activeGoal.Status = agent.ActiveGoalStatusWaitingApproval
+	return activeGoal
+}
+
+func activeGoalForLaunch(activeGoal agent.ActiveGoal, hasActiveGoal bool) agent.ActiveGoal {
+	if !hasActiveGoal {
+		return agent.ActiveGoal{}
 	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
+	return activeGoal
 }
 
 func pendingConfirmationTaskRunID(approval pendingApproval, isApprovalContinuation bool) string {
@@ -866,6 +1058,16 @@ func pendingConfirmationTaskRunID(approval pendingApproval, isApprovalContinuati
 		return ""
 	}
 	return strings.TrimSpace(approval.TaskRun.TaskRunID)
+}
+
+func existingGoalTaskRunID(approval pendingApproval, isApprovalContinuation bool, activeGoal agent.ActiveGoal, hasActiveGoal bool) string {
+	if isApprovalContinuation {
+		return pendingConfirmationTaskRunID(approval, true)
+	}
+	if !hasActiveGoal {
+		return ""
+	}
+	return strings.TrimSpace(activeGoal.TaskRunID)
 }
 
 func (connectorRuntime *ConnectorRuntime) handleRejectedConfirmation(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, replyTarget ReplyTarget, approval pendingApproval, decision agent.ConfirmationReplyDecision, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (ConnectorRuntimeResult, error) {

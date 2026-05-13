@@ -50,6 +50,7 @@ type AgentRequest struct {
 	WorkspaceRootPath      string
 	ActivePaths            []string
 	InstructionPrompt      string
+	ActiveGoal             ActiveGoal
 }
 
 type IntakeDecision struct {
@@ -138,6 +139,9 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: contextDescription})
+	}
+	if goalDescription := activeGoalDescription(request.ActiveGoal); goalDescription != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: goalDescription})
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
 	return messages

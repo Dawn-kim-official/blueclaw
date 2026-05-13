@@ -45,6 +45,20 @@ func TestDirectMessageEvidenceSuppressesImplicitBrowserRequirement(t *testing.T)
 	}
 }
 
+func TestSelectedDirectMessageSkillDoesNotRequireDirectMessageEvidence(t *testing.T) {
+	toolRegistry := newTestToolSet([]string{"platform.dm.send", "web.fetch"})
+
+	requirements := deriveToolUseRequirements(AgentTurnRequest{
+		Prompt:         "https://example.com 참고해서 사업계획서 작성해줘",
+		ToolSet:        toolRegistry,
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	})
+
+	if len(requirements) != 0 {
+		t.Fatalf("expected selected DM skill to stay advisory, got %+v", requirements)
+	}
+}
+
 func TestBrowserRetryWithVisibleContextRequiresBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
