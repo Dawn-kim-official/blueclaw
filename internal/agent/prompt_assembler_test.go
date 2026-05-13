@@ -8,6 +8,27 @@ import (
 	"blueclaw/internal/llm"
 )
 
+func TestPromptAssemblerIncludesTemporalContext(t *testing.T) {
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt:        "내일 오후 6시 회식 추가해줘",
+		TurnStartedAt: time.Date(2026, 5, 12, 8, 32, 27, 0, time.UTC),
+	}, nil, "base", "")
+	body := joinMessageContent(messages)
+
+	for _, expected := range []string{
+		"Runtime temporal context:",
+		"Current date: 2026-05-12",
+		"Current time: 2026-05-12T17:32:27+09:00",
+		"Time zone: Asia/Seoul",
+		"Resolve relative dates",
+		"내일",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected temporal context %q, got %s", expected, body)
+		}
+	}
+}
+
 func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
