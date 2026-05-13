@@ -456,6 +456,13 @@ func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, obser
 	if !isFound || !isWaitingForUser(taskRun.Status) {
 		return AgentTurnResult{}, false
 	}
+	if taskRun.Status == task.TaskStatusWaitingApproval {
+		reply := approvalObservationUserFacingMessage(observation)
+		if reply == "" {
+			agentTurnRunner.appendEvent(taskRunID, "agent.approval_user_facing_message_missing", marshalEventBody(observation))
+		}
+		return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
+	}
 	reply := firstNonEmptyString(taskRun.FailureReason, toolObservationMessage(observation), observation.Content)
 	return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
 }
@@ -472,6 +479,17 @@ func toolObservationMessage(observation turnObservation) string {
 		return ""
 	}
 	return strings.TrimSpace(document.Message)
+}
+
+func approvalObservationUserFacingMessage(observation turnObservation) string {
+	var document struct {
+		UserFacingMessage string `json:"userFacingMessage"`
+		Message           string `json:"message"`
+	}
+	if json.Unmarshal([]byte(observation.Content), &document) != nil {
+		return ""
+	}
+	return firstNonEmptyString(document.UserFacingMessage, document.Message)
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, allowQualityCriteria bool) (turnActionDocument, error) {
@@ -506,8 +524,8 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction := "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply only when goalSatisfied is true. Every final_reply must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.search only when the user asks for public, current, or external web information."
-	instruction += " Ask for approval only before destructive, high-risk, external-send, credential, paid-service, or tool-availability ask actions. Do not ask for approval before ordinary non-destructive writes."
-	instruction += " When calling approval.request, write the approval message in the same response language."
+	instruction += " Ask for approval only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Do not ask for approval before ordinary non-destructive writes."
+	instruction += " When calling approval.request, set userFacingMessage to the exact approval question shown to the user, written in the same language as the original user request. reasonCode and reasonDetail are internal only and must not contain user-facing prose."
 	instruction += " If a tool call fails, it creates FailureDebt. Do not return final_reply until a later different recovery succeeds, or you can answer from current context without tools and set failureResolution=no_tool_fallback, or recovery budget is exhausted and you use fail. Never repeat the same failed tool input fingerprint; recovery must change the input, route/provider, tool, or fall back without tools."
 	instruction += " For artifact work, set_quality_criteria and qualityReview are useful for your own acceptance criteria, but they are guidance and evidence, not a reason to withhold a usable artifact."
 	if len(request.QualityAcceptanceGuidance) > 0 {

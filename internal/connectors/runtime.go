@@ -946,13 +946,13 @@ func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
 			continue
 		}
 		var approvalRequest struct {
-			Message string `json:"message"`
-			Reason  string `json:"reason"`
+			UserFacingMessage string `json:"userFacingMessage"`
+			Message           string `json:"message"`
 		}
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &approvalRequest); errorValue != nil {
 			continue
 		}
-		question := firstNonEmptyString(approvalRequest.Message, approvalRequest.Reason)
+		question := firstNonEmptyString(approvalRequest.UserFacingMessage, approvalRequest.Message)
 		if strings.TrimSpace(question) != "" {
 			return strings.TrimSpace(question)
 		}
