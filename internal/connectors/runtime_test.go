@@ -121,6 +121,45 @@ func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeRequesterEmailFallsBackToVisibleSenderEmail(t *testing.T) {
+	identityService := identity.NewIdentityService(policy.PolicyProjection{
+		PersonAccessByPersonID: map[string]policy.PersonAccess{
+			"person-1": {PersonID: "person-1"},
+		},
+	})
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	event := testInboundEvent("message-1")
+	event.Context.Sender.Email = "Sender@Example.com"
+
+	email := connectorRuntime.requesterEmailForEvent("person-1", event)
+
+	if email != "sender@example.com" {
+		t.Fatalf("email = %q", email)
+	}
+}
+
+func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
+	identityService := identity.NewIdentityService(policy.PolicyProjection{
+		PersonIDByEmail: map[string]string{"primary@example.com": "person-1"},
+		PersonAccessByPersonID: map[string]policy.PersonAccess{
+			"person-1": {PersonID: "person-1"},
+		},
+	})
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	event := testInboundEvent("message-1")
+	event.Context.Sender.Email = "sender@example.com"
+
+	email := connectorRuntime.requesterEmailForEvent("person-1", event)
+
+	if email != "primary@example.com" {
+		t.Fatalf("email = %q", email)
+	}
+}
+
 func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T) {
 	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassHumanRequested), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)

@@ -701,6 +701,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 
 	connectorRuntime.logger.Info("connector."+platform+".auth.allowed", slog.String("messageID", event.MessageID), slog.String("personID", personID))
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
+	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	pendingApproval, confirmationDecision, hasPendingConfirmation := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event)
 	isApprovalContinuation := hasPendingConfirmation && confirmationDecision.Decision == "approved"
 	if hasPendingConfirmation && confirmationDecision.Decision == "rejected" {
@@ -733,7 +734,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		RequesterName:             event.Context.Sender.Name,
 		RequesterCallingName:      event.Context.Sender.CallingName,
 		RequesterHandle:           event.Context.Sender.Handle,
-		RequesterEmail:            connectorRuntime.identityService.ResolvePersonPrimaryEmail(personID),
+		RequesterEmail:            requesterEmail,
 		RequesterPlatformUserID:   event.SenderID,
 		IsApprovalContinuation:    isApprovalContinuation,
 		ExistingTaskRunID:         existingGoalTaskRunID(pendingApproval, isApprovalContinuation, activeGoal, hasActiveGoal),
@@ -1384,12 +1385,13 @@ func latestTime(values []time.Time) time.Time {
 }
 
 func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *agent.ToolSet {
+	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	return connectorRuntime.toolCatalogBuilder.BuildToolSet(agentruntime.ToolCatalogRequest{
 		ProfileName:               "default",
 		Prompt:                    event.Prompt,
 		RequesterPersonID:         personID,
 		RequesterName:             event.Context.Sender.Name,
-		RequesterEmail:            connectorRuntime.identityService.ResolvePersonPrimaryEmail(personID),
+		RequesterEmail:            requesterEmail,
 		RequesterPlatformUserID:   event.SenderID,
 		ConversationID:            event.ConversationID,
 		ConversationType:          event.Context.ConversationType,
@@ -1403,6 +1405,14 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapt
 		MemoryNamespaces:          connectorRuntime.accessibleNamespaces(personID, personAccess, event),
 		AccessibleConversationIDs: []string{event.ConversationID},
 	})
+}
+
+func (connectorRuntime *ConnectorRuntime) requesterEmailForEvent(personID string, event PlatformInboundEvent) string {
+	email := strings.ToLower(strings.TrimSpace(connectorRuntime.identityService.ResolvePersonPrimaryEmail(personID)))
+	if email != "" {
+		return email
+	}
+	return strings.ToLower(strings.TrimSpace(event.Context.Sender.Email))
 }
 
 func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.TaskLauncher {
