@@ -35,6 +35,7 @@ type MemorySearchRequest struct {
 	ConversationID            string            `json:"conversationID"`
 	AccessibleConversationIDs []string          `json:"accessibleConversationIDs"`
 	Namespaces                []MemoryNamespace `json:"namespaces"`
+	ExplicitNamespacesOnly    bool              `json:"explicitNamespacesOnly"`
 	Limit                     int               `json:"limit"`
 }
 
@@ -244,6 +245,9 @@ func memoryFactStableKey(memoryFact MemoryFact) string {
 
 func (memoryService *MemoryService) resolveAccessibleNamespaces(ctx context.Context, request MemorySearchRequest) []MemoryNamespace {
 	namespaces := append([]MemoryNamespace{}, request.Namespaces...)
+	if request.ExplicitNamespacesOnly {
+		return namespaces
+	}
 	if memoryService.mirror == nil {
 		return namespaces
 	}

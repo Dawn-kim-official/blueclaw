@@ -38,6 +38,8 @@ type TaskLaunchRequest struct {
 	ConversationType          string
 	ConversationChannelID     string
 	ConversationChannelName   string
+	ActiveCircleID            string
+	ActiveCircleConflict      bool
 	ReplyTargetID             string
 	Prompt                    string
 	ResponseLanguage          string
@@ -65,6 +67,10 @@ type TaskMemoryRequest struct {
 	AccessibleConversationIDs []string
 }
 
+type TaskPinnedMemoryRequest struct {
+	RequesterPersonID string
+}
+
 func NewTaskLauncher(agentKernel *agent.AgentKernel, toolCatalogBuilder *ToolCatalogBuilder) *TaskLauncher {
 	if toolCatalogBuilder == nil {
 		toolCatalogBuilder = NewToolCatalogBuilder()
@@ -77,6 +83,15 @@ func NewTaskLauncher(agentKernel *agent.AgentKernel, toolCatalogBuilder *ToolCat
 
 func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunchRequest) (TaskLaunchResult, error) {
 	normalizedProfileName := normalizeProfileName(request.ProfileName)
+	activeCircleRequest := withResolvedActiveCircle(ToolCatalogRequest{
+		Prompt:                  request.Prompt,
+		ConversationChannelName: request.ConversationChannelName,
+		PersonAccess:            request.PersonAccess,
+		ActiveCircleID:          request.ActiveCircleID,
+		ActiveCircleConflict:    request.ActiveCircleConflict,
+	})
+	request.ActiveCircleID = activeCircleRequest.ActiveCircleID
+	request.ActiveCircleConflict = activeCircleRequest.ActiveCircleConflict
 	toolSet := taskLauncher.toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:               normalizedProfileName,
 		Prompt:                    request.Prompt,
@@ -92,6 +107,8 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ConversationType:          request.ConversationType,
 		ConversationChannelID:     request.ConversationChannelID,
 		ConversationChannelName:   request.ConversationChannelName,
+		ActiveCircleID:            request.ActiveCircleID,
+		ActiveCircleConflict:      request.ActiveCircleConflict,
 		ReplyTargetID:             request.ReplyTargetID,
 		Platform:                  request.Platform,
 		HistoryCursor:             request.VisibleContext.HistoryCursor,
@@ -101,17 +118,12 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		AccessibleConversationIDs: request.AccessibleConversationIDs,
 	})
 	toolNames := toolSet.ListToolNames()
-	memoryFacts, errorValue := taskLauncher.toolCatalogBuilder.SearchMemory(ctx, TaskMemoryRequest{
-		Query:                     request.Prompt,
-		RequesterPersonID:         request.RequesterPersonID,
-		ConversationID:            request.ConversationID,
-		PersonAccess:              request.PersonAccess,
-		MemoryNamespaces:          request.MemoryNamespaces,
-		AccessibleConversationIDs: request.AccessibleConversationIDs,
+	memoryFacts, errorValue := taskLauncher.toolCatalogBuilder.LoadPinnedMemory(ctx, TaskPinnedMemoryRequest{
+		RequesterPersonID: request.RequesterPersonID,
 	})
-	memorySearchError := ""
+	pinnedMemoryError := ""
 	if errorValue != nil {
-		memorySearchError = errorValue.Error()
+		pinnedMemoryError = errorValue.Error()
 		memoryFacts = nil
 	}
 	turnResult, errorValue := taskLauncher.agentKernel.RunTurn(ctx, agent.AgentTurnRequest{
@@ -143,10 +155,10 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		launchedToolNames = toolNames
 	}
 	if turnResult.TaskRun.TaskRunID != "" {
-		if memorySearchError != "" {
-			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.search_failed", memorySearchError)
+		if pinnedMemoryError != "" {
+			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_failed", pinnedMemoryError)
 		} else {
-			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.search_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryFacts)}))
+			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryFacts)}))
 		}
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, len(memoryFacts)))
 		conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{

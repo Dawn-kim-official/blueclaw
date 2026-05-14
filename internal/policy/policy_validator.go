@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+const MaximumCircleCount = 10
+
 type PolicyValidator struct{}
 
 func (policyValidator PolicyValidator) ValidatePolicyDocument(policyDocument PolicyDocument) error {
@@ -35,6 +37,9 @@ func (policyValidator PolicyValidator) ValidatePolicyDocument(policyDocument Pol
 		}
 	}
 
+	if len(policyDocument.Circles) > MaximumCircleCount {
+		return errors.New("policy cannot define more than 10 circles")
+	}
 	for _, circlePolicy := range policyDocument.Circles {
 		circleID := strings.ToLower(strings.TrimSpace(circlePolicy.CircleID))
 		if circleID == "" {

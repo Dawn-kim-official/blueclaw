@@ -3,9 +3,10 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,15 +24,12 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinalReply("done")})
-	memoryService := &memory.MemoryService{}
-	memoryService.StoreMemoryFact(memory.MemoryFact{
-		ScopeType:   memory.ScopeTypeUser,
-		NamespaceID: memory.UserNamespace("person-1").NamespaceID,
-		Content:     "사용자는 발표자료 생성을 자주 요청한다.",
-		Score:       0.8,
-	})
+	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 발표자료 생성을 자주 요청한다."); errorValue != nil {
+		t.Fatalf("expected pinned memory setup to succeed: %v", errorValue)
+	}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"conversation.history", "memory.search"},
 	}, nil)
@@ -55,7 +53,7 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 		t.Fatal("expected task run id")
 	}
 	if len(launchResult.MemoryFacts) != 1 {
-		t.Fatalf("expected memory search result, got %+v", launchResult.MemoryFacts)
+		t.Fatalf("expected pinned memory result, got %+v", launchResult.MemoryFacts)
 	}
 	if !containsString(launchResult.ToolNames, "conversation.history") || !containsString(launchResult.ToolNames, "memory.search") {
 		t.Fatalf("expected launch tool catalog, got %+v", launchResult.ToolNames)
@@ -74,14 +72,16 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	}
 }
 
-func TestTaskLauncherAuditsMemorySearchFailureAndRunsWithoutMemory(t *testing.T) {
+func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinalReply("done")})
-	memoryService := &memory.MemoryService{}
-	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("graphiti unavailable")})
+	rootPath := t.TempDir()
+	if errorValue := os.WriteFile(filepath.Join(rootPath, "people"), []byte("not a directory"), 0600); errorValue != nil {
+		t.Fatalf("expected pinned memory failure setup to succeed: %v", errorValue)
+	}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UsePinnedMemoryStore(memory.NewMarkdownStore(rootPath, 1200))
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},
 	}, nil)
@@ -100,11 +100,11 @@ func TestTaskLauncherAuditsMemorySearchFailureAndRunsWithoutMemory(t *testing.T)
 		t.Fatalf("expected launch to continue without memory: %v", errorValue)
 	}
 	if len(launchResult.MemoryFacts) != 0 {
-		t.Fatalf("expected no memory facts after search failure, got %+v", launchResult.MemoryFacts)
+		t.Fatalf("expected no memory facts after pinned memory failure, got %+v", launchResult.MemoryFacts)
 	}
 	taskEvents := taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID)
-	if !containsTaskEvent(taskEvents, "memory.search_failed") {
-		t.Fatalf("expected memory search failure event, got %+v", taskEvents)
+	if !containsTaskEvent(taskEvents, "memory.pinned_load_failed") {
+		t.Fatalf("expected pinned memory failure event, got %+v", taskEvents)
 	}
 }
 

@@ -14,6 +14,7 @@ const (
 	MemorySourceKindFact    = "fact"
 	MemorySourceKindNode    = "node"
 	MemorySourceKindEpisode = "episode"
+	MemorySourceKindPinned  = "pinned"
 )
 
 type MemoryNamespace struct {

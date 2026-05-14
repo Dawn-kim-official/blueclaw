@@ -12,7 +12,7 @@ import (
 
 func TestAdapterNormalizesHTTPAndWebSocketPostedEvents(t *testing.T) {
 	adapter := NewAdapter(testMattermostIdentityClient{}, &testMattermostConversationClient{})
-	httpRequest := httptestRequest([]byte(`{"post_id":"post-1","user_id":"user-1","channel_id":"direct-1","message":"hello","channel_type":"D"}`))
+	httpRequest := httptestRequest([]byte(`{"post_id":"post-1","user_id":"user-1","channel_id":"direct-1","channel_name":"circle-hr-compensation","message":"hello","channel_type":"D"}`))
 
 	httpResult, errorValue := adapter.ParseHTTPEvent(context.Background(), httpRequest)
 	if errorValue != nil {
@@ -22,7 +22,8 @@ func TestAdapterNormalizesHTTPAndWebSocketPostedEvents(t *testing.T) {
 		"event":"posted",
 		"data":{
 			"channel_type":"D",
-			"post":"{\"id\":\"post-1\",\"user_id\":\"user-1\",\"channel_id\":\"direct-1\",\"message\":\"hello\",\"root_id\":\"\"}"
+			"channel_name":"circle-hr-compensation",
+			"post":"{\"id\":\"post-1\",\"user_id\":\"user-1\",\"channel_id\":\"direct-1\",\"channel_name\":\"circle-hr-compensation\",\"message\":\"hello\",\"root_id\":\"\"}"
 		}
 	}`), "websocket")
 	if errorValue != nil {
@@ -40,6 +41,9 @@ func TestAdapterNormalizesHTTPAndWebSocketPostedEvents(t *testing.T) {
 	}
 	if httpResult.Event.SenderID != "user-1" || websocketEvent.SenderID != "user-1" {
 		t.Fatalf("expected sender id to be normalized")
+	}
+	if httpResult.Event.Context.ChannelName != "circle-hr-compensation" || websocketEvent.Context.ChannelName != "circle-hr-compensation" {
+		t.Fatalf("expected channel name to be normalized")
 	}
 }
 

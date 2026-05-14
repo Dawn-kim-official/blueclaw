@@ -17,10 +17,224 @@ import (
 	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
+	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
 	"blueclaw/internal/task"
 )
+
+func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
+	queue := &recordingMemoryUpdateQueue{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.remember",
+		Input:    agent.MarshalToolInput("Call the user master."),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected memory.remember success, got %s", result.Content)
+	}
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected one queued memory job, got %+v", queue.jobs)
+	}
+	job := queue.jobs[0]
+	if job.Namespace.NamespaceID != memory.UserNamespace("person-1").NamespaceID || job.Content != "Call the user master." {
+		t.Fatalf("expected person memory job, got %+v", job)
+	}
+	if !strings.Contains(result.Content, `"accepted":true`) {
+		t.Fatalf("expected accepted result, got %s", result.Content)
+	}
+}
+
+func TestMemoryRememberToolRejectsInaccessibleActiveCircle(t *testing.T) {
+	queue := &recordingMemoryUpdateQueue{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{Circles: []string{"staff"}},
+		ActiveCircleID:    "admin",
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.CircleNamespace("default", "staff")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.remember",
+		Input:    agent.MarshalToolInput("Shared circle fact."),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.IsError {
+		t.Fatalf("expected inaccessible circle error, got %s", result.Content)
+	}
+	if len(queue.jobs) != 0 {
+		t.Fatalf("expected no queued jobs, got %+v", queue.jobs)
+	}
+}
+
+func TestMemoryRememberToolEnqueuesCircleMemoryForActiveCircle(t *testing.T) {
+	queue := &recordingMemoryUpdateQueue{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{Circles: []string{"staff", "hr-compensation"}},
+		ActiveCircleID:    "hr-compensation",
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.CircleNamespace("default", "hr-compensation")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.remember",
+		Input:    agent.MarshalToolInput("Compensation data belongs to HR."),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected memory.remember success, got %s", result.Content)
+	}
+	if len(queue.jobs) != 1 {
+		t.Fatalf("expected one queued memory job, got %+v", queue.jobs)
+	}
+	if queue.jobs[0].Namespace.ScopeType != memory.ScopeTypeCircle || queue.jobs[0].Namespace.ScopeCircleID != "hr-compensation" {
+		t.Fatalf("expected circle memory job, got %+v", queue.jobs[0])
+	}
+}
+
+func TestMemoryRememberToolRejectsMultipleActiveCircleCandidates(t *testing.T) {
+	queue := &recordingMemoryUpdateQueue{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:             "default",
+		RequesterPersonID:       "person-1",
+		Prompt:                  "@admin @hr-compensation remember this",
+		ConversationChannelName: "town-square",
+		PersonAccess:            policy.PersonAccess{Circles: []string{"staff", "admin", "hr-compensation"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.remember",
+		Input:    agent.MarshalToolInput("Shared fact."),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.IsError {
+		t.Fatalf("expected active circle conflict, got %s", result.Content)
+	}
+	if len(queue.jobs) != 0 {
+		t.Fatalf("expected no queued jobs, got %+v", queue.jobs)
+	}
+}
+
+func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
+	memoryService := &memory.MemoryService{}
+	memoryService.StoreMemoryFact(memory.MemoryFact{
+		ScopeType:   memory.ScopeTypeUser,
+		NamespaceID: memory.UserNamespace("person-1").NamespaceID,
+		Content:     "Call the user master.",
+		SourceKind:  memory.MemorySourceKindFact,
+	})
+	memoryService.StoreMemoryFact(memory.MemoryFact{
+		ScopeType:   memory.ScopeTypeCircle,
+		NamespaceID: memory.CircleNamespace("default", "hr-compensation").NamespaceID,
+		Content:     "Salary files stay in HR compensation.",
+		SourceKind:  memory.MemorySourceKindFact,
+	})
+	memoryService.StoreMemoryFact(memory.MemoryFact{
+		ScopeType:   memory.ScopeTypeCircle,
+		NamespaceID: memory.CircleNamespace("default", "admin").NamespaceID,
+		Content:     "Admin-only operational memory.",
+		SourceKind:  memory.MemorySourceKindFact,
+	})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff", "hr-compensation", "admin"},
+		},
+		ActiveCircleID: "hr-compensation",
+		MemoryNamespaces: []memory.MemoryNamespace{
+			memory.UserNamespace("person-1"),
+			memory.CircleNamespace("default", "hr-compensation"),
+			memory.CircleNamespace("default", "admin"),
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.search",
+		Input:    agent.MarshalToolInput("memory"),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.IsError {
+		t.Fatalf("expected memory.search success, got %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "master") || !strings.Contains(result.Content, "Salary files") {
+		t.Fatalf("expected person and active circle memory, got %s", result.Content)
+	}
+	if strings.Contains(result.Content, "Admin-only") {
+		t.Fatalf("expected inactive circle memory to be excluded, got %s", result.Content)
+	}
+}
+
+func TestResolveActiveCircleIDUsesChannelOrMention(t *testing.T) {
+	channelCircleID, hasChannelConflict := ResolveActiveCircleID(ToolCatalogRequest{
+		ConversationChannelName: "circle-hr-compensation",
+		PersonAccess:            policy.PersonAccess{Circles: []string{"staff", "hr-compensation"}},
+	})
+	mentionedCircleID, hasMentionConflict := ResolveActiveCircleID(ToolCatalogRequest{
+		Prompt:       "please remember this for @hr-compensation",
+		PersonAccess: policy.PersonAccess{Circles: []string{"staff", "hr-compensation"}},
+	})
+
+	if channelCircleID != "hr-compensation" || hasChannelConflict {
+		t.Fatalf("expected channel active circle, got %q conflict=%v", channelCircleID, hasChannelConflict)
+	}
+	if mentionedCircleID != "hr-compensation" || hasMentionConflict {
+		t.Fatalf("expected mention active circle, got %q conflict=%v", mentionedCircleID, hasMentionConflict)
+	}
+}
+
+func TestResolveActiveCircleIDIgnoresInaccessibleMention(t *testing.T) {
+	circleID, hasConflict := ResolveActiveCircleID(ToolCatalogRequest{
+		Prompt:       "please remember this for @hr-compensation",
+		PersonAccess: policy.PersonAccess{Circles: []string{"staff"}},
+	})
+
+	if circleID != "" || hasConflict {
+		t.Fatalf("expected inaccessible mention to be ignored, got %q conflict=%v", circleID, hasConflict)
+	}
+}
 
 func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	workspacePath := t.TempDir()
@@ -468,6 +682,15 @@ func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 type memoryTaskScheduleRepository struct {
 	taskSchedules []task.TaskSchedule
 	failed        []string
+}
+
+type recordingMemoryUpdateQueue struct {
+	jobs []memory.MemoryUpdateJob
+}
+
+func (queue *recordingMemoryUpdateQueue) Enqueue(job memory.MemoryUpdateJob) (memory.MemoryUpdateAccepted, error) {
+	queue.jobs = append(queue.jobs, job)
+	return memory.MemoryUpdateAccepted{Accepted: true, JobID: "job-1"}, nil
 }
 
 func (repository *memoryTaskScheduleRepository) UpsertTaskSchedule(taskSchedule task.TaskSchedule) error {

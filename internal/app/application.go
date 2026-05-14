@@ -46,7 +46,9 @@ type Application struct {
 	connectorTransportCancel      context.CancelFunc
 	taskScheduleCancel            context.CancelFunc
 	logRetentionCancel            context.CancelFunc
+	memoryUpdateCancel            context.CancelFunc
 	taskSchedulePoller            *scheduler.TaskSchedulePoller
+	memoryUpdateQueue             *memory.BackgroundMemoryUpdateQueue
 	taskSchedulePollSecond        int
 	languageModelDefaultProvider  string
 	languageModelFallbackProvider string
@@ -136,7 +138,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if database.SQL != nil {
 		memoryService.UseMirror(postgres.NewGraphitiMemoryRepository(database))
 	}
-	graphitiIngestionRouter := memory.NewGraphitiIngestionRouter(languageModelProvider, runtimeConfiguration.Memory.WorkspaceID)
+	pinnedMemoryStore := memory.NewMarkdownStore(pinnedMemoryRootPath(runtimeConfiguration), pinnedMemoryHardLimitCharacterCount(runtimeConfiguration))
+	pinnedMemoryStore.UseCompressor(memory.NewLLMMarkdownMemoryCompressor(languageModelProvider), pinnedMemoryCompressionTargetCharacterCount(runtimeConfiguration))
+	memoryUpdateProcessor := memory.NewMemoryUpdateProcessor(memoryService, pinnedMemoryStore)
+	memoryUpdateQueue := memory.NewBackgroundMemoryUpdateQueue(memoryUpdateProcessor, logger)
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
 	mcpRegistry := mcp.NewMcpRegistry()
 	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
@@ -155,6 +160,8 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		agentKernel.RefreshSkillIndex(ctx, instructionBundleLoader())
 	})
 	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
+	toolCatalogBuilder.UseMemoryUpdateQueue(memoryUpdateQueue)
 	taskLauncher := agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)
 	var taskSchedulePoller *scheduler.TaskSchedulePoller
 	if taskScheduleRepository != nil && scheduledDeliveryRepository != nil {
@@ -178,7 +185,6 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.UseTaskLauncher(taskLauncher)
 	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	connectorRuntime.UseMemoryService(memoryService)
-	connectorRuntime.UseGraphitiIngestionRouter(graphitiIngestionRouter)
 	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
 	connectorRuntime.UseIngressGate(backupCoordinator)
 	if database.SQL != nil {
@@ -261,6 +267,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		database:                      database,
 		startupError:                  startupError,
 		taskSchedulePoller:            taskSchedulePoller,
+		memoryUpdateQueue:             memoryUpdateQueue,
 		taskSchedulePollSecond:        runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond,
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
@@ -333,6 +340,30 @@ func loadAgentInstructionBundle(runtimeConfiguration config.RuntimeConfiguration
 		Sources: sources,
 		Skills:  skillInstructions,
 	}
+}
+
+func pinnedMemoryRootPath(runtimeConfiguration config.RuntimeConfiguration) string {
+	if strings.TrimSpace(runtimeConfiguration.Memory.PinnedMemoryRootPath) != "" {
+		return strings.TrimSpace(runtimeConfiguration.Memory.PinnedMemoryRootPath)
+	}
+	return filepath.Join(runtimeConfiguration.Terminal.WorkspaceRootPath, ".blueclaw", "memory")
+}
+
+func pinnedMemoryHardLimitCharacterCount(runtimeConfiguration config.RuntimeConfiguration) int {
+	if runtimeConfiguration.Memory.PinnedMemoryHardLimitCharacterCount > 0 {
+		return runtimeConfiguration.Memory.PinnedMemoryHardLimitCharacterCount
+	}
+	if runtimeConfiguration.Memory.PinnedMemoryCharacterLimit > 0 {
+		return runtimeConfiguration.Memory.PinnedMemoryCharacterLimit
+	}
+	return memory.DefaultPinnedMemoryHardLimitCharacterCount
+}
+
+func pinnedMemoryCompressionTargetCharacterCount(runtimeConfiguration config.RuntimeConfiguration) int {
+	if runtimeConfiguration.Memory.PinnedMemoryCompressionTargetCharacterCount > 0 {
+		return runtimeConfiguration.Memory.PinnedMemoryCompressionTargetCharacterCount
+	}
+	return memory.DefaultPinnedMemoryCompressionTargetCharacterCount
 }
 
 func instructionRootPaths(runtimeConfiguration config.RuntimeConfiguration) []string {
@@ -493,9 +524,11 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 	allowedToolNameByName := map[string]bool{
 		"conversation.history": true,
 		"math.calculate":       true,
-		"memory.search":        true,
 		"schedule.create":      true,
 		"schedule.cancel":      true,
+	}
+	for _, toolName := range agent.DefaultSkillToolNames() {
+		allowedToolNameByName[toolName] = true
 	}
 	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
 		for _, allowedToolName := range agentProfile.AllowedToolNames {
@@ -585,7 +618,7 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 }
 
 func appendDefaultBuiltInToolNames(toolNames []string) []string {
-	result := append([]string{}, toolNames...)
+	result := agent.DefaultAllowedToolNames(toolNames)
 	if !containsString(result, "math.calculate") {
 		result = append(result, "math.calculate")
 	}
@@ -725,6 +758,7 @@ func (application *Application) Start() error {
 		return application.startupError
 	}
 	application.startLogRetentionLoop()
+	application.startMemoryUpdateQueue()
 	application.startConnectorRuntime()
 	application.startConnectorTransports()
 	application.startTaskSchedulePoller()
@@ -762,6 +796,9 @@ func (application *Application) Shutdown(ctx context.Context) error {
 	}
 	if application.logRetentionCancel != nil {
 		application.logRetentionCancel()
+	}
+	if application.memoryUpdateCancel != nil {
+		application.memoryUpdateCancel()
 	}
 	errorValue := application.httpServer.Shutdown(ctx)
 	closeErrorValue := application.runtimeLogger.Close()
@@ -830,6 +867,15 @@ func (application *Application) startTaskSchedulePoller() {
 	application.taskScheduleCancel = cancel
 	interval := time.Duration(application.taskSchedulePollIntervalSecond()) * time.Second
 	go application.taskSchedulePoller.Start(ctx, interval)
+}
+
+func (application *Application) startMemoryUpdateQueue() {
+	if application.memoryUpdateQueue == nil || application.memoryUpdateCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	application.memoryUpdateCancel = cancel
+	application.memoryUpdateQueue.Start(ctx)
 }
 
 func (application *Application) taskSchedulePollIntervalSecond() int {

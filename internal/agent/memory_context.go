@@ -12,10 +12,14 @@ const memorySummaryContentLimit = 240
 func buildMemoryContext(memoryFacts []memory.MemoryFact) string {
 	sections := []string{}
 	userMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, memory.ScopeTypeUser)
+	circleMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, memory.ScopeTypeCircle)
 	workspaceMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, memory.ScopeTypeWorkspace)
 	conversationMemoryDescriptions := buildScopedMemoryDescriptions(memoryFacts, memory.ScopeTypeConversation)
 	if len(userMemoryDescriptions) > 0 {
 		sections = append(sections, "User memory:\n"+strings.Join(userMemoryDescriptions, "\n"))
+	}
+	if len(circleMemoryDescriptions) > 0 {
+		sections = append(sections, "Circle memory:\n"+strings.Join(circleMemoryDescriptions, "\n"))
 	}
 	if len(workspaceMemoryDescriptions) > 0 {
 		sections = append(sections, "Workspace memory:\n"+strings.Join(workspaceMemoryDescriptions, "\n"))
@@ -86,6 +90,8 @@ func compactMemoryContent(content string) string {
 
 func normalizedMemoryScope(scopeType string) string {
 	switch strings.TrimSpace(scopeType) {
+	case memory.ScopeTypeCircle:
+		return memory.ScopeTypeCircle
 	case memory.ScopeTypeWorkspace:
 		return memory.ScopeTypeWorkspace
 	case memory.ScopeTypeConversation:

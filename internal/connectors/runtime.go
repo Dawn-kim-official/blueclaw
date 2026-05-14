@@ -773,7 +773,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	turnResult := launchResult.TurnResult
 	taskRunID := turnResult.TaskRun.TaskRunID
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
-	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
 	if turnResult.TaskRun.Status == task.TaskStatusCancelled {
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
