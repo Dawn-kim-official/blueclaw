@@ -123,15 +123,15 @@ type skillRemoveInput struct {
 func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.Context, input skillAddInput) (agent.ToolResult, error) {
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "skill", Action: "invalid", Reason: "name"}), "skill_add", errorValue.Error()), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
 	}
 	skillBundle, warnings, errorValue := validateSkillDocument(skillName, input.Content)
 	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "skill", Action: "invalid", Reason: "document"}), "skill_add", errorValue.Error()), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
 	}
 	resourcePaths, errorValue := validateSkillResources(input.Resources)
 	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "skill", Action: "invalid", Reason: "resources"}), "skill_add", errorValue.Error()), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
 	}
 	warnings = append(warnings, skillResourceWarnings(skillBundle.Instruction, resourcePaths)...)
 	skillDirectoryPath := toolCatalogBuilder.userManagedSkillDirectoryPath(skillName)
@@ -162,7 +162,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (agent.ToolResult, error) {
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "skill", Action: "invalid", Reason: "name"}), "skill_remove", errorValue.Error()), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "skill_remove", errorValue.Error()), nil
 	}
 	skillDirectoryPath := toolCatalogBuilder.userManagedSkillDirectoryPath(skillName)
 	if _, errorValue := os.Stat(skillDirectoryPath); os.IsNotExist(errorValue) {

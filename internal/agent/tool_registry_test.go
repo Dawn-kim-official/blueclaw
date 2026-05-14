@@ -29,19 +29,27 @@ func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
 	}
 }
 
-func TestFailureCodeBuildsDotSeparatedCode(t *testing.T) {
-	failureCode := NewFailureCode(FailureCodeParts{Domain: "memory", Action: "search", Reason: "unavailable"})
+func TestFailureCodeIsGenericOpaqueCode(t *testing.T) {
+	failureCode := FailureCodes.Unavailable
 
-	if failureCode.String() != "memory.search.unavailable" {
-		t.Fatalf("expected dot failure code, got %q", failureCode.String())
+	if failureCode.String() != "unavailable" {
+		t.Fatalf("expected generic failure code, got %q", failureCode.String())
 	}
 }
 
 func TestFailureCodeNormalizesLegacyMemorySearchCode(t *testing.T) {
-	result := ToolFailureResult(FailureDependencyUnavailable, FailureCodeLiteral("memory_search_unavailable"), "graphiti_search", "memory failed")
+	result := ToolFailureResult(FailureDependencyUnavailable, FailureCode("memory_search_unavailable"), "graphiti_search", "memory failed")
 
-	if result.FailureCode() != FailureCodes.MemorySearchUnavailable.String() {
+	if result.FailureCode() != FailureCodes.Unavailable.String() {
 		t.Fatalf("expected canonical memory search code, got %+v", result)
+	}
+}
+
+func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
+	result := ToolFailureResult(FailureExternalService, FailureCode("provider.special.case"), "provider", "provider failed")
+
+	if result.FailureCode() != FailureCodes.OperationFailed.String() {
+		t.Fatalf("expected unknown failure code to collapse, got %+v", result)
 	}
 }
 
@@ -54,7 +62,7 @@ func TestToolSetDescriptionsAndActionSchemaShareExposedTools(t *testing.T) {
 		Definition:   ToolDefinition{Name: "denied.tool", Description: "Denied"},
 		Availability: ToolAvailability{Status: ToolAvailabilityDenied, Reason: "policy"},
 		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolFailureResult(FailurePolicyBlocked, FailureCodeLiteral("tool.denied"), "policy", "denied"), nil
+			return ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy", "denied"), nil
 		},
 	})
 

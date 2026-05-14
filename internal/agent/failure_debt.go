@@ -99,7 +99,7 @@ func attemptFingerprint(toolInputKey string, errorCode string) string {
 	normalizedToolInputKey := strings.TrimSpace(toolInputKey)
 	normalizedErrorCode := strings.TrimSpace(errorCode)
 	if normalizedErrorCode == "" {
-		normalizedErrorCode = "tool_failed"
+		normalizedErrorCode = FailureCodes.OperationFailed.String()
 	}
 	if normalizedToolInputKey == "" {
 		return normalizedErrorCode
@@ -277,7 +277,7 @@ func buildFailureReportFacts(observations []turnObservation, budget RecoveryBudg
 		facts.Attempts = append(facts.Attempts, failureReportAttempt{
 			ToolName:     strings.TrimSpace(observation.Tool),
 			InputSummary: failureReportInputSummary(observation.ToolInputKey),
-			ErrorCode:    firstNonEmptyString(observation.FailureCode(), "tool.failed"),
+			ErrorCode:    firstNonEmptyString(observation.FailureCode(), FailureCodes.OperationFailed.String()),
 			FailureStage: firstNonEmptyString(observation.FailureStage(), strings.TrimSpace(observation.Tool)),
 			Message:      failureReportMessage(observation),
 		})

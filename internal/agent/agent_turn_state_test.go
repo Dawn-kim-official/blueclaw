@@ -286,7 +286,7 @@ func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) 
 		t.Fatal(errorValue)
 	}
 
-	if !observation.Failed() || observation.FailureCode() != FailureCodes.MemorySearchUnavailable.String() {
+	if !observation.Failed() || observation.FailureCode() != FailureCodes.Unavailable.String() {
 		t.Fatalf("expected canonical memory search failure, got %+v", observation)
 	}
 }

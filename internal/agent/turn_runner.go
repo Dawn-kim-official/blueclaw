@@ -172,7 +172,7 @@ func newFailureObservation(observationID string, action string, tool string, con
 	observation := newContentObservation(observationID, action, tool, content)
 	observation.Failure = &ToolFailure{
 		Kind:            normalizeFailureKind(kind),
-		Code:            normalizeFailureCode(code),
+		Code:            CanonicalFailureCode(code),
 		Stage:           strings.TrimSpace(stage),
 		UserSafeSummary: strings.TrimSpace(content),
 	}
@@ -389,21 +389,21 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				continue
 			}
 			if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
-				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessarySiteApprovalMessage(), FailurePolicyBlocked, NewFailureCode(FailureCodeParts{Domain: "approval", Reason: "unnecessary"}), "policy")
+				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessarySiteApprovalMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
 				continue
 			}
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.ToolInputInvalid, "tool_input")
+				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.InvalidInput, "tool_input")
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
 				continue
 			}
 			if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.ToolInputInvalid, "tool_input")
+				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.InvalidInput, "tool_input")
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
@@ -415,7 +415,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					Action:        "policy",
 					Tool:          strings.TrimSpace(actionDocument.ToolName),
 					Output:        ToolOutput{Content: "This task already completed an external send as " + sentObservation.ObservationID + ". Do not send another message in the same task. Use that observation for completionEvidence and finish."},
-					Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: NewFailureCode(FailureCodeParts{Domain: "external_send", Reason: "duplicate"}).String(), Stage: "policy", UserSafeSummary: "This task already completed an external send."},
+					Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: FailureCodes.PolicyBlocked.String(), Stage: "policy", UserSafeSummary: "This task already completed an external send."},
 				}
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.external_send_repeat_rejected", marshalEventBody(observation))
@@ -428,7 +428,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					Action:        "policy",
 					Tool:          strings.TrimSpace(actionDocument.ToolName),
 					Output:        ToolOutput{Content: "This exact tool call already succeeded as " + duplicateObservation.ObservationID + ". Use that observation for completionEvidence instead of running it again."},
-					Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: NewFailureCode(FailureCodeParts{Domain: "tool_call", Action: "duplicate", Reason: "success"}).String(), Stage: "policy", UserSafeSummary: "This exact tool call already succeeded."},
+					Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: FailureCodes.PolicyBlocked.String(), Stage: "policy", UserSafeSummary: "This exact tool call already succeeded."},
 				}
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.duplicate_tool_call_rejected", marshalEventBody(observation))
@@ -517,7 +517,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments)
 		default:
-			observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "invalid_action", "", "unknown action: "+actionDocument.Action, FailureInvalidInput, NewFailureCode(FailureCodeParts{Domain: "agent", Action: "action", Reason: "unknown"}), "action_parse")
+			observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "invalid_action", "", "unknown action: "+actionDocument.Action, FailureInvalidInput, FailureCodes.InvalidInput, "action_parse")
 			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_action", observation.ContentText())
 		}
@@ -979,7 +979,7 @@ func (agentTurnRunner *AgentTurnRunner) recordUnavailableToolRequest(taskRunID s
 		"toolName":      trimmedToolName,
 		"input":         json.RawMessage(toolInput),
 	}))
-	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, ToolFailureResult(FailurePolicyBlocked, FailureCodes.ToolUnavailable, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt)
+	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt)
 }
 
 func stringValue(value any) string {
@@ -1018,14 +1018,14 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	toolContext := WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage)
 	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
-		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.ToolFailed, trimmedToolName, errorValue.Error())
+		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
 	observation := agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt)
 	return observation
 }
 
 func toolFailureObservation(observationID string, toolName string, message string) turnObservation {
-	return newFailureObservation(observationID, "call_tool", toolName, message, FailureUnknown, FailureCodes.ToolFailed, firstNonEmptyString(toolName, "tool"))
+	return newFailureObservation(observationID, "call_tool", toolName, message, FailureUnknown, FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
 }
 
 func recoveryGuidanceObservation(index int, observation turnObservation) turnObservation {
@@ -1074,7 +1074,7 @@ func (recoveryRoute RecoveryRoute) Guidance() string {
 }
 
 func recoveryRoutesForObservation(observation turnObservation) []RecoveryRoute {
-	if observation.FailureCode() != FailureCodes.MemorySearchUnavailable.String() {
+	if strings.TrimSpace(observation.Tool) != "memory.search" || observation.FailureCode() != FailureCodes.Unavailable.String() {
 		return nil
 	}
 	return []RecoveryRoute{{
@@ -1115,7 +1115,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, ob
 			content = validityFailureMessage(validityState)
 			originalContent = content
 			isError = true
-			toolResult.Failure = &ToolFailure{Kind: FailureInvalidInput, Code: NewFailureCode(FailureCodeParts{Domain: "artifact", Reason: "validity_failed"}).String(), Stage: "artifact_validation", UserSafeSummary: content}
+			toolResult.Failure = &ToolFailure{Kind: FailureInvalidInput, Code: FailureCodes.InvalidInput.String(), Stage: "artifact_validation", UserSafeSummary: content}
 			attachments = nil
 			agentTurnRunner.appendEvent(taskRunID, "agent.artifact_attach_rejected", marshalEventBody(validityState))
 		}
@@ -1147,7 +1147,9 @@ func normalizeToolFailureResult(toolName string, toolResult ToolResult) ToolResu
 		toolResult.Failure.Kind = FailureUnknown
 	}
 	if strings.TrimSpace(toolResult.Failure.Code) == "" {
-		toolResult.Failure.Code = "tool.failed"
+		toolResult.Failure.Code = FailureCodes.OperationFailed.String()
+	} else {
+		toolResult.Failure.Code = CanonicalFailureCode(FailureCode(toolResult.Failure.Code))
 	}
 	if strings.TrimSpace(toolResult.Failure.Stage) == "" {
 		toolResult.Failure.Stage = firstNonEmptyString(toolName, "tool")
@@ -1301,7 +1303,7 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifactsFromEffect(ctx 
 }
 
 func (agentTurnRunner *AgentTurnRunner) blockInvalidCompletionArtifacts(taskRunID string, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
-	observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", invalidCompletionArtifactObservationContent(state), FailureInvalidInput, NewFailureCode(FailureCodeParts{Domain: "artifact", Reason: "validity_failed"}), "completion_state")
+	observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", invalidCompletionArtifactObservationContent(state), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
 	observations = append(observations, observation)
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", state.ValidityState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
@@ -1353,7 +1355,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
-		observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", completionGateResult.Message, FailureInvalidInput, FailureCodeLiteral("completion_gate_failed"), "completion_state")
+		observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", completionGateResult.Message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
 		observations = append(observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
 		return completionTransition{Observations: observations, Attachments: attachments}
@@ -1719,10 +1721,10 @@ func requirementsWithFailureDebtWaiver(requirements []toolUseRequirement, observ
 func completionGateObservation(index int, message string) turnObservation {
 	evidenceKind := evidenceMissingKind(message)
 	if evidenceKind == "" {
-		return newFailureObservation(nextObservationID(index), "policy", "", message, FailureInvalidInput, FailureCodeLiteral("completion_gate_failed"), "completion_gate")
+		return newFailureObservation(nextObservationID(index), "policy", "", message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_gate")
 	}
 	content := evidenceMissingGuidance(evidenceKind, message)
-	observation := newFailureObservation(nextObservationID(index), "evidence_missing", "", message, FailureInvalidInput, FailureCodeLiteral("evidence_missing"), evidenceKind)
+	observation := newFailureObservation(nextObservationID(index), "evidence_missing", "", message, FailureInvalidInput, FailureCodes.InvalidInput, evidenceKind)
 	observation = withObservationContent(observation, content)
 	observation.Summary = content
 	observation.Failure.Retryable = true

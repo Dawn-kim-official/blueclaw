@@ -211,7 +211,7 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"browser.snapshot"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolFailureResult(FailureExternalService, FailureCodeLiteral("browser.blocked"), "browser_snapshot", "blocked_by_captcha: bot-detection wall"), nil
+		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "browser_snapshot", "blocked_by_captcha: bot-detection wall"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -350,7 +350,7 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	if result.FinalReply != "recovered" {
 		t.Fatalf("expected recovered reply, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.forbidden.result", "tool.unavailable") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.forbidden.result", FailureCodes.PolicyBlocked.String()) {
 		t.Fatal("expected denied tool result event")
 	}
 }
@@ -739,7 +739,7 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 	attachmentCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		attachmentCallCount++
-		return ToolFailureResult(FailureUnknown, FailureCodeLiteral("tool.failed"), "tool", "attachment unavailable"), nil
+		return ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, "tool", "attachment unavailable"), nil
 	})
 
 	_, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -922,12 +922,12 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"unstable","toolInput":{}}`,
 		finalReplyWithEvidence("done", "obs-001", "unstable", 0),
-		failureReportDocument("tool failed", "unstable", "{}", "tool_failed", "unstable", "failed"),
+		failureReportDocument("tool failed", "unstable", "{}", FailureCodes.OperationFailed.String(), "unstable", "failed"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestToolSet([]string{"unstable"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "unstable"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolFailureResult(FailureUnknown, FailureCodeLiteral("tool_failed"), "unstable", "failed"), nil
+		return ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, "unstable", "failed"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -1000,7 +1000,7 @@ func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T)
 	if result.FinalReply != "1 + 2/4 = 1.5" {
 		t.Fatalf("expected direct fallback answer, got %q", result.FinalReply)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", "calculator_failed") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", FailureCodes.OperationFailed.String()) {
 		t.Fatal("expected internal tool failure event to remain recorded")
 	}
 }
@@ -1014,9 +1014,9 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 			Action:             "call_tool",
 			Tool:               "math.calculate",
 			Output:             ToolOutput{Content: "bc: command not found"},
-			Failure:            &ToolFailure{Kind: FailureExternalService, Code: "calculator_failed", Stage: "bc_execution", UserSafeSummary: "bc: command not found"},
+			Failure:            &ToolFailure{Kind: FailureExternalService, Code: FailureCodes.OperationFailed.String(), Stage: "bc_execution", UserSafeSummary: "bc: command not found"},
 			ToolInputKey:       "math.calculate\x00{\"expression\":\"1+2/4\"}",
-			AttemptFingerprint: "math.calculate\x00{\"expression\":\"1+2/4\"}\x00calculator_failed",
+			AttemptFingerprint: "math.calculate\x00{\"expression\":\"1+2/4\"}\x00operation_failed",
 		}},
 	})
 	schemaDocument := request.StructuredOutputSchema.Document
@@ -1060,7 +1060,7 @@ func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 		Attempts: []failureReportAttempt{{
 			ToolName:     "math.calculate",
 			InputSummary: "1+2/4",
-			ErrorCode:    "calculator_failed",
+			ErrorCode:    FailureCodes.OperationFailed.String(),
 			FailureStage: "bc_execution",
 			Message:      "bc: command not found",
 		}},
@@ -1074,10 +1074,10 @@ func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-		failureReportDocument("recipient missing", "platform.dm.send", "정국", "recipient_not_found", "recipient_resolve", "approved active Mattermost recipient was not found"),
-		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
+		failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 	}, textResponses: []string{
-		"recipient_resolve/recipient_not_found 단계에서 수신자를 찾지 못해 DM을 보내지 못했습니다.",
+		"recipient_resolve/not_found 단계에서 수신자를 찾지 못해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
@@ -1095,11 +1095,11 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "recipient_resolve/recipient_not_found") {
+	if !strings.Contains(result.FinalReply, "recipient_resolve/not_found") {
 		t.Fatalf("expected structured failure in final reply, got %q", result.FinalReply)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "tool.platform.dm.send.result", "recipient_not_found") {
+	if !taskEventsContain(taskEvents, "tool.platform.dm.send.result", FailureCodes.NotFound.String()) {
 		t.Fatal("expected structured tool failure event")
 	}
 }
@@ -1108,8 +1108,8 @@ func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCod
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-			failureReportDocument("recipient missing", "platform.dm.send", "정국", "recipient_not_found", "recipient_resolve", "approved active Mattermost recipient was not found"),
-			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
+			failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{"요청을 처리하지 못했습니다."},
 	}
@@ -1138,12 +1138,12 @@ func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCod
 }
 
 func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t *testing.T) {
-	generatedReply := "recipient_resolve/recipient_not_found 단계에서 수신자를 찾지 못했습니다."
+	generatedReply := "recipient_resolve/not_found 단계에서 수신자를 찾지 못했습니다."
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-			failureReportDocument("recipient missing", "platform.dm.send", "정국", "recipient_not_found", "recipient_resolve", "approved active Mattermost recipient was not found"),
-			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/recipient_not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
+			failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{generatedReply},
 	}
@@ -1245,7 +1245,7 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 }
 
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
-	failure := newFailureObservation("obs-001", "call_tool", "platform.dm.send", "failed", FailureExternalService, FailureCodeLiteral("send_failed"), "message_send")
+	failure := newFailureObservation("obs-001", "call_tool", "platform.dm.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
 	passiveGuidance := recoveryGuidanceObservation(2, failure)
 	spentGuidance := recoveryGuidanceObservation(3, failure)
 	spentGuidance.RecoveryAttemptSpent = true
@@ -1269,10 +1269,10 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 		`{"action":"call_tool","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"동하"}}`,
 		`{"action":"call_tool","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"이동하"}}`,
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-		failureReportDocument("mattermost still unavailable", "platform.dm.send", "정국", "mattermost_unavailable", "mattermost_lookup", "temporary user lookup timeout"),
-		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/mattermost_unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
+		failureReportDocument("mattermost still unavailable", "platform.dm.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
+		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
-		"mattermost_lookup/mattermost_unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
+		"mattermost_lookup/unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, RecoveryAttemptLimit: 3})
 	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
@@ -1300,7 +1300,7 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	if countStringOccurrences(sendInputs, `"recipientHint":"동하"`) != 1 {
 		t.Fatalf("expected repeated fingerprint to be rejected before invoke, got inputs %+v", sendInputs)
 	}
-	if !strings.Contains(result.FinalReply, "mattermost_lookup/mattermost_unavailable") {
+	if !strings.Contains(result.FinalReply, "mattermost_lookup/unavailable") {
 		t.Fatalf("expected final reply to report lookup failure, got %q", result.FinalReply)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failed_fingerprint_rejected", "already failed") {
@@ -1312,10 +1312,10 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
 		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		failureReportDocument("send failed", "platform.dm.send", "동하", "send_failed", "message_send", "Mattermost returned 503 after post create"),
-		recoveryDecisionDocument("message send failed", "message_send/send_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
+		failureReportDocument("send failed", "platform.dm.send", "동하", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
+		recoveryDecisionDocument("message send failed", "message_send/operation_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
-		"message_send/send_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
+		"message_send/operation_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
@@ -1338,7 +1338,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	if callCount != 1 {
 		t.Fatalf("expected unsafe repeat to be rejected before second send, got %d calls", callCount)
 	}
-	if !strings.Contains(result.FinalReply, "message_send/send_failed") {
+	if !strings.Contains(result.FinalReply, "message_send/operation_failed") {
 		t.Fatalf("expected final reply to report send failure, got %q", result.FinalReply)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failed_fingerprint_rejected", "already failed") {
@@ -1373,7 +1373,7 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.requested", "calculation_tool") {
 		t.Fatal("expected unavailable tool request event")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.result", "tool.unavailable") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.result", FailureCodes.PolicyBlocked.String()) {
 		t.Fatal("expected unavailable tool result event")
 	}
 }
@@ -1976,7 +1976,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
 		if terminalCallCount == 1 {
-			return ToolFailureResult(FailureExternalService, FailureCodeLiteral("terminal_command_failed"), "terminal_run", `{"exitCode":1,"stdout":"","stderr":"Error: presentation.md not found. Create presentation.md or set SRC=yourfile.md\n","timedOut":false}`), nil
+			return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "terminal_run", `{"exitCode":1,"stdout":"","stderr":"Error: presentation.md not found. Create presentation.md or set SRC=yourfile.md\n","timedOut":false}`), nil
 		}
 		return ToolSuccess(`{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`), nil
 	})
@@ -1985,7 +1985,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 			Path string `json:"path"`
 		}
 		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
-			return ToolFailureResult(FailureUnknown, FailureCodeLiteral("tool.failed"), "tool", errorValue.Error()), nil
+			return ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, "tool", errorValue.Error()), nil
 		}
 		return ToolSuccess(`{"path":"` + input.Path + `","sizeBytes":5}`), nil
 	})
@@ -2024,7 +2024,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
 		if terminalCallCount == 1 {
-			return ToolFailureResult(FailureExternalService, FailureCodeLiteral("terminal_command_failed"), "terminal_run", `{"exitCode":1,"stdout":"","stderr":"DESIGN.md is missing colors:\n","timedOut":false}`), nil
+			return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "terminal_run", `{"exitCode":1,"stdout":"","stderr":"DESIGN.md is missing colors:\n","timedOut":false}`), nil
 		}
 		return ToolSuccess(`{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`), nil
 	})
@@ -2033,7 +2033,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 			Path string `json:"path"`
 		}
 		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
-			return ToolFailureResult(FailureUnknown, FailureCodeLiteral("tool.failed"), "tool", errorValue.Error()), nil
+			return ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, "tool", errorValue.Error()), nil
 		}
 		return ToolSuccess(`{"path":"` + input.Path + `","sizeBytes":12}`), nil
 	})
@@ -2077,7 +2077,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T
 			Path string `json:"path"`
 		}
 		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
-			return ToolFailureResult(FailureUnknown, FailureCodeLiteral("tool.failed"), "tool", errorValue.Error()), nil
+			return ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, "tool", errorValue.Error()), nil
 		}
 		return ToolSuccess(`{"path":"` + input.Path + `","sizeBytes":5}`), nil
 	})

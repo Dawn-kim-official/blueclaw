@@ -419,7 +419,7 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	backupCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "primary.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		primaryCallCount++
-		return ToolFailureResult(FailureExternalService, FailureCodeLiteral("lookup_failed"), "primary_lookup", "primary lookup failed"), nil
+		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "primary_lookup", "primary lookup failed"), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "backup.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		backupCallCount++

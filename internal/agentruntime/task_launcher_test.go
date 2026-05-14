@@ -280,7 +280,7 @@ func TestApprovalRequestRejectsMissingUserFacingMessageWithoutPausing(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected approval tool to return a result: %v", errorValue)
 	}
-	if !toolResult.Failed() || toolResult.FailureCode() != "approval_message_required" {
+	if !toolResult.Failed() || toolResult.FailureCode() != agent.FailureCodes.InvalidInput.String() {
 		t.Fatalf("expected missing message tool failure, got %+v", toolResult)
 	}
 	updatedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)

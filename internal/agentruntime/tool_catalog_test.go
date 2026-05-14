@@ -232,7 +232,7 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 	if !result.Failed() {
 		t.Fatalf("expected recoverable memory.search tool error, got %+v", result)
 	}
-	if result.FailureCode() != agent.FailureCodes.MemorySearchUnavailable.String() || result.FailureStage() != "graphiti_search" {
+	if result.FailureCode() != agent.FailureCodes.Unavailable.String() || result.FailureStage() != "graphiti_search" {
 		t.Fatalf("expected structured memory search failure, got %+v", result)
 	}
 	if strings.Contains(result.ContentText(), "web.search") {
