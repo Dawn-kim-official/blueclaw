@@ -56,6 +56,32 @@ func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
+	taskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "long task")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-stop")
+	event.Prompt = "/stop"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected stop event to process: %v", errorValue)
+	}
+	if result.Reason != "task_control" {
+		t.Fatalf("reason = %q, want task_control", result.Reason)
+	}
+	cancelledTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected cancelled task run, got found=%v run=%+v", isFound, cancelledTaskRun)
+	}
+	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "1") {
+		t.Fatalf("expected stop reply, got %+v", adapter.sentReplies)
+	}
+}
+
 func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 	reply := OutboundReply{
 		Message: "attached",

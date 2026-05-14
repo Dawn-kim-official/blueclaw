@@ -225,6 +225,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	if errorValue == nil {
 		taskRun = runningTaskRun
 	}
+	taskContext, taskCancel := context.WithCancel(turnContext)
+	unregisterTaskCancel := agentTurnRunner.taskRunService.RegisterTaskRunCancel(taskRun.TaskRunID, taskCancel)
+	defer unregisterTaskCancel()
+	defer taskCancel()
 	agentTurnRunner.appendInstructionEvent(taskRun.TaskRunID, request)
 
 	state := buildInitialAgentTaskState(request, agentTurnRunner.options, taskRun.TaskRunID)
@@ -233,6 +237,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	successfulToolCalls := map[string]turnObservation{}
 	limitPressureWarnings := map[string]bool{}
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterationCount; iteration++ {
+		if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
+			return cancelledResult, nil
+		}
 		state.IterationCount = iteration - 1
 		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, state.ToolCallCount, len(state.Observations)+1, limitPressureWarnings); warning != nil {
 			state.Observations = append(state.Observations, warning.Observation)
@@ -242,7 +249,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
 
-		transition := agentTurnRunner.applyCompletionState(turnContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria)
+		transition := agentTurnRunner.applyCompletionState(taskContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria)
 		state.Observations = transition.Observations
 		state.Attachments = transition.Attachments
 		if transition.IsCompleted {
@@ -253,9 +260,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			continue
 		}
 
-		actionDocument, actionError := agentTurnRunner.nextAction(turnContext, request, toolUseRequirements, state.Observations, len(state.QualityCriteria) == 0)
+		actionDocument, actionError := agentTurnRunner.nextAction(taskContext, request, toolUseRequirements, state.Observations, len(state.QualityCriteria) == 0)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
+			if errors.Is(actionError, context.Canceled) {
+				return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
+			}
 			if errors.Is(actionError, context.DeadlineExceeded) {
 				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", state.Observations, state.Attachments, iteration-1, state.ToolCallCount)
 			}
@@ -299,8 +309,14 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "final_reply", "empty final reply")
 				return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "empty final reply", state.Observations, state.Attachments)
 			}
+			if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
+				return cancelledResult, nil
+			}
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "final_reply", reply)
-			completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
+			completedTaskRun, completeError := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
+			if completeError != nil {
+				return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
+			}
 			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
 		case "call_tool":
 			if !toolAvailableForAction(request.ToolSet, actionDocument.ToolName) {
@@ -383,9 +399,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			state.ToolCallCount++
 			if state.ToolCallCount > maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations) {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
-				return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, iteration, maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations))
+				return agentTurnRunner.finalizeOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_tool_calls", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, iteration, maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations))
 			}
-			observation := agentTurnRunner.invokeTool(turnContext, request.ToolSet, taskRun.TaskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage)
+			observation := agentTurnRunner.invokeTool(taskContext, request.ToolSet, taskRun.TaskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage)
+			if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
+				return cancelledResult, nil
+			}
 			if recoveryStep != "" {
 				observation.RecoveryStep = recoveryStep
 				observation.RecoveryAttemptSpent = true
@@ -441,7 +460,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 	}
 
-	return agentTurnRunner.finalizeOrStopForLimit(turnContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, agentTurnRunner.options.MaxIterationCount, state.ToolCallCount)
+	return agentTurnRunner.finalizeOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, agentTurnRunner.options.MaxIterationCount, state.ToolCallCount)
 }
 
 func (agentTurnRunner *AgentTurnRunner) taskRunForRequest(request AgentTurnRequest) task.TaskRun {
@@ -467,6 +486,23 @@ func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, obser
 	}
 	reply := firstNonEmptyString(taskRun.FailureReason, toolObservationMessage(observation), observation.Content)
 	return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
+}
+
+func (agentTurnRunner *AgentTurnRunner) cancelledTaskResult(taskRunID string, attachments []FileAttachment) (AgentTurnResult, bool) {
+	taskRun, isFound := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
+	if !isFound || taskRun.Status != task.TaskStatusCancelled {
+		return AgentTurnResult{}, false
+	}
+	agentTurnRunner.appendEvent(taskRunID, "task.stop.outbox_suppressed", "task run was cancelled before reply delivery")
+	return AgentTurnResult{TaskRun: taskRun, ReplySuppressed: true, Attachments: attachments}, true
+}
+
+func (agentTurnRunner *AgentTurnRunner) cancelledTaskResultOrCurrent(taskRunID string, attachments []FileAttachment) AgentTurnResult {
+	if result, isCancelled := agentTurnRunner.cancelledTaskResult(taskRunID, attachments); isCancelled {
+		return result
+	}
+	taskRun, _ := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
+	return AgentTurnResult{TaskRun: taskRun, ReplySuppressed: true, Attachments: attachments}
 }
 
 func isWaitingForUser(status task.TaskStatus) bool {

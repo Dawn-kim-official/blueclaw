@@ -98,6 +98,10 @@ func (agentKernel *AgentKernel) ListTaskRunByPersonID(personID string) []task.Ta
 	return agentKernel.taskRunService.ListTaskRunByPersonID(personID)
 }
 
+func (agentKernel *AgentKernel) FindTaskRun(taskRunID string) (task.TaskRun, bool) {
+	return agentKernel.taskRunService.FindTaskRun(taskRunID)
+}
+
 func (agentKernel *AgentKernel) ListTaskEvent(taskRunID string) []task.TaskEvent {
 	return agentKernel.taskRunService.ListTaskEvent(taskRunID)
 }
@@ -108,6 +112,10 @@ func (agentKernel *AgentKernel) CompleteTask(taskRunID string, result string) (t
 
 func (agentKernel *AgentKernel) CancelTask(taskRunID string, requesterPersonID string, reason string) (task.TaskRun, error) {
 	return agentKernel.taskRunService.CancelTaskRunWithReason(taskRunID, requesterPersonID, reason)
+}
+
+func (agentKernel *AgentKernel) CancelActiveTasks(request task.TaskRunCancelRequest) []task.TaskRun {
+	return agentKernel.taskRunService.CancelActiveTaskRuns(request)
 }
 
 func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, prompt string) (string, error) {

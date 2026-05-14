@@ -565,8 +565,17 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorEvent(ctx contex
 		return
 	}
 	lock := connectorRuntime.conversationLock(event.Platform + ":" + event.ConversationID)
+	if shouldProcessBeforeConversationLock(event) {
+		connectorRuntime.processQueuedConnectorEventWithAdapter(ctx, adapter, queuedEvent)
+		return
+	}
 	lock.Lock()
 	defer lock.Unlock()
+	connectorRuntime.processQueuedConnectorEventWithAdapter(ctx, adapter, queuedEvent)
+}
+
+func (connectorRuntime *ConnectorRuntime) processQueuedConnectorEventWithAdapter(ctx context.Context, adapter PlatformAdapter, queuedEvent QueuedConnectorEvent) {
+	event := queuedEvent.Event
 	if ctx.Err() != nil {
 		return
 	}
@@ -700,6 +709,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 
 	connectorRuntime.logger.Info("connector."+platform+".auth.allowed", slog.String("messageID", event.MessageID), slog.String("personID", personID))
+	if result, isHandled := connectorRuntime.handleTaskControlIfRequested(ctx, platform, adapter, event, replyTarget, personID, sendReply); isHandled {
+		return result, nil
+	}
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
 	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	pendingApproval, confirmationDecision, hasPendingConfirmation := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event)
@@ -762,6 +774,13 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	taskRunID := turnResult.TaskRun.TaskRunID
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
 	connectorRuntime.ingestMemory(ctx, platform, personID, personAccess, event, taskRunID)
+	if turnResult.TaskRun.Status == task.TaskStatusCancelled {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
+			"messageID": event.MessageID,
+			"reason":    "task was cancelled",
+		}))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_cancelled"}, nil
+	}
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
 		dispatchID, isSent := connectorRuntime.sendIncompleteTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
 		if isSent {
@@ -778,6 +797,13 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.outbox.blocked", "reply claims attachments without evidence")
 		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "missing_attachment_evidence"))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "missing_attachment_evidence"}, nil
+	}
+	if connectorRuntime.taskRunWasCancelled(taskRunID) {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
+			"messageID": event.MessageID,
+			"reason":    "task was cancelled before final reply send",
+		}))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_cancelled"}, nil
 	}
 
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{

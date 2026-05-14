@@ -15,7 +15,7 @@ import (
 func TestRunCommandUsesBashStdinInFirecrackerGuestMode(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "printf 'blueclaw\\n'",
 	})
 
@@ -34,7 +34,7 @@ func TestRunCommandUsesBuiltInRTKHook(t *testing.T) {
 		fakeRewriteExecutable(t, "printf original", "printf rewritten"),
 	)
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "printf original",
 	})
 
@@ -53,7 +53,7 @@ func TestRunCommandFallsBackWhenRTKHookFails(t *testing.T) {
 		fakeRewriteExecutable(t, "git status", "rtk git status"),
 	)
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "printf original",
 	})
 
@@ -68,7 +68,7 @@ func TestRunCommandFallsBackWhenRTKHookFails(t *testing.T) {
 func TestRunCommandFallsBackWhenRTKHookIsMissing(t *testing.T) {
 	terminalSessionService := newTerminalSessionService(testTerminalConfiguration(t), "/missing/rtk")
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "printf original",
 	})
 
@@ -86,7 +86,7 @@ func TestRunCommandFallsBackWhenRTKHookReturnsUnchangedCommand(t *testing.T) {
 		fakeRewriteExecutable(t, "printf original", "printf original"),
 	)
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "printf original",
 	})
 
@@ -101,7 +101,7 @@ func TestRunCommandFallsBackWhenRTKHookReturnsUnchangedCommand(t *testing.T) {
 func TestRunCommandFallsBackWhenRTKHookTimesOut(t *testing.T) {
 	terminalSessionService := newTerminalSessionService(testTerminalConfiguration(t), fakeSlowRewriteExecutable(t))
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "printf original",
 	})
 
@@ -167,7 +167,7 @@ func TestRunCommandValidatesRewrittenCommandWithGuardrails(t *testing.T) {
 		fakeRewriteExecutable(t, "printf original", "cat /etc/passwd"),
 	)
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "printf original",
 	})
 
@@ -184,7 +184,7 @@ func TestRunCommandPreparesMissingWorkspaceWorkingDirectoryInFirecrackerGuestMod
 	terminalSessionService := NewTerminalSessionService(terminalConfiguration)
 	workingDirectoryPath := terminalConfiguration.WorkspaceRootPath + "/.blueclaw/tmp/slides"
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command:              "printf 'ready' > result.txt",
 		WorkingDirectoryPath: workingDirectoryPath,
 	})
@@ -204,7 +204,7 @@ func TestRunCommandPreparesMissingWorkspaceWorkingDirectoryInFirecrackerGuestMod
 func TestRunCommandDeniesWorkspaceEscape(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "cat /etc/passwd",
 	})
 
@@ -219,7 +219,7 @@ func TestRunCommandDeniesWorkspaceEscape(t *testing.T) {
 func TestRunCommandDeniesExecutableFloor(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
-	_, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	_, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "sudo echo nope",
 	})
 
@@ -231,7 +231,7 @@ func TestRunCommandDeniesExecutableFloor(t *testing.T) {
 func TestRunCommandReportsTimeout(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command:       "sleep 2",
 		TimeoutSecond: 1,
 	})
@@ -244,7 +244,7 @@ func TestRunCommandReportsTimeout(t *testing.T) {
 func TestRunCommandIncludesProcessErrorWhenStderrIsEmpty(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
-	commandResult, errorValue := terminalSessionService.RunCommand(CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "definitely_missing_blueclaw_binary",
 	})
 

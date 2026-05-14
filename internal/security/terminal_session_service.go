@@ -77,7 +77,7 @@ func newTerminalSessionService(terminalConfiguration config.TerminalConfiguratio
 	}
 }
 
-func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest CommandRequest) (CommandResult, error) {
+func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Context, commandRequest CommandRequest) (CommandResult, error) {
 	commandRequest, errorValue := terminalSessionService.runPreToolUseHooks(commandRequest)
 	if errorValue != nil {
 		return CommandResult{ExitCode: -1, Stderr: errorValue.Error()}, errorValue
@@ -91,7 +91,7 @@ func (terminalSessionService *TerminalSessionService) RunCommand(commandRequest 
 		return CommandResult{Stderr: errorValue.Error()}, errorValue
 	}
 
-	ctx, cancelFunction := context.WithTimeout(context.Background(), commandPlan.Timeout)
+	ctx, cancelFunction := context.WithTimeout(ctx, commandPlan.Timeout)
 	defer cancelFunction()
 
 	command := exec.CommandContext(ctx, commandPlan.ExecutablePath, commandPlan.Arguments...)

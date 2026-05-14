@@ -2,6 +2,7 @@ package adminapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -31,11 +32,15 @@ type taskRunRequest struct {
 }
 
 type taskRunCancelRequest struct {
-	TaskRunIDs        []string `json:"taskRunIDs"`
-	RequesterPersonID string   `json:"requesterPersonID"`
-	ScheduleOnly      bool     `json:"scheduleOnly"`
-	StaleBefore       string   `json:"staleBefore"`
-	Reason            string   `json:"reason"`
+	TaskRunIDs                 []string `json:"taskRunIDs"`
+	RequesterPersonID          string   `json:"requesterPersonID"`
+	RequesterEmail             string   `json:"requesterEmail"`
+	OriginConversationIDs      []string `json:"originConversationIDs"`
+	OriginConversationIDPrefix string   `json:"originConversationIDPrefix"`
+	Mode                       string   `json:"mode"`
+	ScheduleOnly               bool     `json:"scheduleOnly"`
+	StaleBefore                string   `json:"staleBefore"`
+	Reason                     string   `json:"reason"`
 }
 
 func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseWriter, request *http.Request) {
@@ -99,27 +104,123 @@ func (taskRunHandler TaskRunHandler) HandleCancelTaskRun(responseWriter http.Res
 		http.Error(responseWriter, "staleBefore must be RFC3339", http.StatusBadRequest)
 		return
 	}
+	requesterPersonID, errorValue := taskRunHandler.resolveCancelRequesterPersonID(cancelRequest)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(cancelRequest.Mode) == "stop" || strings.TrimSpace(cancelRequest.Mode) == "stop_all" {
+		if strings.TrimSpace(requesterPersonID) == "" {
+			http.Error(responseWriter, "requesterPersonID or requesterEmail is required for stop", http.StatusBadRequest)
+			return
+		}
+		taskRunHandler.handleStopTaskRun(responseWriter, cancelRequest, requesterPersonID, staleBefore)
+		return
+	}
 	if !hasTaskRunCancelSelector(cancelRequest) {
 		http.Error(responseWriter, "taskRunIDs, requesterPersonID, or scheduleOnly is required", http.StatusBadRequest)
 		return
 	}
 	taskRunCancelRequest := task.TaskRunCancelRequest{
 		TaskRunIDs:                 cancelRequest.TaskRunIDs,
-		RequesterPersonID:          strings.TrimSpace(cancelRequest.RequesterPersonID),
+		RequesterPersonID:          requesterPersonID,
+		OriginConversationIDs:      cancelRequest.OriginConversationIDs,
 		ScheduleOnly:               cancelRequest.ScheduleOnly,
 		StaleBefore:                staleBefore,
 		Reason:                     firstNonEmptyAdminString(cancelRequest.Reason, "admin task cancel"),
-		OriginConversationIDPrefix: adminScheduleOriginPrefix(cancelRequest.ScheduleOnly),
+		OriginConversationIDPrefix: firstNonEmptyAdminString(cancelRequest.OriginConversationIDPrefix, adminScheduleOriginPrefix(cancelRequest.ScheduleOnly)),
 	}
 	cancelledTaskRuns := taskRunHandler.TaskRunService.CancelActiveTaskRuns(taskRunCancelRequest)
 	writeJSON(responseWriter, http.StatusOK, map[string]any{
 		"cancelledTaskRunCount": len(cancelledTaskRuns),
 		"taskRuns":              cancelledTaskRuns,
+		"scheduleTouched":       false,
 	})
 }
 
 func hasTaskRunCancelSelector(request taskRunCancelRequest) bool {
-	return len(request.TaskRunIDs) > 0 || strings.TrimSpace(request.RequesterPersonID) != "" || request.ScheduleOnly
+	return len(request.TaskRunIDs) > 0 || strings.TrimSpace(request.RequesterPersonID) != "" || strings.TrimSpace(request.RequesterEmail) != "" || request.ScheduleOnly || len(request.OriginConversationIDs) > 0
+}
+
+func (taskRunHandler TaskRunHandler) handleStopTaskRun(responseWriter http.ResponseWriter, cancelRequest taskRunCancelRequest, requesterPersonID string, staleBefore *time.Time) {
+	reason := firstNonEmptyAdminString(cancelRequest.Reason, "user requested task stop")
+	mode := strings.TrimSpace(cancelRequest.Mode)
+	cancelledTaskRuns := []task.TaskRun{}
+	hasMultipleTargets := false
+	if mode == "stop_all" {
+		cancelledTaskRuns = taskRunHandler.TaskRunService.CancelActiveTaskRuns(task.TaskRunCancelRequest{
+			RequesterPersonID: requesterPersonID,
+			StaleBefore:       staleBefore,
+			Reason:            reason,
+		})
+	} else {
+		if len(cancelRequest.OriginConversationIDs) > 0 {
+			cancelledTaskRuns = taskRunHandler.TaskRunService.CancelActiveTaskRuns(task.TaskRunCancelRequest{
+				RequesterPersonID:     requesterPersonID,
+				OriginConversationIDs: cancelRequest.OriginConversationIDs,
+				StaleBefore:           staleBefore,
+				Reason:                reason,
+			})
+		}
+		if len(cancelledTaskRuns) == 0 {
+			activeTaskRuns := taskRunHandler.activeTaskRunsForPerson(requesterPersonID)
+			if len(activeTaskRuns) == 1 {
+				cancelledTaskRuns = taskRunHandler.TaskRunService.CancelActiveTaskRuns(task.TaskRunCancelRequest{
+					TaskRunIDs:        []string{activeTaskRuns[0].TaskRunID},
+					RequesterPersonID: requesterPersonID,
+					StaleBefore:       staleBefore,
+					Reason:            reason,
+				})
+			} else if len(activeTaskRuns) > 1 {
+				hasMultipleTargets = true
+			}
+		}
+	}
+	writeJSON(responseWriter, http.StatusOK, map[string]any{
+		"cancelledTaskRunCount": len(cancelledTaskRuns),
+		"taskRuns":              cancelledTaskRuns,
+		"multipleTargets":       hasMultipleTargets,
+		"reason":                reason,
+		"scheduleTouched":       false,
+	})
+}
+
+func (taskRunHandler TaskRunHandler) resolveCancelRequesterPersonID(cancelRequest taskRunCancelRequest) (string, error) {
+	requesterPersonID := strings.TrimSpace(cancelRequest.RequesterPersonID)
+	if requesterPersonID != "" {
+		return requesterPersonID, nil
+	}
+	requesterEmail := strings.TrimSpace(cancelRequest.RequesterEmail)
+	if requesterEmail == "" {
+		return "", nil
+	}
+	if taskRunHandler.IdentityService == nil {
+		return "", errors.New("identity service is not configured")
+	}
+	personID, isFound := taskRunHandler.IdentityService.ResolvePersonIDByEmail(requesterEmail)
+	if !isFound {
+		return "", errors.New("requester email is not approved")
+	}
+	return personID, nil
+}
+
+func (taskRunHandler TaskRunHandler) activeTaskRunsForPerson(personID string) []task.TaskRun {
+	taskRuns := []task.TaskRun{}
+	for _, taskRun := range taskRunHandler.TaskRunService.ListTaskRunByPersonID(personID) {
+		if isActiveTaskRunStatus(taskRun.Status) {
+			taskRuns = append(taskRuns, taskRun)
+		}
+	}
+	return taskRuns
+}
+
+func isActiveTaskRunStatus(status task.TaskStatus) bool {
+	switch status {
+	case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusWaitingApproval, task.TaskStatusWaitingUserInput, task.TaskStatusBlocked:
+		return true
+	default:
+		return false
+	}
 }
 
 func (taskRunHandler TaskRunHandler) memoryNamespaces(personID string, conversationID string, personAccess policy.PersonAccess) []memory.MemoryNamespace {
