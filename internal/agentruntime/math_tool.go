@@ -23,10 +23,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) calculateMathTool(toolContext cont
 	if errorValue != nil {
 		return mathCalculateError(errorValue.Error(), "bc_execution"), nil
 	}
-	return agent.ToolResult{Content: marshalToolResult(map[string]string{
+	return agent.ToolSuccess(marshalToolResult(map[string]string{
 		"expression": strings.TrimSpace(input.Expression),
 		"result":     result,
-	})}, nil
+	})), nil
 }
 
 func normalizeMathExpression(expression string) (string, error) {
@@ -111,13 +111,5 @@ func bcExecutionError(commandContext context.Context, standardError string, erro
 }
 
 func mathCalculateError(message string, failureStage string) agent.ToolResult {
-	return agent.ToolResult{
-		Content:      message,
-		IsError:      true,
-		Message:      message,
-		ErrorCode:    "calculator_failed",
-		FailureStage: failureStage,
-		Retryable:    false,
-		SafeRetry:    false,
-	}
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodeLiteral("calculator_failed"), failureStage, message)
 }

@@ -123,15 +123,15 @@ type skillRemoveInput struct {
 func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.Context, input skillAddInput) (agent.ToolResult, error) {
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "skill", Action: "invalid", Reason: "name"}), "skill_add", errorValue.Error()), nil
 	}
 	skillBundle, warnings, errorValue := validateSkillDocument(skillName, input.Content)
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "skill", Action: "invalid", Reason: "document"}), "skill_add", errorValue.Error()), nil
 	}
 	resourcePaths, errorValue := validateSkillResources(input.Resources)
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "skill", Action: "invalid", Reason: "resources"}), "skill_add", errorValue.Error()), nil
 	}
 	warnings = append(warnings, skillResourceWarnings(skillBundle.Instruction, resourcePaths)...)
 	skillDirectoryPath := toolCatalogBuilder.userManagedSkillDirectoryPath(skillName)
@@ -150,37 +150,37 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 		return agent.ToolResult{}, errorValue
 	}
 	toolCatalogBuilder.refreshSkills(toolContext)
-	return agent.ToolResult{Content: marshalToolResult(skillAddResult{
+	return agent.ToolSuccess(marshalToolResult(skillAddResult{
 		Name:          skillName,
 		Path:          toolCatalogBuilder.agentWorkspacePath(filepath.Join(skillDirectoryPath, "SKILL.md")),
 		Status:        status,
 		ResourcePaths: writtenResourcePaths,
 		Warnings:      warnings,
-	})}, nil
+	})), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (agent.ToolResult, error) {
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "skill", Action: "invalid", Reason: "name"}), "skill_remove", errorValue.Error()), nil
 	}
 	skillDirectoryPath := toolCatalogBuilder.userManagedSkillDirectoryPath(skillName)
 	if _, errorValue := os.Stat(skillDirectoryPath); os.IsNotExist(errorValue) {
-		return agent.ToolResult{Content: marshalToolResult(map[string]string{
+		return agent.ToolSuccess(marshalToolResult(map[string]string{
 			"name":   skillName,
 			"path":   toolCatalogBuilder.agentWorkspacePath(skillDirectoryPath),
 			"status": "missing",
-		})}, nil
+		})), nil
 	}
 	if errorValue := os.RemoveAll(skillDirectoryPath); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
 	toolCatalogBuilder.refreshSkills(toolContext)
-	return agent.ToolResult{Content: marshalToolResult(map[string]string{
+	return agent.ToolSuccess(marshalToolResult(map[string]string{
 		"name":   skillName,
 		"path":   toolCatalogBuilder.agentWorkspacePath(skillDirectoryPath),
 		"status": "removed",
-	})}, nil
+	})), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) userManagedSkillDirectoryPath(skillName string) string {

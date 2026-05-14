@@ -140,12 +140,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			},
 		}
 	case completionActionBlockedInvalidArtifact:
-		observation := turnObservation{
-			ObservationID: nextObservationID(len(state.Observations) + 1),
-			Action:        "policy",
-			Content:       invalidCompletionArtifactObservationContent(completionState),
-			IsError:       true,
-		}
+		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, NewFailureCode(FailureCodeParts{Domain: "artifact", Reason: "validity_failed"}), "completion_state")
 		state.Observations = append(state.Observations, observation)
 		return agentTransition{State: state, Effect: agentEffect{Kind: agentEffectNone}}
 	default:
@@ -235,21 +230,16 @@ func applyToolResult(state agentTaskState, invocation ToolInvocation, result Too
 		ObservationID:   nextObservationID(len(state.Observations) + 1),
 		Action:          "call_tool",
 		Tool:            strings.TrimSpace(invocation.ToolName),
-		Content:         result.Content,
-		Summary:         buildToolResultSummary(invocation.ToolName, result.Content, result.IsError, result.Attachments, "", result),
-		IsError:         result.IsError,
-		Message:         result.Message,
-		ErrorCode:       result.ErrorCode,
-		FailureStage:    result.FailureStage,
-		Retryable:       result.Retryable,
-		SafeRetry:       result.SafeRetry,
+		Output:          result.Output,
+		Failure:         result.Failure,
+		Summary:         buildToolResultSummary(invocation.ToolName, result.ContentText(), result.Failed(), result.Attachments, "", result),
 		ToolInputKey:    toolInputKey,
 		RecoveryActions: append([]RecoveryAction{}, result.RecoveryActions...),
 	}
-	if observation.IsError {
-		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.ErrorCode)
+	if observation.Failed() {
+		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.FailureCode())
 	}
-	if !result.IsError {
+	if !result.Failed() {
 		observation.Attachments = append([]FileAttachment{}, result.Attachments...)
 		state.Attachments = appendObservationAttachments(state.Attachments, observation)
 	}
@@ -283,8 +273,8 @@ func observationsFromTaskEvents(events []task.TaskEvent) []turnObservation {
 		if !strings.HasPrefix(event.Name, "tool.") || !strings.HasSuffix(event.Name, ".result") {
 			continue
 		}
-		var observation turnObservation
-		if json.Unmarshal([]byte(event.Body), &observation) == nil && strings.TrimSpace(observation.ObservationID) != "" {
+		observation, errorValue := decodeTurnObservation([]byte(event.Body))
+		if errorValue == nil && strings.TrimSpace(observation.ObservationID) != "" {
 			observations = append(observations, observation)
 		}
 	}
@@ -302,11 +292,75 @@ func attachmentsFromObservations(observations []turnObservation) []FileAttachmen
 func successfulToolCallCount(observations []turnObservation) int {
 	count := 0
 	for _, observation := range observations {
-		if observation.Action == "call_tool" && !observation.IsError {
+		if observation.Action == "call_tool" && !observation.Failed() {
 			count++
 		}
 	}
 	return count
+}
+
+type legacyTurnObservation struct {
+	ObservationID        string           `json:"observationID"`
+	Action               string           `json:"action"`
+	Tool                 string           `json:"tool,omitempty"`
+	Content              string           `json:"content"`
+	Summary              string           `json:"summary,omitempty"`
+	IsError              bool             `json:"isError"`
+	Message              string           `json:"message,omitempty"`
+	ErrorCode            string           `json:"errorCode,omitempty"`
+	FailureStage         string           `json:"failureStage,omitempty"`
+	Retryable            bool             `json:"retryable,omitempty"`
+	SafeRetry            bool             `json:"safeRetry,omitempty"`
+	ToolInputKey         string           `json:"toolInputKey,omitempty"`
+	AttemptFingerprint   string           `json:"attemptFingerprint,omitempty"`
+	RecoveryAttemptKey   string           `json:"recoveryAttemptKey,omitempty"`
+	RecoveryStep         string           `json:"recoveryStep,omitempty"`
+	RecoveryAttemptSpent bool             `json:"recoveryAttemptSpent,omitempty"`
+	Attachments          []FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions      []RecoveryAction `json:"recoveryActions,omitempty"`
+}
+
+func decodeTurnObservation(document []byte) (turnObservation, error) {
+	var observation turnObservation
+	if errorValue := json.Unmarshal(document, &observation); errorValue != nil {
+		return turnObservation{}, errorValue
+	}
+	if observation.Output.Content != "" || len(observation.Output.Data) > 0 || observation.Failure != nil {
+		return observation, nil
+	}
+	var legacyObservation legacyTurnObservation
+	if errorValue := json.Unmarshal(document, &legacyObservation); errorValue != nil {
+		return turnObservation{}, errorValue
+	}
+	return legacyObservation.toTurnObservation(), nil
+}
+
+func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservation {
+	observation := turnObservation{
+		ObservationID:        legacyObservation.ObservationID,
+		Action:               legacyObservation.Action,
+		Tool:                 legacyObservation.Tool,
+		Output:               ToolOutput{Content: legacyObservation.Content},
+		Summary:              legacyObservation.Summary,
+		ToolInputKey:         legacyObservation.ToolInputKey,
+		AttemptFingerprint:   legacyObservation.AttemptFingerprint,
+		RecoveryAttemptKey:   legacyObservation.RecoveryAttemptKey,
+		RecoveryStep:         legacyObservation.RecoveryStep,
+		RecoveryAttemptSpent: legacyObservation.RecoveryAttemptSpent,
+		Attachments:          append([]FileAttachment{}, legacyObservation.Attachments...),
+		RecoveryActions:      append([]RecoveryAction{}, legacyObservation.RecoveryActions...),
+	}
+	if legacyObservation.IsError {
+		observation.Failure = &ToolFailure{
+			Kind:            FailureUnknown,
+			Code:            normalizeFailureCode(FailureCodeLiteral(legacyObservation.ErrorCode)),
+			Stage:           strings.TrimSpace(legacyObservation.FailureStage),
+			UserSafeSummary: firstNonEmptyString(strings.TrimSpace(legacyObservation.Message), strings.TrimSpace(legacyObservation.Content)),
+			Retryable:       legacyObservation.Retryable,
+			SafeRetry:       legacyObservation.SafeRetry,
+		}
+	}
+	return observation
 }
 
 func attachmentsFromAttachedEvidence(evidence []CompletionAttachedEvidence) []FileAttachment {

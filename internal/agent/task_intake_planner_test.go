@@ -171,7 +171,7 @@ func TestTaskIntakePlannerDoesNotOverrideScheduleRefusalWithoutSelectedSkill(t *
 	}}
 	toolRegistry := newTestToolSet([]string{"schedule.create"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "scheduled"}, nil
+		return ToolSuccess("scheduled"), nil
 	})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
 		IsEnabled:          true,
@@ -213,7 +213,7 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 	})
 	toolRegistry := newTestToolSet([]string{"schedule.create"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "scheduled"}, nil
+		return ToolSuccess("scheduled"), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -241,7 +241,7 @@ func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolResult{Content: "ok"}, nil
+			return ToolSuccess("ok"), nil
 		})
 	}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{
@@ -341,7 +341,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"expensive"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "expensive result"}, nil
+		return ToolSuccess("expensive result"), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -377,7 +377,7 @@ func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"expensive"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "expensive result"}, nil
+		return ToolSuccess("expensive result"), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -419,17 +419,11 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	backupCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "primary.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		primaryCallCount++
-		return ToolResult{
-			Content:      "primary lookup failed",
-			Message:      "primary lookup failed",
-			IsError:      true,
-			ErrorCode:    "lookup_failed",
-			FailureStage: "primary_lookup",
-		}, nil
+		return ToolFailureResult(FailureExternalService, FailureCodeLiteral("lookup_failed"), "primary_lookup", "primary lookup failed"), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "backup.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		backupCallCount++
-		return ToolResult{Content: "backup result"}, nil
+		return ToolSuccess("backup result"), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -488,7 +482,7 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"math.calculate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: `{"expression":"1+1","result":"2"}`}, nil
+		return ToolSuccess(`{"expression":"1+1","result":"2"}`), nil
 	})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
@@ -539,14 +533,14 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			if currentToolName == "file.attach" {
 				return ToolResult{
-					Content: "attached",
+					Output: ToolOutput{Content: "attached"},
 					Attachments: []FileAttachment{{
 						DevicePath: "/workspace/deck.pptx",
 						Filename:   "deck.pptx",
 					}},
 				}, nil
 			}
-			return ToolResult{Content: "ok"}, nil
+			return ToolSuccess("ok"), nil
 		})
 	}
 
@@ -591,7 +585,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
-			Content: "file attached",
+			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
 				DevicePath: "/workspace/deck.html",
 				Filename:   "deck.html",

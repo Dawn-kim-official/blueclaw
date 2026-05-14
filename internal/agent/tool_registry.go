@@ -39,16 +39,174 @@ type RecoveryAction struct {
 	PlatformUserID string `json:"platformUserID,omitempty"`
 }
 
+type ToolOutput struct {
+	Content string          `json:"content,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+type FailureKind string
+
+const (
+	FailureDependencyUnavailable FailureKind = "dependency_unavailable"
+	FailurePermissionDenied      FailureKind = "permission_denied"
+	FailureInvalidInput          FailureKind = "invalid_input"
+	FailureNotFound              FailureKind = "not_found"
+	FailureRateLimited           FailureKind = "rate_limited"
+	FailureExternalService       FailureKind = "external_service"
+	FailurePolicyBlocked         FailureKind = "policy_blocked"
+	FailureUnknown               FailureKind = "unknown"
+)
+
+type FailureCode string
+
+type FailureCodeParts struct {
+	Domain string
+	Action string
+	Reason string
+}
+
+var FailureCodes = struct {
+	MemorySearchUnavailable FailureCode
+	ToolFailed              FailureCode
+	ToolInputInvalid        FailureCode
+	ToolUnavailable         FailureCode
+	ToolNotAllowed          FailureCode
+	ToolNotRegistered       FailureCode
+}{
+	MemorySearchUnavailable: NewFailureCode(FailureCodeParts{Domain: "memory", Action: "search", Reason: "unavailable"}),
+	ToolFailed:              NewFailureCode(FailureCodeParts{Domain: "tool", Reason: "failed"}),
+	ToolInputInvalid:        NewFailureCode(FailureCodeParts{Domain: "tool", Action: "input", Reason: "invalid"}),
+	ToolUnavailable:         NewFailureCode(FailureCodeParts{Domain: "tool", Reason: "unavailable"}),
+	ToolNotAllowed:          NewFailureCode(FailureCodeParts{Domain: "tool", Action: "not", Reason: "allowed"}),
+	ToolNotRegistered:       NewFailureCode(FailureCodeParts{Domain: "tool", Action: "not", Reason: "registered"}),
+}
+
+func NewFailureCode(parts FailureCodeParts) FailureCode {
+	return FailureCode(strings.Join(nonEmptyFailureCodeParts(parts.Domain, parts.Action, parts.Reason), "."))
+}
+
+func FailureCodeLiteral(value string) FailureCode {
+	return FailureCode(strings.TrimSpace(value))
+}
+
+func (failureCode FailureCode) String() string {
+	return strings.TrimSpace(string(failureCode))
+}
+
+func normalizeFailureCode(code FailureCode) string {
+	trimmedCode := code.String()
+	switch trimmedCode {
+	case "memory_search_unavailable":
+		return FailureCodes.MemorySearchUnavailable.String()
+	case "":
+		return FailureCodes.ToolFailed.String()
+	default:
+		return trimmedCode
+	}
+}
+
+func nonEmptyFailureCodeParts(parts ...string) []string {
+	result := []string{}
+	for _, part := range parts {
+		trimmedPart := strings.TrimSpace(part)
+		if trimmedPart == "" {
+			continue
+		}
+		result = append(result, trimmedPart)
+	}
+	return result
+}
+
+type ToolFailure struct {
+	Kind            FailureKind `json:"kind"`
+	Code            string      `json:"code"`
+	Stage           string      `json:"stage,omitempty"`
+	UserSafeSummary string      `json:"userSafeSummary,omitempty"`
+	Retryable       bool        `json:"retryable,omitempty"`
+	SafeRetry       bool        `json:"safeRetry,omitempty"`
+}
+
 type ToolResult struct {
-	Content         string           `json:"content"`
-	IsError         bool             `json:"isError"`
-	Message         string           `json:"message,omitempty"`
-	ErrorCode       string           `json:"errorCode,omitempty"`
-	FailureStage    string           `json:"failureStage,omitempty"`
-	Retryable       bool             `json:"retryable,omitempty"`
-	SafeRetry       bool             `json:"safeRetry,omitempty"`
+	Output          ToolOutput       `json:"output,omitempty"`
+	Failure         *ToolFailure     `json:"failure,omitempty"`
 	Attachments     []FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions []RecoveryAction `json:"recoveryActions,omitempty"`
+}
+
+func ToolSuccess(content string) ToolResult {
+	return ToolResult{Output: ToolOutput{Content: content}}
+}
+
+func ToolSuccessData(content string, data json.RawMessage) ToolResult {
+	return ToolResult{Output: ToolOutput{Content: content, Data: data}}
+}
+
+func ToolFailureResult(kind FailureKind, code FailureCode, stage string, summary string) ToolResult {
+	return ToolResult{
+		Output: ToolOutput{Content: summary},
+		Failure: &ToolFailure{
+			Kind:            normalizeFailureKind(kind),
+			Code:            normalizeFailureCode(code),
+			Stage:           strings.TrimSpace(stage),
+			UserSafeSummary: strings.TrimSpace(summary),
+		},
+	}
+}
+
+func ToolFailureWithOutput(kind FailureKind, code FailureCode, stage string, summary string, data json.RawMessage) ToolResult {
+	result := ToolFailureResult(kind, code, stage, summary)
+	result.Output.Data = data
+	return result
+}
+
+func ToolInputFailure(message string) ToolResult {
+	return ToolFailureResult(FailureInvalidInput, FailureCodes.ToolInputInvalid, "tool_input", message)
+}
+
+func ToolUnavailableFailure(toolName string, message string) ToolResult {
+	return ToolFailureResult(FailureDependencyUnavailable, FailureCodes.ToolUnavailable, firstNonEmptyString(strings.TrimSpace(toolName), "tool"), message)
+}
+
+func (toolResult ToolResult) Failed() bool {
+	return toolResult.Failure != nil
+}
+
+func (toolResult ToolResult) ContentText() string {
+	if strings.TrimSpace(toolResult.Output.Content) != "" {
+		return toolResult.Output.Content
+	}
+	if len(toolResult.Output.Data) > 0 {
+		return string(toolResult.Output.Data)
+	}
+	return ""
+}
+
+func (toolResult ToolResult) FailureCode() string {
+	if toolResult.Failure == nil {
+		return ""
+	}
+	return strings.TrimSpace(toolResult.Failure.Code)
+}
+
+func (toolResult ToolResult) FailureStage() string {
+	if toolResult.Failure == nil {
+		return ""
+	}
+	return strings.TrimSpace(toolResult.Failure.Stage)
+}
+
+func (toolResult ToolResult) UserSafeFailureSummary() string {
+	if toolResult.Failure == nil {
+		return ""
+	}
+	return strings.TrimSpace(toolResult.Failure.UserSafeSummary)
+}
+
+func normalizeFailureKind(kind FailureKind) FailureKind {
+	if strings.TrimSpace(string(kind)) == "" {
+		return FailureUnknown
+	}
+	return kind
 }
 
 type ToolHandler func(context.Context, ToolInvocation) (ToolResult, error)
@@ -115,7 +273,7 @@ func RegisterToolFunction[Input any, Output any](toolSet *ToolSet, toolFunction 
 	toolSet.RegisterTool(toolFunction.Definition, func(toolContext context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		var input Input
 		if errorValue := UnmarshalToolInput(toolInvocation.Input, &input); errorValue != nil {
-			return ToolResult{Content: errorValue.Error(), IsError: true}, nil
+			return ToolInputFailure(errorValue.Error()), nil
 		}
 		output, errorValue := toolFunction.Handler(toolContext, input)
 		if errorValue != nil {
@@ -124,7 +282,7 @@ func RegisterToolFunction[Input any, Output any](toolSet *ToolSet, toolFunction 
 		if toolFunction.Result != nil {
 			return toolFunction.Result(output), nil
 		}
-		return ToolResult{Content: marshalTypedToolOutput(output)}, nil
+		return ToolSuccess(marshalTypedToolOutput(output)), nil
 	})
 }
 
@@ -178,11 +336,11 @@ func (toolSet *ToolSet) WithAllowedToolNames(toolNames []string) *ToolSet {
 func (toolSet *ToolSet) Invoke(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 	toolName := strings.TrimSpace(toolInvocation.ToolName)
 	if !toolSet.IsAllowed(toolName) {
-		return ToolResult{Content: "tool is not allowed", IsError: true}, nil
+		return ToolFailureResult(FailurePolicyBlocked, FailureCodes.ToolNotAllowed, "tool_availability", "tool is not allowed"), nil
 	}
 	boundTool, isFound := toolSet.boundToolByName[toolName]
 	if !isFound {
-		return ToolResult{Content: "tool is not registered", IsError: true}, nil
+		return ToolFailureResult(FailureNotFound, FailureCodes.ToolNotRegistered, "tool_registry", "tool is not registered"), nil
 	}
 	toolInvocation.ToolName = toolName
 	return boundTool.Handler(ctx, toolInvocation)

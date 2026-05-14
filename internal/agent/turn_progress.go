@@ -145,7 +145,7 @@ func omittedObservationCount(progress TurnProgress) int {
 
 func summarizeObservation(observation turnObservation) ProgressObservation {
 	status := "success"
-	if observation.IsError {
+	if observation.Failed() {
 		status = "error"
 	}
 	return ProgressObservation{
@@ -164,8 +164,8 @@ func buildProgressFailureDebt(failureDebt FailureDebt, observations []turnObserv
 	return &ProgressFailureDebt{
 		ObservationID:           failureDebt.LatestFailure.ObservationID,
 		ToolName:                strings.TrimSpace(failureDebt.LatestFailure.Tool),
-		FailureStage:            strings.TrimSpace(failureDebt.LatestFailure.FailureStage),
-		ErrorCode:               strings.TrimSpace(failureDebt.LatestFailure.ErrorCode),
+		FailureStage:            failureDebt.LatestFailure.FailureStage(),
+		ErrorCode:               failureDebt.LatestFailure.FailureCode(),
 		AttemptFingerprint:      strings.TrimSpace(failureDebt.LatestFailure.AttemptFingerprint),
 		RemainingRecoveryBudget: remainingRecoveryBudget(observations, budget),
 		AllowedFinalResolutions: []string{failureResolutionNoToolFallback, failureResolutionFailureReport},
@@ -193,58 +193,59 @@ func summarizeObservationContent(observation turnObservation) string {
 	if strings.TrimSpace(observation.Summary) != "" {
 		return truncateText(compactWhitespace(observation.Summary), maxSummaryTextLength)
 	}
-	if observation.IsError {
+	if observation.Failed() {
 		if summary := summarizeStructuredFailure(observation); summary != "" {
 			return summary
 		}
 	}
+	content := observation.ContentText()
 	switch strings.TrimSpace(observation.Tool) {
 	case "browser.snapshot", "browser.observe":
-		return summarizeBrowserSnapshot(observation.Content)
+		return summarizeBrowserSnapshot(content)
 	case "browser.screenshot":
 		if len(observation.Attachments) > 0 {
 			return "Screenshot captured with attachment evidence."
 		}
-		return summarizeSafeJSONFields(observation.Content, []string{"capturedAt", "contentType", "filename", "sizeBytes"})
+		return summarizeSafeJSONFields(content, []string{"capturedAt", "contentType", "filename", "sizeBytes"})
 	case "file.pick":
 		if len(observation.Attachments) > 0 {
 			return "User selected a file and it is available as attachment evidence."
 		}
-		return summarizeSafeJSONFields(observation.Content, []string{"filename", "sizeBytes", "contentType", "expiresAt"})
+		return summarizeSafeJSONFields(content, []string{"filename", "sizeBytes", "contentType", "expiresAt"})
 	case "browser.open":
-		return summarizeSafeJSONFields(observation.Content, []string{"url", "title", "status", "ok"})
+		return summarizeSafeJSONFields(content, []string{"url", "title", "status", "ok"})
 	case "browser.click", "browser.fill", "browser.select", "browser.press", "browser.wait":
-		return summarizeSafeJSONFields(observation.Content, []string{"ok", "action", "target", "capturedAt"})
+		return summarizeSafeJSONFields(content, []string{"ok", "action", "target", "capturedAt"})
 	case "site.app.create":
-		return summarizeSafeJSONFields(observation.Content, []string{"siteID", "slug", "workspacePath", "sourceWorkspacePath", "publishedURL", "status", "title"})
+		return summarizeSafeJSONFields(content, []string{"siteID", "slug", "workspacePath", "sourceWorkspacePath", "publishedURL", "status", "title"})
 	case "site.app.publish":
-		return summarizeSafeJSONFields(observation.Content, []string{"publishedURL", "status", "siteID", "slug", "title"})
+		return summarizeSafeJSONFields(content, []string{"publishedURL", "status", "siteID", "slug", "title"})
 	case "memory.search", "conversation.history":
-		return summarizeCollection(observation.Content)
+		return summarizeCollection(content)
 	default:
-		if observation.IsError {
-			return truncateText(compactWhitespace(redactUnsafeText(observation.Content)), 500)
+		if observation.Failed() {
+			return truncateText(compactWhitespace(redactUnsafeText(content)), 500)
 		}
-		return summarizeSafeJSONFields(observation.Content, []string{"ok", "status", "message", "error", "url", "title", "filename", "sizeBytes", "contentType"})
+		return summarizeSafeJSONFields(content, []string{"ok", "status", "message", "error", "url", "title", "filename", "sizeBytes", "contentType"})
 	}
 }
 
 func summarizeStructuredFailure(observation turnObservation) string {
 	parts := []string{}
-	if strings.TrimSpace(observation.ErrorCode) != "" {
-		parts = append(parts, "errorCode="+strings.TrimSpace(observation.ErrorCode))
+	if observation.FailureCode() != "" {
+		parts = append(parts, "errorCode="+observation.FailureCode())
 	}
-	if strings.TrimSpace(observation.FailureStage) != "" {
-		parts = append(parts, "failureStage="+strings.TrimSpace(observation.FailureStage))
+	if observation.FailureStage() != "" {
+		parts = append(parts, "failureStage="+observation.FailureStage())
 	}
-	if strings.TrimSpace(observation.Message) != "" {
-		parts = append(parts, "message="+truncateText(compactWhitespace(observation.Message), 240))
+	if observation.FailureSummary() != "" {
+		parts = append(parts, "message="+truncateText(compactWhitespace(observation.FailureSummary()), 240))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	if strings.TrimSpace(observation.Message) == "" {
-		parts = append(parts, "message="+truncateText(compactWhitespace(redactUnsafeText(observation.Content)), 240))
+	if observation.FailureSummary() == "" {
+		parts = append(parts, "message="+truncateText(compactWhitespace(redactUnsafeText(observation.ContentText())), 240))
 	}
 	return strings.Join(parts, "; ")
 }

@@ -24,11 +24,11 @@ func TestMathCalculateToolEvaluatesArithmeticWithBC(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected calculation success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected calculation success, got %s", result.ContentText())
 	}
 	var document map[string]string
-	if errorValue := json.Unmarshal([]byte(result.Content), &document); errorValue != nil {
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &document); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if document["result"] != "20" {

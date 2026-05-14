@@ -46,8 +46,8 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected memory.remember success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected memory.remember success, got %s", result.ContentText())
 	}
 	if len(queue.jobs) != 1 {
 		t.Fatalf("expected one queued memory job, got %+v", queue.jobs)
@@ -56,8 +56,8 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 	if job.Namespace.NamespaceID != memory.UserNamespace("person-1").NamespaceID || job.Content != "Call the user master." {
 		t.Fatalf("expected person memory job, got %+v", job)
 	}
-	if !strings.Contains(result.Content, `"accepted":true`) {
-		t.Fatalf("expected accepted result, got %s", result.Content)
+	if !strings.Contains(result.ContentText(), `"accepted":true`) {
+		t.Fatalf("expected accepted result, got %s", result.ContentText())
 	}
 }
 
@@ -82,8 +82,8 @@ func TestMemoryRememberToolRejectsInaccessibleActiveCircle(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.IsError {
-		t.Fatalf("expected inaccessible circle error, got %s", result.Content)
+	if !result.Failed() {
+		t.Fatalf("expected inaccessible circle error, got %s", result.ContentText())
 	}
 	if len(queue.jobs) != 0 {
 		t.Fatalf("expected no queued jobs, got %+v", queue.jobs)
@@ -111,8 +111,8 @@ func TestMemoryRememberToolEnqueuesCircleMemoryForActiveCircle(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected memory.remember success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected memory.remember success, got %s", result.ContentText())
 	}
 	if len(queue.jobs) != 1 {
 		t.Fatalf("expected one queued memory job, got %+v", queue.jobs)
@@ -143,8 +143,8 @@ func TestMemoryRememberToolRejectsMultipleActiveCircleCandidates(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.IsError {
-		t.Fatalf("expected active circle conflict, got %s", result.Content)
+	if !result.Failed() {
+		t.Fatalf("expected active circle conflict, got %s", result.ContentText())
 	}
 	if len(queue.jobs) != 0 {
 		t.Fatalf("expected no queued jobs, got %+v", queue.jobs)
@@ -197,14 +197,14 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected memory.search success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected memory.search success, got %s", result.ContentText())
 	}
-	if !strings.Contains(result.Content, "master") || !strings.Contains(result.Content, "Salary files") {
-		t.Fatalf("expected person and active circle memory, got %s", result.Content)
+	if !strings.Contains(result.ContentText(), "master") || !strings.Contains(result.ContentText(), "Salary files") {
+		t.Fatalf("expected person and active circle memory, got %s", result.ContentText())
 	}
-	if strings.Contains(result.Content, "Admin-only") {
-		t.Fatalf("expected inactive circle memory to be excluded, got %s", result.Content)
+	if strings.Contains(result.ContentText(), "Admin-only") {
+		t.Fatalf("expected inactive circle memory to be excluded, got %s", result.ContentText())
 	}
 }
 
@@ -229,16 +229,16 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.IsError {
+	if !result.Failed() {
 		t.Fatalf("expected recoverable memory.search tool error, got %+v", result)
 	}
-	if result.ErrorCode != "memory_search_unavailable" || result.FailureStage != "graphiti_search" {
+	if result.FailureCode() != agent.FailureCodes.MemorySearchUnavailable.String() || result.FailureStage() != "graphiti_search" {
 		t.Fatalf("expected structured memory search failure, got %+v", result)
 	}
-	if !strings.Contains(result.Content, "web.search") || !strings.Contains(result.Content, "public") {
-		t.Fatalf("expected web.search recovery guidance, got %q", result.Content)
+	if strings.Contains(result.ContentText(), "web.search") {
+		t.Fatalf("expected recovery guidance to stay out of raw tool output, got %q", result.ContentText())
 	}
-	if strings.Contains(result.Content, "127.0.0.1") || strings.Contains(result.Message, "127.0.0.1") {
+	if strings.Contains(result.ContentText(), "127.0.0.1") || strings.Contains(result.UserSafeFailureSummary(), "127.0.0.1") {
 		t.Fatalf("expected internal Graphiti details to be hidden, got %+v", result)
 	}
 }
@@ -292,8 +292,8 @@ func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected successful attachment result, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected successful attachment result, got %s", result.ContentText())
 	}
 	if len(result.Attachments) != 4 {
 		t.Fatalf("expected four attachments, got %+v", result.Attachments)
@@ -324,11 +324,11 @@ func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected skill.search success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected skill.search success, got %s", result.ContentText())
 	}
 	var resultDocument agent.SkillSearchResult
-	if errorValue := json.Unmarshal([]byte(result.Content), &resultDocument); errorValue != nil {
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Name != "mail" {
@@ -365,8 +365,8 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected schedule.create success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 1 {
 		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
@@ -432,8 +432,8 @@ func TestScheduleCreateToolStoresMessageExecutionMode(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected schedule.create success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 1 {
 		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
@@ -494,11 +494,11 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected schedule.cancel success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected schedule.cancel success, got %s", result.ContentText())
 	}
-	if !strings.Contains(result.Content, `"cancelledScheduleCount":1`) || !strings.Contains(result.Content, `"cancelledWaitCount":1`) {
-		t.Fatalf("expected one schedule and one wait cancelled, got %s", result.Content)
+	if !strings.Contains(result.ContentText(), `"cancelledScheduleCount":1`) || !strings.Contains(result.ContentText(), `"cancelledWaitCount":1`) {
+		t.Fatalf("expected one schedule and one wait cancelled, got %s", result.ContentText())
 	}
 	ownedSchedule := repository.taskSchedules[1]
 	if ownedSchedule.TaskScheduleID != "schedule-owned" || ownedSchedule.NextRunAt != nil || ownedSchedule.ExpiresAt == nil || ownedSchedule.ExpiresAt.After(time.Now().UTC().Add(time.Second)) {
@@ -588,8 +588,8 @@ func TestScheduleCreateToolInfersIntervalFromPrompt(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected schedule.create success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 1 {
 		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
@@ -627,8 +627,8 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected schedule.create success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
 	}
 	if len(repository.taskSchedules) != 1 {
 		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
@@ -678,8 +678,8 @@ func TestScheduleCancelToolCancelsActiveScheduledTaskRuns(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected schedule.cancel success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected schedule.cancel success, got %s", result.ContentText())
 	}
 	cancelledTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
 	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
@@ -710,7 +710,7 @@ func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.IsError || !strings.Contains(result.Content, "reply target") {
+	if !result.Failed() || !strings.Contains(result.ContentText(), "reply target") {
 		t.Fatalf("expected reply target error, got %+v", result)
 	}
 }
@@ -798,11 +798,11 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if writeResult.IsError {
-		t.Fatalf("expected file.write success, got %s", writeResult.Content)
+	if writeResult.Failed() {
+		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
 	}
-	if strings.Contains(writeResult.Content, workspacePath) {
-		t.Fatalf("expected file.write result not to expose host path, got %s", writeResult.Content)
+	if strings.Contains(writeResult.ContentText(), workspacePath) {
+		t.Fatalf("expected file.write result not to expose host path, got %s", writeResult.ContentText())
 	}
 	if _, errorValue := os.Stat(filepath.Join(workspacePath, "deck", "presentation.md")); errorValue != nil {
 		t.Fatal(errorValue)
@@ -817,8 +817,8 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if attachResult.IsError {
-		t.Fatalf("expected file.attach success, got %s", attachResult.Content)
+	if attachResult.Failed() {
+		t.Fatalf("expected file.attach success, got %s", attachResult.ContentText())
 	}
 	if attachResult.Attachments[0].DevicePath != "/workspace/deck/presentation.md" {
 		t.Fatalf("expected agent workspace device path, got %+v", attachResult.Attachments[0])
@@ -852,7 +852,7 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !writeResult.IsError || !strings.Contains(writeResult.Content, "cannot write") {
+	if !writeResult.Failed() || !strings.Contains(writeResult.ContentText(), "cannot write") {
 		t.Fatalf("expected file.write denial, got %+v", writeResult)
 	}
 
@@ -892,7 +892,7 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
+	if result.Failed() {
 		t.Fatalf("expected finance member write success, got %+v", result)
 	}
 }
@@ -921,15 +921,15 @@ func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
+	if result.Failed() {
 		t.Fatalf("expected private write success, got %+v", result)
 	}
 	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "notes.md")
 	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "private" {
 		t.Fatalf("expected private file at %s, got %q and %v", expectedPath, string(document), errorValue)
 	}
-	if !strings.Contains(result.Content, `"/workspace/private/people/person-1/notes.md"`) {
-		t.Fatalf("expected private agent path in result, got %s", result.Content)
+	if !strings.Contains(result.ContentText(), `"/workspace/private/people/person-1/notes.md"`) {
+		t.Fatalf("expected private agent path in result, got %s", result.ContentText())
 	}
 }
 
@@ -960,7 +960,7 @@ func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
+	if result.Failed() {
 		t.Fatalf("expected circle write success, got %+v", result)
 	}
 	expectedPath := filepath.Join(workspacePath, "circles", "finance", "report.md")
@@ -996,7 +996,7 @@ func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
+	if result.Failed() {
 		t.Fatalf("expected staff write success, got %+v", result)
 	}
 	expectedPath := filepath.Join(workspacePath, "circles", "staff", "status.md")
@@ -1033,7 +1033,7 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
+	if result.Failed() {
 		t.Fatalf("expected private attach success, got %+v", result)
 	}
 	if result.Attachments[0].DevicePath != "/workspace/private/people/person-1/notes.md" {
@@ -1064,8 +1064,8 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected terminal.run success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
 	}
 	content, errorValue := os.ReadFile(filepath.Join(workspacePath, "deck", "result.txt"))
 	if errorValue != nil {
@@ -1158,11 +1158,11 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected terminal.run success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
 	}
 	var commandResult security.CommandResult
-	if errorValue := json.Unmarshal([]byte(result.Content), &commandResult); errorValue != nil {
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &commandResult); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	expectedSuffix := filepath.Join("private", "people", "person-1")
@@ -1200,7 +1200,7 @@ func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.IsError || !strings.Contains(result.Content, "cannot use this workspace path") {
+	if !result.Failed() || !strings.Contains(result.ContentText(), "cannot use this workspace path") {
 		t.Fatalf("expected terminal.run path denial, got %+v", result)
 	}
 }
@@ -1225,8 +1225,8 @@ func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected skill.add success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected skill.add success, got %s", result.ContentText())
 	}
 	if refreshCount != 1 {
 		t.Fatalf("expected skill index refresh, got %d", refreshCount)
@@ -1239,10 +1239,10 @@ func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 	if !strings.Contains(string(document), "Research helper handles source lookups.") {
 		t.Fatalf("expected skill document to be written, got %s", string(document))
 	}
-	if strings.Contains(result.Content, workspacePath) || !strings.Contains(result.Content, "/workspace/.agents/skills/research-helper/SKILL.md") {
-		t.Fatalf("expected agent workspace path in result, got %s", result.Content)
+	if strings.Contains(result.ContentText(), workspacePath) || !strings.Contains(result.ContentText(), "/workspace/.agents/skills/research-helper/SKILL.md") {
+		t.Fatalf("expected agent workspace path in result, got %s", result.ContentText())
 	}
-	resultDocument := decodeSkillAddResult(t, result.Content)
+	resultDocument := decodeSkillAddResult(t, result.ContentText())
 	if resultDocument.Name != "research-helper" || resultDocument.Status != "created" {
 		t.Fatalf("expected structured skill.add result, got %+v", resultDocument)
 	}
@@ -1276,15 +1276,15 @@ Use references/reporting.md and scripts/build_report.sh when needed.
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected skill.add success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected skill.add success, got %s", result.ContentText())
 	}
 	for _, path := range []string{"references/reporting.md", "scripts/build_report.sh", "assets/template.txt"} {
 		if _, errorValue := os.Stat(filepath.Join(workspacePath, ".agents", "skills", "report-helper", path)); errorValue != nil {
 			t.Fatalf("expected resource %s: %v", path, errorValue)
 		}
 	}
-	resultDocument := decodeSkillAddResult(t, result.Content)
+	resultDocument := decodeSkillAddResult(t, result.ContentText())
 	if len(resultDocument.ResourcePaths) != 3 {
 		t.Fatalf("expected resource paths in result, got %+v", resultDocument)
 	}
@@ -1310,8 +1310,8 @@ func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected skill.remove success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected skill.remove success, got %s", result.ContentText())
 	}
 	if _, errorValue := os.Stat(skillDirectoryPath); !os.IsNotExist(errorValue) {
 		t.Fatalf("expected user-managed skill directory removed, got %v", errorValue)
@@ -1333,7 +1333,7 @@ func TestSkillRemoveMissingSkillIsNonFatal(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError || !strings.Contains(result.Content, `"status":"missing"`) {
+	if result.Failed() || !strings.Contains(result.ContentText(), `"status":"missing"`) {
 		t.Fatalf("expected non-fatal missing result, got %+v", result)
 	}
 }
@@ -1354,7 +1354,7 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 		if errorValue != nil {
 			t.Fatal(errorValue)
 		}
-		if !result.IsError {
+		if !result.Failed() {
 			t.Fatalf("expected skill.add to reject %+v", input)
 		}
 	}
@@ -1368,7 +1368,7 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.IsError {
+	if !result.Failed() {
 		t.Fatalf("expected skill.remove to reject built-in skill, got %+v", result)
 	}
 }
@@ -1396,7 +1396,7 @@ func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 		if errorValue != nil {
 			t.Fatal(errorValue)
 		}
-		if !result.IsError {
+		if !result.Failed() {
 			t.Fatalf("expected malformed skill document to be rejected: %s", content)
 		}
 	}
@@ -1428,8 +1428,8 @@ Use this skill when standard skill metadata should be preserved.
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected standard optional metadata to be accepted, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected standard optional metadata to be accepted, got %s", result.ContentText())
 	}
 }
 
@@ -1459,7 +1459,7 @@ func TestSkillAddRejectsInvalidResourcePaths(t *testing.T) {
 		if errorValue != nil {
 			t.Fatal(errorValue)
 		}
-		if !result.IsError {
+		if !result.Failed() {
 			t.Fatalf("expected resource path %q to be rejected", resourcePath)
 		}
 	}
@@ -1491,10 +1491,10 @@ Use references/missing.md.
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected warning-only skill.add success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected warning-only skill.add success, got %s", result.ContentText())
 	}
-	resultDocument := decodeSkillAddResult(t, result.Content)
+	resultDocument := decodeSkillAddResult(t, result.ContentText())
 	for _, expectedWarning := range []string{
 		"when_to_use is recommended so retrieval has explicit trigger context",
 		"description is short; include what the skill does and when to use it",
@@ -1530,10 +1530,10 @@ Use scripts/missing.sh when needed.
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.IsError {
-		t.Fatalf("expected warning-only skill.add success, got %s", result.Content)
+	if result.Failed() {
+		t.Fatalf("expected warning-only skill.add success, got %s", result.ContentText())
 	}
-	resultDocument := decodeSkillAddResult(t, result.Content)
+	resultDocument := decodeSkillAddResult(t, result.ContentText())
 	for _, expectedWarning := range []string{
 		"skill body is long; move detailed material into references",
 		"SKILL.md mentions scripts/ but no script resources were supplied",
@@ -1564,7 +1564,7 @@ func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 		if errorValue != nil {
 			t.Fatal(errorValue)
 		}
-		if !result.IsError {
+		if !result.Failed() {
 			t.Fatalf("expected file.write to reject immutable skill path %q", path)
 		}
 	}
