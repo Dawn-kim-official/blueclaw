@@ -538,6 +538,22 @@ func TestConnectorRuntimeUsesOpaqueReplyTarget(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeStartsDirectProgressBeforeInitialHistoryFetch(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "reply"})
+	event := testInboundEvent("message-1")
+	event.Context.HasMoreBefore = true
+	event.Context.HistoryCursor = "history-cursor-1"
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+
+	if len(adapter.operationNames) < 2 || adapter.operationNames[0] != "progress.start" || adapter.operationNames[1] != "history.fetch" {
+		t.Fatalf("expected progress before history fetch, got %+v", adapter.operationNames)
+	}
+}
+
 func TestConnectorRuntimeInjectsRequesterPinnedMemoryIntoLanguageModel(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "기억했습니다"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1289,6 +1305,7 @@ type testAdapter struct {
 	progressStops      []ReplyTarget
 	progressStopErrors []error
 	historyCursors     []string
+	operationNames     []string
 }
 
 type testReply struct {
@@ -1420,6 +1437,7 @@ func (adapter *testAdapter) ResolveIdentity(context.Context, string) (identity.P
 }
 
 func (adapter *testAdapter) StartProgress(_ context.Context, target ReplyTarget) error {
+	adapter.operationNames = append(adapter.operationNames, "progress.start")
 	adapter.progressStarts = append(adapter.progressStarts, target)
 	return nil
 }
@@ -1439,6 +1457,7 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, rep
 }
 
 func (adapter *testAdapter) FetchHistory(_ context.Context, historyCursor string, _ int) (VisibleContext, error) {
+	adapter.operationNames = append(adapter.operationNames, "history.fetch")
 	adapter.historyCursors = append(adapter.historyCursors, historyCursor)
 	return VisibleContext{
 		Messages: []VisibleContextMessage{{Speaker: "admin", Text: "older message"}},
