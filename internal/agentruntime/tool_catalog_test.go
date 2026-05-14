@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -204,6 +205,41 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 	}
 	if strings.Contains(result.Content, "Admin-only") {
 		t.Fatalf("expected inactive circle memory to be excluded, got %s", result.Content)
+	}
+}
+
+func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) {
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("http://127.0.0.1:7791 internal graphiti failure")})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.search",
+		Input:    agent.MarshalToolInput("Graphiti release notes"),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.IsError {
+		t.Fatalf("expected recoverable memory.search tool error, got %+v", result)
+	}
+	if result.ErrorCode != "memory_search_unavailable" || result.FailureStage != "graphiti_search" {
+		t.Fatalf("expected structured memory search failure, got %+v", result)
+	}
+	if !strings.Contains(result.Content, "web.search") || !strings.Contains(result.Content, "public") {
+		t.Fatalf("expected web.search recovery guidance, got %q", result.Content)
+	}
+	if strings.Contains(result.Content, "127.0.0.1") || strings.Contains(result.Message, "127.0.0.1") {
+		t.Fatalf("expected internal Graphiti details to be hidden, got %+v", result)
 	}
 }
 
