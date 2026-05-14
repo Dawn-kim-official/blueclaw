@@ -557,15 +557,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if toolCatalogBuilder.terminalService == nil {
 		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
 	}
-	if commandUsesServiceOwnedWorkspacePath(input.Command) || commandUsesServiceOwnedWorkspacePath(input.Stdin) {
-		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "terminal_run", "command uses service-owned /workspace/.blueclaw path; use the default writable workspace directory instead"), nil
-	}
 	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
 	input.Stdin = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Stdin)
 	input.EnvironmentVariables = toolCatalogBuilder.resolveAgentWorkspaceEnvironment(input.EnvironmentVariables)
-	if commandUsesServiceOwnedWorkspacePath(input.Command) || commandUsesServiceOwnedWorkspacePath(input.Stdin) {
-		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "terminal_run", "command uses service-owned /workspace/.blueclaw path; use the default writable workspace directory instead"), nil
-	}
 	if strings.TrimSpace(input.WorkingDirectoryPath) == "" {
 		input.WorkingDirectoryPath = handlerContext.conversationScope.DefaultDirectoryPath
 	} else {
@@ -582,11 +576,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	}
 	_ = toolContext
 	return agent.ToolSuccess(content), nil
-}
-
-func commandUsesServiceOwnedWorkspacePath(value string) bool {
-	normalizedValue := strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
-	return normalizedValue == "/workspace/.blueclaw" || strings.Contains(normalizedValue, "/workspace/.blueclaw/")
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
