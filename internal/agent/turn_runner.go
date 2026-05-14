@@ -77,6 +77,7 @@ type AgentTurnRequest struct {
 type AgentTurnResult struct {
 	TaskRun         task.TaskRun
 	FinalReply      string
+	UserNotice      string
 	ReplySuppressed bool
 	Attachments     []FileAttachment
 	RecoveryActions []RecoveryAction
@@ -545,10 +546,10 @@ func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, obser
 		if reply == "" {
 			agentTurnRunner.appendEvent(taskRunID, "agent.approval_user_facing_message_missing", marshalEventBody(observation))
 		}
-		return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
+		return AgentTurnResult{TaskRun: taskRun, UserNotice: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
 	}
 	reply := firstNonEmptyString(taskRun.FailureReason, toolObservationMessage(observation), observation.ContentText())
-	return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
+	return AgentTurnResult{TaskRun: taskRun, UserNotice: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
 }
 
 func (agentTurnRunner *AgentTurnRunner) cancelledTaskResult(taskRunID string, attachments []FileAttachment) (AgentTurnResult, bool) {
@@ -1240,7 +1241,7 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 		return AgentTurnResult{TaskRun: failedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
 	failedTaskRun.Result = reply
-	return AgentTurnResult{TaskRun: failedTaskRun, FinalReply: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
 func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion) completionTransition {
@@ -1640,7 +1641,7 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 		return AgentTurnResult{TaskRun: blockedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
 	blockedTaskRun.Result = reply
-	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
 func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
@@ -2269,10 +2270,10 @@ func failureReplyIsInvalid(reply string, attachments []FileAttachment) bool {
 	if strings.Contains(reply, "창을 새로고침") {
 		return true
 	}
-	if ValidateFinalReplyDelivery(reply, attachments, true) != nil {
+	if ValidateUserNoticeDelivery(reply) != nil {
 		return true
 	}
-	return len(attachments) == 0 && FinalReplyClaimsAttachmentDelivery(reply)
+	return false
 }
 
 func failureReplyIsInvalidForRequest(reply string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment) bool {
@@ -2358,10 +2359,10 @@ func limitReachedReplyIsInvalid(reply string, attachments []FileAttachment) bool
 	if containsForbiddenLimitReplyFragment(reply) {
 		return true
 	}
-	if ValidateFinalReplyDelivery(reply, attachments, true) != nil {
+	if ValidateUserNoticeDelivery(reply) != nil {
 		return true
 	}
-	return len(attachments) == 0 && FinalReplyClaimsAttachmentDelivery(reply)
+	return false
 }
 
 func buildLimitObservationSummary(observations []turnObservation) string {

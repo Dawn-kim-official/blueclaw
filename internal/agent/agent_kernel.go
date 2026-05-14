@@ -316,7 +316,7 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
-		return AgentTurnResult{TaskRun: waitingTaskRun, FinalReply: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
+		return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
 	}
 
 	reply, errorValue := agentKernel.GenerateConfirmationMessage(responseContext, request, executionPlan, decision)
@@ -335,7 +335,7 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		"responseLanguage":        request.ResponseLanguage,
 		"continuationInstruction": executionPlan.ContinuationInstruction,
 	}))
-	return AgentTurnResult{TaskRun: waitingTaskRun, FinalReply: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
+	return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
 }
 
 func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecision IntakeDecision, requiredEvidenceTools []string) bool {
@@ -1219,7 +1219,7 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 	}
 	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, status))
 	blockedTaskRun.Result = finalReply
-	return AgentTurnResult{TaskRun: blockedTaskRun, FinalReply: finalReply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
+	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: finalReply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
 func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, activeGoal ActiveGoal) {

@@ -21,6 +21,19 @@ func ValidateFinalReplyDelivery(reply string, attachments []FileAttachment, requ
 	return nil
 }
 
+func ValidateUserNoticeDelivery(notice string) error {
+	if locator := finalReplyNonDeliverableArtifactLocator(notice); locator != "" {
+		return errors.New("user_notice exposes non-deliverable artifact locator " + locator)
+	}
+	if FinalReplyClaimsAttachmentDelivery(notice) {
+		return errors.New("user_notice claims unavailable attachment delivery")
+	}
+	if filename := finalReplyUnattachedArtifactFilename(notice, nil); filename != "" {
+		return errors.New("user_notice mentions unavailable artifact filename " + filename)
+	}
+	return nil
+}
+
 func FinalReplyClaimsAttachmentDelivery(reply string) bool {
 	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
 	if normalizedReply == "" {

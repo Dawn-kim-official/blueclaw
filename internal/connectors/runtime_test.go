@@ -85,7 +85,9 @@ func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T)
 
 func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 	reply := OutboundReply{
-		Message: "attached",
+		Message:   "attached",
+		TaskRunID: "task-1",
+		ReplyKind: connectorReplyKindSuccess,
 		Attachments: []agent.FileAttachment{{
 			DevicePath:    "/workspace/deck.pptx",
 			Filename:      "deck.pptx",
@@ -106,6 +108,9 @@ func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 
 	if len(decodedReply.Attachments) != 1 || decodedReply.Attachments[0].ContentBase64 != "cHB0eA==" {
 		t.Fatalf("expected inline payload to survive outbox json, got %+v", decodedReply.Attachments)
+	}
+	if decodedReply.TaskRunID != "task-1" || decodedReply.ReplyKind != connectorReplyKindSuccess {
+		t.Fatalf("expected delivery metadata to survive outbox json, got %+v", decodedReply)
 	}
 }
 
@@ -402,18 +407,18 @@ func TestConnectorRuntimeSkipsReplyWhenTaskDoesNotCompleteWithoutLLMReply(t *tes
 	}
 }
 
-func TestConnectorRuntimeSkipsIncompleteAttachmentClaims(t *testing.T) {
+func TestConnectorRuntimeSkipsUnsafeUserNoticeAttachmentClaims(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 	event.Prompt = "파일 만들어줘"
-	dispatchID, isSent := connectorRuntime.sendIncompleteTaskReply(
+	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
 		context.Background(),
 		"test",
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{FinalReply: "파일을 생성해 첨부했습니다."},
+		agent.AgentTurnResult{UserNotice: "파일을 생성해 첨부했습니다."},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 			sentReplies = append(sentReplies, reply)
 			return "dispatch-1", nil
@@ -428,18 +433,18 @@ func TestConnectorRuntimeSkipsIncompleteAttachmentClaims(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSkipsIncompleteUnattachedFilenames(t *testing.T) {
+func TestConnectorRuntimeSkipsUnsafeUserNoticeUnattachedFilenames(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
 	event.Prompt = "html 파일 만들어줘"
-	dispatchID, isSent := connectorRuntime.sendIncompleteTaskReply(
+	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
 		context.Background(),
 		"test",
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{FinalReply: "아래 파일을 확인해 주세요.\n[Hermes_Agent_Slide_Part1.html]"},
+		agent.AgentTurnResult{UserNotice: "아래 파일을 확인해 주세요.\n[Hermes_Agent_Slide_Part1.html]"},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 			sentReplies = append(sentReplies, reply)
 			return "dispatch-1", nil
@@ -451,6 +456,35 @@ func TestConnectorRuntimeSkipsIncompleteUnattachedFilenames(t *testing.T) {
 	}
 	if len(sentReplies) != 0 {
 		t.Fatalf("expected no recovered reply, got %+v", sentReplies)
+	}
+}
+
+func TestConnectorRuntimeSendsSafeUserNoticeForBlockedTask(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+
+	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
+		context.Background(),
+		"test",
+		event,
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{UserNotice: "PPTX를 만들지 못했습니다. 다시 시도해 주세요."},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected user notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
+	}
+	if len(sentReplies) != 1 || sentReplies[0].ReplyKind != connectorReplyKindUserNotice || sentReplies[0].TaskRunID != "task-1" {
+		t.Fatalf("expected user notice reply metadata, got %+v", sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.sent", "user_notice") {
+		t.Fatal("expected sent event for user notice")
 	}
 }
 
@@ -460,14 +494,14 @@ func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 	event := testInboundEvent("message-1")
 	event.SenderID = "sender-user-1"
 
-	_, isSent := connectorRuntime.sendIncompleteTaskReply(
+	_, isSent := connectorRuntime.sendUserNoticeReply(
 		context.Background(),
 		"test",
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
 		agent.AgentTurnResult{
-			FinalReply: "Companion 연결이 필요합니다.",
+			UserNotice: "Companion 연결이 필요합니다.",
 			RecoveryActions: []agent.RecoveryAction{{
 				Kind:           "companion_connect",
 				Delivery:       "dm_preferred",
@@ -1044,6 +1078,13 @@ func TestConnectorRuntimeQueuesHTTPEventAndSendsReplyThroughOutbox(t *testing.T)
 	if len(repository.pendingReplies) != 1 {
 		t.Fatalf("expected one queued reply, got %+v", repository.pendingReplies)
 	}
+	taskRunID := repository.pendingReplies[0].Reply.TaskRunID
+	if taskRunID == "" || repository.pendingReplies[0].Reply.ReplyKind != connectorReplyKindSuccess {
+		t.Fatalf("expected queued reply delivery metadata, got %+v", repository.pendingReplies[0].Reply)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, taskRunID, "connector.reply.enqueued", "success") {
+		t.Fatal("expected queued reply enqueue event")
+	}
 	if len(adapter.sentReplies) != 0 {
 		t.Fatalf("expected outbox to own reply send, got %+v", adapter.sentReplies)
 	}
@@ -1056,6 +1097,43 @@ func TestConnectorRuntimeQueuesHTTPEventAndSendsReplyThroughOutbox(t *testing.T)
 	}
 	if len(repository.sentReplies) != 1 || repository.sentReplies[0] != "dispatch-1" {
 		t.Fatalf("expected dispatch id to be recorded, got %+v", repository.sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, taskRunID, "connector.reply.sent", "dispatch-1") {
+		t.Fatal("expected queued reply sent event")
+	}
+}
+
+func TestConnectorRuntimeRecordsQueuedOutboxSendFailure(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "queued reply"})
+	repository := &testConnectorQueueRepository{}
+	connectorRuntime.UseEventRepository(repository)
+	adapter.sendReplyError = errors.New("mattermost send failed")
+	event := testInboundEvent("message-http")
+	adapter.httpParseResult = HTTPParseResult{HasEvent: true, Event: event}
+	request, errorValue := http.NewRequest(http.MethodPost, "/connectors/test/events", strings.NewReader(`{}`))
+	if errorValue != nil {
+		t.Fatalf("expected request: %v", errorValue)
+	}
+
+	if _, _, errorValue := connectorRuntime.HandleHTTPEvent(context.Background(), adapter.Name(), request); errorValue != nil {
+		t.Fatalf("expected http event to queue: %v", errorValue)
+	}
+	if !connectorRuntime.processNextQueuedConnectorEvent(context.Background()) {
+		t.Fatal("expected queued connector event to process")
+	}
+	if len(repository.pendingReplies) != 1 {
+		t.Fatalf("expected one queued reply, got %+v", repository.pendingReplies)
+	}
+	taskRunID := repository.pendingReplies[0].Reply.TaskRunID
+	if !connectorRuntime.processNextQueuedConnectorReply(context.Background()) {
+		t.Fatal("expected queued connector reply attempt")
+	}
+
+	if len(repository.failedReplies) != 1 || !strings.Contains(repository.failedReplies[0], "mattermost send failed") {
+		t.Fatalf("expected failed reply to be recorded, got %+v", repository.failedReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, taskRunID, "connector.reply.failed", "mattermost send failed") {
+		t.Fatal("expected queued reply failed event")
 	}
 }
 
@@ -1216,6 +1294,8 @@ type testAdapter struct {
 type testReply struct {
 	target          ReplyTarget
 	message         string
+	taskRunID       string
+	replyKind       string
 	attachments     []agent.FileAttachment
 	recoveryActions []agent.RecoveryAction
 }
@@ -1225,6 +1305,7 @@ type testConnectorQueueRepository struct {
 	succeededEvents []ConnectorRuntimeResult
 	pendingReplies  []QueuedConnectorReply
 	sentReplies     []string
+	failedReplies   []string
 }
 
 type connectorTaskScheduleRepository struct {
@@ -1312,7 +1393,8 @@ func (repository *testConnectorQueueRepository) MarkConnectorReplySent(_ QueuedC
 	return nil
 }
 
-func (repository *testConnectorQueueRepository) MarkConnectorReplyFailed(QueuedConnectorReply, error, time.Time) error {
+func (repository *testConnectorQueueRepository) MarkConnectorReplyFailed(_ QueuedConnectorReply, errorValue error, _ time.Time) error {
+	repository.failedReplies = append(repository.failedReplies, errorValue.Error())
 	return nil
 }
 
@@ -1352,7 +1434,7 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, rep
 	if adapter.sendReplyError != nil {
 		return "", adapter.sendReplyError
 	}
-	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions})
+	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, taskRunID: reply.TaskRunID, replyKind: reply.ReplyKind, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
 
@@ -1509,6 +1591,15 @@ func connectorRequestSchemaNames(requests []llm.StructuredResponseRequest) []str
 func connectorContainsSchemaName(requests []llm.StructuredResponseRequest, schemaName string) bool {
 	for _, request := range requests {
 		if request.StructuredOutputSchema.Name == schemaName {
+			return true
+		}
+	}
+	return false
+}
+
+func connectorTaskEventsContain(connectorRuntime *ConnectorRuntime, taskRunID string, name string, bodyFragment string) bool {
+	for _, taskEvent := range connectorRuntime.agentKernel.ListTaskEvent(taskRunID) {
+		if taskEvent.Name == name && strings.Contains(taskEvent.Body, bodyFragment) {
 			return true
 		}
 	}

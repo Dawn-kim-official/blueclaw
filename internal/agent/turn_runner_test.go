@@ -89,8 +89,8 @@ func TestAgentTurnRunnerRejectsAttachmentClaimWithoutAttachmentEvidence(t *testi
 	if result.TaskRun.Status != task.TaskStatusFailed {
 		t.Fatalf("expected failed task after unsupported attachment claim, got %s", result.TaskRun.Status)
 	}
-	if !strings.Contains(result.FinalReply, "근거가 없어") {
-		t.Fatalf("expected generated failure reply, got %q", result.FinalReply)
+	if !strings.Contains(result.UserNotice, "근거가 없어") {
+		t.Fatalf("expected generated failure reply, got %q", result.UserNotice)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "claims attached files") {
 		t.Fatal("expected completion gate to reject attachment claim without evidence")
@@ -115,8 +115,8 @@ func TestAgentTurnRunnerGeneratesFailureReplyAfterStructuredModelFailure(t *test
 	if result.TaskRun.Status != task.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
-	if result.FinalReply != languageModel.reply {
-		t.Fatalf("expected generated failure reply, got %q", result.FinalReply)
+	if result.UserNotice != languageModel.reply {
+		t.Fatalf("expected generated failure reply, got %q", result.UserNotice)
 	}
 	if len(languageModel.textPrompts) != 1 {
 		t.Fatalf("expected one recovery text prompt, got %d", len(languageModel.textPrompts))
@@ -225,11 +225,11 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected dynamic captcha result, got error: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "샘플 님") || !strings.Contains(result.FinalReply, "자동화 접근을 막아서") {
-		t.Fatalf("expected natural captcha reply, got %q", result.FinalReply)
+	if !strings.Contains(result.UserNotice, "샘플 님") || !strings.Contains(result.UserNotice, "자동화 접근을 막아서") {
+		t.Fatalf("expected natural captcha reply, got %q", result.UserNotice)
 	}
-	if strings.Contains(result.FinalReply, "처리할 수 없습니다") || strings.Contains(result.FinalReply, "오류가 발생했습니다") {
-		t.Fatalf("expected non-mechanical captcha reply, got %q", result.FinalReply)
+	if strings.Contains(result.UserNotice, "처리할 수 없습니다") || strings.Contains(result.UserNotice, "오류가 발생했습니다") {
+		t.Fatalf("expected non-mechanical captcha reply, got %q", result.UserNotice)
 	}
 }
 
@@ -1095,8 +1095,8 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "recipient_resolve/not_found") {
-		t.Fatalf("expected structured failure in final reply, got %q", result.FinalReply)
+	if !strings.Contains(result.UserNotice, "recipient_resolve/not_found") {
+		t.Fatalf("expected structured failure in final reply, got %q", result.UserNotice)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(taskEvents, "tool.platform.dm.send.result", FailureCodes.NotFound.String()) {
@@ -1163,8 +1163,8 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if result.FinalReply != generatedReply {
-		t.Fatalf("expected generated reply, got %q", result.FinalReply)
+	if result.UserNotice != generatedReply {
+		t.Fatalf("expected generated reply, got %q", result.UserNotice)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
 		t.Fatal("expected generated failure reply event")
@@ -1300,8 +1300,8 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	if countStringOccurrences(sendInputs, `"recipientHint":"샘플"`) != 1 {
 		t.Fatalf("expected repeated fingerprint to be rejected before invoke, got inputs %+v", sendInputs)
 	}
-	if !strings.Contains(result.FinalReply, "mattermost_lookup/unavailable") {
-		t.Fatalf("expected final reply to report lookup failure, got %q", result.FinalReply)
+	if !strings.Contains(result.UserNotice, "mattermost_lookup/unavailable") {
+		t.Fatalf("expected final reply to report lookup failure, got %q", result.UserNotice)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failed_fingerprint_rejected", "already failed") {
 		t.Fatal("expected failed fingerprint rejection event")
@@ -1338,8 +1338,8 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	if callCount != 1 {
 		t.Fatalf("expected unsafe repeat to be rejected before second send, got %d calls", callCount)
 	}
-	if !strings.Contains(result.FinalReply, "message_send/operation_failed") {
-		t.Fatalf("expected final reply to report send failure, got %q", result.FinalReply)
+	if !strings.Contains(result.UserNotice, "message_send/operation_failed") {
+		t.Fatalf("expected final reply to report send failure, got %q", result.UserNotice)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failed_fingerprint_rejected", "already failed") {
 		t.Fatal("expected failed fingerprint rejection event")
@@ -1642,14 +1642,14 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.FinalReply == "" {
+	if result.UserNotice == "" {
 		t.Fatal("expected dynamic limit reply")
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
 		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
 	}
-	if !strings.Contains(result.FinalReply, "could not finish") && !strings.Contains(result.FinalReply, "try again") && !strings.Contains(result.FinalReply, "마치지 못했") {
-		t.Fatalf("expected natural dynamic limit reply, got %q", result.FinalReply)
+	if !strings.Contains(result.UserNotice, "could not finish") && !strings.Contains(result.UserNotice, "try again") && !strings.Contains(result.UserNotice, "마치지 못했") {
+		t.Fatalf("expected natural dynamic limit reply, got %q", result.UserNotice)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "generated") {
 		t.Fatal("expected generated limit reply event")
@@ -1846,11 +1846,11 @@ func TestAgentTurnRunnerWaitingApprovalUsesOnlyUserFacingMessage(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusWaitingApproval {
 		t.Fatalf("expected waiting approval task, got %s", result.TaskRun.Status)
 	}
-	if result.FinalReply != "샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트" {
-		t.Fatalf("expected user-facing approval message, got %q", result.FinalReply)
+	if result.UserNotice != "샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트" {
+		t.Fatalf("expected user-facing approval message, got %q", result.UserNotice)
 	}
-	if strings.Contains(result.FinalReply, "Direct messages are external sends") {
-		t.Fatalf("internal reason detail leaked into reply: %q", result.FinalReply)
+	if strings.Contains(result.UserNotice, "Direct messages are external sends") {
+		t.Fatalf("internal reason detail leaked into reply: %q", result.UserNotice)
 	}
 }
 
@@ -2125,11 +2125,11 @@ func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if strings.Contains(result.FinalReply, "예산") || strings.Contains(result.FinalReply, "budget") {
-		t.Fatalf("expected reply without budget wording, got %q", result.FinalReply)
+	if strings.Contains(result.UserNotice, "예산") || strings.Contains(result.UserNotice, "budget") {
+		t.Fatalf("expected reply without budget wording, got %q", result.UserNotice)
 	}
-	if !strings.Contains(result.FinalReply, "남았습니다") {
-		t.Fatalf("expected contextual limit reply, got %q", result.FinalReply)
+	if !strings.Contains(result.UserNotice, "남았습니다") {
+		t.Fatalf("expected contextual limit reply, got %q", result.UserNotice)
 	}
 }
 
@@ -2164,11 +2164,11 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if strings.Contains(result.FinalReply, "첨부") {
-		t.Fatalf("expected generated reply without attachment claim, got %q", result.FinalReply)
+	if strings.Contains(result.UserNotice, "첨부") {
+		t.Fatalf("expected generated reply without attachment claim, got %q", result.UserNotice)
 	}
-	if !strings.Contains(result.FinalReply, "저장") {
-		t.Fatalf("expected regenerated contextual reply, got %q", result.FinalReply)
+	if !strings.Contains(result.UserNotice, "저장") {
+		t.Fatalf("expected regenerated contextual reply, got %q", result.UserNotice)
 	}
 	if len(languageModel.textPrompts) != 2 {
 		t.Fatalf("expected repair generation prompt, got %d prompts", len(languageModel.textPrompts))
@@ -2206,8 +2206,8 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t 
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if strings.Contains(result.FinalReply, "Hermes_Agent_Slide_Part1.html") {
-		t.Fatalf("expected generated reply without unattached filename, got %q", result.FinalReply)
+	if strings.Contains(result.UserNotice, "Hermes_Agent_Slide_Part1.html") {
+		t.Fatalf("expected generated reply without unattached filename, got %q", result.UserNotice)
 	}
 	if len(languageModel.textPrompts) != 2 {
 		t.Fatalf("expected repair generation prompt, got %d prompts", len(languageModel.textPrompts))
@@ -2443,8 +2443,8 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected fallback result, got error: %v", errorValue)
 	}
-	if result.FinalReply != "작업을 시작했지만 완료 전에 멈췄습니다. 다시 시도하면 이어서 처리할 수 있어요." {
-		t.Fatalf("expected generated limit reply, got %q", result.FinalReply)
+	if result.UserNotice != "작업을 시작했지만 완료 전에 멈췄습니다. 다시 시도하면 이어서 처리할 수 있어요." {
+		t.Fatalf("expected generated limit reply, got %q", result.UserNotice)
 	}
 	if result.TaskRun.Status != task.TaskStatusBlocked {
 		t.Fatalf("expected blocked task run, got %s", result.TaskRun.Status)
@@ -2474,8 +2474,8 @@ func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.FinalReply != "도구 호출이 더 진행되기 전에 멈췄습니다. 확인된 내용까지만 바탕으로 다시 이어갈 수 있어요." {
-		t.Fatalf("expected generated limit reply, got %q", result.FinalReply)
+	if result.UserNotice != "도구 호출이 더 진행되기 전에 멈췄습니다. 확인된 내용까지만 바탕으로 다시 이어갈 수 있어요." {
+		t.Fatalf("expected generated limit reply, got %q", result.UserNotice)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_stop", "max_tool_calls") {
 		t.Fatal("expected limit stop event")
