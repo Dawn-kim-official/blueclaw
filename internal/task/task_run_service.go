@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync"
@@ -15,10 +16,11 @@ type TaskRunRepository interface {
 }
 
 type TaskRunService struct {
-	mutex            sync.RWMutex
-	taskRuns         map[string]TaskRun
-	taskEventService *TaskEventService
-	repository       TaskRunRepository
+	mutex               sync.RWMutex
+	taskRuns            map[string]TaskRun
+	taskCancelFunctions map[string]context.CancelFunc
+	taskEventService    *TaskEventService
+	repository          TaskRunRepository
 }
 
 type TaskRunCancelRequest struct {
@@ -33,8 +35,9 @@ type TaskRunCancelRequest struct {
 
 func NewTaskRunService(taskEventService *TaskEventService) *TaskRunService {
 	return &TaskRunService{
-		taskRuns:         map[string]TaskRun{},
-		taskEventService: taskEventService,
+		taskRuns:            map[string]TaskRun{},
+		taskCancelFunctions: map[string]context.CancelFunc{},
+		taskEventService:    taskEventService,
 	}
 }
 
@@ -64,6 +67,26 @@ func (taskRunService *TaskRunService) CreateTaskRun(requesterPersonID string, or
 
 func (taskRunService *TaskRunService) AppendTaskEvent(taskRunID string, name string, body string) {
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, name, body)
+}
+
+func (taskRunService *TaskRunService) RegisterTaskRunCancel(taskRunID string, cancelFunction context.CancelFunc) func() {
+	trimmedTaskRunID := strings.TrimSpace(taskRunID)
+	if trimmedTaskRunID == "" || cancelFunction == nil {
+		return func() {}
+	}
+	taskRunService.mutex.Lock()
+	taskRunService.taskCancelFunctions[trimmedTaskRunID] = cancelFunction
+	taskRunService.mutex.Unlock()
+	return func() {
+		taskRunService.mutex.Lock()
+		delete(taskRunService.taskCancelFunctions, trimmedTaskRunID)
+		taskRunService.mutex.Unlock()
+	}
+}
+
+func (taskRunService *TaskRunService) IsTaskRunCancelled(taskRunID string) bool {
+	taskRun, isFound := taskRunService.FindTaskRun(taskRunID)
+	return isFound && taskRun.Status == TaskStatusCancelled
 }
 
 func (taskRunService *TaskRunService) ListTaskEvent(taskRunID string) []TaskEvent {
@@ -235,11 +258,15 @@ func (taskRunService *TaskRunService) CompleteTaskRun(taskRunID string, result s
 	if !isFound {
 		return TaskRun{}, errors.New("task run not found")
 	}
+	if taskRun.Status == TaskStatusCancelled {
+		return taskRun, errors.New("task run was cancelled")
+	}
 
 	taskRun.Status = TaskStatusCompleted
 	taskRun.Result = result
 	taskRun.UpdatedAt = time.Now()
 	taskRunService.taskRuns[taskRunID] = taskRun
+	delete(taskRunService.taskCancelFunctions, taskRunID)
 	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.completed", result)
 	return taskRun, nil
@@ -319,8 +346,13 @@ func (taskRunService *TaskRunService) cancelTaskRun(taskRunID string, requesterP
 	taskRun.FailureReason = strings.TrimSpace(reason)
 	taskRun.UpdatedAt = time.Now()
 	taskRunService.taskRuns[taskRunID] = taskRun
+	cancelFunction := taskRunService.taskCancelFunctions[taskRunID]
+	delete(taskRunService.taskCancelFunctions, taskRunID)
 	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.cancelled", firstNonEmptyTaskRunString(reason, requesterPersonID))
+	if cancelFunction != nil {
+		cancelFunction()
+	}
 	return taskRun, nil
 }
 

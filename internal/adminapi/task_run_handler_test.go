@@ -71,6 +71,37 @@ func TestTaskRunHandlerCancelsActiveTaskRun(t *testing.T) {
 	}
 }
 
+func TestTaskRunHandlerStopsRequesterTasksOnly(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	requesterTaskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "long task")
+	otherTaskRun := taskRunService.CreateTaskRun("person-2", "direct-2", "other task")
+	for _, taskRun := range []task.TaskRun{requesterTaskRun, otherTaskRun} {
+		if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+			t.Fatal(errorValue)
+		}
+	}
+	handler := TaskRunHandler{TaskRunService: taskRunService}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/cancel", strings.NewReader(`{"mode":"stop_all","requesterPersonID":"person-1","reason":"slash stop-all"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleCancelTaskRun(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	cancelledTaskRun, _ := taskRunService.FindTaskRun(requesterTaskRun.TaskRunID)
+	unchangedTaskRun, _ := taskRunService.FindTaskRun(otherTaskRun.TaskRunID)
+	if cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("requester task status = %s, want cancelled", cancelledTaskRun.Status)
+	}
+	if unchangedTaskRun.Status != task.TaskStatusRunning {
+		t.Fatalf("other task status = %s, want running", unchangedTaskRun.Status)
+	}
+	if !strings.Contains(responseRecorder.Body.String(), `"scheduleTouched":false`) {
+		t.Fatalf("expected scheduleTouched false in response, got %s", responseRecorder.Body.String())
+	}
+}
+
 type staticAdminLanguageModel struct {
 	content string
 }

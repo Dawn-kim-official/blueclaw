@@ -578,7 +578,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		return agent.ToolResult{Content: "current account cannot use this workspace path", IsError: true}, nil
 	}
 	input.ExecutionIdentity = security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath)
-	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(input)
+	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(toolContext, input)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
 		return agent.ToolResult{Content: content, IsError: true}, nil

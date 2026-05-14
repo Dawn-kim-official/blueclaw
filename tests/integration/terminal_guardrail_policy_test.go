@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestTerminalGuardrailAllowsWorkspaceCommand(t *testing.T) {
 	}
 
 	terminalSessionService := security.NewTerminalSessionService(terminalConfiguration)
-	commandResult, errorValue := terminalSessionService.RunCommand(security.CommandRequest{
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), security.CommandRequest{
 		ExecutableName:       "echo",
 		Arguments:            []string{"blueclaw"},
 		WorkingDirectoryPath: workspaceRootPath,
