@@ -140,7 +140,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			},
 		}
 	case completionActionBlockedInvalidArtifact:
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, NewFailureCode(FailureCodeParts{Domain: "artifact", Reason: "validity_failed"}), "completion_state")
+		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", "", invalidCompletionArtifactObservationContent(completionState), FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
 		state.Observations = append(state.Observations, observation)
 		return agentTransition{State: state, Effect: agentEffect{Kind: agentEffectNone}}
 	default:
@@ -353,7 +353,7 @@ func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservati
 	if legacyObservation.IsError {
 		observation.Failure = &ToolFailure{
 			Kind:            FailureUnknown,
-			Code:            normalizeFailureCode(FailureCodeLiteral(legacyObservation.ErrorCode)),
+			Code:            CanonicalFailureCode(FailureCode(legacyObservation.ErrorCode)),
 			Stage:           strings.TrimSpace(legacyObservation.FailureStage),
 			UserSafeSummary: firstNonEmptyString(strings.TrimSpace(legacyObservation.Message), strings.TrimSpace(legacyObservation.Content)),
 			Retryable:       legacyObservation.Retryable,

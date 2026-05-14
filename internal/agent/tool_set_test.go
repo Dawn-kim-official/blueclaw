@@ -16,7 +16,7 @@ func newTestToolSet(allowedToolNames []string) *ToolSet {
 			Definition:   ToolDefinition{Name: trimmedToolName},
 			Availability: ToolAvailability{Status: ToolAvailabilityAvailable},
 			Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
-				return ToolFailureResult(FailureUnknown, FailureCodeLiteral("tool.not_registered"), "test_tool", "tool is not registered"), nil
+				return ToolFailureResult(FailureUnknown, FailureCodes.NotFound, "test_tool", "tool is not registered"), nil
 			},
 		})
 	}

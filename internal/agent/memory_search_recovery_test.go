@@ -15,7 +15,7 @@ func TestMemorySearchWebSearchIsAlternateRecoveryRoute(t *testing.T) {
 }
 
 func TestMemorySearchUnavailableRecoveryGuidanceIncludesWebSearchRoute(t *testing.T) {
-	observation := newFailureObservation("obs-001", "call_tool", "memory.search", "Persistent memory search is unavailable.", FailureDependencyUnavailable, FailureCodes.MemorySearchUnavailable, "graphiti_search")
+	observation := newFailureObservation("obs-001", "call_tool", "memory.search", "Persistent memory search is unavailable.", FailureDependencyUnavailable, FailureCodes.Unavailable, "graphiti_search")
 	guidance := recoveryGuidanceContent(observation)
 
 	for _, expectedText := range []string{
@@ -30,11 +30,20 @@ func TestMemorySearchUnavailableRecoveryGuidanceIncludesWebSearchRoute(t *testin
 }
 
 func TestNonMemoryFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
-	observation := newFailureObservation("obs-001", "call_tool", "terminal.run", "command failed", FailureExternalService, FailureCodeLiteral("terminal.command.failed"), "terminal_run")
+	observation := newFailureObservation("obs-001", "call_tool", "terminal.run", "command failed", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
 	guidance := recoveryGuidanceContent(observation)
 
 	if strings.Contains(guidance, "web.search") {
 		t.Fatalf("expected non-memory failure not to include web route, got %q", guidance)
+	}
+}
+
+func TestNonMemoryUnavailableFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
+	observation := newFailureObservation("obs-001", "call_tool", "terminal.run", "terminal unavailable", FailureDependencyUnavailable, FailureCodes.Unavailable, "terminal_run")
+	guidance := recoveryGuidanceContent(observation)
+
+	if strings.Contains(guidance, "web.search") {
+		t.Fatalf("expected non-memory unavailable failure not to include web route, got %q", guidance)
 	}
 }
 

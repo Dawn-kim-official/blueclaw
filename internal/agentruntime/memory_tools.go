@@ -35,7 +35,7 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 
 func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input string, request ToolCatalogRequest) (agent.ToolResult, error) {
 	if request.ActiveCircleConflict {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "memory", Action: "active_circle", Reason: "conflict"}), "memory_search", "memory.search has multiple active circle candidates"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.Conflict, "memory_search", "memory.search has multiple active circle candidates"), nil
 	}
 	memoryFacts, errorValue := toolCatalogBuilder.SearchMemory(toolContext, TaskMemoryRequest{
 		Query:                     firstNonEmptyString(input, request.Prompt),
@@ -57,7 +57,7 @@ func memorySearchUnavailableResult() agent.ToolResult {
 		Output: agent.ToolOutput{Content: message},
 		Failure: &agent.ToolFailure{
 			Kind:            agent.FailureDependencyUnavailable,
-			Code:            agent.FailureCodes.MemorySearchUnavailable.String(),
+			Code:            agent.FailureCodes.Unavailable.String(),
 			Stage:           "graphiti_search",
 			UserSafeSummary: message,
 			Retryable:       true,
@@ -94,17 +94,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) LoadPinnedMemory(ctx context.Conte
 func (toolCatalogBuilder *ToolCatalogBuilder) rememberMemoryTool(toolContext context.Context, input string, request ToolCatalogRequest) (agent.ToolResult, error) {
 	content := strings.TrimSpace(input)
 	if content == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "memory", Action: "content", Reason: "required"}), "memory_remember", "memory.remember requires content"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "memory_remember", "memory.remember requires content"), nil
 	}
 	if request.ActiveCircleConflict {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "memory", Action: "active_circle", Reason: "conflict"}), "memory_remember", "memory.remember has multiple active circle candidates"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.Conflict, "memory_remember", "memory.remember has multiple active circle candidates"), nil
 	}
 	namespace, errorMessage := resolveRememberMemoryNamespace(request)
 	if errorMessage != "" {
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.NewFailureCode(agent.FailureCodeParts{Domain: "memory", Action: "namespace", Reason: "denied"}), "memory_remember", errorMessage), nil
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "memory_remember", errorMessage), nil
 	}
 	if toolCatalogBuilder.memoryUpdateQueue == nil {
-		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodeLiteral("memory_queue_unavailable"), "memory_remember", "memory update queue is unavailable"), nil
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "memory_remember", "memory update queue is unavailable"), nil
 	}
 	accepted, errorValue := toolCatalogBuilder.memoryUpdateQueue.Enqueue(memory.MemoryUpdateJob{
 		Namespace:       namespace,
@@ -116,7 +116,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) rememberMemoryTool(toolContext con
 		OccurredAt:      time.Now().UTC(),
 	})
 	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodeLiteral("memory_enqueue_failed"), "memory_remember", errorValue.Error()), nil
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "memory_remember", errorValue.Error()), nil
 	}
 	return agent.ToolSuccess(marshalToolResult(accepted)), nil
 }

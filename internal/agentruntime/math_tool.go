@@ -111,5 +111,5 @@ func bcExecutionError(commandContext context.Context, standardError string, erro
 }
 
 func mathCalculateError(message string, failureStage string) agent.ToolResult {
-	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodeLiteral("calculator_failed"), failureStage, message)
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, failureStage, message)
 }
