@@ -353,8 +353,8 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected intake-only result: %v", errorValue)
 	}
-	if result.FinalReply != "Please narrow this first." {
-		t.Fatalf("expected confirmation reply, got %q", result.FinalReply)
+	if result.UserNotice != "Please narrow this first." {
+		t.Fatalf("expected confirmation reply, got %q", result.UserNotice)
 	}
 	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
 		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
