@@ -269,7 +269,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerMemoryTool(toolRegistry *a
 func fetchHistoryTool(toolContext context.Context, input historyToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
 	historyCursor := firstNonEmptyString(input.HistoryCursor, request.HistoryCursor)
 	if historyCursor == "" {
-		return agent.ToolResult{Content: "history cursor is unavailable", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodeLiteral("history_cursor_unavailable"), "conversation_history", "history cursor is unavailable"), nil
 	}
 	limit := input.Limit
 	if limit <= 0 || limit > 50 {
@@ -279,7 +279,7 @@ func fetchHistoryTool(toolContext context.Context, input historyToolInput, reque
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
-	return agent.ToolResult{Content: marshalToolResult(visibleContext)}, nil
+	return agent.ToolSuccess(marshalToolResult(visibleContext)), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
@@ -434,7 +434,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *age
 			if errorValue != nil {
 				return agent.ToolResult{}, errorValue
 			}
-			return agent.ToolResult{Content: output}, nil
+			return agent.ToolSuccess(output), nil
 		})
 	}
 }
@@ -467,11 +467,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				}
 				policyResource := firstNonEmptyString(toolDescriptor.PolicyResource, "tool:"+toolName)
 				if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
-					return agent.ToolResult{Content: "current account cannot execute this tool", IsError: true}, nil
+					return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.NewFailureCode(agent.FailureCodeParts{Domain: "tool", Action: "access", Reason: "denied"}), "capability_access", "current account cannot execute this tool"), nil
 				}
 				toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput(toolName, request, json.RawMessage(toolInvocation.Input))
 				if errorValue != nil {
-					return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+					return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "capability", Action: "input", Reason: "invalid"}), "capability_input", errorValue.Error()), nil
 				}
 				errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, toolInput), &response)
 				if errorValue != nil {
@@ -482,17 +482,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 					content = string(response.Result)
 				}
 				isError := response.IsError || response.Status == "error" || response.Status == "denied"
-				return agent.ToolResult{
-					Content:         content,
-					IsError:         isError,
-					Message:         firstNonEmptyString(response.Message, capabilityResultString(response.Result, "message"), content),
-					ErrorCode:       firstNonEmptyString(response.ErrorCode, capabilityResultString(response.Result, "errorCode")),
-					FailureStage:    firstNonEmptyString(response.FailureStage, capabilityResultString(response.Result, "failureStage")),
-					Retryable:       response.Retryable || capabilityResultBoolean(response.Result, "retryable"),
-					SafeRetry:       response.SafeRetry || capabilityResultBoolean(response.Result, "safeRetry"),
-					Attachments:     capabilityAttachments(response.Result),
-					RecoveryActions: capabilityRecoveryActions(response.Result),
-				}, nil
+				return capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
 			},
 		})
 	}
@@ -522,6 +512,40 @@ func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor, request
 	return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
 }
 
+func capabilityToolResult(content string, data json.RawMessage, isFailed bool, message string, errorCode string, failureStage string, retryable bool, safeRetry bool) agent.ToolResult {
+	result := agent.ToolResult{
+		Output:          agent.ToolOutput{Content: content, Data: data},
+		Attachments:     capabilityAttachments(data),
+		RecoveryActions: capabilityRecoveryActions(data),
+	}
+	if !isFailed {
+		return result
+	}
+	result.Failure = &agent.ToolFailure{
+		Kind:            capabilityFailureKind(errorCode, failureStage),
+		Code:            firstNonEmptyString(errorCode, capabilityResultString(data, "errorCode"), "capability.tool_failed"),
+		Stage:           firstNonEmptyString(failureStage, capabilityResultString(data, "failureStage"), "capability_invoke"),
+		UserSafeSummary: firstNonEmptyString(message, capabilityResultString(data, "message"), content),
+		Retryable:       retryable || capabilityResultBoolean(data, "retryable"),
+		SafeRetry:       safeRetry || capabilityResultBoolean(data, "safeRetry"),
+	}
+	return result
+}
+
+func capabilityFailureKind(errorCode string, failureStage string) agent.FailureKind {
+	normalizedText := strings.ToLower(strings.TrimSpace(errorCode + " " + failureStage))
+	if strings.Contains(normalizedText, "denied") || strings.Contains(normalizedText, "permission") || strings.Contains(normalizedText, "unauthorized") {
+		return agent.FailurePermissionDenied
+	}
+	if strings.Contains(normalizedText, "invalid") || strings.Contains(normalizedText, "schema") || strings.Contains(normalizedText, "input") {
+		return agent.FailureInvalidInput
+	}
+	if strings.Contains(normalizedText, "rate") || strings.Contains(normalizedText, "quota") {
+		return agent.FailureRateLimited
+	}
+	return agent.FailureExternalService
+}
+
 func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest) bool {
 	if strings.TrimSpace(toolName) != "platform.dm.send" {
 		return false
@@ -531,7 +555,7 @@ func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest)
 
 func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, input security.CommandRequest, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.terminalService == nil {
-		return agent.ToolResult{Content: "terminal service is unavailable", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodeLiteral("terminal_service_unavailable"), "terminal_run", "terminal service is unavailable"), nil
 	}
 	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
 	input.Stdin = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Stdin)
@@ -542,21 +566,21 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		input.WorkingDirectoryPath = toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath)
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
-		return agent.ToolResult{Content: "current account cannot use this workspace path", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodeLiteral("workspace_path_denied"), "terminal_run", "current account cannot use this workspace path"), nil
 	}
 	input.ExecutionIdentity = security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath)
 	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(toolContext, input)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
-		return agent.ToolResult{Content: content, IsError: true}, nil
+		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodeLiteral("terminal_command_failed"), "terminal_run", content, json.RawMessage(content)), nil
 	}
 	_ = toolContext
-	return agent.ToolResult{Content: content}, nil
+	return agent.ToolSuccess(content), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.terminalService == nil {
-		return agent.ToolResult{Content: "terminal service is unavailable", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodeLiteral("terminal_service_unavailable"), "terminal_session", "terminal service is unavailable"), nil
 	}
 	switch strings.TrimSpace(input.Action) {
 	case "start":
@@ -570,19 +594,19 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 	case "close":
 		errorValue := toolCatalogBuilder.terminalService.CloseSession(input.SessionID)
 		if errorValue != nil {
-			return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodeLiteral("terminal_session_close_failed"), "terminal_session", errorValue.Error()), nil
 		}
-		return agent.ToolResult{Content: marshalToolResult(map[string]string{"sessionID": input.SessionID, "status": "closed"})}, nil
+		return agent.ToolSuccess(marshalToolResult(map[string]string{"sessionID": input.SessionID, "status": "closed"})), nil
 	default:
 		_ = toolContext
-		return agent.ToolResult{Content: "terminal session action must be start, write, status, or close", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "terminal_session", Action: "invalid", Reason: "action"}), "terminal_session", "terminal session action must be start, write, status, or close"), nil
 	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	workingDirectoryPath := firstNonEmptyString(toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath), handlerContext.conversationScope.DefaultDirectoryPath)
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, workingDirectoryPath) {
-		return agent.ToolResult{Content: "current account cannot use this workspace path", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodeLiteral("workspace_path_denied"), "terminal_session", "current account cannot use this workspace path"), nil
 	}
 	sessionID, errorValue := toolCatalogBuilder.terminalService.StartInteractiveSession(security.CommandRequest{
 		Command:              toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command),
@@ -594,7 +618,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input termina
 		ExecutionIdentity:    security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath),
 	})
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodeLiteral("terminal_session_start_failed"), "terminal_session", errorValue.Error()), nil
 	}
 	status, errorValue := toolCatalogBuilder.terminalService.StatusSession(sessionID)
 	return statusToolResult(status, errorValue), nil
@@ -603,26 +627,26 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input termina
 func terminalSessionToolResult(commandResult security.CommandResult, errorValue error) agent.ToolResult {
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
-		return agent.ToolResult{Content: content, IsError: true}
+		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodeLiteral("terminal_session_write_failed"), "terminal_session", content, json.RawMessage(content))
 	}
-	return agent.ToolResult{Content: content}
+	return agent.ToolSuccess(content)
 }
 
 func statusToolResult(status security.TerminalSessionStatus, errorValue error) agent.ToolResult {
 	content := marshalToolResult(status)
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodeLiteral("terminal_session_status_failed"), "terminal_session", errorValue.Error())
 	}
-	return agent.ToolResult{Content: content}
+	return agent.ToolSuccess(content)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext context.Context, input browserHandoffOpenURLToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.capabilityClient.HTTPClient == nil {
-		return agent.ToolResult{Content: "companion bridge capability client is unavailable", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodeLiteral("companion_bridge_unavailable"), "browser_handoff", "companion bridge capability client is unavailable"), nil
 	}
 	inputDocument, errorValue := json.Marshal(map[string]string{"url": input.URL})
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "browser_handoff", Action: "input", Reason: "invalid"}), "browser_handoff", errorValue.Error()), nil
 	}
 	requestDocument := capabilityToolRequest("browser.handoff", handlerContext.request, inputDocument)
 	requestDocument["executionMode"] = "companion"
@@ -648,7 +672,19 @@ func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, browserHandoffEventName(isError), marshalToolResult(map[string]string{"url": input.URL, "content": content}))
 	}
-	return agent.ToolResult{Content: content, IsError: isError, Attachments: capabilityAttachments(response.Result)}, nil
+	result := agent.ToolResult{
+		Output:      agent.ToolOutput{Content: content, Data: response.Result},
+		Attachments: capabilityAttachments(response.Result),
+	}
+	if isError {
+		result.Failure = &agent.ToolFailure{
+			Kind:            capabilityFailureKind("", "browser_handoff"),
+			Code:            "browser_handoff_failed",
+			Stage:           "browser_handoff",
+			UserSafeSummary: content,
+		}
+	}
+	return result, nil
 }
 
 func browserHandoffEventName(isError bool) string {
@@ -661,17 +697,17 @@ func browserHandoffEventName(isError bool) string {
 func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext context.Context, input approvalRequestToolInput) (agent.ToolResult, error) {
 	taskRunID := agent.TaskRunIDFromContext(toolContext)
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
-		return agent.ToolResult{Content: "approval requires an active task run", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "approval", Action: "task_run", Reason: "required"}), "approval_request", "approval requires an active task run"), nil
 	}
 	userFacingMessage := approvalRequestUserFacingMessage(input)
 	if userFacingMessage == "" {
-		return agent.ToolResult{Content: "approval.request requires userFacingMessage", Message: "approval.request requires userFacingMessage", IsError: true, ErrorCode: "approval_message_required", FailureStage: "approval_request"}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodeLiteral("approval_message_required"), "approval_request", "approval.request requires userFacingMessage"), nil
 	}
 	reasonCode := normalizeApprovalReasonCode(input.ReasonCode)
 	reasonDetail := approvalRequestReasonDetail(input)
 	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, approvalInternalReason(reasonCode, reasonDetail))
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodeLiteral("approval_pause_failed"), "approval_request", errorValue.Error()), nil
 	}
 	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "approval.requested", marshalToolResult(map[string]string{
 		"userFacingMessage": userFacingMessage,
@@ -687,7 +723,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext co
 		"reasonDetail":      reasonDetail,
 		"responseLanguage":  agent.ResponseLanguageFromContext(toolContext),
 	}))
-	return agent.ToolResult{Content: marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "userFacingMessage": userFacingMessage, "message": userFacingMessage, "reasonCode": reasonCode})}, nil
+	return agent.ToolSuccess(marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "userFacingMessage": userFacingMessage, "message": userFacingMessage, "reasonCode": reasonCode})), nil
 }
 
 func approvalRequestUserFacingMessage(input approvalRequestToolInput) string {
@@ -717,13 +753,13 @@ func normalizeApprovalReasonCode(reasonCode string) string {
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(input.Path, handlerContext.conversationScope)
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "file", Action: "path", Reason: "invalid"}), "file_write", errorValue.Error()), nil
 	}
 	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath) {
-		return agent.ToolResult{Content: "file.write cannot modify built-in skill files", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.NewFailureCode(agent.FailureCodeParts{Domain: "file", Action: "immutable_skill", Reason: "path"}), "file_write", "file.write cannot modify built-in skill files"), nil
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath) {
-		return agent.ToolResult{Content: "current account cannot write this file", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.NewFailureCode(agent.FailureCodeParts{Domain: "file", Action: "write", Reason: "denied"}), "file_write", "current account cannot write this file"), nil
 	}
 	fileMode := os.FileMode(0660)
 	if input.Mode != 0 {
@@ -736,16 +772,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 		return agent.ToolResult{}, errorValue
 	}
 	_ = toolContext
-	return agent.ToolResult{Content: marshalToolResult(map[string]any{
+	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"path":      toolCatalogBuilder.agentWorkspacePath(resolvedPath),
 		"sizeBytes": len(input.Content),
-	})}, nil
+	})), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	attachmentPaths := requestedAttachmentPaths(input.Path, input.Paths)
 	if len(attachmentPaths) == 0 {
-		return agent.ToolResult{Content: "path is required", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "file", Action: "path", Reason: "required"}), "file_attach", "path is required"), nil
 	}
 	attachments := []agent.FileAttachment{}
 	for _, attachmentPath := range attachmentPaths {
@@ -757,7 +793,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 	}
 	_ = toolContext
 	return agent.ToolResult{
-		Content:     "file attached",
+		Output:      agent.ToolOutput{Content: "file attached"},
 		Attachments: attachments,
 	}, nil
 }

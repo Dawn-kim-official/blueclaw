@@ -14,6 +14,30 @@ func TestMemorySearchWebSearchIsAlternateRecoveryRoute(t *testing.T) {
 	}
 }
 
+func TestMemorySearchUnavailableRecoveryGuidanceIncludesWebSearchRoute(t *testing.T) {
+	observation := newFailureObservation("obs-001", "call_tool", "memory.search", "Persistent memory search is unavailable.", FailureDependencyUnavailable, FailureCodes.MemorySearchUnavailable, "graphiti_search")
+	guidance := recoveryGuidanceContent(observation)
+
+	for _, expectedText := range []string{
+		"web.search",
+		"public, current, or external",
+		"private person or circle memory",
+	} {
+		if !strings.Contains(guidance, expectedText) {
+			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
+		}
+	}
+}
+
+func TestNonMemoryFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
+	observation := newFailureObservation("obs-001", "call_tool", "terminal.run", "command failed", FailureExternalService, FailureCodeLiteral("terminal.command.failed"), "terminal_run")
+	guidance := recoveryGuidanceContent(observation)
+
+	if strings.Contains(guidance, "web.search") {
+		t.Fatalf("expected non-memory failure not to include web route, got %q", guidance)
+	}
+}
+
 func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	instructions := DefaultSkillInstructions()
 	if len(instructions) == 0 {

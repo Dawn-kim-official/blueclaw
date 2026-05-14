@@ -84,11 +84,11 @@ func activeFailureDebt(observations []turnObservation) (FailureDebt, bool) {
 		if observation.Action != "call_tool" {
 			continue
 		}
-		if observation.IsError && strings.TrimSpace(observation.ToolInputKey) != "" {
+		if observation.Failed() && strings.TrimSpace(observation.ToolInputKey) != "" {
 			activeDebt = FailureDebt{LatestFailure: observation}
 			continue
 		}
-		if !observation.IsError && strings.TrimSpace(activeDebt.LatestFailure.ObservationID) != "" {
+		if !observation.Failed() && strings.TrimSpace(activeDebt.LatestFailure.ObservationID) != "" {
 			activeDebt = FailureDebt{}
 		}
 	}
@@ -114,7 +114,7 @@ func previousFailedToolInput(observations []turnObservation, toolName string, to
 		if observation.Action != "call_tool" {
 			continue
 		}
-		if !observation.IsError {
+		if !observation.Failed() {
 			return turnObservation{}, false
 		}
 		if strings.TrimSpace(observation.ToolInputKey) == expectedKey {
@@ -196,8 +196,8 @@ func repeatedFailedAttemptObservation(index int, failedObservation turnObservati
 	content := "This exact tool/input/error fingerprint already failed. Do not repeat it. Change the input, use another route or adjacent tool, answer without tools using failureResolution=no_tool_fallback if enough context exists, or fail after recovery budget is exhausted."
 	observation := recoveryGuidanceObservation(index, failedObservation)
 	observation.Action = "policy"
-	observation.Content = content + " " + observation.Content
-	observation.Summary = observation.Content
+	observation = withObservationContent(observation, content+" "+observation.ContentText())
+	observation.Summary = observation.ContentText()
 	observation.RecoveryStep = recoveryStepRejectedRepeat
 	observation.RecoveryAttemptSpent = true
 	return observation
@@ -207,8 +207,8 @@ func recoveryBudgetExhaustedObservation(index int, failedObservation turnObserva
 	content := "The recovery budget for " + strings.TrimSpace(recoveryStep) + " is exhausted. Choose another recovery step, answer without tools using failureResolution=no_tool_fallback if enough context exists, or return fail if no recovery tool budget remains."
 	observation := recoveryGuidanceObservation(index, failedObservation)
 	observation.Action = "policy"
-	observation.Content = content + " " + observation.Content
-	observation.Summary = observation.Content
+	observation = withObservationContent(observation, content+" "+observation.ContentText())
+	observation.Summary = observation.ContentText()
 	observation.RecoveryStep = strings.TrimSpace(recoveryStep)
 	observation.RecoveryAttemptSpent = true
 	return observation
@@ -231,7 +231,7 @@ func attemptLedger(observations []turnObservation) []attemptLedgerEntry {
 			continue
 		}
 		status := "success"
-		if observation.IsError {
+		if observation.Failed() {
 			status = "error"
 		}
 		entries = append(entries, attemptLedgerEntry{
@@ -239,8 +239,8 @@ func attemptLedger(observations []turnObservation) []attemptLedgerEntry {
 			ToolName:           strings.TrimSpace(observation.Tool),
 			ToolInputKey:       strings.TrimSpace(observation.ToolInputKey),
 			AttemptFingerprint: strings.TrimSpace(observation.AttemptFingerprint),
-			FailureStage:       strings.TrimSpace(observation.FailureStage),
-			ErrorCode:          strings.TrimSpace(observation.ErrorCode),
+			FailureStage:       observation.FailureStage(),
+			ErrorCode:          observation.FailureCode(),
 			RecoveryStep:       strings.TrimSpace(observation.RecoveryStep),
 			Status:             status,
 		})
@@ -271,14 +271,14 @@ func failureDebtFinalizationGate(observations []turnObservation, actionDocument 
 func buildFailureReportFacts(observations []turnObservation, budget RecoveryBudget) failureReportFacts {
 	facts := failureReportFacts{BudgetState: failureReportBudgetState(observations, budget)}
 	for _, observation := range observations {
-		if observation.Action != "call_tool" || !observation.IsError {
+		if observation.Action != "call_tool" || !observation.Failed() {
 			continue
 		}
 		facts.Attempts = append(facts.Attempts, failureReportAttempt{
 			ToolName:     strings.TrimSpace(observation.Tool),
 			InputSummary: failureReportInputSummary(observation.ToolInputKey),
-			ErrorCode:    firstNonEmptyString(strings.TrimSpace(observation.ErrorCode), "tool_failed"),
-			FailureStage: firstNonEmptyString(strings.TrimSpace(observation.FailureStage), strings.TrimSpace(observation.Tool)),
+			ErrorCode:    firstNonEmptyString(observation.FailureCode(), "tool.failed"),
+			FailureStage: firstNonEmptyString(observation.FailureStage(), strings.TrimSpace(observation.Tool)),
 			Message:      failureReportMessage(observation),
 		})
 	}
@@ -315,9 +315,9 @@ func failureReportInputSummary(toolInputKey string) string {
 }
 
 func failureReportMessage(observation turnObservation) string {
-	message := strings.TrimSpace(observation.Message)
+	message := observation.FailureSummary()
 	if message == "" {
-		message = strings.TrimSpace(observation.Content)
+		message = strings.TrimSpace(observation.ContentText())
 	}
 	return truncateText(compactWhitespace(redactUnsafeText(message)), 240)
 }
@@ -382,11 +382,11 @@ func failureDebtFinalizationMessage(failureDebt FailureDebt) string {
 	if strings.TrimSpace(latestFailure.Tool) != "" {
 		parts = append(parts, "tool="+strings.TrimSpace(latestFailure.Tool))
 	}
-	if strings.TrimSpace(latestFailure.FailureStage) != "" {
-		parts = append(parts, "failureStage="+strings.TrimSpace(latestFailure.FailureStage))
+	if latestFailure.FailureStage() != "" {
+		parts = append(parts, "failureStage="+latestFailure.FailureStage())
 	}
-	if strings.TrimSpace(latestFailure.ErrorCode) != "" {
-		parts = append(parts, "errorCode="+strings.TrimSpace(latestFailure.ErrorCode))
+	if latestFailure.FailureCode() != "" {
+		parts = append(parts, "errorCode="+latestFailure.FailureCode())
 	}
 	if strings.TrimSpace(latestFailure.AttemptFingerprint) != "" {
 		parts = append(parts, "attemptFingerprint="+strings.TrimSpace(latestFailure.AttemptFingerprint))
@@ -417,7 +417,7 @@ func recoveryToolBudgetExhaustedForRequest(observations []turnObservation, toolS
 }
 
 func failureRecoveryIsTerminal(observation turnObservation) bool {
-	combinedText := strings.ToLower(strings.TrimSpace(observation.ErrorCode + " " + observation.FailureStage + " " + observation.Message + " " + observation.Content))
+	combinedText := strings.ToLower(strings.TrimSpace(observation.FailureCode() + " " + observation.FailureStage() + " " + observation.FailureSummary() + " " + observation.ContentText()))
 	return strings.Contains(combinedText, "blocked_by_captcha")
 }
 

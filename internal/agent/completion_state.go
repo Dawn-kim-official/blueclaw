@@ -189,7 +189,7 @@ func attachmentIndexReferenceForSuffix(observation turnObservation, suffix strin
 func successfulObservationReferences(observations []turnObservation) []completionEvidenceReference {
 	references := []completionEvidenceReference{}
 	for _, observation := range observations {
-		if observation.IsError || strings.TrimSpace(observation.Tool) == "" {
+		if observation.Failed() || strings.TrimSpace(observation.Tool) == "" {
 			continue
 		}
 		references = append(references, completionEvidenceReference{
@@ -327,13 +327,13 @@ func completionValidityPaths(state CompletionState) []string {
 
 func hasInvalidArtifactObservationForPaths(observations []turnObservation, paths []string) bool {
 	for _, observation := range observations {
-		if !observation.IsError || observation.Action != "policy" {
+		if !observation.Failed() || observation.Action != "policy" {
 			continue
 		}
-		if !strings.Contains(observation.Content, "artifact validity check failed") {
+		if !strings.Contains(observation.ContentText(), "artifact validity check failed") {
 			continue
 		}
-		if observationContentContainsAllPaths(observation.Content, paths) {
+		if observationContentContainsAllPaths(observation.ContentText(), paths) {
 			return true
 		}
 	}
@@ -354,10 +354,10 @@ func allRequirementsAreFileAttachments(requirements []toolUseRequirement) bool {
 
 func hasFailedFileAttachForPaths(observations []turnObservation, paths []string) bool {
 	for _, observation := range observations {
-		if !observation.IsError || strings.TrimSpace(observation.Tool) != "file.attach" {
+		if !observation.Failed() || strings.TrimSpace(observation.Tool) != "file.attach" {
 			continue
 		}
-		if observationContentContainsAllPaths(observation.Content, paths) {
+		if observationContentContainsAllPaths(observation.ContentText(), paths) {
 			return true
 		}
 	}

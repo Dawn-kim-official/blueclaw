@@ -17,7 +17,7 @@ type echoToolOutput struct {
 func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
 	toolSet := NewToolSet([]string{"registered.tool", "missing.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "registered.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "ok"}, nil
+		return ToolSuccess("ok"), nil
 	})
 
 	toolNames := toolSet.ListToolNames()
@@ -29,16 +29,32 @@ func TestToolSetExcludesUnregisteredAllowedToolNames(t *testing.T) {
 	}
 }
 
+func TestFailureCodeBuildsDotSeparatedCode(t *testing.T) {
+	failureCode := NewFailureCode(FailureCodeParts{Domain: "memory", Action: "search", Reason: "unavailable"})
+
+	if failureCode.String() != "memory.search.unavailable" {
+		t.Fatalf("expected dot failure code, got %q", failureCode.String())
+	}
+}
+
+func TestFailureCodeNormalizesLegacyMemorySearchCode(t *testing.T) {
+	result := ToolFailureResult(FailureDependencyUnavailable, FailureCodeLiteral("memory_search_unavailable"), "graphiti_search", "memory failed")
+
+	if result.FailureCode() != FailureCodes.MemorySearchUnavailable.String() {
+		t.Fatalf("expected canonical memory search code, got %+v", result)
+	}
+}
+
 func TestToolSetDescriptionsAndActionSchemaShareExposedTools(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool", "denied.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "visible.tool", Description: "Visible"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "ok"}, nil
+		return ToolSuccess("ok"), nil
 	})
 	toolSet.RegisterBoundTool(BoundTool{
 		Definition:   ToolDefinition{Name: "denied.tool", Description: "Denied"},
 		Availability: ToolAvailability{Status: ToolAvailabilityDenied, Reason: "policy"},
 		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolResult{Content: "denied"}, nil
+			return ToolFailureResult(FailurePolicyBlocked, FailureCodeLiteral("tool.denied"), "policy", "denied"), nil
 		},
 	})
 
@@ -65,14 +81,14 @@ func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
 func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "hidden"}, nil
+		return ToolSuccess("hidden"), nil
 	})
 
 	result, errorValue := toolSet.Invoke(context.Background(), ToolInvocation{ToolName: "hidden.tool"})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.IsError {
+	if !result.Failed() {
 		t.Fatalf("expected hidden tool invocation to fail, got %+v", result)
 	}
 }
@@ -90,7 +106,7 @@ func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !malformedResult.IsError || !strings.Contains(malformedResult.Content, "tool input is not valid json") {
+	if !malformedResult.Failed() || !strings.Contains(malformedResult.ContentText(), "tool input is not valid json") {
 		t.Fatalf("expected malformed input error, got %+v", malformedResult)
 	}
 
@@ -98,7 +114,7 @@ func TestToolFunctionValidatesInputAndMarshalsOutput(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.Content != `{"message":"hello"}` {
+	if result.ContentText() != `{"message":"hello"}` {
 		t.Fatalf("expected structured output json, got %+v", result)
 	}
 }

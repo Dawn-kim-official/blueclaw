@@ -985,7 +985,7 @@ func TestConnectorRuntimeExposesAllowedMcpSchemaCatalog(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected policy denial as tool result: %v", errorValue)
 	}
-	if !toolResult.IsError || toolResult.Content != "tool is not allowed" {
+	if !toolResult.Failed() || toolResult.ContentText() != "tool is not allowed" {
 		t.Fatalf("expected blocked MCP invocation to be denied, got %+v", toolResult)
 	}
 }

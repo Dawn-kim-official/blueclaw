@@ -9,14 +9,14 @@ func TestSiteAppCreateSummaryKeepsAgentWorkspacePaths(t *testing.T) {
 	summary := summarizeObservationContent(turnObservation{
 		Action: "call_tool",
 		Tool:   "site.app.create",
-		Content: `{
+		Output: ToolOutput{Content: `{
 			"siteID":"site-1",
 			"slug":"demo",
 			"workspacePath":"/workspace/circles/staff/sites/site-1",
 			"sourceWorkspacePath":"/workspace/circles/staff/sites/site-1",
 			"hostSourcePath":"/root/.blueclaw/workspace/sites/site-1",
 			"status":"draft"
-		}`,
+		}`},
 	})
 
 	if !strings.Contains(summary, "sourceWorkspacePath=/workspace/circles/staff/sites/site-1") {
@@ -31,11 +31,11 @@ func TestWorkspacePathSummaryHidesNonAgentWorkspacePath(t *testing.T) {
 	summary := summarizeObservationContent(turnObservation{
 		Action: "call_tool",
 		Tool:   "site.app.create",
-		Content: `{
+		Output: ToolOutput{Content: `{
 			"siteID":"site-1",
 			"workspacePath":"/root/.blueclaw/workspace/sites/site-1",
 			"sourceWorkspacePath":"/root/.blueclaw/workspace/sites/site-1"
-		}`,
+		}`},
 	})
 
 	if strings.Contains(summary, "/root/.blueclaw") {

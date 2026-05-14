@@ -17,7 +17,7 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 				{Name: "tool.terminal.run.requested", BodyFragment: "./build.sh", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Building requested formats", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Slide render review", Count: 1},
-				{Name: "tool.file.attach.result", BodyFragment: `"isError":false`, Count: 1},
+				{Name: "tool.file.attach.result", BodyFragment: `"output"`, Count: 1},
 			},
 			ExpectedEvents:      []string{"agent.validity_review"},
 			ExpectedAttachments: []string{".pptx", ".pdf", ".html", "-notes.txt"},

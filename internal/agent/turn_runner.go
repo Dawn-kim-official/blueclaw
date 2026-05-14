@@ -104,14 +104,9 @@ type turnObservation struct {
 	ObservationID        string           `json:"observationID"`
 	Action               string           `json:"action"`
 	Tool                 string           `json:"tool,omitempty"`
-	Content              string           `json:"content"`
+	Output               ToolOutput       `json:"output,omitempty"`
+	Failure              *ToolFailure     `json:"failure,omitempty"`
 	Summary              string           `json:"summary,omitempty"`
-	IsError              bool             `json:"isError"`
-	Message              string           `json:"message,omitempty"`
-	ErrorCode            string           `json:"errorCode,omitempty"`
-	FailureStage         string           `json:"failureStage,omitempty"`
-	Retryable            bool             `json:"retryable,omitempty"`
-	SafeRetry            bool             `json:"safeRetry,omitempty"`
 	ToolInputKey         string           `json:"toolInputKey,omitempty"`
 	AttemptFingerprint   string           `json:"attemptFingerprint,omitempty"`
 	RecoveryAttemptKey   string           `json:"recoveryAttemptKey,omitempty"`
@@ -119,6 +114,74 @@ type turnObservation struct {
 	RecoveryAttemptSpent bool             `json:"recoveryAttemptSpent,omitempty"`
 	Attachments          []FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions      []RecoveryAction `json:"recoveryActions,omitempty"`
+}
+
+func (observation turnObservation) Failed() bool {
+	return observation.Failure != nil
+}
+
+func (observation turnObservation) ContentText() string {
+	if strings.TrimSpace(observation.Output.Content) != "" {
+		return observation.Output.Content
+	}
+	if len(observation.Output.Data) > 0 {
+		return string(observation.Output.Data)
+	}
+	return ""
+}
+
+func (observation turnObservation) FailureCode() string {
+	if observation.Failure == nil {
+		return ""
+	}
+	return strings.TrimSpace(observation.Failure.Code)
+}
+
+func (observation turnObservation) FailureStage() string {
+	if observation.Failure == nil {
+		return ""
+	}
+	return strings.TrimSpace(observation.Failure.Stage)
+}
+
+func (observation turnObservation) FailureSummary() string {
+	if observation.Failure == nil {
+		return ""
+	}
+	return strings.TrimSpace(observation.Failure.UserSafeSummary)
+}
+
+func (observation turnObservation) Retryable() bool {
+	return observation.Failure != nil && observation.Failure.Retryable
+}
+
+func (observation turnObservation) SafeRetry() bool {
+	return observation.Failure != nil && observation.Failure.SafeRetry
+}
+
+func newContentObservation(observationID string, action string, tool string, content string) turnObservation {
+	return turnObservation{
+		ObservationID: observationID,
+		Action:        strings.TrimSpace(action),
+		Tool:          strings.TrimSpace(tool),
+		Output:        ToolOutput{Content: strings.TrimSpace(content)},
+	}
+}
+
+func newFailureObservation(observationID string, action string, tool string, content string, kind FailureKind, code FailureCode, stage string) turnObservation {
+	observation := newContentObservation(observationID, action, tool, content)
+	observation.Failure = &ToolFailure{
+		Kind:            normalizeFailureKind(kind),
+		Code:            normalizeFailureCode(code),
+		Stage:           strings.TrimSpace(stage),
+		UserSafeSummary: strings.TrimSpace(content),
+	}
+	return observation
+}
+
+func withObservationContent(observation turnObservation, content string) turnObservation {
+	observation.Output.Content = strings.TrimSpace(content)
+	return observation
 }
 
 type completionEvidenceReference struct {
@@ -279,7 +342,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			observation := turnObservation{
 				ObservationID: nextObservationID(len(state.Observations) + 1),
 				Action:        "set_quality_criteria",
-				Content:       marshalEventBody(map[string]any{"criteria": state.QualityCriteria}),
+				Output:        ToolOutput{Content: marshalEventBody(map[string]any{"criteria": state.QualityCriteria})},
 			}
 			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.quality_criteria", marshalEventBody(map[string]any{
@@ -297,7 +360,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				if observation.Action == "evidence_missing" {
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_required", marshalEventBody(observation))
 				}
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, observation.Action, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, observation.Action, observation.ContentText())
 				continue
 			}
 			agentTurnRunner.appendQualityReview(taskRun.TaskRunID, state.QualityCriteria, actionDocument.QualityReview, state.Observations)
@@ -322,28 +385,28 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			if !toolAvailableForAction(request.ToolSet, actionDocument.ToolName) {
 				observation := agentTurnRunner.recordUnavailableToolRequest(taskRun.TaskRunID, len(state.Observations)+1, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 				state.Observations = append(state.Observations, observation)
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool_unavailable "+actionDocument.ToolName, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool_unavailable "+actionDocument.ToolName, observation.ContentText())
 				continue
 			}
 			if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
-				observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "policy", Tool: strings.TrimSpace(actionDocument.ToolName), Content: unnecessarySiteApprovalMessage(), IsError: true}
+				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessarySiteApprovalMessage(), FailurePolicyBlocked, NewFailureCode(FailureCodeParts{Domain: "approval", Reason: "unnecessary"}), "policy")
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
 				continue
 			}
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
+				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.ToolInputInvalid, "tool_input")
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
 				continue
 			}
 			if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "call_tool", Tool: strings.TrimSpace(actionDocument.ToolName), Content: validationError.Error(), IsError: true}
+				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.ToolInputInvalid, "tool_input")
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
 				continue
 			}
 			if sentObservation, wasSent := previousSuccessfulExternalSend(state.Observations, actionDocument.ToolName); wasSent {
@@ -351,12 +414,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					ObservationID: nextObservationID(len(state.Observations) + 1),
 					Action:        "policy",
 					Tool:          strings.TrimSpace(actionDocument.ToolName),
-					Content:       "This task already completed an external send as " + sentObservation.ObservationID + ". Do not send another message in the same task. Use that observation for completionEvidence and finish.",
-					IsError:       true,
+					Output:        ToolOutput{Content: "This task already completed an external send as " + sentObservation.ObservationID + ". Do not send another message in the same task. Use that observation for completionEvidence and finish."},
+					Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: NewFailureCode(FailureCodeParts{Domain: "external_send", Reason: "duplicate"}).String(), Stage: "policy", UserSafeSummary: "This task already completed an external send."},
 				}
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.external_send_repeat_rejected", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "external_send_repeat_rejected "+actionDocument.ToolName, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "external_send_repeat_rejected "+actionDocument.ToolName, observation.ContentText())
 				continue
 			}
 			if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName) {
@@ -364,19 +427,19 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					ObservationID: nextObservationID(len(state.Observations) + 1),
 					Action:        "policy",
 					Tool:          strings.TrimSpace(actionDocument.ToolName),
-					Content:       "This exact tool call already succeeded as " + duplicateObservation.ObservationID + ". Use that observation for completionEvidence instead of running it again.",
-					IsError:       true,
+					Output:        ToolOutput{Content: "This exact tool call already succeeded as " + duplicateObservation.ObservationID + ". Use that observation for completionEvidence instead of running it again."},
+					Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: NewFailureCode(FailureCodeParts{Domain: "tool_call", Action: "duplicate", Reason: "success"}).String(), Stage: "policy", UserSafeSummary: "This exact tool call already succeeded."},
 				}
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.duplicate_tool_call_rejected", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "duplicate_tool_call "+actionDocument.ToolName, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "duplicate_tool_call "+actionDocument.ToolName, observation.ContentText())
 				continue
 			}
 			if duplicateFailure, isDuplicateFailure := previousFailedToolInput(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); isDuplicateFailure {
 				observation := repeatedFailedAttemptObservation(len(state.Observations)+1, duplicateFailure)
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failed_fingerprint_rejected", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failed_fingerprint_rejected "+actionDocument.ToolName, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failed_fingerprint_rejected "+actionDocument.ToolName, observation.ContentText())
 				continue
 			}
 			recoveryStep := ""
@@ -386,7 +449,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					observation := recoveryBudgetExhaustedObservation(len(state.Observations)+1, failureDebt.LatestFailure, recoveryStep)
 					state.Observations = append(state.Observations, observation)
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_budget_exhausted", marshalEventBody(observation))
-					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_budget_exhausted "+actionDocument.ToolName, observation.Content)
+					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_budget_exhausted "+actionDocument.ToolName, observation.ContentText())
 					continue
 				}
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_attempt", marshalEventBody(map[string]any{
@@ -412,7 +475,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			state.Observations = append(state.Observations, observation)
 			state.Attachments = appendObservationAttachments(state.Attachments, observation)
-			if observation.IsError {
+			if observation.Failed() {
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_debt_created", marshalEventBody(activeFailureDebtEventBody(state.Observations, agentTurnRunner.options.RecoveryBudget)))
 				if recoveryAttemptCount(state.Observations) < agentTurnRunner.options.RecoveryAttemptLimit {
 					recoveryObservation := recoveryGuidanceObservation(len(state.Observations)+1, observation)
@@ -421,21 +484,21 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				}
 			}
 			if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRun.TaskRunID, observation, state.Attachments); isPaused {
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, pausedResult.TaskRun.Status, "call_tool "+actionDocument.ToolName, observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, pausedResult.TaskRun.Status, "call_tool "+actionDocument.ToolName, observation.ContentText())
 				return pausedResult, nil
 			}
-			if !observation.IsError {
+			if !observation.Failed() {
 				successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)] = observation
 			}
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.Content)
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.ContentText())
 		case "fail":
 			if failureDebt, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt && !recoveryToolBudgetExhaustedForRequest(state.Observations, request.ToolSet, agentTurnRunner.options.RecoveryBudget, failureDebt) {
 				observation := recoveryGuidanceObservation(len(state.Observations)+1, failureDebt.LatestFailure)
-				observation.Content = "FailureDebt is still active. Try a different recovery step within budget, answer without tools using failureResolution=no_tool_fallback if enough context exists, or fail only after recovery budget is exhausted. " + observation.Content
-				observation.Summary = observation.Content
+				observation = withObservationContent(observation, "FailureDebt is still active. Try a different recovery step within budget, answer without tools using failureResolution=no_tool_fallback if enough context exists, or fail only after recovery budget is exhausted. "+observation.ContentText())
+				observation.Summary = observation.ContentText()
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_blocked_fail", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_required", observation.Content)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_required", observation.ContentText())
 				continue
 			}
 			if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt {
@@ -445,7 +508,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					observation := completionGateObservation(len(state.Observations)+1, failureReportResult.Message)
 					state.Observations = append(state.Observations, observation)
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_report_rejected", marshalEventBody(observation))
-					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failure_report_rejected", observation.Content)
+					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failure_report_rejected", observation.ContentText())
 					continue
 				}
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_report_facts_used", marshalEventBody(actionDocument.UsedFailureFacts))
@@ -454,9 +517,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments)
 		default:
-			observation := turnObservation{ObservationID: nextObservationID(len(state.Observations) + 1), Action: "invalid_action", Content: "unknown action: " + actionDocument.Action, IsError: true}
+			observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "invalid_action", "", "unknown action: "+actionDocument.Action, FailureInvalidInput, NewFailureCode(FailureCodeParts{Domain: "agent", Action: "action", Reason: "unknown"}), "action_parse")
 			state.Observations = append(state.Observations, observation)
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_action", observation.Content)
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_action", observation.ContentText())
 		}
 	}
 
@@ -484,7 +547,7 @@ func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, obser
 		}
 		return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
 	}
-	reply := firstNonEmptyString(taskRun.FailureReason, toolObservationMessage(observation), observation.Content)
+	reply := firstNonEmptyString(taskRun.FailureReason, toolObservationMessage(observation), observation.ContentText())
 	return AgentTurnResult{TaskRun: taskRun, FinalReply: reply, Attachments: attachments, RecoveryActions: observation.RecoveryActions}, true
 }
 
@@ -513,7 +576,7 @@ func toolObservationMessage(observation turnObservation) string {
 	var document struct {
 		Message string `json:"message"`
 	}
-	if json.Unmarshal([]byte(observation.Content), &document) != nil {
+	if json.Unmarshal([]byte(observation.ContentText()), &document) != nil {
 		return ""
 	}
 	return strings.TrimSpace(document.Message)
@@ -524,7 +587,7 @@ func approvalObservationUserFacingMessage(observation turnObservation) string {
 		UserFacingMessage string `json:"userFacingMessage"`
 		Message           string `json:"message"`
 	}
-	if json.Unmarshal([]byte(observation.Content), &document) != nil {
+	if json.Unmarshal([]byte(observation.ContentText()), &document) != nil {
 		return ""
 	}
 	return firstNonEmptyString(document.UserFacingMessage, document.Message)
@@ -821,7 +884,7 @@ func previousSuccessfulExternalSend(observations []turnObservation, toolName str
 	}
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
-		if observation.Action != "call_tool" || observation.IsError {
+		if observation.Action != "call_tool" || observation.Failed() {
 			continue
 		}
 		if strings.TrimSpace(observation.Tool) == strings.TrimSpace(toolName) {
@@ -916,13 +979,7 @@ func (agentTurnRunner *AgentTurnRunner) recordUnavailableToolRequest(taskRunID s
 		"toolName":      trimmedToolName,
 		"input":         json.RawMessage(toolInput),
 	}))
-	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, ToolResult{
-		Content:      "tool is not allowed",
-		Message:      "tool is not allowed",
-		IsError:      true,
-		ErrorCode:    "tool_unavailable",
-		FailureStage: "tool_availability",
-	}, workspaceRootPath, minimumModifiedAt)
+	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, ToolFailureResult(FailurePolicyBlocked, FailureCodes.ToolUnavailable, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt)
 }
 
 func stringValue(value any) string {
@@ -950,7 +1007,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	if toolRegistry == nil {
 		observation := toolFailureObservation(observationID, trimmedToolName, "tool registry was not configured")
 		observation.ToolInputKey = toolInputKey
-		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.ErrorCode)
+		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.FailureCode())
 		return observation
 	}
 	agentTurnRunner.appendEvent(taskRunID, "tool."+trimmedToolName+".requested", marshalEventBody(map[string]any{
@@ -961,23 +1018,14 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	toolContext := WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage)
 	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
-		toolResult = ToolResult{Content: errorValue.Error(), Message: errorValue.Error(), IsError: true, ErrorCode: "tool_failed", FailureStage: trimmedToolName}
+		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.ToolFailed, trimmedToolName, errorValue.Error())
 	}
 	observation := agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt)
 	return observation
 }
 
 func toolFailureObservation(observationID string, toolName string, message string) turnObservation {
-	return turnObservation{
-		ObservationID: observationID,
-		Action:        "call_tool",
-		Tool:          toolName,
-		Content:       message,
-		Message:       message,
-		IsError:       true,
-		ErrorCode:     "tool_failed",
-		FailureStage:  firstNonEmptyString(toolName, "tool"),
-	}
+	return newFailureObservation(observationID, "call_tool", toolName, message, FailureUnknown, FailureCodes.ToolFailed, firstNonEmptyString(toolName, "tool"))
 }
 
 func recoveryGuidanceObservation(index int, observation turnObservation) turnObservation {
@@ -986,12 +1034,9 @@ func recoveryGuidanceObservation(index int, observation turnObservation) turnObs
 		ObservationID:        nextObservationID(index),
 		Action:               "recovery_guidance",
 		Tool:                 observation.Tool,
-		Content:              content,
+		Output:               ToolOutput{Content: content},
 		Summary:              content,
-		IsError:              true,
-		Message:              observation.Message,
-		ErrorCode:            observation.ErrorCode,
-		FailureStage:         observation.FailureStage,
+		Failure:              observation.Failure,
 		ToolInputKey:         observation.ToolInputKey,
 		RecoveryAttemptKey:   observation.RecoveryAttemptKey,
 		RecoveryAttemptSpent: observation.RecoveryAttemptSpent,
@@ -1000,19 +1045,43 @@ func recoveryGuidanceObservation(index int, observation turnObservation) turnObs
 
 func recoveryGuidanceContent(observation turnObservation) string {
 	parts := []string{"Analyze the latest failed tool result before responding."}
-	if observation.ErrorCode != "" {
-		parts = append(parts, "errorCode="+observation.ErrorCode)
+	if observation.FailureCode() != "" {
+		parts = append(parts, "errorCode="+observation.FailureCode())
 	}
-	if observation.FailureStage != "" {
-		parts = append(parts, "failureStage="+observation.FailureStage)
+	if observation.FailureStage() != "" {
+		parts = append(parts, "failureStage="+observation.FailureStage())
 	}
-	if observation.Message != "" {
-		parts = append(parts, "message="+observation.Message)
+	if observation.FailureSummary() != "" {
+		parts = append(parts, "message="+observation.FailureSummary())
 	}
 	if observation.RecoveryAttemptKey != "" {
 		parts = append(parts, "A safe automatic retry has already been attempted for this tool input.")
 	}
+	for _, recoveryRoute := range recoveryRoutesForObservation(observation) {
+		parts = append(parts, recoveryRoute.Guidance())
+	}
 	return strings.Join(parts, " ")
+}
+
+type RecoveryRoute struct {
+	ToolName     string
+	UseWhen      string
+	DoNotUseWhen string
+}
+
+func (recoveryRoute RecoveryRoute) Guidance() string {
+	return "Recovery route: use " + recoveryRoute.ToolName + " only when " + recoveryRoute.UseWhen + "; do not use it when " + recoveryRoute.DoNotUseWhen + "."
+}
+
+func recoveryRoutesForObservation(observation turnObservation) []RecoveryRoute {
+	if observation.FailureCode() != FailureCodes.MemorySearchUnavailable.String() {
+		return nil
+	}
+	return []RecoveryRoute{{
+		ToolName:     "web.search",
+		UseWhen:      "the missing information is required and public, current, or external",
+		DoNotUseWhen: "private person or circle memory is required",
+	}}
 }
 
 func recoveryAttemptCount(observations []turnObservation) int {
@@ -1027,12 +1096,9 @@ func recoveryAttemptCount(observations []turnObservation) int {
 
 func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, observationID string, toolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
 	toolResult = normalizeToolFailureResult(toolName, toolResult)
-	content := toolResult.Content
-	if strings.TrimSpace(content) == "" {
-		content = toolResult.Message
-	}
+	content := toolResult.ContentText()
 	originalContent := content
-	isError := toolResult.IsError
+	isError := toolResult.Failed()
 	artifactID := ""
 	if len(content) > agentTurnRunner.options.ToolResultMaxBytes {
 		taskArtifact := agentTurnRunner.taskArtifactService.AddTaskArtifactBody(taskRunID, "tool."+toolName+".result", content)
@@ -1049,6 +1115,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, ob
 			content = validityFailureMessage(validityState)
 			originalContent = content
 			isError = true
+			toolResult.Failure = &ToolFailure{Kind: FailureInvalidInput, Code: NewFailureCode(FailureCodeParts{Domain: "artifact", Reason: "validity_failed"}).String(), Stage: "artifact_validation", UserSafeSummary: content}
 			attachments = nil
 			agentTurnRunner.appendEvent(taskRunID, "agent.artifact_attach_rejected", marshalEventBody(validityState))
 		}
@@ -1057,40 +1124,39 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, ob
 		ObservationID:   observationID,
 		Action:          "call_tool",
 		Tool:            toolName,
-		Content:         content,
+		Output:          toolResult.Output,
 		Summary:         buildToolResultSummary(toolName, originalContent, isError, attachments, artifactID, toolResult),
-		IsError:         isError,
-		Message:         toolResult.Message,
-		ErrorCode:       toolResult.ErrorCode,
-		FailureStage:    toolResult.FailureStage,
-		Retryable:       toolResult.Retryable,
-		SafeRetry:       toolResult.SafeRetry,
+		Failure:         toolResult.Failure,
 		Attachments:     attachments,
 		RecoveryActions: append([]RecoveryAction{}, toolResult.RecoveryActions...),
 	}
+	observation.Output.Content = content
 	observation.ToolInputKey = toolInputKey
-	if observation.IsError {
-		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.ErrorCode)
+	if observation.Failed() {
+		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.FailureCode())
 	}
 	agentTurnRunner.appendEvent(taskRunID, "tool."+toolName+".result", marshalEventBody(observation))
 	return observation
 }
 
 func normalizeToolFailureResult(toolName string, toolResult ToolResult) ToolResult {
-	if !toolResult.IsError {
+	if !toolResult.Failed() {
 		return toolResult
 	}
-	if strings.TrimSpace(toolResult.Message) == "" {
-		toolResult.Message = strings.TrimSpace(toolResult.Content)
+	if toolResult.Failure.Kind == "" {
+		toolResult.Failure.Kind = FailureUnknown
 	}
-	if strings.TrimSpace(toolResult.Content) == "" {
-		toolResult.Content = strings.TrimSpace(toolResult.Message)
+	if strings.TrimSpace(toolResult.Failure.Code) == "" {
+		toolResult.Failure.Code = "tool.failed"
 	}
-	if strings.TrimSpace(toolResult.ErrorCode) == "" {
-		toolResult.ErrorCode = "tool_failed"
+	if strings.TrimSpace(toolResult.Failure.Stage) == "" {
+		toolResult.Failure.Stage = firstNonEmptyString(toolName, "tool")
 	}
-	if strings.TrimSpace(toolResult.FailureStage) == "" {
-		toolResult.FailureStage = firstNonEmptyString(toolName, "tool")
+	if strings.TrimSpace(toolResult.Failure.UserSafeSummary) == "" {
+		toolResult.Failure.UserSafeSummary = strings.TrimSpace(toolResult.ContentText())
+	}
+	if strings.TrimSpace(toolResult.Output.Content) == "" {
+		toolResult.Output.Content = toolResult.Failure.UserSafeSummary
 	}
 	return toolResult
 }
@@ -1113,13 +1179,12 @@ func recoveryActionsFromObservations(observations []turnObservation) []RecoveryA
 
 func buildToolResultSummary(toolName string, content string, isError bool, attachments []FileAttachment, artifactID string, toolResult ToolResult) string {
 	observation := turnObservation{
-		Tool:         toolName,
-		Content:      content,
-		IsError:      isError,
-		Message:      toolResult.Message,
-		ErrorCode:    toolResult.ErrorCode,
-		FailureStage: toolResult.FailureStage,
-		Attachments:  attachments,
+		Tool:        toolName,
+		Output:      ToolOutput{Content: content},
+		Attachments: attachments,
+	}
+	if isError {
+		observation.Failure = toolResult.Failure
 	}
 	summary := summarizeObservationContent(observation)
 	if strings.TrimSpace(artifactID) != "" {
@@ -1217,8 +1282,8 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Co
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifactsFromEffect(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState, invocation ToolInvocation) completionTransition {
 	agentTurnRunner.appendValidityReview(taskRunID, "pre_attach", state.ValidityState)
 	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), invocation.ToolName, invocation.Input, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage)
-	if observation.IsError {
-		observation.Content = completionAttachmentFailureContent(observation.Content, state.AttachmentPaths)
+	if observation.Failed() {
+		observation = withObservationContent(observation, completionAttachmentFailureContent(observation.ContentText(), state.AttachmentPaths))
 	}
 	observations = append(observations, observation)
 	attachments = appendObservationAttachments(attachments, observation)
@@ -1236,12 +1301,7 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifactsFromEffect(ctx 
 }
 
 func (agentTurnRunner *AgentTurnRunner) blockInvalidCompletionArtifacts(taskRunID string, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
-	observation := turnObservation{
-		ObservationID: nextObservationID(len(observations) + 1),
-		Action:        "policy",
-		Content:       invalidCompletionArtifactObservationContent(state),
-		IsError:       true,
-	}
+	observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", invalidCompletionArtifactObservationContent(state), FailureInvalidInput, NewFailureCode(FailureCodeParts{Domain: "artifact", Reason: "validity_failed"}), "completion_state")
 	observations = append(observations, observation)
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", state.ValidityState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
@@ -1293,12 +1353,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
-		observation := turnObservation{
-			ObservationID: nextObservationID(len(observations) + 1),
-			Action:        "policy",
-			Content:       completionGateResult.Message,
-			IsError:       true,
-		}
+		observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", completionGateResult.Message, FailureInvalidInput, FailureCodeLiteral("completion_gate_failed"), "completion_state")
 		observations = append(observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
 		return completionTransition{Observations: observations, Attachments: attachments}
@@ -1378,7 +1433,7 @@ func completionStateFilenames(state CompletionState) []string {
 }
 
 func appendObservationAttachments(attachments []FileAttachment, observation turnObservation) []FileAttachment {
-	if observation.IsError || len(observation.Attachments) == 0 {
+	if observation.Failed() || len(observation.Attachments) == 0 {
 		return attachments
 	}
 	nextAttachments := append([]FileAttachment{}, attachments...)
@@ -1434,12 +1489,8 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 	}
 	message := limitPressureMessage(level)
 	return &limitPressureWarning{
-		Level: level,
-		Observation: turnObservation{
-			ObservationID: nextObservationID(observationIndex),
-			Action:        "limit_pressure",
-			Content:       message,
-		},
+		Level:       level,
+		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
 		EventBody: map[string]any{
 			"level":              level,
 			"effortLevel":        agentTurnRunner.options.EffortLevel,
@@ -1668,26 +1719,15 @@ func requirementsWithFailureDebtWaiver(requirements []toolUseRequirement, observ
 func completionGateObservation(index int, message string) turnObservation {
 	evidenceKind := evidenceMissingKind(message)
 	if evidenceKind == "" {
-		return turnObservation{
-			ObservationID: nextObservationID(index),
-			Action:        "policy",
-			Content:       message,
-			IsError:       true,
-		}
+		return newFailureObservation(nextObservationID(index), "policy", "", message, FailureInvalidInput, FailureCodeLiteral("completion_gate_failed"), "completion_gate")
 	}
 	content := evidenceMissingGuidance(evidenceKind, message)
-	return turnObservation{
-		ObservationID: nextObservationID(index),
-		Action:        "evidence_missing",
-		Content:       content,
-		Summary:       content,
-		IsError:       true,
-		Message:       message,
-		ErrorCode:     "evidence_missing",
-		FailureStage:  evidenceKind,
-		Retryable:     true,
-		SafeRetry:     true,
-	}
+	observation := newFailureObservation(nextObservationID(index), "evidence_missing", "", message, FailureInvalidInput, FailureCodeLiteral("evidence_missing"), evidenceKind)
+	observation = withObservationContent(observation, content)
+	observation.Summary = content
+	observation.Failure.Retryable = true
+	observation.Failure.SafeRetry = true
+	return observation
 }
 
 func completionGateEventName(observation turnObservation) string {
@@ -1825,7 +1865,7 @@ func completionReferencesForRequirement(requirement toolUseRequirement, observat
 func matchingCompletionObservations(requirement toolUseRequirement, observations []turnObservation) []turnObservation {
 	matchingObservations := []turnObservation{}
 	for _, observation := range observations {
-		if observation.IsError || !requirementMatchesObservation(requirement, observation) {
+		if observation.Failed() || !requirementMatchesObservation(requirement, observation) {
 			continue
 		}
 		if requirement.RequiresAttachment && len(observation.Attachments) == 0 {
@@ -1849,7 +1889,7 @@ func requirementMatchesObservation(requirement toolUseRequirement, observation t
 
 func findSuccessfulObservation(observations []turnObservation, reference completionEvidenceReference) (turnObservation, bool) {
 	for _, observation := range observations {
-		if observation.IsError {
+		if observation.Failed() {
 			continue
 		}
 		if strings.TrimSpace(observation.ObservationID) != strings.TrimSpace(reference.ObservationID) {
@@ -2177,10 +2217,10 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 func latestStructuredFailureObservation(observations []turnObservation) (turnObservation, bool) {
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
-		if !observation.IsError {
+		if !observation.Failed() {
 			continue
 		}
-		if strings.TrimSpace(observation.ErrorCode) == "" && strings.TrimSpace(observation.FailureStage) == "" {
+		if strings.TrimSpace(observation.FailureCode()) == "" && strings.TrimSpace(observation.FailureStage()) == "" {
 			continue
 		}
 		return observation, true
@@ -2249,7 +2289,7 @@ func structuredFailureDetailsAreMissing(reply string, failureReason string, obse
 	if !isFound {
 		return false
 	}
-	return !containsFailureDetail(reply, failure.FailureStage) || !containsFailureDetail(reply, failure.ErrorCode)
+	return !containsFailureDetail(reply, failure.FailureStage()) || !containsFailureDetail(reply, failure.FailureCode())
 }
 
 func containsFailureDetail(reply string, value string) bool {
@@ -2325,7 +2365,7 @@ func limitReachedReplyIsInvalid(reply string, attachments []FileAttachment) bool
 func buildLimitObservationSummary(observations []turnObservation) string {
 	lines := []string{}
 	for _, observation := range observations {
-		if observation.IsError {
+		if observation.Failed() {
 			continue
 		}
 		summary := strings.TrimSpace(observation.Summary)
@@ -2350,8 +2390,8 @@ func buildLimitObservationSummary(observations []turnObservation) string {
 func buildFailureObservationSummary(observations []turnObservation) string {
 	lines := []string{}
 	for _, observation := range observations {
-		content := strings.TrimSpace(observation.Content)
-		if observation.IsError {
+		content := strings.TrimSpace(observation.ContentText())
+		if observation.Failed() {
 			content = firstNonEmptyString(summarizeStructuredFailure(observation), content)
 		}
 		if content == "" {
@@ -2364,7 +2404,7 @@ func buildFailureObservationSummary(observations []turnObservation) string {
 		if label == "" {
 			label = strings.TrimSpace(observation.Action)
 		}
-		if observation.IsError {
+		if observation.Failed() {
 			label = label + " failed"
 		}
 		lines = append(lines, "- "+label+": "+truncateText(compactWhitespace(redactUnsafeText(content)), 360))

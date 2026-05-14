@@ -33,7 +33,7 @@ func TestQualityReviewRequiresPassingEvidence(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "call_tool",
 		Tool:          "terminal.run",
-		Content:       "ok",
+		Output:        ToolOutput{Content: "ok"},
 	}}
 
 	if errorValue := validateQualityReview(criteria, review, observations); errorValue != nil {
@@ -55,7 +55,7 @@ func TestQualityReviewRejectsFailedCriterion(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "call_tool",
 		Tool:          "file.attach",
-		Content:       "file attached",
+		Output:        ToolOutput{Content: "file attached"},
 	}}
 
 	if errorValue := validateQualityReview(criteria, review, observations); errorValue == nil {
@@ -99,7 +99,7 @@ func TestCompletionGateRejectsFailedDeclaredQualityCriterion(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "call_tool",
 		Tool:          "site.app.create",
-		Content:       `{"siteID":"site-1"}`,
+		Output:        ToolOutput{Content: `{"siteID":"site-1"}`},
 	}}
 
 	result := validateCompletionGateForRequest(AgentTurnRequest{}, nil, observations, criteria, actionDocument)
@@ -131,7 +131,7 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "call_tool",
 		Tool:          "file.attach",
-		Content:       "file attached",
+		Output:        ToolOutput{Content: "file attached"},
 		Attachments: []FileAttachment{{
 			Filename:   "hermes-analysis.html",
 			DevicePath: "/root/.blueclaw/workspace/hermes-analysis.html",
@@ -166,7 +166,7 @@ func TestCompletionGateRejectsUnattachedArtifactFilename(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "call_tool",
 		Tool:          "file.attach",
-		Content:       "file attached",
+		Output:        ToolOutput{Content: "file attached"},
 		Attachments: []FileAttachment{{
 			Filename:   "hermes-analysis.html",
 			DevicePath: "/root/.blueclaw/workspace/hermes-analysis.html",

@@ -22,7 +22,7 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 		Description: "Publish a site.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"required":["siteID"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "published"}, nil
+		return ToolSuccess("published"), nil
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
@@ -71,7 +71,7 @@ func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T)
 	temperature := 0.5
 	toolSet := NewToolSet([]string{"browser.open"})
 	toolSet.RegisterTool(ToolDefinition{Name: "browser.open"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "opened"}, nil
+		return ToolSuccess("opened"), nil
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
@@ -100,7 +100,7 @@ func TestBuildAgentActionRequestIncludesApprovalUserFacingContract(t *testing.T)
 		Description: "Ask for approval.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string"},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string"}},"required":["userFacingMessage","reasonCode"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "approval requested"}, nil
+		return ToolSuccess("approval requested"), nil
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
@@ -156,7 +156,7 @@ func TestParseAgentActionResponseRejectsMalformedJSON(t *testing.T) {
 func TestApplyToolResultAppendsObservationDeterministically(t *testing.T) {
 	state := agentTaskState{}
 	result := ToolResult{
-		Content: "attached",
+		Output: ToolOutput{Content: "attached"},
 		Attachments: []FileAttachment{{
 			DevicePath:  "/tmp/file.html",
 			Filename:    "file.html",
@@ -170,7 +170,7 @@ func TestApplyToolResultAppendsObservationDeterministically(t *testing.T) {
 		t.Fatalf("expected one observation, got %+v", nextState.Observations)
 	}
 	observation := nextState.Observations[0]
-	if observation.ObservationID != "obs-001" || observation.Tool != "file.attach" || observation.Content != "attached" {
+	if observation.ObservationID != "obs-001" || observation.Tool != "file.attach" || observation.ContentText() != "attached" {
 		t.Fatalf("unexpected observation: %+v", observation)
 	}
 	if len(nextState.Attachments) != 1 || nextState.Attachments[0].Filename != "file.html" {
@@ -203,7 +203,7 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 	}
 	toolSet := NewToolSet([]string{"file.attach"})
 	toolSet.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolResult{Content: "attached"}, nil
+		return ToolSuccess("attached"), nil
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
@@ -244,7 +244,7 @@ func TestAdvanceAgentTaskReturnsFinalReplyEffectForSatisfiedBrowserOpen(t *testi
 			ObservationID: "obs-001",
 			Action:        "call_tool",
 			Tool:          "browser.open",
-			Content:       "opened",
+			Output:        ToolOutput{Content: "opened"},
 		}},
 	}
 
@@ -277,5 +277,16 @@ func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 	}
 	if len(state.Observations) != 1 || state.Observations[0].Tool != "browser.open" {
 		t.Fatalf("expected restored observation, got %+v", state.Observations)
+	}
+}
+
+func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) {
+	observation, errorValue := decodeTurnObservation([]byte(`{"observationID":"obs-001","action":"call_tool","tool":"memory.search","content":"memory failed","isError":true,"errorCode":"memory_search_unavailable","failureStage":"graphiti_search","message":"memory failed"}`))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	if !observation.Failed() || observation.FailureCode() != FailureCodes.MemorySearchUnavailable.String() {
+		t.Fatalf("expected canonical memory search failure, got %+v", observation)
 	}
 }

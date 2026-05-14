@@ -35,7 +35,7 @@ func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "call_tool",
 		Tool:          "browser.snapshot",
-		Content:       `{"url":"https://example.com","title":"Example","snapshotText":"VISIBLE START ` + strings.Repeat("raw-page-text ", 500) + ` SECRET_COOKIE_VALUE","interactiveRefs":["@e1","@e2"],"profilePath":"/Users/me/Profile","cdpURL":"ws://localhost:9222"}`,
+		Output:        ToolOutput{Content: `{"url":"https://example.com","title":"Example","snapshotText":"VISIBLE START ` + strings.Repeat("raw-page-text ", 500) + ` SECRET_COOKIE_VALUE","interactiveRefs":["@e1","@e2"],"profilePath":"/Users/me/Profile","cdpURL":"ws://localhost:9222"}`},
 	}}
 
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
@@ -69,7 +69,7 @@ func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 		ObservationID: "obs-001",
 		Action:        "call_tool",
 		Tool:          "browser.screenshot",
-		Content:       `{"devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png"}`,
+		Output:        ToolOutput{Content: `{"devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png"}`},
 		Attachments: []FileAttachment{{
 			DevicePath:  "/tmp/internkim-companion-files/screen.png",
 			Filename:    "screen.png",
@@ -98,14 +98,14 @@ func TestPromptAssemblerCompressesLongObservationHistory(t *testing.T) {
 			ObservationID: "obs-" + strings.Repeat("0", 2) + string(rune('a'+index)),
 			Action:        "call_tool",
 			Tool:          "browser.snapshot",
-			Content:       `{"snapshotText":"` + strings.Repeat("very-long-page-output ", 200) + `","interactiveRefs":["@old"]}`,
+			Output:        ToolOutput{Content: `{"snapshotText":"` + strings.Repeat("very-long-page-output ", 200) + `","interactiveRefs":["@old"]}`},
 		})
 	}
 	observations = append(observations, turnObservation{
 		ObservationID: "obs-latest",
 		Action:        "call_tool",
 		Tool:          "browser.snapshot",
-		Content:       `{"snapshotText":"latest form","interactiveRefs":["@latestSearch","@latestButton"]}`,
+		Output:        ToolOutput{Content: `{"snapshotText":"latest form","interactiveRefs":["@latestSearch","@latestButton"]}`},
 	})
 
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{

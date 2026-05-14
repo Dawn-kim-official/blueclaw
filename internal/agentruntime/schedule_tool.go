@@ -83,18 +83,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 
 func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext context.Context, input scheduleCreateToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.taskScheduleRepository == nil {
-		return agent.ToolResult{Content: "task schedule repository is unavailable", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodeLiteral("schedule_repository_unavailable"), "schedule_create", "task schedule repository is unavailable"), nil
 	}
 	taskSchedule, errorValue := toolCatalogBuilder.buildTaskSchedule(input, handlerContext)
 	if errorValue != nil {
-		return agent.ToolResult{Content: errorValue.Error(), IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "schedule", Action: "invalid", Reason: "input"}), "schedule_create", errorValue.Error()), nil
 	}
 	initializedTaskSchedule, errorValue := (task.TaskScheduler{}).InitializeTaskSchedule(taskSchedule, time.Now().UTC())
 	if errorValue != nil {
-		return agent.ToolResult{Content: "invalid task schedule", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "schedule", Reason: "invalid"}), "schedule_create", "invalid task schedule"), nil
 	}
 	if initializedTaskSchedule.NextRunAt == nil {
-		return agent.ToolResult{Content: "task schedule has no future run", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.NewFailureCode(agent.FailureCodeParts{Domain: "schedule", Action: "no_future", Reason: "run"}), "schedule_create", "task schedule has no future run"), nil
 	}
 	if errorValue := toolCatalogBuilder.taskScheduleRepository.UpsertTaskSchedule(initializedTaskSchedule); errorValue != nil {
 		return agent.ToolResult{}, errorValue
@@ -102,12 +102,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext con
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.created", marshalToolResult(initializedTaskSchedule))
 	}
-	return agent.ToolResult{Content: marshalToolResult(initializedTaskSchedule)}, nil
+	return agent.ToolSuccess(marshalToolResult(initializedTaskSchedule)), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext context.Context, input scheduleCancelToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	if toolCatalogBuilder.taskScheduleRepository == nil {
-		return agent.ToolResult{Content: "task schedule repository is unavailable", IsError: true}, nil
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodeLiteral("schedule_repository_unavailable"), "schedule_cancel", "task schedule repository is unavailable"), nil
 	}
 	cancelledAt := time.Now().UTC()
 	cancelRequest := task.TaskScheduleCancelRequest{
@@ -132,7 +132,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext con
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.cancelled", marshalToolResult(response))
 	}
-	return agent.ToolResult{Content: marshalToolResult(response)}, nil
+	return agent.ToolSuccess(marshalToolResult(response)), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduledTaskRuns(cancelRequest task.TaskScheduleCancelRequest, result task.TaskScheduleCancelResult) int {

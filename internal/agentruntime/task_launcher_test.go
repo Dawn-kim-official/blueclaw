@@ -141,7 +141,7 @@ func TestToolCatalogHidesHistoryWithoutProviderAndDeniedTools(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected denied tool as result: %v", errorValue)
 	}
-	if !toolResult.IsError || toolResult.Content != "tool is not allowed" {
+	if !toolResult.Failed() || toolResult.ContentText() != "tool is not allowed" {
 		t.Fatalf("expected denied result, got %+v", toolResult)
 	}
 }
@@ -183,7 +183,7 @@ func TestApprovalRequestPausesActiveTaskRun(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected approval tool to return a result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected approval request to succeed, got %+v", toolResult)
 	}
 	updatedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
@@ -214,7 +214,7 @@ func TestApprovalRequestStoresUserFacingMessageSeparatelyFromReasonDetail(t *tes
 	if errorValue != nil {
 		t.Fatalf("expected approval tool to return a result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected approval request to succeed, got %+v", toolResult)
 	}
 	approvalEvent := findTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "approval.requested")
@@ -249,7 +249,7 @@ func TestApprovalRequestAcceptsLegacyMessageWithoutExposingReasonAsMessage(t *te
 	if errorValue != nil {
 		t.Fatalf("expected legacy approval tool to return a result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected legacy approval request to succeed, got %+v", toolResult)
 	}
 	approvalEvent := findTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "approval.requested")
@@ -280,7 +280,7 @@ func TestApprovalRequestRejectsMissingUserFacingMessageWithoutPausing(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected approval tool to return a result: %v", errorValue)
 	}
-	if !toolResult.IsError || toolResult.ErrorCode != "approval_message_required" {
+	if !toolResult.Failed() || toolResult.FailureCode() != "approval_message_required" {
 		t.Fatalf("expected missing message tool failure, got %+v", toolResult)
 	}
 	updatedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
@@ -322,7 +322,7 @@ func TestBrowserHandoffOpenURLUsesCapabilityBridge(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser handoff result: %v", errorValue)
 	}
-	if toolResult.Content != "opened" || toolResult.IsError {
+	if toolResult.ContentText() != "opened" || toolResult.Failed() {
 		t.Fatalf("expected opened bridge response, got %+v", toolResult)
 	}
 	if httpClient.requestPath != "/v1/tools/browser.handoff/invoke" || !strings.Contains(httpClient.requestBody, "https://example.com/login") {
@@ -384,7 +384,7 @@ func TestBrowserHandoffPausesTaskWhileWaitingForUser(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser handoff result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected waiting handoff not to be an error: %+v", toolResult)
 	}
 	pausedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
@@ -420,7 +420,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser capability result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected browser capability success, got %+v", toolResult)
 	}
 	var requestDocument struct {
@@ -460,7 +460,7 @@ func TestPublicBrowserCapabilityWithRequesterKeepsDeviceFallback(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser capability result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected browser capability success, got %+v", toolResult)
 	}
 	var requestDocument map[string]any
@@ -489,7 +489,7 @@ func TestPrivateBrowserCapabilityUsesCompanion(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser capability result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected browser capability success, got %+v", toolResult)
 	}
 	var requestDocument struct {
@@ -529,7 +529,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser capability result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected browser capability success, got %+v", toolResult)
 	}
 	var requestDocument struct {
@@ -565,7 +565,7 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser capability result: %v", errorValue)
 	}
-	if !toolResult.IsError || len(toolResult.RecoveryActions) != 1 {
+	if !toolResult.Failed() || len(toolResult.RecoveryActions) != 1 {
 		t.Fatalf("expected recovery action on denied tool result, got %+v", toolResult)
 	}
 	recoveryAction := toolResult.RecoveryActions[0]
@@ -591,7 +591,7 @@ func TestPublicBrowserCapabilityKeepsDeviceFallback(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser capability result: %v", errorValue)
 	}
-	if toolResult.IsError {
+	if toolResult.Failed() {
 		t.Fatalf("expected browser capability success, got %+v", toolResult)
 	}
 	var requestDocument map[string]any
@@ -628,7 +628,7 @@ func TestBrowserHandoffOpenURLRecordsFailureWhenCompanionIsDisconnected(t *testi
 	if errorValue != nil {
 		t.Fatalf("expected browser handoff denial result: %v", errorValue)
 	}
-	if !toolResult.IsError || !strings.Contains(toolResult.Content, "/connect") {
+	if !toolResult.Failed() || !strings.Contains(toolResult.ContentText(), "/connect") {
 		t.Fatalf("expected /connect denial result, got %+v", toolResult)
 	}
 	taskEvents := taskEventService.ListTaskEvent(taskRun.TaskRunID)
@@ -666,7 +666,7 @@ func TestCapabilityDescriptorAppearsInToolSetAndInvokesBridge(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected capability descriptor invocation: %v", errorValue)
 	}
-	if toolResult.IsError || httpClient.requestPath != "/v1/tools/browser.open/invoke" {
+	if toolResult.Failed() || httpClient.requestPath != "/v1/tools/browser.open/invoke" {
 		t.Fatalf("expected capability bridge invocation, got result=%+v path=%s", toolResult, httpClient.requestPath)
 	}
 }
@@ -699,7 +699,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected denied tool result: %v", errorValue)
 	}
-	if !staffResult.IsError || !strings.Contains(staffResult.Content, "cannot execute") {
+	if !staffResult.Failed() || !strings.Contains(staffResult.ContentText(), "cannot execute") {
 		t.Fatalf("expected staff execution denial, got %+v", staffResult)
 	}
 	if httpClient.requestPath != "" {
@@ -721,7 +721,7 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected representative tool result: %v", errorValue)
 	}
-	if representativeResult.IsError {
+	if representativeResult.Failed() {
 		t.Fatalf("expected representative execution success, got %+v", representativeResult)
 	}
 	if httpClient.requestPath != "/v1/tools/company.broadcast.send/invoke" {
@@ -756,7 +756,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected denied tool result: %v", errorValue)
 	}
-	if !guestResult.IsError {
+	if !guestResult.Failed() {
 		t.Fatalf("expected guest execution denial, got %+v", guestResult)
 	}
 	if httpClient.requestPath != "" {
@@ -778,7 +778,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected staff tool result: %v", errorValue)
 	}
-	if staffResult.IsError {
+	if staffResult.Failed() {
 		t.Fatalf("expected staff execution success, got %+v", staffResult)
 	}
 	if httpClient.requestPath != "/v1/tools/flow.task.add/invoke" {

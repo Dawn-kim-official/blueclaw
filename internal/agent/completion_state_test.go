@@ -98,7 +98,7 @@ func TestCompletionStateDoesNotRepeatFailedAttachment(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.attach"})},
 		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
-		[]turnObservation{{ObservationID: "obs-001", Tool: "file.attach", Content: filepath.Join(artifactDirectoryPath, "deck.pptx"), IsError: true}},
+		[]turnObservation{newFailureObservation("obs-001", "call_tool", "file.attach", filepath.Join(artifactDirectoryPath, "deck.pptx"), FailureUnknown, FailureCodeLiteral("file.attach_failed"), "file_attach")},
 	)
 
 	if state.RecommendedAction != completionActionContinueWork {
