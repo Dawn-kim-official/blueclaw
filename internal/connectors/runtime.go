@@ -728,6 +728,17 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if result, isHandled := connectorRuntime.handleTaskControlIfRequested(ctx, platform, adapter, event, replyTarget, personID, sendReply); isHandled {
 		return result, nil
 	}
+	stopProgress := func() {}
+	isProgressStarted := false
+	defer func() {
+		if isProgressStarted {
+			stopProgress()
+		}
+	}()
+	if shouldStartProgressBeforeAddressing(event) {
+		stopProgress = connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
+		isProgressStarted = true
+	}
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(personID)
 	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	pendingApproval, confirmationDecision, hasPendingConfirmation := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event)
@@ -751,8 +762,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", ignoreReason))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: ignoreReason}, nil
 	}
-	stopProgress := connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
-	defer stopProgress()
+	if !isProgressStarted {
+		stopProgress = connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
+		isProgressStarted = true
+	}
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, agentruntime.TaskLaunchRequest{
@@ -1659,6 +1672,10 @@ func (connectorRuntime *ConnectorRuntime) buildReplyTarget(ctx context.Context, 
 
 func (connectorRuntime *ConnectorRuntime) startProgress(ctx context.Context, adapter PlatformAdapter, replyTarget ReplyTarget) func() {
 	return connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
+}
+
+func shouldStartProgressBeforeAddressing(event PlatformInboundEvent) bool {
+	return !isMultiPersonConversation(event)
 }
 
 func (connectorRuntime *ConnectorRuntime) startProgressHeartbeat(ctx context.Context, adapter PlatformAdapter, replyTarget ReplyTarget) func() {
