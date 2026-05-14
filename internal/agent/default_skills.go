@@ -14,6 +14,8 @@ var builtInSkillInstructions = []SkillInstruction{
 Persistent memory is available by default.
 
 Use memory.search when older context may be relevant but is not already present in the injected memory context.
+If memory.search is unavailable, use web.search only when the missing information is required and can be answered from public, current, or external sources.
+Do not use web.search to replace private person memory, circle memory, user preferences, names, or addressing instructions.
 Use memory.remember only for durable facts, preferences, names, ongoing project context, or circle-shared knowledge that should help future conversations.
 Call memory.search with a plain query string. Call memory.remember with a plain memory string.
 Do not remember secrets, one-off requests, temporary details, or facts that are not useful beyond the current conversation.

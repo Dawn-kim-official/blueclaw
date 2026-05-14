@@ -46,9 +46,22 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext conte
 		AccessibleConversationIDs: request.AccessibleConversationIDs,
 	})
 	if errorValue != nil {
-		return agent.ToolResult{}, errorValue
+		return memorySearchUnavailableResult(), nil
 	}
 	return agent.ToolResult{Content: marshalToolResult(memoryFacts)}, nil
+}
+
+func memorySearchUnavailableResult() agent.ToolResult {
+	message := "Persistent graph memory search is unavailable. If the missing information is required and can be answered from public, current, or external sources, use web.search. Do not use web.search to replace private person or circle memory."
+	return agent.ToolResult{
+		Content:      message,
+		IsError:      true,
+		Message:      message,
+		ErrorCode:    "memory_search_unavailable",
+		FailureStage: "graphiti_search",
+		Retryable:    true,
+		SafeRetry:    false,
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) SearchMemory(ctx context.Context, request TaskMemoryRequest) ([]memory.MemoryFact, error) {

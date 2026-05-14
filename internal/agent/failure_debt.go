@@ -137,9 +137,16 @@ func classifyRecoveryStep(failureDebt FailureDebt, toolName string) string {
 }
 
 func isAlternateRouteToolPair(firstToolName string, secondToolName string) bool {
+	if isMemorySearchWebSearchRoute(firstToolName, secondToolName) {
+		return true
+	}
 	firstRoute := recoveryRouteGroup(firstToolName)
 	secondRoute := recoveryRouteGroup(secondToolName)
 	return firstRoute != "" && firstRoute == secondRoute
+}
+
+func isMemorySearchWebSearchRoute(firstToolName string, secondToolName string) bool {
+	return strings.TrimSpace(firstToolName) == "memory.search" && strings.TrimSpace(secondToolName) == "web.search"
 }
 
 func recoveryRouteGroup(toolName string) string {
