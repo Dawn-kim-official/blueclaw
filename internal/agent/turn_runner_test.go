@@ -1659,6 +1659,25 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	}
 }
 
+func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
+	observations := []turnObservation{
+		newFailureObservation("obs-001", "call_tool", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory '/workspace/.blueclaw/tmp': Permission denied"}`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
+	}
+	prompt := buildLimitReachedPrompt(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "max_iterations", observations, nil, recoveryDecision{})
+
+	for _, expectedText := range []string{
+		"FailureReportFacts that must be reflected accurately",
+		"terminal.run",
+		"operation_failed",
+		"terminal_run",
+		"Permission denied",
+	} {
+		if !strings.Contains(prompt, expectedText) {
+			t.Fatalf("expected limit prompt to contain %q, got %s", expectedText, prompt)
+		}
+	}
+}
+
 func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,

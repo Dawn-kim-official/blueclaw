@@ -151,18 +151,26 @@ func (identityService *IdentityService) reloadPlatformAccounts() {
 		return
 	}
 	for _, platformAccount := range platformAccounts {
-		personID := platformAccount.PersonID
-		if personID == "" && platformAccount.Email != "" {
-			resolvedPersonID, isFound := identityService.personIDByEmail[strings.ToLower(strings.TrimSpace(platformAccount.Email))]
-			if isFound {
-				personID = resolvedPersonID
-			}
-		}
+		personID := identityService.currentPolicyPersonID(platformAccount)
 		if personID == "" {
 			continue
 		}
 		identityService.personIDByPlatformAccountKey[platformAccount.Platform+":"+platformAccount.ExternalUserID] = personID
 	}
+}
+
+func (identityService *IdentityService) currentPolicyPersonID(platformAccount PlatformAccountIdentity) string {
+	emailPersonID := ""
+	if platformAccount.Email != "" {
+		emailPersonID = identityService.personIDByEmail[strings.ToLower(strings.TrimSpace(platformAccount.Email))]
+	}
+	if emailPersonID != "" {
+		return emailPersonID
+	}
+	if _, isFound := identityService.personAccessByPersonID[platformAccount.PersonID]; isFound {
+		return platformAccount.PersonID
+	}
+	return ""
 }
 
 func (identityService *IdentityService) savePlatformAccount(platformAccountIdentity PlatformAccountIdentity) error {

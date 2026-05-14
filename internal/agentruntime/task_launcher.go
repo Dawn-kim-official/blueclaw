@@ -118,6 +118,13 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		AccessibleConversationIDs: request.AccessibleConversationIDs,
 	})
 	toolNames := toolSet.ListToolNames()
+	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{
+		RequesterPersonID:       request.RequesterPersonID,
+		ConversationID:          request.ConversationID,
+		ConversationType:        request.ConversationType,
+		ConversationChannelID:   request.ConversationChannelID,
+		ConversationChannelName: request.ConversationChannelName,
+	})
 	memoryFacts, errorValue := taskLauncher.toolCatalogBuilder.LoadPinnedMemory(ctx, TaskPinnedMemoryRequest{
 		RequesterPersonID: request.RequesterPersonID,
 	})
@@ -146,6 +153,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		MemoryFacts:             memoryFacts,
 		ToolSet:                 toolSet,
 		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
+		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
 	})
 	if errorValue != nil {
 		return TaskLaunchResult{}, errorValue
@@ -161,13 +169,6 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryFacts)}))
 		}
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, len(memoryFacts)))
-		conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{
-			RequesterPersonID:       request.RequesterPersonID,
-			ConversationID:          request.ConversationID,
-			ConversationType:        request.ConversationType,
-			ConversationChannelID:   request.ConversationChannelID,
-			ConversationChannelName: request.ConversationChannelName,
-		})
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.conversation_scope", marshalToolResult(conversationScope))
 	}
 	return TaskLaunchResult{

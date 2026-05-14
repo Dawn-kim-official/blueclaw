@@ -177,6 +177,25 @@ func buildRuntimeContextDescription(request AgentTurnRequest) string {
 		"Default calendar timezone: " + defaultTurnLocation().String(),
 		"Resolve relative dates such as today, tomorrow, and this Tuesday from the current turn date before calling tools.",
 	}
+	if workspaceContext := buildWorkspaceContextDescription(request); workspaceContext != "" {
+		lines = append(lines, workspaceContext)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func buildWorkspaceContextDescription(request AgentTurnRequest) string {
+	defaultPath := strings.TrimSpace(request.WorkspaceDefaultPath)
+	if defaultPath == "" {
+		return ""
+	}
+	lines := []string{
+		"Default writable workspace directory: " + defaultPath,
+		"Use relative paths or this default directory for files you create.",
+		"Do not create, modify, or attach files under /workspace/.blueclaw; that path is service-owned and not user workspace.",
+	}
+	if rootPath := strings.TrimSpace(request.WorkspaceRootPath); rootPath != "" {
+		lines = append(lines, "Workspace root: "+rootPath)
+	}
 	return strings.Join(lines, "\n")
 }
 

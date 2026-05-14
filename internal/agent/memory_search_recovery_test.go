@@ -64,6 +64,23 @@ func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	}
 }
 
+func TestMemoryInstructionsRequireRememberForAddressingPreference(t *testing.T) {
+	instructions := DefaultSkillInstructions()
+	if len(instructions) == 0 {
+		t.Fatal("expected default memory skill instruction")
+	}
+	prompt := instructions[0].Prompt
+	for _, expectedText := range []string{
+		"call memory.remember before acknowledging",
+		"Addressing preferences",
+		"durable person memory",
+	} {
+		if !strings.Contains(prompt, expectedText) {
+			t.Fatalf("expected memory prompt to contain %q, got %q", expectedText, prompt)
+		}
+	}
+}
+
 func TestSystemInstructionAllowsWebSearchAfterMemorySearchUnavailable(t *testing.T) {
 	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
 	for _, expectedText := range []string{

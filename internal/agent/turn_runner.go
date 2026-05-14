@@ -58,6 +58,7 @@ type AgentTurnRequest struct {
 	MemoryFacts                []memory.MemoryFact
 	ToolSet                    *ToolSet
 	WorkspaceRootPath          string
+	WorkspaceDefaultPath       string
 	ActivePaths                []string
 	InstructionPrompt          string
 	InstructionSources         []InstructionSource
@@ -2314,6 +2315,7 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 		responseLanguageInstruction(request.ResponseLanguage),
 		"Do not mention internal runtime jargon, counters, percentages, elapsed time, or exact limits.",
 		"Say what was completed, what remains, and the best partial answer available from completed work.",
+		"When FailureReportFacts are provided, preserve those facts. Do not replace them with generic phrases such as system limitation, technical problem, or unexpected interruption.",
 		"Do not claim a tool result or attachment exists unless it appears below.",
 		"Original user request:\n" + strings.TrimSpace(request.Prompt),
 	}
@@ -2331,6 +2333,9 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 	}
 	if requirementSummary := buildLimitRequirementSummary(request, observations); requirementSummary != "" {
 		sections = append(sections, "Remaining completion requirements:\n"+requirementSummary)
+	}
+	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
+		sections = append(sections, "FailureReportFacts that must be reflected accurately:\n"+marshalEventBody(failureFacts))
 	}
 	if reason := strings.TrimSpace(stopReason); reason != "" {
 		sections = append(sections, "Internal stop reason for your planning only: "+reason)

@@ -1076,6 +1076,33 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 }
 
+func TestTerminalRunBlocksServiceOwnedWorkspacePath(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
+		WorkspaceRootPath: workspacePath,
+		Mode:              "firecrackerGuest",
+		TimeoutSecond:     5,
+		OutputMaxBytes:    4096,
+		SessionMaxCount:   2,
+	}))
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command": "mkdir -p /workspace/.blueclaw/tmp/deck",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.Failure == nil || result.Failure.Code != agent.FailureCodes.PolicyBlocked.String() {
+		t.Fatalf("expected service-owned path policy failure, got %+v", result)
+	}
+}
+
 func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1")
