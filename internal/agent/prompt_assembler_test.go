@@ -64,6 +64,27 @@ func TestPromptAssemblerIncludesTurnDateContext(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblerIncludesWritableWorkspaceContext(t *testing.T) {
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt:               "pptx 만들어줘",
+		TurnStartedAt:        time.Date(2026, time.May, 8, 18, 1, 10, 0, time.UTC),
+		WorkspaceRootPath:    "/workspace",
+		WorkspaceDefaultPath: "/workspace/private/people/person-1",
+		ResponseLanguage:     "ko",
+	}, nil, "base", "")
+	body := joinMessageContent(messages)
+
+	for _, expected := range []string{
+		"Default writable workspace directory: /workspace/private/people/person-1",
+		"Use relative paths or this default directory for files you create.",
+		"Do not create, modify, or attach files under /workspace/.blueclaw",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected workspace context %q, got %s", expected, body)
+		}
+	}
+}
+
 func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
