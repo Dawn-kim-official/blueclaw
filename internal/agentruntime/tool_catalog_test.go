@@ -1076,7 +1076,7 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 }
 
-func TestTerminalRunBlocksServiceOwnedWorkspacePath(t *testing.T) {
+func TestTerminalRunAllowsServiceOwnedPathText(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
@@ -1092,14 +1092,14 @@ func TestTerminalRunBlocksServiceOwnedWorkspacePath(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
 		Input: agent.MarshalToolInput(map[string]any{
-			"command": "mkdir -p /workspace/.blueclaw/tmp/deck",
+			"command": "printf '%s' /workspace/.blueclaw/tmp/deck",
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || result.Failure == nil || result.Failure.Code != agent.FailureCodes.PolicyBlocked.String() {
-		t.Fatalf("expected service-owned path policy failure, got %+v", result)
+	if result.Failed() {
+		t.Fatalf("expected service-owned path text not to be policy-blocked, got %+v", result)
 	}
 }
 

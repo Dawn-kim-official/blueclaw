@@ -67,6 +67,7 @@ func TestPromptAssemblerIncludesTurnDateContext(t *testing.T) {
 func TestPromptAssemblerIncludesWritableWorkspaceContext(t *testing.T) {
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
 		Prompt:               "pptx 만들어줘",
+		RequesterPersonID:    "person-1",
 		TurnStartedAt:        time.Date(2026, time.May, 8, 18, 1, 10, 0, time.UTC),
 		WorkspaceRootPath:    "/workspace",
 		WorkspaceDefaultPath: "/workspace/private/people/person-1",
@@ -75,9 +76,15 @@ func TestPromptAssemblerIncludesWritableWorkspaceContext(t *testing.T) {
 	body := joinMessageContent(messages)
 
 	for _, expected := range []string{
+		"Terminal commands run as the requester POSIX identity.",
 		"Default writable workspace directory: /workspace/private/people/person-1",
-		"Use relative paths or this default directory for files you create.",
-		"Do not create, modify, or attach files under /workspace/.blueclaw",
+		"Prefer relative paths from that directory for generated files.",
+		"Person-private files live under /workspace/private/people/person-1.",
+		"Circle-shared files live under /workspace/circles/<circleID>",
+		"/workspace/.blueclaw is service-owned runtime state",
+		"ls -ld <path>",
+		"stat -c '%A %U %G %n' <path>",
+		"test -w <path>",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected workspace context %q, got %s", expected, body)

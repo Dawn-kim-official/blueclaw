@@ -189,10 +189,18 @@ func buildWorkspaceContextDescription(request AgentTurnRequest) string {
 		return ""
 	}
 	lines := []string{
+		"Terminal commands run as the requester POSIX identity.",
 		"Default writable workspace directory: " + defaultPath,
-		"Use relative paths or this default directory for files you create.",
-		"Do not create, modify, or attach files under /workspace/.blueclaw; that path is service-owned and not user workspace.",
+		"Prefer relative paths from that directory for generated files.",
 	}
+	if personID := strings.TrimSpace(request.RequesterPersonID); personID != "" {
+		lines = append(lines, "Person-private files live under /workspace/private/people/"+personID+".")
+	}
+	lines = append(lines,
+		"Circle-shared files live under /workspace/circles/<circleID> when the requester belongs to that circle.",
+		"/workspace/.blueclaw is service-owned runtime state and is normally not writable from terminal tools.",
+		"If unsure, inspect access with: id; pwd; ls -ld <path>; stat -c '%A %U %G %n' <path>; test -w <path>.",
+	)
 	if rootPath := strings.TrimSpace(request.WorkspaceRootPath); rootPath != "" {
 		lines = append(lines, "Workspace root: "+rootPath)
 	}
