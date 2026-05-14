@@ -9,18 +9,42 @@ import (
 
 type PromptAssembler struct{}
 
+type InjectedContextInput struct {
+	BaseInstruction   string
+	InstructionPrompt string
+	ToolDescription   string
+	TurnStartedAt     time.Time
+	RuntimeRequest    AgentTurnRequest
+	MemoryContext     string
+	Observations      []turnObservation
+}
+
+func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
+	return compactMessages([]llm.Message{
+		systemMessage(input.BaseInstruction),
+		systemMessage(buildTemporalContextDescription(input.TurnStartedAt)),
+		systemMessage(buildInstructionContext(input.InstructionPrompt)),
+		systemMessage(input.ToolDescription),
+		systemMessage(buildRuntimeContextDescription(input.RuntimeRequest)),
+		systemMessage(buildSenderAddressingDescription(input.RuntimeRequest)),
+		systemMessage(activeGoalDescription(input.RuntimeRequest.ActiveGoal)),
+		systemMessage(buildVisibleContextDescription(input.RuntimeRequest.VisibleContext)),
+		systemMessage(input.MemoryContext),
+		systemMessage(buildProgressContext(input.RuntimeRequest, input.Observations)),
+		systemMessage(buildObservationContext(input.Observations)),
+	})
+}
+
 func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnRequest, observations []turnObservation, baseInstruction string, toolDescription string) []llm.Message {
-	messages := []llm.Message{{Role: "system", Content: strings.TrimSpace(baseInstruction)}}
-	promptAssembler.appendTemporalContextMessage(&messages, request.TurnStartedAt)
-	promptAssembler.appendInstructionMessages(&messages, request.InstructionPrompt)
-	promptAssembler.appendToolMessage(&messages, toolDescription)
-	promptAssembler.appendRuntimeContextMessage(&messages, request)
-	promptAssembler.appendSenderAddressingMessage(&messages, buildSenderAddressingDescription(request))
-	promptAssembler.appendActiveGoalMessage(&messages, request.ActiveGoal)
-	promptAssembler.appendVisibleContextMessage(&messages, request.VisibleContext)
-	promptAssembler.appendMemoryMessage(&messages, buildMemoryContext(request.MemoryFacts))
-	promptAssembler.appendProgressMessage(&messages, request, observations)
-	promptAssembler.appendObservationMessage(&messages, observations)
+	messages := BuildInjectedContextMessages(InjectedContextInput{
+		BaseInstruction:   baseInstruction,
+		InstructionPrompt: request.InstructionPrompt,
+		ToolDescription:   toolDescription,
+		TurnStartedAt:     request.TurnStartedAt,
+		RuntimeRequest:    request,
+		MemoryContext:     buildMemoryContext(request.MemoryFacts),
+		Observations:      observations,
+	})
 	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
 	return messages
 }
@@ -66,6 +90,29 @@ func buildTemporalContextDescription(turnStartedAt time.Time) string {
 	}, "\n")
 }
 
+func buildInstructionContext(instructionPrompt string) string {
+	if strings.TrimSpace(instructionPrompt) == "" {
+		return ""
+	}
+	return "Workspace instructions and available skill references:\n" + strings.TrimSpace(instructionPrompt)
+}
+
+func systemMessage(content string) llm.Message {
+	return llm.Message{Role: "system", Content: strings.TrimSpace(content)}
+}
+
+func compactMessages(messages []llm.Message) []llm.Message {
+	result := []llm.Message{}
+	for _, message := range messages {
+		trimmedContent := strings.TrimSpace(message.Content)
+		if trimmedContent == "" {
+			continue
+		}
+		result = append(result, llm.Message{Role: message.Role, Content: trimmedContent})
+	}
+	return result
+}
+
 func temporalContextLocation() *time.Location {
 	location, errorValue := time.LoadLocation("Asia/Seoul")
 	if errorValue == nil {
@@ -75,12 +122,13 @@ func temporalContextLocation() *time.Location {
 }
 
 func (promptAssembler PromptAssembler) appendInstructionMessages(messages *[]llm.Message, instructionPrompt string) {
-	if strings.TrimSpace(instructionPrompt) == "" {
+	instructionContext := buildInstructionContext(instructionPrompt)
+	if instructionContext == "" {
 		return
 	}
 	*messages = append(*messages, llm.Message{
 		Role:    "system",
-		Content: "Workspace instructions and available skill references:\n" + strings.TrimSpace(instructionPrompt),
+		Content: instructionContext,
 	})
 }
 
@@ -156,20 +204,39 @@ func (promptAssembler PromptAssembler) appendMemoryMessage(messages *[]llm.Messa
 }
 
 func (promptAssembler PromptAssembler) appendObservationMessage(messages *[]llm.Message, observations []turnObservation) {
-	if len(observations) == 0 {
+	observationContext := buildObservationContext(observations)
+	if observationContext == "" {
 		return
+	}
+	*messages = append(*messages, llm.Message{
+		Role:    "system",
+		Content: observationContext,
+	})
+}
+
+func (promptAssembler PromptAssembler) appendProgressMessage(messages *[]llm.Message, request AgentTurnRequest, observations []turnObservation) {
+	progressContext := buildProgressContext(request, observations)
+	if progressContext == "" {
+		return
+	}
+	*messages = append(*messages, llm.Message{
+		Role:    "system",
+		Content: progressContext,
+	})
+}
+
+func buildObservationContext(observations []turnObservation) string {
+	if len(observations) == 0 {
+		return ""
 	}
 	body := marshalEventBody(recentProgressObservations(observations))
 	if len(body) > progressMessageLimit {
 		body = body[:progressMessageLimit] + "\n[trimmed]"
 	}
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: "Relevant observation summaries so far. Use observationID/toolName/attachmentIndex when citing completionEvidence; do not infer hidden raw output:\n" + body,
-	})
+	return "Relevant observation summaries so far. Use observationID/toolName/attachmentIndex when citing completionEvidence; do not infer hidden raw output:\n" + body
 }
 
-func (promptAssembler PromptAssembler) appendProgressMessage(messages *[]llm.Message, request AgentTurnRequest, observations []turnObservation) {
+func buildProgressContext(request AgentTurnRequest, observations []turnObservation) string {
 	progress := buildTurnProgress(request, observations)
 	if len(observations) == 0 {
 		progress.RemainingWork = "No tool work has been attempted yet."
@@ -178,8 +245,5 @@ func (promptAssembler PromptAssembler) appendProgressMessage(messages *[]llm.Mes
 	if len(body) > progressMessageLimit {
 		body = body[:progressMessageLimit] + "\n[trimmed]"
 	}
-	*messages = append(*messages, llm.Message{
-		Role:    "system",
-		Content: "Progress ledger. This is the compact source of truth for what has already happened; raw tool output is intentionally omitted:\n" + body,
-	})
+	return "Progress ledger. This is the compact source of truth for what has already happened; raw tool output is intentionally omitted:\n" + body
 }

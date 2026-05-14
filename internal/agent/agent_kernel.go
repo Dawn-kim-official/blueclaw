@@ -437,6 +437,7 @@ func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan Executio
 
 func toolNamesForSelectedSkills(instructionBundle InstructionBundle) []string {
 	toolNames := append([]string{}, coreAgentToolNames()...)
+	toolNames = appendUniqueStrings(toolNames, DefaultSkillToolNames()...)
 	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
 	for _, skillInstruction := range instructionBundle.Skills {
 		if !selectedSkillName[skillInstruction.Name] {
@@ -458,7 +459,7 @@ func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool
 }
 
 func coreAgentToolNames() []string {
-	return []string{"conversation.history", "memory.search", "approval.request", "skill.search"}
+	return []string{"conversation.history", "approval.request", "skill.search"}
 }
 
 func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
@@ -852,6 +853,7 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	prompts := []string{strings.TrimSpace(instructionBundle.Prompt)}
 	sources := append([]InstructionSource{}, instructionBundle.Sources...)
 	skillDecisions := []SkillSelectionDecision{}
+	defaultSkillInstructions := DefaultSkillInstructions()
 	selectedSkillInstructions := []SkillInstruction{}
 	querySet, hasStructuredQueries := skillSearchQueryRouter.Build(ctx, request)
 	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever, querySet, hasStructuredQueries)
@@ -876,11 +878,12 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	}
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
 	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
+	prompts = append(prompts, buildSelectedSkillInstructionPrompt(defaultSkillInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(selectedSkillInstructions))
 	return InstructionBundle{
 		Prompt:         strings.Join(nonEmptyStrings(prompts), "\n\n"),
 		Sources:        sources,
-		Skills:         append([]SkillInstruction{}, instructionBundle.Skills...),
+		Skills:         appendSkillInstructions(instructionBundle.Skills, defaultSkillInstructions...),
 		SkillDecisions: skillDecisions,
 		RetrievalMode:  retrievalResult.RetrievalMode,
 		IndexStatus:    retrievalResult.IndexStatus,

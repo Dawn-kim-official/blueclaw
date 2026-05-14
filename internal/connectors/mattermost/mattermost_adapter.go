@@ -147,8 +147,11 @@ func (adapter Adapter) convertEvent(event Event, source string) connectors.Platf
 		Prompt:         event.Message,
 		RawReceivedAt:  time.Now(),
 		Context: connectors.VisibleContext{
-			HasMoreBefore: true,
-			HistoryCursor: historyCursor(event.ConversationID, event.PostID),
+			HasMoreBefore:    true,
+			HistoryCursor:    historyCursor(event.ConversationID, event.PostID),
+			ConversationType: event.ChannelType,
+			ChannelID:        event.ConversationID,
+			ChannelName:      event.ChannelName,
 		},
 	}
 }

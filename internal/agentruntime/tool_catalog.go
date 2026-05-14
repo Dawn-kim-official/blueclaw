@@ -38,6 +38,8 @@ type ToolCatalogBuilder struct {
 	allowedToolNamesByProfile map[string][]string
 	fallbackAllowedToolNames  []string
 	memoryService             *memory.MemoryService
+	pinnedMemoryStore         *memory.MarkdownStore
+	memoryUpdateQueue         memory.MemoryUpdateEnqueuer
 	mcpRegistry               *mcp.McpRegistry
 	capabilityClient          capability.Client
 	capabilityToolNames       []string
@@ -72,6 +74,8 @@ type ToolCatalogRequest struct {
 	ConversationType          string
 	ConversationChannelID     string
 	ConversationChannelName   string
+	ActiveCircleID            string
+	ActiveCircleConflict      bool
 	ReplyTargetID             string
 	Platform                  string
 	HistoryCursor             string
@@ -105,10 +109,6 @@ type historyToolInput struct {
 	HistoryCursor string `json:"historyCursor"`
 	Limit         int    `json:"limit"`
 	Direction     string `json:"direction"`
-}
-
-type memorySearchToolInput struct {
-	Query string `json:"query"`
 }
 
 type browserHandoffOpenURLToolInput struct {
@@ -159,6 +159,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseAllowedToolNamesByProfile(allow
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseMemoryService(memoryService *memory.MemoryService) {
 	toolCatalogBuilder.memoryService = memoryService
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UsePinnedMemoryStore(pinnedMemoryStore *memory.MarkdownStore) {
+	toolCatalogBuilder.pinnedMemoryStore = pinnedMemoryStore
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseMemoryUpdateQueue(memoryUpdateQueue memory.MemoryUpdateEnqueuer) {
+	toolCatalogBuilder.memoryUpdateQueue = memoryUpdateQueue
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseMCPRegistry(mcpRegistry *mcp.McpRegistry) {
@@ -212,6 +220,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) WorkspaceRootPath() string {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRequest) *agent.ToolSet {
+	request = withResolvedActiveCircle(request)
 	toolSet := agent.NewToolSet(toolCatalogBuilder.allowedToolNames(request.ProfileName))
 	handlerContext := toolHandlerContext{
 		request:           request,
@@ -229,12 +238,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRe
 func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName string) []string {
 	normalizedProfileName := normalizeProfileName(profileName)
 	if allowedToolNames, isFound := toolCatalogBuilder.allowedToolNamesByProfile[normalizedProfileName]; isFound {
-		return append([]string{}, allowedToolNames...)
+		return agent.DefaultAllowedToolNames(allowedToolNames)
 	}
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
-		return append([]string{}, toolCatalogBuilder.fallbackAllowedToolNames...)
+		return agent.DefaultAllowedToolNames(toolCatalogBuilder.fallbackAllowedToolNames)
 	}
-	return []string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"}
+	return agent.DefaultAllowedToolNames([]string{"math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -254,16 +263,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerMemoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memorySearchToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        "memory.search",
-			Description: "Search Blueclaw graph memory allowed for this requester and conversation.",
-		},
-		Handler: func(toolContext context.Context, input memorySearchToolInput) (agent.ToolResult, error) {
-			return toolCatalogBuilder.searchMemoryTool(toolContext, input, request)
-		},
-		Result: agent.IdentityToolResult,
-	})
+	registerMemoryTools(toolCatalogBuilder, toolRegistry, request)
 }
 
 func fetchHistoryTool(toolContext context.Context, input historyToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
@@ -280,39 +280,6 @@ func fetchHistoryTool(toolContext context.Context, input historyToolInput, reque
 		return agent.ToolResult{}, errorValue
 	}
 	return agent.ToolResult{Content: marshalToolResult(visibleContext)}, nil
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input memorySearchToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
-	query := firstNonEmptyString(input.Query, request.Prompt)
-	memoryFacts, errorValue := toolCatalogBuilder.SearchMemory(toolContext, TaskMemoryRequest{
-		Query:                     query,
-		RequesterPersonID:         request.RequesterPersonID,
-		ConversationID:            request.ConversationID,
-		PersonAccess:              request.PersonAccess,
-		MemoryNamespaces:          request.MemoryNamespaces,
-		AccessibleConversationIDs: request.AccessibleConversationIDs,
-	})
-	if errorValue != nil {
-		return agent.ToolResult{}, errorValue
-	}
-	return agent.ToolResult{Content: marshalToolResult(memoryFacts)}, nil
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) SearchMemory(ctx context.Context, request TaskMemoryRequest) ([]memory.MemoryFact, error) {
-	if toolCatalogBuilder.memoryService == nil {
-		return nil, nil
-	}
-	return toolCatalogBuilder.memoryService.SearchMemory(ctx, memory.MemorySearchRequest{
-		Query:                     request.Query,
-		ReaderPersonID:            request.RequesterPersonID,
-		ReaderCircles:             request.PersonAccess.Circles,
-		ResourceAccessRules:       request.PersonAccess.ResourceAccessRules,
-		ReaderSecurityLevelRank:   request.PersonAccess.SecurityLevelRank,
-		ReaderGrantedClasses:      request.PersonAccess.GrantedClasses,
-		ConversationID:            request.ConversationID,
-		AccessibleConversationIDs: request.AccessibleConversationIDs,
-		Namespaces:                request.MemoryNamespaces,
-	})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {

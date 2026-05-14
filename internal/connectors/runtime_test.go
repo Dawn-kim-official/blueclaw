@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
@@ -503,16 +504,16 @@ func TestConnectorRuntimeUsesOpaqueReplyTarget(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeInjectsRequesterMemoryIntoLanguageModel(t *testing.T) {
+func TestConnectorRuntimeInjectsRequesterPinnedMemoryIntoLanguageModel(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "기억했습니다"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	memoryService := &memory.MemoryService{}
-	memoryService.StoreMemoryFact(memory.MemoryFact{
-		ScopeType:   memory.ScopeTypeUser,
-		NamespaceID: "user:person-1",
-		Content:     "사용자는 Graphiti 메모리 설계를 선택했다.",
-	})
-	connectorRuntime.UseMemoryService(memoryService)
+	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 Graphiti 메모리 설계를 선택했다."); errorValue != nil {
+		t.Fatalf("expected pinned memory setup to succeed: %v", errorValue)
+	}
+	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
+	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
+	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, toolCatalogBuilder))
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
 	if errorValue != nil {
@@ -538,20 +539,20 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 		HasMoreBefore: true,
 		HistoryCursor: "cursor-1",
 	}
-	memoryService := &memory.MemoryService{}
-	memoryService.StoreMemoryFact(memory.MemoryFact{
-		ScopeType:   memory.ScopeTypeUser,
-		NamespaceID: "user:person-1",
-		Content:     "사용자는 간결한 설계를 선호한다.",
-	})
-	connectorRuntime.UseMemoryService(memoryService)
+	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 간결한 설계를 선호한다."); errorValue != nil {
+		t.Fatalf("expected pinned memory setup to succeed: %v", errorValue)
+	}
+	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
+	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
+	connectorRuntime.UseTaskLauncher(agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, toolCatalogBuilder))
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
 	if errorValue != nil {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 
-	toolContextIndex := messageIndex(languageModel.request.Messages, "conversation.history")
+	toolContextIndex := messageIndex(languageModel.request.Messages, "Available tools.")
 	visibleContextIndex := messageIndex(languageModel.request.Messages, "admin: 이전 메시지")
 	memoryIndex := messageIndex(languageModel.request.Messages, "간결한 설계")
 	promptIndex := userMessageIndex(languageModel.request.Messages, event.Prompt)
@@ -1058,7 +1059,7 @@ func TestConnectorRuntimeQueuesHTTPEventAndSendsReplyThroughOutbox(t *testing.T)
 	}
 }
 
-func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
+func TestConnectorRuntimeDoesNotAutomaticallyIngestOrSearchMemory(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	graphStore := &fakeGraphMemoryStore{
@@ -1087,18 +1088,15 @@ func TestConnectorRuntimeStoresUserMemoryAcrossConversations(t *testing.T) {
 		t.Fatalf("expected direct memory recall event to process: %v", errorValue)
 	}
 
-	if len(graphStore.episodes) != 2 {
-		t.Fatalf("expected Graphiti episode ingestion for both routed messages, got %d", len(graphStore.episodes))
+	if len(graphStore.episodes) != 0 {
+		t.Fatalf("expected no automatic Graphiti episode ingestion, got %d", len(graphStore.episodes))
 	}
-	if !containsEpisodeNamespace(graphStore.episodes[0], "user:person-1") {
-		t.Fatalf("expected user namespace ingestion, got %+v", graphStore.episodes[0].Namespaces)
-	}
-	if !structuredMessagesContain(languageModel.request.Messages, "민수") {
-		t.Fatalf("expected user memory from graph search in direct reply context, got %+v", languageModel.request.Messages)
+	if structuredMessagesContain(languageModel.request.Messages, "민수") {
+		t.Fatalf("expected graph memory to require explicit memory.search, got %+v", languageModel.request.Messages)
 	}
 }
 
-func TestConnectorRuntimeIngestsMemoryWhenReplySendFails(t *testing.T) {
+func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryWhenReplySendFails(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
 	adapter.sendReplyError = errors.New("send failed")
 	graphStore := &fakeGraphMemoryStore{}
@@ -1116,12 +1114,12 @@ func TestConnectorRuntimeIngestsMemoryWhenReplySendFails(t *testing.T) {
 	if result.Reason != "reply_failed" {
 		t.Fatalf("expected reply failed result, got %+v", result)
 	}
-	if len(graphStore.episodes) != 1 {
-		t.Fatalf("expected memory ingestion before reply success, got %d", len(graphStore.episodes))
+	if len(graphStore.episodes) != 0 {
+		t.Fatalf("expected no automatic memory ingestion before reply success, got %d", len(graphStore.episodes))
 	}
 }
 
-func TestConnectorRuntimeIngestsMemoryWhenReplyIsBlocked(t *testing.T) {
+func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryWhenReplyIsBlocked(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "saved at /workspace/result.md"})
 	graphStore := &fakeGraphMemoryStore{}
 	memoryService := &memory.MemoryService{}
@@ -1138,8 +1136,8 @@ func TestConnectorRuntimeIngestsMemoryWhenReplyIsBlocked(t *testing.T) {
 	if result.Reason != "task_not_completed" && result.Reason != "non_deliverable_artifact_locator" {
 		t.Fatalf("expected blocked result, got %+v", result)
 	}
-	if len(graphStore.episodes) != 1 {
-		t.Fatalf("expected memory ingestion before connector blocking, got %d", len(graphStore.episodes))
+	if len(graphStore.episodes) != 0 {
+		t.Fatalf("expected no automatic memory ingestion before connector blocking, got %d", len(graphStore.episodes))
 	}
 }
 
