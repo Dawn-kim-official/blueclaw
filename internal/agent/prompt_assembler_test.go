@@ -18,6 +18,7 @@ func TestPromptAssemblerIncludesTemporalContext(t *testing.T) {
 	for _, expected := range []string{
 		"Runtime temporal context:",
 		"Current date: 2026-05-12",
+		"Current weekday: Tuesday",
 		"Current time: 2026-05-12T17:32:27+09:00",
 		"Time zone: Asia/Seoul",
 		"Resolve relative dates",
@@ -58,7 +59,7 @@ func TestPromptAssemblerIncludesTurnDateContext(t *testing.T) {
 	}, nil, "base", "")
 	body := joinMessageContent(messages)
 
-	if !strings.Contains(body, "Runtime context") || !strings.Contains(body, "Current turn date: 2026-05-09") || !strings.Contains(body, "Default calendar timezone: Asia/Seoul") {
+	if !strings.Contains(body, "Runtime context") || !strings.Contains(body, "Current turn date: 2026-05-09") || !strings.Contains(body, "Current turn weekday: Saturday") || !strings.Contains(body, "Default calendar timezone: Asia/Seoul") {
 		t.Fatalf("expected turn date context, got %s", body)
 	}
 }

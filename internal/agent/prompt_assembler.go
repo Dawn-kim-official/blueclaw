@@ -59,6 +59,7 @@ func buildTemporalContextDescription(turnStartedAt time.Time) string {
 	return strings.Join([]string{
 		"Runtime temporal context:",
 		"Current date: " + localTime.Format("2006-01-02"),
+		"Current weekday: " + localTime.Weekday().String(),
 		"Current time: " + localTime.Format(time.RFC3339),
 		"Time zone: " + location.String(),
 		"Resolve relative dates such as today, tomorrow, next Friday, 오늘, 내일, and 다음 주 from this context before choosing tool inputs.",
@@ -124,6 +125,7 @@ func buildRuntimeContextDescription(request AgentTurnRequest) string {
 		"Response language: " + ResolveResponseLanguage(request.ResponseLanguage),
 		"Current turn datetime: " + localTime.Format(time.RFC3339),
 		"Current turn date: " + localTime.Format("2006-01-02"),
+		"Current turn weekday: " + localTime.Weekday().String(),
 		"Default calendar timezone: " + defaultTurnLocation().String(),
 		"Resolve relative dates such as today, tomorrow, and this Tuesday from the current turn date before calling tools.",
 	}
