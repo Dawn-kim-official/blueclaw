@@ -316,6 +316,12 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
+			"kind":             "input",
+			"question":         reply,
+			"message":          reply,
+			"responseLanguage": request.ResponseLanguage,
+		}))
 		return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
 	}
 
@@ -334,6 +340,11 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		"reason":                  decision.Reason,
 		"responseLanguage":        request.ResponseLanguage,
 		"continuationInstruction": executionPlan.ContinuationInstruction,
+	}))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
+		"kind":             "confirm",
+		"message":          reply,
+		"responseLanguage": request.ResponseLanguage,
 	}))
 	return AgentTurnResult{TaskRun: waitingTaskRun, UserNotice: reply, ToolNames: toolNamesForEvent(request.ToolSet)}, true, ExecutionPlan{}, false, nil
 }
@@ -459,7 +470,7 @@ func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool
 }
 
 func coreAgentToolNames() []string {
-	return []string{"conversation.history", "approval.request", "skill.search"}
+	return []string{"conversation.history", "memory.search", "ask.confirm", "ask.choice", "ask.input", "skill.search"}
 }
 
 func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
@@ -876,6 +887,11 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
 		sources = append(sources, skillInstruction.Source)
 	}
+	for _, skillInstruction := range alwaysSelectedSkillInstructions(instructionBundle.Skills, request, normalizedAgentProfileName(request.ProfileName), skillDecisions) {
+		skillDecisions = append(skillDecisions, selectedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "always_selected"))
+		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
+		sources = append(sources, skillInstruction.Source)
+	}
 	skillDecisions = append(skillDecisions, blockedSkillSelectionDecisions(instructionBundle.Skills, skillDecisions, request, normalizedAgentProfileName(request.ProfileName))...)
 	prompts = append(prompts, buildCompactSkillIndexPrompt(candidateInstructions))
 	prompts = append(prompts, buildSelectedSkillInstructionPrompt(defaultSkillInstructions))
@@ -890,6 +906,23 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		CandidateCount: len(candidateInstructions),
 		SkillQueries:   append([]string{}, retrievalResult.QueryDescriptions...),
 	}
+}
+
+func alwaysSelectedSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, profileName string, existingSkillDecisions []SkillSelectionDecision) []SkillInstruction {
+	existingDecisionByName := map[string]bool{}
+	for _, skillDecision := range existingSkillDecisions {
+		existingDecisionByName[skillDecision.Name] = true
+	}
+	alwaysSelectedSkills := []SkillInstruction{}
+	for _, skillInstruction := range skillInstructions {
+		if skillInstruction.Name != "ask" || existingDecisionByName[skillInstruction.Name] {
+			continue
+		}
+		if skillAvailabilityDecision(skillInstruction, request, profileName).Status == "selected" {
+			alwaysSelectedSkills = append(alwaysSelectedSkills, skillInstruction)
+		}
+	}
+	return alwaysSelectedSkills
 }
 
 func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction) []SkillInstruction {

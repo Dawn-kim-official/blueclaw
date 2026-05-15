@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 
 	"blueclaw/internal/llm"
@@ -38,6 +39,25 @@ type ConfirmationPolicyDecision struct {
 type ConfirmationReplyDecision struct {
 	Decision string `json:"decision"`
 	Reason   string `json:"reason"`
+}
+
+type ChoiceReplyRequest struct {
+	Question      string
+	Options       []ChoiceReplyOption
+	SelectionMode string
+	Reply         string
+}
+
+type ChoiceReplyOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Value string `json:"value,omitempty"`
+}
+
+type ChoiceReplyDecision struct {
+	Status  string   `json:"status"`
+	Choice  string   `json:"choice,omitempty"`
+	Choices []string `json:"choices,omitempty"`
 }
 
 func (agentKernel *AgentKernel) BuildExecutionPlan(responseContext context.Context, request AgentRequest, requiredEvidenceTools []string) (ExecutionPlan, error) {
@@ -172,6 +192,34 @@ func (agentKernel *AgentKernel) ClassifyConfirmationReply(responseContext contex
 	return decision, nil
 }
 
+func (agentKernel *AgentKernel) ResolveChoiceReply(responseContext context.Context, request ChoiceReplyRequest) (ChoiceReplyDecision, error) {
+	if agentKernel.languageModel == nil {
+		return ChoiceReplyDecision{}, errors.New("language model provider is not configured")
+	}
+	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
+		responseContext,
+		llm.StructuredResponseRequest{
+			Messages: choiceReplyMessages(request),
+			StructuredOutputSchema: llm.StructuredOutputSchema{
+				Name:               "blueclaw_choice_reply_decision",
+				Document:           choiceReplySchema(request),
+				IsStrictlyEnforced: true,
+			},
+		},
+	)
+	if errorValue != nil {
+		return ChoiceReplyDecision{}, errorValue
+	}
+	var decision ChoiceReplyDecision
+	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &decision); errorValue != nil {
+		return ChoiceReplyDecision{}, errorValue
+	}
+	decision.Status = strings.TrimSpace(decision.Status)
+	decision.Choice = strings.TrimSpace(decision.Choice)
+	decision.Choices = trimNonEmptyConfirmationStrings(decision.Choices)
+	return decision, nil
+}
+
 func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []llm.Message {
 	contextDescription := buildVisibleContextDescription(request.VisibleContext)
 	if contextDescription == "" {
@@ -190,6 +238,29 @@ func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []ll
 		{Role: "system", Content: contextDescription},
 		{Role: "system", Content: activeGoalDescription(request.ActiveGoal)},
 		{Role: "user", Content: strings.TrimSpace(request.Prompt)},
+	}
+}
+
+func choiceReplyMessages(request ChoiceReplyRequest) []llm.Message {
+	optionLines := []string{}
+	for index, option := range request.Options {
+		optionLines = append(optionLines, strings.TrimSpace(option.Key)+" / "+strconv.Itoa(index+1)+". "+strings.TrimSpace(option.Label))
+	}
+	return []llm.Message{
+		{Role: "system", Content: strings.Join([]string{
+			"Resolve the latest user reply against a pending choice question.",
+			"Return only the short option key from the enum. Do not return labels.",
+			"Return ambiguous when the reply could refer to more than one valid option or violates single/multiple selection.",
+			"Return unrelated when the reply is a separate request, not an answer to the choice question.",
+		}, "\n")},
+		{Role: "user", Content: strings.Join([]string{
+			"Question: " + strings.TrimSpace(request.Question),
+			"Selection mode: " + strings.TrimSpace(request.SelectionMode),
+			"Options:",
+			strings.Join(optionLines, "\n"),
+			"",
+			"Latest user reply: " + strings.TrimSpace(request.Reply),
+		}, "\n")},
 	}
 }
 
@@ -215,6 +286,42 @@ func confirmationReplyMessages(pendingPrompt string, confirmationQuestion string
 			strings.TrimSpace(reply),
 		}, "\n")},
 	}
+}
+
+func choiceReplySchema(request ChoiceReplyRequest) string {
+	optionKeys := []string{}
+	for _, option := range request.Options {
+		optionKeys = append(optionKeys, strings.TrimSpace(option.Key))
+	}
+	statusSchema := map[string]any{"type": "string", "enum": []string{"resolved", "ambiguous", "unrelated"}}
+	choiceSchema := map[string]any{"type": "string", "enum": optionKeys}
+	if strings.TrimSpace(request.SelectionMode) == "multiple" {
+		document, errorValue := json.Marshal(map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"status":  statusSchema,
+				"choices": map[string]any{"type": "array", "items": choiceSchema, "uniqueItems": true},
+			},
+			"required":             []string{"status"},
+			"additionalProperties": false,
+		})
+		if errorValue == nil {
+			return string(document)
+		}
+	}
+	document, errorValue := json.Marshal(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"status": statusSchema,
+			"choice": choiceSchema,
+		},
+		"required":             []string{"status"},
+		"additionalProperties": false,
+	})
+	if errorValue != nil {
+		return `{"type":"object","properties":{"status":{"type":"string","enum":["resolved","ambiguous","unrelated"]}},"required":["status"],"additionalProperties":false}`
+	}
+	return string(document)
 }
 
 func executionPlanSchema() string {

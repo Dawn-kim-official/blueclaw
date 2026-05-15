@@ -115,12 +115,29 @@ type browserHandoffOpenURLToolInput struct {
 	URL string `json:"url"`
 }
 
-type approvalRequestToolInput struct {
+type askConfirmToolInput struct {
 	UserFacingMessage string `json:"userFacingMessage"`
 	ReasonCode        string `json:"reasonCode"`
 	ReasonDetail      string `json:"reasonDetail"`
 	Message           string `json:"message"`
 	Reason            string `json:"reason"`
+}
+
+type askChoiceToolInput struct {
+	Question             string            `json:"question"`
+	Options              []askChoiceOption `json:"options"`
+	RecommendedOptionKey string            `json:"recommendedOptionKey"`
+	SelectionMode        string            `json:"selectionMode"`
+}
+
+type askChoiceOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+type askInputToolInput struct {
+	Question string `json:"question"`
 }
 
 type mathCalculateToolInput struct {
@@ -243,7 +260,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
 		return agent.DefaultAllowedToolNames(toolCatalogBuilder.fallbackAllowedToolNames)
 	}
-	return agent.DefaultAllowedToolNames([]string{"math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"})
+	return agent.DefaultAllowedToolNames([]string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.write", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -325,13 +342,31 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		},
 		Result: agent.IdentityToolResult,
 	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[approvalRequestToolInput, agent.ToolResult]{
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askConfirmToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
-			Name:        "approval.request",
-			Description: "Pause the current task while waiting for explicit user approval. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. userFacingMessage is shown directly to the user and must use the same language as the original user request. reasonCode and reasonDetail are internal only.",
+			Name:        "ask.confirm",
+			Description: "Pause the current task while waiting for explicit user confirmation. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. userFacingMessage is shown directly to the user and must use the same language as the original user request. reasonCode and reasonDetail are internal only.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."},"message":{"type":"string","description":"Legacy alias for userFacingMessage."},"reason":{"type":"string","description":"Legacy internal detail. Never shown to the user."}},"required":["userFacingMessage","reasonCode"],"additionalProperties":false}`),
 		},
-		Handler: toolCatalogBuilder.requestApprovalTool,
+		Handler: toolCatalogBuilder.askConfirmTool,
+		Result:  agent.IdentityToolResult,
+	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askChoiceToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "ask.choice",
+			Description: "Pause the current task and ask the user to choose from explicit options. Always include exactly one recommendedOptionKey. Use selectionMode single or multiple.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","minItems":2,"maxItems":26,"items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"value":{"type":"string"}},"required":["label"],"additionalProperties":false}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"],"additionalProperties":false}`),
+		},
+		Handler: toolCatalogBuilder.askChoiceTool,
+		Result:  agent.IdentityToolResult,
+	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askInputToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "ask.input",
+			Description: "Pause the current task and ask the user for free-form input needed to continue.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}`),
+		},
+		Handler: toolCatalogBuilder.askInputTool,
 		Result:  agent.IdentityToolResult,
 	})
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileWriteToolInput, agent.ToolResult]{
@@ -694,28 +729,21 @@ func browserHandoffEventName(isError bool) string {
 	return "browser_handoff.opened"
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext context.Context, input approvalRequestToolInput) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context.Context, input askConfirmToolInput) (agent.ToolResult, error) {
 	taskRunID := agent.TaskRunIDFromContext(toolContext)
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "approval_request", "approval requires an active task run"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires an active task run"), nil
 	}
-	userFacingMessage := approvalRequestUserFacingMessage(input)
+	userFacingMessage := askConfirmUserFacingMessage(input)
 	if userFacingMessage == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "approval_request", "approval.request requires userFacingMessage"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires userFacingMessage"), nil
 	}
 	reasonCode := normalizeApprovalReasonCode(input.ReasonCode)
-	reasonDetail := approvalRequestReasonDetail(input)
+	reasonDetail := askConfirmReasonDetail(input)
 	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, approvalInternalReason(reasonCode, reasonDetail))
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "approval_request", errorValue.Error()), nil
 	}
-	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "approval.requested", marshalToolResult(map[string]string{
-		"userFacingMessage": userFacingMessage,
-		"message":           userFacingMessage,
-		"reasonCode":        reasonCode,
-		"reasonDetail":      reasonDetail,
-		"responseLanguage":  agent.ResponseLanguageFromContext(toolContext),
-	}))
 	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "confirmation.requested", marshalToolResult(map[string]string{
 		"userFacingMessage": userFacingMessage,
 		"message":           userFacingMessage,
@@ -723,15 +751,140 @@ func (toolCatalogBuilder *ToolCatalogBuilder) requestApprovalTool(toolContext co
 		"reasonDetail":      reasonDetail,
 		"responseLanguage":  agent.ResponseLanguageFromContext(toolContext),
 	}))
+	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", marshalToolResult(map[string]any{
+		"kind":             "confirm",
+		"message":          userFacingMessage,
+		"reasonCode":       reasonCode,
+		"reasonDetail":     reasonDetail,
+		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
+	}))
 	return agent.ToolSuccess(marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingApproval), "userFacingMessage": userFacingMessage, "message": userFacingMessage, "reasonCode": reasonCode})), nil
 }
 
-func approvalRequestUserFacingMessage(input approvalRequestToolInput) string {
+func (toolCatalogBuilder *ToolCatalogBuilder) askChoiceTool(toolContext context.Context, input askChoiceToolInput) (agent.ToolResult, error) {
+	taskRunID := agent.TaskRunIDFromContext(toolContext)
+	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_choice", "ask.choice requires an active task run"), nil
+	}
+	choiceRequest, errorValue := normalizeAskChoiceRequest(input, agent.ResponseLanguageFromContext(toolContext))
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_choice", errorValue.Error()), nil
+	}
+	_, errorValue = toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, choiceRequest.Question)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "ask_choice", errorValue.Error()), nil
+	}
+	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", marshalToolResult(choiceRequest))
+	return agent.ToolSuccess(marshalToolResult(map[string]any{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingUserInput), "question": choiceRequest.Question, "kind": choiceRequest.Kind})), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.Context, input askInputToolInput) (agent.ToolResult, error) {
+	taskRunID := agent.TaskRunIDFromContext(toolContext)
+	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_input", "ask.input requires an active task run"), nil
+	}
+	question := strings.TrimSpace(input.Question)
+	if question == "" {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_input", "ask.input requires question"), nil
+	}
+	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, question)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "ask_input", errorValue.Error()), nil
+	}
+	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", marshalToolResult(map[string]string{
+		"kind":             "input",
+		"question":         question,
+		"message":          question,
+		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
+	}))
+	return agent.ToolSuccess(marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingUserInput), "question": question, "kind": "input"})), nil
+}
+
+func askConfirmUserFacingMessage(input askConfirmToolInput) string {
 	return firstNonEmptyString(input.UserFacingMessage, input.Message)
 }
 
-func approvalRequestReasonDetail(input approvalRequestToolInput) string {
+func askConfirmReasonDetail(input askConfirmToolInput) string {
 	return firstNonEmptyString(input.ReasonDetail, input.Reason)
+}
+
+type normalizedAskChoiceRequest struct {
+	Kind                 string            `json:"kind"`
+	Question             string            `json:"question"`
+	Options              []askChoiceOption `json:"options"`
+	RecommendedOptionKey string            `json:"recommendedOptionKey"`
+	SelectionMode        string            `json:"selectionMode"`
+	ResponseLanguage     string            `json:"responseLanguage"`
+}
+
+func normalizeAskChoiceRequest(input askChoiceToolInput, responseLanguage string) (normalizedAskChoiceRequest, error) {
+	question := strings.TrimSpace(input.Question)
+	if question == "" {
+		return normalizedAskChoiceRequest{}, errors.New("ask.choice requires question")
+	}
+	selectionMode := strings.TrimSpace(input.SelectionMode)
+	if selectionMode == "" {
+		selectionMode = "single"
+	}
+	if selectionMode != "single" && selectionMode != "multiple" {
+		return normalizedAskChoiceRequest{}, errors.New("ask.choice selectionMode must be single or multiple")
+	}
+	options := normalizedAskChoiceOptions(input.Options)
+	if len(options) < 2 {
+		return normalizedAskChoiceRequest{}, errors.New("ask.choice requires at least two options")
+	}
+	recommendedOptionKey := strings.TrimSpace(input.RecommendedOptionKey)
+	if !askChoiceOptionKeyExists(options, recommendedOptionKey) {
+		return normalizedAskChoiceRequest{}, errors.New("ask.choice recommendedOptionKey must match an option key")
+	}
+	kind := "choice_single"
+	if selectionMode == "multiple" {
+		kind = "choice_multiple"
+	}
+	return normalizedAskChoiceRequest{
+		Kind:                 kind,
+		Question:             question,
+		Options:              options,
+		RecommendedOptionKey: recommendedOptionKey,
+		SelectionMode:        selectionMode,
+		ResponseLanguage:     responseLanguage,
+	}, nil
+}
+
+func normalizedAskChoiceOptions(options []askChoiceOption) []askChoiceOption {
+	normalizedOptions := []askChoiceOption{}
+	for index, option := range options {
+		label := strings.TrimSpace(option.Label)
+		if label == "" {
+			continue
+		}
+		key := strings.TrimSpace(option.Key)
+		if key == "" {
+			key = askChoiceKey(index)
+		}
+		value := strings.TrimSpace(option.Value)
+		if value == "" {
+			value = label
+		}
+		normalizedOptions = append(normalizedOptions, askChoiceOption{Key: key, Label: label, Value: value})
+	}
+	return normalizedOptions
+}
+
+func askChoiceKey(index int) string {
+	if index >= 0 && index < 26 {
+		return string(rune('A' + index))
+	}
+	return fmt.Sprintf("O%d", index+1)
+}
+
+func askChoiceOptionKeyExists(options []askChoiceOption, key string) bool {
+	for _, option := range options {
+		if option.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 func approvalInternalReason(reasonCode string, reasonDetail string) string {

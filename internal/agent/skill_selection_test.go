@@ -121,7 +121,7 @@ func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
-		"approval.request",
+		"ask.confirm",
 		"terminal.run",
 		"site.app.create",
 		"site.app.publish",
@@ -143,7 +143,7 @@ func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
 
 	filteredToolSet := toolSetForSelectedSkills(fullToolSet, instructionBundle)
 
-	for _, toolName := range []string{"conversation.history", "memory.search", "approval.request", "terminal.run", "site.app.create", "site.app.publish"} {
+	for _, toolName := range []string{"conversation.history", "memory.search", "ask.confirm", "terminal.run", "site.app.create", "site.app.publish"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}

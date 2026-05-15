@@ -94,9 +94,9 @@ func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T)
 }
 
 func TestBuildAgentActionRequestIncludesApprovalUserFacingContract(t *testing.T) {
-	toolSet := NewToolSet([]string{"approval.request"})
+	toolSet := NewToolSet([]string{"ask.confirm"})
 	toolSet.RegisterTool(ToolDefinition{
-		Name:        "approval.request",
+		Name:        "ask.confirm",
 		Description: "Ask for approval.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string"},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string"}},"required":["userFacingMessage","reasonCode"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
