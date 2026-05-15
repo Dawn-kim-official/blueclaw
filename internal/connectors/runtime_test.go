@@ -1331,6 +1331,7 @@ type testAdapter struct {
 	progressStopErrors []error
 	historyCursors     []string
 	operationNames     []string
+	resolutions        []InteractionResolution
 }
 
 type testReply struct {
@@ -1479,6 +1480,11 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, rep
 	}
 	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, taskRunID: reply.TaskRunID, replyKind: reply.ReplyKind, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
+}
+
+func (adapter *testAdapter) ResolveInteraction(_ context.Context, resolution InteractionResolution) error {
+	adapter.resolutions = append(adapter.resolutions, resolution)
+	return nil
 }
 
 func (adapter *testAdapter) FetchHistory(_ context.Context, historyCursor string, _ int) (VisibleContext, error) {
