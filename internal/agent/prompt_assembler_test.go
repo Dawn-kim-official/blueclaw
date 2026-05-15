@@ -51,6 +51,26 @@ func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblerIncludesRawToolResultSummary(t *testing.T) {
+	fetchResult := `{"results":[{"url":"https://dawn.kim","content":"Yeomyeonggeori provides AI automation and blockchain solutions."}]}`
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "call_tool",
+		Tool:          "web.fetch",
+		Output:        ToolOutput{Content: fetchResult},
+		Summary:       fetchResult,
+	}}
+
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt: "make a deck",
+	}, observations, "base", "")
+	body := joinMessageContent(messages)
+
+	if !strings.Contains(body, "Tool result context") || !strings.Contains(body, "Yeomyeonggeori provides AI automation") {
+		t.Fatalf("expected raw fetch summary in tool result context, got %s", body)
+	}
+}
+
 func TestPromptAssemblerIncludesTurnDateContext(t *testing.T) {
 	turnStartedAt := time.Date(2026, time.May, 8, 18, 1, 10, 0, time.UTC)
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
@@ -98,11 +118,19 @@ func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 		Action:        "call_tool",
 		Tool:          "browser.screenshot",
 		Output:        ToolOutput{Content: `{"devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png"}`},
+		Summary:       "Screenshot captured. Use the imageRefs for visual inspection.",
+		ImageRefs: []ToolResultImageRef{{
+			ObservationID:   "obs-001",
+			AttachmentIndex: 0,
+			MimeType:        "image/png",
+			Filename:        "screen.png",
+		}},
 		Attachments: []FileAttachment{{
-			DevicePath:  "/tmp/internkim-companion-files/screen.png",
-			Filename:    "screen.png",
-			ContentType: "image/png",
-			SizeBytes:   123,
+			DevicePath:    "/tmp/internkim-companion-files/screen.png",
+			Filename:      "screen.png",
+			ContentType:   "image/png",
+			SizeBytes:     123,
+			ContentBase64: "aW1hZ2U=",
 		}},
 	}}
 
@@ -116,6 +144,9 @@ func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 	}
 	if !strings.Contains(body, `"attachmentIndex":0`) || !strings.Contains(body, `"filename":"screen.png"`) {
 		t.Fatalf("expected attachment evidence reference, got %s", body)
+	}
+	if len(messages) == 0 || !messagesContainImagePart(messages) {
+		t.Fatalf("expected image part to be attached to LLM messages, got %+v", messages)
 	}
 }
 
@@ -158,4 +189,15 @@ func joinMessageContent(messages []llm.Message) string {
 		parts = append(parts, message.Content)
 	}
 	return strings.Join(parts, "\n")
+}
+
+func messagesContainImagePart(messages []llm.Message) bool {
+	for _, message := range messages {
+		for _, part := range message.Parts {
+			if part.Type == "image" && part.MimeType == "image/png" && part.DataBase64 == "aW1hZ2U=" {
+				return true
+			}
+		}
+	}
+	return false
 }

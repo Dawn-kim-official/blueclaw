@@ -7,6 +7,7 @@ import (
 )
 
 const progressMessageLimit = 6000
+const toolResultContextLimit = 12000
 const maxProgressObservations = 12
 const maxInteractiveReferences = 20
 const maxSummaryTextLength = 500
@@ -30,8 +31,9 @@ type ProgressObservation struct {
 	ObservationID      string               `json:"observationID"`
 	ToolName           string               `json:"toolName,omitempty"`
 	Status             string               `json:"status"`
-	ShortSummary       string               `json:"shortSummary"`
+	Summary            string               `json:"summary"`
 	AttachmentRefs     []ProgressAttachment `json:"attachmentRefs,omitempty"`
+	ImageRefs          []ToolResultImageRef `json:"imageRefs,omitempty"`
 	AttemptFingerprint string               `json:"attemptFingerprint,omitempty"`
 	RecoveryStep       string               `json:"recoveryStep,omitempty"`
 	RepeatCount        int                  `json:"repeatCount,omitempty"`
@@ -55,6 +57,15 @@ type ProgressAttachment struct {
 	SizeBytes        int64  `json:"sizeBytes,omitempty"`
 	Title            string `json:"title,omitempty"`
 	HasDevicePayload bool   `json:"hasDevicePayload"`
+}
+
+type ToolResultContextItem struct {
+	ObservationID string               `json:"observationID"`
+	ToolName      string               `json:"toolName,omitempty"`
+	Status        string               `json:"status"`
+	Summary       string               `json:"summary"`
+	ImageRefs     []ToolResultImageRef `json:"imageRefs,omitempty"`
+	Attachments   []ProgressAttachment `json:"attachments,omitempty"`
 }
 
 func buildTurnProgress(request AgentTurnRequest, observations []turnObservation) TurnProgress {
@@ -152,11 +163,45 @@ func summarizeObservation(observation turnObservation) ProgressObservation {
 		ObservationID:      observation.ObservationID,
 		ToolName:           observation.Tool,
 		Status:             status,
-		ShortSummary:       summarizeObservationContent(observation),
+		Summary:            summarizeObservationContent(observation),
 		AttachmentRefs:     progressAttachments(observation),
+		ImageRefs:          append([]ToolResultImageRef{}, observation.ImageRefs...),
 		AttemptFingerprint: strings.TrimSpace(observation.AttemptFingerprint),
 		RecoveryStep:       strings.TrimSpace(observation.RecoveryStep),
 	}
+}
+
+func toolResultContextItems(observations []turnObservation) []ToolResultContextItem {
+	items := []ToolResultContextItem{}
+	totalLength := 0
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		summary := strings.TrimSpace(observation.Summary)
+		if summary == "" && len(observation.ImageRefs) == 0 {
+			continue
+		}
+		remainingLength := toolResultContextLimit - totalLength
+		if remainingLength <= 0 {
+			break
+		}
+		if len(summary) > remainingLength {
+			summary = summary[:remainingLength] + "\n[trimmed]"
+		}
+		totalLength += len(summary)
+		status := "success"
+		if observation.Failed() {
+			status = "error"
+		}
+		items = append([]ToolResultContextItem{{
+			ObservationID: observation.ObservationID,
+			ToolName:      observation.Tool,
+			Status:        status,
+			Summary:       summary,
+			ImageRefs:     append([]ToolResultImageRef{}, observation.ImageRefs...),
+			Attachments:   progressAttachments(observation),
+		}}, items...)
+	}
+	return items
 }
 
 func buildProgressFailureDebt(failureDebt FailureDebt, observations []turnObservation) *ProgressFailureDebt {
@@ -352,7 +397,7 @@ func progressAttachments(observation turnObservation) []ProgressAttachment {
 }
 
 func progressObservationSignature(observation ProgressObservation) string {
-	return strings.Join([]string{observation.ToolName, observation.Status, observation.ShortSummary}, "\x00")
+	return strings.Join([]string{observation.ToolName, observation.Status, observation.Summary}, "\x00")
 }
 
 func stringField(document map[string]any, fieldName string) string {

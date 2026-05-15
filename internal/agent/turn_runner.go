@@ -103,19 +103,27 @@ type turnActionDocument struct {
 }
 
 type turnObservation struct {
-	ObservationID        string           `json:"observationID"`
-	Action               string           `json:"action"`
-	Tool                 string           `json:"tool,omitempty"`
-	Output               ToolOutput       `json:"output,omitempty"`
-	Failure              *ToolFailure     `json:"failure,omitempty"`
-	Summary              string           `json:"summary,omitempty"`
-	ToolInputKey         string           `json:"toolInputKey,omitempty"`
-	AttemptFingerprint   string           `json:"attemptFingerprint,omitempty"`
-	RecoveryAttemptKey   string           `json:"recoveryAttemptKey,omitempty"`
-	RecoveryStep         string           `json:"recoveryStep,omitempty"`
-	RecoveryAttemptSpent bool             `json:"recoveryAttemptSpent,omitempty"`
-	Attachments          []FileAttachment `json:"attachments,omitempty"`
-	RecoveryActions      []RecoveryAction `json:"recoveryActions,omitempty"`
+	ObservationID        string               `json:"observationID"`
+	Action               string               `json:"action"`
+	Tool                 string               `json:"tool,omitempty"`
+	Output               ToolOutput           `json:"output,omitempty"`
+	Failure              *ToolFailure         `json:"failure,omitempty"`
+	Summary              string               `json:"summary,omitempty"`
+	ImageRefs            []ToolResultImageRef `json:"imageRefs,omitempty"`
+	ToolInputKey         string               `json:"toolInputKey,omitempty"`
+	AttemptFingerprint   string               `json:"attemptFingerprint,omitempty"`
+	RecoveryAttemptKey   string               `json:"recoveryAttemptKey,omitempty"`
+	RecoveryStep         string               `json:"recoveryStep,omitempty"`
+	RecoveryAttemptSpent bool                 `json:"recoveryAttemptSpent,omitempty"`
+	Attachments          []FileAttachment     `json:"attachments,omitempty"`
+	RecoveryActions      []RecoveryAction     `json:"recoveryActions,omitempty"`
+}
+
+type ToolResultImageRef struct {
+	ObservationID   string `json:"observationID"`
+	AttachmentIndex int    `json:"attachmentIndex"`
+	MimeType        string `json:"mimeType,omitempty"`
+	Filename        string `json:"filename,omitempty"`
 }
 
 func (observation turnObservation) Failed() bool {
@@ -981,7 +989,7 @@ func (agentTurnRunner *AgentTurnRunner) recordUnavailableToolRequest(taskRunID s
 		"toolName":      trimmedToolName,
 		"input":         json.RawMessage(toolInput),
 	}))
-	return agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt)
+	return agentTurnRunner.saveToolObservation(context.Background(), taskRunID, observationID, trimmedToolName, toolInputKey, ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), workspaceRootPath, minimumModifiedAt)
 }
 
 func stringValue(value any) string {
@@ -1022,7 +1030,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	if errorValue != nil {
 		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
-	observation := agentTurnRunner.saveToolObservation(taskRunID, observationID, trimmedToolName, toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt)
+	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt)
 	return observation
 }
 
@@ -1096,7 +1104,7 @@ func recoveryAttemptCount(observations []turnObservation) int {
 	return count
 }
 
-func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, observationID string, toolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
 	toolResult = normalizeToolFailureResult(toolName, toolResult)
 	content := toolResult.ContentText()
 	originalContent := content
@@ -1127,12 +1135,13 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(taskRunID string, ob
 		Action:          "call_tool",
 		Tool:            toolName,
 		Output:          toolResult.Output,
-		Summary:         buildToolResultSummary(toolName, originalContent, isError, attachments, artifactID, toolResult),
 		Failure:         toolResult.Failure,
 		Attachments:     attachments,
 		RecoveryActions: append([]RecoveryAction{}, toolResult.RecoveryActions...),
 	}
 	observation.Output.Content = content
+	observation.ImageRefs = toolResultImageRefs(observationID, attachments)
+	observation.Summary = agentTurnRunner.buildToolResultSummary(ctx, taskRunID, toolName, originalContent, isError, attachments, artifactID, toolResult)
 	observation.ToolInputKey = toolInputKey
 	if observation.Failed() {
 		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.FailureCode())
@@ -1181,7 +1190,7 @@ func recoveryActionsFromObservations(observations []turnObservation) []RecoveryA
 	return recoveryActions
 }
 
-func buildToolResultSummary(toolName string, content string, isError bool, attachments []FileAttachment, artifactID string, toolResult ToolResult) string {
+func (agentTurnRunner *AgentTurnRunner) buildToolResultSummary(ctx context.Context, taskRunID string, toolName string, content string, isError bool, attachments []FileAttachment, artifactID string, toolResult ToolResult) string {
 	observation := turnObservation{
 		Tool:        toolName,
 		Output:      ToolOutput{Content: content},
@@ -1190,11 +1199,127 @@ func buildToolResultSummary(toolName string, content string, isError bool, attac
 	if isError {
 		observation.Failure = toolResult.Failure
 	}
-	summary := summarizeObservationContent(observation)
+	summary := modelVisibleToolResultSummary(ctx, agentTurnRunner.languageModel, toolName, observation)
 	if strings.TrimSpace(artifactID) != "" {
 		summary = strings.TrimSpace(summary) + " Full result stored as artifact " + strings.TrimSpace(artifactID) + "."
 	}
 	return strings.TrimSpace(summary)
+}
+
+const rawToolResultInlineLimit = 2000
+const semanticToolSummaryTarget = 1200
+
+func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.LanguageModelProvider, toolName string, observation turnObservation) string {
+	content := strings.TrimSpace(observation.ContentText())
+	if content == "" {
+		return summarizeObservationContent(observation)
+	}
+	if shouldUseSanitizedToolPresenter(toolName) {
+		return sanitizedToolResultSummary(observation)
+	}
+	if len(content) <= rawToolResultInlineLimit {
+		return content
+	}
+	if shouldSummarizeLongToolResult(toolName) && languageModel != nil {
+		summary, errorValue := summarizeLongToolResult(ctx, languageModel, toolName, content)
+		if errorValue == nil && strings.TrimSpace(summary) != "" {
+			return strings.TrimSpace(summary)
+		}
+	}
+	return deterministicLongToolResultSummary(content)
+}
+
+func shouldUseSanitizedToolPresenter(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", "file.attach":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldSummarizeLongToolResult(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "web.fetch", "web.search", "memory.search", "conversation.history":
+		return true
+	default:
+		return false
+	}
+}
+
+func sanitizedToolResultSummary(observation turnObservation) string {
+	switch strings.TrimSpace(observation.Tool) {
+	case "browser.snapshot", "browser.observe":
+		return summarizeBrowserSnapshot(observation.ContentText())
+	case "browser.screenshot":
+		if len(observation.Attachments) > 0 {
+			return "Screenshot captured. Use the imageRefs for visual inspection."
+		}
+		return summarizeSafeJSONFields(observation.ContentText(), []string{"capturedAt", "contentType", "filename", "sizeBytes"})
+	case "file.pick":
+		return attachmentResultSummary("User selected file", observation.Attachments)
+	case "file.attach":
+		return attachmentResultSummary("File attached", observation.Attachments)
+	default:
+		return summarizeObservationContent(observation)
+	}
+}
+
+func attachmentResultSummary(prefix string, attachments []FileAttachment) string {
+	if len(attachments) == 0 {
+		return prefix + "."
+	}
+	parts := []string{prefix + "."}
+	for index, attachment := range attachments {
+		values := []string{
+			fmt.Sprintf("attachmentIndex=%d", index),
+			"filename=" + strings.TrimSpace(attachment.Filename),
+			"contentType=" + strings.TrimSpace(attachment.ContentType),
+			fmt.Sprintf("sizeBytes=%d", attachment.SizeBytes),
+		}
+		parts = append(parts, strings.Join(nonEmptyStrings(values), "; "))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func summarizeLongToolResult(ctx context.Context, languageModel llm.LanguageModelProvider, toolName string, content string) (string, error) {
+	prompt := strings.Join([]string{
+		"Summarize this tool result for the next agent action.",
+		"Preserve concrete facts needed for the next action.",
+		"Preserve URLs, titles, IDs, errors, file names, stdout/stderr facts.",
+		"Do not add facts not present in the tool output.",
+		"Do not include secrets, cookies, local private paths, CDP URLs, profile paths, or hidden policy.",
+		fmt.Sprintf("Target length: about %d characters.", semanticToolSummaryTarget),
+		"Tool: " + strings.TrimSpace(toolName),
+		"Tool output:\n" + content,
+	}, "\n")
+	return languageModel.GenerateResponse(ctx, prompt)
+}
+
+func deterministicLongToolResultSummary(content string) string {
+	content = strings.TrimSpace(content)
+	if len(content) <= rawToolResultInlineLimit {
+		return content
+	}
+	headLimit := rawToolResultInlineLimit / 2
+	tailLimit := rawToolResultInlineLimit / 2
+	return content[:headLimit] + "\n[truncated]\n" + content[len(content)-tailLimit:]
+}
+
+func toolResultImageRefs(observationID string, attachments []FileAttachment) []ToolResultImageRef {
+	imageRefs := []ToolResultImageRef{}
+	for index, attachment := range attachments {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(attachment.ContentType)), "image/") {
+			continue
+		}
+		imageRefs = append(imageRefs, ToolResultImageRef{
+			ObservationID:   observationID,
+			AttachmentIndex: index,
+			MimeType:        strings.TrimSpace(attachment.ContentType),
+			Filename:        strings.TrimSpace(attachment.Filename),
+		})
+	}
+	return imageRefs
 }
 
 func (agentTurnRunner *AgentTurnRunner) saveStep(taskRunID string, taskStepID string, status task.TaskStatus, instruction string, output string) {
