@@ -1070,6 +1070,9 @@ func recoveryGuidanceContent(observation turnObservation) string {
 	if terminalRecoveryGuidance := terminalPathRecoveryGuidance(observation); terminalRecoveryGuidance != "" {
 		parts = append(parts, terminalRecoveryGuidance)
 	}
+	if terminalDependencyGuidance := terminalPythonDependencyRecoveryGuidance(observation); terminalDependencyGuidance != "" {
+		parts = append(parts, terminalDependencyGuidance)
+	}
 	for _, recoveryRoute := range recoveryRoutesForObservation(observation) {
 		parts = append(parts, recoveryRoute.Guidance())
 	}
@@ -1085,6 +1088,23 @@ func terminalPathRecoveryGuidance(observation turnObservation) string {
 		return "Recovery route: retry terminal.run with corrected paths under /workspace. Do not call /opt/blueclaw, /tmp, another person's private directory, or other runtime-internal paths directly. For built-in artifact skills, execute /workspace/skills/<skill>/scripts/skill_runtime.py and let the wrapper choose dependencies."
 	case "terminal_working_directory_access":
 		return "Recovery route: retry terminal.run with workingDirectoryPath set to tmp/<slug> relative to the default writable directory, then promote accepted output to artifacts/<slug> or an allowed circle/shared path."
+	default:
+		return ""
+	}
+}
+
+func terminalPythonDependencyRecoveryGuidance(observation turnObservation) string {
+	if strings.TrimSpace(observation.Tool) != "terminal.run" || strings.TrimSpace(observation.FailureStage()) != "terminal_run" {
+		return ""
+	}
+	summary := observation.FailureSummary()
+	switch {
+	case strings.Contains(summary, "ModuleNotFoundError: No module named 'pptx'"):
+		return "Recovery route: do not probe or install python-pptx with system Python. Use the PPTX skill wrapper instead: create work under tmp/<deck-slug>, then run python3 /workspace/skills/pptx/scripts/skill_runtime.py python /workspace/skills/pptx/scripts/create_pptx.py deck.json output.pptx, or use /workspace/skills/simple-slides/scripts/build.sh after writing DESIGN.md and presentation.md."
+	case strings.Contains(summary, "ModuleNotFoundError: No module named 'docx'"):
+		return "Recovery route: do not probe or install python-docx with system Python. Use python3 /workspace/skills/docx/scripts/skill_runtime.py python /workspace/skills/docx/scripts/create_docx.py document.json output.docx from tmp/<document-slug>."
+	case strings.Contains(summary, "ModuleNotFoundError: No module named 'openpyxl'"):
+		return "Recovery route: do not probe or install openpyxl with system Python. Use python3 /workspace/skills/xlsx/scripts/skill_runtime.py python /workspace/skills/xlsx/scripts/create_xlsx.py workbook.json output.xlsx from tmp/<workbook-slug>."
 	default:
 		return ""
 	}
