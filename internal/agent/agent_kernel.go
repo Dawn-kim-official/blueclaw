@@ -773,7 +773,7 @@ func appendUniqueQualityGuidance(guidance []string, seenGuidance map[string]bool
 }
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultEffortLevel EffortLevel) IntakeDecision {
-	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle) {
+	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle, decision.Classification) {
 		return decision
 	}
 	decision.Classification = IntakeClassificationBoundedTask
@@ -803,13 +803,31 @@ func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
 	return TaskShapeResearchTask
 }
 
-func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle) bool {
+func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle, classification IntakeClassification) bool {
 	allowedToolCountBySkillName := map[string]int{}
+	allowedToolsBySkillName := map[string][]string{}
 	for _, skillInstruction := range instructionBundle.Skills {
 		allowedToolCountBySkillName[skillInstruction.Name] = len(SkillToolNames(skillInstruction))
+		allowedToolsBySkillName[skillInstruction.Name] = SkillToolNames(skillInstruction)
 	}
 	for _, skillDecision := range instructionBundle.SkillDecisions {
 		if skillDecision.Status == "selected" && skillDecision.Name == "scheduled-task" && allowedToolCountBySkillName[skillDecision.Name] > 0 {
+			return true
+		}
+		if skillDecision.Status == "selected" && artifactSkillCanRecoverIntakeRefusal(classification, allowedToolsBySkillName[skillDecision.Name]) {
+			return true
+		}
+	}
+	return false
+}
+
+func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, allowedTools []string) bool {
+	if classification != IntakeClassificationUnsupported && classification != IntakeClassificationNeedsConfirmation {
+		return false
+	}
+	for _, toolName := range allowedTools {
+		switch strings.TrimSpace(toolName) {
+		case "terminal.run", "file.write", "file.attach":
 			return true
 		}
 	}
