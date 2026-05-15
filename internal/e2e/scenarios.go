@@ -14,7 +14,7 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 			ExpectedToolCalls:      []string{"terminal.run", "file.attach"},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.terminal.run.requested", BodyFragment: "NAME=", Count: 1},
-				{Name: "tool.terminal.run.requested", BodyFragment: "./build.sh", Count: 1},
+				{Name: "tool.terminal.run.requested", BodyFragment: "/workspace/skills/simple-slides/scripts/build.sh", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Building requested formats", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Slide render review", Count: 1},
 				{Name: "tool.file.attach.result", BodyFragment: `"output"`, Count: 1},
@@ -23,20 +23,20 @@ func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSe
 			ExpectedAttachments: []string{".pptx", ".pdf", ".html", "-notes.txt"},
 			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{
 				{
-					PathGlob:          ".blueclaw/tmp/*/DESIGN.md",
+					PathGlob:          "circles/staff/tmp/*/DESIGN.md",
 					ContainsFragments: []string{"colors:", "Visual direction"},
 				},
 				{
-					PathGlob:           ".blueclaw/tmp/*/presentation.md",
+					PathGlob:           "circles/staff/tmp/*/presentation.md",
 					ContainsFragments:  []string{"design-source: DESIGN.md", "InternKim capability deck", "너 뭐 할 수 있는지"},
 					ForbiddenFragments: []string{"Draft a presentation deck", "user_request:"},
 				},
 				{
-					PathGlob:          ".blueclaw/tmp/*/review/slide-review.json",
+					PathGlob:          "circles/staff/tmp/*/review/slide-review.json",
 					ContainsFragments: []string{`"passed": true`, `"safeMargin": true`, `"edgeOverflow": true`, `"contactSheets"`},
 				},
 				{
-					PathGlob:          ".blueclaw/tmp/*/*.html",
+					PathGlob:          "circles/staff/tmp/*/*.html",
 					ContainsFragments: []string{"Paperlogy", "Freesentation", "--background", "InternKim capability deck"},
 				},
 			},
@@ -194,7 +194,7 @@ func simpleSlidesSkill() agent.SkillInstruction {
 		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
 		Category:    "document-generation",
 		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, copy build.sh/extract_notes.py/render_review.py into the deck directory, run NAME=<deck-slug> ./build.sh for a full deck or FORMATS=html NAME=<deck-slug> ./build.sh for html-only requests, then file.attach only the requested generated files. Do not use Google Workspace unless a google tool is explicitly available.",
+		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/simple-slides/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/simple-slides/scripts/build.sh for html-only requests, then file.attach only the requested generated files. Do not use Google Workspace unless a google tool is explicitly available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},

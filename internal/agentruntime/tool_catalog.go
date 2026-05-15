@@ -602,11 +602,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
 	input.Stdin = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Stdin)
 	input.EnvironmentVariables = toolCatalogBuilder.resolveAgentWorkspaceEnvironment(input.EnvironmentVariables)
-	if strings.TrimSpace(input.WorkingDirectoryPath) == "" {
-		input.WorkingDirectoryPath = handlerContext.conversationScope.DefaultDirectoryPath
-	} else {
-		input.WorkingDirectoryPath = toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath)
-	}
+	input.WorkingDirectoryPath = toolCatalogBuilder.resolveTerminalWorkingDirectoryPath(input.WorkingDirectoryPath, handlerContext.conversationScope)
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
 		return terminalWorkspaceAccessFailure(input.WorkingDirectoryPath), nil
 	}
@@ -668,7 +664,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	workingDirectoryPath := firstNonEmptyString(toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath), handlerContext.conversationScope.DefaultDirectoryPath)
+	workingDirectoryPath := toolCatalogBuilder.resolveTerminalWorkingDirectoryPath(input.WorkingDirectoryPath, handlerContext.conversationScope)
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, workingDirectoryPath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "terminal_session", "current account cannot use this workspace path"), nil
 	}
@@ -1082,6 +1078,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveWorkspaceFilePathForConvers
 	}
 	defaultDirectoryPath := firstNonEmptyString(conversationScope.DefaultDirectoryPath, toolCatalogBuilder.workspaceRootPath)
 	return toolCatalogBuilder.resolveWorkspaceFilePath(filepath.Join(defaultDirectoryPath, trimmedPath))
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveTerminalWorkingDirectoryPath(value string, conversationScope ConversationResourceScope) string {
+	trimmedPath := toolCatalogBuilder.resolveAgentWorkspacePath(value)
+	defaultDirectoryPath := firstNonEmptyString(conversationScope.DefaultDirectoryPath, toolCatalogBuilder.workspaceRootPath)
+	if trimmedPath == "" {
+		return defaultDirectoryPath
+	}
+	if filepath.IsAbs(trimmedPath) {
+		return trimmedPath
+	}
+	return filepath.Join(defaultDirectoryPath, trimmedPath)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspacePath(value string) string {
