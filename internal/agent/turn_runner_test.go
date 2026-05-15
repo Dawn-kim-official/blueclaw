@@ -2029,6 +2029,51 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
+			noToolFallbackFinalReplyDocument("텍스트로 대신 드립니다."),
+			noToolFallbackFinalReplyDocument("텍스트로 대신 드립니다."),
+			noToolFallbackFinalReplyDocument("텍스트로 대신 드립니다."),
+			recoveryDecisionDocument("file attachment missing", "deck build failed", "stop the repeated state", "report the missing artifact"),
+		},
+		textResponses: []string{"PPTX 첨부를 완료하지 못했습니다. 빌드 실패 뒤에도 필수 첨부 증거가 없어 작업을 중단했습니다."},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, RecoveryAttemptLimit: 3})
+	terminalCallCount := 0
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		terminalCallCount++
+		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "terminal_run", `{"exitCode":1,"stderr":"EACCES: permission denied, open 'deck.html'"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "피피티 만들어줘",
+		ToolSet:                    toolRegistry,
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected repeated state stop without error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task after repeated recovery state, got %s", result.TaskRun.Status)
+	}
+	if terminalCallCount != 1 {
+		t.Fatalf("expected no repeated terminal command, got %d calls", terminalCallCount)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.recovery_state_repeated", "completionEvidence must cite successful observation for file.attach") {
+		t.Fatal("expected repeated recovery state event")
+	}
+	if taskEventsContain(taskEvents, "max_iterations", "") {
+		t.Fatal("expected loop breaker before max_iterations")
+	}
+}
+
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
