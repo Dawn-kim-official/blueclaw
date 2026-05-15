@@ -67,6 +67,12 @@ func TestPOSIXStateForPolicyProjectsWorkspaceDirectories(t *testing.T) {
 	if !hasPOSIXDirectory(state, "/workspace/private/people/person-1", "blueclaw", "bc_person_person-1", "2770") {
 		t.Fatalf("expected private POSIX directory, got %+v", state.Directories)
 	}
+	if !hasPOSIXDirectory(state, "/workspace/private/people/person-1/tmp", "blueclaw", "bc_person_person-1", "2770") {
+		t.Fatalf("expected private tmp POSIX directory, got %+v", state.Directories)
+	}
+	if !hasPOSIXDirectory(state, "/workspace/private/people/person-1/artifacts", "blueclaw", "bc_person_person-1", "2770") {
+		t.Fatalf("expected private artifacts POSIX directory, got %+v", state.Directories)
+	}
 	if !hasPOSIXDirectory(state, "/workspace/circles/finance", "blueclaw", "bc_circle_finance", "2770") {
 		t.Fatalf("expected circle POSIX directory, got %+v", state.Directories)
 	}

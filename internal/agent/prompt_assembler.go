@@ -223,6 +223,7 @@ func buildWorkspaceContextDescription(request AgentTurnRequest) string {
 	}
 	if personID := strings.TrimSpace(request.RequesterPersonID); personID != "" {
 		lines = append(lines, "Person-private files live under /workspace/private/people/"+personID+".")
+		lines = append(lines, "Use tmp/<artifact-slug> for draft artifact work and artifacts/<artifact-slug> for accepted final files relative to the default writable directory.")
 	}
 	lines = append(lines,
 		"Circle-shared files live under /workspace/circles/<circleID> when the requester belongs to that circle.",

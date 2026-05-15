@@ -100,6 +100,7 @@ func TestPromptAssemblerIncludesWritableWorkspaceContext(t *testing.T) {
 		"Default writable workspace directory: /workspace/private/people/person-1",
 		"Prefer relative paths from that directory for generated files.",
 		"Person-private files live under /workspace/private/people/person-1.",
+		"Use tmp/<artifact-slug> for draft artifact work and artifacts/<artifact-slug> for accepted final files",
 		"Circle-shared files live under /workspace/circles/<circleID>",
 		"/workspace/.blueclaw is service-owned runtime state",
 		"ls -ld <path>",

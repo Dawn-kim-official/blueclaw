@@ -125,6 +125,9 @@ func applyPOSIXEnvironment(environmentVariables map[string]string, identity Exec
 	}
 	if strings.TrimSpace(identity.HomeDirectoryPath) != "" {
 		result["HOME"] = identity.HomeDirectoryPath
+		result["BLUECLAW_REQUESTER_TMP"] = identity.HomeDirectoryPath + "/tmp"
+		result["BLUECLAW_TASK_TMP"] = identity.HomeDirectoryPath + "/tmp"
+		result["BLUECLAW_REQUESTER_ARTIFACTS"] = identity.HomeDirectoryPath + "/artifacts"
 	}
 	dependencyCachePath := "/workspace/shared/cache/dependencies"
 	result["XDG_CACHE_HOME"] = dependencyCachePath + "/xdg"
@@ -183,6 +186,18 @@ func POSIXStateForPolicy(policyDocument policy.PolicyDocument, workspaceRootPath
 		})
 		state.Directories = append(state.Directories, POSIXDirectory{
 			Path:     workspaceRootPath + "/private/people/" + personID,
+			Owner:    blueclawServiceUserName,
+			Group:    userName,
+			ModeText: "2770",
+		})
+		state.Directories = append(state.Directories, POSIXDirectory{
+			Path:     workspaceRootPath + "/private/people/" + personID + "/tmp",
+			Owner:    blueclawServiceUserName,
+			Group:    userName,
+			ModeText: "2770",
+		})
+		state.Directories = append(state.Directories, POSIXDirectory{
+			Path:     workspaceRootPath + "/private/people/" + personID + "/artifacts",
 			Owner:    blueclawServiceUserName,
 			Group:    userName,
 			ModeText: "2770",
