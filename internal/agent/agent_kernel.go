@@ -236,7 +236,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
-	turnToolSet = toolSetForOutcomeReference(turnToolSet, request, executionPlan, hasExecutionPlan, outcomeContract)
+	turnToolSet = toolSetForAgentTurn(turnToolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract)
 
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
@@ -415,6 +415,34 @@ func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBun
 	return toolSet.WithAllowedToolNames(toolNamesForSelectedSkills(instructionBundle))
 }
 
+func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
+	if toolSet == nil {
+		return nil
+	}
+	if !turnToolSelectionIsConstrained(instructionBundle, outcomeContract) {
+		return toolSetForOutcomeReference(toolSet, request, executionPlan, hasExecutionPlan, outcomeContract)
+	}
+	allowedToolNames := []string{}
+	for _, toolName := range toolNamesForAgentTurn(instructionBundle, outcomeContract) {
+		if shouldExposeToolForOutcome(toolName, request, executionPlan, hasExecutionPlan, outcomeContract) {
+			allowedToolNames = appendUniqueStrings(allowedToolNames, toolName)
+		}
+	}
+	return toolSet.WithAllowedToolNames(allowedToolNames)
+}
+
+func turnToolSelectionIsConstrained(instructionBundle InstructionBundle, outcomeContract OutcomeContract) bool {
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Status == "selected" {
+			return true
+		}
+	}
+	return len(outcomeContractRequiredToolNames(outcomeContract)) > 0 ||
+		len(outcomeContract.RequiredAttachmentSuffixes) > 0 ||
+		strings.TrimSpace(outcomeContract.ArtifactRequirement) == ArtifactRequirementRequired ||
+		strings.TrimSpace(outcomeContract.ArtifactRequirement) == ArtifactRequirementPreferred
+}
+
 func toolSetForOutcomeReference(toolSet *ToolSet, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
 	if toolSet == nil {
 		return nil
@@ -447,9 +475,24 @@ func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan Executio
 	return contractRequiresSendTool(outcomeContract) || (hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) || promptLooksLikeExternalSend(request.Prompt)
 }
 
+func toolNamesForAgentTurn(instructionBundle InstructionBundle, outcomeContract OutcomeContract) []string {
+	toolNames := append([]string{}, universalAgentToolNames()...)
+	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !selectedSkillName[skillInstruction.Name] {
+			continue
+		}
+		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
+	}
+	toolNames = appendUniqueStrings(toolNames, outcomeContractRequiredToolNames(outcomeContract)...)
+	if outcomeNeedsArtifactWorkflow(outcomeContract) {
+		toolNames = appendUniqueStrings(toolNames, artifactWorkflowToolNames()...)
+	}
+	return toolNames
+}
+
 func toolNamesForSelectedSkills(instructionBundle InstructionBundle) []string {
-	toolNames := append([]string{}, coreAgentToolNames()...)
-	toolNames = appendUniqueStrings(toolNames, DefaultSkillToolNames()...)
+	toolNames := append([]string{}, universalAgentToolNames()...)
 	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
 	for _, skillInstruction := range instructionBundle.Skills {
 		if !selectedSkillName[skillInstruction.Name] {
@@ -470,8 +513,42 @@ func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool
 	return selectedSkillName
 }
 
+func universalAgentToolNames() []string {
+	toolNames := append([]string{}, coreAgentToolNames()...)
+	toolNames = appendUniqueStrings(toolNames, DefaultSkillToolNames()...)
+	toolNames = appendUniqueStrings(toolNames, genericBuiltInToolNames()...)
+	return toolNames
+}
+
 func coreAgentToolNames() []string {
 	return []string{"conversation.history", "memory.search", "ask.confirm", "ask.choice", "ask.input", "skill.search"}
+}
+
+func genericBuiltInToolNames() []string {
+	return []string{
+		"math.calculate",
+		"terminal.run",
+		"terminal.session",
+		"browser_handoff.openURL",
+		"file.read",
+		"file.write",
+		"file.promote",
+		"file.attach",
+	}
+}
+
+func artifactWorkflowToolNames() []string {
+	return []string{"terminal.run", "file.write", "file.promote", "file.attach"}
+}
+
+func outcomeNeedsArtifactWorkflow(contract OutcomeContract) bool {
+	if strings.TrimSpace(contract.ArtifactRequirement) == ArtifactRequirementRequired || strings.TrimSpace(contract.ArtifactRequirement) == ArtifactRequirementPreferred {
+		return true
+	}
+	if len(contract.RequiredAttachmentSuffixes) > 0 {
+		return true
+	}
+	return stringSliceContains(outcomeContractRequiredToolNames(contract), "file.attach")
 }
 
 func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
