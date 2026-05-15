@@ -145,6 +145,9 @@ func POSIXStateForPolicy(policyDocument policy.PolicyDocument, workspaceRootPath
 	state := POSIXState{
 		Groups: []POSIXGroup{{Name: posixSharedGroupName}},
 		Directories: []POSIXDirectory{
+			{Path: workspaceRootPath + "/circles", Owner: blueclawServiceUserName, Group: blueclawServiceUserName, ModeText: "0711"},
+			{Path: workspaceRootPath + "/private", Owner: blueclawServiceUserName, Group: blueclawServiceUserName, ModeText: "0711"},
+			{Path: workspaceRootPath + "/private/people", Owner: blueclawServiceUserName, Group: blueclawServiceUserName, ModeText: "0711"},
 			{Path: workspaceRootPath + "/shared", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
 			{Path: workspaceRootPath + "/shared/public", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
 			{Path: workspaceRootPath + "/shared/cache", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
