@@ -233,6 +233,58 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 	}
 }
 
+func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"deep","requestedOutputFormats":["pptx"],"reason":"previous permission failure","userFacingReply":"Gamma나 Canva를 사용하세요."}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
+		finalReplyWithEvidence("PPTX 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
+	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
+		return InstructionBundle{Skills: []SkillInstruction{{
+			Name:         "simple-slides",
+			Description:  "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
+			WhenToUse:    "Use for 피피티 and PPTX requests.",
+			Prompt:       "Create and attach PPTX files.",
+			TriggerHints: []string{"피피티", "pptx"},
+			AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+			Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+		}}}
+	})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/private/people/person-1/artifacts/deck/deck.pptx",
+				Filename:   "deck.pptx",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "아까 피피티 다시 해봐",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected selected artifact skill to run despite intake refusal: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
+		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "selected skill requires bounded completion evidence") {
+		t.Fatal("expected intake refusal to be promoted by selected artifact skill")
+	}
+}
+
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
