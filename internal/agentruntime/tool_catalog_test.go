@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1384,6 +1385,54 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 	}
 	if _, errorValue := os.Stat(filepath.Join(workspacePath, "tmp", "deck")); !os.IsNotExist(errorValue) {
 		t.Fatalf("terminal.run must not create workspace-root tmp for relative workingDirectoryPath")
+	}
+}
+
+func TestFileWriteRepairsGroupWriteBitsForTerminalFlow(t *testing.T) {
+	workspacePath := t.TempDir()
+	previousMask := syscall.Umask(0027)
+	defer syscall.Umask(previousMask)
+
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "tmp/deck/input.txt",
+			"content": "ok",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if writeResult.Failed() {
+		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
+	}
+
+	deckDirectoryPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck")
+	directoryInformation, errorValue := os.Stat(deckDirectoryPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if directoryInformation.Mode().Perm()&0020 == 0 {
+		t.Fatalf("expected group-writable deck directory, got mode %v", directoryInformation.Mode().Perm())
+	}
+	fileInformation, errorValue := os.Stat(filepath.Join(deckDirectoryPath, "input.txt"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if fileInformation.Mode().Perm()&0020 == 0 {
+		t.Fatalf("expected group-writable file for requester terminal flow, got mode %v", fileInformation.Mode().Perm())
 	}
 }
 

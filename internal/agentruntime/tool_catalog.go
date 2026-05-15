@@ -943,10 +943,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if input.Mode != 0 {
 		fileMode = os.FileMode(input.Mode)
 	}
-	if errorValue := os.MkdirAll(filepath.Dir(resolvedPath), 0770); errorValue != nil {
+	if errorValue := ensureToolWriteDirectory(filepath.Dir(resolvedPath), toolCatalogBuilder.workspaceRootPath); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
 	if errorValue := os.WriteFile(resolvedPath, []byte(input.Content), fileMode); errorValue != nil {
+		return agent.ToolResult{}, errorValue
+	}
+	if errorValue := ensureToolWriteFileMode(resolvedPath, fileMode); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
 	_ = toolContext
@@ -954,6 +957,72 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 		"path":      toolCatalogBuilder.agentWorkspacePath(resolvedPath),
 		"sizeBytes": len(input.Content),
 	})), nil
+}
+
+func ensureToolWriteDirectory(directoryPath string, workspaceRootPath string) error {
+	if errorValue := os.MkdirAll(directoryPath, 0770); errorValue != nil {
+		return errorValue
+	}
+	return ensureGroupWritableDirectoryTree(writableWorkspaceScopeRoot(directoryPath, workspaceRootPath), directoryPath)
+}
+
+func ensureGroupWritableDirectoryTree(scopeRootPath string, directoryPath string) error {
+	scopeRootPath = filepath.Clean(scopeRootPath)
+	directoryPath = filepath.Clean(directoryPath)
+	directories := []string{}
+	for path := directoryPath; ; path = filepath.Dir(path) {
+		directories = append(directories, path)
+		if path == scopeRootPath || path == filepath.Dir(path) {
+			break
+		}
+	}
+	for index := len(directories) - 1; index >= 0; index-- {
+		if errorValue := ensureGroupWriteAndSearch(directories[index]); errorValue != nil {
+			return errorValue
+		}
+	}
+	return nil
+}
+
+func writableWorkspaceScopeRoot(path string, workspaceRootPath string) string {
+	cleanPath := filepath.Clean(path)
+	cleanWorkspaceRootPath := filepath.Clean(workspaceRootPath)
+	relativePath, errorValue := filepath.Rel(cleanWorkspaceRootPath, cleanPath)
+	if errorValue != nil || relativePath == "." || strings.HasPrefix(relativePath, "..") {
+		return cleanWorkspaceRootPath
+	}
+	parts := strings.Split(relativePath, string(filepath.Separator))
+	if len(parts) >= 3 && parts[0] == "private" && parts[1] == "people" {
+		return filepath.Join(cleanWorkspaceRootPath, parts[0], parts[1], parts[2])
+	}
+	if len(parts) >= 2 && parts[0] == "circles" {
+		return filepath.Join(cleanWorkspaceRootPath, parts[0], parts[1])
+	}
+	if len(parts) >= 1 && parts[0] == "shared" {
+		return filepath.Join(cleanWorkspaceRootPath, parts[0])
+	}
+	return cleanWorkspaceRootPath
+}
+
+func ensureGroupWriteAndSearch(directoryPath string) error {
+	fileInformation, errorValue := os.Stat(directoryPath)
+	if errorValue != nil {
+		return errorValue
+	}
+	mode := fileInformation.Mode().Perm() | 0070
+	if fileInformation.Mode()&os.ModeSetgid != 0 {
+		mode |= os.ModeSetgid
+	}
+	return os.Chmod(directoryPath, mode)
+}
+
+func ensureToolWriteFileMode(path string, requestedMode os.FileMode) error {
+	fileInformation, errorValue := os.Stat(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	mode := fileInformation.Mode().Perm() | (requestedMode.Perm() & 0770) | 0060
+	return os.Chmod(path, mode)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {

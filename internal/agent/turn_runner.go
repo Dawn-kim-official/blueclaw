@@ -370,6 +370,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				if observation.Action == "evidence_missing" {
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_required", marshalEventBody(observation))
 				}
+				if repeatedStateObservationLimitReached(state.Observations, observation) {
+					reason := "repeated recovery state without new progress: " + observation.ContentText()
+					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_state_repeated", marshalEventBody(observation))
+					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "recovery_state_repeated", reason)
+					return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments)
+				}
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, observation.Action, observation.ContentText())
 				continue
 			}
@@ -508,6 +514,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				observation.Summary = observation.ContentText()
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_blocked_fail", marshalEventBody(observation))
+				if repeatedStateObservationLimitReached(state.Observations, observation) {
+					reason := "repeated recovery state without new progress: " + observation.ContentText()
+					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_state_repeated", marshalEventBody(observation))
+					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "recovery_state_repeated", reason)
+					return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments)
+				}
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_required", observation.ContentText())
 				continue
 			}
@@ -1894,6 +1906,40 @@ func completionGateObservation(index int, message string) turnObservation {
 	observation.Failure.Retryable = true
 	observation.Failure.SafeRetry = true
 	return observation
+}
+
+func repeatedStateObservationLimitReached(observations []turnObservation, latestObservation turnObservation) bool {
+	key := repeatableStateObservationKey(latestObservation)
+	if key == "" {
+		return false
+	}
+	count := 0
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		if observation.Action == "call_tool" && !observation.Failed() {
+			break
+		}
+		if repeatableStateObservationKey(observation) == key {
+			count++
+		}
+	}
+	return count >= 3
+}
+
+func repeatableStateObservationKey(observation turnObservation) string {
+	if observation.Action == "call_tool" || !observation.Failed() {
+		return ""
+	}
+	content := strings.TrimSpace(observation.ContentText())
+	if content == "" {
+		return ""
+	}
+	return strings.Join([]string{
+		strings.TrimSpace(observation.Action),
+		strings.TrimSpace(observation.FailureCode()),
+		strings.TrimSpace(observation.FailureStage()),
+		content,
+	}, "\x00")
 }
 
 func completionGateEventName(observation turnObservation) string {
