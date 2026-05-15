@@ -124,21 +124,28 @@ func applyPOSIXEnvironment(environmentVariables map[string]string, identity Exec
 		result[name] = value
 	}
 	if strings.TrimSpace(identity.HomeDirectoryPath) != "" {
-		result["HOME"] = identity.HomeDirectoryPath
-		result["BLUECLAW_REQUESTER_TMP"] = identity.HomeDirectoryPath + "/tmp"
-		result["BLUECLAW_TASK_TMP"] = identity.HomeDirectoryPath + "/tmp"
-		result["BLUECLAW_REQUESTER_ARTIFACTS"] = identity.HomeDirectoryPath + "/artifacts"
+		setDefaultEnvironmentValue(result, "HOME", identity.HomeDirectoryPath)
+		setDefaultEnvironmentValue(result, "BLUECLAW_REQUESTER_TMP", identity.HomeDirectoryPath+"/tmp")
+		setDefaultEnvironmentValue(result, "BLUECLAW_TASK_TMP", identity.HomeDirectoryPath+"/tmp")
+		setDefaultEnvironmentValue(result, "BLUECLAW_REQUESTER_ARTIFACTS", identity.HomeDirectoryPath+"/artifacts")
 	}
 	dependencyCachePath := "/workspace/shared/cache/dependencies"
-	result["XDG_CACHE_HOME"] = dependencyCachePath + "/xdg"
-	result["npm_config_cache"] = dependencyCachePath + "/npm"
-	result["BUN_INSTALL_CACHE_DIR"] = dependencyCachePath + "/bun"
-	result["GOMODCACHE"] = dependencyCachePath + "/go/pkg/mod"
-	result["GOCACHE"] = dependencyCachePath + "/go/build"
-	result["PIP_CACHE_DIR"] = dependencyCachePath + "/pip"
-	result["UV_CACHE_DIR"] = dependencyCachePath + "/uv"
-	result["CARGO_HOME"] = dependencyCachePath + "/cargo"
+	setDefaultEnvironmentValue(result, "BLUECLAW_DEPENDENCY_CACHE", dependencyCachePath)
+	setDefaultEnvironmentValue(result, "XDG_CACHE_HOME", dependencyCachePath+"/xdg")
+	setDefaultEnvironmentValue(result, "npm_config_cache", dependencyCachePath+"/npm")
+	setDefaultEnvironmentValue(result, "BUN_INSTALL_CACHE_DIR", dependencyCachePath+"/bun")
+	setDefaultEnvironmentValue(result, "GOMODCACHE", dependencyCachePath+"/go/pkg/mod")
+	setDefaultEnvironmentValue(result, "GOCACHE", dependencyCachePath+"/go/build")
+	setDefaultEnvironmentValue(result, "PIP_CACHE_DIR", dependencyCachePath+"/pip")
+	setDefaultEnvironmentValue(result, "UV_CACHE_DIR", dependencyCachePath+"/uv")
+	setDefaultEnvironmentValue(result, "CARGO_HOME", dependencyCachePath+"/cargo")
 	return result
+}
+
+func setDefaultEnvironmentValue(environmentVariables map[string]string, name string, value string) {
+	if strings.TrimSpace(environmentVariables[name]) == "" {
+		environmentVariables[name] = value
+	}
 }
 
 func POSIXStateForPolicy(policyDocument policy.PolicyDocument, workspaceRootPath string) POSIXState {

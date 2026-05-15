@@ -72,7 +72,7 @@ func TestSimpleSlidesAssetsStayPureSkill(t *testing.T) {
 	if !strings.Contains(buildScript, "older than DESIGN.md") {
 		t.Fatal("build.sh should reject stale presentation.md sources after DESIGN.md changes")
 	}
-	if !strings.Contains(buildScript, `rm -f "${NAME}.html"`) {
+	if !strings.Contains(buildScript, `rm -f "${BUILD_DIR}/${NAME}.html"`) {
 		t.Fatal("build.sh should clear previous outputs before rebuilding")
 	}
 }

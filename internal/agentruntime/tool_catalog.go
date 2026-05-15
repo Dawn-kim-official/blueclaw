@@ -158,6 +158,13 @@ type fileAttachToolInput struct {
 	Title       string   `json:"title"`
 }
 
+type filePromoteToolInput struct {
+	Path                     string   `json:"path"`
+	Paths                    []string `json:"paths"`
+	DestinationDirectoryPath string   `json:"destinationDirectoryPath"`
+	Overwrite                bool     `json:"overwrite"`
+}
+
 type skillSearchToolInput struct {
 	Queries []agent.SkillSearchQuery `json:"queries"`
 	Limit   int                      `json:"limit"`
@@ -264,7 +271,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.DefaultAllowedToolNames([]string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"})
+	return agent.DefaultAllowedToolNames([]string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -392,6 +399,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		},
 		Handler: func(toolContext context.Context, input fileAttachToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.attachFileTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
+	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[filePromoteToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "file.promote",
+			Description: "Copy finished draft artifacts from tmp/<slug>/build into artifacts/<slug>/ or an allowed durable circle/shared directory before attaching.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"destinationDirectoryPath":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["destinationDirectoryPath"],"additionalProperties":false}`),
+		},
+		Handler: func(toolContext context.Context, input filePromoteToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.promoteFileTool(toolContext, input, handlerContext)
 		},
 		Result: agent.IdentityToolResult,
 	})
@@ -599,12 +617,21 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if toolCatalogBuilder.terminalService == nil {
 		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
 	}
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	resolver := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath)
+	workingDirectory, errorValue := resolver.ResolveDirectory(input.WorkingDirectoryPath, scope)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_working_directory", errorValue.Error()), nil
+	}
 	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
 	input.Stdin = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Stdin)
-	input.EnvironmentVariables = toolCatalogBuilder.resolveAgentWorkspaceEnvironment(input.EnvironmentVariables)
-	input.WorkingDirectoryPath = toolCatalogBuilder.resolveTerminalWorkingDirectoryPath(input.WorkingDirectoryPath, handlerContext.conversationScope)
+	input.EnvironmentVariables = toolCatalogBuilder.resolveAgentWorkspaceEnvironment(mergeWorkspaceEnvironment(input.EnvironmentVariables, scope.EnvironmentVariables()))
+	input.WorkingDirectoryPath = workingDirectory.ConcretePath
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
 		return terminalWorkspaceAccessFailure(input.WorkingDirectoryPath), nil
+	}
+	if errorValue := (WorkspaceMaterializer{WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath}).EnsureDirectory(input.WorkingDirectoryPath); errorValue != nil {
+		return terminalWorkspaceMaterializerFailure(input.WorkingDirectoryPath, errorValue), nil
 	}
 	input.ExecutionIdentity = security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath)
 	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(toolContext, input)
@@ -627,6 +654,14 @@ func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResul
 	return result
 }
 
+func terminalWorkspaceMaterializerFailure(workingDirectoryPath string, errorValue error) agent.ToolResult {
+	message := "cannot prepare terminal workingDirectoryPath " + strings.TrimSpace(workingDirectoryPath) + ": " + errorValue.Error() + "; recovery: use tmp/<slug> for draft work"
+	result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "terminal_working_directory_materialize", message)
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	return result
+}
+
 func terminalPathGuardrailFailure(commandResult security.CommandResult, content string) agent.ToolResult {
 	message := strings.TrimSpace(commandResult.Stderr)
 	if message == "" {
@@ -644,7 +679,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 	}
 	switch strings.TrimSpace(input.Action) {
 	case "start":
-		return toolCatalogBuilder.startTerminalSession(input, handlerContext)
+		return toolCatalogBuilder.startTerminalSession(toolContext, input, handlerContext)
 	case "write":
 		commandResult, errorValue := toolCatalogBuilder.terminalService.WriteSessionInput(input.SessionID, input.Input)
 		return terminalSessionToolResult(commandResult, errorValue), nil
@@ -663,15 +698,23 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	workingDirectoryPath := toolCatalogBuilder.resolveTerminalWorkingDirectoryPath(input.WorkingDirectoryPath, handlerContext.conversationScope)
+func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(toolContext context.Context, input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	workingDirectory, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).ResolveDirectory(input.WorkingDirectoryPath, scope)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_session", errorValue.Error()), nil
+	}
+	workingDirectoryPath := workingDirectory.ConcretePath
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, workingDirectoryPath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "terminal_session", "current account cannot use this workspace path"), nil
+	}
+	if errorValue := (WorkspaceMaterializer{WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath}).EnsureDirectory(workingDirectoryPath); errorValue != nil {
+		return terminalWorkspaceMaterializerFailure(workingDirectoryPath, errorValue), nil
 	}
 	sessionID, errorValue := toolCatalogBuilder.terminalService.StartInteractiveSession(security.CommandRequest{
 		Command:              toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command),
 		WorkingDirectoryPath: workingDirectoryPath,
-		EnvironmentVariables: toolCatalogBuilder.resolveAgentWorkspaceEnvironment(input.EnvironmentVariables),
+		EnvironmentVariables: toolCatalogBuilder.resolveAgentWorkspaceEnvironment(mergeWorkspaceEnvironment(input.EnvironmentVariables, scope.EnvironmentVariables())),
 		TimeoutSecond:        input.TimeoutSecond,
 		IsInteractive:        true,
 		IsPTY:                true,
@@ -929,32 +972,33 @@ func normalizeApprovalReasonCode(reasonCode string) string {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(input.Path, handlerContext.conversationScope)
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(input.Path, scope)
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", errorValue.Error()), nil
 	}
-	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath) {
+	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_write", "file.write cannot modify built-in skill files"), nil
 	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath) {
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_write", "current account cannot write this file"), nil
 	}
 	fileMode := os.FileMode(0660)
 	if input.Mode != 0 {
 		fileMode = os.FileMode(input.Mode)
 	}
-	if errorValue := ensureToolWriteDirectory(filepath.Dir(resolvedPath), toolCatalogBuilder.workspaceRootPath); errorValue != nil {
+	materializer := WorkspaceMaterializer{WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath}
+	if errorValue := materializer.EnsureDirectory(filepath.Dir(resolvedPath.ConcretePath)); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
-	if errorValue := os.WriteFile(resolvedPath, []byte(input.Content), fileMode); errorValue != nil {
+	if errorValue := os.WriteFile(resolvedPath.ConcretePath, []byte(input.Content), fileMode); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
-	if errorValue := ensureToolWriteFileMode(resolvedPath, fileMode); errorValue != nil {
+	if errorValue := materializer.EnsureFileMode(resolvedPath.ConcretePath, fileMode); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
-	_ = toolContext
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
-		"path":      toolCatalogBuilder.agentWorkspacePath(resolvedPath),
+		"path":      resolvedPath.VirtualPath,
 		"sizeBytes": len(input.Content),
 	})), nil
 }
@@ -1031,8 +1075,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_attach", "path is required"), nil
 	}
 	attachments := []agent.FileAttachment{}
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	for _, attachmentPath := range attachmentPaths {
-		attachment, errorValue := toolCatalogBuilder.fileAttachment(attachmentPath, input, handlerContext)
+		attachment, errorValue := toolCatalogBuilder.fileAttachment(attachmentPath, input, handlerContext, scope)
 		if errorValue != nil {
 			return agent.ToolResult{}, errorValue
 		}
@@ -1053,35 +1098,128 @@ func requestedAttachmentPaths(path string, paths []string) []string {
 	return attachmentPaths
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.FileAttachment, error) {
-	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(path, handlerContext.conversationScope)
+func (toolCatalogBuilder *ToolCatalogBuilder) promoteFileTool(toolContext context.Context, input filePromoteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	sourcePaths := requestedAttachmentPaths(input.Path, input.Paths)
+	if len(sourcePaths) == 0 {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "path is required"), nil
+	}
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	resolver := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath)
+	destinationDirectory, errorValue := resolver.ResolveDirectory(input.DestinationDirectoryPath, scope)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", errorValue.Error()), nil
+	}
+	if !destinationDirectory.IsDurableArtifact {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "destinationDirectoryPath must be artifacts/<slug>, /workspace/circles/<circleID>/..., or /workspace/shared/public/..."), nil
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, destinationDirectory.ConcretePath) {
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_promote", "current account cannot write the promotion destination"), nil
+	}
+	materializer := WorkspaceMaterializer{WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath}
+	if errorValue := materializer.EnsureDirectory(destinationDirectory.ConcretePath); errorValue != nil {
+		return agent.ToolResult{}, errorValue
+	}
+	promotedPaths := []string{}
+	for _, sourcePath := range sourcePaths {
+		source, errorValue := resolver.Resolve(sourcePath, scope)
+		if errorValue != nil {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", errorValue.Error()), nil
+		}
+		if source.Kind != workspacePathKindDraft {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source paths must come from tmp/<slug> draft work"), nil
+		}
+		if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, source.ConcretePath) {
+			return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_promote", "current account cannot read the promotion source"), nil
+		}
+		sourceInformation, errorValue := os.Stat(source.ConcretePath)
+		if errorValue != nil {
+			return agent.ToolResult{}, errorValue
+		}
+		if !sourceInformation.Mode().IsRegular() {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source path is not a regular file"), nil
+		}
+		destinationPath := filepath.Join(destinationDirectory.ConcretePath, filepath.Base(source.ConcretePath))
+		if !input.Overwrite {
+			if _, errorValue := os.Stat(destinationPath); errorValue == nil {
+				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "destination already exists; set overwrite=true to replace it"), nil
+			} else if !os.IsNotExist(errorValue) {
+				return agent.ToolResult{}, errorValue
+			}
+		}
+		if errorValue := copyRegularFile(source.ConcretePath, destinationPath, 0660); errorValue != nil {
+			return agent.ToolResult{}, errorValue
+		}
+		if errorValue := materializer.EnsureFileMode(destinationPath, 0660); errorValue != nil {
+			return agent.ToolResult{}, errorValue
+		}
+		promotedVirtualPath := filepath.ToSlash(filepath.Join(destinationDirectory.VirtualPath, filepath.Base(source.ConcretePath)))
+		promotedPaths = append(promotedPaths, promotedVirtualPath)
+	}
+	return agent.ToolSuccess(marshalToolResult(map[string]any{
+		"paths": promotedPaths,
+	})), nil
+}
+
+func copyRegularFile(sourcePath string, destinationPath string, mode os.FileMode) error {
+	sourceFile, errorValue := os.Open(sourcePath)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer sourceFile.Close()
+	destinationFile, errorValue := os.OpenFile(destinationPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if errorValue != nil {
+		return errorValue
+	}
+	_, copyError := io.Copy(destinationFile, sourceFile)
+	closeError := destinationFile.Close()
+	if copyError != nil {
+		return copyError
+	}
+	return closeError
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input fileAttachToolInput, handlerContext toolHandlerContext, scope WorkspaceScope) (agent.FileAttachment, error) {
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
 		return agent.FileAttachment{}, errorValue
 	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath) {
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
 		return agent.FileAttachment{}, errors.New("current account cannot read this file")
 	}
-	fileInformation, errorValue := os.Stat(resolvedPath)
+	fileInformation, errorValue := os.Stat(resolvedPath.ConcretePath)
 	if errorValue != nil {
 		return agent.FileAttachment{}, errorValue
 	}
 	if !fileInformation.Mode().IsRegular() {
 		return agent.FileAttachment{}, errors.New("attachment path is not a regular file")
 	}
-	contentBase64, errorValue := inlineAttachmentContent(resolvedPath, fileInformation.Size())
+	contentBase64, errorValue := inlineAttachmentContent(resolvedPath.ConcretePath, fileInformation.Size())
 	if errorValue != nil {
 		return agent.FileAttachment{}, errorValue
 	}
-	filename := attachmentFilename(input, resolvedPath)
+	filename := attachmentFilename(input, resolvedPath.ConcretePath)
 	contentType := firstNonEmptyString(input.ContentType, mime.TypeByExtension(filepath.Ext(filename)), "application/octet-stream")
 	return agent.FileAttachment{
-		DevicePath:    toolCatalogBuilder.agentWorkspacePath(resolvedPath),
+		DevicePath:    toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath),
 		Filename:      filename,
 		ContentType:   contentType,
 		SizeBytes:     fileInformation.Size(),
 		Title:         strings.TrimSpace(input.Title),
 		ContentBase64: contentBase64,
 	}, nil
+}
+
+func mergeWorkspaceEnvironment(environmentVariables map[string]string, workspaceEnvironment map[string]string) map[string]string {
+	result := map[string]string{}
+	for name, value := range environmentVariables {
+		result[name] = value
+	}
+	for name, value := range workspaceEnvironment {
+		if strings.TrimSpace(result[name]) == "" {
+			result[name] = value
+		}
+	}
+	return result
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) canAccessWorkspacePath(personAccess policy.PersonAccess, action string, path string) bool {
@@ -1277,11 +1415,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(
 		}
 	}
 	path, _ := inputDocument["path"].(string)
-	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(path, toolCatalogBuilder.conversationScope(request))
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
 	if errorValue != nil {
 		return errorValue
 	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath) {
+	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
 		return errors.New("current account cannot read this file")
 	}
 	return nil

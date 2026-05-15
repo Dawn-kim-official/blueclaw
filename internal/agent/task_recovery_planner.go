@@ -20,7 +20,7 @@ func shouldRetryUnsupportedLocalArtifact(request AgentRequest, decision IntakeDe
 	if looksLikeDestructiveLocalWork(strings.ToLower(strings.TrimSpace(request.Prompt))) {
 		return false
 	}
-	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.attach"}) {
+	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.promote", "file.attach"}) {
 		return false
 	}
 	if hasArtifactOutputFormat(decision.RequestedOutputFormats) {

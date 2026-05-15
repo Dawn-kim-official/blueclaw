@@ -87,10 +87,24 @@ func checkableAttachmentPath(workspaceRootPath string, attachment FileAttachment
 	if strings.HasPrefix(devicePath, "/workspace/") {
 		return filepath.Join(rootPath, strings.TrimPrefix(devicePath, "/workspace/")), true
 	}
+	if strings.HasPrefix(filepath.ToSlash(devicePath), "artifacts/") {
+		if path, isFound := firstRequesterArtifactPath(rootPath, devicePath); isFound {
+			return path, true
+		}
+	}
 	if !filepath.IsAbs(devicePath) {
 		return filepath.Join(rootPath, devicePath), true
 	}
 	return "", false
+}
+
+func firstRequesterArtifactPath(workspaceRootPath string, devicePath string) (string, bool) {
+	relativeArtifactPath := strings.TrimPrefix(filepath.ToSlash(devicePath), "artifacts/")
+	matches, errorValue := filepath.Glob(filepath.Join(workspaceRootPath, "private", "people", "*", "artifacts", filepath.FromSlash(relativeArtifactPath)))
+	if errorValue != nil || len(matches) == 0 {
+		return "", false
+	}
+	return matches[0], true
 }
 
 func attachmentFilenameForValidity(attachment FileAttachment) string {
