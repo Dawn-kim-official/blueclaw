@@ -148,6 +148,7 @@ func parseCapabilityMattermostInteractiveEvent(payload []byte) (PlatformInboundE
 			"interactionID": strings.TrimSpace(actionPayload.Context.InteractionID),
 			"taskRunID":     strings.TrimSpace(actionPayload.Context.TaskRunID),
 			"choiceKey":     strings.TrimSpace(choiceKey),
+			"postID":        strings.TrimSpace(actionPayload.PostID),
 		},
 	}, true
 }
@@ -206,6 +207,12 @@ func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTar
 		return "", errorValue
 	}
 	return strings.TrimSpace(response.DispatchID), nil
+}
+
+func (adapter CapabilityPlatformAdapter) ResolveInteraction(ctx context.Context, resolution InteractionResolution) error {
+	return adapter.post(ctx, "interaction.resolve", map[string]string{
+		"dispatchID": resolution.DispatchID,
+	}, nil)
 }
 
 func buildCapabilityReplyAttachments(attachments []agent.FileAttachment) []capabilityReplyAttachment {

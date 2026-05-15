@@ -66,8 +66,32 @@ func TestCapabilityPlatformAdapterParsesMattermostAskAction(t *testing.T) {
 	if parseResult.Event.Prompt != "selected B" || parseResult.Event.ReplyTargetID != "reply-target-1" {
 		t.Fatalf("expected ask selection event, got %+v", parseResult.Event)
 	}
-	if parseResult.Event.LegacyFields["askAction"] != "choice" || parseResult.Event.LegacyFields["choiceKey"] != "B" {
+	if parseResult.Event.LegacyFields["askAction"] != "choice" || parseResult.Event.LegacyFields["choiceKey"] != "B" || parseResult.Event.LegacyFields["postID"] != "post-1" {
 		t.Fatalf("expected ask legacy fields, got %+v", parseResult.Event.LegacyFields)
+	}
+}
+
+func TestCapabilityPlatformAdapterResolvesInteraction(t *testing.T) {
+	var receivedPath string
+	var receivedBody map[string]string
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		receivedPath = request.URL.Path
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedBody); errorValue != nil {
+			t.Fatalf("expected request body to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{}`), nil
+	}}
+	adapter := NewCapabilityPlatformAdapter("mattermost", capability.Client{
+		Endpoint:   "http://capability.test",
+		HTTPClient: httpClient,
+	})
+
+	errorValue := adapter.ResolveInteraction(context.Background(), InteractionResolution{DispatchID: "post-1"})
+	if errorValue != nil {
+		t.Fatalf("expected resolve interaction to succeed: %v", errorValue)
+	}
+	if receivedPath != "/v1/platform/mattermost/interaction.resolve" || receivedBody["dispatchID"] != "post-1" {
+		t.Fatalf("unexpected resolve request path=%q body=%+v", receivedPath, receivedBody)
 	}
 }
 

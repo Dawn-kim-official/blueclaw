@@ -255,6 +255,19 @@ type PlatformAdapter interface {
 	NotInvitedReply() string
 }
 
+type InteractionResolvingAdapter interface {
+	ResolveInteraction(context.Context, InteractionResolution) error
+}
+
+type InteractionResolution struct {
+	Platform       string `json:"platform"`
+	ConversationID string `json:"conversationID"`
+	ReplyTargetID  string `json:"replyTargetID"`
+	DispatchID     string `json:"dispatchID"`
+	TaskRunID      string `json:"taskRunID"`
+	InteractionID  string `json:"interactionID"`
+}
+
 type ConnectorTransport interface {
 	Name() string
 	Platform() string
@@ -769,6 +782,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	pendingApproval, confirmationDecision, hasPendingConfirmation := connectorRuntime.resolveConfirmationReply(ctx, platform, personID, event)
 	isApprovalContinuation := hasPendingConfirmation && confirmationDecision.Decision == "approved"
+	if hasPendingConfirmation && (confirmationDecision.Decision == "approved" || confirmationDecision.Decision == "rejected") {
+		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingApproval.TaskRun.TaskRunID, AskInteraction{InteractionID: latestAskInteractionID(connectorRuntime.agentKernel.ListTaskEvent(pendingApproval.TaskRun.TaskRunID))})
+	}
 	if hasPendingConfirmation && confirmationDecision.Decision == "rejected" {
 		return connectorRuntime.handleRejectedConfirmation(ctx, platform, adapter, event, replyTarget, pendingApproval, confirmationDecision, sendReply)
 	}
@@ -776,7 +792,12 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "ask_no_pending_interaction"))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "ask_no_pending_interaction"}, nil
 	}
+	pendingAskInteraction, hasPendingAskInteraction := connectorRuntime.findPendingAskInteraction(personID, event.ConversationID)
+	previousPrompt := event.Prompt
 	event = connectorRuntime.resolveAskReply(ctx, platform, personID, event)
+	if hasPendingAskInteraction && event.Prompt != previousPrompt {
+		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingAskInteraction.TaskRunID, pendingAskInteraction)
+	}
 	activeGoal, hasActiveGoal := connectorRuntime.findActiveGoal(personID, event.ConversationID)
 	if !isApprovalContinuation && hasActiveGoal && promptClearlyStartsNewGoal(event.Prompt, activeGoal) {
 		activeGoal = agent.ActiveGoal{}
@@ -1040,6 +1061,35 @@ func trimNonEmptyConnectorStrings(values []string) []string {
 		}
 	}
 	return trimmedValues
+}
+
+func (connectorRuntime *ConnectorRuntime) resolveAskInteractionMessage(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, interaction AskInteraction) {
+	resolver, isSupported := adapter.(InteractionResolvingAdapter)
+	if !isSupported {
+		return
+	}
+	dispatchID := firstNonEmptyString(legacyString(event.LegacyFields, "postID"), latestAskPromptDispatchID(connectorRuntime.agentKernel.ListTaskEvent(taskRunID)))
+	if dispatchID == "" {
+		return
+	}
+	resolution := InteractionResolution{
+		Platform:       event.Platform,
+		ConversationID: event.ConversationID,
+		ReplyTargetID:  event.ReplyTargetID,
+		DispatchID:     dispatchID,
+		TaskRunID:      taskRunID,
+		InteractionID:  interaction.InteractionID,
+	}
+	if errorValue := resolver.ResolveInteraction(ctx, resolution); errorValue != nil {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "ask.interaction_resolve_failed", marshalConnectorEventBody(map[string]string{
+			"dispatchID": dispatchID,
+			"error":      errorValue.Error(),
+		}))
+		return
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "ask.interaction_resolved", marshalConnectorEventBody(map[string]string{
+		"dispatchID": dispatchID,
+	}))
 }
 
 func (connectorRuntime *ConnectorRuntime) findPendingAskInteraction(personID string, conversationID string) (AskInteraction, bool) {
@@ -1455,6 +1505,41 @@ func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInt
 		}
 	}
 	return AskInteraction{}, false
+}
+
+func latestAskInteractionID(taskEvents []task.TaskEvent) string {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name == "ask.requested" {
+			return strings.TrimSpace(taskEvent.TaskEventID)
+		}
+	}
+	return ""
+}
+
+func latestAskPromptDispatchID(taskEvents []task.TaskEvent) string {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name != "connector.reply.sent" {
+			continue
+		}
+		var replyEvent struct {
+			ReplyKind  string `json:"replyKind"`
+			DispatchID string `json:"dispatchID"`
+		}
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &replyEvent); errorValue != nil {
+			continue
+		}
+		if strings.TrimSpace(replyEvent.ReplyKind) == connectorReplyKindUserNotice && strings.TrimSpace(replyEvent.DispatchID) != "" {
+			return strings.TrimSpace(replyEvent.DispatchID)
+		}
+	}
+	return ""
+}
+
+func legacyString(fields map[string]interface{}, key string) string {
+	value, _ := fields[key].(string)
+	return strings.TrimSpace(value)
 }
 
 func normalizedAskInteractionKind(kind string) string {
