@@ -15,6 +15,37 @@ type CommandGuardrailService struct {
 	terminalConfiguration config.TerminalConfiguration
 }
 
+type CommandGuardrailError struct {
+	Reason               string
+	Token                string
+	ResolvedPath         string
+	WorkspaceRootPath    string
+	WorkingDirectoryPath string
+	RecoveryHint         string
+}
+
+func (commandGuardrailError CommandGuardrailError) Error() string {
+	parts := []string{strings.TrimSpace(commandGuardrailError.Reason)}
+	if strings.TrimSpace(commandGuardrailError.Token) != "" {
+		parts = append(parts, `token "`+strings.TrimSpace(commandGuardrailError.Token)+`"`)
+	}
+	if strings.TrimSpace(commandGuardrailError.ResolvedPath) != "" {
+		parts = append(parts, `resolves to "`+strings.TrimSpace(commandGuardrailError.ResolvedPath)+`"`)
+	}
+	if strings.TrimSpace(commandGuardrailError.WorkspaceRootPath) != "" {
+		parts = append(parts, `workspace root "`+strings.TrimSpace(commandGuardrailError.WorkspaceRootPath)+`"`)
+	}
+	if strings.TrimSpace(commandGuardrailError.RecoveryHint) != "" {
+		parts = append(parts, "recovery: "+strings.TrimSpace(commandGuardrailError.RecoveryHint))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func IsCommandPathGuardrailError(errorValue error) bool {
+	var commandGuardrailError CommandGuardrailError
+	return errors.As(errorValue, &commandGuardrailError)
+}
+
 func NewCommandGuardrailService(terminalConfiguration config.TerminalConfiguration) CommandGuardrailService {
 	return CommandGuardrailService{
 		terminalConfiguration: terminalConfiguration,
@@ -265,12 +296,12 @@ func (commandGuardrailService CommandGuardrailService) validateArgumentPaths(arg
 		}
 
 		if !isWithinRootPath(workspaceRootPath, resolvedPath) {
-			return errors.New("path argument escapes workspace root")
+			return newCommandGuardrailError("path argument escapes workspace root", argument, resolvedPath, workspaceRootPath, workingDirectoryPath)
 		}
 
 		for _, deniedPathPrefix := range commandGuardrailService.terminalConfiguration.DeniedPathPrefixes {
 			if strings.HasPrefix(resolvedPath, deniedPathPrefix) {
-				return errors.New("path argument targets a denied system path")
+				return newCommandGuardrailError("path argument targets a denied system path", argument, resolvedPath, workspaceRootPath, workingDirectoryPath)
 			}
 		}
 	}
@@ -291,15 +322,26 @@ func (commandGuardrailService CommandGuardrailService) validateCommandString(com
 			return errorValue
 		}
 		if !isWithinRootPath(workspaceRootPath, resolvedPath) {
-			return errors.New("command path escapes workspace root")
+			return newCommandGuardrailError("command path escapes workspace root", token, resolvedPath, workspaceRootPath, workingDirectoryPath)
 		}
 		for _, deniedPathPrefix := range commandGuardrailService.terminalConfiguration.DeniedPathPrefixes {
 			if strings.HasPrefix(resolvedPath, deniedPathPrefix) {
-				return errors.New("command path targets a denied system path")
+				return newCommandGuardrailError("command path targets a denied system path", token, resolvedPath, workspaceRootPath, workingDirectoryPath)
 			}
 		}
 	}
 	return nil
+}
+
+func newCommandGuardrailError(reason string, token string, resolvedPath string, workspaceRootPath string, workingDirectoryPath string) CommandGuardrailError {
+	return CommandGuardrailError{
+		Reason:               strings.TrimSpace(reason),
+		Token:                strings.TrimSpace(token),
+		ResolvedPath:         strings.TrimSpace(resolvedPath),
+		WorkspaceRootPath:    strings.TrimSpace(workspaceRootPath),
+		WorkingDirectoryPath: strings.TrimSpace(workingDirectoryPath),
+		RecoveryHint:         "use paths under /workspace only; run built-in artifact skills through /workspace/skills/<skill>/scripts/skill_runtime.py instead of runtime-internal interpreters; use tmp/<slug> as the workingDirectoryPath for draft artifact work",
+	}
 }
 
 func (commandGuardrailService CommandGuardrailService) isDeniedExecutableToken(token string) bool {

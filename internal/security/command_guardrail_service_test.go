@@ -1,6 +1,7 @@
 package security
 
 import (
+	"errors"
 	"os"
 	"os/user"
 	"strings"
@@ -68,5 +69,40 @@ func TestCommandPlanUsesPOSIXHelperForExecutionIdentity(t *testing.T) {
 	}
 	if commandPlan.Timeout != 3*time.Second {
 		t.Fatalf("expected timeout to survive POSIX wrapping, got %+v", commandPlan.Timeout)
+	}
+}
+
+func TestCommandPathGuardrailErrorIncludesRecoveryDetails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root cannot build terminal command plans")
+	}
+
+	workspaceRootPath := t.TempDir()
+	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
+		Mode:                  "firecrackerGuest",
+		WorkspaceRootPath:     workspaceRootPath,
+		AllowNetwork:          true,
+		AllowInteractiveShell: true,
+		TimeoutSecond:         3,
+	})
+
+	_, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
+		Command:              "/opt/blueclaw/builtin-skills-venv/bin/python --version",
+		WorkingDirectoryPath: workspaceRootPath,
+	})
+
+	var commandGuardrailError CommandGuardrailError
+	if !errors.As(errorValue, &commandGuardrailError) {
+		t.Fatalf("expected command guardrail error, got %v", errorValue)
+	}
+	for _, expectedText := range []string{
+		"command path escapes workspace root",
+		"/opt/blueclaw/builtin-skills-venv/bin/python",
+		workspaceRootPath,
+		"/workspace/skills/<skill>/scripts/skill_runtime.py",
+	} {
+		if !strings.Contains(commandGuardrailError.Error(), expectedText) {
+			t.Fatalf("expected guardrail error to contain %q, got %q", expectedText, commandGuardrailError.Error())
+		}
 	}
 }

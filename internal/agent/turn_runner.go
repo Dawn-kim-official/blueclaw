@@ -1067,10 +1067,27 @@ func recoveryGuidanceContent(observation turnObservation) string {
 	if observation.RecoveryAttemptKey != "" {
 		parts = append(parts, "A safe automatic retry has already been attempted for this tool input.")
 	}
+	if terminalRecoveryGuidance := terminalPathRecoveryGuidance(observation); terminalRecoveryGuidance != "" {
+		parts = append(parts, terminalRecoveryGuidance)
+	}
 	for _, recoveryRoute := range recoveryRoutesForObservation(observation) {
 		parts = append(parts, recoveryRoute.Guidance())
 	}
 	return strings.Join(parts, " ")
+}
+
+func terminalPathRecoveryGuidance(observation turnObservation) string {
+	if strings.TrimSpace(observation.Tool) != "terminal.run" {
+		return ""
+	}
+	switch strings.TrimSpace(observation.FailureStage()) {
+	case "terminal_path_guardrail":
+		return "Recovery route: retry terminal.run with corrected paths under /workspace. Do not call /opt/blueclaw, /tmp, another person's private directory, or other runtime-internal paths directly. For built-in artifact skills, execute /workspace/skills/<skill>/scripts/skill_runtime.py and let the wrapper choose dependencies."
+	case "terminal_working_directory_access":
+		return "Recovery route: retry terminal.run with workingDirectoryPath set to tmp/<slug> relative to the default writable directory, then promote accepted output to artifacts/<slug> or an allowed circle/shared path."
+	default:
+		return ""
+	}
 }
 
 type RecoveryRoute struct {
