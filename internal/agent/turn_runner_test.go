@@ -1753,13 +1753,13 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"approval.request","toolInput":{"message":"배포는 외부 영향이 있는 작업이므로 확인이 필요합니다."}}`,
+		`{"action":"call_tool","toolName":"ask.confirm","toolInput":{"message":"배포는 외부 영향이 있는 작업이므로 확인이 필요합니다."}}`,
 		`{"action":"call_tool","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish prototype"}}`,
 		finalReplyWithEvidence("배포했습니다.", "obs-002", "site.app.publish", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 4})
 	publishCallCount := 0
-	toolRegistry := newTestToolSet([]string{"approval.request", "terminal.run", "site.app.create", "site.app.publish"})
+	toolRegistry := newTestToolSet([]string{"ask.confirm", "terminal.run", "site.app.create", "site.app.publish"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		publishCallCount++
 		return ToolSuccess(`{"siteID":"site-1","status":"published","publishedURL":"https://demo.example"}`), nil
@@ -1783,7 +1783,7 @@ func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 	if publishCallCount != 1 {
 		t.Fatalf("expected site.app.publish to run once, got %d", publishCallCount)
 	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "approval.requested", "") {
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "confirmation.requested", "") {
 		t.Fatal("unexpected waiting approval request")
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "site.app.publish") {
@@ -1793,13 +1793,13 @@ func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"approval.request","toolInput":{"message":"샘플 님에게 DM을 보내도 될까요?","reason":"external send"}}`,
+		`{"action":"call_tool","toolName":"ask.confirm","toolInput":{"message":"샘플 님에게 DM을 보내도 될까요?","reason":"external send"}}`,
 		finalReplyDocument("승인 요청했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestToolSet([]string{"approval.request", "terminal.run", "site.app.create", "site.app.publish", "platform.dm.send"})
+	toolRegistry := newTestToolSet([]string{"ask.confirm", "terminal.run", "site.app.create", "site.app.publish", "platform.dm.send"})
 	approvalCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "approval.request"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		approvalCallCount++
 		return ToolSuccess("approval requested"), nil
 	})
@@ -1828,11 +1828,11 @@ func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing
 
 func TestAgentTurnRunnerWaitingApprovalUsesOnlyUserFacingMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"approval.request","toolInput":{"userFacingMessage":"샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}}`,
+		`{"action":"call_tool","toolName":"ask.confirm","toolInput":{"userFacingMessage":"샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
-	toolRegistry := newTestToolSet([]string{"approval.request"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "approval.request"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"ask.confirm"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.confirm"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var input struct {
 			UserFacingMessage string `json:"userFacingMessage"`
 			ReasonCode        string `json:"reasonCode"`

@@ -636,8 +636,8 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.search only when the user asks for public, current, or external web information, or when memory.search is unavailable and the missing information is required and public, current, or external."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
-	instruction += " Ask for approval only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Do not ask for approval before ordinary non-destructive writes."
-	instruction += " When calling approval.request, set userFacingMessage to the exact approval question shown to the user, written in the same language as the original user request. reasonCode and reasonDetail are internal only and must not contain user-facing prose."
+	instruction += " Ask the user only when their confirmation, choice, or free-form input is required. Use ask.confirm before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Do not ask for confirmation before ordinary non-destructive writes."
+	instruction += " When calling ask.confirm, set userFacingMessage to the exact confirmation question shown to the user, written in the same language as the original user request. reasonCode and reasonDetail are internal only and must not contain user-facing prose. When calling ask.choice, include a recommendedOptionKey except for ask.confirm, and provide explicit options."
 	instruction += " If a tool call fails, it creates FailureDebt. Do not return final_reply until a later different recovery succeeds, or you can answer from current context without tools and set failureResolution=no_tool_fallback, or recovery budget is exhausted and you use fail. Never repeat the same failed tool input fingerprint; recovery must change the input, route/provider, tool, or fall back without tools."
 	instruction += " For artifact work, set_quality_criteria and qualityReview are useful for your own acceptance criteria, but they are guidance and evidence, not a reason to withhold a usable artifact."
 	if len(request.QualityAcceptanceGuidance) > 0 {
@@ -914,7 +914,7 @@ func isUnsafeRepeatSensitiveTool(toolName string) bool {
 }
 
 func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolName string, toolInput json.RawMessage) bool {
-	if strings.TrimSpace(toolName) != "approval.request" {
+	if strings.TrimSpace(toolName) != "ask.confirm" {
 		return false
 	}
 	if !sitePublishTaskToolsAreAvailable(request.ToolSet) {

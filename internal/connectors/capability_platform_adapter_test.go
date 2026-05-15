@@ -47,6 +47,30 @@ func TestCapabilityPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {
 	}
 }
 
+func TestCapabilityPlatformAdapterParsesMattermostAskAction(t *testing.T) {
+	adapter := NewCapabilityPlatformAdapter("mattermost", capability.Client{})
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/connectors/mattermost/events",
+		bytes.NewReader([]byte(`{"user_id":"user-1","post_id":"post-1","channel_id":"channel-1","context":{"action":"ask.choice","interactionID":"interaction-1","taskRunID":"task-1","conversationID":"channel-1","replyTargetID":"reply-target-1","choiceKey":"B","responseLanguage":"ko"}}`)),
+	)
+
+	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected ask action to parse: %v", errorValue)
+	}
+
+	if !parseResult.HasEvent {
+		t.Fatal("expected parsed event")
+	}
+	if parseResult.Event.Prompt != "selected B" || parseResult.Event.ReplyTargetID != "reply-target-1" {
+		t.Fatalf("expected ask selection event, got %+v", parseResult.Event)
+	}
+	if parseResult.Event.LegacyFields["askAction"] != "choice" || parseResult.Event.LegacyFields["choiceKey"] != "B" {
+		t.Fatalf("expected ask legacy fields, got %+v", parseResult.Event.LegacyFields)
+	}
+}
+
 func TestCapabilityPlatformAdapterUsesCapabilityEndpointsWithoutAuthorization(t *testing.T) {
 	receivedAuthorizationByPath := map[string]string{}
 	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {

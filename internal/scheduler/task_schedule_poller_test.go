@@ -241,7 +241,7 @@ func TestTaskSchedulePollerDoesNotDeliverWaitingTaskReply(t *testing.T) {
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     deliveryRepository,
-		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"call_tool","toolName":"approval.request","toolInput":{"message":"확인이 필요해요."}}`),
+		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"call_tool","toolName":"ask.confirm","toolInput":{"message":"확인이 필요해요."}}`),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
@@ -379,7 +379,7 @@ func testTaskScheduleRunner(content string) agentruntime.TaskScheduleRunner {
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
 	agentKernel.UseLanguageModelProvider(staticPollerLanguageModel{content: content})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"approval.request"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	return agentruntime.NewTaskScheduleRunner(agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder))
 }

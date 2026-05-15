@@ -73,6 +73,7 @@ type OutboundReply struct {
 	OutboxID        string                 `json:"outboxID,omitempty"`
 	Attachments     []agent.FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction `json:"recoveryActions,omitempty"`
+	Interaction     *AskInteraction        `json:"interaction,omitempty"`
 }
 
 type outboundReplyDocument struct {
@@ -83,6 +84,7 @@ type outboundReplyDocument struct {
 	OutboxID        string                    `json:"outboxID,omitempty"`
 	Attachments     []outboundReplyAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction    `json:"recoveryActions,omitempty"`
+	Interaction     *AskInteraction           `json:"interaction,omitempty"`
 }
 
 type outboundReplyAttachment struct {
@@ -94,6 +96,24 @@ type outboundReplyAttachment struct {
 	ContentBase64 string `json:"contentBase64,omitempty"`
 }
 
+type AskInteraction struct {
+	InteractionID        string            `json:"interactionID"`
+	TaskRunID            string            `json:"taskRunID"`
+	Kind                 string            `json:"kind"`
+	Message              string            `json:"message,omitempty"`
+	Question             string            `json:"question,omitempty"`
+	Options              []AskChoiceOption `json:"options,omitempty"`
+	RecommendedOptionKey string            `json:"recommendedOptionKey,omitempty"`
+	SelectionMode        string            `json:"selectionMode,omitempty"`
+	ResponseLanguage     string            `json:"responseLanguage,omitempty"`
+}
+
+type AskChoiceOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Value string `json:"value,omitempty"`
+}
+
 func (reply OutboundReply) MarshalJSON() ([]byte, error) {
 	document := outboundReplyDocument{
 		Message:         reply.Message,
@@ -103,6 +123,7 @@ func (reply OutboundReply) MarshalJSON() ([]byte, error) {
 		OutboxID:        reply.OutboxID,
 		Attachments:     outboundReplyAttachments(reply.Attachments),
 		RecoveryActions: reply.RecoveryActions,
+		Interaction:     reply.Interaction,
 	}
 	return json.Marshal(document)
 }
@@ -119,6 +140,7 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 	reply.OutboxID = document.OutboxID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
 	reply.RecoveryActions = append([]agent.RecoveryAction{}, document.RecoveryActions...)
+	reply.Interaction = document.Interaction
 	return nil
 }
 
@@ -300,7 +322,7 @@ func NewConnectorRuntime(identityService *identity.IdentityService, agentKernel 
 		logger = slog.Default()
 	}
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"conversation.history", "memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "schedule.create", "schedule.cancel"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"conversation.history", "memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.write", "file.attach", "schedule.create", "schedule.cancel"})
 
 	return &ConnectorRuntime{
 		identityService:    identityService,
@@ -372,7 +394,7 @@ func (connectorRuntime *ConnectorRuntime) UseCapabilityTools(capabilityClient ca
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNames(allowedToolNames []string) {
 	trimmedToolNames := trimNonEmptyStrings(allowedToolNames)
 	if len(trimmedToolNames) == 0 {
-		trimmedToolNames = []string{"conversation.history", "memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "approval.request", "file.write", "file.attach", "schedule.create", "schedule.cancel"}
+		trimmedToolNames = []string{"conversation.history", "memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.write", "file.attach", "schedule.create", "schedule.cancel"}
 	}
 	connectorRuntime.toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, trimmedToolNames)
 }
@@ -746,6 +768,11 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if hasPendingConfirmation && confirmationDecision.Decision == "rejected" {
 		return connectorRuntime.handleRejectedConfirmation(ctx, platform, adapter, event, replyTarget, pendingApproval, confirmationDecision, sendReply)
 	}
+	if connectorRuntime.shouldIgnoreOrphanAskAction(personID, event, hasPendingConfirmation) {
+		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "ask_no_pending_interaction"))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "ask_no_pending_interaction"}, nil
+	}
+	event = connectorRuntime.resolveAskReply(ctx, platform, personID, event)
 	activeGoal, hasActiveGoal := connectorRuntime.findActiveGoal(personID, event.ConversationID)
 	if !isApprovalContinuation && hasActiveGoal && promptClearlyStartsNewGoal(event.Prompt, activeGoal) {
 		activeGoal = agent.ActiveGoal{}
@@ -854,10 +881,34 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
 }
 
+func (connectorRuntime *ConnectorRuntime) shouldIgnoreOrphanAskAction(personID string, event PlatformInboundEvent, hasPendingConfirmation bool) bool {
+	action, isFound := event.LegacyFields["askAction"].(string)
+	if !isFound {
+		return false
+	}
+	switch strings.TrimSpace(action) {
+	case "confirm", "cancel":
+		return !hasPendingConfirmation
+	case "choice":
+		_, hasPendingAsk := connectorRuntime.findPendingAskInteraction(personID, event.ConversationID)
+		return !hasPendingAsk
+	default:
+		return true
+	}
+}
+
 func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent) (pendingApproval, agent.ConfirmationReplyDecision, bool) {
 	approval, isFound := connectorRuntime.findPendingApproval(personID, event.ConversationID)
 	if !isFound {
 		return pendingApproval{}, agent.ConfirmationReplyDecision{}, false
+	}
+	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
+		switch strings.TrimSpace(action) {
+		case "confirm":
+			return approval, agent.ConfirmationReplyDecision{Decision: "approved", Reason: "interactive_confirm"}, true
+		case "cancel":
+			return approval, agent.ConfirmationReplyDecision{Decision: "rejected", Reason: "interactive_cancel"}, true
+		}
 	}
 	decision, errorValue := connectorRuntime.agentKernel.ClassifyConfirmationReply(ctx, approval.IntentPrompt, approval.ApprovalQuestion, event.Prompt)
 	if errorValue != nil {
@@ -877,6 +928,140 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
 	}
 	return approval, decision, true
+}
+
+func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent) PlatformInboundEvent {
+	pendingInteraction, isFound := connectorRuntime.findPendingAskInteraction(personID, event.ConversationID)
+	if !isFound {
+		return event
+	}
+	if action, isFound := event.LegacyFields["askAction"].(string); isFound {
+		return resolveAskInteractiveReply(event, pendingInteraction, action)
+	}
+	if pendingInteraction.Kind == "ask_input" {
+		return event
+	}
+	if pendingInteraction.Kind != "ask_choice_single" && pendingInteraction.Kind != "ask_choice_multiple" {
+		return event
+	}
+	decision, errorValue := connectorRuntime.agentKernel.ResolveChoiceReply(ctx, agent.ChoiceReplyRequest{
+		Question:      pendingInteraction.Question,
+		Options:       choiceReplyOptions(pendingInteraction.Options),
+		SelectionMode: pendingInteraction.SelectionMode,
+		Reply:         event.Prompt,
+	})
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".ask.choice_classify_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", pendingInteraction.TaskRunID), slog.String("error", errorValue.Error()))
+		return event
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
+		"messageID": event.MessageID,
+		"status":    decision.Status,
+		"choice":    decision.Choice,
+		"choices":   decision.Choices,
+	}))
+	if decision.Status != "resolved" {
+		return event
+	}
+	event.Prompt = resolvedChoicePrompt(pendingInteraction, decision)
+	return event
+}
+
+func resolveAskInteractiveReply(event PlatformInboundEvent, interaction AskInteraction, action string) PlatformInboundEvent {
+	switch strings.TrimSpace(action) {
+	case "choice":
+		choiceKey, _ := event.LegacyFields["choiceKey"].(string)
+		event.Prompt = resolvedChoiceKeyPrompt(interaction, choiceKey)
+	case "confirm":
+		event.Prompt = "approved"
+	case "cancel":
+		event.Prompt = "rejected"
+	}
+	return event
+}
+
+func choiceReplyOptions(options []AskChoiceOption) []agent.ChoiceReplyOption {
+	replyOptions := []agent.ChoiceReplyOption{}
+	for _, option := range options {
+		replyOptions = append(replyOptions, agent.ChoiceReplyOption{
+			Key:   strings.TrimSpace(option.Key),
+			Label: strings.TrimSpace(option.Label),
+			Value: strings.TrimSpace(option.Value),
+		})
+	}
+	return replyOptions
+}
+
+func resolvedChoicePrompt(interaction AskInteraction, decision agent.ChoiceReplyDecision) string {
+	keys := []string{}
+	if decision.Choice != "" {
+		keys = append(keys, decision.Choice)
+	}
+	keys = append(keys, decision.Choices...)
+	values := []string{}
+	for _, key := range keys {
+		values = append(values, resolvedChoiceKeyText(interaction, key))
+	}
+	return "User selected: " + strings.Join(trimNonEmptyConnectorStrings(values), ", ")
+}
+
+func resolvedChoiceKeyPrompt(interaction AskInteraction, choiceKey string) string {
+	return "User selected: " + resolvedChoiceKeyText(interaction, choiceKey)
+}
+
+func resolvedChoiceKeyText(interaction AskInteraction, choiceKey string) string {
+	normalizedChoiceKey := strings.TrimSpace(choiceKey)
+	for _, option := range interaction.Options {
+		if strings.TrimSpace(option.Key) != normalizedChoiceKey {
+			continue
+		}
+		value := strings.TrimSpace(option.Value)
+		if value == "" {
+			value = strings.TrimSpace(option.Label)
+		}
+		if value == "" {
+			value = normalizedChoiceKey
+		}
+		return normalizedChoiceKey + " / " + value
+	}
+	return normalizedChoiceKey
+}
+
+func trimNonEmptyConnectorStrings(values []string) []string {
+	trimmedValues := []string{}
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			trimmedValues = append(trimmedValues, trimmedValue)
+		}
+	}
+	return trimmedValues
+}
+
+func (connectorRuntime *ConnectorRuntime) findPendingAskInteraction(personID string, conversationID string) (AskInteraction, bool) {
+	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
+	var selectedInteraction AskInteraction
+	var selectedTaskRun task.TaskRun
+	isSelected := false
+	for _, taskRun := range taskRuns {
+		if taskRun.Status != task.TaskStatusWaitingUserInput {
+			continue
+		}
+		if taskRun.OriginConversationID != conversationID {
+			continue
+		}
+		interaction, isFound := latestAskInteraction(taskRun.TaskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID))
+		if !isFound {
+			continue
+		}
+		if isSelected && !taskRun.UpdatedAt.After(selectedTaskRun.UpdatedAt) {
+			continue
+		}
+		selectedTaskRun = taskRun
+		selectedInteraction = interaction
+		isSelected = true
+	}
+	return selectedInteraction, isSelected
 }
 
 func (connectorRuntime *ConnectorRuntime) findPendingApproval(personID string, conversationID string) (pendingApproval, bool) {
@@ -1205,7 +1390,7 @@ func shouldUseApprovalQuestionAsIntent(taskPrompt string, approvalQuestion strin
 func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
-		if taskEvent.Name != "approval.requested" && taskEvent.Name != "confirmation.requested" {
+		if taskEvent.Name != "confirmation.requested" {
 			continue
 		}
 		var approvalRequest struct {
@@ -1226,7 +1411,7 @@ func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
 func latestApprovalResponseLanguage(taskEvents []task.TaskEvent) string {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
-		if taskEvent.Name != "approval.requested" && taskEvent.Name != "confirmation.requested" {
+		if taskEvent.Name != "confirmation.requested" {
 			continue
 		}
 		var approvalRequest struct {
@@ -1240,6 +1425,47 @@ func latestApprovalResponseLanguage(taskEvents []task.TaskEvent) string {
 		}
 	}
 	return ""
+}
+
+func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInteraction, bool) {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name != "ask.requested" {
+			continue
+		}
+		var interaction AskInteraction
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &interaction); errorValue != nil {
+			continue
+		}
+		interaction.TaskRunID = firstNonEmptyString(interaction.TaskRunID, taskRunID)
+		interaction.InteractionID = firstNonEmptyString(interaction.InteractionID, taskEvent.TaskEventID)
+		interaction.Kind = normalizedAskInteractionKind(interaction.Kind)
+		if strings.TrimSpace(interaction.Question) == "" {
+			interaction.Question = strings.TrimSpace(interaction.Message)
+		}
+		if strings.TrimSpace(interaction.Message) == "" {
+			interaction.Message = strings.TrimSpace(interaction.Question)
+		}
+		if strings.TrimSpace(interaction.Kind) != "" {
+			return interaction, true
+		}
+	}
+	return AskInteraction{}, false
+}
+
+func normalizedAskInteractionKind(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "confirm":
+		return "ask_confirm"
+	case "choice_single":
+		return "ask_choice_single"
+	case "choice_multiple":
+		return "ask_choice_multiple"
+	case "input":
+		return "ask_input"
+	default:
+		return strings.TrimSpace(kind)
+	}
 }
 
 func latestConfirmationContinuationInstruction(taskEvents []task.TaskEvent) string {
@@ -1317,6 +1543,8 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 		ReplyKind:       connectorReplyKindUserNotice,
 		RecoveryActions: recoveryActionsForEvent(turnResult.RecoveryActions, event),
 	}
+	interaction, _ := latestAskInteraction(taskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRunID))
+	reply.Interaction = optionalAskInteraction(interaction)
 	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
 	if errorValue != nil {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.failed", connectorReplyEventBody(event, reply, "", "", errorValue.Error()))
@@ -1328,6 +1556,13 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 	}
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID), slog.String("reason", "task_not_completed"))
 	return dispatchID, true
+}
+
+func optionalAskInteraction(interaction AskInteraction) *AskInteraction {
+	if strings.TrimSpace(interaction.Kind) == "" {
+		return nil
+	}
+	return &interaction
 }
 
 func recoveryActionsForEvent(recoveryActions []agent.RecoveryAction, event PlatformInboundEvent) []agent.RecoveryAction {

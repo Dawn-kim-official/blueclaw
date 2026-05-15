@@ -114,6 +114,31 @@ func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 	}
 }
 
+func TestOutboundReplyJSONPreservesAskInteraction(t *testing.T) {
+	reply := OutboundReply{
+		Message: "확인해 주세요.",
+		Interaction: &AskInteraction{
+			InteractionID: "interaction-1",
+			TaskRunID:     "task-1",
+			Kind:          "ask_confirm",
+			Message:       "진행할까요?",
+		},
+	}
+
+	document, errorValue := json.Marshal(reply)
+	if errorValue != nil {
+		t.Fatalf("expected reply to marshal: %v", errorValue)
+	}
+	var decodedReply OutboundReply
+	if errorValue := json.Unmarshal(document, &decodedReply); errorValue != nil {
+		t.Fatalf("expected reply to unmarshal: %v", errorValue)
+	}
+
+	if decodedReply.Interaction == nil || decodedReply.Interaction.Kind != "ask_confirm" || decodedReply.Interaction.Message != "진행할까요?" {
+		t.Fatalf("expected ask interaction to survive outbox json, got %+v", decodedReply.Interaction)
+	}
+}
+
 func TestConnectorRuntimeStopsProgressAfterRequestContextCancellation(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -213,7 +238,7 @@ func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T)
 
 func TestLatestApprovalQuestionUsesOnlyUserFacingMessage(t *testing.T) {
 	taskEvents := []task.TaskEvent{{
-		Name: "approval.requested",
+		Name: "confirmation.requested",
 		Body: `{"reason":"Direct messages are external sends and require approval before immediate delivery.","reasonCode":"external_send"}`,
 	}, {
 		Name: "confirmation.requested",
@@ -229,7 +254,7 @@ func TestLatestApprovalQuestionUsesOnlyUserFacingMessage(t *testing.T) {
 
 func TestLatestApprovalQuestionDoesNotFallBackToReason(t *testing.T) {
 	taskEvents := []task.TaskEvent{{
-		Name: "approval.requested",
+		Name: "confirmation.requested",
 		Body: `{"reason":"Direct messages are external sends and require approval before immediate delivery.","reasonCode":"external_send"}`,
 	}}
 
@@ -728,7 +753,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "approval.request", "calendar.event.add", "calendar.event.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.add", "calendar.event.delete"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -814,7 +839,7 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 		AllowedTools: []string{"platform.dm.send"},
 		Source:       agent.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
 	})
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "approval.request", "platform.dm.send"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "platform.dm.send"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -925,7 +950,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "approval.request", "calendar.event.add", "calendar.event.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.add", "calendar.event.delete"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -948,7 +973,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 		t.Fatal("expected task run id")
 	}
 	requests := languageModel.Requests()
-	if connectorContainsSchemaName(requests, "blueclaw_approval_reply_decision") {
+	if connectorContainsSchemaName(requests, "blueclaw_confirmation_reply_decision") {
 		t.Fatalf("expected no approval continuation classification, got %+v", connectorRequestSchemaNames(requests))
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.add/invoke" {
