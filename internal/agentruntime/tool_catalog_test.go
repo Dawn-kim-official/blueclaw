@@ -1319,6 +1319,74 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	}
 }
 
+func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
+		WorkspaceRootPath: workspacePath,
+		Mode:              "firecrackerGuest",
+		TimeoutSecond:     5,
+		OutputMaxBytes:    4096,
+		SessionMaxCount:   2,
+	}))
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "tmp/deck/input.txt",
+			"content": "ok",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if writeResult.Failed() {
+		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
+	}
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command":              "pwd && cat input.txt && printf built > result.txt",
+			"workingDirectoryPath": "tmp/deck",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
+	}
+	var commandResult security.CommandResult
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &commandResult); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	expectedDirectoryPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck")
+	if !strings.Contains(commandResult.Stdout, expectedDirectoryPath) || !strings.Contains(commandResult.Stdout, "ok") {
+		t.Fatalf("expected terminal cwd and file content under private tmp, got %q", commandResult.Stdout)
+	}
+	resultDocument, errorValue := os.ReadFile(filepath.Join(expectedDirectoryPath, "result.txt"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if string(resultDocument) != "built" {
+		t.Fatalf("expected terminal output under private tmp, got %q", string(resultDocument))
+	}
+	if _, errorValue := os.Stat(filepath.Join(workspacePath, "tmp", "deck")); !os.IsNotExist(errorValue) {
+		t.Fatalf("terminal.run must not create workspace-root tmp for relative workingDirectoryPath")
+	}
+}
+
 func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
