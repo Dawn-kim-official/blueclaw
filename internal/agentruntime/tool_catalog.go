@@ -260,7 +260,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
 		return agent.DefaultAllowedToolNames(toolCatalogBuilder.fallbackAllowedToolNames)
 	}
-	return agent.DefaultAllowedToolNames([]string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.write", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"})
+	return DefaultAllowedToolNames()
+}
+
+func DefaultAllowedToolNames() []string {
+	return agent.DefaultAllowedToolNames([]string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -507,6 +511,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput(toolName, request, json.RawMessage(toolInvocation.Input))
 				if errorValue != nil {
 					return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", errorValue.Error()), nil
+				}
+				if errorValue := toolCatalogBuilder.validateCapabilityToolInputAccess(toolName, request, toolInput); errorValue != nil {
+					return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read_access", errorValue.Error()), nil
 				}
 				errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, toolInput), &response)
 				if errorValue != nil {
@@ -1180,6 +1187,27 @@ func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName
 	inputDocument["sourceBundleBase64"] = sourceBundleBase64
 	inputDocument["sourceBundleFormat"] = "tar.gz"
 	return json.Marshal(inputDocument)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) error {
+	if strings.TrimSpace(toolName) != "file.read" {
+		return nil
+	}
+	inputDocument := map[string]any{}
+	if len(toolInput) > 0 {
+		if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
+			return errorValue
+		}
+	}
+	path, _ := inputDocument["path"].(string)
+	resolvedPath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePathForConversation(path, toolCatalogBuilder.conversationScope(request))
+	if errorValue != nil {
+		return errorValue
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath) {
+		return errors.New("current account cannot read this file")
+	}
+	return nil
 }
 
 func siteSourceWorkspacePath(inputDocument map[string]any) string {
