@@ -527,6 +527,8 @@ func coreAgentToolNames() []string {
 func genericBuiltInToolNames() []string {
 	return []string{
 		"math.calculate",
+		"web.search",
+		"web.fetch",
 		"terminal.run",
 		"terminal.session",
 		"browser_handoff.openURL",

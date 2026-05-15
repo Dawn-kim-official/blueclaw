@@ -107,6 +107,22 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 	}
 }
 
+func TestSelectedSkillToolSetKeepsGenericWebTools(t *testing.T) {
+	toolSet := testToolSet([]string{"web.search", "web.fetch", "terminal.run", "file.write"})
+	instructionBundle := InstructionBundle{
+		Skills:         []SkillInstruction{{Name: "simple-slides", AllowedTools: []string{"terminal.run", "file.write"}}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
+	}
+
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, AgentRequest{Prompt: "https://example.com 참고해서 ppt 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
+
+	for _, toolName := range []string{"web.search", "web.fetch", "terminal.run", "file.write"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to remain available with selected skills, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+}
+
 func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "site.app.create", "site.app.publish"})
 

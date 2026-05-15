@@ -694,7 +694,7 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction := "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply only when goalSatisfied is true. Every final_reply must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
-	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.search only when the user asks for public, current, or external web information, or when memory.search is unavailable and the missing information is required and public, current, or external."
+	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
 	instruction += " Ask the user only when their confirmation, choice, or free-form input is required. Use ask.confirm before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Do not ask for confirmation before ordinary non-destructive writes."
 	instruction += " When calling ask.confirm, set userFacingMessage to the exact confirmation question shown to the user, written in the same language as the original user request. reasonCode and reasonDetail are internal only and must not contain user-facing prose. When calling ask.choice, include a recommendedOptionKey except for ask.confirm, and provide explicit options."
@@ -2252,6 +2252,8 @@ type limitReplyStatus struct {
 
 type failureReplyStatus struct {
 	Source                  string             `json:"source"`
+	FirstInvalid            bool               `json:"firstInvalid"`
+	RepairCount             int                `json:"repairCount"`
 	Reason                  string             `json:"reason,omitempty"`
 	StructuredRecoveryError string             `json:"structuredRecoveryError,omitempty"`
 	TextRecoveryError       string             `json:"textRecoveryError,omitempty"`
@@ -2339,8 +2341,30 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRe
 		status.Source = "generated"
 		return reply, status, true
 	}
+	if errorValue == nil && reply != "" {
+		for repairCount := 1; repairCount <= 2; repairCount++ {
+			repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildFailureReplyRepairPrompt(prompt, reply, request, failureReason, observations, attachments, repairCount))
+			if repairError != nil || repairedReply == "" {
+				status.Source = "suppressed"
+				status.FirstInvalid = true
+				status.RepairCount = repairCount
+				status.Reason = "repair_failed"
+				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+				return "", status, false
+			}
+			if !failureReplyIsInvalidForRequest(repairedReply, request, failureReason, observations, attachments) {
+				status.Source = "generated_repair"
+				status.FirstInvalid = true
+				status.RepairCount = repairCount
+				return repairedReply, status, true
+			}
+			reply = repairedReply
+		}
+		status.FirstInvalid = true
+		status.RepairCount = 2
+	}
 	status.Source = "suppressed"
-	status.Reason = "text_recovery_failed"
+	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
 	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
 	return "", status, false
 }
@@ -2446,7 +2470,7 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 		"Original user request:\n" + strings.TrimSpace(request.Prompt),
 	}
 	if requiredArtifactWithoutAttachment(request, attachments) {
-		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name the failing tool/stage in natural language, and identify the next engineering check.")
+		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
 		sections = append(sections, contextDescription)
@@ -2464,6 +2488,28 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 		sections = append(sections, "Failure reason for your private planning only. Paraphrase it safely for the user:\n"+reason)
 	}
 	sections = append(sections, "Structured recovery decision:\n"+marshalEventBody(decision))
+	return strings.Join(sections, "\n\n")
+}
+
+func buildFailureReplyRepairPrompt(originalPrompt string, rejectedReply string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, repairCount int) string {
+	sections := []string{
+		originalPrompt,
+		"Previous draft was rejected because it was too vague, offered an invalid substitute, exposed raw diagnostics, or missed concrete failure facts.",
+		"Rewrite the final reply in natural user-facing language. Preserve the concrete safe failure facts from FailureReportFacts instead of summarizing them as a system or browser problem.",
+	}
+	if requiredArtifactWithoutAttachment(request, attachments) {
+		sections = append(sections, "This was a required artifact request. Do not offer chat text as a substitute, do not ask an open-ended follow-up, do not recommend external slide or document tools, and do not expose raw identifiers such as errorCode or operation_failed. Say the artifact was not attached, name each failed tool or stage in natural language, include each safe failure reason, and identify the next engineering check.")
+	}
+	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
+		sections = append(sections, "FailureReportFacts that must be reflected accurately:\n"+marshalEventBody(failureFacts))
+	}
+	if reason := strings.TrimSpace(failureReason); reason != "" {
+		sections = append(sections, "Private failure reason:\n"+reason)
+	}
+	if repairCount > 1 {
+		sections = append(sections, "Use one or two Korean sentences. Be specific about the failed operation and the safe reason, but do not include internal paths or raw field names.")
+	}
+	sections = append(sections, "Rejected draft:\n"+strings.TrimSpace(rejectedReply))
 	return strings.Join(sections, "\n\n")
 }
 
@@ -2577,6 +2623,18 @@ func requiredArtifactFailureForbiddenFragments() []string {
 		"operation_failed",
 		"externally-managed-environment",
 		"modulenotfounderror",
+		"browser connection problem",
+		"system environment error",
+		"technical limitation",
+		"additional engineering",
+		"브라우저 연결 문제",
+		"시스템 환경 오류",
+		"시스템 환경의 오류",
+		"시스템 환경상",
+		"기술적인 제약",
+		"기술적으로 불가능",
+		"추가적인 엔지니어링",
+		"엔지니어링 확인",
 		"텍스트로",
 		"텍스트 형태",
 		"정리해 드릴까요",
@@ -2635,7 +2693,7 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 		"Original user request:\n" + strings.TrimSpace(request.Prompt),
 	}
 	if requiredArtifactWithoutAttachment(request, attachments) {
-		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name the failing tool/stage in natural language, and identify the next engineering check.")
+		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
 		sections = append(sections, contextDescription)
