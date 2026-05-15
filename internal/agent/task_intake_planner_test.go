@@ -71,6 +71,29 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerPromotesArtifactRetryDespitePriorFailureRefusal(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"standard","requestedOutputFormats":["pptx"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
+	}}
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "다시 해봐 이제 될 거야",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected artifact retry to become bounded, got %+v", decision)
+	}
+	if decision.UserFacingReply != "" {
+		t.Fatalf("expected intake refusal reply to be cleared, got %q", decision.UserFacingReply)
+	}
+	if strings.Join(decision.RequestedOutputFormats, ",") != "pptx" {
+		t.Fatalf("expected pptx format to be preserved, got %+v", decision.RequestedOutputFormats)
+	}
+}
+
 func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
 	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
 
@@ -280,8 +303,48 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "selected skill requires bounded completion evidence") {
-		t.Fatal("expected intake refusal to be promoted by selected artifact skill")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "local workspace artifact generation should retry") {
+		t.Fatal("expected intake refusal to be promoted for bounded artifact retry")
+	}
+}
+
+func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"standard","requestedOutputFormats":["pptx"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
+		finalReplyWithEvidence("PPTX 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/private/people/person-1/artifacts/deck/deck.pptx",
+				Filename:   "deck.pptx",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "다시 해봐 이제 될 거야",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected artifact retry to run despite intake refusal: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
+		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "local workspace artifact generation should retry") {
+		t.Fatal("expected intake retry promotion event")
 	}
 }
 

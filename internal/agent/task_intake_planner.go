@@ -126,7 +126,7 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If terminal.run, file.write, and file.attach are available, artifact generation and retry requests are supported bounded tool work; do not classify them unsupported only because earlier conversation context mentions missing libraries, permission failures, or filesystem write failures. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -209,6 +209,11 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision) {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
+		decision.UserFacingReply = ""
+	}
+	if shouldTreatUnsupportedAsBoundedLocalArtifact(request, decision) {
+		decision.Classification = IntakeClassificationBoundedTask
+		decision.Reason = "local workspace artifact generation should retry with available terminal and file tools"
 		decision.UserFacingReply = ""
 	}
 	if shouldTreatAsBoundedSitePrototype(request, decision) {
@@ -357,6 +362,34 @@ func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decisio
 	}
 	artifactWords := []string{"slide", "slides", "deck", "presentation", "ppt", "pptx", "pdf", "html", "artifact", "attach", "피피티", "파워포인트", "발표자료", "슬라이드", "자료", "첨부", "보내"}
 	return containsAny(prompt, artifactWords) && containsAny(prompt, []string{"create", "make", "write", "generate", "export", "만들", "작성", "생성", "줘", "보내"})
+}
+
+func shouldTreatUnsupportedAsBoundedLocalArtifact(request AgentRequest, decision IntakeDecision) bool {
+	if decision.Classification != IntakeClassificationUnsupported {
+		return false
+	}
+	if looksLikeDestructiveLocalWork(strings.ToLower(strings.TrimSpace(request.Prompt))) {
+		return false
+	}
+	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.attach"}) {
+		return false
+	}
+	if hasArtifactOutputFormat(decision.RequestedOutputFormats) {
+		return true
+	}
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	artifactWords := []string{"slide", "slides", "deck", "presentation", "ppt", "pptx", "pdf", "docx", "xlsx", "html", "artifact", "attach", "피피티", "파워포인트", "발표자료", "슬라이드", "문서", "자료", "첨부", "보내"}
+	return containsAny(prompt, artifactWords) && containsAny(prompt, []string{"retry", "again", "create", "make", "write", "generate", "export", "다시", "재시도", "만들", "작성", "생성", "줘", "보내"})
+}
+
+func hasArtifactOutputFormat(formats []string) bool {
+	for _, format := range normalizeRequestedOutputFormats(formats) {
+		switch format {
+		case "html", "pptx", "pdf", "txt", "docx", "xlsx", "csv":
+			return true
+		}
+	}
+	return false
 }
 
 func shouldTreatAsBoundedSitePrototype(request AgentRequest, decision IntakeDecision) bool {
