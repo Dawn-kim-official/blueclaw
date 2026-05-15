@@ -232,7 +232,7 @@ func applyToolResult(state agentTaskState, invocation ToolInvocation, result Too
 		Tool:            strings.TrimSpace(invocation.ToolName),
 		Output:          result.Output,
 		Failure:         result.Failure,
-		Summary:         buildToolResultSummary(invocation.ToolName, result.ContentText(), result.Failed(), result.Attachments, "", result),
+		Summary:         modelVisibleToolResultSummary(context.Background(), nil, invocation.ToolName, turnObservation{Tool: invocation.ToolName, Output: result.Output, Failure: result.Failure, Attachments: result.Attachments}),
 		ToolInputKey:    toolInputKey,
 		RecoveryActions: append([]RecoveryAction{}, result.RecoveryActions...),
 	}

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		systemMessage(buildVisibleContextDescription(input.RuntimeRequest.VisibleContext)),
 		systemMessage(input.MemoryContext),
 		systemMessage(buildProgressContext(input.RuntimeRequest, input.Observations)),
+		toolResultContextMessage(input.Observations),
 		systemMessage(buildObservationContext(input.Observations)),
 	})
 }
@@ -101,14 +103,40 @@ func systemMessage(content string) llm.Message {
 	return llm.Message{Role: "system", Content: strings.TrimSpace(content)}
 }
 
+func toolResultContextMessage(observations []turnObservation) llm.Message {
+	items := toolResultContextItems(observations)
+	if len(items) == 0 {
+		return llm.Message{}
+	}
+	body := marshalEventBody(items)
+	message := llm.Message{
+		Role:    "system",
+		Content: "Tool result context. This is the model-visible representation of tool outputs; use it for the next action instead of guessing from progress labels:\n" + body,
+	}
+	for _, observation := range observations {
+		for index, attachment := range observation.Attachments {
+			if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(attachment.ContentType)), "image/") || strings.TrimSpace(attachment.ContentBase64) == "" {
+				continue
+			}
+			message.Parts = append(message.Parts, llm.MessagePart{
+				Type:       "image",
+				MimeType:   strings.TrimSpace(attachment.ContentType),
+				DataBase64: strings.TrimSpace(attachment.ContentBase64),
+				Text:       observation.ObservationID + ":" + fmt.Sprintf("%d", index),
+			})
+		}
+	}
+	return message
+}
+
 func compactMessages(messages []llm.Message) []llm.Message {
 	result := []llm.Message{}
 	for _, message := range messages {
 		trimmedContent := strings.TrimSpace(message.Content)
-		if trimmedContent == "" {
+		if trimmedContent == "" && len(message.Parts) == 0 {
 			continue
 		}
-		result = append(result, llm.Message{Role: message.Role, Content: trimmedContent})
+		result = append(result, llm.Message{Role: message.Role, Content: trimmedContent, Parts: append([]llm.MessagePart{}, message.Parts...)})
 	}
 	return result
 }
@@ -260,7 +288,7 @@ func buildObservationContext(observations []turnObservation) string {
 	if len(body) > progressMessageLimit {
 		body = body[:progressMessageLimit] + "\n[trimmed]"
 	}
-	return "Relevant observation summaries so far. Use observationID/toolName/attachmentIndex when citing completionEvidence; do not infer hidden raw output:\n" + body
+	return "Relevant observation ledger so far. Use observationID/toolName/attachmentIndex when citing completionEvidence:\n" + body
 }
 
 func buildProgressContext(request AgentTurnRequest, observations []turnObservation) string {

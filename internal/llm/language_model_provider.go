@@ -3,8 +3,16 @@ package llm
 import "context"
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string        `json:"role"`
+	Content string        `json:"content,omitempty"`
+	Parts   []MessagePart `json:"parts,omitempty"`
+}
+
+type MessagePart struct {
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	MimeType   string `json:"mimeType,omitempty"`
+	DataBase64 string `json:"dataBase64,omitempty"`
 }
 
 type StructuredOutputSchema struct {
