@@ -171,10 +171,21 @@ func ensureDirectory(directory security.POSIXDirectory) error {
 	if errorValue := runCommand("install", "-d", "-o", directory.Owner, "-g", directory.Group, "-m", directory.ModeText, directory.Path); errorValue != nil {
 		return errorValue
 	}
+	if !modeTextIncludesSetGID(directory.ModeText) {
+		return nil
+	}
 	if errorValue := runCommand("chmod", "g+s", directory.Path); errorValue != nil {
 		return errorValue
 	}
 	return nil
+}
+
+func modeTextIncludesSetGID(modeText string) bool {
+	modeValue, errorValue := strconv.ParseUint(strings.TrimSpace(modeText), 8, 32)
+	if errorValue != nil {
+		return false
+	}
+	return modeValue&02000 != 0
 }
 
 func commandSucceeds(name string, arguments ...string) bool {
