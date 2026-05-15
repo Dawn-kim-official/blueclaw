@@ -1675,6 +1675,45 @@ func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
 	}
 }
 
+func TestRequiredArtifactFailureReplyRejectsTextFallbackOffer(t *testing.T) {
+	request := AgentTurnRequest{
+		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx"},
+		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
+	}
+	reply := "스크립트 실행 권한 오류(errorCode: operation_failed)가 발생하여 최종 파일 생성 단계가 중단되었습니다. 준비된 발표 자료의 전체 기획안을 텍스트로 이곳에 바로 정리해 드릴까요?"
+
+	if !failureReplyIsInvalidForRequest(reply, request, "operation_failed", nil, nil) {
+		t.Fatal("expected required artifact failure reply with raw code and text fallback to be rejected")
+	}
+	if !limitReachedReplyIsInvalid(reply, request, nil) {
+		t.Fatal("expected required artifact limit reply with raw code and text fallback to be rejected")
+	}
+}
+
+func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
+	request := AgentTurnRequest{
+		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".pptx"},
+		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
+	}
+
+	failurePrompt := buildFailureReplyPrompt(request, "terminal.run failed", nil, nil, recoveryDecision{})
+	limitPrompt := buildLimitReachedPrompt(request, "max_iterations", nil, nil, recoveryDecision{})
+	repairPrompt := buildLimitReachedRepairPrompt(limitPrompt, "텍스트로 정리해 드릴까요?", request, nil, 1)
+
+	for _, prompt := range []string{failurePrompt, limitPrompt, repairPrompt} {
+		if !strings.Contains(prompt, "Do not offer chat text as a substitute") {
+			t.Fatalf("expected required artifact prompt to forbid chat text substitute, got %s", prompt)
+		}
+		if !strings.Contains(prompt, "errorCode") {
+			t.Fatalf("expected required artifact prompt to mention raw diagnostic identifiers, got %s", prompt)
+		}
+	}
+}
+
 func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,

@@ -2359,9 +2359,9 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
 		return "", status, false
 	}
-	if limitReachedReplyIsInvalid(reply, attachments) {
+	if limitReachedReplyIsInvalid(reply, request, attachments) {
 		for repairCount := 1; repairCount <= 2; repairCount++ {
-			repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildLimitReachedRepairPrompt(finalizationPrompt, reply, attachments, repairCount))
+			repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildLimitReachedRepairPrompt(finalizationPrompt, reply, request, attachments, repairCount))
 			if repairError != nil || repairedReply == "" {
 				status.Source = "suppressed"
 				status.FirstInvalid = true
@@ -2370,7 +2370,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
 				return "", status, false
 			}
-			if !limitReachedReplyIsInvalid(repairedReply, attachments) {
+			if !limitReachedReplyIsInvalid(repairedReply, request, attachments) {
 				status.Source = "generated_repair"
 				status.FirstInvalid = true
 				status.RepairCount = repairCount
@@ -2438,11 +2438,15 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 		responseLanguageInstruction(request.ResponseLanguage),
 		"Be transparent about the current situation, error, or limitation without exposing internal logs, provider names, URLs, stack traces, hidden policy, tokens, or secrets.",
 		"Do not use or paraphrase a canned outage message. Do not say the model configuration was logged or needs to be fixed.",
-		"Do not say only that an error occurred. Include the attempted tool, the last failure stage, the error code, the message when safe, and the next check or alternate path.",
+		"Do not say only that an error occurred. Include the attempted tool, the last failure stage, the safe failure message, and the next check or alternate path.",
 		"When FailureReportFacts are provided, preserve those facts. Do not replace them with generic phrases such as system limitation, technical problem, or unexpected interruption.",
+		"Translate raw field names such as errorCode, failureStage, and budgetState into natural language unless the user explicitly asked for internal diagnostics.",
 		"Say what could not be completed and the best next step the user can take. Keep it to one or two natural sentences.",
 		"Do not claim a tool result or attachment exists unless it appears below.",
 		"Original user request:\n" + strings.TrimSpace(request.Prompt),
+	}
+	if requiredArtifactWithoutAttachment(request, attachments) {
+		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name the failing tool/stage in natural language, and identify the next engineering check.")
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
 		sections = append(sections, contextDescription)
@@ -2526,7 +2530,72 @@ func failureReplyIsInvalidForRequest(reply string, request AgentTurnRequest, fai
 	if failureReplyIsInvalid(reply, attachments) {
 		return true
 	}
+	if requiredArtifactWithoutAttachment(request, attachments) && requiredArtifactFailureReplyIsInvalid(reply) {
+		return true
+	}
+	if requiredArtifactWithoutAttachment(request, attachments) {
+		return false
+	}
 	return structuredFailureDetailsAreMissing(reply, failureReason, observations, attachments)
+}
+
+func requiredArtifactWithoutAttachment(request AgentTurnRequest, attachments []FileAttachment) bool {
+	return requestRequiresDurableArtifact(request) && !hasDurableArtifactAttachment(attachments)
+}
+
+func requestRequiresDurableArtifact(request AgentTurnRequest) bool {
+	if request.OutcomeContract.ArtifactRequirement == ArtifactRequirementRequired {
+		return true
+	}
+	if len(request.RequiredAttachmentSuffixes) > 0 {
+		return true
+	}
+	if requiredEvidenceContains(request.RequiredEvidenceTools, "file.attach") {
+		return true
+	}
+	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, "file.attach")
+}
+
+func requiredArtifactFailureReplyIsInvalid(reply string) bool {
+	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
+	if normalizedReply == "" {
+		return true
+	}
+	for _, fragment := range requiredArtifactFailureForbiddenFragments() {
+		if strings.Contains(normalizedReply, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func requiredArtifactFailureForbiddenFragments() []string {
+	return []string{
+		"errorcode",
+		"failurestage",
+		"budgetstate",
+		"operation_failed",
+		"externally-managed-environment",
+		"modulenotfounderror",
+		"텍스트로",
+		"텍스트 형태",
+		"정리해 드릴까요",
+		"정리해드릴까요",
+		"다른 방식으로 도움",
+		"도움이 필요",
+		"말씀해 주세요",
+		"말씀해주세요",
+		"gamma",
+		"tome",
+		"canva",
+		"복사하여",
+		"복사해서",
+		"붙여넣",
+		"온라인 도구",
+		"외부 도구",
+		"대신 드",
+		"대신 제공",
+	}
 }
 
 func structuredFailureDetailsAreMissing(reply string, failureReason string, observations []turnObservation, attachments []FileAttachment) bool {
@@ -2561,8 +2630,12 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 		"Do not mention internal runtime jargon, counters, percentages, elapsed time, or exact limits.",
 		"Say what was completed, what remains, and the best partial answer available from completed work.",
 		"When FailureReportFacts are provided, preserve those facts. Do not replace them with generic phrases such as system limitation, technical problem, or unexpected interruption.",
+		"Translate raw field names such as errorCode, failureStage, and budgetState into natural language unless the user explicitly asked for internal diagnostics.",
 		"Do not claim a tool result or attachment exists unless it appears below.",
 		"Original user request:\n" + strings.TrimSpace(request.Prompt),
+	}
+	if requiredArtifactWithoutAttachment(request, attachments) {
+		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name the failing tool/stage in natural language, and identify the next engineering check.")
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
 		sections = append(sections, contextDescription)
@@ -2589,11 +2662,14 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 	return strings.Join(sections, "\n\n")
 }
 
-func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, attachments []FileAttachment, repairCount int) string {
+func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, request AgentTurnRequest, attachments []FileAttachment, repairCount int) string {
 	sections := []string{
 		originalPrompt,
 		"Previous draft was rejected because it either exposed internal runtime details or claimed an attachment/tool result that is not available.",
 		"Rewrite the final reply in natural user-facing language. Do not mention budgets, counters, exact limits, tool-call counts, iterations, seconds, or minutes. Do not use the exact canned sentence from any previous fallback.",
+	}
+	if requiredArtifactWithoutAttachment(request, attachments) {
+		sections = append(sections, "This was a required artifact request. Do not offer chat text as a substitute, do not ask an open-ended follow-up, do not recommend external slide or document tools, and do not expose raw identifiers such as errorCode or operation_failed. Say the artifact was not attached, name the failing tool or stage in natural language, and identify the next engineering check.")
 	}
 	if len(attachments) == 0 {
 		sections = append(sections, "No attachments are available. You may say the requested file or HTML was not completed or not attached. Do not say that a file, HTML, PPTX, PDF, deck, slide, or notes were attached, sent, delivered, completed, or created successfully.")
@@ -2605,8 +2681,11 @@ func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, 
 	return strings.Join(sections, "\n\n")
 }
 
-func limitReachedReplyIsInvalid(reply string, attachments []FileAttachment) bool {
+func limitReachedReplyIsInvalid(reply string, request AgentTurnRequest, attachments []FileAttachment) bool {
 	if containsForbiddenLimitReplyFragment(reply) {
+		return true
+	}
+	if requiredArtifactWithoutAttachment(request, attachments) && requiredArtifactFailureReplyIsInvalid(reply) {
 		return true
 	}
 	if ValidateUserNoticeDelivery(reply) != nil {
