@@ -217,6 +217,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
 	intakeDecision := intakePlanner.Plan(responseContext, intakeRequest)
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
+	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
 		return agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)

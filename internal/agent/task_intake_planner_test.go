@@ -71,16 +71,19 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerPromotesArtifactRetryDespitePriorFailureRefusal(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"standard","requestedOutputFormats":["pptx"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
-	}}
+func TestTaskRecoveryPlannerPromotesArtifactRetryDespitePriorFailureRefusal(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
-	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-
-	decision := planner.Plan(context.Background(), AgentRequest{
+	decision := (TaskRecoveryPlanner{}).Plan(AgentRequest{
 		Prompt:  "다시 해봐 이제 될 거야",
 		ToolSet: toolRegistry,
+	}, IntakeDecision{
+		Classification:         IntakeClassificationUnsupported,
+		TaskShape:              TaskShapeImmediateReply,
+		EffortLevel:            EffortLevelStandard,
+		RequestedOutputFormats: []string{"pptx"},
+		ResponseLanguage:       "ko",
+		Reason:                 "previous permission failure",
+		UserFacingReply:        "PPTX 파일 생성은 불가능합니다.",
 	})
 
 	if decision.Classification != IntakeClassificationBoundedTask {
@@ -303,8 +306,8 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "local workspace artifact generation should retry") {
-		t.Fatal("expected intake refusal to be promoted for bounded artifact retry")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "selected skill requires bounded completion evidence") {
+		t.Fatal("expected intake refusal to be promoted by selected artifact skill")
 	}
 }
 
@@ -343,7 +346,7 @@ func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testi
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "local workspace artifact generation should retry") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "artifact retry recovery route") {
 		t.Fatal("expected intake retry promotion event")
 	}
 }

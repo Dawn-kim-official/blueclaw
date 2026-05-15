@@ -63,6 +63,21 @@ func TestTerminalPathGuardrailRecoveryGuidanceIncludesCorrectedWorkspaceRetry(t 
 	}
 }
 
+func TestTerminalModuleNotFoundRecoveryGuidanceUsesSkillRuntime(t *testing.T) {
+	observation := newFailureObservation("obs-001", "call_tool", "terminal.run", "ModuleNotFoundError: No module named 'pptx'", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
+	guidance := recoveryGuidanceContent(observation)
+
+	for _, expectedText := range []string{
+		"/workspace/skills/pptx/scripts/skill_runtime.py",
+		"do not probe or install python-pptx with system Python",
+		"/workspace/skills/simple-slides/scripts/build.sh",
+	} {
+		if !strings.Contains(guidance, expectedText) {
+			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
+		}
+	}
+}
+
 func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	instructions := DefaultSkillInstructions()
 	if len(instructions) == 0 {
