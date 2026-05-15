@@ -30,9 +30,16 @@ type OutcomeContract struct {
 	RequiredEvidenceTools      []string   `json:"requiredEvidenceTools,omitempty"`
 	RequiredEvidenceAnyOf      [][]string `json:"requiredEvidenceAnyOf,omitempty"`
 	RequiredAttachmentSuffixes []string   `json:"requiredAttachmentSuffixes,omitempty"`
+	ArtifactRequirement        string     `json:"artifactRequirement,omitempty"`
 	SelectedEvidenceHints      []string   `json:"selectedEvidenceHints,omitempty"`
 	Source                     string     `json:"source,omitempty"`
 }
+
+const (
+	ArtifactRequirementNone      = "none"
+	ArtifactRequirementPreferred = "preferred"
+	ArtifactRequirementRequired  = "required"
+)
 
 func activeGoalDescription(activeGoal ActiveGoal) string {
 	if strings.TrimSpace(activeGoal.GoalID) == "" &&
@@ -53,8 +60,22 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = appendUniqueStrings(contract.RequiredAttachmentSuffixes)
 	contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints)
 	contract.RequiredEvidenceAnyOf = normalizeEvidenceAnyOf(contract.RequiredEvidenceAnyOf)
+	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
+}
+
+func normalizeArtifactRequirement(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case ArtifactRequirementRequired:
+		return ArtifactRequirementRequired
+	case ArtifactRequirementPreferred:
+		return ArtifactRequirementPreferred
+	case ArtifactRequirementNone, "":
+		return ArtifactRequirementNone
+	default:
+		return ArtifactRequirementNone
+	}
 }
 
 func normalizeEvidenceAnyOf(values [][]string) [][]string {

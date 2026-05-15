@@ -514,6 +514,9 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	if activeGoalOutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
 		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHintTools(instructionBundle)...)
+		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
+			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
+		}
 		return normalizeOutcomeContract(contract)
 	}
 	contract := OutcomeContract{
@@ -524,12 +527,52 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	if len(requiredAttachmentSuffixes) > 0 {
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, "file.attach")
 	}
+	contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
 	contract.Source = outcomeContractSource(hasExecutionPlan, requiredAttachmentSuffixes)
 	return normalizeOutcomeContract(contract)
 }
 
 func activeGoalOutcomeContractHasRequirements(contract OutcomeContract) bool {
-	return len(contract.RequiredEvidenceTools) > 0 || len(contract.RequiredEvidenceAnyOf) > 0 || len(contract.RequiredAttachmentSuffixes) > 0
+	return len(contract.RequiredEvidenceTools) > 0 || len(contract.RequiredEvidenceAnyOf) > 0 || len(contract.RequiredAttachmentSuffixes) > 0 || strings.TrimSpace(contract.ArtifactRequirement) != ""
+}
+
+func artifactRequirementForOutcomeContract(intakeDecision IntakeDecision, contract OutcomeContract) string {
+	if len(contract.RequiredAttachmentSuffixes) > 0 || stringSliceContains(contract.RequiredEvidenceTools, "file.attach") || evidenceAnyOfContainsTool(contract.RequiredEvidenceAnyOf, "file.attach") {
+		return ArtifactRequirementRequired
+	}
+	for _, outputFormat := range intakeDecision.RequestedOutputFormats {
+		if isArtifactOutputFormat(outputFormat) {
+			return ArtifactRequirementPreferred
+		}
+	}
+	return ArtifactRequirementNone
+}
+
+func evidenceAnyOfContainsTool(groups [][]string, toolName string) bool {
+	for _, group := range groups {
+		if stringSliceContains(group, toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func stringSliceContains(values []string, target string) bool {
+	for _, value := range values {
+		if strings.TrimSpace(value) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func isArtifactOutputFormat(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(strings.TrimPrefix(value, "."))) {
+	case "pdf", "ppt", "pptx", "doc", "docx", "xls", "xlsx", "csv", "tsv", "html", "zip", "png", "jpg", "jpeg":
+		return true
+	default:
+		return false
+	}
 }
 
 func outcomeEvidenceTools(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, evidenceHints []string, requiredAttachmentSuffixes []string) []string {
@@ -828,7 +871,7 @@ func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, a
 	}
 	for _, toolName := range allowedTools {
 		switch strings.TrimSpace(toolName) {
-		case "terminal.run", "file.write", "file.attach":
+		case "terminal.run", "file.write", "file.promote", "file.attach":
 			return true
 		}
 	}

@@ -72,7 +72,7 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 }
 
 func TestTaskRecoveryPlannerPromotesArtifactRetryDespitePriorFailureRefusal(t *testing.T) {
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
 	decision := (TaskRecoveryPlanner{}).Plan(AgentRequest{
 		Prompt:  "다시 해봐 이제 될 거야",
 		ToolSet: toolRegistry,
@@ -172,7 +172,7 @@ func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testin
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -265,7 +265,7 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
-		finalReplyWithEvidence("PPTX 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+		finalReplyWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -280,7 +280,7 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 			Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 		}}}
 	})
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
@@ -301,7 +301,7 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 		t.Fatalf("expected selected artifact skill to run despite intake refusal: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
@@ -317,10 +317,10 @@ func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testi
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
-		finalReplyWithEvidence("PPTX 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+		finalReplyWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
@@ -341,7 +341,8 @@ func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testi
 		t.Fatalf("expected artifact retry to run despite intake refusal: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, events)
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
@@ -653,7 +654,7 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 				return ToolResult{
 					Output: ToolOutput{Content: "attached"},
 					Attachments: []FileAttachment{{
-						DevicePath: "/workspace/deck.pptx",
+						DevicePath: "artifacts/deck/deck.pptx",
 						Filename:   "deck.pptx",
 					}},
 				}, nil
@@ -705,7 +706,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
-				DevicePath: "/workspace/deck.html",
+				DevicePath: "artifacts/deck/deck.html",
 				Filename:   "deck.html",
 				SizeBytes:  12,
 			}},

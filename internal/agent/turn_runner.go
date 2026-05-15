@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -309,6 +310,29 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	toolUseRequirements := state.Requirements
 	successfulToolCalls := map[string]turnObservation{}
 	limitPressureWarnings := map[string]bool{}
+	lastProgressEventCount := progressEventCount(state.Observations)
+	consecutiveNoProgressActionCount := 0
+	stopForNoProgress := func(stepID string) (AgentTurnResult, bool) {
+		currentProgressEventCount := progressEventCount(state.Observations)
+		if currentProgressEventCount > lastProgressEventCount {
+			lastProgressEventCount = currentProgressEventCount
+			consecutiveNoProgressActionCount = 0
+			return AgentTurnResult{}, false
+		}
+		consecutiveNoProgressActionCount++
+		if consecutiveNoProgressActionCount < 3 {
+			return AgentTurnResult{}, false
+		}
+		reason := "stopped after 3 consecutive model actions without workspace, tool, artifact, attachment, or new failure progress"
+		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.no_progress_loop_stopped", marshalEventBody(map[string]any{
+			"reason":                           reason,
+			"consecutiveNoProgressActionCount": consecutiveNoProgressActionCount,
+			"progressEventCount":               currentProgressEventCount,
+		}))
+		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "no_progress_loop_stopped", reason)
+		result, _ := agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments)
+		return result, true
+	}
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterationCount; iteration++ {
 		if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
 			return cancelledResult, nil
@@ -370,13 +394,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				if observation.Action == "evidence_missing" {
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_required", marshalEventBody(observation))
 				}
-				if repeatedStateObservationLimitReached(state.Observations, observation) {
-					reason := "repeated recovery state without new progress: " + observation.ContentText()
-					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_state_repeated", marshalEventBody(observation))
-					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "recovery_state_repeated", reason)
-					return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments)
-				}
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, observation.Action, observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			agentTurnRunner.appendQualityReview(taskRun.TaskRunID, state.QualityCriteria, actionDocument.QualityReview, state.Observations)
@@ -402,6 +423,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				observation := agentTurnRunner.recordUnavailableToolRequest(taskRun.TaskRunID, len(state.Observations)+1, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool_unavailable "+actionDocument.ToolName, observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
@@ -409,6 +433,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
@@ -416,6 +443,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
@@ -423,6 +453,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			if sentObservation, wasSent := previousSuccessfulExternalSend(state.Observations, actionDocument.ToolName); wasSent {
@@ -436,6 +469,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.external_send_repeat_rejected", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "external_send_repeat_rejected "+actionDocument.ToolName, observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName) {
@@ -449,6 +485,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.duplicate_tool_call_rejected", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "duplicate_tool_call "+actionDocument.ToolName, observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			if duplicateFailure, isDuplicateFailure := previousFailedToolInput(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); isDuplicateFailure {
@@ -456,6 +495,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failed_fingerprint_rejected", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failed_fingerprint_rejected "+actionDocument.ToolName, observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			recoveryStep := ""
@@ -466,6 +508,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					state.Observations = append(state.Observations, observation)
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_budget_exhausted", marshalEventBody(observation))
 					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_budget_exhausted "+actionDocument.ToolName, observation.ContentText())
+					if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+						return result, nil
+					}
 					continue
 				}
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_attempt", marshalEventBody(map[string]any{
@@ -514,13 +559,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				observation.Summary = observation.ContentText()
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_blocked_fail", marshalEventBody(observation))
-				if repeatedStateObservationLimitReached(state.Observations, observation) {
-					reason := "repeated recovery state without new progress: " + observation.ContentText()
-					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_state_repeated", marshalEventBody(observation))
-					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "recovery_state_repeated", reason)
-					return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments)
-				}
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_required", observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
 				continue
 			}
 			if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt {
@@ -531,6 +573,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					state.Observations = append(state.Observations, observation)
 					agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_report_rejected", marshalEventBody(observation))
 					agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "failure_report_rejected", observation.ContentText())
+					if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+						return result, nil
+					}
 					continue
 				}
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_report_facts_used", marshalEventBody(actionDocument.UsedFailureFacts))
@@ -542,6 +587,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "invalid_action", "", "unknown action: "+actionDocument.Action, FailureInvalidInput, FailureCodes.InvalidInput, "action_parse")
 			state.Observations = append(state.Observations, observation)
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "invalid_action", observation.ContentText())
+			if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+				return result, nil
+			}
 		}
 	}
 
@@ -658,7 +706,7 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	if len(request.RequiredAttachmentSuffixes) > 0 {
 		instruction += " This task requires attached artifacts with these filename suffixes before final_reply: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
 	}
-	instruction += " Deliver artifacts only through file.attach. final_reply may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths."
+	instruction += " Artifact workflow: write source under tmp/<slug>, run builds with terminal.run workingDirectoryPath tmp/<slug>, create outputs under build/, promote final outputs with file.promote to artifacts/<slug> or an allowed circle/shared destination, then attach promoted files with file.attach. final_reply may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths."
 	return instruction
 }
 
@@ -772,7 +820,7 @@ func validateTerminalToolInput(toolName string, toolInput json.RawMessage) error
 	if command == "" {
 		return nil
 	}
-	for _, toolAlias := range []string{"file.write", "file.attach", "set_quality_criteria", "final_reply"} {
+	for _, toolAlias := range []string{"file.write", "file.promote", "file.attach", "set_quality_criteria", "final_reply"} {
 		if strings.Contains(command, toolAlias) {
 			return errors.New(strings.TrimSpace(toolName) + " command cannot call Blueclaw action " + toolAlias + "; call that action directly instead")
 		}
@@ -1868,8 +1916,31 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 		result.IsSatisfied = false
 		result.Message = validityFailureMessage(result.ValidityState)
 		result.Attachments = nil
+		return result
+	}
+	if request.OutcomeContract.ArtifactRequirement == ArtifactRequirementRequired && !hasDurableArtifactAttachment(result.Attachments) {
+		result.IsSatisfied = false
+		result.Message = "required artifact completion must cite file.attach evidence from artifacts/<slug>, /workspace/circles/<circleID>/..., or /workspace/shared/public/..."
+		result.Attachments = nil
 	}
 	return result
+}
+
+func hasDurableArtifactAttachment(attachments []FileAttachment) bool {
+	for _, attachment := range attachments {
+		if isDurableArtifactDevicePath(attachment.DevicePath) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDurableArtifactDevicePath(devicePath string) bool {
+	normalizedPath := filepath.ToSlash(strings.TrimSpace(devicePath))
+	return strings.HasPrefix(normalizedPath, "artifacts/") ||
+		strings.HasPrefix(normalizedPath, "/workspace/private/people/") && strings.Contains(normalizedPath, "/artifacts/") ||
+		strings.HasPrefix(normalizedPath, "/workspace/circles/") ||
+		strings.HasPrefix(normalizedPath, "/workspace/shared/public/")
 }
 
 func requirementsWithFailureDebtWaiver(requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) []toolUseRequirement {
@@ -1906,40 +1977,6 @@ func completionGateObservation(index int, message string) turnObservation {
 	observation.Failure.Retryable = true
 	observation.Failure.SafeRetry = true
 	return observation
-}
-
-func repeatedStateObservationLimitReached(observations []turnObservation, latestObservation turnObservation) bool {
-	key := repeatableStateObservationKey(latestObservation)
-	if key == "" {
-		return false
-	}
-	count := 0
-	for index := len(observations) - 1; index >= 0; index-- {
-		observation := observations[index]
-		if observation.Action == "call_tool" && !observation.Failed() {
-			break
-		}
-		if repeatableStateObservationKey(observation) == key {
-			count++
-		}
-	}
-	return count >= 3
-}
-
-func repeatableStateObservationKey(observation turnObservation) string {
-	if observation.Action == "call_tool" || !observation.Failed() {
-		return ""
-	}
-	content := strings.TrimSpace(observation.ContentText())
-	if content == "" {
-		return ""
-	}
-	return strings.Join([]string{
-		strings.TrimSpace(observation.Action),
-		strings.TrimSpace(observation.FailureCode()),
-		strings.TrimSpace(observation.FailureStage()),
-		content,
-	}, "\x00")
 }
 
 func completionGateEventName(observation turnObservation) string {

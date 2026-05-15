@@ -9,7 +9,7 @@ import (
 
 func TestCompletionStateFindsNewestArtifactByRequiredSuffix(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -43,8 +43,8 @@ func TestCompletionStateFinalizesWhenRequiredAttachmentEvidenceExists(t *testing
 			ObservationID: "obs-001",
 			Tool:          "file.attach",
 			Attachments: []FileAttachment{
-				{DevicePath: "/workspace/deck.pptx", Filename: "deck.pptx"},
-				{DevicePath: "/workspace/deck.pdf", Filename: "deck.pdf"},
+				{DevicePath: "artifacts/deck/deck.pptx", Filename: "deck.pptx"},
+				{DevicePath: "artifacts/deck/deck.pdf", Filename: "deck.pdf"},
 			},
 		}},
 	)
@@ -70,8 +70,8 @@ func TestCompletionStateUsesAttachmentIndexesForRequiredSuffixEvidence(t *testin
 			ObservationID: "obs-001",
 			Tool:          "file.attach",
 			Attachments: []FileAttachment{
-				{DevicePath: "/workspace/DESIGN.md", Filename: "DESIGN.md"},
-				{DevicePath: "/workspace/deck.pptx", Filename: "deck.pptx"},
+				{DevicePath: "artifacts/deck/DESIGN.md", Filename: "DESIGN.md"},
+				{DevicePath: "artifacts/deck/deck.pptx", Filename: "deck.pptx"},
 			},
 		}},
 	)
@@ -89,7 +89,7 @@ func TestCompletionStateUsesAttachmentIndexesForRequiredSuffixEvidence(t *testin
 
 func TestCompletionStateDoesNotRepeatFailedAttachment(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -108,7 +108,7 @@ func TestCompletionStateDoesNotRepeatFailedAttachment(t *testing.T) {
 
 func TestCompletionStateIgnoresArtifactsOlderThanTurn(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -138,7 +138,7 @@ func TestCompletionStateIgnoresArtifactsOlderThanTurn(t *testing.T) {
 
 func TestCompletionStateFindsArtifactsNewerThanTurn(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -163,7 +163,7 @@ func TestCompletionStateFindsArtifactsNewerThanTurn(t *testing.T) {
 
 func TestCompletionStateAllowsReadableImperfectArtifactCandidate(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}

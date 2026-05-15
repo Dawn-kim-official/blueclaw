@@ -194,11 +194,11 @@ func simpleSlidesSkill() agent.SkillInstruction {
 		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
 		Category:    "document-generation",
 		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/simple-slides/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/simple-slides/scripts/build.sh for html-only requests, then file.attach only the requested generated files. Do not use Google Workspace unless a google tool is explicitly available.",
+		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/simple-slides/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/simple-slides/scripts/build.sh for html-only requests, promote build outputs with file.promote, then file.attach only promoted generated files. Do not use Google Workspace unless a google tool is explicitly available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},
-		AllowedTools: []string{"file.write", "terminal.run", "file.attach"},
+		AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
 		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		Source: agent.InstructionSource{
 			Path:      "skills/simple-slides/SKILL.md",

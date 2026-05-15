@@ -58,7 +58,7 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 		t.Fatalf("expected final reply, got %q", result.FinalReply)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if len(services.taskStepService.ListTaskStep(result.TaskRun.TaskRunID)) != 3 {
 		t.Fatalf("expected three task steps, got %d", len(services.taskStepService.ListTaskStep(result.TaskRun.TaskRunID)))
@@ -245,7 +245,7 @@ func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T)
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
-				DevicePath: "/workspace/DESIGN.md",
+				DevicePath: "artifacts/deck/DESIGN.md",
 				Filename:   "DESIGN.md",
 			}},
 		}, nil
@@ -281,7 +281,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
-				DevicePath: "/workspace/deck.html",
+				DevicePath: "artifacts/deck/deck.html",
 				Filename:   "deck.html",
 				SizeBytes:  12,
 			}},
@@ -300,7 +300,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 		t.Fatalf("expected turn to finish: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.html" {
 		t.Fatalf("expected html attachment, got %+v", result.Attachments)
@@ -444,7 +444,7 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
-				DevicePath: "/workspace/deck.pptx",
+				DevicePath: "artifacts/deck/deck.pptx",
 				Filename:   "deck.pptx",
 			}},
 		}, nil
@@ -476,20 +476,20 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 
 func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/presentation.md","content":"# Deck"}}`,
+		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
 		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
 		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-002", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"file.write", "file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"path":"/workspace/.blueclaw/tmp/deck/presentation.md","sizeBytes":6}`), nil
+		return ToolSuccess(`{"path":"tmp/deck/presentation.md","sizeBytes":6}`), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
-				DevicePath: "/workspace/deck.html",
+				DevicePath: "artifacts/deck/deck.html",
 				Filename:   "deck.html",
 			}},
 		}, nil
@@ -506,7 +506,8 @@ func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *t
 		t.Fatalf("expected required evidence to recover: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, events)
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.html" {
 		t.Fatalf("expected html attachment, got %+v", result.Attachments)
@@ -532,7 +533,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
-				DevicePath: "/workspace/" + request.Path,
+				DevicePath: "artifacts/deck/" + request.Path,
 				Filename:   request.Path,
 			}},
 		}, nil
@@ -562,22 +563,23 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 
 func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "presentation.md"), "Hermes Agent 장단점 분석")
 	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.html"), "<html><body>Hermes Agent 장단점 분석</body></html>")
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/deck.html"}}`,
+		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.html"}}`,
+		finalReplyWithEvidence("deck.html 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
 	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
-				DevicePath: "/workspace/.blueclaw/tmp/deck/deck.html",
+				DevicePath: "artifacts/deck/deck.html",
 				Filename:   "deck.html",
 			}},
 		}, nil
@@ -595,7 +597,8 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 		t.Fatalf("expected completed turn without runner error: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, events)
 	}
 	if len(result.Attachments) != 1 {
 		t.Fatalf("expected readable attachment to be delivered, got %+v", result.Attachments)
@@ -607,7 +610,7 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 
 func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -668,7 +671,7 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 
 func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build another deck"}}`,
@@ -724,7 +727,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -762,7 +765,7 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 
 func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -780,7 +783,7 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
-				DevicePath: "/workspace/.blueclaw/tmp/deck/deck.pptx",
+				DevicePath: "/workspace/private/people/person-1/artifacts/deck/deck.pptx",
 				Filename:   "deck.pptx",
 			}},
 		}, nil
@@ -812,7 +815,7 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 
 func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) {
 	workspaceRootPath := t.TempDir()
-	artifactDirectoryPath := filepath.Join(workspaceRootPath, ".blueclaw", "tmp", "deck")
+	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	if errorValue := os.MkdirAll(artifactDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1642,17 +1645,11 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.UserNotice == "" {
-		t.Fatal("expected dynamic limit reply")
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
-	}
-	if !strings.Contains(result.UserNotice, "could not finish") && !strings.Contains(result.UserNotice, "try again") && !strings.Contains(result.UserNotice, "마치지 못했") {
-		t.Fatalf("expected natural dynamic limit reply, got %q", result.UserNotice)
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "generated") {
-		t.Fatal("expected generated limit reply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.no_progress_loop_stopped", "3 consecutive") {
+		t.Fatal("expected no-progress loop stop event")
 	}
 	if fillCallCount != 0 {
 		t.Fatalf("expected malformed fill input not to invoke tool, got %d calls", fillCallCount)
@@ -1661,7 +1658,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 
 func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
 	observations := []turnObservation{
-		newFailureObservation("obs-001", "call_tool", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory '/workspace/.blueclaw/tmp': Permission denied"}`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
+		newFailureObservation("obs-001", "call_tool", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory 'artifacts': Permission denied"}`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
 	}
 	prompt := buildLimitReachedPrompt(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "max_iterations", observations, nil, recoveryDecision{})
 
@@ -1985,7 +1982,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/presentation.md","content":"# Deck"}}`,
+		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		finalReplyDocument("done"),
 	}}
@@ -2066,8 +2063,8 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 		t.Fatalf("expected no repeated terminal command, got %d calls", terminalCallCount)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.recovery_state_repeated", "completionEvidence must cite successful observation for file.attach") {
-		t.Fatal("expected repeated recovery state event")
+	if !taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "3 consecutive") {
+		t.Fatal("expected no-progress loop stop event")
 	}
 	if taskEventsContain(taskEvents, "max_iterations", "") {
 		t.Fatal("expected loop breaker before max_iterations")
@@ -2078,7 +2075,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/DESIGN.md","content":"colors: blue"}}`,
+		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"tmp/deck/DESIGN.md","content":"colors: blue"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		finalReplyDocument("done"),
 	}}
@@ -2125,7 +2122,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"/workspace/.blueclaw/tmp/deck/presentation.md","content":"# Deck"}}`,
+		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
 		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		`{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"file.write"}],"finalReply":"done"}`,
 	}}
@@ -2326,17 +2323,8 @@ func TestAgentTurnRunnerAddsModelFacingLimitPressureWarnings(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_pressure", "consolidate") {
-		t.Fatal("expected consolidate pressure warning event")
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_pressure", "finalize") {
-		t.Fatal("expected finalize pressure warning event")
-	}
-	if !structuredRequestsContain(languageModel.requests, "Consolidate completed work") {
-		t.Fatal("expected consolidate warning in model-facing messages")
-	}
-	if !structuredRequestsContain(languageModel.requests, "Do not start new tool work") {
-		t.Fatal("expected finalize warning in model-facing messages")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.no_progress_loop_stopped", "3 consecutive") {
+		t.Fatal("expected no-progress loop stop event")
 	}
 }
 

@@ -275,10 +275,10 @@ func TestResolveActiveCircleIDIgnoresInaccessibleMention(t *testing.T) {
 
 func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	workspacePath := t.TempDir()
-	writeTestFile(t, filepath.Join(workspacePath, "deck.pptx"), "pptx")
-	writeTestFile(t, filepath.Join(workspacePath, "deck.pdf"), "%PDF")
-	writeTestFile(t, filepath.Join(workspacePath, "deck.html"), "<html></html>")
-	writeTestFile(t, filepath.Join(workspacePath, "deck-notes.txt"), "notes")
+	writeTestFile(t, filepath.Join(workspacePath, "tmp", "deck", "deck.pptx"), "pptx")
+	writeTestFile(t, filepath.Join(workspacePath, "tmp", "deck", "deck.pdf"), "%PDF")
+	writeTestFile(t, filepath.Join(workspacePath, "tmp", "deck", "deck.html"), "<html></html>")
+	writeTestFile(t, filepath.Join(workspacePath, "tmp", "deck", "deck-notes.txt"), "notes")
 
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
@@ -287,7 +287,7 @@ func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
 		Input: agent.MarshalToolInput(map[string]any{
-			"paths": []string{"deck.pptx", "deck.pdf", "deck.html", "deck-notes.txt"},
+			"paths": []string{"tmp/deck/deck.pptx", "tmp/deck/deck.pdf", "tmp/deck/deck.html", "tmp/deck/deck-notes.txt"},
 		}),
 	})
 	if errorValue != nil {
@@ -1005,11 +1005,11 @@ func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected private write success, got %+v", result)
 	}
-	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "notes.md")
+	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "notes.md")
 	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "private" {
 		t.Fatalf("expected private file at %s, got %q and %v", expectedPath, string(document), errorValue)
 	}
-	if !strings.Contains(result.ContentText(), `"/workspace/private/people/person-1/notes.md"`) {
+	if !strings.Contains(result.ContentText(), `"tmp/notes.md"`) {
 		t.Fatalf("expected private agent path in result, got %s", result.ContentText())
 	}
 }
@@ -1044,7 +1044,7 @@ func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected circle write success, got %+v", result)
 	}
-	expectedPath := filepath.Join(workspacePath, "circles", "finance", "report.md")
+	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "report.md")
 	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "finance" {
 		t.Fatalf("expected finance file at %s, got %q and %v", expectedPath, string(document), errorValue)
 	}
@@ -1080,7 +1080,7 @@ func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected staff write success, got %+v", result)
 	}
-	expectedPath := filepath.Join(workspacePath, "circles", "staff", "status.md")
+	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "status.md")
 	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "staff" {
 		t.Fatalf("expected staff file at %s, got %q and %v", expectedPath, string(document), errorValue)
 	}
@@ -1088,7 +1088,7 @@ func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 
 func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	workspacePath := t.TempDir()
-	privateDirectoryPath := filepath.Join(workspacePath, "private", "people", "person-1")
+	privateDirectoryPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp")
 	if errorValue := os.MkdirAll(privateDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1117,8 +1117,68 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected private attach success, got %+v", result)
 	}
-	if result.Attachments[0].DevicePath != "/workspace/private/people/person-1/notes.md" {
+	if result.Attachments[0].DevicePath != "/workspace/private/people/person-1/tmp/notes.md" {
 		t.Fatalf("expected private device path, got %+v", result.Attachments[0])
+	}
+}
+
+func TestFilePromoteCopiesDraftOutputToArtifacts(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "tmp/deck/build/deck.pptx",
+			"content": "pptx",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if writeResult.Failed() {
+		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
+	}
+	promoteResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.promote",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":                     "tmp/deck/build/deck.pptx",
+			"destinationDirectoryPath": "artifacts/deck",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if promoteResult.Failed() {
+		t.Fatalf("expected file.promote success, got %s", promoteResult.ContentText())
+	}
+	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "artifacts", "deck", "deck.pptx")
+	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "pptx" {
+		t.Fatalf("expected promoted file at %s, got %q and %v", expectedPath, string(document), errorValue)
+	}
+	if !strings.Contains(promoteResult.ContentText(), `"artifacts/deck/deck.pptx"`) {
+		t.Fatalf("expected promoted virtual path, got %s", promoteResult.ContentText())
+	}
+}
+
+func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	for _, path := range []string{"/tmp/a", "~/.cache/a", "/workspace/.blueclaw/tmp/a", "/workspace/private/people/person-2/tmp/a", "../escape"} {
+		if _, errorValue := resolver.Resolve(path, scope); errorValue == nil {
+			t.Fatalf("expected resolver to reject %q", path)
+		}
 	}
 }
 
@@ -1314,7 +1374,7 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &commandResult); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	expectedSuffix := filepath.Join("private", "people", "person-1")
+	expectedSuffix := filepath.Join("private", "people", "person-1", "tmp")
 	if !strings.HasSuffix(strings.TrimSpace(commandResult.Stdout), expectedSuffix) {
 		t.Fatalf("expected terminal cwd under %s, got %q", expectedSuffix, commandResult.Stdout)
 	}

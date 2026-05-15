@@ -352,7 +352,7 @@ func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decisio
 	if looksLikeDestructiveLocalWork(prompt) {
 		return false
 	}
-	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.attach"}) {
+	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.promote", "file.attach"}) {
 		return false
 	}
 	artifactWords := []string{"slide", "slides", "deck", "presentation", "ppt", "pptx", "pdf", "html", "artifact", "attach", "피피티", "파워포인트", "발표자료", "슬라이드", "자료", "첨부", "보내"}
