@@ -870,6 +870,86 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	}
 }
 
+func TestFileReadCapabilityDenyCirclePathForNonMember(t *testing.T) {
+	workspacePath := t.TempDir()
+	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
+	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.pdf"), "secret")
+	httpClient := &recordingHTTPClient{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "file.read",
+		PolicyResource: "tool:file.read",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "/workspace/circles/finance/report.pdf",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "cannot read") {
+		t.Fatalf("expected read denial, got %+v", result)
+	}
+	if httpClient.requestPath != "" {
+		t.Fatalf("expected denied file.read not to call capability bridge, got path=%s", httpClient.requestPath)
+	}
+}
+
+func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
+	workspacePath := t.TempDir()
+	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
+	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.pdf"), "secret")
+	httpClient := &recordingHTTPClient{responseBody: `{"content":"# Report","status":"ok","result":{"content":"# Report"}}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "file.read",
+		PolicyResource: "tool:file.read",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff", "finance"},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "/workspace/circles/finance/report.pdf",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() || result.ContentText() != "# Report" {
+		t.Fatalf("expected file.read success, got %+v", result)
+	}
+	if httpClient.requestPath != "/v1/tools/file.read/invoke" {
+		t.Fatalf("expected capability bridge call, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
+	}
+}
+
 func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := NewToolCatalogBuilder()
