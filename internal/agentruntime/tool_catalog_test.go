@@ -1103,6 +1103,47 @@ func TestTerminalRunAllowsServiceOwnedPathText(t *testing.T) {
 	}
 }
 
+func TestTerminalRunPathGuardrailFailureIsRecoverable(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
+		WorkspaceRootPath: workspacePath,
+		Mode:              "firecrackerGuest",
+		TimeoutSecond:     5,
+		OutputMaxBytes:    4096,
+		SessionMaxCount:   2,
+	}))
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command": "/opt/blueclaw/builtin-skills-venv/bin/python --version",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected terminal.run path guardrail failure, got %+v", result)
+	}
+	if result.Failure.Code != agent.FailureCodes.InvalidInput.String() || result.Failure.Stage != "terminal_path_guardrail" {
+		t.Fatalf("expected recoverable invalid input failure, got %+v", result.Failure)
+	}
+	if !result.Failure.Retryable || !result.Failure.SafeRetry {
+		t.Fatalf("expected path guardrail failure to be retryable, got %+v", result.Failure)
+	}
+	for _, expectedText := range []string{
+		"/opt/blueclaw/builtin-skills-venv/bin/python",
+		"/workspace/skills/<skill>/scripts/skill_runtime.py",
+	} {
+		if !strings.Contains(result.ContentText(), expectedText) {
+			t.Fatalf("expected result to contain %q, got %q", expectedText, result.ContentText())
+		}
+	}
+}
+
 func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1")

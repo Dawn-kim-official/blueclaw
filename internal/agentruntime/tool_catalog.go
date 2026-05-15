@@ -601,16 +601,38 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		input.WorkingDirectoryPath = toolCatalogBuilder.resolveAgentWorkspacePath(input.WorkingDirectoryPath)
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "terminal_run", "current account cannot use this workspace path"), nil
+		return terminalWorkspaceAccessFailure(input.WorkingDirectoryPath), nil
 	}
 	input.ExecutionIdentity = security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath)
 	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(toolContext, input)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
+		if security.IsCommandPathGuardrailError(errorValue) {
+			return terminalPathGuardrailFailure(commandResult, content), nil
+		}
 		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", content, json.RawMessage(content)), nil
 	}
 	_ = toolContext
 	return agent.ToolSuccess(content), nil
+}
+
+func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResult {
+	message := "current account cannot use this workspace path: terminal workingDirectoryPath " + strings.TrimSpace(workingDirectoryPath) + "; recovery: use tmp/<slug> relative to the default writable directory for draft work, then promote accepted files to artifacts/<slug> or an allowed circle/shared path"
+	result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "terminal_working_directory_access", message)
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	return result
+}
+
+func terminalPathGuardrailFailure(commandResult security.CommandResult, content string) agent.ToolResult {
+	message := strings.TrimSpace(commandResult.Stderr)
+	if message == "" {
+		message = content
+	}
+	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_path_guardrail", message, json.RawMessage(content))
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	return result
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
