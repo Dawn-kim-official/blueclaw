@@ -153,6 +153,113 @@ func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
 	}
 }
 
+func TestToolSetForAgentTurnUsesSelectedSkillAllowedTools(t *testing.T) {
+	fullToolSet := testToolSet([]string{
+		"conversation.history",
+		"memory.search",
+		"ask.confirm",
+		"math.calculate",
+		"terminal.run",
+		"file.write",
+		"schedule.create",
+		"mail.message.search",
+	})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{Name: "scheduled-task", AllowedTools: []string{"schedule.create"}},
+			{Name: "mail", AllowedTools: []string{"mail.message.search"}},
+		},
+		SkillDecisions: []SkillSelectionDecision{{Name: "scheduled-task", Status: "selected"}},
+	}
+
+	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "내일 알려줘"}, ExecutionPlan{}, false, OutcomeContract{})
+
+	for _, toolName := range []string{"conversation.history", "memory.search", "ask.confirm", "math.calculate", "terminal.run", "file.write", "schedule.create"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+	if filteredToolSet.IsAllowed("mail.message.search") {
+		t.Fatalf("expected unselected skill tool to be hidden, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestToolSetForAgentTurnHidesSelectedSendToolForNonSendOutcome(t *testing.T) {
+	fullToolSet := testToolSet([]string{"ask.confirm", "platform.dm.send", "file.write"})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:         "direct-message",
+			AllowedTools: []string{"ask.confirm", "platform.dm.send"},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.dm.send"}}
+
+	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
+
+	if !filteredToolSet.IsAllowed("ask.confirm") || !filteredToolSet.IsAllowed("file.write") {
+		t.Fatalf("expected universal tools to remain available, got %+v", filteredToolSet.ListToolNames())
+	}
+	if filteredToolSet.IsAllowed("platform.dm.send") {
+		t.Fatalf("expected send tool to be hidden for non-send outcome, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestAgentKernelActionSchemaUsesSelectedSkillAllowedTools(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"schedule request","userFacingReply":""}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finalReplyDocument("done"),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
+	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
+		return InstructionBundle{Skills: []SkillInstruction{
+			{
+				Name:         "scheduled-task",
+				Description:  "Create schedule, scheduled, reminder, repeat, and repeated tasks.",
+				WhenToUse:    "Use for reminders, scheduled tasks, repeat requests, 1분에 한 번씩, and 10번 repeated work.",
+				Prompt:       "Use schedule.create for reminders.",
+				TriggerHints: []string{"schedule", "reminder", "repeat", "10번"},
+				AllowedTools: []string{"schedule.create"},
+				Source:       InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
+			},
+			{
+				Name:         "mail",
+				Description:  "Search mail.",
+				Prompt:       "Use mail.message.search.",
+				AllowedTools: []string{"mail.message.search"},
+				Source:       InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
+			},
+		}}
+	})
+	toolRegistry := testToolSet([]string{"schedule.create", "mail.message.search", "math.calculate", "ask.input"})
+
+	_, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "repeat this 10번",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to complete: %v", errorValue)
+	}
+	if len(replyLanguageModel.requests) == 0 {
+		t.Fatal("expected action request")
+	}
+	actionSchema := replyLanguageModel.requests[0].StructuredOutputSchema.Document
+	if !strings.Contains(actionSchema, `"toolName":{"enum":["schedule.create"]`) {
+		t.Fatalf("expected selected skill allowed tool in action schema, got %s", actionSchema)
+	}
+	if strings.Contains(actionSchema, "mail.message.search") {
+		t.Fatalf("expected unselected skill tool to be hidden from action schema, got %s", actionSchema)
+	}
+	if !strings.Contains(actionSchema, "math.calculate") || !strings.Contains(actionSchema, "ask.input") {
+		t.Fatalf("expected universal tools in action schema, got %s", actionSchema)
+	}
+}
+
 func TestSkillSelectorOnlyChecksSkillAvailability(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
