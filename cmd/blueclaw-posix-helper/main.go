@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -28,11 +29,11 @@ func main() {
 	case "capabilities":
 		errorValue = runCapabilities()
 	case "sync":
-		errorValue = runSync(os.Args[2:])
+		errorValue = runAuthorized(runSync, os.Args[2:])
 	case "exec":
-		errorValue = runExec(os.Args[2:])
+		errorValue = runAuthorized(runExec, os.Args[2:])
 	case "fs":
-		errorValue = runFS(os.Args[2:])
+		errorValue = runAuthorized(runFS, os.Args[2:])
 	default:
 		errorValue = fmt.Errorf("unsupported command %q", os.Args[1])
 	}
@@ -41,11 +42,45 @@ func main() {
 	}
 }
 
+func runAuthorized(run func([]string) error, arguments []string) error {
+	if errorValue := authorizeHelperCaller(os.Getuid()); errorValue != nil {
+		return errorValue
+	}
+	return run(arguments)
+}
+
 func runCapabilities() error {
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"version":      2,
 		"capabilities": []string{"exec", "fs"},
 	})
+}
+
+func authorizeHelperCaller(realUserID int) error {
+	blueclawUserID, errorValue := lookupUserID("blueclaw")
+	if errorValue != nil {
+		return errorValue
+	}
+	if isAuthorizedHelperCaller(realUserID, blueclawUserID) {
+		return nil
+	}
+	return fmt.Errorf("unauthorized helper caller: realUID=%d; expected root or blueclaw", realUserID)
+}
+
+func isAuthorizedHelperCaller(realUserID int, blueclawUserID int) bool {
+	return realUserID == 0 || realUserID == blueclawUserID
+}
+
+func lookupUserID(userName string) (int, error) {
+	resolvedUser, errorValue := user.Lookup(userName)
+	if errorValue != nil {
+		return 0, errorValue
+	}
+	userID, errorValue := strconv.Atoi(resolvedUser.Uid)
+	if errorValue != nil {
+		return 0, errorValue
+	}
+	return userID, nil
 }
 
 func runSync(arguments []string) error {

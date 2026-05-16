@@ -34,6 +34,18 @@ func TestRunCapabilitiesReportsFilesystemSupport(t *testing.T) {
 	}
 }
 
+func TestHelperCallerAuthorizationAllowsRootAndBlueclawOnly(t *testing.T) {
+	blueclawUserID := 998
+	for _, realUserID := range []int{0, blueclawUserID} {
+		if !isAuthorizedHelperCaller(realUserID, blueclawUserID) {
+			t.Fatalf("expected real uid %d to be authorized", realUserID)
+		}
+	}
+	if isAuthorizedHelperCaller(1001, blueclawUserID) {
+		t.Fatal("expected requester uid to be rejected")
+	}
+}
+
 func TestPerformFSOperationCopiesFileWithOverwritePolicy(t *testing.T) {
 	rootPath := t.TempDir()
 	sourcePath := filepath.Join(rootPath, "source.txt")

@@ -126,19 +126,19 @@ func ensureHelperSupportsFS(ctx context.Context, helperPath string, actorUser st
 	executionContext, cancelFunction := context.WithTimeout(ctx, 5*time.Second)
 	defer cancelFunction()
 	command := exec.CommandContext(executionContext, helperPath, "capabilities")
-	output, errorValue := command.Output()
+	output, errorValue := command.CombinedOutput()
 	if executionContext.Err() == context.DeadlineExceeded {
-		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: "posix helper capabilities timed out"}
+		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: helperFailureDetail(helperPath, "capabilities", "posix helper capabilities timed out", nil)}
 	}
 	if errorValue != nil {
-		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: errorValue.Error()}
+		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: helperFailureDetail(helperPath, "capabilities", errorValue.Error(), output)}
 	}
 	var capabilities helperCapabilities
 	if errorValue := json.Unmarshal(output, &capabilities); errorValue != nil {
-		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: errorValue.Error()}
+		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: helperFailureDetail(helperPath, "capabilities", errorValue.Error(), output)}
 	}
 	if capabilities.Version < 2 || !containsCapability(capabilities.Capabilities, "fs") {
-		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: "posix helper does not support fs capability"}
+		return WorkspaceActorError{Operation: "requester", Stage: "capabilities", ActorUser: actorUser, Code: ActorErrorCodeRuntimeUnavailable, Detail: helperFailureDetail(helperPath, "capabilities", "posix helper does not support fs capability", output)}
 	}
 	return nil
 }
@@ -244,7 +244,12 @@ func (actor POSIXHelperWorkspaceActor) executeFSWithResponse(ctx context.Context
 	}
 	if errorValue != nil {
 		detail := firstNonEmptyString(strings.TrimSpace(stderr.String()), errorValue.Error())
-		return actorError(operation, "helper", actor.executionIdentity, path, actorErrorCodeForDetail(detail), detail)
+		code := actorErrorCodeForDetail(detail)
+		if isHelperExecutionFailure(errorValue, stderr.String()) {
+			code = ActorErrorCodeRuntimeUnavailable
+			detail = helperFailureDetail(actor.terminalConfiguration.POSIXHelperPath, operation, detail, nil)
+		}
+		return actorError(operation, "helper", actor.executionIdentity, path, code, detail)
 	}
 	if response != nil {
 		if errorValue := json.Unmarshal(stdout.Bytes(), response); errorValue != nil {
@@ -252,6 +257,24 @@ func (actor POSIXHelperWorkspaceActor) executeFSWithResponse(ctx context.Context
 		}
 	}
 	return nil
+}
+
+func helperFailureDetail(helperPath string, operation string, detail string, output []byte) string {
+	parts := []string{
+		"posix helper " + strings.TrimSpace(operation) + " failed",
+		"path=" + strings.TrimSpace(helperPath),
+	}
+	if trimmedOutput := strings.TrimSpace(string(output)); trimmedOutput != "" {
+		parts = append(parts, "output="+trimmedOutput)
+	}
+	if trimmedDetail := strings.TrimSpace(detail); trimmedDetail != "" {
+		parts = append(parts, "detail="+trimmedDetail)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func isHelperExecutionFailure(errorValue error, stderr string) bool {
+	return strings.TrimSpace(stderr) == "" && os.IsPermission(errorValue)
 }
 
 type fsRequest struct {
