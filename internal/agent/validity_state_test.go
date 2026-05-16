@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,5 +62,18 @@ func TestValidityStateAcceptsDeckWithoutIntentManifest(t *testing.T) {
 
 	if !validityState.Passed {
 		t.Fatalf("expected deck artifact without intent manifest to pass basic validity, got %+v", validityState)
+	}
+}
+
+func TestAttachmentValidityUsesPayloadBeforePrivatePathStat(t *testing.T) {
+	validityState := buildAttachmentValidityState(t.TempDir(), []FileAttachment{{
+		DevicePath:    "/workspace/private/people/person-1/artifacts/deck/result.txt",
+		Filename:      "result.txt",
+		SizeBytes:     6,
+		ContentBase64: base64.StdEncoding.EncodeToString([]byte("result")),
+	}})
+
+	if !validityState.Passed {
+		t.Fatalf("expected inline attachment payload to pass without service path access, got %+v", validityState)
 	}
 }

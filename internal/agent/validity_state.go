@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,6 +61,10 @@ func validateCompletionArtifacts(artifacts []CompletionArtifact) []ArtifactValid
 func validateAttachments(workspaceRootPath string, attachments []FileAttachment) []ArtifactValidity {
 	checkedArtifacts := []ArtifactValidity{}
 	for _, attachment := range attachments {
+		if strings.TrimSpace(attachment.ContentBase64) != "" {
+			checkedArtifacts = append(checkedArtifacts, validateAttachmentPayload(attachment))
+			continue
+		}
 		path, isCheckable := checkableAttachmentPath(workspaceRootPath, attachment)
 		if !isCheckable {
 			continue
@@ -67,6 +72,27 @@ func validateAttachments(workspaceRootPath string, attachments []FileAttachment)
 		checkedArtifacts = append(checkedArtifacts, validateArtifactPath(path, attachmentFilenameForValidity(attachment), relativeWorkspacePath(workspaceRootPath, path)))
 	}
 	return checkedArtifacts
+}
+
+func validateAttachmentPayload(attachment FileAttachment) ArtifactValidity {
+	artifact := ArtifactValidity{
+		Filename:     attachmentFilenameForValidity(attachment),
+		RelativePath: strings.TrimSpace(attachment.DevicePath),
+		Suffix:       artifactValiditySuffix(firstNonEmptyString(attachment.Filename, attachment.DevicePath)),
+		SizeBytes:    attachment.SizeBytes,
+		path:         strings.TrimSpace(attachment.DevicePath),
+	}
+	document, errorValue := base64.StdEncoding.DecodeString(strings.TrimSpace(attachment.ContentBase64))
+	if errorValue != nil {
+		return invalidArtifact(artifact, "attachment payload is not readable")
+	}
+	if len(document) == 0 {
+		return invalidArtifact(artifact, "artifact file is empty")
+	}
+	if artifact.SizeBytes == 0 {
+		artifact.SizeBytes = int64(len(document))
+	}
+	return validArtifact(artifact)
 }
 
 func checkableAttachmentPath(workspaceRootPath string, attachment FileAttachment) (string, bool) {

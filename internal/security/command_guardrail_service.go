@@ -115,7 +115,7 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 		return CommandPlan{}, errors.New("native execution without network is not allowed when terminal.allowNetwork is false")
 	}
 
-	return commandGuardrailService.applyPOSIXRunner(commandPlan)
+	return commandGuardrailService.applyPOSIXRunner(commandPlan, workspaceRootPath)
 }
 
 func (commandGuardrailService CommandGuardrailService) buildBashCommandPlan(commandRequest CommandRequest, workingDirectoryPath string, workspaceRootPath string) (CommandPlan, error) {
@@ -148,10 +148,10 @@ func (commandGuardrailService CommandGuardrailService) buildBashCommandPlan(comm
 		IsPTY:                commandRequest.IsPTY,
 		ExecutionIdentity:    commandRequest.ExecutionIdentity,
 	}
-	return commandGuardrailService.applyPOSIXRunner(commandPlan)
+	return commandGuardrailService.applyPOSIXRunner(commandPlan, workspaceRootPath)
 }
 
-func (commandGuardrailService CommandGuardrailService) applyPOSIXRunner(commandPlan CommandPlan) (CommandPlan, error) {
+func (commandGuardrailService CommandGuardrailService) applyPOSIXRunner(commandPlan CommandPlan, workspaceRootPath string) (CommandPlan, error) {
 	if strings.TrimSpace(commandGuardrailService.terminalConfiguration.POSIXHelperPath) == "" {
 		return commandPlan, nil
 	}
@@ -163,18 +163,20 @@ func (commandGuardrailService CommandGuardrailService) applyPOSIXRunner(commandP
 	if errorValue != nil {
 		return CommandPlan{}, errorValue
 	}
+	targetWorkingDirectoryPath := commandPlan.WorkingDirectoryPath
 	helperArguments := []string{
 		"exec",
 		"--uid", formatUnsignedID(resolvedIdentity.UserID),
 		"--gid", formatUnsignedID(resolvedIdentity.GroupID),
 		"--groups", joinUnsignedIDs(resolvedIdentity.SupplementaryGroupIDs),
-		"--cwd", commandPlan.WorkingDirectoryPath,
+		"--cwd", targetWorkingDirectoryPath,
 		"--",
 		commandPlan.ExecutablePath,
 	}
 	helperArguments = append(helperArguments, commandPlan.Arguments...)
 	commandPlan.ExecutablePath = commandGuardrailService.terminalConfiguration.POSIXHelperPath
 	commandPlan.Arguments = helperArguments
+	commandPlan.WorkingDirectoryPath = workspaceRootPath
 	commandPlan.EnvironmentVariables = applyPOSIXEnvironment(commandPlan.EnvironmentVariables, resolvedIdentity)
 	commandPlan.ExecutionIdentity = resolvedIdentity
 	return commandPlan, nil
