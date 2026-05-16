@@ -20,6 +20,7 @@ type agentTaskState struct {
 	Observations    []turnObservation
 	QualityCriteria []qualityCriterion
 	Attachments     []FileAttachment
+	ExecutionState  ExecutionState
 	IterationCount  int
 	ToolCallCount   int
 	TurnStartedAt   time.Time
@@ -108,6 +109,7 @@ func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRu
 	state.Status = taskRun.Status
 	state.Observations = observationsFromTaskEvents(events)
 	state.Attachments = attachmentsFromObservations(state.Observations)
+	state.ExecutionState = executionStateFromTaskEvents(events)
 	state.ToolCallCount = successfulToolCallCount(state.Observations)
 	state.IterationCount = len(state.Observations)
 	return state, nil
@@ -163,6 +165,7 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 		state.Observations,
 		buildAgentSystemInstruction(state.Request),
 		buildAgentToolDescription(state.Request.ToolSet),
+		state.ExecutionState,
 	)
 	if hasFailureDebt {
 		messages = append(messages, llm.Message{

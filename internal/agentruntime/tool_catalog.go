@@ -997,10 +997,46 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue := materializer.EnsureFileMode(resolvedPath.ConcretePath, fileMode); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
+	if errorValue := toolCatalogBuilder.verifyRequesterTerminalCanReadFile(toolContext, handlerContext.request, resolvedPath); errorValue != nil {
+		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_write_visibility", errorValue.Error(), json.RawMessage(marshalToolResult(map[string]any{
+			"path":  resolvedPath.VirtualPath,
+			"error": errorValue.Error(),
+		}))), nil
+	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"path":      resolvedPath.VirtualPath,
 		"sizeBytes": len(input.Content),
 	})), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) verifyRequesterTerminalCanReadFile(toolContext context.Context, request ToolCatalogRequest, resolvedPath ResolvedWorkspacePath) error {
+	if toolCatalogBuilder.terminalService == nil || resolvedPath.Kind != workspacePathKindDraft {
+		return nil
+	}
+	directoryPath := filepath.Dir(resolvedPath.ConcretePath)
+	fileName := filepath.Base(resolvedPath.ConcretePath)
+	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(toolContext, security.CommandRequest{
+		Command:              "test -r " + shellSingleQuote(fileName),
+		WorkingDirectoryPath: directoryPath,
+		EnvironmentVariables: map[string]string{},
+		ExecutionIdentity:    security.ExecutionIdentityForPersonAccess(request.PersonAccess, toolCatalogBuilder.workspaceRootPath),
+		TimeoutSecond:        5,
+	})
+	if errorValue == nil && commandResult.ExitCode == 0 {
+		return nil
+	}
+	detail := strings.TrimSpace(commandResult.Stderr)
+	if detail == "" && errorValue != nil {
+		detail = errorValue.Error()
+	}
+	if detail == "" {
+		detail = fmt.Sprintf("exitCode=%d", commandResult.ExitCode)
+	}
+	return errors.New("file.write saved " + resolvedPath.VirtualPath + " but requester terminal identity cannot read it from the same workspace directory: " + detail)
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func ensureToolWriteDirectory(directoryPath string, workspaceRootPath string) error {

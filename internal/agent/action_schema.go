@@ -44,7 +44,7 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 
 func finalReplyActionSchema(hasFailureDebt bool) map[string]any {
 	failureResolutionValues := []string{"none", "recovered_with_success", "no_tool_fallback"}
-	requiredFields := []string{"action", "finalReply", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview"}
+	requiredFields := []string{"action", "finalReply", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview", "executionStateUpdate"}
 	if hasFailureDebt {
 		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback"}
 		requiredFields = append(requiredFields, "failureResolution")
@@ -52,14 +52,15 @@ func finalReplyActionSchema(hasFailureDebt bool) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":             enumStringSchema("final_reply"),
-			"finalReply":         stringSchema(),
-			"failureResolution":  enumValuesStringSchema(failureResolutionValues),
-			"goalStatus":         enumValuesStringSchema([]string{"satisfied"}),
-			"goalSatisfied":      booleanSchema(),
-			"completionEvidence": completionEvidenceSchema(),
-			"qualityReview":      qualityReviewSchema(),
-			"remainingWork":      stringSchema(),
+			"action":               enumStringSchema("final_reply"),
+			"finalReply":           stringSchema(),
+			"failureResolution":    enumValuesStringSchema(failureResolutionValues),
+			"goalStatus":           enumValuesStringSchema([]string{"satisfied"}),
+			"goalSatisfied":        booleanSchema(),
+			"completionEvidence":   completionEvidenceSchema(),
+			"qualityReview":        qualityReviewSchema(),
+			"remainingWork":        stringSchema(),
+			"executionStateUpdate": executionStateSchema(),
 		},
 		"required":             requiredFields,
 		"additionalProperties": false,
@@ -70,27 +71,29 @@ func setQualityCriteriaActionSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":          enumStringSchema("set_quality_criteria"),
-			"qualityCriteria": qualityCriteriaSchema(),
-			"reason":          stringSchema(),
-			"goalStatus":      enumValuesStringSchema([]string{"in_progress"}),
-			"goalSatisfied":   booleanSchema(),
-			"remainingWork":   stringSchema(),
+			"action":               enumStringSchema("set_quality_criteria"),
+			"qualityCriteria":      qualityCriteriaSchema(),
+			"reason":               stringSchema(),
+			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
+			"goalSatisfied":        booleanSchema(),
+			"remainingWork":        stringSchema(),
+			"executionStateUpdate": executionStateSchema(),
 		},
-		"required":             []string{"action", "qualityCriteria"},
+		"required":             []string{"action", "qualityCriteria", "executionStateUpdate"},
 		"additionalProperties": false,
 	}
 }
 
 func failActionSchema(hasFailureDebt bool) map[string]any {
 	properties := map[string]any{
-		"action":        enumStringSchema("fail"),
-		"reason":        stringSchema(),
-		"goalStatus":    enumValuesStringSchema([]string{"blocked"}),
-		"goalSatisfied": booleanSchema(),
-		"remainingWork": stringSchema(),
+		"action":               enumStringSchema("fail"),
+		"reason":               stringSchema(),
+		"goalStatus":           enumValuesStringSchema([]string{"blocked"}),
+		"goalSatisfied":        booleanSchema(),
+		"remainingWork":        stringSchema(),
+		"executionStateUpdate": executionStateSchema(),
 	}
-	requiredFields := []string{"action", "reason", "goalStatus", "goalSatisfied"}
+	requiredFields := []string{"action", "reason", "goalStatus", "goalSatisfied", "executionStateUpdate"}
 	if hasFailureDebt {
 		properties["failureResolution"] = enumValuesStringSchema([]string{"failure_report"})
 		properties["usedFailureFacts"] = failureReportFactsSchema()
@@ -108,15 +111,16 @@ func callToolActionSchema(toolDefinition ToolDefinition) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":        enumStringSchema("call_tool"),
-			"toolName":      enumStringSchema(toolDefinition.Name),
-			"toolInput":     toolInputSchema(toolDefinition),
-			"reason":        stringSchema(),
-			"goalStatus":    enumValuesStringSchema([]string{"in_progress", "blocked"}),
-			"goalSatisfied": booleanSchema(),
-			"remainingWork": stringSchema(),
+			"action":               enumStringSchema("call_tool"),
+			"toolName":             enumStringSchema(toolDefinition.Name),
+			"toolInput":            toolInputSchema(toolDefinition),
+			"reason":               stringSchema(),
+			"goalStatus":           enumValuesStringSchema([]string{"in_progress", "blocked"}),
+			"goalSatisfied":        booleanSchema(),
+			"remainingWork":        stringSchema(),
+			"executionStateUpdate": executionStateSchema(),
 		},
-		"required":             []string{"action", "toolName", "toolInput"},
+		"required":             []string{"action", "toolName", "toolInput", "executionStateUpdate"},
 		"additionalProperties": false,
 	}
 }

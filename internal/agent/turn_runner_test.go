@@ -1690,7 +1690,7 @@ func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
 	observations := []turnObservation{
 		newFailureObservation("obs-001", "call_tool", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory 'artifacts': Permission denied"}`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
 	}
-	prompt := buildLimitReachedPrompt(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "max_iterations", observations, nil, recoveryDecision{})
+	prompt := buildLimitReachedPrompt(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "max_iterations", observations, nil, ExecutionState{}, recoveryDecision{})
 
 	for _, expectedText := range []string{
 		"FailureReportFacts that must be reflected accurately",
@@ -1766,8 +1766,8 @@ func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
 
-	failurePrompt := buildFailureReplyPrompt(request, "terminal.run failed", nil, nil, recoveryDecision{})
-	limitPrompt := buildLimitReachedPrompt(request, "max_iterations", nil, nil, recoveryDecision{})
+	failurePrompt := buildFailureReplyPrompt(request, "terminal.run failed", nil, nil, ExecutionState{}, recoveryDecision{})
+	limitPrompt := buildLimitReachedPrompt(request, "max_iterations", nil, nil, ExecutionState{}, recoveryDecision{})
 	repairPrompt := buildLimitReachedRepairPrompt(limitPrompt, "텍스트로 정리해 드릴까요?", request, nil, 1)
 
 	for _, prompt := range []string{failurePrompt, limitPrompt, repairPrompt} {

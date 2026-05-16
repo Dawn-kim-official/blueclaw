@@ -18,6 +18,7 @@ type InjectedContextInput struct {
 	RuntimeRequest    AgentTurnRequest
 	MemoryContext     string
 	Observations      []turnObservation
+	ExecutionState    ExecutionState
 }
 
 func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
@@ -32,12 +33,17 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		systemMessage(buildVisibleContextDescription(input.RuntimeRequest.VisibleContext)),
 		systemMessage(input.MemoryContext),
 		systemMessage(buildProgressContext(input.RuntimeRequest, input.Observations)),
+		systemMessage(buildExecutionStateContext(input.ExecutionState, input.Observations)),
 		toolResultContextMessage(input.Observations),
 		systemMessage(buildObservationContext(input.Observations)),
 	})
 }
 
-func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnRequest, observations []turnObservation, baseInstruction string, toolDescription string) []llm.Message {
+func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnRequest, observations []turnObservation, baseInstruction string, toolDescription string, executionStates ...ExecutionState) []llm.Message {
+	executionState := ExecutionState{}
+	if len(executionStates) > 0 {
+		executionState = executionStates[0]
+	}
 	messages := BuildInjectedContextMessages(InjectedContextInput{
 		BaseInstruction:   baseInstruction,
 		InstructionPrompt: request.InstructionPrompt,
@@ -46,6 +52,7 @@ func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnReques
 		RuntimeRequest:    request,
 		MemoryContext:     buildMemoryContext(request.MemoryFacts),
 		Observations:      observations,
+		ExecutionState:    executionState,
 	})
 	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
 	return messages

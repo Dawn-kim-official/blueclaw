@@ -315,6 +315,9 @@ func failureReportInputSummary(toolInputKey string) string {
 }
 
 func failureReportMessage(observation turnObservation) string {
+	if terminalSummary := summarizeTerminalFailure(observation); terminalSummary != "" {
+		return truncateText(compactWhitespace(redactUnsafeText(terminalSummary)), 240)
+	}
 	message := observation.FailureSummary()
 	if message == "" {
 		message = strings.TrimSpace(observation.ContentText())
