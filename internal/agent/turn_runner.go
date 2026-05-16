@@ -2388,6 +2388,14 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRe
 		for repairCount := 1; repairCount <= 2; repairCount++ {
 			repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildFailureReplyRepairPrompt(prompt, reply, request, failureReason, observations, attachments, executionState, repairCount))
 			if repairError != nil || repairedReply == "" {
+				if degradedFailureReplyCanBeDelivered(reply, request, attachments) {
+					status.Source = "generated_degraded"
+					status.FirstInvalid = true
+					status.RepairCount = repairCount
+					status.Reason = "repair_failed_delivered_last_safe_reply"
+					status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+					return reply, status, true
+				}
 				status.Source = "suppressed"
 				status.FirstInvalid = true
 				status.RepairCount = repairCount
@@ -2406,10 +2414,24 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRe
 		status.FirstInvalid = true
 		status.RepairCount = 2
 	}
+	if degradedFailureReplyCanBeDelivered(reply, request, attachments) {
+		status.Source = "generated_degraded"
+		status.FirstInvalid = true
+		status.RepairCount = 2
+		status.Reason = "strict_failure_detail_missing"
+		return reply, status, true
+	}
 	status.Source = "suppressed"
 	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
 	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
 	return "", status, false
+}
+
+func degradedFailureReplyCanBeDelivered(reply string, request AgentTurnRequest, attachments []FileAttachment) bool {
+	if requiredArtifactWithoutAttachment(request, attachments) {
+		return false
+	}
+	return strings.TrimSpace(reply) != "" && !failureReplyIsInvalid(reply, attachments)
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (string, limitReplyStatus, bool) {

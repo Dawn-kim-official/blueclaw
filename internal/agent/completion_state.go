@@ -56,6 +56,7 @@ type CompletionAttachedEvidence struct {
 	SizeBytes     int64  `json:"sizeBytes,omitempty"`
 	Title         string `json:"title,omitempty"`
 	DevicePath    string `json:"-"`
+	ContentBase64 string `json:"-"`
 }
 
 func buildCompletionState(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation) CompletionState {
@@ -216,6 +217,7 @@ func completionAttachedEvidence(observations []turnObservation, references []com
 				SizeBytes:     attachment.SizeBytes,
 				Title:         attachment.Title,
 				DevicePath:    attachment.DevicePath,
+				ContentBase64: attachment.ContentBase64,
 			})
 		}
 	}
@@ -305,11 +307,12 @@ func buildAttachedEvidenceValidityState(workspaceRootPath string, attachedEviden
 	attachments := []FileAttachment{}
 	for _, evidence := range attachedEvidence {
 		attachments = append(attachments, FileAttachment{
-			DevicePath:  evidence.DevicePath,
-			Filename:    evidence.Filename,
-			ContentType: evidence.ContentType,
-			SizeBytes:   evidence.SizeBytes,
-			Title:       evidence.Title,
+			DevicePath:    evidence.DevicePath,
+			Filename:      evidence.Filename,
+			ContentType:   evidence.ContentType,
+			SizeBytes:     evidence.SizeBytes,
+			Title:         evidence.Title,
+			ContentBase64: evidence.ContentBase64,
 		})
 	}
 	return buildAttachmentValidityState(workspaceRootPath, attachments)

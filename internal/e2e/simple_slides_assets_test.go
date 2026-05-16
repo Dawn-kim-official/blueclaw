@@ -72,8 +72,11 @@ func TestSimpleSlidesAssetsStayPureSkill(t *testing.T) {
 	if !strings.Contains(buildScript, "older than DESIGN.md") {
 		t.Fatal("build.sh should reject stale presentation.md sources after DESIGN.md changes")
 	}
-	if !strings.Contains(buildScript, `rm -f "${BUILD_DIR}/${NAME}.html"`) {
+	if !strings.Contains(buildScript, `rm -f "${BUILD_PATH}/${NAME}.html"`) {
 		t.Fatal("build.sh should clear previous outputs before rebuilding")
+	}
+	if !strings.Contains(buildScript, `cd "$TMPDIR"`) {
+		t.Fatal("build.sh should run Marp from the private build temp directory")
 	}
 }
 
