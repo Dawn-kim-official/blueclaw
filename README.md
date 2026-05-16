@@ -128,6 +128,53 @@ Runtime connector configuration is secretless. Blueclaw does not read Mattermost
 - connector logs use `connector.<platform>.<stage>` event names
 - persistent logs default to `/workspace/.blueclaw/logs` and are retained for 7 days unless configured otherwise
 
+## Workspace, Tools, and Actor Boundary
+
+Blueclaw separates orchestration identity from workspace side-effect identity.
+
+- The Blueclaw daemon runs as the guest `blueclaw` user.
+- The daemon resolves virtual paths, checks policy, validates tool schemas, records events, and asks the LLM for recovery or user-facing wording.
+- Requester-visible filesystem and process side effects run through `WorkspaceActorFactory -> WorkspaceActor`.
+- The production actor uses `blueclaw-posix-helper`, not direct `os.ReadFile`, `os.WriteFile`, `os.OpenFile`, or service-user process execution.
+- The helper is installed as `root:root 4755`, authorizes only real UID root or `blueclaw`, then switches to the requester UID/GID/supplementary groups before touching the workspace.
+- The helper does not own workspace path policy. Blueclaw owns path resolution and authorization; Linux POSIX owns final read/write/execute enforcement after identity transition.
+
+```mermaid
+flowchart LR
+  Tool["file.write / terminal.run / file.promote"] --> Service["Blueclaw service"]
+  Service --> Resolver["WorkspacePathResolver"]
+  Resolver --> Actor["WorkspaceActor"]
+  Actor --> Helper["blueclaw-posix-helper"]
+  Helper --> Requester["requester UID/GID"]
+  Requester --> Workspace["/workspace/private/people/<personID>"]
+```
+
+Supported model-facing workspace path prefixes are virtual:
+
+| Prefix | Meaning |
+|---|---|
+| `tmp/<slug>/...` | requester-private draft workspace for the current task |
+| `artifacts/<slug>/...` | requester-private durable artifact location |
+| `/workspace/circles/<circleID>/...` | durable circle location when policy allows access |
+| `/workspace/shared/public/...` | explicitly public shared location |
+| `/workspace/skills/...` | built-in skill source, read/execute only |
+
+Disallowed model-facing paths include `/workspace/.blueclaw`, `/tmp`, `~`, `/opt`, `/usr`, another person's private path, and ambiguous relative `tmp` or `artifacts` from an unknown cwd.
+
+Artifact work follows the same flow for document, spreadsheet, slide, and PDF skills:
+
+```mermaid
+flowchart TD
+  Draft["write sources under tmp/<slug>/"] --> Build["run bundled script with cwd tmp/<slug>"]
+  Build --> Output["write outputs under tmp/<slug>/build/"]
+  Output --> Promote["file.promote to artifacts/<slug>/"]
+  Promote --> Attach["file.attach promoted file"]
+```
+
+Required artifact tasks are not complete until `file.attach` evidence points to promoted durable artifacts. A draft file under `tmp/<slug>`, a local path string, or a markdown link is not completion evidence.
+
+Runtime failure recovery receives compact execution state plus the latest observation tail. Tool failures should surface concrete actor/path/stage details instead of generic "system limitation" text. If all LLM reply generation paths fail, Blueclaw records admin diagnostics and suppresses the outbound reply rather than using a deterministic canned sentence.
+
 Minimal normalized event body:
 
 ```json
