@@ -205,7 +205,14 @@ func (terminalSessionService *TerminalSessionService) prepareWorkingDirectory(wo
 	if terminalSessionService.commandGuardrailService.terminalConfiguration.Mode != "firecrackerGuest" {
 		return nil
 	}
-	return os.MkdirAll(workingDirectoryPath, 0770)
+	fileInformation, errorValue := os.Stat(workingDirectoryPath)
+	if errorValue != nil {
+		return errorValue
+	}
+	if !fileInformation.IsDir() {
+		return errors.New("working directory is not a directory")
+	}
+	return nil
 }
 
 func (terminalSessionService *TerminalSessionService) StartInteractiveSession(commandRequest CommandRequest) (string, error) {

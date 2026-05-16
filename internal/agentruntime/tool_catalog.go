@@ -25,6 +25,7 @@ import (
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
 	"blueclaw/internal/task"
+	"blueclaw/internal/workspacepath"
 )
 
 const inlineAttachmentMaximumBytes = 25 * 1024 * 1024
@@ -45,6 +46,7 @@ type ToolCatalogBuilder struct {
 	capabilityToolNames       []string
 	capabilityToolDescriptors []CapabilityToolDescriptor
 	terminalService           *security.TerminalSessionService
+	workspaceActorFactory     security.WorkspaceActorFactory
 	taskRunService            *task.TaskRunService
 	taskScheduleRepository    task.TaskScheduleRepository
 	taskWaitTokenRepository   task.TaskWaitTokenRepository
@@ -209,6 +211,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityToolDescriptors(capab
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTerminalService(terminalService *security.TerminalSessionService) {
 	toolCatalogBuilder.terminalService = terminalService
+	if terminalService != nil && toolCatalogBuilder.workspaceActorFactory == nil {
+		toolCatalogBuilder.workspaceActorFactory = terminalService.WorkspaceActorFactory()
+	}
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) UseWorkspaceActorFactory(workspaceActorFactory security.WorkspaceActorFactory) {
+	toolCatalogBuilder.workspaceActorFactory = workspaceActorFactory
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTaskRunService(taskRunService *task.TaskRunService) {
@@ -630,11 +639,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
 		return terminalWorkspaceAccessFailure(input.WorkingDirectoryPath), nil
 	}
-	if errorValue := (WorkspaceMaterializer{WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath}).EnsureDirectory(input.WorkingDirectoryPath); errorValue != nil {
-		return terminalWorkspaceMaterializerFailure(input.WorkingDirectoryPath, errorValue), nil
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return *actorFailure, nil
 	}
-	input.ExecutionIdentity = security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath)
-	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(toolContext, input)
+	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), 02770); errorValue != nil {
+		return actorToolFailure("mkdir_all", "terminal_working_directory", workingDirectory.VirtualPath, errorValue), nil
+	}
+	input.ExecutionIdentity = toolCatalogBuilder.executionIdentityForRequester(handlerContext.request)
+	commandResult, errorValue := workspaceActor.Run(toolContext, input)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
 		if security.IsCommandPathGuardrailError(errorValue) {
@@ -654,14 +667,6 @@ func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResul
 	return result
 }
 
-func terminalWorkspaceMaterializerFailure(workingDirectoryPath string, errorValue error) agent.ToolResult {
-	message := "cannot prepare terminal workingDirectoryPath " + strings.TrimSpace(workingDirectoryPath) + ": " + errorValue.Error() + "; recovery: use tmp/<slug> for draft work"
-	result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "terminal_working_directory_materialize", message)
-	result.Failure.Retryable = true
-	result.Failure.SafeRetry = true
-	return result
-}
-
 func terminalPathGuardrailFailure(commandResult security.CommandResult, content string) agent.ToolResult {
 	message := strings.TrimSpace(commandResult.Stderr)
 	if message == "" {
@@ -671,6 +676,100 @@ func terminalPathGuardrailFailure(commandResult security.CommandResult, content 
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	return result
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) workspaceActorForRequest(toolContext context.Context, request ToolCatalogRequest) (security.WorkspaceActor, *agent.ToolResult) {
+	if toolCatalogBuilder.workspaceActorFactory == nil {
+		result := actorToolFailure("requester", "actor_runtime", "", security.WorkspaceActorError{
+			Operation: "requester",
+			Stage:     "factory",
+			Code:      security.ActorErrorCodeRuntimeUnavailable,
+			Detail:    "workspace actor factory is unavailable",
+		})
+		return nil, &result
+	}
+	personAccess := request.PersonAccess
+	if strings.TrimSpace(personAccess.PersonID) == "" {
+		personAccess.PersonID = strings.TrimSpace(request.RequesterPersonID)
+	}
+	workspaceActor, errorValue := toolCatalogBuilder.workspaceActorFactory.Requester(toolContext, security.WorkspaceActorRequest{
+		PersonAccess:      personAccess,
+		WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath,
+	})
+	if errorValue != nil {
+		stage := "actor_runtime"
+		if actorFailureCode(errorValue) == security.ActorErrorCodeIdentityMissing {
+			stage = "actor_identity_missing"
+		}
+		result := actorToolFailure("requester", stage, "", errorValue)
+		return nil, &result
+	}
+	return workspaceActor, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) executionIdentityForRequester(request ToolCatalogRequest) security.ExecutionIdentity {
+	personAccess := request.PersonAccess
+	if strings.TrimSpace(personAccess.PersonID) == "" {
+		personAccess.PersonID = strings.TrimSpace(request.RequesterPersonID)
+	}
+	return security.ExecutionIdentityForPersonAccess(personAccess, toolCatalogBuilder.workspaceRootPath)
+}
+
+func actorToolFailure(operation string, stage string, virtualPath string, errorValue error) agent.ToolResult {
+	message := actorFailureMessage(operation, virtualPath, errorValue)
+	failureKind := agent.FailureExternalService
+	failureCode := agent.FailureCodes.OperationFailed
+	if actorFailureCode(errorValue) == security.ActorErrorCodePermissionDenied {
+		failureKind = agent.FailurePermissionDenied
+		failureCode = agent.FailureCodes.AccessDenied
+	}
+	result := agent.ToolFailureWithOutput(failureKind, failureCode, stage, message, json.RawMessage(marshalToolResult(map[string]any{
+		"operation":   operation,
+		"stage":       stage,
+		"virtualPath": virtualPath,
+		"code":        actorFailureCode(errorValue),
+		"detail":      actorFailureDetail(errorValue),
+		"actorUser":   actorFailureUser(errorValue),
+	})))
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	return result
+}
+
+func actorFailureMessage(operation string, virtualPath string, errorValue error) string {
+	detail := actorFailureDetail(errorValue)
+	actorUser := actorFailureUser(errorValue)
+	if actorUser == "" {
+		actorUser = "unknown"
+	}
+	return fmt.Sprintf("actor.%s failed for %s as %s: %s", operation, strings.TrimSpace(virtualPath), actorUser, detail)
+}
+
+func actorFailureDetail(errorValue error) string {
+	var actorError security.WorkspaceActorError
+	if errors.As(errorValue, &actorError) {
+		return firstNonEmptyString(strings.TrimSpace(actorError.Detail), errorValue.Error())
+	}
+	if errorValue == nil {
+		return "operation failed"
+	}
+	return errorValue.Error()
+}
+
+func actorFailureCode(errorValue error) string {
+	var actorError security.WorkspaceActorError
+	if errors.As(errorValue, &actorError) {
+		return strings.TrimSpace(actorError.Code)
+	}
+	return security.ActorErrorCodeOperationFailed
+}
+
+func actorFailureUser(errorValue error) string {
+	var actorError security.WorkspaceActorError
+	if errors.As(errorValue, &actorError) {
+		return strings.TrimSpace(actorError.ActorUser)
+	}
+	return ""
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -708,8 +807,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(toolContext c
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, workingDirectoryPath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "terminal_session", "current account cannot use this workspace path"), nil
 	}
-	if errorValue := (WorkspaceMaterializer{WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath}).EnsureDirectory(workingDirectoryPath); errorValue != nil {
-		return terminalWorkspaceMaterializerFailure(workingDirectoryPath, errorValue), nil
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return *actorFailure, nil
+	}
+	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), 02770); errorValue != nil {
+		return actorToolFailure("mkdir_all", "terminal_session", workingDirectory.VirtualPath, errorValue), nil
 	}
 	sessionID, errorValue := toolCatalogBuilder.terminalService.StartInteractiveSession(security.CommandRequest{
 		Command:              toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command),
@@ -718,7 +821,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(toolContext c
 		TimeoutSecond:        input.TimeoutSecond,
 		IsInteractive:        true,
 		IsPTY:                true,
-		ExecutionIdentity:    security.ExecutionIdentityForPersonAccess(handlerContext.request.PersonAccess, toolCatalogBuilder.workspaceRootPath),
+		ExecutionIdentity:    toolCatalogBuilder.executionIdentityForRequester(handlerContext.request),
 	})
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_session", errorValue.Error()), nil
@@ -987,122 +1090,20 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if input.Mode != 0 {
 		fileMode = os.FileMode(input.Mode)
 	}
-	materializer := WorkspaceMaterializer{WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath}
-	if errorValue := materializer.EnsureDirectory(filepath.Dir(resolvedPath.ConcretePath)); errorValue != nil {
-		return agent.ToolResult{}, errorValue
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return *actorFailure, nil
 	}
-	if errorValue := os.WriteFile(resolvedPath.ConcretePath, []byte(input.Content), fileMode); errorValue != nil {
-		return agent.ToolResult{}, errorValue
+	if errorValue := workspaceActor.MkdirAll(toolContext, resolvedPath.Parent(), 02770); errorValue != nil {
+		return actorToolFailure("mkdir_all", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
-	if errorValue := materializer.EnsureFileMode(resolvedPath.ConcretePath, fileMode); errorValue != nil {
-		return agent.ToolResult{}, errorValue
-	}
-	if errorValue := toolCatalogBuilder.verifyRequesterTerminalCanReadFile(toolContext, handlerContext.request, resolvedPath); errorValue != nil {
-		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_write_visibility", errorValue.Error(), json.RawMessage(marshalToolResult(map[string]any{
-			"path":  resolvedPath.VirtualPath,
-			"error": errorValue.Error(),
-		}))), nil
+	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), fileMode); errorValue != nil {
+		return actorToolFailure("write_file", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"path":      resolvedPath.VirtualPath,
 		"sizeBytes": len(input.Content),
 	})), nil
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) verifyRequesterTerminalCanReadFile(toolContext context.Context, request ToolCatalogRequest, resolvedPath ResolvedWorkspacePath) error {
-	if toolCatalogBuilder.terminalService == nil || resolvedPath.Kind != workspacePathKindDraft {
-		return nil
-	}
-	directoryPath := filepath.Dir(resolvedPath.ConcretePath)
-	fileName := filepath.Base(resolvedPath.ConcretePath)
-	commandResult, errorValue := toolCatalogBuilder.terminalService.RunCommand(toolContext, security.CommandRequest{
-		Command:              "test -r " + shellSingleQuote(fileName),
-		WorkingDirectoryPath: directoryPath,
-		EnvironmentVariables: map[string]string{},
-		ExecutionIdentity:    security.ExecutionIdentityForPersonAccess(request.PersonAccess, toolCatalogBuilder.workspaceRootPath),
-		TimeoutSecond:        5,
-	})
-	if errorValue == nil && commandResult.ExitCode == 0 {
-		return nil
-	}
-	detail := strings.TrimSpace(commandResult.Stderr)
-	if detail == "" && errorValue != nil {
-		detail = errorValue.Error()
-	}
-	if detail == "" {
-		detail = fmt.Sprintf("exitCode=%d", commandResult.ExitCode)
-	}
-	return errors.New("file.write saved " + resolvedPath.VirtualPath + " but requester terminal identity cannot read it from the same workspace directory: " + detail)
-}
-
-func shellSingleQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-func ensureToolWriteDirectory(directoryPath string, workspaceRootPath string) error {
-	if errorValue := os.MkdirAll(directoryPath, 0770); errorValue != nil {
-		return errorValue
-	}
-	return ensureGroupWritableDirectoryTree(writableWorkspaceScopeRoot(directoryPath, workspaceRootPath), directoryPath)
-}
-
-func ensureGroupWritableDirectoryTree(scopeRootPath string, directoryPath string) error {
-	scopeRootPath = filepath.Clean(scopeRootPath)
-	directoryPath = filepath.Clean(directoryPath)
-	directories := []string{}
-	for path := directoryPath; ; path = filepath.Dir(path) {
-		directories = append(directories, path)
-		if path == scopeRootPath || path == filepath.Dir(path) {
-			break
-		}
-	}
-	for index := len(directories) - 1; index >= 0; index-- {
-		if errorValue := ensureGroupWriteAndSearch(directories[index]); errorValue != nil {
-			return errorValue
-		}
-	}
-	return nil
-}
-
-func writableWorkspaceScopeRoot(path string, workspaceRootPath string) string {
-	cleanPath := filepath.Clean(path)
-	cleanWorkspaceRootPath := filepath.Clean(workspaceRootPath)
-	relativePath, errorValue := filepath.Rel(cleanWorkspaceRootPath, cleanPath)
-	if errorValue != nil || relativePath == "." || strings.HasPrefix(relativePath, "..") {
-		return cleanWorkspaceRootPath
-	}
-	parts := strings.Split(relativePath, string(filepath.Separator))
-	if len(parts) >= 3 && parts[0] == "private" && parts[1] == "people" {
-		return filepath.Join(cleanWorkspaceRootPath, parts[0], parts[1], parts[2])
-	}
-	if len(parts) >= 2 && parts[0] == "circles" {
-		return filepath.Join(cleanWorkspaceRootPath, parts[0], parts[1])
-	}
-	if len(parts) >= 1 && parts[0] == "shared" {
-		return filepath.Join(cleanWorkspaceRootPath, parts[0])
-	}
-	return cleanWorkspaceRootPath
-}
-
-func ensureGroupWriteAndSearch(directoryPath string) error {
-	fileInformation, errorValue := os.Stat(directoryPath)
-	if errorValue != nil {
-		return errorValue
-	}
-	mode := fileInformation.Mode().Perm() | 0070
-	if fileInformation.Mode()&os.ModeSetgid != 0 {
-		mode |= os.ModeSetgid
-	}
-	return os.Chmod(directoryPath, mode)
-}
-
-func ensureToolWriteFileMode(path string, requestedMode os.FileMode) error {
-	fileInformation, errorValue := os.Stat(path)
-	if errorValue != nil {
-		return errorValue
-	}
-	mode := fileInformation.Mode().Perm() | (requestedMode.Perm() & 0770) | 0060
-	return os.Chmod(path, mode)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -1113,9 +1114,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 	attachments := []agent.FileAttachment{}
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	for _, attachmentPath := range attachmentPaths {
-		attachment, errorValue := toolCatalogBuilder.fileAttachment(attachmentPath, input, handlerContext, scope)
+		attachment, failureResult, errorValue := toolCatalogBuilder.fileAttachment(toolContext, attachmentPath, input, handlerContext, scope)
+		if failureResult != nil {
+			return *failureResult, nil
+		}
 		if errorValue != nil {
-			return agent.ToolResult{}, errorValue
+			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_attach", errorValue.Error()), nil
 		}
 		attachments = append(attachments, attachment)
 	}
@@ -1151,9 +1155,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) promoteFileTool(toolContext contex
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, destinationDirectory.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_promote", "current account cannot write the promotion destination"), nil
 	}
-	materializer := WorkspaceMaterializer{WorkspaceRootPath: toolCatalogBuilder.workspaceRootPath}
-	if errorValue := materializer.EnsureDirectory(destinationDirectory.ConcretePath); errorValue != nil {
-		return agent.ToolResult{}, errorValue
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return *actorFailure, nil
+	}
+	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(destinationDirectory), 02770); errorValue != nil {
+		return actorToolFailure("mkdir_all", "file_promote", destinationDirectory.VirtualPath, errorValue), nil
 	}
 	promotedPaths := []string{}
 	for _, sourcePath := range sourcePaths {
@@ -1167,71 +1174,58 @@ func (toolCatalogBuilder *ToolCatalogBuilder) promoteFileTool(toolContext contex
 		if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, source.ConcretePath) {
 			return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_promote", "current account cannot read the promotion source"), nil
 		}
-		sourceInformation, errorValue := os.Stat(source.ConcretePath)
+		sourceInformation, errorValue := workspaceActor.Stat(toolContext, source)
 		if errorValue != nil {
-			return agent.ToolResult{}, errorValue
+			return actorToolFailure("stat", "file_promote", source.VirtualPath, errorValue), nil
 		}
-		if !sourceInformation.Mode().IsRegular() {
+		if !sourceInformation.IsRegular {
 			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source path is not a regular file"), nil
 		}
-		destinationPath := filepath.Join(destinationDirectory.ConcretePath, filepath.Base(source.ConcretePath))
+		destination := workspacepath.Directory(destinationDirectory).JoinVirtualFile(source.BaseName())
 		if !input.Overwrite {
-			if _, errorValue := os.Stat(destinationPath); errorValue == nil {
+			if _, errorValue := workspaceActor.Stat(toolContext, destination); errorValue == nil {
 				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "destination already exists; set overwrite=true to replace it"), nil
-			} else if !os.IsNotExist(errorValue) {
-				return agent.ToolResult{}, errorValue
+			} else if !security.IsActorNotFoundError(errorValue) {
+				return actorToolFailure("stat", "file_promote", destination.VirtualPath, errorValue), nil
 			}
 		}
-		if errorValue := copyRegularFile(source.ConcretePath, destinationPath, 0660); errorValue != nil {
-			return agent.ToolResult{}, errorValue
+		if errorValue := workspaceActor.CopyFile(toolContext, source, destination, 0660, input.Overwrite); errorValue != nil {
+			return actorToolFailure("copy_file", "file_promote", destination.VirtualPath, errorValue), nil
 		}
-		if errorValue := materializer.EnsureFileMode(destinationPath, 0660); errorValue != nil {
-			return agent.ToolResult{}, errorValue
-		}
-		promotedVirtualPath := filepath.ToSlash(filepath.Join(destinationDirectory.VirtualPath, filepath.Base(source.ConcretePath)))
-		promotedPaths = append(promotedPaths, promotedVirtualPath)
+		promotedPaths = append(promotedPaths, destination.VirtualPath)
 	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"paths": promotedPaths,
 	})), nil
 }
 
-func copyRegularFile(sourcePath string, destinationPath string, mode os.FileMode) error {
-	sourceFile, errorValue := os.Open(sourcePath)
-	if errorValue != nil {
-		return errorValue
-	}
-	defer sourceFile.Close()
-	destinationFile, errorValue := os.OpenFile(destinationPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
-	if errorValue != nil {
-		return errorValue
-	}
-	_, copyError := io.Copy(destinationFile, sourceFile)
-	closeError := destinationFile.Close()
-	if copyError != nil {
-		return copyError
-	}
-	return closeError
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input fileAttachToolInput, handlerContext toolHandlerContext, scope WorkspaceScope) (agent.FileAttachment, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context.Context, path string, input fileAttachToolInput, handlerContext toolHandlerContext, scope WorkspaceScope) (agent.FileAttachment, *agent.ToolResult, error) {
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
-		return agent.FileAttachment{}, errorValue
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_attach", errorValue.Error())
+		return agent.FileAttachment{}, &result, nil
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		return agent.FileAttachment{}, errors.New("current account cannot read this file")
+		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_attach", "current account cannot read this file")
+		return agent.FileAttachment{}, &result, nil
 	}
-	fileInformation, errorValue := os.Stat(resolvedPath.ConcretePath)
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return agent.FileAttachment{}, actorFailure, nil
+	}
+	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
 	if errorValue != nil {
-		return agent.FileAttachment{}, errorValue
+		result := actorToolFailure("stat", "file_attach", resolvedPath.VirtualPath, errorValue)
+		return agent.FileAttachment{}, &result, nil
 	}
-	if !fileInformation.Mode().IsRegular() {
-		return agent.FileAttachment{}, errors.New("attachment path is not a regular file")
+	if !fileInformation.IsRegular {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_attach", "attachment path is not a regular file")
+		return agent.FileAttachment{}, &result, nil
 	}
-	contentBase64, errorValue := inlineAttachmentContent(resolvedPath.ConcretePath, fileInformation.Size())
+	document, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, inlineAttachmentMaximumBytes)
 	if errorValue != nil {
-		return agent.FileAttachment{}, errorValue
+		result := actorToolFailure("read_file", "file_attach", resolvedPath.VirtualPath, errorValue)
+		return agent.FileAttachment{}, &result, nil
 	}
 	filename := attachmentFilename(input, resolvedPath.ConcretePath)
 	contentType := firstNonEmptyString(input.ContentType, mime.TypeByExtension(filepath.Ext(filename)), "application/octet-stream")
@@ -1239,10 +1233,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(path string, input 
 		DevicePath:    toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath),
 		Filename:      filename,
 		ContentType:   contentType,
-		SizeBytes:     fileInformation.Size(),
+		SizeBytes:     fileInformation.SizeBytes,
 		Title:         strings.TrimSpace(input.Title),
-		ContentBase64: contentBase64,
-	}, nil
+		ContentBase64: base64.StdEncoding.EncodeToString(document),
+	}, nil, nil
 }
 
 func mergeWorkspaceEnvironment(environmentVariables map[string]string, workspaceEnvironment map[string]string) map[string]string {
@@ -1265,17 +1259,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) canAccessWorkspacePath(personAcces
 		Action:       action,
 		Resource:     resource,
 	})
-}
-
-func inlineAttachmentContent(path string, sizeBytes int64) (string, error) {
-	if sizeBytes > inlineAttachmentMaximumBytes {
-		return "", errors.New("attachment file is too large")
-	}
-	document, errorValue := os.ReadFile(path)
-	if errorValue != nil {
-		return "", errorValue
-	}
-	return base64.StdEncoding.EncodeToString(document), nil
 }
 
 func attachmentFilename(input fileAttachToolInput, resolvedPath string) string {

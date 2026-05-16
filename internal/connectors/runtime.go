@@ -376,6 +376,10 @@ func (connectorRuntime *ConnectorRuntime) UseTerminalService(terminalService *se
 	connectorRuntime.toolCatalogBuilder.UseTerminalService(terminalService)
 }
 
+func (connectorRuntime *ConnectorRuntime) UseWorkspaceActorFactory(workspaceActorFactory security.WorkspaceActorFactory) {
+	connectorRuntime.toolCatalogBuilder.UseWorkspaceActorFactory(workspaceActorFactory)
+}
+
 func (connectorRuntime *ConnectorRuntime) UseTaskScheduleRepository(taskScheduleRepository task.TaskScheduleRepository) {
 	connectorRuntime.toolCatalogBuilder.UseTaskScheduleRepository(taskScheduleRepository)
 }

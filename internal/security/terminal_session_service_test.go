@@ -179,7 +179,7 @@ func TestRunCommandValidatesRewrittenCommandWithGuardrails(t *testing.T) {
 	}
 }
 
-func TestRunCommandPreparesMissingWorkspaceWorkingDirectoryInFirecrackerGuestMode(t *testing.T) {
+func TestRunCommandRequiresPreparedWorkspaceWorkingDirectoryInFirecrackerGuestMode(t *testing.T) {
 	terminalConfiguration := testTerminalConfiguration(t)
 	terminalSessionService := NewTerminalSessionService(terminalConfiguration)
 	workingDirectoryPath := terminalConfiguration.WorkspaceRootPath + "/.blueclaw/tmp/slides"
@@ -189,15 +189,11 @@ func TestRunCommandPreparesMissingWorkspaceWorkingDirectoryInFirecrackerGuestMod
 		WorkingDirectoryPath: workingDirectoryPath,
 	})
 
-	if errorValue != nil {
-		t.Fatalf("expected command to succeed: %v result=%+v", errorValue, commandResult)
+	if errorValue == nil {
+		t.Fatalf("expected missing working directory to fail, got %+v", commandResult)
 	}
-	if commandResult.ExitCode != 0 {
-		t.Fatalf("expected successful exit code, got %+v", commandResult)
-	}
-	content, errorValue := os.ReadFile(workingDirectoryPath + "/result.txt")
-	if errorValue != nil || string(content) != "ready" {
-		t.Fatalf("expected command to write inside prepared working directory, content=%q error=%v", string(content), errorValue)
+	if !strings.Contains(commandResult.Stderr, "no such file or directory") {
+		t.Fatalf("expected missing directory detail, got %+v", commandResult)
 	}
 }
 
