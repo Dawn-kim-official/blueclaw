@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -84,6 +85,30 @@ func TestCompletionStateUsesAttachmentIndexesForRequiredSuffixEvidence(t *testin
 	}
 	if len(state.AttachedEvidence) != 1 || state.AttachedEvidence[0].Filename != "deck.pptx" {
 		t.Fatalf("expected only required artifact evidence, got %+v", state.AttachedEvidence)
+	}
+}
+
+func TestCompletionStateValidatesAttachedEvidenceFromPayload(t *testing.T) {
+	state := buildCompletionState(
+		AgentTurnRequest{WorkspaceRootPath: t.TempDir()},
+		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".txt"}}},
+		[]turnObservation{{
+			ObservationID: "obs-001",
+			Tool:          "file.attach",
+			Attachments: []FileAttachment{{
+				DevicePath:    "/workspace/private/people/person-1/artifacts/deck/note.txt",
+				Filename:      "note.txt",
+				SizeBytes:     4,
+				ContentBase64: base64.StdEncoding.EncodeToString([]byte("note")),
+			}},
+		}},
+	)
+
+	if state.RecommendedAction != completionActionFinalizeWithEvidence {
+		t.Fatalf("expected payload-backed attachment to finalize, got %+v", state)
+	}
+	if !state.ValidityState.Passed {
+		t.Fatalf("expected payload-backed attachment validity to pass, got %+v", state.ValidityState)
 	}
 }
 

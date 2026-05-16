@@ -1137,7 +1137,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCode(t *testing.T) {
+func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
@@ -1162,11 +1162,11 @@ func TestAgentTurnRunnerRejectsGeneratedStructuredFailureReplyWithoutStageAndCod
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if result.FinalReply != "" || !result.ReplySuppressed {
-		t.Fatalf("expected invalid generated reply to be suppressed, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
+	if result.UserNotice != "요청을 처리하지 못했습니다." || result.ReplySuppressed {
+		t.Fatalf("expected safe degraded reply to be delivered, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "suppressed") {
-		t.Fatal("expected invalid generated reply to be recorded as suppressed")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated_degraded") {
+		t.Fatal("expected degraded failure reply event")
 	}
 }
 
