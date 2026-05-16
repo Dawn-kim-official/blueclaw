@@ -276,6 +276,9 @@ func summarizeObservationContent(observation turnObservation) string {
 }
 
 func summarizeStructuredFailure(observation turnObservation) string {
+	if terminalSummary := summarizeTerminalFailure(observation); terminalSummary != "" {
+		return terminalSummary
+	}
 	parts := []string{}
 	if observation.FailureCode() != "" {
 		parts = append(parts, "errorCode="+observation.FailureCode())
@@ -291,6 +294,35 @@ func summarizeStructuredFailure(observation turnObservation) string {
 	}
 	if observation.FailureSummary() == "" {
 		parts = append(parts, "message="+truncateText(compactWhitespace(redactUnsafeText(observation.ContentText())), 240))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func summarizeTerminalFailure(observation turnObservation) string {
+	if strings.TrimSpace(observation.Tool) != "terminal.run" {
+		return ""
+	}
+	tail, ok := terminalObservationTail(observation)
+	if !ok {
+		return ""
+	}
+	parts := []string{}
+	if observation.FailureCode() != "" {
+		parts = append(parts, "errorCode="+observation.FailureCode())
+	}
+	if observation.FailureStage() != "" {
+		parts = append(parts, "failureStage="+observation.FailureStage())
+	}
+	if tail.ExitCode != nil {
+		parts = append(parts, fmt.Sprintf("exitCode=%d", *tail.ExitCode))
+	}
+	if len(tail.StderrTail) > 0 {
+		parts = append(parts, "stderrTail="+truncateText(compactWhitespace(strings.Join(tail.StderrTail, " | ")), 240))
+	} else if len(tail.StdoutTail) > 0 {
+		parts = append(parts, "stdoutTail="+truncateText(compactWhitespace(strings.Join(tail.StdoutTail, " | ")), 240))
+	}
+	if len(parts) == 0 {
+		return ""
 	}
 	return strings.Join(parts, "; ")
 }
