@@ -3,20 +3,20 @@ package agentruntime
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/workspacepath"
 )
 
 const (
-	workspacePathKindDraft        = "draft"
-	workspacePathKindArtifact     = "artifact"
-	workspacePathKindCircle       = "circle"
-	workspacePathKindSharedPublic = "shared_public"
-	workspacePathKindSkills       = "skills"
-	workspacePathKindWorkspace    = "workspace"
+	workspacePathKindDraft        = workspacepath.KindDraft
+	workspacePathKindArtifact     = workspacepath.KindArtifact
+	workspacePathKindCircle       = workspacepath.KindCircle
+	workspacePathKindSharedPublic = workspacepath.KindSharedPublic
+	workspacePathKindSkills       = workspacepath.KindSkills
+	workspacePathKindWorkspace    = workspacepath.KindWorkspace
 )
 
 type WorkspaceScope struct {
@@ -34,18 +34,9 @@ type WorkspaceScope struct {
 	ConversationKind          string
 }
 
-type ResolvedWorkspacePath struct {
-	ConcretePath      string
-	VirtualPath       string
-	Kind              string
-	IsDurableArtifact bool
-}
+type ResolvedWorkspacePath = workspacepath.Path
 
 type WorkspacePathResolver struct {
-	WorkspaceRootPath string
-}
-
-type WorkspaceMaterializer struct {
 	WorkspaceRootPath string
 }
 
@@ -185,7 +176,7 @@ func (resolver WorkspacePathResolver) resolveAbsolute(value string, scope Worksp
 	return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindWorkspace}, nil
 }
 
-func (resolver WorkspacePathResolver) resolvedPath(concretePath string, virtualPath string, kind string, isDurableArtifact bool) (ResolvedWorkspacePath, error) {
+func (resolver WorkspacePathResolver) resolvedPath(concretePath string, virtualPath string, kind workspacepath.Kind, isDurableArtifact bool) (ResolvedWorkspacePath, error) {
 	cleanWorkspaceRootPath, errorValue := filepath.Abs(resolver.WorkspaceRootPath)
 	if errorValue != nil {
 		return ResolvedWorkspacePath{}, errorValue
@@ -231,30 +222,6 @@ func isDeniedAbsoluteWorkspacePath(path string) bool {
 		strings.HasPrefix(cleanPath, "/opt/") ||
 		cleanPath == "/usr" ||
 		strings.HasPrefix(cleanPath, "/usr/")
-}
-
-func (materializer WorkspaceMaterializer) EnsureDirectory(directoryPath string) error {
-	if errorValue := os.MkdirAll(directoryPath, 0770); errorValue != nil {
-		return errorValue
-	}
-	if errorValue := ensureGroupWritableDirectoryTree(writableWorkspaceScopeRoot(directoryPath, materializer.WorkspaceRootPath), directoryPath); errorValue != nil {
-		return errorValue
-	}
-	fileInformation, errorValue := os.Stat(directoryPath)
-	if errorValue != nil {
-		return errorValue
-	}
-	if !fileInformation.IsDir() {
-		return errors.New("workspace path is not a directory")
-	}
-	if fileInformation.Mode().Perm()&0070 != 0070 {
-		return errors.New("workspace directory is not group writable/searchable after repair")
-	}
-	return nil
-}
-
-func (materializer WorkspaceMaterializer) EnsureFileMode(path string, requestedMode os.FileMode) error {
-	return ensureToolWriteFileMode(path, requestedMode)
 }
 
 func (scope WorkspaceScope) EnvironmentVariables() map[string]string {

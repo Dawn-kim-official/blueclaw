@@ -28,6 +28,7 @@ import (
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
+	"blueclaw/internal/security/actortest"
 	"blueclaw/internal/skill"
 	"blueclaw/internal/task"
 )
@@ -173,7 +174,9 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	runtime.UseWorkspaceID("e2e")
 	runtime.UseWorkspaceRootPath(workspacePath)
 	runtime.UseAllowedToolNames(allowedToolsOrDefault(scenario.AllowedTools))
-	runtime.UseTerminalService(security.NewTerminalSessionService(terminalConfiguration(workspacePath)))
+	terminalService := security.NewTerminalSessionService(terminalConfiguration(workspacePath))
+	runtime.UseTerminalService(terminalService)
+	runtime.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
 	runtime.UseTaskRunService(taskRunService)
 	runtime.UseTaskScheduleRepository(&virtualTaskScheduleRepository{})
 	cleanup := func() {}

@@ -121,6 +121,9 @@ type skillRemoveInput struct {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.Context, input skillAddInput) (agent.ToolResult, error) {
+	if toolCatalogBuilder.isProductionServiceOwnedSkillWorkspace() {
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "actor_permission_denied", "skill.add cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
+	}
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "skill_add", errorValue.Error()), nil
@@ -160,6 +163,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) addSkillTool(toolContext context.C
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext context.Context, input skillRemoveInput) (agent.ToolResult, error) {
+	if toolCatalogBuilder.isProductionServiceOwnedSkillWorkspace() {
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "actor_permission_denied", "skill.remove cannot modify the service-owned skill workspace; use a requester-writable skill workspace"), nil
+	}
 	skillName := strings.TrimSpace(input.Name)
 	if errorValue := validateUserManagedSkillName(skillName); errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "skill_remove", errorValue.Error()), nil
@@ -185,6 +191,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext contex
 
 func (toolCatalogBuilder *ToolCatalogBuilder) userManagedSkillDirectoryPath(skillName string) string {
 	return filepath.Join(toolCatalogBuilder.workspaceRootPath, ".agents", "skills", skillName)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) isProductionServiceOwnedSkillWorkspace() bool {
+	return filepath.Clean(toolCatalogBuilder.workspaceRootPath) == "/workspace"
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) refreshSkills(ctx context.Context) {

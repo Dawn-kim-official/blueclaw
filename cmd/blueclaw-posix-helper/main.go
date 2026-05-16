@@ -1,12 +1,15 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,21 +20,32 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		exitWithError(errors.New("blueclaw-posix-helper requires sync or exec"))
+		exitWithError(errors.New("blueclaw-posix-helper requires sync, exec, fs, or capabilities"))
 	}
 
 	var errorValue error
 	switch os.Args[1] {
+	case "capabilities":
+		errorValue = runCapabilities()
 	case "sync":
 		errorValue = runSync(os.Args[2:])
 	case "exec":
 		errorValue = runExec(os.Args[2:])
+	case "fs":
+		errorValue = runFS(os.Args[2:])
 	default:
 		errorValue = fmt.Errorf("unsupported command %q", os.Args[1])
 	}
 	if errorValue != nil {
 		exitWithError(errorValue)
 	}
+}
+
+func runCapabilities() error {
+	return json.NewEncoder(os.Stdout).Encode(map[string]any{
+		"version":      2,
+		"capabilities": []string{"exec", "fs"},
+	})
 }
 
 func runSync(arguments []string) error {
@@ -91,6 +105,220 @@ func runExec(arguments []string) error {
 		return errorValue
 	}
 	return syscall.Exec(executableArguments[0], executableArguments, os.Environ())
+}
+
+func runFS(arguments []string) error {
+	flags := flag.NewFlagSet("fs", flag.ContinueOnError)
+	userID := flags.Uint("uid", 0, "user id")
+	groupID := flags.Uint("gid", 0, "group id")
+	groupIDsDocument := flags.String("groups", "", "comma-separated supplementary group ids")
+	operation := flags.String("operation", "", "filesystem operation")
+	path := flags.String("path", "", "target path")
+	source := flags.String("source", "", "source path")
+	modeText := flags.String("mode", "0660", "octal mode")
+	maxBytes := flags.Int64("max-bytes", 0, "maximum read bytes")
+	overwrite := flags.Bool("overwrite", false, "overwrite destination")
+	if errorValue := flags.Parse(arguments); errorValue != nil {
+		return errorValue
+	}
+	if *userID == 0 || *groupID == 0 {
+		return errors.New("uid and gid are required")
+	}
+	groupIDs, errorValue := parseGroupIDs(*groupIDsDocument)
+	if errorValue != nil {
+		return errorValue
+	}
+	mode, errorValue := parseFileMode(*modeText)
+	if errorValue != nil {
+		return errorValue
+	}
+	if errorValue := applyIdentity(*userID, *groupID, groupIDs); errorValue != nil {
+		return errorValue
+	}
+	return performFSOperation(fsOperationRequest{
+		Operation: *operation,
+		Path:      *path,
+		Source:    *source,
+		Mode:      mode,
+		MaxBytes:  *maxBytes,
+		Overwrite: *overwrite,
+	})
+}
+
+type fsOperationRequest struct {
+	Operation string
+	Path      string
+	Source    string
+	Mode      os.FileMode
+	MaxBytes  int64
+	Overwrite bool
+}
+
+type fsOperationResponse struct {
+	Path          string      `json:"path,omitempty"`
+	IsRegular     bool        `json:"isRegular,omitempty"`
+	IsDirectory   bool        `json:"isDirectory,omitempty"`
+	SizeBytes     int64       `json:"sizeBytes,omitempty"`
+	Mode          os.FileMode `json:"mode,omitempty"`
+	ContentBase64 string      `json:"contentBase64,omitempty"`
+}
+
+func performFSOperation(request fsOperationRequest) error {
+	switch strings.TrimSpace(request.Operation) {
+	case "mkdir_all":
+		return mkdirAll(request.Path, request.Mode)
+	case "write_file":
+		return writeFile(request.Path, request.Mode)
+	case "read_file":
+		return readFile(request.Path, request.MaxBytes)
+	case "copy_file":
+		return copyFile(request.Source, request.Path, request.Mode, request.Overwrite)
+	case "stat":
+		return statPath(request.Path)
+	default:
+		return errors.New("unsupported fs operation")
+	}
+}
+
+func applyIdentity(userID uint, groupID uint, groupIDs []int) error {
+	if errorValue := syscall.Setgroups(groupIDs); errorValue != nil {
+		return errorValue
+	}
+	if errorValue := syscall.Setgid(int(groupID)); errorValue != nil {
+		return errorValue
+	}
+	return syscall.Setuid(int(userID))
+}
+
+func mkdirAll(path string, mode os.FileMode) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("path is required")
+	}
+	directories, errorValue := missingDirectoryChain(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	if errorValue := os.MkdirAll(path, modeBits(mode)); errorValue != nil {
+		return errorValue
+	}
+	for _, directory := range directories {
+		if errorValue := os.Chmod(directory, modeBits(mode)); errorValue != nil {
+			return errorValue
+		}
+	}
+	return nil
+}
+
+func missingDirectoryChain(path string) ([]string, error) {
+	cleanPath := filepath.Clean(path)
+	directories := []string{}
+	for currentPath := cleanPath; currentPath != "." && currentPath != string(filepath.Separator); currentPath = filepath.Dir(currentPath) {
+		fileInformation, errorValue := os.Stat(currentPath)
+		if errorValue == nil {
+			if !fileInformation.IsDir() {
+				return nil, fmt.Errorf("%s is not a directory", currentPath)
+			}
+			break
+		}
+		if !os.IsNotExist(errorValue) {
+			return nil, errorValue
+		}
+		directories = append([]string{currentPath}, directories...)
+	}
+	if len(directories) == 0 {
+		directories = append(directories, cleanPath)
+	}
+	return directories, nil
+}
+
+func writeFile(path string, mode os.FileMode) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("path is required")
+	}
+	document, errorValue := io.ReadAll(os.Stdin)
+	if errorValue != nil {
+		return errorValue
+	}
+	if errorValue := os.WriteFile(path, document, mode.Perm()); errorValue != nil {
+		return errorValue
+	}
+	return os.Chmod(path, mode.Perm())
+}
+
+func readFile(path string, maxBytes int64) error {
+	fileInformation, errorValue := regularFileInformation(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	if maxBytes > 0 && fileInformation.Size() > maxBytes {
+		return errors.New("file is too large")
+	}
+	document, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	return json.NewEncoder(os.Stdout).Encode(fsOperationResponse{
+		ContentBase64: base64.StdEncoding.EncodeToString(document),
+		SizeBytes:     fileInformation.Size(),
+	})
+}
+
+func copyFile(source string, destination string, mode os.FileMode, overwrite bool) error {
+	if strings.TrimSpace(source) == "" || strings.TrimSpace(destination) == "" {
+		return errors.New("source and path are required")
+	}
+	sourceFile, errorValue := os.Open(source)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer sourceFile.Close()
+	flags := os.O_CREATE | os.O_WRONLY
+	if overwrite {
+		flags |= os.O_TRUNC
+	} else {
+		flags |= os.O_EXCL
+	}
+	destinationFile, errorValue := os.OpenFile(destination, flags, mode.Perm())
+	if errorValue != nil {
+		return errorValue
+	}
+	_, copyError := io.Copy(destinationFile, sourceFile)
+	closeError := destinationFile.Close()
+	if copyError != nil {
+		return copyError
+	}
+	if closeError != nil {
+		return closeError
+	}
+	return os.Chmod(destination, mode.Perm())
+}
+
+func statPath(path string) error {
+	fileInformation, errorValue := os.Stat(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	return json.NewEncoder(os.Stdout).Encode(fsOperationResponse{
+		Path:        path,
+		IsRegular:   fileInformation.Mode().IsRegular(),
+		IsDirectory: fileInformation.IsDir(),
+		SizeBytes:   fileInformation.Size(),
+		Mode:        fileInformation.Mode(),
+	})
+}
+
+func regularFileInformation(path string) (os.FileInfo, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, errors.New("path is required")
+	}
+	fileInformation, errorValue := os.Stat(path)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	if !fileInformation.Mode().IsRegular() {
+		return nil, errors.New("path is not a regular file")
+	}
+	return fileInformation, nil
 }
 
 func applyPOSIXState(state security.POSIXState) error {
@@ -215,6 +443,15 @@ func parseGroupIDs(document string) ([]int, error) {
 		groupIDs = append(groupIDs, int(parsedValue))
 	}
 	return groupIDs, nil
+}
+
+func parseFileMode(value string) (os.FileMode, error) {
+	parsedValue, errorValue := strconv.ParseUint(strings.TrimSpace(value), 8, 32)
+	return os.FileMode(parsedValue), errorValue
+}
+
+func modeBits(mode os.FileMode) os.FileMode {
+	return os.FileMode(uint32(mode) & 07777)
 }
 
 func exitWithError(errorValue error) {

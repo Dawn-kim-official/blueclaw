@@ -22,6 +22,7 @@ import (
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
+	"blueclaw/internal/security/actortest"
 	"blueclaw/internal/task"
 )
 
@@ -275,14 +276,18 @@ func TestResolveActiveCircleIDIgnoresInaccessibleMention(t *testing.T) {
 
 func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	workspacePath := t.TempDir()
-	writeTestFile(t, filepath.Join(workspacePath, "tmp", "deck", "deck.pptx"), "pptx")
-	writeTestFile(t, filepath.Join(workspacePath, "tmp", "deck", "deck.pdf"), "%PDF")
-	writeTestFile(t, filepath.Join(workspacePath, "tmp", "deck", "deck.html"), "<html></html>")
-	writeTestFile(t, filepath.Join(workspacePath, "tmp", "deck", "deck-notes.txt"), "notes")
+	requesterDeckPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck")
+	writeTestFile(t, filepath.Join(requesterDeckPath, "deck.pptx"), "pptx")
+	writeTestFile(t, filepath.Join(requesterDeckPath, "deck.pdf"), "%PDF")
+	writeTestFile(t, filepath.Join(requesterDeckPath, "deck.html"), "<html></html>")
+	writeTestFile(t, filepath.Join(requesterDeckPath, "deck-notes.txt"), "notes")
 
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
@@ -785,14 +790,17 @@ func timePointer(value time.Time) *time.Time {
 
 func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
 
 	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path":    "/workspace/deck/presentation.md",
+			"path":    "/workspace/private/people/person-1/tmp/deck/presentation.md",
 			"content": "# Deck",
 		}),
 	})
@@ -805,14 +813,14 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	if strings.Contains(writeResult.ContentText(), workspacePath) {
 		t.Fatalf("expected file.write result not to expose host path, got %s", writeResult.ContentText())
 	}
-	if _, errorValue := os.Stat(filepath.Join(workspacePath, "deck", "presentation.md")); errorValue != nil {
+	if _, errorValue := os.Stat(filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck", "presentation.md")); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
 	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "/workspace/deck/presentation.md",
+			"path": "/workspace/private/people/person-1/tmp/deck/presentation.md",
 		}),
 	})
 	if errorValue != nil {
@@ -821,7 +829,7 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	if attachResult.Failed() {
 		t.Fatalf("expected file.attach success, got %s", attachResult.ContentText())
 	}
-	if attachResult.Attachments[0].DevicePath != "/workspace/deck/presentation.md" {
+	if attachResult.Attachments[0].DevicePath != "/workspace/private/people/person-1/tmp/deck/presentation.md" {
 		t.Fatalf("expected agent workspace device path, got %+v", attachResult.Attachments[0])
 	}
 }
@@ -833,8 +841,7 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
@@ -863,11 +870,11 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 			"path": "/workspace/circles/finance/report.md",
 		}),
 	})
-	if errorValue == nil {
-		t.Fatalf("expected file.attach access error, got %+v", attachResult)
+	if errorValue != nil {
+		t.Fatal(errorValue)
 	}
-	if !strings.Contains(errorValue.Error(), "cannot read") {
-		t.Fatalf("expected file.attach read denial, got %v", errorValue)
+	if !attachResult.Failed() || !strings.Contains(attachResult.ContentText(), "cannot read") {
+		t.Fatalf("expected file.attach read denial, got %+v", attachResult)
 	}
 }
 
@@ -879,8 +886,7 @@ func TestFileReadCapabilityDenyCirclePathForNonMember(t *testing.T) {
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.pdf"), "secret")
 	httpClient := &recordingHTTPClient{}
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
 		Name:           "file.read",
 		PolicyResource: "tool:file.read",
@@ -919,8 +925,7 @@ func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
 	}
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.pdf"), "secret")
 	httpClient := &recordingHTTPClient{responseBody: `{"content":"# Report","status":"ok","result":{"content":"# Report"}}`}
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
 		Name:           "file.read",
 		PolicyResource: "tool:file.read",
@@ -953,8 +958,7 @@ func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
 
 func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
@@ -980,8 +984,7 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 
 func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -1016,8 +1019,7 @@ func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 
 func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		RequesterPersonID:       "person-1",
@@ -1052,8 +1054,7 @@ func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
 
 func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:             "default",
 		RequesterPersonID:       "person-1",
@@ -1093,8 +1094,7 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(privateDirectoryPath, "notes.md"), "private")
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -1124,8 +1124,7 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 
 func TestFilePromoteCopiesDraftOutputToArtifacts(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -1184,22 +1183,18 @@ func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
 
 func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
-		WorkspaceRootPath: workspacePath,
-		Mode:              "firecrackerGuest",
-		TimeoutSecond:     5,
-		OutputMaxBytes:    4096,
-		SessionMaxCount:   2,
-	}))
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
 		Input: agent.MarshalToolInput(map[string]any{
-			"command":              "mkdir -p /workspace/deck && printf ok > /workspace/deck/result.txt",
-			"workingDirectoryPath": "/workspace",
+			"command":              "mkdir -p build && printf ok > build/result.txt",
+			"workingDirectoryPath": "tmp/deck",
 		}),
 	})
 	if errorValue != nil {
@@ -1208,7 +1203,7 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
 	}
-	content, errorValue := os.ReadFile(filepath.Join(workspacePath, "deck", "result.txt"))
+	content, errorValue := os.ReadFile(filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck", "build", "result.txt"))
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1219,16 +1214,12 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 
 func TestTerminalRunAllowsServiceOwnedPathText(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
-		WorkspaceRootPath: workspacePath,
-		Mode:              "firecrackerGuest",
-		TimeoutSecond:     5,
-		OutputMaxBytes:    4096,
-		SessionMaxCount:   2,
-	}))
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
@@ -1246,16 +1237,12 @@ func TestTerminalRunAllowsServiceOwnedPathText(t *testing.T) {
 
 func TestTerminalRunPathGuardrailFailureIsRecoverable(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
-		WorkspaceRootPath: workspacePath,
-		Mode:              "firecrackerGuest",
-		TimeoutSecond:     5,
-		OutputMaxBytes:    4096,
-		SessionMaxCount:   2,
-	}))
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
@@ -1291,8 +1278,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<html>ok</html>")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "node_modules", "ignored.js"), "ignored")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "DESIGN.md"), "custom design")
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 
 	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
 		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
@@ -1323,8 +1309,7 @@ func TestSitePublishInputRejectsInaccessibleWorkspaceBundle(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "finance", "sites", "site-1")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<html>ok</html>")
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 
 	_, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
 		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
@@ -1339,15 +1324,7 @@ func TestSitePublishInputRejectsInaccessibleWorkspaceBundle(t *testing.T) {
 
 func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
-		WorkspaceRootPath: workspacePath,
-		Mode:              "firecrackerGuest",
-		TimeoutSecond:     5,
-		OutputMaxBytes:    4096,
-		SessionMaxCount:   2,
-	}))
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -1382,15 +1359,7 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 
 func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
-		WorkspaceRootPath: workspacePath,
-		Mode:              "firecrackerGuest",
-		TimeoutSecond:     5,
-		OutputMaxBytes:    4096,
-		SessionMaxCount:   2,
-	}))
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -1448,13 +1417,61 @@ func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T
 	}
 }
 
+func TestFileWriteThroughWorkspaceActorTreatsContentAsData(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	content := "hello\n$(touch should-not-exist)\n"
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":    "tmp/deck/input.txt",
+			"content": content,
+			"mode":    0600,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if writeResult.Failed() {
+		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
+	}
+
+	taskTmpPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp")
+	document, errorValue := os.ReadFile(filepath.Join(taskTmpPath, "deck", "input.txt"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if string(document) != content {
+		t.Fatalf("expected exact content, got %q", string(document))
+	}
+	if _, errorValue := os.Stat(filepath.Join(taskTmpPath, "should-not-exist")); !os.IsNotExist(errorValue) {
+		t.Fatalf("file.write content must not be executed as shell, stat error %v", errorValue)
+	}
+	fileInformation, errorValue := os.Stat(filepath.Join(taskTmpPath, "deck", "input.txt"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if fileInformation.Mode().Perm() != 0600 {
+		t.Fatalf("expected requester chmod mode 0600, got %v", fileInformation.Mode().Perm())
+	}
+}
+
 func TestFileWriteRepairsGroupWriteBitsForTerminalFlow(t *testing.T) {
 	workspacePath := t.TempDir()
 	previousMask := syscall.Umask(0027)
 	defer syscall.Umask(previousMask)
 
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -1496,17 +1513,79 @@ func TestFileWriteRepairsGroupWriteBitsForTerminalFlow(t *testing.T) {
 	}
 }
 
+func TestFileWriteAndTerminalRunShareRequesterWorkspaceActorView(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "tmp/deck/input.txt",
+			"content": "same workspace",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if writeResult.Failed() {
+		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
+	}
+
+	runResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"workingDirectoryPath": "tmp/deck",
+			"command":              "mkdir -p build && cat input.txt > build/output.txt",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runResult.Failed() {
+		t.Fatalf("expected terminal.run success, got %s", runResult.ContentText())
+	}
+	outputPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck", "build", "output.txt")
+	document, errorValue := os.ReadFile(outputPath)
+	if errorValue != nil || string(document) != "same workspace" {
+		t.Fatalf("expected terminal to read file.write output, got %q and %v", string(document), errorValue)
+	}
+}
+
+func TestFileWriteWithoutRequesterIdentityDoesNotFallbackToServiceUser(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "tmp/deck/input.txt",
+			"content": "no service fallback",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.Failure.Stage != "actor_identity_missing" {
+		t.Fatalf("expected actor identity failure, got %+v", result)
+	}
+	if _, errorValue := os.Stat(filepath.Join(workspacePath, "tmp", "deck", "input.txt")); !os.IsNotExist(errorValue) {
+		t.Fatalf("file.write must not fall back to service-user workspace writes, stat error %v", errorValue)
+	}
+}
+
 func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
-	toolCatalogBuilder.UseTerminalService(security.NewTerminalSessionService(config.TerminalConfiguration{
-		WorkspaceRootPath: workspacePath,
-		Mode:              "firecrackerGuest",
-		TimeoutSecond:     5,
-		OutputMaxBytes:    4096,
-		SessionMaxCount:   2,
-	}))
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName: "default",
 		PersonAccess: policy.PersonAccess{
@@ -1533,8 +1612,7 @@ func TestTerminalRunDenyCircleWorkingDirectoryForNonMember(t *testing.T) {
 func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 	workspacePath := t.TempDir()
 	refreshCount := 0
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseSkillChangeHandler(func(context.Context) {
 		refreshCount++
 	})
@@ -1575,8 +1653,7 @@ func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
 
 func TestSkillAddWritesAllowedResources(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: report-helper
@@ -1622,8 +1699,7 @@ func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	writeTestFile(t, filepath.Join(skillDirectoryPath, "SKILL.md"), userSkillDocument("research-helper"))
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
@@ -1645,8 +1721,7 @@ func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
 
 func TestSkillRemoveMissingSkillIsNonFatal(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
@@ -1665,8 +1740,7 @@ func TestSkillRemoveMissingSkillIsNonFatal(t *testing.T) {
 
 func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, input := range []map[string]string{
 		{"name": "../escape", "content": userSkillDocument("escape")},
@@ -1700,8 +1774,7 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 
 func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, content := range []string{
 		"---\nname: broken\ndescription: Broken",
@@ -1729,8 +1802,7 @@ func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
 
 func TestSkillAddAcceptsStandardOptionalMetadata(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: metadata-helper
@@ -1760,8 +1832,7 @@ Use this skill when standard skill metadata should be preserved.
 
 func TestSkillAddRejectsInvalidResourcePaths(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, resourcePath := range []string{
 		"../escape.md",
@@ -1792,8 +1863,7 @@ func TestSkillAddRejectsInvalidResourcePaths(t *testing.T) {
 
 func TestSkillAddReturnsQualityWarnings(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: tiny-helper
@@ -1834,8 +1904,7 @@ Use references/missing.md.
 
 func TestSkillAddReturnsLongBodyAndMissingScriptWarnings(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	content := `---
 name: long-helper
@@ -1871,8 +1940,7 @@ Use scripts/missing.sh when needed.
 
 func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 	workspacePath := t.TempDir()
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, path := range []string{
 		"/workspace/skills/bash/SKILL.md",
@@ -1895,6 +1963,46 @@ func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 	}
 }
 
+func TestSkillManagementRejectsProductionServiceOwnedWorkspace(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath("/workspace")
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.add",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name":    "demo-skill",
+			"content": "---\nname: demo-skill\ndescription: Demo skill for rejection testing.\n---\n# Demo\n",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.Failure.Stage != "actor_permission_denied" {
+		t.Fatalf("expected actor_permission_denied for production skill.add, got %+v", result)
+	}
+}
+
+func TestRequesterWorkspaceToolHandlersDoNotUseDirectFileMutation(t *testing.T) {
+	document, errorValue := os.ReadFile("tool_catalog.go")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	source := string(document)
+	for _, forbidden := range []string{
+		"os.WriteFile(",
+		"os.ReadFile(",
+		"os.OpenFile(",
+		"copyRegularFile(",
+		"verifyRequesterTerminalCanReadFile(",
+		"writeFileAsRequester(",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("requester workspace tool handlers must use WorkspaceActor, found %s", forbidden)
+		}
+	}
+}
+
 func writeTestFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if errorValue := os.MkdirAll(filepath.Dir(path), 0700); errorValue != nil {
@@ -1903,6 +2011,28 @@ func writeTestFile(t *testing.T, path string, content string) {
 	if errorValue := os.WriteFile(path, []byte(content), 0600); errorValue != nil {
 		t.Fatal(errorValue)
 	}
+}
+
+func newFileToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory())
+	return toolCatalogBuilder
+}
+
+func newTerminalToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
+	terminalService := security.NewTerminalSessionService(config.TerminalConfiguration{
+		WorkspaceRootPath: workspacePath,
+		Mode:              "firecrackerGuest",
+		TimeoutSecond:     5,
+		OutputMaxBytes:    4096,
+		SessionMaxCount:   2,
+	})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseTerminalService(terminalService)
+	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
+	return toolCatalogBuilder
 }
 
 func findToolDefinition(toolDefinitions []agent.ToolDefinition, toolName string) (agent.ToolDefinition, bool) {
