@@ -78,6 +78,12 @@ func TestSimpleSlidesAssetsStayPureSkill(t *testing.T) {
 	if !strings.Contains(buildScript, `cd "$TMPDIR"`) {
 		t.Fatal("build.sh should run Marp from the private build temp directory")
 	}
+	if !strings.Contains(buildScript, `export HOME="${TMPDIR}/home"`) {
+		t.Fatal("build.sh should keep Marp home-scoped temporary files in the private build temp directory")
+	}
+	if strings.Contains(buildScript, "command -v marp") {
+		t.Fatal("build.sh should not use ambiguous global Marp from the caller environment")
+	}
 }
 
 func TestSimpleSlidesSkillCarriesDesignGuidanceWithoutTemplateAsset(t *testing.T) {
