@@ -55,6 +55,9 @@ func TestCommandPlanUsesPOSIXHelperForExecutionIdentity(t *testing.T) {
 	if !strings.Contains(strings.Join(commandPlan.Arguments, " "), "--cwd "+workspaceRootPath) {
 		t.Fatalf("expected helper cwd argument, got %+v", commandPlan.Arguments)
 	}
+	if commandPlan.WorkingDirectoryPath != workspaceRootPath {
+		t.Fatalf("expected helper process to start from workspace root, got %+v", commandPlan)
+	}
 	if commandPlan.EnvironmentVariables["HOME"] != workspaceRootPath {
 		t.Fatalf("expected POSIX HOME environment, got %+v", commandPlan.EnvironmentVariables)
 	}
@@ -69,6 +72,51 @@ func TestCommandPlanUsesPOSIXHelperForExecutionIdentity(t *testing.T) {
 	}
 	if commandPlan.Timeout != 3*time.Second {
 		t.Fatalf("expected timeout to survive POSIX wrapping, got %+v", commandPlan.Timeout)
+	}
+}
+
+func TestCommandPlanKeepsPrivateCWDInsideHelperArguments(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root cannot build terminal command plans")
+	}
+
+	currentUser, errorValue := user.Current()
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	currentGroup, errorValue := user.LookupGroupId(currentUser.Gid)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	workspaceRootPath := t.TempDir()
+	privateWorkingDirectoryPath := workspaceRootPath + "/private/people/person-1/tmp/task/deck"
+	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
+		Mode:                  "firecrackerGuest",
+		WorkspaceRootPath:     workspaceRootPath,
+		AllowNetwork:          true,
+		AllowInteractiveShell: true,
+		POSIXHelperPath:       "/usr/local/bin/blueclaw-posix-helper",
+		TimeoutSecond:         3,
+	})
+
+	commandPlan, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
+		Command:              "pwd",
+		WorkingDirectoryPath: privateWorkingDirectoryPath,
+		ExecutionIdentity: ExecutionIdentity{
+			UserName:          currentUser.Username,
+			GroupName:         currentGroup.Name,
+			HomeDirectoryPath: workspaceRootPath,
+		},
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if commandPlan.WorkingDirectoryPath != workspaceRootPath {
+		t.Fatalf("expected helper process cwd to avoid requester-private path, got %+v", commandPlan)
+	}
+	if !strings.Contains(strings.Join(commandPlan.Arguments, " "), "--cwd "+privateWorkingDirectoryPath) {
+		t.Fatalf("expected requester cwd only in helper arguments, got %+v", commandPlan.Arguments)
 	}
 }
 
