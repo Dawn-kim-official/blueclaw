@@ -855,6 +855,27 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeIgnoresBareConfirmationReplyWithoutPendingTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+
+	event := testInboundEvent("message-approved")
+	event.Prompt = "approved"
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected orphan approval reply to process: %v", errorValue)
+	}
+	if !result.Ignored || result.Reason != "confirmation_no_pending_task" {
+		t.Fatalf("expected orphan approval to be consumed, got %+v", result)
+	}
+	if len(languageModel.Requests()) != 0 {
+		t.Fatalf("orphan approval must not launch an agent turn, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+	if len(adapter.sentReplies) != 0 {
+		t.Fatalf("orphan approval must not send a generic reply, got %+v", adapter.sentReplies)
+	}
+}
+
 func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{

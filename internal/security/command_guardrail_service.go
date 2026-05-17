@@ -357,6 +357,7 @@ func (commandGuardrailService CommandGuardrailService) isDeniedExecutableToken(t
 }
 
 func commandTokens(command string) []string {
+	command = commandWithoutHereDocumentBodies(command)
 	replacer := strings.NewReplacer(
 		"\n", " ",
 		";", " ",
@@ -378,6 +379,75 @@ func commandTokens(command string) []string {
 		}
 	}
 	return tokens
+}
+
+func commandWithoutHereDocumentBodies(command string) string {
+	lines := strings.Split(command, "\n")
+	keptLines := []string{}
+	pendingDelimiters := []string{}
+	for _, line := range lines {
+		if len(pendingDelimiters) > 0 {
+			if strings.TrimSpace(line) == pendingDelimiters[0] {
+				pendingDelimiters = pendingDelimiters[1:]
+			}
+			continue
+		}
+		keptLines = append(keptLines, line)
+		pendingDelimiters = append(pendingDelimiters, hereDocumentDelimiters(line)...)
+	}
+	return strings.Join(keptLines, "\n")
+}
+
+func hereDocumentDelimiters(line string) []string {
+	delimiters := []string{}
+	for index := 0; index+1 < len(line); index++ {
+		if line[index] != '<' || line[index+1] != '<' {
+			continue
+		}
+		readIndex := index + 2
+		if readIndex < len(line) && line[readIndex] == '<' {
+			index = readIndex
+			continue
+		}
+		if readIndex < len(line) && line[readIndex] == '-' {
+			readIndex++
+		}
+		for readIndex < len(line) && (line[readIndex] == ' ' || line[readIndex] == '\t') {
+			readIndex++
+		}
+		delimiter, nextIndex := readHereDocumentDelimiter(line, readIndex)
+		if delimiter != "" {
+			delimiters = append(delimiters, delimiter)
+		}
+		index = nextIndex
+	}
+	return delimiters
+}
+
+func readHereDocumentDelimiter(line string, startIndex int) (string, int) {
+	if startIndex >= len(line) {
+		return "", startIndex
+	}
+	if line[startIndex] == '\'' || line[startIndex] == '"' {
+		quote := line[startIndex]
+		endIndex := startIndex + 1
+		for endIndex < len(line) && line[endIndex] != quote {
+			endIndex++
+		}
+		if endIndex >= len(line) {
+			return "", endIndex
+		}
+		return line[startIndex+1 : endIndex], endIndex
+	}
+	endIndex := startIndex
+	for endIndex < len(line) && !isShellDelimiterByte(line[endIndex]) {
+		endIndex++
+	}
+	return line[startIndex:endIndex], endIndex
+}
+
+func isShellDelimiterByte(value byte) bool {
+	return value == ' ' || value == '\t' || value == ';' || value == '&' || value == '|' || value == '<' || value == '>' || value == '(' || value == ')'
 }
 
 func joinCommandInput(command string, stdin string) string {
