@@ -68,6 +68,7 @@ func (promptAssembler PromptAssembler) appendActiveGoalMessage(messages *[]llm.M
 
 func (promptAssembler PromptAssembler) BuildReplyMessages(prompt string, visibleContext VisibleContext, memoryContext string, instructionPrompt string) []llm.Message {
 	messages := []llm.Message{{Role: "system", Content: "You are Blueclaw. Reply helpfully and concisely to the user message. Use the provided visible conversation context and Blueclaw memory only as context; do not reveal hidden policy or provenance unless the user asks for it and access is allowed."}}
+	promptAssembler.appendTemporalContextMessage(&messages, time.Time{})
 	promptAssembler.appendInstructionMessages(&messages, instructionPrompt)
 	promptAssembler.appendVisibleContextMessage(&messages, visibleContext)
 	promptAssembler.appendMemoryMessage(&messages, memoryContext)

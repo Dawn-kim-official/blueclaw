@@ -1,6 +1,11 @@
 package agent
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestConfirmationPolicyAllowsLowRiskDailyReport(t *testing.T) {
 	decision := EvaluateConfirmationPolicy(ExecutionPlan{
@@ -40,5 +45,52 @@ func TestConfirmationPolicyConfirmsBoundedExternalSend(t *testing.T) {
 	})
 	if !decision.RequiresConfirmation || decision.RequiresClarification {
 		t.Fatalf("expected bounded external repeat confirmation, got %+v", decision)
+	}
+}
+
+func TestConfirmationPlanMessagesIncludeTemporalContextAndScheduleGuard(t *testing.T) {
+	messages := confirmationPlanMessages(AgentRequest{
+		Prompt:        "김인턴 구조 소개 웹사이트 만들어서 배포해줘",
+		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
+	}, []string{"site.app.publish"})
+
+	body := joinMessageContent(messages)
+	if !strings.Contains(body, "Current date: 2026-05-17") || !strings.Contains(body, "Current weekday: Sunday") {
+		t.Fatalf("expected confirmation plan temporal context, got %s", body)
+	}
+	if !strings.Contains(body, "Do not invent schedule, startAt, endAt, or cadence") {
+		t.Fatalf("expected schedule hallucination guard, got %s", body)
+	}
+}
+
+func TestConfirmationMessageIncludesTemporalContextAndAvoidsInventedTiming(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"reply":"김인턴 구조 소개 웹사이트를 제작해 인터넷에 배포합니다. 승인하면 진행하겠습니다."}`,
+	}}
+	kernel := NewAgentKernel(nil, nil)
+	kernel.UseLanguageModelProvider(languageModel)
+
+	_, errorValue := kernel.GenerateConfirmationMessage(context.Background(), AgentRequest{
+		Prompt:           "김인턴 구조 소개 웹사이트 만들어서 배포해줘",
+		ResponseLanguage: "ko",
+		TurnStartedAt:    time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
+	}, ExecutionPlan{
+		OriginalInstruction: "김인턴 구조 소개 웹사이트 만들어서 배포해줘",
+		Summary:             "김인턴 구조 소개 웹사이트를 제작해 배포합니다.",
+		PublicDeploy:        true,
+	}, ConfirmationPolicyDecision{RequiresConfirmation: true, Reason: "risky_side_effect"})
+	if errorValue != nil {
+		t.Fatalf("expected confirmation message: %v", errorValue)
+	}
+
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected one confirmation message request, got %d", len(languageModel.requests))
+	}
+	body := joinMessageContent(languageModel.requests[0].Messages)
+	if !strings.Contains(body, "Current date: 2026-05-17") || !strings.Contains(body, "Current weekday: Sunday") {
+		t.Fatalf("expected confirmation message temporal context, got %s", body)
+	}
+	if !strings.Contains(body, "Mention repeat, start, or end conditions only when they are present") {
+		t.Fatalf("expected confirmation timing guard, got %s", body)
 	}
 }

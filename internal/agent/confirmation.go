@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -127,7 +128,8 @@ func (agentKernel *AgentKernel) generateConfirmationUserMessage(responseContext 
 			Messages: []llm.Message{
 				{Role: "system", Content: "Write one concise user-facing message for Blueclaw. Do not expose JSON, task IDs, or internal tool names."},
 				{Role: "system", Content: responseLanguageInstruction(request.ResponseLanguage)},
-				{Role: "system", Content: "For confirmation, state what you understood, how it will run, the target, repeat/start/end conditions, and that approval will proceed. For clarification, ask only for the missing information needed before execution."},
+				{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
+				{Role: "system", Content: "For confirmation, state what you understood, how it will run, the target, and that approval will proceed. Mention repeat, start, or end conditions only when they are present in the execution plan or original request. For clarification, ask only for the missing information needed before execution."},
 				{Role: "user", Content: strings.Join([]string{
 					"Message kind: " + messageKind,
 					"Original request: " + strings.TrimSpace(request.Prompt),
@@ -231,9 +233,11 @@ func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []ll
 			"Classify side effects accurately. External sends include DM, email, Slack, Mattermost, and messages to people or channels.",
 			"Set highFrequency true for repeats more frequent than hourly.",
 			"Set missingInformation for required target, end condition, count, or time details that are absent.",
+			"Do not invent schedule, startAt, endAt, or cadence. Leave them empty unless the latest request explicitly asks for scheduled, delayed, recurring, repeated, or future work.",
 			"Do not ask the user here. Only return the structured plan.",
 		}, "\n")},
 		{Role: "system", Content: responseLanguageInstruction(request.ResponseLanguage)},
+		{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
 		{Role: "system", Content: "Selected skill evidence hints, not requirements: " + strings.Join(evidenceHints, ", ")},
 		{Role: "system", Content: contextDescription},
 		{Role: "system", Content: activeGoalDescription(request.ActiveGoal)},
@@ -253,6 +257,7 @@ func choiceReplyMessages(request ChoiceReplyRequest) []llm.Message {
 			"Return ambiguous when the reply could refer to more than one valid option or violates single/multiple selection.",
 			"Return unrelated when the reply is a separate request, not an answer to the choice question.",
 		}, "\n")},
+		{Role: "system", Content: buildTemporalContextDescription(time.Time{})},
 		{Role: "user", Content: strings.Join([]string{
 			"Question: " + strings.TrimSpace(request.Question),
 			"Selection mode: " + strings.TrimSpace(request.SelectionMode),
@@ -275,6 +280,7 @@ func confirmationReplyMessages(pendingPrompt string, confirmationQuestion string
 			"Return unrelated for a separate new request.",
 			"Short Korean affirmatives such as 응, 네, 좋아, 진행해, 해줘, 그래, 해 are approvals only when they answer this confirmation question.",
 		}, "\n")},
+		{Role: "system", Content: buildTemporalContextDescription(time.Time{})},
 		{Role: "user", Content: strings.Join([]string{
 			"Pending task:",
 			strings.TrimSpace(pendingPrompt),

@@ -56,6 +56,10 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) buildMessages(request Agent
 			Role:    "system",
 			Content: "Available tools: " + strings.Join(skillSearchAvailableToolNames(request), ", "),
 		},
+		{
+			Role:    "system",
+			Content: buildTemporalContextDescription(request.TurnStartedAt),
+		},
 	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: contextDescription})
