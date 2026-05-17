@@ -135,7 +135,7 @@ func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 	}
 }
 
-func TestOutcomeReferenceToolSetKeepsSiteToolsForActiveSiteContinuation(t *testing.T) {
+func TestOutcomeReferenceToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.app.create", "site.app.publish"})
 	request := AgentRequest{
 		Prompt: "다시 해봐 그럼 될 거야",
@@ -153,7 +153,7 @@ func TestOutcomeReferenceToolSetKeepsSiteToolsForActiveSiteContinuation(t *testi
 	}
 }
 
-func TestSelectedSiteSkillToolSetKeepsSiteToolsForActiveSiteContinuation(t *testing.T) {
+func TestSelectedSkillToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.app.create", "site.app.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -179,7 +179,7 @@ func TestSelectedSiteSkillToolSetKeepsSiteToolsForActiveSiteContinuation(t *test
 	}
 }
 
-func TestOutcomeContractRequiresSiteEvidenceForActiveSiteContinuation(t *testing.T) {
+func TestOutcomeContractRequiresActiveGoalEvidenceForContinuation(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name: "site-prototype",
@@ -202,6 +202,54 @@ func TestOutcomeContractRequiresSiteEvidenceForActiveSiteContinuation(t *testing
 		if !stringSliceContains(contract.RequiredEvidenceTools, toolName) {
 			t.Fatalf("expected active site continuation to require %s evidence, got %+v", toolName, contract.RequiredEvidenceTools)
 		}
+	}
+}
+
+func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "direct-message",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"platform.dm.send"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	}
+	request := AgentRequest{
+		Prompt: "다시 해줘",
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			SelectedEvidenceHints: []string{"platform.dm.send"},
+		}},
+	}
+
+	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
+
+	if !stringSliceContains(contract.RequiredEvidenceTools, "platform.dm.send") {
+		t.Fatalf("expected active send continuation to require send evidence, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
+func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *testing.T) {
+	toolSet := testToolSet([]string{"ask.confirm", "platform.dm.send", "file.write"})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:         "direct-message",
+			AllowedTools: []string{"ask.confirm", "platform.dm.send"},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	}
+	request := AgentRequest{
+		Prompt: "다시 해줘",
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			SelectedEvidenceHints: []string{"platform.dm.send"},
+		}},
+	}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.dm.send"}}
+
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
+
+	if !filteredToolSet.IsAllowed("platform.dm.send") {
+		t.Fatalf("expected active send tool to remain available for continuation, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 

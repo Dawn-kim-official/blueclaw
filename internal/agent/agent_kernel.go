@@ -522,6 +522,9 @@ func toolSetForOutcomeReference(toolSet *ToolSet, request AgentRequest, executio
 
 func shouldExposeToolForOutcome(toolName string, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
 	trimmedToolName := strings.TrimSpace(toolName)
+	if activeGoalMentionsTool(request.ActiveGoal, trimmedToolName) {
+		return true
+	}
 	if strings.HasPrefix(trimmedToolName, "site.app.") {
 		return outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, outcomeContract)
 	}
@@ -663,7 +666,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		return normalizeOutcomeContract(contract)
 	}
 	contract := OutcomeContract{
-		SelectedEvidenceHints:      selectedEvidenceHintTools(instructionBundle),
+		SelectedEvidenceHints:      appendUniqueStrings(outcomeContractToolNames(request.ActiveGoal.OutcomeContract), selectedEvidenceHintTools(instructionBundle)...),
 		RequiredAttachmentSuffixes: append([]string{}, requiredAttachmentSuffixes...),
 	}
 	contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
@@ -733,6 +736,9 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if trimmedToolName == "" {
 		return false
 	}
+	if activeGoalMentionsTool(request.ActiveGoal, trimmedToolName) {
+		return true
+	}
 	if isSendEvidenceTool(trimmedToolName) {
 		return (hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) || promptLooksLikeExternalSend(request.Prompt)
 	}
@@ -780,6 +786,19 @@ func contractRequiresToolPrefix(contract OutcomeContract, prefix string) bool {
 
 func activeGoalMentionsToolPrefix(activeGoal ActiveGoal, prefix string) bool {
 	return contractMentionsToolPrefix(activeGoal.OutcomeContract, prefix)
+}
+
+func activeGoalMentionsTool(activeGoal ActiveGoal, toolName string) bool {
+	normalizedToolName := strings.TrimSpace(toolName)
+	if normalizedToolName == "" {
+		return false
+	}
+	for _, activeToolName := range outcomeContractToolNames(activeGoal.OutcomeContract) {
+		if strings.TrimSpace(activeToolName) == normalizedToolName {
+			return true
+		}
+	}
+	return false
 }
 
 func contractMentionsToolPrefix(contract OutcomeContract, prefix string) bool {
