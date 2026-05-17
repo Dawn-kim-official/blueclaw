@@ -58,6 +58,9 @@ type AgentTurnRequest struct {
 	VisibleContext             VisibleContext
 	MemoryFacts                []memory.MemoryFact
 	ToolSet                    *ToolSet
+	AvailableSkills            []SkillInstruction
+	PinnedToolNames            []string
+	PinnedSkillNames           []string
 	WorkspaceRootPath          string
 	WorkspaceDefaultPath       string
 	ActivePaths                []string
@@ -91,6 +94,8 @@ type turnActionDocument struct {
 	FinalReply           string                        `json:"finalReply"`
 	ToolName             string                        `json:"toolName"`
 	ToolInput            json.RawMessage               `json:"toolInput"`
+	ToolNames            []string                      `json:"toolNames"`
+	SkillNames           []string                      `json:"skillNames"`
 	Reason               string                        `json:"reason"`
 	Reply                string                        `json:"reply"`
 	FailureResolution    string                        `json:"failureResolution"`
@@ -294,6 +299,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage)
+	request, _ = applyManualCapabilityRequirement(request, manualCapabilityRequirement{
+		ToolNames:  request.PinnedToolNames,
+		SkillNames: request.PinnedSkillNames,
+	})
 
 	taskRun := agentTurnRunner.taskRunForRequest(request)
 	runningTaskRun, errorValue := agentTurnRunner.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
@@ -376,6 +385,24 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
+		case "require_capabilities":
+			requirement := manualCapabilityRequirement{
+				ToolNames:  append([]string{}, actionDocument.ToolNames...),
+				SkillNames: append([]string{}, actionDocument.SkillNames...),
+				Reason:     actionDocument.Reason,
+			}
+			nextRequest, requirementResult := applyManualCapabilityRequirement(request, requirement)
+			request = nextRequest
+			state.Request = nextRequest
+			observation := manualCapabilityObservation(len(state.Observations)+1, requirement, requirementResult)
+			state.Observations = append(state.Observations, observation)
+			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.capabilities_required", marshalEventBody(map[string]any{
+				"requirement": requirement,
+				"result":      requirementResult,
+				"source":      "manual_require",
+			}))
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "require_capabilities", observation.ContentText())
+			continue
 		case "set_quality_criteria":
 			state.QualityCriteria = normalizeQualityCriteria(actionDocument.QualityCriteria)
 			observation := turnObservation{
@@ -453,8 +480,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				}
 				continue
 			}
-			if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.InvalidInput, "tool_input")
+			if validationError := validateTerminalToolInput(actionDocument.ToolName, actionDocument.ToolInput, request.ToolSet); validationError != nil {
+				failureCode := FailureCodes.InvalidInput
+				if isTerminalToolNameError(validationError) {
+					failureCode = FailureCodes.ToolNameInShell
+				}
+				observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, failureCode, "tool_input")
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
@@ -703,6 +734,7 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
+	instruction += " If you know a needed tool or skill by name but it is missing from the current action schema, use require_capabilities with exact toolNames or skillNames; use tool.describe to inspect available tool schemas and skill.search to find skill names. Never run a Blueclaw tool name as a shell command in terminal.run."
 	instruction += " Ask the user only when their confirmation, choice, or free-form input is required. Use ask.confirm before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Do not ask for confirmation before ordinary non-destructive writes."
 	instruction += " When calling ask.confirm, set userFacingMessage to the exact confirmation question shown to the user, written in the same language as the original user request. reasonCode and reasonDetail are internal only and must not contain user-facing prose. When calling ask.choice, include a recommendedOptionKey except for ask.confirm, and provide explicit options."
 	instruction += " If a tool call fails, it creates FailureDebt. Do not return final_reply until a later different recovery succeeds, or you can answer from current context without tools and set failureResolution=no_tool_fallback, or recovery budget is exhausted and you use fail. Never repeat the same failed tool input fingerprint; recovery must change the input, route/provider, tool, or fall back without tools."
@@ -816,7 +848,20 @@ func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error 
 	}
 }
 
-func validateTerminalToolInput(toolName string, toolInput json.RawMessage) error {
+type terminalToolNameError struct {
+	toolName string
+}
+
+func (errorValue terminalToolNameError) Error() string {
+	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use require_capabilities if the tool is hidden, then call " + errorValue.toolName + " directly with its tool schema."
+}
+
+func isTerminalToolNameError(errorValue error) bool {
+	var typedError terminalToolNameError
+	return errors.As(errorValue, &typedError)
+}
+
+func validateTerminalToolInput(toolName string, toolInput json.RawMessage, toolSets ...*ToolSet) error {
 	if !isTerminalExecutionTool(toolName) {
 		return nil
 	}
@@ -828,6 +873,13 @@ func validateTerminalToolInput(toolName string, toolInput json.RawMessage) error
 	if command == "" {
 		return nil
 	}
+	var toolSet *ToolSet
+	if len(toolSets) > 0 {
+		toolSet = toolSets[0]
+	}
+	if commandToolName := firstTerminalCommandToken(command); toolSet != nil && toolSet.IsRegistered(commandToolName) {
+		return terminalToolNameError{toolName: commandToolName}
+	}
 	for _, toolAlias := range []string{"file.write", "file.promote", "file.attach", "set_quality_criteria", "final_reply"} {
 		if strings.Contains(command, toolAlias) {
 			return errors.New(strings.TrimSpace(toolName) + " command cannot call Blueclaw action " + toolAlias + "; call that action directly instead")
@@ -838,6 +890,16 @@ func validateTerminalToolInput(toolName string, toolInput json.RawMessage) error
 		return errors.New(strings.TrimSpace(toolName) + " command uses tmp/ or artifacts/ inside an already scoped tmp workingDirectoryPath; set workingDirectoryPath to tmp/<slug> and use relative paths such as . or presentation.md inside the command")
 	}
 	return nil
+}
+
+func firstTerminalCommandToken(command string) string {
+	for _, token := range terminalCommandTokens(command) {
+		token = strings.Trim(token, `"'`)
+		if strings.TrimSpace(token) != "" {
+			return token
+		}
+	}
+	return ""
 }
 
 func commandContainsVirtualWorkspacePath(command string) bool {

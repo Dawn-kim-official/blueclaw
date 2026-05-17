@@ -345,6 +345,62 @@ func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 	}
 }
 
+func TestToolDescribeReturnsHiddenRegisteredToolSchema(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:        "site.app.create",
+		Description: "Create a site.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "tool.describe",
+		Input: agent.MarshalToolInput(map[string]any{
+			"toolName": "site.app.create",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected tool.describe success, got %s", result.ContentText())
+	}
+	if !strings.Contains(result.ContentText(), "site.app.create") || !strings.Contains(result.ContentText(), "slug") {
+		t.Fatalf("expected site tool schema in result, got %s", result.ContentText())
+	}
+}
+
+func TestSkillSearchToolExactNameIncludesCompletionMetadata(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
+			Name:         "site-prototype",
+			Description:  "Create sites.",
+			AllowedTools: []string{"site.app.create", "site.app.publish"},
+			Completion: agent.SkillCompletion{
+				RequiredEvidenceTools: []string{"site.app.publish"},
+			},
+			Source: agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+		}}}
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.search",
+		Input: agent.MarshalToolInput(map[string]any{
+			"queries": []map[string]string{{"description": "site-prototype"}},
+			"limit":   5,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(result.ContentText(), `"sourcePath":"skills/site-prototype/SKILL.md"`) || !strings.Contains(result.ContentText(), "site.app.publish") {
+		t.Fatalf("expected exact skill metadata, got %s", result.ContentText())
+	}
+}
+
 func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()

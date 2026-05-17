@@ -48,6 +48,8 @@ type AgentRequest struct {
 	VisibleContext         VisibleContext
 	MemoryFacts            []memory.MemoryFact
 	ToolSet                *ToolSet
+	PinnedToolNames        []string
+	PinnedSkillNames       []string
 	WorkspaceRootPath      string
 	ActivePaths            []string
 	InstructionPrompt      string

@@ -385,6 +385,97 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRequireCapabilitiesPinsHiddenTool(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"require_capabilities","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
+		`{"action":"call_tool","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
+		finalReplyWithEvidence("created", "obs-002", "site.app.create", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolSet([]string{"skill.search"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"skills":[]}`), nil
+	})
+	siteCreateCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:        "site.app.create",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		siteCreateCallCount++
+		return ToolResult{Output: ToolOutput{Content: `{"siteID":"site-1"}`}, Attachments: []FileAttachment{{DevicePath: "site://site-1", Filename: "site.json"}}}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "make site",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if siteCreateCallCount != 1 {
+		t.Fatalf("expected site.app.create to be invoked once, got %d", siteCreateCallCount)
+	}
+	if result.FinalReply != "created" {
+		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capabilities_required", "site.app.create") {
+		t.Fatal("expected capability require event")
+	}
+}
+
+func TestAgentTurnRunnerRequireCapabilitiesPinsSkillInstructionsAndTools(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"require_capabilities","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
+		`{"action":"call_tool","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
+		finalReplyWithEvidence("created", "obs-002", "site.app.create", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolSet([]string{"skill.search"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"skills":[]}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{Output: ToolOutput{Content: `{"siteID":"site-1"}`}, Attachments: []FileAttachment{{DevicePath: "site://site-1", Filename: "site.json"}}}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "make site",
+		ToolSet:           toolRegistry,
+		AvailableSkills: []SkillInstruction{{
+			Name:         "site-prototype",
+			Prompt:       "SITE WORKFLOW BODY",
+			AllowedTools: []string{"site.app.create"},
+		}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinalReply != "created" {
+		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	}
+	if len(languageModel.requests) < 2 || !strings.Contains(joinMessageContent(languageModel.requests[1].Messages), "SITE WORKFLOW BODY") {
+		t.Fatalf("expected pinned skill instructions in next model request")
+	}
+}
+
+func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.T) {
+	toolRegistry := newTestToolSet([]string{"terminal.run"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("created"), nil
+	})
+	input := MarshalToolInput(map[string]any{"command": "site.app.create --slug demo"})
+
+	errorValue := validateTerminalToolInput("terminal.run", input, toolRegistry)
+
+	if errorValue == nil || !isTerminalToolNameError(errorValue) {
+		t.Fatalf("expected terminal tool-name error, got %v", errorValue)
+	}
+}
+
 func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"call_tool","toolName":"alpha","toolInput":{"value":"one"}}`,

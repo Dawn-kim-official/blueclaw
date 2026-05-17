@@ -196,6 +196,8 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		VisibleContext:         request.VisibleContext,
 		MemoryFacts:            request.MemoryFacts,
 		ToolSet:                request.ToolSet,
+		PinnedToolNames:        append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:       append([]string{}, request.PinnedSkillNames...),
 		WorkspaceRootPath:      request.WorkspaceRootPath,
 		ActivePaths:            request.ActivePaths,
 		ActiveGoal:             request.ActiveGoal,
@@ -216,6 +218,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.skillRetriever,
 		NewSkillSearchQueryRouter(agentKernel.intakeLanguageModel),
 	)
+	instructionBundle = instructionBundleWithPinnedSkills(instructionBundle, request)
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
@@ -258,6 +261,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		VisibleContext:             request.VisibleContext,
 		MemoryFacts:                request.MemoryFacts,
 		ToolSet:                    turnToolSet,
+		AvailableSkills:            append([]SkillInstruction{}, instructionBundle.Skills...),
+		PinnedToolNames:            append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:           append([]string{}, request.PinnedSkillNames...),
 		WorkspaceRootPath:          request.WorkspaceRootPath,
 		InstructionPrompt:          instructionBundle.Prompt,
 		InstructionSources:         append([]InstructionSource{}, instructionBundle.Sources...),
@@ -487,12 +493,12 @@ func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, 
 		return toolSetForOutcomeReference(toolSet, request, executionPlan, hasExecutionPlan, outcomeContract)
 	}
 	allowedToolNames := []string{}
-	for _, toolName := range toolNamesForAgentTurn(instructionBundle, outcomeContract) {
+	for _, toolName := range toolNamesForAgentTurn(instructionBundle, outcomeContract, request) {
 		if shouldExposeToolForOutcome(toolName, request, executionPlan, hasExecutionPlan, outcomeContract) {
 			allowedToolNames = appendUniqueStrings(allowedToolNames, toolName)
 		}
 	}
-	return toolSet.WithAllowedToolNames(allowedToolNames)
+	return toolSet.WithAllowedToolNames(allowedToolNames).WithAdditionalAllowedToolNames(appendUniqueStrings(request.PinnedToolNames, pinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)...))
 }
 
 func turnToolSelectionIsConstrained(instructionBundle InstructionBundle, outcomeContract OutcomeContract) bool {
@@ -522,6 +528,9 @@ func toolSetForOutcomeReference(toolSet *ToolSet, request AgentRequest, executio
 
 func shouldExposeToolForOutcome(toolName string, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
 	trimmedToolName := strings.TrimSpace(toolName)
+	if stringSliceContains(request.PinnedToolNames, trimmedToolName) {
+		return true
+	}
 	if activeGoalMentionsTool(request.ActiveGoal, trimmedToolName) {
 		return true
 	}
@@ -542,15 +551,17 @@ func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan Executio
 	return contractRequiresSendTool(outcomeContract) || (hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) || promptLooksLikeExternalSend(request.Prompt)
 }
 
-func toolNamesForAgentTurn(instructionBundle InstructionBundle, outcomeContract OutcomeContract) []string {
+func toolNamesForAgentTurn(instructionBundle InstructionBundle, outcomeContract OutcomeContract, request AgentRequest) []string {
 	toolNames := append([]string{}, universalAgentToolNames()...)
 	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
+	pinnedSkillName := stringSet(request.PinnedSkillNames)
 	for _, skillInstruction := range instructionBundle.Skills {
-		if !selectedSkillName[skillInstruction.Name] {
+		if !selectedSkillName[skillInstruction.Name] && !pinnedSkillName[skillInstruction.Name] {
 			continue
 		}
 		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
 	}
+	toolNames = appendUniqueStrings(toolNames, request.PinnedToolNames...)
 	toolNames = appendUniqueStrings(toolNames, outcomeContractRequiredToolNames(outcomeContract)...)
 	if outcomeNeedsArtifactWorkflow(outcomeContract) {
 		toolNames = appendUniqueStrings(toolNames, artifactWorkflowToolNames()...)
@@ -580,6 +591,29 @@ func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool
 	return selectedSkillName
 }
 
+func pinnedSkillToolNames(instructionBundle InstructionBundle, skillNames []string) []string {
+	pinnedSkillName := stringSet(skillNames)
+	toolNames := []string{}
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !pinnedSkillName[skillInstruction.Name] {
+			continue
+		}
+		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
+	}
+	return toolNames
+}
+
+func stringSet(values []string) map[string]bool {
+	result := map[string]bool{}
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			result[trimmedValue] = true
+		}
+	}
+	return result
+}
+
 func universalAgentToolNames() []string {
 	toolNames := append([]string{}, coreAgentToolNames()...)
 	toolNames = appendUniqueStrings(toolNames, DefaultSkillToolNames()...)
@@ -588,7 +622,7 @@ func universalAgentToolNames() []string {
 }
 
 func coreAgentToolNames() []string {
-	return []string{"conversation.history", "memory.search", "ask.confirm", "ask.choice", "ask.input", "skill.search"}
+	return []string{"conversation.history", "memory.search", "ask.confirm", "ask.choice", "ask.input", "skill.search", "tool.describe"}
 }
 
 func genericBuiltInToolNames() []string {
@@ -1149,6 +1183,31 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		CandidateCount: len(candidateInstructions),
 		SkillQueries:   append([]string{}, retrievalResult.QueryDescriptions...),
 	}
+}
+
+func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, request AgentRequest) InstructionBundle {
+	pinnedSkillNames := stringSet(request.PinnedSkillNames)
+	if len(pinnedSkillNames) == 0 {
+		return instructionBundle
+	}
+	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
+	pinnedSkillInstructions := []SkillInstruction{}
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !pinnedSkillNames[skillInstruction.Name] || selectedSkillName[skillInstruction.Name] {
+			continue
+		}
+		pinnedSkillInstructions = append(pinnedSkillInstructions, skillInstruction)
+		instructionBundle.SkillDecisions = append(instructionBundle.SkillDecisions, selectedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "manual_require"))
+		instructionBundle.Sources = append(instructionBundle.Sources, skillInstruction.Source)
+	}
+	if len(pinnedSkillInstructions) == 0 {
+		return instructionBundle
+	}
+	instructionBundle.Prompt = strings.Join(nonEmptyStrings([]string{
+		instructionBundle.Prompt,
+		buildSelectedSkillInstructionPrompt(pinnedSkillInstructions),
+	}), "\n\n")
+	return instructionBundle
 }
 
 func alwaysSelectedSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, profileName string, existingSkillDecisions []SkillSelectionDecision) []SkillInstruction {

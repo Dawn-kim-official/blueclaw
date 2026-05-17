@@ -37,10 +37,12 @@ type SkillSearchResult struct {
 }
 
 type SkillSearchResultItem struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Score       float64  `json:"score"`
-	Tools       []string `json:"tools"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Score       float64         `json:"score"`
+	Tools       []string        `json:"tools"`
+	SourcePath  string          `json:"sourcePath,omitempty"`
+	Completion  SkillCompletion `json:"completion,omitempty"`
 }
 
 type SkillRetrievalResult struct {

@@ -22,13 +22,15 @@ type TaskRunHandler struct {
 }
 
 type taskRunRequest struct {
-	RequesterPersonID    string `json:"requesterPersonID"`
-	RequesterName        string `json:"requesterName"`
-	RequesterCallingName string `json:"requesterCallingName"`
-	RequesterHandle      string `json:"requesterHandle"`
-	ConversationID       string `json:"conversationID"`
-	ProfileName          string `json:"profileName"`
-	Prompt               string `json:"prompt"`
+	RequesterPersonID    string   `json:"requesterPersonID"`
+	RequesterName        string   `json:"requesterName"`
+	RequesterCallingName string   `json:"requesterCallingName"`
+	RequesterHandle      string   `json:"requesterHandle"`
+	ConversationID       string   `json:"conversationID"`
+	ProfileName          string   `json:"profileName"`
+	Prompt               string   `json:"prompt"`
+	PinnedToolNames      []string `json:"pinnedToolNames"`
+	PinnedSkillNames     []string `json:"pinnedSkillNames"`
 }
 
 type taskRunCancelRequest struct {
@@ -74,6 +76,8 @@ func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseW
 		ProfileName:               runRequest.ProfileName,
 		ConversationID:            conversationID,
 		Prompt:                    runRequest.Prompt,
+		PinnedToolNames:           append([]string{}, runRequest.PinnedToolNames...),
+		PinnedSkillNames:          append([]string{}, runRequest.PinnedSkillNames...),
 		PersonAccess:              personAccess,
 		MemoryNamespaces:          taskRunHandler.memoryNamespaces(runRequest.RequesterPersonID, conversationID, personAccess),
 		AccessibleConversationIDs: []string{conversationID},

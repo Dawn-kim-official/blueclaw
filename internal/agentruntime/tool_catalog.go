@@ -172,6 +172,13 @@ type skillSearchToolInput struct {
 	Limit   int                      `json:"limit"`
 }
 
+type toolDescribeToolInput struct {
+	Query    string `json:"query"`
+	ToolName string `json:"toolName"`
+	Prefix   string `json:"prefix"`
+	Limit    int    `json:"limit"`
+}
+
 func NewToolCatalogBuilder() *ToolCatalogBuilder {
 	return &ToolCatalogBuilder{
 		workspaceRootPath: "/workspace",
@@ -264,6 +271,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRe
 	toolCatalogBuilder.registerBuiltInTools(toolSet, handlerContext)
 	toolCatalogBuilder.registerMCPTools(toolSet)
 	toolCatalogBuilder.registerCapabilityTools(toolSet, request)
+	toolCatalogBuilder.registerToolDescribeTool(toolSet, toolSet)
 	toolCatalogBuilder.registerSkillSearchTool(toolSet, handlerContext, toolSet)
 	return toolSet
 }
@@ -280,7 +288,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.DefaultAllowedToolNames([]string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.cancel"})
+	return agent.DefaultAllowedToolNames([]string{"memory.search", "math.calculate", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "tool.describe", "schedule.create", "schedule.cancel"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -442,6 +450,79 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegist
 	})
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) registerToolDescribeTool(toolRegistry *agent.ToolSet, availableToolSet *agent.ToolSet) {
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[toolDescribeToolInput, map[string]any]{
+		Definition: agent.ToolDefinition{
+			Name:        "tool.describe",
+			Description: "Search or inspect available Blueclaw tools by exact name, prefix, or text query before requiring or calling them.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"toolName":{"type":"string"},"prefix":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`),
+		},
+		Handler: func(_ context.Context, input toolDescribeToolInput) (map[string]any, error) {
+			return describeTools(input, availableToolSet), nil
+		},
+	})
+}
+
+func describeTools(input toolDescribeToolInput, toolSet *agent.ToolSet) map[string]any {
+	if toolSet == nil {
+		return map[string]any{"tools": []map[string]any{}}
+	}
+	limit := input.Limit
+	if limit <= 0 || limit > 20 {
+		limit = 8
+	}
+	items := []map[string]any{}
+	for _, toolDefinition := range toolSet.ListRegisteredToolDefinitions() {
+		toolName := strings.TrimSpace(toolDefinition.Name)
+		if !toolDescriptionMatches(input, toolDefinition) {
+			continue
+		}
+		availability, _ := toolSet.ToolAvailability(toolName)
+		if strings.TrimSpace(availability.Status) == agent.ToolAvailabilityDenied {
+			continue
+		}
+		items = append(items, map[string]any{
+			"name":         toolName,
+			"description":  firstNonEmptyString(toolDefinition.Description, agentSpecificToolDescription(toolName)),
+			"inputSchema":  toolDefinition.InputSchema,
+			"availability": availability,
+		})
+		if len(items) >= limit {
+			break
+		}
+	}
+	return map[string]any{"tools": items}
+}
+
+func toolDescriptionMatches(input toolDescribeToolInput, toolDefinition agent.ToolDefinition) bool {
+	toolName := strings.TrimSpace(toolDefinition.Name)
+	if expectedToolName := strings.TrimSpace(input.ToolName); expectedToolName != "" {
+		return toolName == expectedToolName
+	}
+	if prefix := strings.TrimSpace(input.Prefix); prefix != "" && !strings.HasPrefix(toolName, prefix) {
+		return false
+	}
+	query := strings.ToLower(strings.TrimSpace(input.Query))
+	if query == "" {
+		return true
+	}
+	searchText := strings.ToLower(toolName + " " + toolDefinition.Description)
+	return strings.Contains(searchText, query)
+}
+
+func agentSpecificToolDescription(toolName string) string {
+	toolSet := agent.NewToolSet([]string{toolName})
+	toolSet.RegisterTool(agent.ToolDefinition{Name: toolName}, func(context.Context, agent.ToolInvocation) (agent.ToolResult, error) {
+		return agent.ToolSuccess(""), nil
+	})
+	for _, line := range strings.Split(toolSet.Descriptions(), "\n") {
+		if strings.HasPrefix(line, "- "+toolName+": ") {
+			return strings.TrimPrefix(line, "- "+toolName+": ")
+		}
+	}
+	return ""
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) (agent.SkillSearchResult, error) {
 	limit := input.Limit
 	if limit <= 0 || limit > 8 {
@@ -457,7 +538,40 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.C
 		ToolSet:           availableToolSet,
 	}
 	retrievalResult := toolCatalogBuilder.skillRetriever.Search(toolContext, agentRequest, instructionBundle.Skills, agent.SkillSearchQuerySet{Queries: input.Queries}, limit)
+	retrievalResult = includeExactSkillNameMatches(instructionBundle.Skills, input.Queries, retrievalResult)
 	return skillSearchResult(instructionBundle.Skills, retrievalResult), nil
+}
+
+func includeExactSkillNameMatches(skillInstructions []agent.SkillInstruction, queries []agent.SkillSearchQuery, retrievalResult agent.SkillRetrievalResult) agent.SkillRetrievalResult {
+	for _, query := range queries {
+		queryDescription := strings.TrimSpace(query.Description)
+		if queryDescription == "" {
+			continue
+		}
+		for _, skillInstruction := range skillInstructions {
+			if strings.TrimSpace(skillInstruction.Name) != queryDescription {
+				continue
+			}
+			retrievalResult.SelectedCandidates = prependSkillCandidate(retrievalResult.SelectedCandidates, agent.SkillCandidate{
+				Name:   skillInstruction.Name,
+				Score:  1,
+				Reason: "exact_name_match",
+				Source: skillInstruction.Source,
+			})
+		}
+	}
+	return retrievalResult
+}
+
+func prependSkillCandidate(candidates []agent.SkillCandidate, candidate agent.SkillCandidate) []agent.SkillCandidate {
+	result := []agent.SkillCandidate{candidate}
+	for _, existingCandidate := range candidates {
+		if strings.TrimSpace(existingCandidate.Name) == strings.TrimSpace(candidate.Name) {
+			continue
+		}
+		result = append(result, existingCandidate)
+	}
+	return result
 }
 
 func skillSearchResult(skillInstructions []agent.SkillInstruction, retrievalResult agent.SkillRetrievalResult) agent.SkillSearchResult {
@@ -476,6 +590,8 @@ func skillSearchResult(skillInstructions []agent.SkillInstruction, retrievalResu
 			Description: skillInstruction.Description,
 			Score:       candidate.Score,
 			Tools:       append([]string{}, skillInstruction.AllowedTools...),
+			SourcePath:  skillInstruction.Source.Path,
+			Completion:  skillInstruction.Completion,
 		})
 	}
 	return agent.SkillSearchResult{Skills: items}
