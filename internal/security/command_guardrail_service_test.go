@@ -154,3 +154,65 @@ func TestCommandPathGuardrailErrorIncludesRecoveryDetails(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandPathGuardrailIgnoresHereDocumentContentPaths(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root cannot build terminal command plans")
+	}
+
+	workspaceRootPath := t.TempDir()
+	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
+		Mode:                  "firecrackerGuest",
+		WorkspaceRootPath:     workspaceRootPath,
+		AllowNetwork:          true,
+		AllowInteractiveShell: true,
+		TimeoutSecond:         3,
+	})
+
+	_, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
+		Command: strings.Join([]string{
+			"cat <<'EOF' > index.html",
+			`<script type="module" src="/src/main.tsx"></script>`,
+			`<a href="/">Home</a>`,
+			"EOF",
+			"bun run build",
+		}, "\n"),
+		WorkingDirectoryPath: workspaceRootPath,
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected heredoc content paths to be ignored, got %v", errorValue)
+	}
+}
+
+func TestCommandPathGuardrailRejectsEscapingPathBeforeHereDocument(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root cannot build terminal command plans")
+	}
+
+	workspaceRootPath := t.TempDir()
+	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
+		Mode:                  "firecrackerGuest",
+		WorkspaceRootPath:     workspaceRootPath,
+		AllowNetwork:          true,
+		AllowInteractiveShell: true,
+		TimeoutSecond:         3,
+	})
+
+	_, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
+		Command: strings.Join([]string{
+			"cat /opt/blueclaw/state <<EOF",
+			"hello",
+			"EOF",
+		}, "\n"),
+		WorkingDirectoryPath: workspaceRootPath,
+	})
+
+	var commandGuardrailError CommandGuardrailError
+	if !errors.As(errorValue, &commandGuardrailError) {
+		t.Fatalf("expected command guardrail error, got %v", errorValue)
+	}
+	if !strings.Contains(commandGuardrailError.Error(), "/opt/blueclaw/state") {
+		t.Fatalf("expected escaping command path in error, got %q", commandGuardrailError.Error())
+	}
+}

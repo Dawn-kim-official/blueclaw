@@ -792,6 +792,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if hasPendingConfirmation && confirmationDecision.Decision == "rejected" {
 		return connectorRuntime.handleRejectedConfirmation(ctx, platform, adapter, event, replyTarget, pendingApproval, confirmationDecision, sendReply)
 	}
+	if !hasPendingConfirmation && looksLikeBareConfirmationReply(event.Prompt) {
+		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "confirmation_no_pending_task"))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "confirmation_no_pending_task"}, nil
+	}
 	if connectorRuntime.shouldIgnoreOrphanAskAction(personID, event, hasPendingConfirmation) {
 		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "ask_no_pending_interaction"))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "ask_no_pending_interaction"}, nil
@@ -1443,6 +1447,32 @@ func shouldUseApprovalQuestionAsIntent(taskPrompt string, approvalQuestion strin
 		"go ahead": true,
 	}
 	return approvalReplies[normalizedPrompt]
+}
+
+func looksLikeBareConfirmationReply(prompt string) bool {
+	normalizedPrompt := strings.TrimSpace(strings.ToLower(prompt))
+	confirmationReplies := map[string]bool{
+		"ㅇ":        true,
+		"응":        true,
+		"네":        true,
+		"예":        true,
+		"그래":       true,
+		"좋아":       true,
+		"진행해":      true,
+		"진행해줘":     true,
+		"해":        true,
+		"해줘":       true,
+		"approved": true,
+		"rejected": true,
+		"yes":      true,
+		"y":        true,
+		"no":       true,
+		"n":        true,
+		"ok":       true,
+		"okay":     true,
+		"go ahead": true,
+	}
+	return confirmationReplies[normalizedPrompt]
 }
 
 func latestApprovalQuestion(taskEvents []task.TaskEvent) string {
