@@ -63,6 +63,38 @@ func TestConfirmationPlanMessagesIncludeTemporalContextAndScheduleGuard(t *testi
 	}
 }
 
+func TestSitePrototypePublishDoesNotBuildConfirmationPlan(t *testing.T) {
+	toolSet := newTestToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"})
+	request := AgentRequest{
+		Prompt:  "김인턴 구조 소개 웹사이트 만들어서 배포해줘",
+		ToolSet: toolSet,
+	}
+	decision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeMaintenanceTask,
+	}
+
+	if shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.app.create", "site.app.publish"}) {
+		t.Fatal("site prototype publish is part of the normal create workflow and must not request approval")
+	}
+}
+
+func TestDestructiveSiteManagementStillBuildsConfirmationPlan(t *testing.T) {
+	toolSet := newTestToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"})
+	request := AgentRequest{
+		Prompt:  "이 사이트 내려줘",
+		ToolSet: toolSet,
+	}
+	decision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeMaintenanceTask,
+	}
+
+	if !shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.app.publish"}) {
+		t.Fatal("destructive site management should still request confirmation")
+	}
+}
+
 func TestConfirmationMessageIncludesTemporalContextAndAvoidsInventedTiming(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"reply":"김인턴 구조 소개 웹사이트를 제작해 인터넷에 배포합니다. 승인하면 진행하겠습니다."}`,

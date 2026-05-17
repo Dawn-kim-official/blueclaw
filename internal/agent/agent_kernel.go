@@ -360,6 +360,12 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
 	}
+	if requestIsNonDestructiveSitePrototypePublish(request, requiredEvidenceTools) {
+		return false
+	}
+	if hasTool(request.ToolSet, "site.app.publish") && looksLikeDestructiveSiteManagement(strings.ToLower(strings.TrimSpace(request.Prompt))) {
+		return true
+	}
 	if intakeDecision.TaskShape == TaskShapeApprovalGatedTask {
 		return true
 	}
@@ -373,11 +379,42 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 
 func confirmationRiskyEvidenceTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "platform.dm.send", "mail.message.send", "google.gmail.send", "slack.message.send", "site.app.publish":
+	case "platform.dm.send", "mail.message.send", "google.gmail.send", "slack.message.send":
 		return true
 	default:
 		return false
 	}
+}
+
+func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredEvidenceTools []string) bool {
+	if !hasAllTools(request.ToolSet, []string{"site.app.create", "site.app.publish"}) {
+		return false
+	}
+	if !requiredEvidenceContains(requiredEvidenceTools, "site.app.publish") && !hasTool(request.ToolSet, "site.app.publish") {
+		return false
+	}
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if !promptLooksLikeSitePrototypeRequest(prompt) {
+		return false
+	}
+	if looksLikeDestructiveSiteManagement(prompt) || looksLikePaidProductionSiteRequest(prompt) {
+		return false
+	}
+	return true
+}
+
+func looksLikeDestructiveSiteManagement(prompt string) bool {
+	return containsAny(prompt, []string{
+		"delete", "remove", "destroy", "unpublish", "take down", "rollback", "roll back",
+		"삭제", "제거", "폐기", "내려", "내리", "비공개", "롤백", "되돌", "중단",
+	})
+}
+
+func looksLikePaidProductionSiteRequest(prompt string) bool {
+	return containsAny(prompt, []string{
+		"production", "paid", "billing", "payment", "custom domain", "aws", "gcp", "azure", "cloudflare",
+		"프로덕션", "운영", "유료", "결제", "과금", "실도메인", "커스텀 도메인", "상용",
+	})
 }
 
 func promptLooksLikeConfirmationCandidate(prompt string) bool {
