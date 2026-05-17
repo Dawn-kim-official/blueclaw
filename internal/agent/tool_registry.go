@@ -68,6 +68,7 @@ var FailureCodes = struct {
 	OperationFailed FailureCode
 	PolicyBlocked   FailureCode
 	RateLimited     FailureCode
+	ToolNameInShell FailureCode
 }{
 	Unavailable:     "unavailable",
 	InvalidInput:    "invalid_input",
@@ -77,6 +78,7 @@ var FailureCodes = struct {
 	OperationFailed: "operation_failed",
 	PolicyBlocked:   "policy_blocked",
 	RateLimited:     "rate_limited",
+	ToolNameInShell: "tool_name_in_terminal",
 }
 
 func (failureCode FailureCode) String() string {
@@ -90,6 +92,8 @@ func CanonicalFailureCode(code FailureCode) string {
 		return FailureCodes.Unavailable.String()
 	case "tool.input.invalid", "invalid_input", "approval_message_required":
 		return FailureCodes.InvalidInput.String()
+	case "tool_name_in_terminal":
+		return FailureCodes.ToolNameInShell.String()
 	case "tool.not_allowed":
 		return FailureCodes.PolicyBlocked.String()
 	case "access_denied", "permission_denied", "workspace_path_denied":
@@ -339,6 +343,44 @@ func (toolSet *ToolSet) IsAllowed(toolName string) bool {
 	return isExposedToolAvailability(boundTool.Availability)
 }
 
+func (toolSet *ToolSet) IsRegistered(toolName string) bool {
+	if toolSet == nil {
+		return false
+	}
+	_, isRegistered := toolSet.boundToolByName[strings.TrimSpace(toolName)]
+	return isRegistered
+}
+
+func (toolSet *ToolSet) CanExpose(toolName string) bool {
+	if toolSet == nil {
+		return false
+	}
+	boundTool, isRegistered := toolSet.boundToolByName[strings.TrimSpace(toolName)]
+	return isRegistered && isExposedToolAvailability(boundTool.Availability)
+}
+
+func (toolSet *ToolSet) ToolDefinition(toolName string) (ToolDefinition, bool) {
+	if toolSet == nil {
+		return ToolDefinition{}, false
+	}
+	boundTool, isRegistered := toolSet.boundToolByName[strings.TrimSpace(toolName)]
+	if !isRegistered {
+		return ToolDefinition{}, false
+	}
+	return boundTool.Definition, true
+}
+
+func (toolSet *ToolSet) ToolAvailability(toolName string) (ToolAvailability, bool) {
+	if toolSet == nil {
+		return ToolAvailability{}, false
+	}
+	boundTool, isRegistered := toolSet.boundToolByName[strings.TrimSpace(toolName)]
+	if !isRegistered {
+		return ToolAvailability{}, false
+	}
+	return boundTool.Availability, true
+}
+
 func (toolSet *ToolSet) WithAllowedToolNames(toolNames []string) *ToolSet {
 	if toolSet == nil {
 		return nil
@@ -348,6 +390,21 @@ func (toolSet *ToolSet) WithAllowedToolNames(toolNames []string) *ToolSet {
 		filteredToolSet.boundToolByName[toolName] = boundTool
 	}
 	return filteredToolSet
+}
+
+func (toolSet *ToolSet) WithAdditionalAllowedToolNames(toolNames []string) *ToolSet {
+	if toolSet == nil {
+		return nil
+	}
+	allowedToolNames := toolSet.ListToolNames()
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" || !toolSet.CanExpose(trimmedToolName) {
+			continue
+		}
+		allowedToolNames = appendUniqueStrings(allowedToolNames, trimmedToolName)
+	}
+	return toolSet.WithAllowedToolNames(allowedToolNames)
 }
 
 func (toolSet *ToolSet) Invoke(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
@@ -369,6 +426,20 @@ func (toolSet *ToolSet) ListToolDefinitions() []ToolDefinition {
 		if toolSet.IsAllowed(toolName) {
 			toolDefinitions = append(toolDefinitions, boundTool.Definition)
 		}
+	}
+	sort.SliceStable(toolDefinitions, func(leftIndex int, rightIndex int) bool {
+		return toolDefinitions[leftIndex].Name < toolDefinitions[rightIndex].Name
+	})
+	return toolDefinitions
+}
+
+func (toolSet *ToolSet) ListRegisteredToolDefinitions() []ToolDefinition {
+	toolDefinitions := []ToolDefinition{}
+	if toolSet == nil {
+		return toolDefinitions
+	}
+	for _, boundTool := range toolSet.boundToolByName {
+		toolDefinitions = append(toolDefinitions, boundTool.Definition)
 	}
 	sort.SliceStable(toolDefinitions, func(leftIndex int, rightIndex int) bool {
 		return toolDefinitions[leftIndex].Name < toolDefinitions[rightIndex].Name

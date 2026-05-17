@@ -45,6 +45,8 @@ type TaskLaunchRequest struct {
 	ResponseLanguage          string
 	VisibleContext            agent.VisibleContext
 	ActiveGoal                agent.ActiveGoal
+	PinnedToolNames           []string
+	PinnedSkillNames          []string
 	HistoryProvider           HistoryProvider
 	PersonAccess              policy.PersonAccess
 	MemoryNamespaces          []memory.MemoryNamespace
@@ -152,6 +154,8 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ActiveGoal:              request.ActiveGoal,
 		MemoryFacts:             memoryFacts,
 		ToolSet:                 toolSet,
+		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:        append([]string{}, request.PinnedSkillNames...),
 		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
 	})

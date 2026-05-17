@@ -61,6 +61,9 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolInput"`) {
 		t.Fatalf("expected toolInput to be preserved, got %s", request.StructuredOutputSchema.Document)
 	}
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["require_capabilities"]`) {
+		t.Fatalf("expected require_capabilities escape hatch in schema, got %s", request.StructuredOutputSchema.Document)
+	}
 	if !messagesContain(request.Messages, "Recent visible conversation context") {
 		t.Fatalf("expected visible context in model messages, got %+v", request.Messages)
 	}

@@ -526,6 +526,7 @@ func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []
 		"math.calculate":       true,
 		"schedule.create":      true,
 		"schedule.cancel":      true,
+		"tool.describe":        true,
 	}
 	for _, toolName := range agent.DefaultSkillToolNames() {
 		allowedToolNameByName[toolName] = true
@@ -630,6 +631,9 @@ func appendDefaultBuiltInToolNames(toolNames []string) []string {
 	}
 	if !containsString(result, "skill.search") {
 		result = append(result, "skill.search")
+	}
+	if !containsString(result, "tool.describe") {
+		result = append(result, "tool.describe")
 	}
 	return result
 }
