@@ -394,7 +394,7 @@ func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredE
 		return false
 	}
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	if !promptLooksLikeSitePrototypeRequest(prompt) {
+	if !requestLooksLikeSitePrototypeWork(request) {
 		return false
 	}
 	if looksLikeDestructiveSiteManagement(prompt) || looksLikePaidProductionSiteRequest(prompt) {
@@ -442,6 +442,27 @@ func promptLooksLikeSitePrototypeRequest(prompt string) bool {
 		"website", "web app", "prototype", "landing page", "publish", "deploy",
 		"웹사이트", "웹 앱", "프로토타입", "랜딩", "배포", "공개", "사이트 만들어", "사이트를 만들어",
 	})
+}
+
+func requestLooksLikeSitePrototypeWork(request AgentRequest) bool {
+	if promptLooksLikeSitePrototypeRequest(request.Prompt) {
+		return true
+	}
+	if activeGoalMentionsToolPrefix(request.ActiveGoal, "site.app.") {
+		return true
+	}
+	if promptLooksLikeSitePrototypeRequest(request.ActiveGoal.OriginalInstruction) {
+		return true
+	}
+	if promptLooksLikeSitePrototypeRequest(request.ActiveGoal.CurrentObjective) {
+		return true
+	}
+	for _, contextValue := range request.ActiveGoal.KnownContext {
+		if promptLooksLikeSitePrototypeRequest(contextValue) {
+			return true
+		}
+	}
+	return false
 }
 
 func promptLooksLikeCalendarRequest(prompt string) bool {
@@ -511,7 +532,7 @@ func shouldExposeToolForOutcome(toolName string, request AgentRequest, execution
 }
 
 func outcomeAllowsSiteTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
-	return contractRequiresToolPrefix(outcomeContract, "site.app.") || (hasExecutionPlan && executionPlan.PublicDeploy) || promptLooksLikeSitePrototypeRequest(request.Prompt)
+	return contractRequiresToolPrefix(outcomeContract, "site.app.") || (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
 }
 
 func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
@@ -719,7 +740,7 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 		return len(requiredAttachmentSuffixes) > 0
 	}
 	if strings.HasPrefix(trimmedToolName, "site.app.") {
-		return (hasExecutionPlan && executionPlan.PublicDeploy) || promptLooksLikeSitePrototypeRequest(request.Prompt)
+		return (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
 	}
 	if strings.HasPrefix(trimmedToolName, "schedule.") {
 		return intakeDecision.TaskShape == TaskShapeScheduledTask
@@ -755,6 +776,25 @@ func contractRequiresToolPrefix(contract OutcomeContract, prefix string) bool {
 		}
 	}
 	return false
+}
+
+func activeGoalMentionsToolPrefix(activeGoal ActiveGoal, prefix string) bool {
+	return contractMentionsToolPrefix(activeGoal.OutcomeContract, prefix)
+}
+
+func contractMentionsToolPrefix(contract OutcomeContract, prefix string) bool {
+	for _, toolName := range outcomeContractToolNames(contract) {
+		if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func outcomeContractToolNames(contract OutcomeContract) []string {
+	toolNames := outcomeContractRequiredToolNames(contract)
+	toolNames = append(toolNames, contract.SelectedEvidenceHints...)
+	return toolNames
 }
 
 func outcomeContractRequiredToolNames(contract OutcomeContract) []string {
