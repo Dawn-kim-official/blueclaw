@@ -30,6 +30,15 @@ func TestPromptAssemblerIncludesTemporalContext(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblerIncludesTemporalContextInDirectReplies(t *testing.T) {
+	messages := (PromptAssembler{}).BuildReplyMessages("오늘 무슨 요일이야?", VisibleContext{}, "", "")
+	body := joinMessageContent(messages)
+
+	if !strings.Contains(body, "Runtime temporal context") || !strings.Contains(body, "Current date:") || !strings.Contains(body, "Current weekday:") {
+		t.Fatalf("expected direct reply temporal context, got %s", body)
+	}
+}
+
 func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",

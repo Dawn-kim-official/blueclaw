@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/memory"
@@ -198,10 +199,14 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		WorkspaceRootPath:      request.WorkspaceRootPath,
 		ActivePaths:            request.ActivePaths,
 		ActiveGoal:             request.ActiveGoal,
+		TurnStartedAt:          request.TurnStartedAt,
 	})
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
+	if request.TurnStartedAt.IsZero() {
+		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
+	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
 	instructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle = selectInstructionBundleForRequestWithRetrieverAndRouter(
@@ -266,6 +271,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		OutcomeContract:            outcomeContract,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
+		TurnStartedAt:              request.TurnStartedAt,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 

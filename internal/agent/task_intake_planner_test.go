@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -381,6 +382,27 @@ func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(
 	}
 	if decision.UserFacingReply != "" {
 		t.Fatalf("expected confirmation reply to be cleared, got %q", decision.UserFacingReply)
+	}
+}
+
+func TestTaskIntakePlannerIncludesTemporalContext(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"website request","userFacingReply":""}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	_ = planner.Plan(context.Background(), AgentRequest{
+		Prompt:        "김인턴 구조 웹사이트 만들어줘",
+		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
+		ToolSet:       newTestToolSet([]string{"site.app.create", "site.app.publish"}),
+	})
+
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected one intake request, got %d", len(languageModel.requests))
+	}
+	body := joinMessageContent(languageModel.requests[0].Messages)
+	if !strings.Contains(body, "Runtime temporal context") || !strings.Contains(body, "Current date: 2026-05-17") || !strings.Contains(body, "Current weekday: Sunday") {
+		t.Fatalf("expected intake temporal context, got %s", body)
 	}
 }
 

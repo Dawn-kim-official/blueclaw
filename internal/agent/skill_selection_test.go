@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -551,8 +552,9 @@ func TestSkillQueryRouterMessagesPrioritizeLatestRequest(t *testing.T) {
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "user", Text: "example.com 스타일로 사업계획서 PPT 만들어줘."},
 		}},
-		ActiveGoal: ActiveGoal{CurrentObjective: "example.com 발표 자료 생성"},
-		ToolSet:    testToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"}),
+		ActiveGoal:    ActiveGoal{CurrentObjective: "example.com 발표 자료 생성"},
+		ToolSet:       testToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"}),
+		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
 	})
 
 	if len(messages) == 0 || !strings.Contains(messages[0].Content, "latest user request is authoritative") {
@@ -563,6 +565,9 @@ func TestSkillQueryRouterMessagesPrioritizeLatestRequest(t *testing.T) {
 	}
 	if !strings.Contains(messages[0].Content, "do not carry forward stale subjects") {
 		t.Fatalf("expected stale-context instruction, got %q", messages[0].Content)
+	}
+	if !strings.Contains(joinMessageContent(messages), "Current date: 2026-05-17") {
+		t.Fatalf("expected skill query temporal context, got %+v", messages)
 	}
 	if messages[len(messages)-1].Role != "user" || !strings.Contains(messages[len(messages)-1].Content, "김인턴") {
 		t.Fatalf("expected latest prompt to remain the user message, got %+v", messages[len(messages)-1])

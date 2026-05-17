@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/memory"
@@ -51,6 +52,7 @@ type AgentRequest struct {
 	ActivePaths            []string
 	InstructionPrompt      string
 	ActiveGoal             ActiveGoal
+	TurnStartedAt          time.Time
 }
 
 type IntakeDecision struct {
@@ -131,6 +133,10 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 		{
 			Role:    "system",
 			Content: responseLanguageInstruction(request.ResponseLanguage),
+		},
+		{
+			Role:    "system",
+			Content: buildTemporalContextDescription(request.TurnStartedAt),
 		},
 		{
 			Role:    "system",
