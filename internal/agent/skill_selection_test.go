@@ -543,6 +543,62 @@ func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
 	}
 }
 
+func TestSkillQueryRouterMessagesPrioritizeLatestRequest(t *testing.T) {
+	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[]}`})
+
+	messages := router.buildMessages(AgentRequest{
+		Prompt: "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘.",
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
+			{Speaker: "user", Text: "example.com 스타일로 사업계획서 PPT 만들어줘."},
+		}},
+		ActiveGoal: ActiveGoal{CurrentObjective: "example.com 발표 자료 생성"},
+		ToolSet:    testToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"}),
+	})
+
+	if len(messages) == 0 || !strings.Contains(messages[0].Content, "latest user request is authoritative") {
+		t.Fatalf("expected latest-request priority instruction, got %+v", messages)
+	}
+	if !strings.Contains(messages[0].Content, "Use prior conversation only when it is needed") {
+		t.Fatalf("expected prior-context limitation instruction, got %q", messages[0].Content)
+	}
+	if !strings.Contains(messages[0].Content, "do not carry forward stale subjects") {
+		t.Fatalf("expected stale-context instruction, got %q", messages[0].Content)
+	}
+	if messages[len(messages)-1].Role != "user" || !strings.Contains(messages[len(messages)-1].Content, "김인턴") {
+		t.Fatalf("expected latest prompt to remain the user message, got %+v", messages[len(messages)-1])
+	}
+}
+
+func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Prompt: "base",
+		Skills: []SkillInstruction{{
+			Name:         "site-prototype",
+			Description:  "Create and publish website prototypes.",
+			Prompt:       "Use site.app.create and site.app.publish.",
+			AllowedTools: []string{"site.app.create", "site.app.publish"},
+			Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+		}},
+	}
+	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
+	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Create a website introducing InternKim's structure."}]}`})
+
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘.",
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
+			{Speaker: "user", Text: "https://example.com 내용으로 사업계획서 PPT 만들어줘."},
+		}},
+		ToolSet: testToolSet([]string{"site.app.create", "site.app.publish"}),
+	}, retriever, router)
+
+	if len(selectedBundle.SkillQueries) != 1 || !strings.Contains(selectedBundle.SkillQueries[0], "InternKim") {
+		t.Fatalf("expected latest-request website query to be recorded, got %+v", selectedBundle.SkillQueries)
+	}
+	if strings.Contains(strings.Join(selectedBundle.SkillQueries, "\n"), "example.com") || strings.Contains(strings.ToLower(strings.Join(selectedBundle.SkillQueries, "\n")), "ppt") {
+		t.Fatalf("expected stale visible context to stay out of structured query, got %+v", selectedBundle.SkillQueries)
+	}
+}
+
 func TestStructuredSkillQueryUsesAtMostFiveQueries(t *testing.T) {
 	querySet := normalizeSkillSearchQuerySet(SkillSearchQuerySet{Queries: []SkillSearchQuery{
 		{Description: "one"},
@@ -724,7 +780,7 @@ func TestDirectSkillNameRequiresExactSlashToken(t *testing.T) {
 
 func TestSelectedFullSkillBodiesAreLimited(t *testing.T) {
 	skills := []SkillInstruction{}
-	for index := 0; index < 5; index++ {
+	for index := 0; index < 10; index++ {
 		skills = append(skills, SkillInstruction{
 			Name:        fmt.Sprintf("slides-%d", index),
 			Description: "Create presentation slides and 피피티.",
@@ -742,6 +798,89 @@ func TestSelectedFullSkillBodiesAreLimited(t *testing.T) {
 
 	if strings.Count(selectedBundle.Prompt, "BODY ") != maxSelectedSkillInstructionCount {
 		t.Fatalf("expected selected full bodies to be limited, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestFifthRetrievedSkillIsSelectedBeforeLimit(t *testing.T) {
+	skills := []SkillInstruction{}
+	candidates := []SkillCandidate{}
+	for index := 1; index <= 6; index++ {
+		name := fmt.Sprintf("skill-%d", index)
+		skills = append(skills, SkillInstruction{
+			Name:        name,
+			Description: fmt.Sprintf("Skill %d.", index),
+			Prompt:      fmt.Sprintf("BODY %d", index),
+			Source:      InstructionSource{Path: fmt.Sprintf("skills/%s/SKILL.md", name), SkillName: name},
+		})
+		candidates = append(candidates, SkillCandidate{Name: name, Score: 1, Reason: "test"})
+	}
+	instructionBundle := InstructionBundle{Skills: skills}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		RetrievalMode:      "test",
+		SelectedCandidates: candidates,
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "select several skills",
+	}, retriever)
+
+	if !strings.Contains(selectedBundle.Prompt, "BODY 5") {
+		t.Fatalf("expected fifth skill body to be selected, got %q", selectedBundle.Prompt)
+	}
+	if strings.Contains(selectedBundle.Prompt, "BODY 6") {
+		t.Fatalf("expected sixth skill body to be limited out, got %q", selectedBundle.Prompt)
+	}
+	for _, skillDecision := range selectedBundle.SkillDecisions {
+		if skillDecision.Name == "skill-5" && skillDecision.Status != "selected" {
+			t.Fatalf("expected fifth skill selected, got %+v", selectedBundle.SkillDecisions)
+		}
+		if skillDecision.Name == "skill-6" && skillDecision.Reason != "selected_skill_limit_reached" {
+			t.Fatalf("expected sixth skill to hit selected limit, got %+v", selectedBundle.SkillDecisions)
+		}
+	}
+}
+
+func TestWebsiteSkillToolsSurviveWhenSkillIsFifthCandidate(t *testing.T) {
+	skills := []SkillInstruction{
+		{Name: "simple-slides", Description: "Create slides.", Prompt: "SLIDES BODY"},
+		{Name: "pptx", Description: "Create PowerPoint files.", Prompt: "PPTX BODY"},
+		{Name: "direct-message", Description: "Send direct messages.", Prompt: "DM BODY"},
+		{Name: "report", Description: "Write reports.", Prompt: "REPORT BODY"},
+		{
+			Name:         "site-prototype",
+			Description:  "Create and publish website prototypes.",
+			Prompt:       "SITE BODY",
+			AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+			Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+		},
+		{Name: "extra", Description: "Extra skill.", Prompt: "EXTRA BODY"},
+	}
+	candidates := []SkillCandidate{}
+	for _, skill := range skills {
+		candidates = append(candidates, SkillCandidate{Name: skill.Name, Score: 1, Reason: "test"})
+	}
+	instructionBundle := InstructionBundle{Skills: skills}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		RetrievalMode:      "test",
+		SelectedCandidates: candidates,
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘.",
+	}, retriever)
+	filteredToolSet := toolSetForSelectedSkills(testToolSet([]string{
+		"terminal.run",
+		"site.app.create",
+		"site.app.publish",
+	}), selectedBundle)
+
+	for _, toolName := range []string{"terminal.run", "site.app.create", "site.app.publish"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected fifth candidate site tool %s to be allowed, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+	if strings.Contains(selectedBundle.Prompt, "EXTRA BODY") {
+		t.Fatalf("expected sixth candidate body to stay out, got %q", selectedBundle.Prompt)
 	}
 }
 
@@ -919,6 +1058,20 @@ func (languageModel staticStructuredLanguageModel) GenerateResponse(context.Cont
 func (languageModel staticStructuredLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
+
+type staticSkillRetriever struct {
+	result SkillRetrievalResult
+}
+
+func (retriever staticSkillRetriever) Retrieve(context.Context, AgentRequest, []SkillInstruction, int) SkillRetrievalResult {
+	return retriever.result
+}
+
+func (retriever staticSkillRetriever) Search(context.Context, AgentRequest, []SkillInstruction, SkillSearchQuerySet, int) SkillRetrievalResult {
+	return retriever.result
+}
+
+func (retriever staticSkillRetriever) Refresh(context.Context, []SkillInstruction) {}
 
 func testToolSet(toolNames []string) *ToolSet {
 	toolRegistry := newTestToolSet(toolNames)

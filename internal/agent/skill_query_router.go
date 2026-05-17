@@ -50,7 +50,7 @@ func (skillSearchQueryRouter SkillSearchQueryRouter) buildMessages(request Agent
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You convert the user's current request into zero to five short skill search descriptions. Return an empty queries array when no skill or external tool capability is needed. Each description must be a concise action-oriented sentence in English. Do not include workflow instructions, safety policy, tool arguments, or final answers.",
+			Content: "You convert the user's latest request into zero to five short skill search descriptions. The latest user request is authoritative. Use prior conversation only when it is needed to understand what the latest request means. If the latest request naturally continues prior work, carry forward only relevant topic, constraints, and output expectations. If the latest request is self-contained or changes topic or output type, do not carry forward stale subjects, websites, tools, or artifact formats. The first query should restate the latest request's main task, including its topic and deliverable when present. Return an empty queries array when no skill or external tool capability is needed. Each description must be a concise action-oriented sentence in English. Do not include workflow instructions, safety policy, tool arguments, or final answers.",
 		},
 		{
 			Role:    "system",
