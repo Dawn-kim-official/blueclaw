@@ -79,6 +79,25 @@ func TestSitePrototypePublishDoesNotBuildConfirmationPlan(t *testing.T) {
 	}
 }
 
+func TestSitePrototypeContinuationDoesNotBuildConfirmationPlan(t *testing.T) {
+	toolSet := newTestToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"})
+	request := AgentRequest{
+		Prompt:  "다시 해봐 그럼 될 거야",
+		ToolSet: toolSet,
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
+		}},
+	}
+	decision := IntakeDecision{
+		Classification: IntakeClassificationBoundedTask,
+		TaskShape:      TaskShapeMaintenanceTask,
+	}
+
+	if shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.app.create", "site.app.publish"}) {
+		t.Fatal("site prototype continuation must not request approval")
+	}
+}
+
 func TestDestructiveSiteManagementStillBuildsConfirmationPlan(t *testing.T) {
 	toolSet := newTestToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"})
 	request := AgentRequest{
