@@ -8,7 +8,7 @@ import (
 )
 
 const maxSkillIndexCandidateCount = 8
-const maxSelectedSkillInstructionCount = 3
+const maxSelectedSkillInstructionCount = 5
 const minimumBM25SelectionScore = 0.25
 
 type skillBM25Score struct {
