@@ -613,9 +613,41 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 		if profileName == "" {
 			profileName = "default"
 		}
-		allowedToolNamesByProfile[profileName] = appendDefaultBuiltInToolNames(agentProfile.AllowedToolNames)
+		allowedToolNames := append([]string{}, agentProfile.AllowedToolNames...)
+		allowedToolNames = appendRuntimeProvidedToolNames(allowedToolNames, runtimeConfiguration)
+		allowedToolNamesByProfile[profileName] = appendDefaultBuiltInToolNames(allowedToolNames)
 	}
 	return allowedToolNamesByProfile
+}
+
+func appendRuntimeProvidedToolNames(toolNames []string, runtimeConfiguration config.RuntimeConfiguration) []string {
+	for _, mcpServer := range runtimeConfiguration.MCPServers {
+		for _, toolName := range mcpServer.ToolNames {
+			trimmedToolName := strings.TrimSpace(toolName)
+			if trimmedToolName != "" && !containsString(toolNames, trimmedToolName) {
+				toolNames = append(toolNames, trimmedToolName)
+			}
+		}
+		for _, tool := range mcpServer.Tools {
+			trimmedToolName := strings.TrimSpace(tool.Name)
+			if trimmedToolName != "" && !containsString(toolNames, trimmedToolName) {
+				toolNames = append(toolNames, trimmedToolName)
+			}
+		}
+	}
+	for _, toolName := range runtimeConfiguration.Capabilities.ToolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName != "" && !containsString(toolNames, trimmedToolName) {
+			toolNames = append(toolNames, trimmedToolName)
+		}
+	}
+	for _, toolDescriptor := range runtimeConfiguration.Capabilities.ToolDescriptors {
+		trimmedToolName := strings.TrimSpace(toolDescriptor.Name)
+		if trimmedToolName != "" && !containsString(toolNames, trimmedToolName) {
+			toolNames = append(toolNames, trimmedToolName)
+		}
+	}
+	return toolNames
 }
 
 func appendDefaultBuiltInToolNames(toolNames []string) []string {

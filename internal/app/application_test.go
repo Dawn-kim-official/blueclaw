@@ -114,6 +114,32 @@ Research helper body.
 	}
 }
 
+func TestDeriveAllowedToolNamesByProfileIncludesRuntimeProvidedTools(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.AgentProfiles = []config.AgentProfileConfiguration{
+		{Name: "default", AllowedToolNames: []string{"terminal.run"}},
+	}
+	runtimeConfiguration.Capabilities.ToolDescriptors = []config.CapabilityToolDescriptor{
+		{Name: "site.app.create"},
+	}
+	runtimeConfiguration.MCPServers = []config.MCPServerConfiguration{
+		{
+			Name:      "design",
+			ToolNames: []string{"design.render"},
+			Tools:     []config.MCPToolConfiguration{{Name: "design.publish"}},
+		},
+	}
+
+	allowedToolNamesByProfile := deriveAllowedToolNamesByProfile(runtimeConfiguration)
+	defaultProfileToolNames := allowedToolNamesByProfile["default"]
+
+	for _, expectedToolName := range []string{"terminal.run", "site.app.create", "design.render", "design.publish"} {
+		if !containsString(defaultProfileToolNames, expectedToolName) {
+			t.Fatalf("expected profile tools to contain %q, got %+v", expectedToolName, defaultProfileToolNames)
+		}
+	}
+}
+
 func TestNewApplicationRegistersSecretlessConnectorTransports(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.Logging.DirectoryPath = t.TempDir()
