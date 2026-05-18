@@ -1,10 +1,15 @@
 package actortest
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"blueclaw/internal/security"
@@ -133,6 +138,89 @@ func (actor DirectWorkspaceActor) CopyFile(ctx context.Context, source workspace
 		return actor.actorError("copy_file", "direct", destination, errorValue)
 	}
 	return nil
+}
+
+func (actor DirectWorkspaceActor) BundleDirectory(ctx context.Context, directory workspacepath.Directory, options security.WorkspaceActorBundleOptions) (security.WorkspaceActorBundle, error) {
+	_ = ctx
+	document, errorValue := actor.bundleDirectoryDocument(workspacepath.Path(directory), options)
+	if errorValue != nil {
+		return security.WorkspaceActorBundle{}, errorValue
+	}
+	return security.WorkspaceActorBundle{
+		Format:        "tar.gz",
+		ContentBase64: base64.StdEncoding.EncodeToString(document),
+		SizeBytes:     int64(len(document)),
+	}, nil
+}
+
+func (actor DirectWorkspaceActor) bundleDirectoryDocument(path workspacepath.Path, options security.WorkspaceActorBundleOptions) ([]byte, error) {
+	buffer := bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	errorValue := filepath.Walk(path.ConcretePath, func(currentPath string, information os.FileInfo, walkError error) error {
+		if walkError != nil {
+			return walkError
+		}
+		relativePath, errorValue := filepath.Rel(path.ConcretePath, currentPath)
+		if errorValue != nil || relativePath == "." {
+			return errorValue
+		}
+		if bundlePathIsExcluded(relativePath, information, options.ExcludeNames) {
+			if information.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		return writeBundleEntry(tarWriter, currentPath, relativePath, information)
+	})
+	closeError := tarWriter.Close()
+	gzipCloseError := gzipWriter.Close()
+	if errorValue != nil {
+		return nil, actor.actorError("bundle_directory", "direct", path, errorValue)
+	}
+	if closeError != nil {
+		return nil, actor.actorError("bundle_directory", "direct", path, closeError)
+	}
+	if gzipCloseError != nil {
+		return nil, actor.actorError("bundle_directory", "direct", path, gzipCloseError)
+	}
+	if options.MaxBytes > 0 && int64(buffer.Len()) > options.MaxBytes {
+		return nil, actor.actorError("bundle_directory", "direct", path, errors.New("directory bundle is too large"))
+	}
+	return buffer.Bytes(), nil
+}
+
+func bundlePathIsExcluded(relativePath string, information os.FileInfo, excludeNames []string) bool {
+	pathParts := strings.Split(filepath.ToSlash(relativePath), "/")
+	for _, pathPart := range pathParts {
+		for _, excludeName := range excludeNames {
+			if strings.TrimSpace(pathPart) == strings.TrimSpace(excludeName) {
+				return true
+			}
+		}
+	}
+	return !information.IsDir() && strings.HasSuffix(relativePath, "~")
+}
+
+func writeBundleEntry(tarWriter *tar.Writer, path string, relativePath string, information os.FileInfo) error {
+	header, errorValue := tar.FileInfoHeader(information, "")
+	if errorValue != nil {
+		return errorValue
+	}
+	header.Name = filepath.ToSlash(relativePath)
+	if errorValue := tarWriter.WriteHeader(header); errorValue != nil {
+		return errorValue
+	}
+	if !information.Mode().IsRegular() {
+		return nil
+	}
+	file, errorValue := os.Open(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer file.Close()
+	_, errorValue = io.Copy(tarWriter, file)
+	return errorValue
 }
 
 func (actor DirectWorkspaceActor) Stat(ctx context.Context, path workspacepath.Path) (security.WorkspaceActorStat, error) {

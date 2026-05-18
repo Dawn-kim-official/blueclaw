@@ -1361,6 +1361,45 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	}
 }
 
+func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
+	workspacePath := t.TempDir()
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft"}}`}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.create",
+		PolicyResource: "tool:site.app.create",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.create",
+		Input:    agent.MarshalToolInput(map[string]string{"slug": "demo"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
+	}
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1")
+	for _, relativePath := range []string{"DESIGN.md", "app/package.json", "app/src/App.tsx", "pocketbase/pb_hooks/.gitkeep"} {
+		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
+			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
+		}
+	}
+	if !strings.Contains(result.ContentText(), `"/workspace/circles/staff/sites/site-1"`) {
+		t.Fatalf("expected canonical source workspace in result, got %s", result.ContentText())
+	}
+}
+
 func TestSitePublishInputRejectsInaccessibleWorkspaceBundle(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "finance", "sites", "site-1")

@@ -36,6 +36,7 @@ type WorkspaceActor interface {
 	WriteFile(context.Context, workspacepath.Path, []byte, os.FileMode) error
 	ReadFile(context.Context, workspacepath.Path, int64) ([]byte, error)
 	CopyFile(context.Context, workspacepath.Path, workspacepath.Path, os.FileMode, bool) error
+	BundleDirectory(context.Context, workspacepath.Directory, WorkspaceActorBundleOptions) (WorkspaceActorBundle, error)
 	Stat(context.Context, workspacepath.Path) (WorkspaceActorStat, error)
 }
 
@@ -63,6 +64,18 @@ type WorkspaceActorStat struct {
 	IsDirectory bool               `json:"isDirectory"`
 	SizeBytes   int64              `json:"sizeBytes"`
 	Mode        os.FileMode        `json:"mode"`
+}
+
+type WorkspaceActorBundleOptions struct {
+	Format       string
+	MaxBytes     int64
+	ExcludeNames []string
+}
+
+type WorkspaceActorBundle struct {
+	Format        string
+	ContentBase64 string
+	SizeBytes     int64
 }
 
 type POSIXWorkspaceActorFactory struct {
@@ -203,6 +216,24 @@ func (actor POSIXHelperWorkspaceActor) CopyFile(ctx context.Context, source work
 	}, nil)
 }
 
+func (actor POSIXHelperWorkspaceActor) BundleDirectory(ctx context.Context, directory workspacepath.Directory, options WorkspaceActorBundleOptions) (WorkspaceActorBundle, error) {
+	path := workspacepath.Path(directory)
+	var response fsResponse
+	errorValue := actor.executeFSWithResponse(ctx, "bundle_directory", path, fsRequest{
+		Path:         path.ConcretePath,
+		MaxBytes:     options.MaxBytes,
+		ExcludeNames: options.ExcludeNames,
+	}, nil, &response)
+	if errorValue != nil {
+		return WorkspaceActorBundle{}, errorValue
+	}
+	return WorkspaceActorBundle{
+		Format:        firstNonEmptyString(response.Format, "tar.gz"),
+		ContentBase64: response.ContentBase64,
+		SizeBytes:     response.SizeBytes,
+	}, nil
+}
+
 func (actor POSIXHelperWorkspaceActor) Stat(ctx context.Context, path workspacepath.Path) (WorkspaceActorStat, error) {
 	var response fsResponse
 	errorValue := actor.executeFSWithResponse(ctx, "stat", path, fsRequest{Path: path.ConcretePath}, nil, &response)
@@ -278,11 +309,12 @@ func isHelperExecutionFailure(errorValue error, stderr string) bool {
 }
 
 type fsRequest struct {
-	Path      string
-	Source    string
-	Mode      os.FileMode
-	MaxBytes  int64
-	Overwrite bool
+	Path         string
+	Source       string
+	Mode         os.FileMode
+	MaxBytes     int64
+	Overwrite    bool
+	ExcludeNames []string
 }
 
 type fsResponse struct {
@@ -291,6 +323,7 @@ type fsResponse struct {
 	SizeBytes     int64       `json:"sizeBytes"`
 	Mode          os.FileMode `json:"mode"`
 	ContentBase64 string      `json:"contentBase64"`
+	Format        string      `json:"format"`
 }
 
 func fsHelperArguments(operation string, identity ExecutionIdentity, request fsRequest) []string {
@@ -315,6 +348,9 @@ func fsHelperArguments(operation string, identity ExecutionIdentity, request fsR
 	}
 	if request.Overwrite {
 		arguments = append(arguments, "--overwrite")
+	}
+	if len(request.ExcludeNames) > 0 {
+		arguments = append(arguments, "--exclude-names", strings.Join(request.ExcludeNames, ","))
 	}
 	return arguments
 }
