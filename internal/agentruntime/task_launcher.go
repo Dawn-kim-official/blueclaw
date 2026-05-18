@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"strings"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/memory"
@@ -84,6 +85,7 @@ func NewTaskLauncher(agentKernel *agent.AgentKernel, toolCatalogBuilder *ToolCat
 }
 
 func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunchRequest) (TaskLaunchResult, error) {
+	request.PersonAccess = requesterPersonAccessForTaskLaunch(request)
 	normalizedProfileName := normalizeProfileName(request.ProfileName)
 	activeCircleRequest := withResolvedActiveCircle(ToolCatalogRequest{
 		Prompt:                  request.Prompt,
@@ -181,4 +183,15 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ToolNames:             launchedToolNames,
 		NormalizedProfileName: normalizedProfileName,
 	}, nil
+}
+
+func requesterPersonAccessForTaskLaunch(request TaskLaunchRequest) policy.PersonAccess {
+	return requesterPersonAccess(request.RequesterPersonID, request.PersonAccess)
+}
+
+func requesterPersonAccess(requesterPersonID string, personAccess policy.PersonAccess) policy.PersonAccess {
+	if strings.TrimSpace(personAccess.PersonID) == "" {
+		personAccess.PersonID = strings.TrimSpace(requesterPersonID)
+	}
+	return policy.EnsureRequesterDefaults(personAccess)
 }

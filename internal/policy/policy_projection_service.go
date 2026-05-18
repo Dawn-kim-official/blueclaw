@@ -2,6 +2,11 @@ package policy
 
 import "strings"
 
+const (
+	StaffCircleID = "staff"
+	AdminCircleID = "admin"
+)
+
 type PolicyProjection struct {
 	ApprovedEmailByPersonID map[string][]string
 	PersonIDByEmail         map[string]string
@@ -51,11 +56,48 @@ func (policyProjectionService PolicyProjectionService) ReplacePolicyProjectionTr
 }
 
 func effectivePersonCircles(personPolicy PersonPolicy) []string {
-	circles := append([]string{"staff"}, personPolicy.Circles...)
+	circles := append([]string{StaffCircleID}, personPolicy.Circles...)
 	if personPolicy.IsAdmin {
-		circles = append(circles, "admin")
+		circles = append(circles, AdminCircleID)
 	}
 	return normalizePolicyStrings(circles)
+}
+
+func EnsureRequesterDefaults(personAccess PersonAccess) PersonAccess {
+	personAccess.Circles = normalizePolicyStrings(append([]string{StaffCircleID}, personAccess.Circles...))
+	return personAccess
+}
+
+func CanonicalizePolicyDocument(policyDocument PolicyDocument) PolicyDocument {
+	policyDocument.Circles = canonicalCirclePolicies(policyDocument.Circles)
+	for index := range policyDocument.People {
+		policyDocument.People[index].Circles = effectivePersonCircles(policyDocument.People[index])
+	}
+	return policyDocument
+}
+
+func canonicalCirclePolicies(circlePolicies []CirclePolicy) []CirclePolicy {
+	result := append([]CirclePolicy{}, circlePolicies...)
+	for index := range result {
+		result[index].CircleID = strings.ToLower(strings.TrimSpace(result[index].CircleID))
+	}
+	if hasCirclePolicy(result, StaffCircleID) {
+		return result
+	}
+	return append([]CirclePolicy{{
+		CircleID:               StaffCircleID,
+		DisplayName:            "Staff",
+		WorkspaceDirectoryPath: "/workspace/circles/" + StaffCircleID,
+	}}, result...)
+}
+
+func hasCirclePolicy(circlePolicies []CirclePolicy, circleID string) bool {
+	for _, circlePolicy := range circlePolicies {
+		if strings.ToLower(strings.TrimSpace(circlePolicy.CircleID)) == circleID {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizePolicyStrings(values []string) []string {

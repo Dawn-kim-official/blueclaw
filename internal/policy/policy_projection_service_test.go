@@ -4,15 +4,29 @@ import "testing"
 
 func TestPolicyProjectionGivesStaffToEveryPerson(t *testing.T) {
 	policyProjection := PolicyProjectionService{}.ReplacePolicyProjectionTransactionally(PolicyDocument{
-		People: []PersonPolicy{{
-			PersonID: "person-1",
-			Emails:   []string{"person@example.com"},
-		}},
+		People: []PersonPolicy{
+			{
+				PersonID: "person-1",
+				Emails:   []string{"person@example.com"},
+			},
+			{
+				PersonID: "person-2",
+				Emails:   []string{"second@example.com"},
+				Circles:  []string{"finance"},
+			},
+			{
+				PersonID: "admin-1",
+				Emails:   []string{"admin@example.com"},
+				IsAdmin:  true,
+			},
+		},
 	})
 
-	personAccess := policyProjection.PersonAccessByPersonID["person-1"]
-	if !hasTestPolicyString(personAccess.Circles, "staff") {
-		t.Fatalf("expected staff circle, got %+v", personAccess.Circles)
+	for _, personID := range []string{"person-1", "person-2", "admin-1"} {
+		personAccess := policyProjection.PersonAccessByPersonID[personID]
+		if !hasTestPolicyString(personAccess.Circles, "staff") {
+			t.Fatalf("expected %s to have staff circle, got %+v", personID, personAccess.Circles)
+		}
 	}
 }
 
@@ -55,6 +69,48 @@ func TestPolicyProjectionNormalizesExplicitCircles(t *testing.T) {
 	if len(personAccess.ResourceAccessRules) != 1 {
 		t.Fatalf("expected resource access rules copied to person access, got %+v", personAccess.ResourceAccessRules)
 	}
+}
+
+func TestEnsureRequesterDefaultsPreservesStaffInvariant(t *testing.T) {
+	personAccess := EnsureRequesterDefaults(PersonAccess{
+		PersonID: "person-1",
+		Circles:  []string{" Finance ", "staff", "finance"},
+	})
+
+	if len(personAccess.Circles) != 2 || personAccess.Circles[0] != "staff" || personAccess.Circles[1] != "finance" {
+		t.Fatalf("expected staff plus normalized explicit circles, got %+v", personAccess.Circles)
+	}
+}
+
+func TestCanonicalizePolicyDocumentWritesStaffToEveryPersonAndCircleList(t *testing.T) {
+	policyDocument := CanonicalizePolicyDocument(PolicyDocument{
+		People: []PersonPolicy{
+			{PersonID: "person-1", Emails: []string{"person@example.com"}, Circles: []string{"Finance"}},
+			{PersonID: "admin-1", Emails: []string{"admin@example.com"}, IsAdmin: true},
+		},
+		Circles: []CirclePolicy{{CircleID: "Finance", DisplayName: "Finance"}},
+	})
+
+	if !hasTestPolicyCircle(policyDocument.Circles, "staff") {
+		t.Fatalf("expected canonical policy to include staff circle, got %+v", policyDocument.Circles)
+	}
+	for _, personPolicy := range policyDocument.People {
+		if !hasTestPolicyString(personPolicy.Circles, "staff") {
+			t.Fatalf("expected %s to persist staff membership, got %+v", personPolicy.PersonID, personPolicy.Circles)
+		}
+	}
+	if !hasTestPolicyString(policyDocument.People[1].Circles, "admin") {
+		t.Fatalf("expected admin person to persist admin membership, got %+v", policyDocument.People[1].Circles)
+	}
+}
+
+func hasTestPolicyCircle(circles []CirclePolicy, expectedCircleID string) bool {
+	for _, circle := range circles {
+		if circle.CircleID == expectedCircleID {
+			return true
+		}
+	}
+	return false
 }
 
 func hasTestPolicyString(values []string, expectedValue string) bool {

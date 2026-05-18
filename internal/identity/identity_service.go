@@ -104,12 +104,12 @@ func (identityService *IdentityService) ResolvePersonAccess(personID string) pol
 
 	personAccess, isFound := identityService.personAccessByPersonID[personID]
 	if !isFound {
-		return policy.PersonAccess{PersonID: personID, Circles: []string{"staff"}}
+		return policy.EnsureRequesterDefaults(policy.PersonAccess{PersonID: personID})
 	}
 	personAccess.Circles = append([]string{}, personAccess.Circles...)
 	personAccess.ResourceAccessRules = append([]policy.ResourceAccessPolicy{}, personAccess.ResourceAccessRules...)
 	personAccess.GrantedClasses = append([]string{}, personAccess.GrantedClasses...)
-	return personAccess
+	return policy.EnsureRequesterDefaults(personAccess)
 }
 
 func (identityService *IdentityService) ResolvePersonPrimaryEmail(personID string) string {

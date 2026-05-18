@@ -56,6 +56,7 @@ func ExecutionIdentityForPersonAccess(personAccess policy.PersonAccess, workspac
 	if personID == "" {
 		return ExecutionIdentity{}
 	}
+	personAccess = policy.EnsureRequesterDefaults(personAccess)
 
 	groupNames := []string{posixSharedGroupName}
 	for _, circleID := range personAccess.Circles {
@@ -162,7 +163,7 @@ func POSIXStateForPolicy(policyDocument policy.PolicyDocument, workspaceRootPath
 		},
 	}
 
-	for _, circlePolicy := range policyDocument.Circles {
+	for _, circlePolicy := range circlePoliciesWithStaffDefault(policyDocument.Circles, workspaceRootPath) {
 		circleID := strings.ToLower(strings.TrimSpace(circlePolicy.CircleID))
 		if circleID == "" {
 			continue
@@ -296,11 +297,29 @@ func linuxNameValueWithSuffix(normalizedValue string, value string, maximumLengt
 }
 
 func effectivePersonCirclesForPOSIX(personPolicy policy.PersonPolicy) []string {
-	circles := append([]string{"staff"}, personPolicy.Circles...)
+	circles := append([]string{policy.StaffCircleID}, personPolicy.Circles...)
 	if personPolicy.IsAdmin {
-		circles = append(circles, "admin")
+		circles = append(circles, policy.AdminCircleID)
 	}
 	return uniqueStrings(normalizeStringList(circles))
+}
+
+func circlePoliciesWithStaffDefault(circlePolicies []policy.CirclePolicy, workspaceRootPath string) []policy.CirclePolicy {
+	hasStaffCircle := false
+	result := append([]policy.CirclePolicy{}, circlePolicies...)
+	for _, circlePolicy := range circlePolicies {
+		if strings.ToLower(strings.TrimSpace(circlePolicy.CircleID)) == policy.StaffCircleID {
+			hasStaffCircle = true
+			break
+		}
+	}
+	if !hasStaffCircle {
+		result = append(result, policy.CirclePolicy{
+			CircleID:               policy.StaffCircleID,
+			WorkspaceDirectoryPath: workspaceRootPath + "/circles/" + policy.StaffCircleID,
+		})
+	}
+	return result
 }
 
 func normalizePOSIXState(state POSIXState) POSIXState {
@@ -312,6 +331,11 @@ func normalizePOSIXState(state POSIXState) POSIXState {
 	}
 	for _, user := range state.Users {
 		groupByName[user.GroupName] = POSIXGroup{Name: user.GroupName}
+		for _, groupName := range user.Groups {
+			if strings.TrimSpace(groupName) != "" {
+				groupByName[groupName] = POSIXGroup{Name: groupName}
+			}
+		}
 	}
 
 	groups := []POSIXGroup{}
