@@ -53,9 +53,12 @@ func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
 	}
 }
 
-func TestToolSetDescriptionsAndActionSchemaShareExposedTools(t *testing.T) {
+func TestToolSetDescriptionsShowRegisteredCatalogWhileActionSchemaUsesExposedTools(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool", "denied.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "visible.tool", Description: "Visible"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
+	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool", Description: "Hidden"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("ok"), nil
 	})
 	toolSet.RegisterBoundTool(BoundTool{
@@ -68,14 +71,23 @@ func TestToolSetDescriptionsAndActionSchemaShareExposedTools(t *testing.T) {
 
 	descriptions := toolSet.Descriptions()
 	actionSchema := toolSet.ActionSchema(false, nil, false)
-	if !strings.Contains(descriptions, "Use them only when they fit the current user goal") {
+	if !strings.Contains(descriptions, "Available tool catalog") {
 		t.Fatalf("expected tool prompt to frame tools as optional, got prompt=%s", descriptions)
 	}
 	if !strings.Contains(descriptions, "visible.tool") || !strings.Contains(actionSchema, "visible.tool") {
 		t.Fatalf("expected visible tool in prompt and schema, got prompt=%s schema=%s", descriptions, actionSchema)
 	}
+	if !strings.Contains(descriptions, "hidden.tool") || strings.Contains(actionSchema, "hidden.tool") {
+		t.Fatalf("expected hidden tool in prompt catalog but not action schema, got prompt=%s schema=%s", descriptions, actionSchema)
+	}
+	if !strings.Contains(descriptions, "hidden.tool: Hidden [hidden, available]") {
+		t.Fatalf("expected hidden visibility marker, got prompt=%s", descriptions)
+	}
 	if strings.Contains(descriptions, "denied.tool") || strings.Contains(actionSchema, "denied.tool") {
 		t.Fatalf("expected denied tool to stay hidden, got prompt=%s schema=%s", descriptions, actionSchema)
+	}
+	if got := strings.Join(toolSet.ListHiddenDescribedToolNames(), ","); got != "hidden.tool" {
+		t.Fatalf("expected hidden described tool names, got %q", got)
 	}
 }
 

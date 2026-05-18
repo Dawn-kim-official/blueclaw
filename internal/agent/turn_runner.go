@@ -763,18 +763,24 @@ func buildAgentToolDescription(toolRegistry *ToolSet) string {
 
 func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string, request AgentTurnRequest) {
 	body := map[string]any{
-		"profileName":     normalizedAgentProfileName(request.ProfileName),
-		"toolNames":       toolNamesForEvent(request.ToolSet),
-		"sourceCount":     len(request.InstructionSources),
-		"sources":         request.InstructionSources,
-		"skillNames":      instructionSkillNames(request.InstructionSources),
-		"skillDecisions":  request.SkillDecisions,
-		"retrievalMode":   request.SkillRetrievalMode,
-		"indexStatus":     request.SkillIndexStatus,
-		"candidateCount":  request.SkillCandidateCount,
-		"skillQueries":    request.SkillQueries,
-		"activeGoal":      request.ActiveGoal,
-		"outcomeContract": request.OutcomeContract,
+		"profileName":               normalizedAgentProfileName(request.ProfileName),
+		"toolNames":                 toolNamesForEvent(request.ToolSet),
+		"registeredToolCount":       registeredToolCountForEvent(request.ToolSet),
+		"describedToolNames":        describedToolNamesForEvent(request.ToolSet),
+		"exposedToolNames":          toolNamesForEvent(request.ToolSet),
+		"hiddenDescribedToolNames":  hiddenDescribedToolNamesForEvent(request.ToolSet),
+		"selectedSkillAllowedTools": selectedSkillAllowedToolsForEvent(request),
+		"pinnedSkillAllowedTools":   pinnedSkillAllowedToolsForEvent(request),
+		"sourceCount":               len(request.InstructionSources),
+		"sources":                   request.InstructionSources,
+		"skillNames":                instructionSkillNames(request.InstructionSources),
+		"skillDecisions":            request.SkillDecisions,
+		"retrievalMode":             request.SkillRetrievalMode,
+		"indexStatus":               request.SkillIndexStatus,
+		"candidateCount":            request.SkillCandidateCount,
+		"skillQueries":              request.SkillQueries,
+		"activeGoal":                request.ActiveGoal,
+		"outcomeContract":           request.OutcomeContract,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"
@@ -789,6 +795,50 @@ func toolNamesForEvent(toolSet *ToolSet) []string {
 		return nil
 	}
 	return toolSet.ListToolNames()
+}
+
+func registeredToolCountForEvent(toolSet *ToolSet) int {
+	if toolSet == nil {
+		return 0
+	}
+	return len(toolSet.ListRegisteredToolNames())
+}
+
+func describedToolNamesForEvent(toolSet *ToolSet) []string {
+	if toolSet == nil {
+		return nil
+	}
+	return toolSet.ListDescribedToolNames()
+}
+
+func hiddenDescribedToolNamesForEvent(toolSet *ToolSet) []string {
+	if toolSet == nil {
+		return nil
+	}
+	return toolSet.ListHiddenDescribedToolNames()
+}
+
+func selectedSkillAllowedToolsForEvent(request AgentTurnRequest) map[string][]string {
+	selectedSkillNames := selectedSkillNames(request.SkillDecisions)
+	return allowedToolsBySkillNameForEvent(request.AvailableSkills, selectedSkillNames)
+}
+
+func pinnedSkillAllowedToolsForEvent(request AgentTurnRequest) map[string][]string {
+	return allowedToolsBySkillNameForEvent(request.AvailableSkills, stringSet(request.PinnedSkillNames))
+}
+
+func allowedToolsBySkillNameForEvent(skillInstructions []SkillInstruction, skillNameByName map[string]bool) map[string][]string {
+	result := map[string][]string{}
+	for _, skillInstruction := range skillInstructions {
+		if !skillNameByName[skillInstruction.Name] {
+			continue
+		}
+		result[skillInstruction.Name] = SkillToolNames(skillInstruction)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func instructionSkillNames(sources []InstructionSource) []string {

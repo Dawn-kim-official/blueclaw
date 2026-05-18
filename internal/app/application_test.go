@@ -114,28 +114,22 @@ Research helper body.
 	}
 }
 
-func TestDeriveAllowedToolNamesByProfileIncludesRuntimeProvidedTools(t *testing.T) {
+func TestDeriveAllowedToolNamesByProfileKeepsDomainCapabilitiesOutOfBaseline(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.AgentProfiles = []config.AgentProfileConfiguration{
 		{Name: "default", AllowedToolNames: []string{"terminal.run"}},
 	}
-	runtimeConfiguration.Capabilities.ToolDescriptors = []config.CapabilityToolDescriptor{
-		{Name: "site.app.create"},
-	}
-	runtimeConfiguration.MCPServers = []config.MCPServerConfiguration{
-		{
-			Name:      "design",
-			ToolNames: []string{"design.render"},
-			Tools:     []config.MCPToolConfiguration{{Name: "design.publish"}},
-		},
-	}
+	runtimeConfiguration.Capabilities.ToolDescriptors = []config.CapabilityToolDescriptor{{Name: "site.app.create"}}
 
 	allowedToolNamesByProfile := deriveAllowedToolNamesByProfile(runtimeConfiguration)
 	defaultProfileToolNames := allowedToolNamesByProfile["default"]
 
-	for _, expectedToolName := range []string{"terminal.run", "site.app.create", "design.render", "design.publish"} {
+	if containsString(defaultProfileToolNames, "site.app.create") {
+		t.Fatalf("expected domain capability to stay out of profile baseline, got %+v", defaultProfileToolNames)
+	}
+	for _, expectedToolName := range []string{"terminal.run", "skill.search", "tool.describe", "web.fetch", "file.write", "schedule.create"} {
 		if !containsString(defaultProfileToolNames, expectedToolName) {
-			t.Fatalf("expected profile tools to contain %q, got %+v", expectedToolName, defaultProfileToolNames)
+			t.Fatalf("expected baseline tool %q, got %+v", expectedToolName, defaultProfileToolNames)
 		}
 	}
 }

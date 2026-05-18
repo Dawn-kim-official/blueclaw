@@ -371,6 +371,44 @@ func TestToolDescribeReturnsHiddenRegisteredToolSchema(t *testing.T) {
 	}
 }
 
+func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:           "site.app.create",
+		Description:    "Create a site.",
+		PolicyResource: "tool:site.app.create",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+			ResourceAccessRules: []policy.ResourceAccessPolicy{{
+				Resource: "tool:site.app.create",
+				Actions:  []string{"execute"},
+				Circles:  []string{"admin"},
+			}},
+		},
+	})
+
+	if strings.Contains(toolRegistry.Descriptions(), "site.app.create") {
+		t.Fatalf("expected denied site tool to be omitted from catalog, got %s", toolRegistry.Descriptions())
+	}
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "tool.describe",
+		Input: agent.MarshalToolInput(map[string]any{
+			"toolName": "site.app.create",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if strings.Contains(result.ContentText(), "site.app.create") {
+		t.Fatalf("expected denied site tool to be omitted from describe result, got %s", result.ContentText())
+	}
+}
+
 func TestSkillSearchToolExactNameIncludesCompletionMetadata(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {

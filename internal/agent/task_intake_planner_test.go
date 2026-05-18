@@ -537,7 +537,7 @@ func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 		t.Fatalf("expected one direct reply request, got %d", len(replyLanguageModel.requests))
 	}
 	requestContent := joinedMessageContent(replyLanguageModel.requests[0].Messages)
-	if !strings.Contains(requestContent, "Available tools") {
+	if !strings.Contains(requestContent, "Available tool catalog") {
 		t.Fatal("expected quick reply to expose tools")
 	}
 	if !strings.Contains(strings.Join(result.ToolNames, ","), "expensive") {

@@ -987,11 +987,20 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 		finalReplyDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	toolRegistry := NewToolSet([]string{"terminal.run"})
+	for _, toolName := range []string{"terminal.run", "site.app.create"} {
+		currentToolName := toolName
+		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		})
+	}
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID:  "person-1",
 		ConversationID:     "conversation-1",
 		Prompt:             "피피티 만들어줘",
+		ToolSet:            toolRegistry,
+		AvailableSkills:    []SkillInstruction{{Name: "simple-slides", AllowedTools: []string{"terminal.run", "site.app.create"}}},
 		InstructionPrompt:  "Available skill index.\n\nSelected skill instructions:\nGenerate PPTX with Marp.",
 		InstructionSources: []InstructionSource{{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides", SHA256: "abc"}},
 		SkillDecisions: []SkillSelectionDecision{{
@@ -1016,6 +1025,14 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	}
 	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "skills/simple-slides/SKILL.md") {
 		t.Fatal("expected selected skill source in instructions event")
+	}
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "registeredToolCount") ||
+		!taskEventsContain(taskEvents, "agent.instructions_loaded", "hiddenDescribedToolNames") ||
+		!taskEventsContain(taskEvents, "agent.instructions_loaded", "site.app.create") {
+		t.Fatal("expected tool visibility debug fields in instructions event")
+	}
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "selectedSkillAllowedTools") {
+		t.Fatal("expected selected skill allowed tools in instructions event")
 	}
 }
 

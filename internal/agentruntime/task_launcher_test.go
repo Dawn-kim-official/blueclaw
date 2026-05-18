@@ -715,8 +715,11 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected denied tool result: %v", errorValue)
 	}
-	if !staffResult.Failed() || !strings.Contains(staffResult.ContentText(), "cannot execute") {
+	if !staffResult.Failed() || !strings.Contains(staffResult.ContentText(), "tool is not allowed") {
 		t.Fatalf("expected staff execution denial, got %+v", staffResult)
+	}
+	if strings.Contains(staffToolSet.Descriptions(), "company.broadcast.send") {
+		t.Fatalf("expected denied tool to be omitted from catalog, got %s", staffToolSet.Descriptions())
 	}
 	if httpClient.requestPath != "" {
 		t.Fatalf("expected denied tool not to call capability bridge, got path=%s", httpClient.requestPath)
