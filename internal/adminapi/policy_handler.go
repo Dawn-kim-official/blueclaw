@@ -38,7 +38,7 @@ func (policyHandler PolicyHandler) HandleGetPolicy(responseWriter http.ResponseW
 		return
 	}
 
-	writeJSON(responseWriter, http.StatusOK, policyDocument)
+	writeJSON(responseWriter, http.StatusOK, policy.CanonicalizePolicyDocument(policyDocument))
 }
 
 func (policyHandler PolicyHandler) HandleValidatePolicy(responseWriter http.ResponseWriter, request *http.Request) {
@@ -49,6 +49,8 @@ func (policyHandler PolicyHandler) HandleValidatePolicy(responseWriter http.Resp
 		return
 	}
 
+	policyDocument = policy.CanonicalizePolicyDocument(policyDocument)
+	policyDocument = policy.CanonicalizePolicyDocument(policyDocument)
 	errorValue = policyHandler.Validator.ValidatePolicyDocument(policyDocument)
 	if errorValue != nil {
 		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
@@ -191,6 +193,7 @@ func (policyHandler PolicyHandler) removePerson(email string, personID string) (
 }
 
 func (policyHandler PolicyHandler) savePolicyDocument(policyDocument policy.PolicyDocument) (string, error) {
+	policyDocument = policy.CanonicalizePolicyDocument(policyDocument)
 	errorValue := policyHandler.Validator.ValidatePolicyDocument(policyDocument)
 	if errorValue != nil {
 		return "", errorValue
@@ -209,12 +212,12 @@ func createInvitedPersonPolicy(inviteRequest invitePersonRequest, email string) 
 	securityLevelName := strings.TrimSpace(inviteRequest.SecurityLevelName)
 	securityLevelRank := inviteRequest.SecurityLevelRank
 	grantedClasses := append([]string{}, inviteRequest.GrantedClasses...)
-	circles := normalizeCircles(append([]string{"staff"}, inviteRequest.Circles...))
+	circles := normalizeCircles(append([]string{policy.StaffCircleID}, inviteRequest.Circles...))
 	if inviteRequest.IsAdmin {
 		securityLevelName = "admin"
 		securityLevelRank = 100
 		grantedClasses = []string{"internal", "executive"}
-		circles = normalizeCircles(append(circles, "admin"))
+		circles = normalizeCircles(append(circles, policy.AdminCircleID))
 	}
 	if securityLevelName == "" {
 		securityLevelName = "member"

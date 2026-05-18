@@ -72,6 +72,22 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	}
 }
 
+func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
+	personAccess := requesterPersonAccessForTaskLaunch(TaskLaunchRequest{
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			Circles: []string{"finance"},
+		},
+	})
+
+	if personAccess.PersonID != "person-1" {
+		t.Fatalf("expected requester person id to be copied, got %+v", personAccess)
+	}
+	if !containsString(personAccess.Circles, "staff") || !containsString(personAccess.Circles, "finance") {
+		t.Fatalf("expected task requester access to include staff and explicit circles, got %+v", personAccess.Circles)
+	}
+}
+
 func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())

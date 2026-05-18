@@ -63,3 +63,26 @@ func TestIdentityServiceSkipsStalePlatformAccountWithoutPolicyEmail(t *testing.T
 		t.Fatal("expected stale platform account to be ignored")
 	}
 }
+
+func TestIdentityServiceResolvesRequesterAccessWithStaff(t *testing.T) {
+	identityService := NewIdentityService(policy.PolicyProjection{
+		PersonAccessByPersonID: map[string]policy.PersonAccess{
+			"person-1": {PersonID: "person-1", Circles: []string{"finance"}},
+		},
+	})
+
+	personAccess := identityService.ResolvePersonAccess("person-1")
+
+	if !hasIdentityTestString(personAccess.Circles, "staff") || !hasIdentityTestString(personAccess.Circles, "finance") {
+		t.Fatalf("expected requester access to include staff and explicit circles, got %+v", personAccess.Circles)
+	}
+}
+
+func hasIdentityTestString(values []string, expectedValue string) bool {
+	for _, value := range values {
+		if value == expectedValue {
+			return true
+		}
+	}
+	return false
+}
