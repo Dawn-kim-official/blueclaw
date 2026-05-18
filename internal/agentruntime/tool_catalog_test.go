@@ -844,7 +844,7 @@ func timePointer(value time.Time) *time.Time {
 	return &value
 }
 
-func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) {
+func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -856,7 +856,7 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path":    "/workspace/private/people/person-1/tmp/deck/presentation.md",
+			"path":    "home/projects/deck/presentation.md",
 			"content": "# Deck",
 		}),
 	})
@@ -869,14 +869,14 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	if strings.Contains(writeResult.ContentText(), workspacePath) {
 		t.Fatalf("expected file.write result not to expose host path, got %s", writeResult.ContentText())
 	}
-	if _, errorValue := os.Stat(filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck", "presentation.md")); errorValue != nil {
+	if _, errorValue := os.Stat(filepath.Join(workspacePath, "private", "people", "person-1", "projects", "deck", "presentation.md")); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
 	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "/workspace/private/people/person-1/tmp/deck/presentation.md",
+			"path": "home/projects/deck/presentation.md",
 		}),
 	})
 	if errorValue != nil {
@@ -885,7 +885,8 @@ func TestFileToolsAcceptAgentWorkspacePathsWithoutLeakingHostPath(t *testing.T) 
 	if attachResult.Failed() {
 		t.Fatalf("expected file.attach success, got %s", attachResult.ContentText())
 	}
-	if attachResult.Attachments[0].DevicePath != "/workspace/private/people/person-1/tmp/deck/presentation.md" {
+	expectedDevicePath := "/workspace/private/people/person-1/projects/deck/presentation.md"
+	if attachResult.Attachments[0].DevicePath != expectedDevicePath {
 		t.Fatalf("expected agent workspace device path, got %+v", attachResult.Attachments[0])
 	}
 }
@@ -899,7 +900,8 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName: "default",
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
@@ -949,7 +951,8 @@ func TestFileReadCapabilityDenyCirclePathForNonMember(t *testing.T) {
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName: "default",
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
@@ -988,7 +991,8 @@ func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName: "default",
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff", "finance"},
@@ -1016,7 +1020,8 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName: "default",
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff", "finance"},
@@ -1230,10 +1235,27 @@ func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
-	for _, path := range []string{"/tmp/a", "~/.cache/a", "/workspace/.blueclaw/tmp/a", "/workspace/private/people/person-2/tmp/a", "../escape"} {
+	for _, path := range []string{"/tmp/a", "~/.cache/a", "/workspace/.blueclaw/tmp/a", "/workspace/private/people/person-1/tmp/a", "/workspace/private/people/person-2/tmp/a", "../escape"} {
 		if _, errorValue := resolver.Resolve(path, scope); errorValue == nil {
 			t.Fatalf("expected resolver to reject %q", path)
 		}
+	}
+}
+
+func TestWorkspacePathResolverMapsVirtualHomeToRequesterPrivateRoot(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	resolvedPath, errorValue := resolver.Resolve("home/sites/site-1/DESIGN.md", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if resolvedPath.VirtualPath != "home/sites/site-1/DESIGN.md" {
+		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
+	}
+	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "DESIGN.md")
+	if resolvedPath.ConcretePath != expectedConcretePath {
+		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
 	}
 }
 
@@ -1330,14 +1352,15 @@ func TestTerminalRunPathGuardrailFailureIsRecoverable(t *testing.T) {
 
 func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	workspacePath := t.TempDir()
-	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1")
+	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<html>ok</html>")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "node_modules", "ignored.js"), "ignored")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "DESIGN.md"), "custom design")
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 
 	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
-		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	}, agent.MarshalToolInput(map[string]any{"siteID": "site-1"}))
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -1346,7 +1369,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if inputDocument["sourceWorkspacePath"] != "/workspace/circles/staff/sites/site-1" {
+	if inputDocument["sourceWorkspacePath"] != "home/sites/site-1" {
 		t.Fatalf("unexpected source workspace path: %+v", inputDocument)
 	}
 	if inputDocument["sourceBundleFormat"] != "tar.gz" {
@@ -1363,7 +1386,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 
 func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	workspacePath := t.TempDir()
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"home/sites/site-1","workspacePath":"home/sites/site-1","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -1372,7 +1395,8 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName: "default",
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
@@ -1389,14 +1413,14 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
 	}
-	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1")
+	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
 	for _, relativePath := range []string{"DESIGN.md", "app/package.json", "app/src/App.tsx", "pocketbase/pb_hooks/.gitkeep"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
 		}
 	}
-	if !strings.Contains(result.ContentText(), `"/workspace/circles/staff/sites/site-1"`) {
-		t.Fatalf("expected canonical source workspace in result, got %s", result.ContentText())
+	if !strings.Contains(result.ContentText(), `"home/sites/site-1"`) {
+		t.Fatalf("expected virtual source workspace in result, got %s", result.ContentText())
 	}
 }
 

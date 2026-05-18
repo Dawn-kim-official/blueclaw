@@ -1795,7 +1795,7 @@ func defaultSiteSourceWorkspacePath(inputDocument map[string]any) string {
 	if !isString || strings.TrimSpace(siteID) == "" {
 		return ""
 	}
-	return filepath.Join("/workspace", "circles", "staff", "sites", strings.TrimSpace(siteID))
+	return filepath.ToSlash(filepath.Join("home", "sites", strings.TrimSpace(siteID)))
 }
 
 func siteSourceBundleExcludeNames() []string {

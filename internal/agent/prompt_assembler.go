@@ -220,27 +220,24 @@ func buildRuntimeContextDescription(request AgentTurnRequest) string {
 }
 
 func buildWorkspaceContextDescription(request AgentTurnRequest) string {
-	defaultPath := strings.TrimSpace(request.WorkspaceDefaultPath)
-	if defaultPath == "" {
+	if strings.TrimSpace(request.WorkspaceDefaultPath) == "" {
 		return ""
 	}
 	lines := []string{
 		"Terminal commands run as the requester POSIX identity.",
-		"Default writable workspace directory: " + defaultPath,
-		"Prefer relative paths from that directory for generated files.",
+		"Use virtual workspace paths in tool inputs; do not use concrete private POSIX paths.",
+		"Use home/<path> for requester-private durable source work.",
+		"Use tmp/<artifact-slug> for draft artifact work.",
+		"Use artifacts/<artifact-slug> for accepted final files.",
 	}
 	if personID := strings.TrimSpace(request.RequesterPersonID); personID != "" {
-		lines = append(lines, "Person-private files live under /workspace/private/people/"+personID+".")
-		lines = append(lines, "Use tmp/<artifact-slug> for draft artifact work and artifacts/<artifact-slug> for accepted final files relative to the default writable directory.")
+		lines = append(lines, "The requester has a private POSIX home directory, but tool path fields should refer to it as home/<path>.")
 	}
 	lines = append(lines,
 		"Circle-shared files live under /workspace/circles/<circleID> when the requester belongs to that circle.",
 		"/workspace/.blueclaw is service-owned runtime state and is normally not writable from terminal tools.",
-		"If unsure, inspect access with: id; pwd; ls -ld <path>; stat -c '%A %U %G %n' <path>; test -w <path>.",
+		"If unsure, inspect access with virtual-path working directories such as tmp/<slug>: id; pwd; ls -ld .; stat -c '%A %U %G %n' .; test -w .",
 	)
-	if rootPath := strings.TrimSpace(request.WorkspaceRootPath); rootPath != "" {
-		lines = append(lines, "Workspace root: "+rootPath)
-	}
 	return strings.Join(lines, "\n")
 }
 

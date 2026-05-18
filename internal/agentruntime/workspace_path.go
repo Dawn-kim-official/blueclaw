@@ -90,7 +90,7 @@ func (resolver WorkspacePathResolver) Resolve(value string, scope WorkspaceScope
 		return ResolvedWorkspacePath{}, errors.New("path is required")
 	}
 	if strings.HasPrefix(trimmedPath, "~") {
-		return ResolvedWorkspacePath{}, errors.New("home-relative paths are not supported; use tmp/<slug> or artifacts/<slug>")
+		return ResolvedWorkspacePath{}, errors.New("home-relative shell paths are not supported; use home/<path>, tmp/<slug>, or artifacts/<slug>")
 	}
 	if isDeniedAbsoluteWorkspacePath(trimmedPath) {
 		return ResolvedWorkspacePath{}, errors.New("path is outside the supported workspace artifact contract")
@@ -127,6 +127,13 @@ func (resolver WorkspacePathResolver) resolveVirtual(value string, scope Workspa
 		suffix := strings.TrimPrefix(cleanPath, "artifacts/")
 		return resolver.resolvedPath(filepath.Join(scope.RequesterArtifactRootPath, suffix), filepath.ToSlash(cleanPath), workspacePathKindArtifact, true)
 	}
+	if cleanPath == "home" {
+		return resolver.resolvedPath(scope.RequesterRootPath, "home", workspacePathKindWorkspace, false)
+	}
+	if strings.HasPrefix(cleanPath, "home/") {
+		suffix := strings.TrimPrefix(cleanPath, "home/")
+		return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), filepath.ToSlash(cleanPath), workspacePathKindWorkspace, false)
+	}
 	return resolver.resolvedPath(filepath.Join(scope.DefaultDirectoryPath, cleanPath), filepath.ToSlash(filepath.Join("tmp", cleanPath)), workspacePathKindDraft, false)
 }
 
@@ -156,16 +163,7 @@ func (resolver WorkspacePathResolver) resolveAbsolute(value string, scope Worksp
 		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindSkills}, nil
 	}
 	if len(parts) >= 3 && parts[0] == "private" && parts[1] == "people" {
-		if scope.RequesterPersonID == "" || parts[2] != scope.RequesterPersonID {
-			return ResolvedWorkspacePath{}, errors.New("another person's private workspace is not available")
-		}
-		if len(parts) >= 4 && parts[3] == "artifacts" {
-			return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindArtifact, IsDurableArtifact: true}, nil
-		}
-		if len(parts) >= 4 && parts[3] == "tmp" {
-			return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindDraft}, nil
-		}
-		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindWorkspace}, nil
+		return ResolvedWorkspacePath{}, errors.New("do not use concrete private workspace paths; use home/<path>, tmp/<slug>, or artifacts/<slug>")
 	}
 	if len(parts) >= 2 && parts[0] == "circles" {
 		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindCircle, IsDurableArtifact: true}, nil

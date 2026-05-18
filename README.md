@@ -146,20 +146,21 @@ flowchart LR
   Resolver --> Actor["WorkspaceActor"]
   Actor --> Helper["blueclaw-posix-helper"]
   Helper --> Requester["requester UID/GID"]
-  Requester --> Workspace["/workspace/private/people/<personID>"]
+  Requester --> Workspace["requester private home"]
 ```
 
 Supported model-facing workspace path prefixes are virtual:
 
 | Prefix | Meaning |
 |---|---|
+| `home/<path>/...` | requester-private durable source workspace |
 | `tmp/<slug>/...` | requester-private draft workspace for the current task |
 | `artifacts/<slug>/...` | requester-private durable artifact location |
 | `/workspace/circles/<circleID>/...` | durable circle location when policy allows access |
 | `/workspace/shared/public/...` | explicitly public shared location |
 | `/workspace/skills/...` | built-in skill source, read/execute only |
 
-Disallowed model-facing paths include `/workspace/.blueclaw`, `/tmp`, `~`, `/opt`, `/usr`, another person's private path, and ambiguous relative `tmp` or `artifacts` from an unknown cwd.
+Disallowed model-facing paths include `/workspace/.blueclaw`, `/tmp`, `~`, `/opt`, `/usr`, concrete private person paths, another person's private path, and ambiguous relative `tmp`, `home`, or `artifacts` from an unknown cwd.
 
 Artifact work follows the same flow for document, spreadsheet, slide, and PDF skills:
 

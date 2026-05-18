@@ -12,14 +12,14 @@ func TestSiteAppCreateSummaryKeepsAgentWorkspacePaths(t *testing.T) {
 		Output: ToolOutput{Content: `{
 			"siteID":"site-1",
 			"slug":"demo",
-			"workspacePath":"/workspace/circles/staff/sites/site-1",
-			"sourceWorkspacePath":"/workspace/circles/staff/sites/site-1",
+			"workspacePath":"home/sites/site-1",
+			"sourceWorkspacePath":"home/sites/site-1",
 			"hostSourcePath":"/root/.blueclaw/workspace/sites/site-1",
 			"status":"draft"
 		}`},
 	})
 
-	if !strings.Contains(summary, "sourceWorkspacePath=/workspace/circles/staff/sites/site-1") {
+	if !strings.Contains(summary, "sourceWorkspacePath=home/sites/site-1") {
 		t.Fatalf("expected sourceWorkspacePath in summary, got %q", summary)
 	}
 	if strings.Contains(summary, "hostSourcePath") || strings.Contains(summary, "/root/.blueclaw") {
