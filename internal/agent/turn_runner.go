@@ -1245,9 +1245,9 @@ func terminalPathRecoveryGuidance(observation turnObservation) string {
 	}
 	switch strings.TrimSpace(observation.FailureStage()) {
 	case "terminal_path_guardrail":
-		return "Recovery route: retry terminal.run with corrected paths under /workspace. Do not call /opt/blueclaw, /tmp, another person's private directory, or other runtime-internal paths directly. For built-in artifact skills, execute /workspace/skills/<skill>/scripts/skill_runtime.py and let the wrapper choose dependencies."
+		return "Recovery route: retry terminal.run with virtual workspace paths: tmp/<slug> for draft work, home/<path> for requester-private durable source work, and artifacts/<slug> only after promotion. Do not call /opt/blueclaw, /tmp, concrete private POSIX paths, or runtime-internal paths directly. For built-in artifact skills, execute /workspace/skills/<skill>/scripts/skill_runtime.py and let the wrapper choose dependencies."
 	case "terminal_working_directory_access":
-		return "Recovery route: retry terminal.run with workingDirectoryPath set to tmp/<slug> relative to the default writable directory, then promote accepted output to artifacts/<slug> or an allowed circle/shared path."
+		return "Recovery route: retry terminal.run with workingDirectoryPath set to tmp/<slug> or home/<path>, use relative paths inside the command, then promote accepted output to artifacts/<slug> or an allowed circle/shared path."
 	default:
 		return ""
 	}

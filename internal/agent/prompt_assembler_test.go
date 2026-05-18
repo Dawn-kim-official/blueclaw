@@ -106,19 +106,23 @@ func TestPromptAssemblerIncludesWritableWorkspaceContext(t *testing.T) {
 
 	for _, expected := range []string{
 		"Terminal commands run as the requester POSIX identity.",
-		"Default writable workspace directory: /workspace/private/people/person-1",
-		"Prefer relative paths from that directory for generated files.",
-		"Person-private files live under /workspace/private/people/person-1.",
-		"Use tmp/<artifact-slug> for draft artifact work and artifacts/<artifact-slug> for accepted final files",
+		"Use virtual workspace paths in tool inputs",
+		"Use home/<path> for requester-private durable source work.",
+		"Use tmp/<artifact-slug> for draft artifact work.",
+		"Use artifacts/<artifact-slug> for accepted final files.",
+		"The requester has a private POSIX home directory",
 		"Circle-shared files live under /workspace/circles/<circleID>",
 		"/workspace/.blueclaw is service-owned runtime state",
-		"ls -ld <path>",
-		"stat -c '%A %U %G %n' <path>",
-		"test -w <path>",
+		"ls -ld .",
+		"stat -c '%A %U %G %n' .",
+		"test -w .",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected workspace context %q, got %s", expected, body)
 		}
+	}
+	if strings.Contains(body, "/workspace/private/people/") {
+		t.Fatalf("workspace context must not expose concrete private paths, got %s", body)
 	}
 }
 

@@ -53,7 +53,8 @@ func TestTerminalPathGuardrailRecoveryGuidanceIncludesCorrectedWorkspaceRetry(t 
 
 	for _, expectedText := range []string{
 		"retry terminal.run",
-		"under /workspace",
+		"virtual workspace paths",
+		"home/<path>",
 		"/workspace/skills/<skill>/scripts/skill_runtime.py",
 		"Do not call /opt/blueclaw",
 	} {
