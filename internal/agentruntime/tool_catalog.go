@@ -1,15 +1,13 @@
 package agentruntime
 
 import (
-	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"html"
 	"mime"
 	"net"
 	"net/url"
@@ -651,7 +649,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
 					return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
 				}
-				toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput(toolName, request, json.RawMessage(toolInvocation.Input))
+				toolInput, toolFailure, errorValue := toolCatalogBuilder.prepareCapabilityToolInput(toolContext, toolName, request, json.RawMessage(toolInvocation.Input))
+				if toolFailure != nil {
+					return *toolFailure, nil
+				}
 				if errorValue != nil {
 					return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", errorValue.Error()), nil
 				}
@@ -661,6 +662,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, toolInput), &response)
 				if errorValue != nil {
 					return agent.ToolResult{}, errorValue
+				}
+				if !response.IsError && response.Status != "error" && response.Status != "denied" {
+					toolFailure, errorValue := toolCatalogBuilder.handleCapabilityToolSuccess(toolContext, toolName, request, &response.Result)
+					if toolFailure != nil {
+						return *toolFailure, nil
+					}
+					if errorValue != nil {
+						return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_result", errorValue.Error()), nil
+					}
 				}
 				content := strings.TrimSpace(response.Content)
 				if content == "" && len(response.Result) > 0 {
@@ -1505,14 +1515,31 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 	return requestDocument
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
+	if strings.TrimSpace(toolName) == "site.app.publish" {
+		toolInput, toolFailure, errorValue := toolCatalogBuilder.enrichSitePublishInput(toolContext, request, toolInput)
+		return toolInput, toolFailure, errorValue
+	}
+	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput(toolName, request, toolInput)
+	return toolInput, nil, errorValue
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
 	if strings.TrimSpace(toolName) != "site.app.publish" {
 		return toolInput, nil
 	}
+	toolInput, toolFailure, errorValue := toolCatalogBuilder.enrichSitePublishInput(context.Background(), request, toolInput)
+	if toolFailure != nil {
+		return nil, errors.New(toolFailure.ContentText())
+	}
+	return toolInput, errorValue
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) enrichSitePublishInput(toolContext context.Context, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
 	inputDocument := map[string]any{}
 	if len(toolInput) > 0 {
 		if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
-			return nil, errorValue
+			return nil, nil, errorValue
 		}
 	}
 	sourceWorkspacePath := siteSourceWorkspacePath(inputDocument)
@@ -1520,23 +1547,218 @@ func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName
 		sourceWorkspacePath = defaultSiteSourceWorkspacePath(inputDocument)
 	}
 	if sourceWorkspacePath == "" {
-		return toolInput, nil
+		return toolInput, nil, nil
 	}
-	resolvedSourcePath, errorValue := toolCatalogBuilder.resolveWorkspaceFilePath(sourceWorkspacePath)
+	scope := WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, agent.TaskRunIDFromContext(toolContext))
+	resolvedSourcePath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(sourceWorkspacePath, scope)
+	if errorValue != nil {
+		return nil, nil, errorValue
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedSourcePath.ConcretePath) {
+		return nil, nil, errors.New("current account cannot publish this site workspace path")
+	}
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, request)
+	if actorFailure != nil {
+		return nil, actorFailure, nil
+	}
+	sourceBundle, errorValue := workspaceActor.BundleDirectory(toolContext, workspacepath.Directory(resolvedSourcePath), security.WorkspaceActorBundleOptions{
+		Format:       "tar.gz",
+		MaxBytes:     siteSourceBundleMaximumBytes,
+		ExcludeNames: siteSourceBundleExcludeNames(),
+	})
+	if errorValue != nil {
+		toolFailure := actorToolFailure("bundle_directory", "site_publish", resolvedSourcePath.VirtualPath, errorValue)
+		return nil, &toolFailure, nil
+	}
+	inputDocument["sourceWorkspacePath"] = resolvedSourcePath.VirtualPath
+	inputDocument["sourceBundleBase64"] = sourceBundle.ContentBase64
+	inputDocument["sourceBundleFormat"] = sourceBundle.Format
+	document, errorValue := json.Marshal(inputDocument)
+	return document, nil, errorValue
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolContext context.Context, toolName string, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
+	if strings.TrimSpace(toolName) != "site.app.create" {
+		return nil, nil
+	}
+	return toolCatalogBuilder.materializeSiteCreateResult(toolContext, request, result)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolContext context.Context, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
+	site, errorValue := decodeSiteCreateResult(*result)
 	if errorValue != nil {
 		return nil, errorValue
 	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedSourcePath) {
-		return nil, errors.New("current account cannot publish this site workspace path")
+	if strings.TrimSpace(site.SourceWorkspacePath) == "" {
+		site.SourceWorkspacePath = defaultSiteSourceWorkspacePath(map[string]any{"siteID": site.SiteID})
 	}
-	sourceBundleBase64, errorValue := buildSiteSourceBundleBase64(resolvedSourcePath)
+	scope := WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, agent.TaskRunIDFromContext(toolContext))
+	sourceWorkspace, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(site.SourceWorkspacePath, scope)
 	if errorValue != nil {
 		return nil, errorValue
 	}
-	inputDocument["sourceWorkspacePath"] = toolCatalogBuilder.agentWorkspacePath(resolvedSourcePath)
-	inputDocument["sourceBundleBase64"] = sourceBundleBase64
-	inputDocument["sourceBundleFormat"] = "tar.gz"
-	return json.Marshal(inputDocument)
+	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionWrite, sourceWorkspace.ConcretePath) {
+		return toolResultPointer(agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "site_source_workspace", "current account cannot write this site workspace path")), nil
+	}
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, request)
+	if actorFailure != nil {
+		return actorFailure, nil
+	}
+	if toolFailure := writeSiteStarterFiles(toolContext, workspaceActor, workspacepath.Directory(sourceWorkspace), site); toolFailure != nil {
+		return toolFailure, nil
+	}
+	site.SourceWorkspacePath = sourceWorkspace.VirtualPath
+	site.WorkspacePath = sourceWorkspace.VirtualPath
+	document, errorValue := json.Marshal(site)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	*result = document
+	return nil, nil
+}
+
+type siteCreateResult struct {
+	SiteID              string `json:"siteID"`
+	Slug                string `json:"slug"`
+	Title               string `json:"title"`
+	PublishedURL        string `json:"publishedURL"`
+	WorkspacePath       string `json:"workspacePath"`
+	SourceWorkspacePath string `json:"sourceWorkspacePath"`
+	Status              string `json:"status"`
+}
+
+func decodeSiteCreateResult(document json.RawMessage) (siteCreateResult, error) {
+	if len(bytes.TrimSpace(document)) == 0 {
+		return siteCreateResult{}, errors.New("site.app.create returned no result")
+	}
+	var site siteCreateResult
+	if errorValue := json.Unmarshal(document, &site); errorValue != nil {
+		return siteCreateResult{}, errorValue
+	}
+	if strings.TrimSpace(site.SiteID) == "" {
+		return siteCreateResult{}, errors.New("site.app.create result is missing siteID")
+	}
+	return site, nil
+}
+
+func writeSiteStarterFiles(ctx context.Context, workspaceActor security.WorkspaceActor, sourceWorkspace workspacepath.Directory, site siteCreateResult) *agent.ToolResult {
+	if errorValue := workspaceActor.MkdirAll(ctx, sourceWorkspace, 02770); errorValue != nil {
+		toolFailure := actorToolFailure("mkdir_all", "site_create", sourceWorkspace.VirtualPath, errorValue)
+		return &toolFailure
+	}
+	for _, siteFile := range siteStarterFiles(site) {
+		path := workspacePathForSiteStarterFile(sourceWorkspace, siteFile.Path)
+		if errorValue := workspaceActor.MkdirAll(ctx, path.Parent(), 02770); errorValue != nil {
+			toolFailure := actorToolFailure("mkdir_all", "site_create", path.VirtualPath, errorValue)
+			return &toolFailure
+		}
+		if errorValue := workspaceActor.WriteFile(ctx, path, []byte(siteFile.Content), 0660); errorValue != nil {
+			toolFailure := actorToolFailure("write_file", "site_create", path.VirtualPath, errorValue)
+			return &toolFailure
+		}
+	}
+	return nil
+}
+
+type siteStarterFile struct {
+	Path    string
+	Content string
+}
+
+func workspacePathForSiteStarterFile(sourceWorkspace workspacepath.Directory, relativePath string) workspacepath.Path {
+	cleanPath := filepath.Clean(relativePath)
+	return workspacepath.Path{
+		ConcretePath:      filepath.Join(sourceWorkspace.ConcretePath, cleanPath),
+		VirtualPath:       filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, cleanPath)),
+		Kind:              sourceWorkspace.Kind,
+		IsDurableArtifact: sourceWorkspace.IsDurableArtifact,
+	}
+}
+
+func siteStarterFiles(site siteCreateResult) []siteStarterFile {
+	return []siteStarterFile{
+		{Path: ".internkim/site.json", Content: siteWorkspaceMetadata(site)},
+		{Path: "DESIGN.md", Content: siteDesignDocument(site)},
+		{Path: "app/package.json", Content: sitePackageDocument(site)},
+		{Path: "app/index.html", Content: siteIndexDocument(site)},
+		{Path: "app/src/main.tsx", Content: siteMainTSXDocument()},
+		{Path: "app/src/App.tsx", Content: siteAppTSXDocument(site)},
+		{Path: "app/src/styles.css", Content: siteStylesDocument()},
+		{Path: "pocketbase/pb_migrations/.gitkeep", Content: ""},
+		{Path: "pocketbase/pb_hooks/.gitkeep", Content: ""},
+	}
+}
+
+func siteWorkspaceMetadata(site siteCreateResult) string {
+	document, errorValue := json.MarshalIndent(map[string]any{
+		"siteID":         site.SiteID,
+		"slug":           site.Slug,
+		"title":          site.Title,
+		"publishedURL":   site.PublishedURL,
+		"purpose":        "prototype for idea validation",
+		"stack":          "React + Vite + PocketBase",
+		"designDefault":  "starter scaffold only; customize through DESIGN.md before publish",
+		"sourceContract": "editable source is owned by the requester actor",
+	}, "", "  ")
+	if errorValue != nil {
+		return "{}\n"
+	}
+	return string(document) + "\n"
+}
+
+func sitePackageDocument(site siteCreateResult) string {
+	document, errorValue := json.MarshalIndent(map[string]any{
+		"scripts": map[string]string{
+			"build":   "vite build",
+			"dev":     "vite --host 0.0.0.0",
+			"preview": "vite preview --host 0.0.0.0",
+		},
+		"dependencies": map[string]string{
+			"@vitejs/plugin-react": "latest",
+			"lucide-react":         "latest",
+			"pocketbase":           "latest",
+			"react":                "latest",
+			"react-dom":            "latest",
+			"typescript":           "latest",
+			"vite":                 "latest",
+		},
+		"devDependencies": map[string]string{},
+		"name":            sanitizeWorkspaceSlug(site.Slug),
+		"private":         true,
+		"type":            "module",
+		"version":         "0.0.0",
+	}, "", "  ")
+	if errorValue != nil {
+		return "{}\n"
+	}
+	return string(document) + "\n"
+}
+
+func siteDesignDocument(site siteCreateResult) string {
+	title := html.EscapeString(firstNonEmptyString(site.Title, site.Slug))
+	return "# " + title + " DESIGN.md\n\n## Product\n\nEditable scaffold for a website prototype. Replace this file with a request-specific design system before publishing user-facing work.\n\n## Audience\n\nDefine the primary user and what they are trying to accomplish.\n\n## Prototype Scope\n\nDescribe what works in the first publish and what is intentionally deferred.\n\n## Visual Direction\n\nChoose typography, color, spacing, layout density, interaction feel, and responsive behavior for this specific request.\n\n## Screens\n\nList the screens and states included in the prototype.\n\n## Workflows\n\nDescribe the main interaction paths the user can try.\n\n## Data Model\n\nDefine local state, fake data, PocketBase collections, files, or realtime behavior.\n\n## Implemented Now\n\nReplace this scaffold with the implemented feature set before publishing.\n\n## Next Iterations\n\nRecord follow-up work for longer projects.\n\n## Acceptance Criteria\n\nList the checks that must pass before publish.\n"
+}
+
+func siteIndexDocument(site siteCreateResult) string {
+	title := html.EscapeString(firstNonEmptyString(site.Title, site.Slug))
+	return "<!doctype html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"UTF-8\" />\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n<title>" + title + "</title>\n</head>\n<body>\n<div id=\"root\"></div>\n<script type=\"module\" src=\"/src/main.tsx\"></script>\n</body>\n</html>\n"
+}
+
+func siteMainTSXDocument() string {
+	return "import React from 'react';\nimport { createRoot } from 'react-dom/client';\nimport App from './App';\nimport './styles.css';\n\nconst rootElement = document.getElementById('root');\n\nif (rootElement) {\n  createRoot(rootElement).render(\n    <React.StrictMode>\n      <App />\n    </React.StrictMode>,\n  );\n}\n"
+}
+
+func siteAppTSXDocument(site siteCreateResult) string {
+	title := html.EscapeString(firstNonEmptyString(site.Title, site.Slug))
+	return "import PocketBase from 'pocketbase';\n\nconst pocketBase = new PocketBase(window.location.origin);\n\nexport default function App() {\n  return (\n    <main className=\"scaffold-shell\">\n      <section className=\"scaffold-panel\">\n        <p className=\"scaffold-label\">Editable scaffold</p>\n        <h1>" + title + "</h1>\n        <p className=\"scaffold-copy\">\n          이 사이트는 아직 사용자 요청에 맞게 제작되기 전의 기본 작업 공간입니다. DESIGN.md를 작성하고 React 소스를 구현한 뒤 빌드해서 배포하세요.\n        </p>\n        <span className=\"scaffold-origin\">{pocketBase.baseURL}</span>\n      </section>\n    </main>\n  );\n}\n"
+}
+
+func siteStylesDocument() string {
+	return ":root {\n  color: #111827;\n  background: #f8fafc;\n  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Apple SD Gothic Neo\", \"Segoe UI\", sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\nbody {\n  margin: 0;\n  min-width: 320px;\n  min-height: 100vh;\n  background: #f8fafc;\n}\n\n.scaffold-shell {\n  display: grid;\n  min-height: 100vh;\n  place-items: center;\n  padding: 24px;\n}\n\n.scaffold-panel {\n  width: min(640px, 100%);\n  border: 1px solid #d1d5db;\n  border-radius: 8px;\n  background: #ffffff;\n  padding: 28px;\n}\n\n.scaffold-label {\n  margin: 0 0 12px;\n  color: #6b7280;\n  font-size: 13px;\n  font-weight: 700;\n}\n\nh1 {\n  margin: 0;\n  font-size: 32px;\n  line-height: 1.15;\n  letter-spacing: 0;\n}\n\n.scaffold-copy {\n  margin: 16px 0 0;\n  color: #4b5563;\n  font-size: 15px;\n  line-height: 1.65;\n}\n\n.scaffold-origin {\n  display: inline-block;\n  margin-top: 18px;\n  color: #6b7280;\n  font-size: 13px;\n}\n\n@media (max-width: 680px) {\n  .scaffold-panel {\n    padding: 22px;\n  }\n\n  h1 {\n    font-size: 28px;\n  }\n}\n"
+}
+
+func toolResultPointer(result agent.ToolResult) *agent.ToolResult {
+	return &result
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) error {
@@ -1576,73 +1798,8 @@ func defaultSiteSourceWorkspacePath(inputDocument map[string]any) string {
 	return filepath.Join("/workspace", "circles", "staff", "sites", strings.TrimSpace(siteID))
 }
 
-func buildSiteSourceBundleBase64(sourceWorkspacePath string) (string, error) {
-	buffer := bytes.Buffer{}
-	gzipWriter := gzip.NewWriter(&buffer)
-	tarWriter := tar.NewWriter(gzipWriter)
-	errorValue := filepath.Walk(sourceWorkspacePath, func(path string, information os.FileInfo, walkError error) error {
-		if walkError != nil {
-			return walkError
-		}
-		relativePath, errorValue := filepath.Rel(sourceWorkspacePath, path)
-		if errorValue != nil || relativePath == "." {
-			return errorValue
-		}
-		if shouldSkipSiteSourceBundlePath(relativePath, information) {
-			if information.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		return writeSiteSourceBundleEntry(tarWriter, path, relativePath, information)
-	})
-	closeError := tarWriter.Close()
-	gzipCloseError := gzipWriter.Close()
-	if errorValue != nil {
-		return "", errorValue
-	}
-	if closeError != nil {
-		return "", closeError
-	}
-	if gzipCloseError != nil {
-		return "", gzipCloseError
-	}
-	if buffer.Len() > siteSourceBundleMaximumBytes {
-		return "", errors.New("site source bundle is too large")
-	}
-	return base64.StdEncoding.EncodeToString(buffer.Bytes()), nil
-}
-
-func shouldSkipSiteSourceBundlePath(relativePath string, information os.FileInfo) bool {
-	_ = information
-	for _, component := range strings.Split(filepath.Clean(relativePath), string(os.PathSeparator)) {
-		switch component {
-		case ".git", "node_modules":
-			return true
-		}
-	}
-	return false
-}
-
-func writeSiteSourceBundleEntry(tarWriter *tar.Writer, path string, relativePath string, information os.FileInfo) error {
-	header, errorValue := tar.FileInfoHeader(information, "")
-	if errorValue != nil {
-		return errorValue
-	}
-	header.Name = filepath.ToSlash(relativePath)
-	if errorValue := tarWriter.WriteHeader(header); errorValue != nil {
-		return errorValue
-	}
-	if information.IsDir() {
-		return nil
-	}
-	file, errorValue := os.Open(path)
-	if errorValue != nil {
-		return errorValue
-	}
-	defer file.Close()
-	_, errorValue = io.Copy(tarWriter, file)
-	return errorValue
+func siteSourceBundleExcludeNames() []string {
+	return []string{".git", "node_modules", ".vite", ".turbo", ".cache"}
 }
 
 func shouldRequireCompanionBrowser(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) bool {

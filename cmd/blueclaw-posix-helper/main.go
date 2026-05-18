@@ -1,6 +1,9 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -153,6 +156,7 @@ func runFS(arguments []string) error {
 	modeText := flags.String("mode", "0660", "octal mode")
 	maxBytes := flags.Int64("max-bytes", 0, "maximum read bytes")
 	overwrite := flags.Bool("overwrite", false, "overwrite destination")
+	excludeNamesDocument := flags.String("exclude-names", "", "comma-separated path names to skip")
 	if errorValue := flags.Parse(arguments); errorValue != nil {
 		return errorValue
 	}
@@ -171,22 +175,24 @@ func runFS(arguments []string) error {
 		return errorValue
 	}
 	return performFSOperation(fsOperationRequest{
-		Operation: *operation,
-		Path:      *path,
-		Source:    *source,
-		Mode:      mode,
-		MaxBytes:  *maxBytes,
-		Overwrite: *overwrite,
+		Operation:    *operation,
+		Path:         *path,
+		Source:       *source,
+		Mode:         mode,
+		MaxBytes:     *maxBytes,
+		Overwrite:    *overwrite,
+		ExcludeNames: splitCommaSeparatedNames(*excludeNamesDocument),
 	})
 }
 
 type fsOperationRequest struct {
-	Operation string
-	Path      string
-	Source    string
-	Mode      os.FileMode
-	MaxBytes  int64
-	Overwrite bool
+	Operation    string
+	Path         string
+	Source       string
+	Mode         os.FileMode
+	MaxBytes     int64
+	Overwrite    bool
+	ExcludeNames []string
 }
 
 type fsOperationResponse struct {
@@ -196,6 +202,7 @@ type fsOperationResponse struct {
 	SizeBytes     int64       `json:"sizeBytes,omitempty"`
 	Mode          os.FileMode `json:"mode,omitempty"`
 	ContentBase64 string      `json:"contentBase64,omitempty"`
+	Format        string      `json:"format,omitempty"`
 }
 
 func performFSOperation(request fsOperationRequest) error {
@@ -208,6 +215,8 @@ func performFSOperation(request fsOperationRequest) error {
 		return readFile(request.Path, request.MaxBytes)
 	case "copy_file":
 		return copyFile(request.Source, request.Path, request.Mode, request.Overwrite)
+	case "bundle_directory":
+		return bundleDirectory(request.Path, request.MaxBytes, request.ExcludeNames)
 	case "stat":
 		return statPath(request.Path)
 	default:
@@ -342,6 +351,98 @@ func statPath(path string) error {
 	})
 }
 
+func bundleDirectory(path string, maxBytes int64, excludeNames []string) error {
+	if strings.TrimSpace(path) == "" {
+		return errors.New("path is required")
+	}
+	fileInformation, errorValue := os.Stat(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	if !fileInformation.IsDir() {
+		return errors.New("path is not a directory")
+	}
+	document, errorValue := bundleDirectoryDocument(path, maxBytes, excludeNames)
+	if errorValue != nil {
+		return errorValue
+	}
+	return json.NewEncoder(os.Stdout).Encode(fsOperationResponse{
+		ContentBase64: base64.StdEncoding.EncodeToString(document),
+		SizeBytes:     int64(len(document)),
+		Format:        "tar.gz",
+	})
+}
+
+func bundleDirectoryDocument(rootPath string, maxBytes int64, excludeNames []string) ([]byte, error) {
+	buffer := bytes.Buffer{}
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	errorValue := filepath.Walk(rootPath, func(path string, information os.FileInfo, walkError error) error {
+		if walkError != nil {
+			return walkError
+		}
+		relativePath, errorValue := filepath.Rel(rootPath, path)
+		if errorValue != nil || relativePath == "." {
+			return errorValue
+		}
+		if bundlePathIsExcluded(relativePath, information, excludeNames) {
+			if information.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		return writeBundleEntry(tarWriter, path, relativePath, information)
+	})
+	closeError := tarWriter.Close()
+	gzipCloseError := gzipWriter.Close()
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	if closeError != nil {
+		return nil, closeError
+	}
+	if gzipCloseError != nil {
+		return nil, gzipCloseError
+	}
+	if maxBytes > 0 && int64(buffer.Len()) > maxBytes {
+		return nil, errors.New("directory bundle is too large")
+	}
+	return buffer.Bytes(), nil
+}
+
+func bundlePathIsExcluded(relativePath string, information os.FileInfo, excludeNames []string) bool {
+	pathParts := strings.Split(filepath.ToSlash(relativePath), "/")
+	for _, pathPart := range pathParts {
+		for _, excludeName := range excludeNames {
+			if strings.TrimSpace(pathPart) == strings.TrimSpace(excludeName) {
+				return true
+			}
+		}
+	}
+	return !information.IsDir() && strings.HasSuffix(relativePath, "~")
+}
+
+func writeBundleEntry(tarWriter *tar.Writer, path string, relativePath string, information os.FileInfo) error {
+	header, errorValue := tar.FileInfoHeader(information, "")
+	if errorValue != nil {
+		return errorValue
+	}
+	header.Name = filepath.ToSlash(relativePath)
+	if errorValue := tarWriter.WriteHeader(header); errorValue != nil {
+		return errorValue
+	}
+	if !information.Mode().IsRegular() {
+		return nil
+	}
+	file, errorValue := os.Open(path)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer file.Close()
+	_, errorValue = io.Copy(tarWriter, file)
+	return errorValue
+}
+
 func regularFileInformation(path string) (os.FileInfo, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("path is required")
@@ -354,6 +455,17 @@ func regularFileInformation(path string) (os.FileInfo, error) {
 		return nil, errors.New("path is not a regular file")
 	}
 	return fileInformation, nil
+}
+
+func splitCommaSeparatedNames(document string) []string {
+	names := []string{}
+	for _, value := range strings.Split(document, ",") {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			names = append(names, trimmedValue)
+		}
+	}
+	return names
 }
 
 func applyPOSIXState(state security.POSIXState) error {
