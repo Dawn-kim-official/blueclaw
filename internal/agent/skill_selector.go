@@ -88,12 +88,7 @@ func requestHasToolName(request AgentRequest, toolName string) bool {
 	if trimmedToolName == "" {
 		return false
 	}
-	for _, availableToolName := range request.ToolSet.ListToolNames() {
-		if availableToolName == trimmedToolName {
-			return true
-		}
-	}
-	return false
+	return request.ToolSet.IsRegistered(trimmedToolName) && request.ToolSet.CanExpose(trimmedToolName)
 }
 
 func requestHasToolPrefix(request AgentRequest, toolPrefix string) bool {
@@ -104,8 +99,8 @@ func requestHasToolPrefix(request AgentRequest, toolPrefix string) bool {
 	if trimmedToolPrefix == "" {
 		return false
 	}
-	for _, availableToolName := range request.ToolSet.ListToolNames() {
-		if strings.HasPrefix(availableToolName, trimmedToolPrefix) {
+	for _, toolName := range request.ToolSet.ListRegisteredToolNames() {
+		if strings.HasPrefix(toolName, trimmedToolPrefix) && request.ToolSet.CanExpose(toolName) {
 			return true
 		}
 	}

@@ -613,59 +613,17 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 		if profileName == "" {
 			profileName = "default"
 		}
-		allowedToolNames := append([]string{}, agentProfile.AllowedToolNames...)
-		allowedToolNames = appendRuntimeProvidedToolNames(allowedToolNames, runtimeConfiguration)
-		allowedToolNamesByProfile[profileName] = appendDefaultBuiltInToolNames(allowedToolNames)
+		allowedToolNamesByProfile[profileName] = appendDefaultBuiltInToolNames(agentProfile.AllowedToolNames)
 	}
 	return allowedToolNamesByProfile
 }
 
-func appendRuntimeProvidedToolNames(toolNames []string, runtimeConfiguration config.RuntimeConfiguration) []string {
-	for _, mcpServer := range runtimeConfiguration.MCPServers {
-		for _, toolName := range mcpServer.ToolNames {
-			trimmedToolName := strings.TrimSpace(toolName)
-			if trimmedToolName != "" && !containsString(toolNames, trimmedToolName) {
-				toolNames = append(toolNames, trimmedToolName)
-			}
-		}
-		for _, tool := range mcpServer.Tools {
-			trimmedToolName := strings.TrimSpace(tool.Name)
-			if trimmedToolName != "" && !containsString(toolNames, trimmedToolName) {
-				toolNames = append(toolNames, trimmedToolName)
-			}
-		}
-	}
-	for _, toolName := range runtimeConfiguration.Capabilities.ToolNames {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if trimmedToolName != "" && !containsString(toolNames, trimmedToolName) {
-			toolNames = append(toolNames, trimmedToolName)
-		}
-	}
-	for _, toolDescriptor := range runtimeConfiguration.Capabilities.ToolDescriptors {
-		trimmedToolName := strings.TrimSpace(toolDescriptor.Name)
-		if trimmedToolName != "" && !containsString(toolNames, trimmedToolName) {
-			toolNames = append(toolNames, trimmedToolName)
-		}
-	}
-	return toolNames
-}
-
 func appendDefaultBuiltInToolNames(toolNames []string) []string {
 	result := agent.DefaultAllowedToolNames(toolNames)
-	if !containsString(result, "math.calculate") {
-		result = append(result, "math.calculate")
-	}
-	if !containsString(result, "schedule.create") {
-		result = append(result, "schedule.create")
-	}
-	if !containsString(result, "schedule.cancel") {
-		result = append(result, "schedule.cancel")
-	}
-	if !containsString(result, "skill.search") {
-		result = append(result, "skill.search")
-	}
-	if !containsString(result, "tool.describe") {
-		result = append(result, "tool.describe")
+	for _, toolName := range []string{"math.calculate", "web.search", "web.fetch", "file.read", "file.write", "file.promote", "file.attach", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "schedule.create", "schedule.cancel", "skill.add", "skill.remove", "skill.search", "tool.describe"} {
+		if !containsString(result, toolName) {
+			result = append(result, toolName)
+		}
 	}
 	return result
 }

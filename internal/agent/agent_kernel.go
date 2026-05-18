@@ -637,6 +637,10 @@ func genericBuiltInToolNames() []string {
 		"file.write",
 		"file.promote",
 		"file.attach",
+		"skill.add",
+		"skill.remove",
+		"schedule.create",
+		"schedule.cancel",
 	}
 }
 
@@ -1153,6 +1157,13 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 			continue
 		}
 		skillDecision := skillDecisionForCandidate(skillInstruction, skillCandidate, normalizedAgentProfileName(request.ProfileName))
+		if skillDecision.Status == "selected" {
+			availabilityDecision := skillAvailabilityDecision(skillInstruction, request, normalizedAgentProfileName(request.ProfileName))
+			if availabilityDecision.Status == "skipped" && availabilityDecision.Reason != "no_trigger_matched" {
+				skillDecision = availabilityDecision
+				skillDecision.Score = skillCandidate.Score
+			}
+		}
 		if skillDecision.Status == "selected" && len(selectedSkillInstructions) >= maxSelectedSkillInstructionCount {
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "selected_skill_limit_reached", nil)
 			skillDecision.Score = skillCandidate.Score

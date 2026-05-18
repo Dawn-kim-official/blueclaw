@@ -149,8 +149,8 @@ func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
 			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	if filteredToolSet.IsAllowed("schedule.create") {
-		t.Fatalf("expected unrelated schedule.create to be hidden, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("schedule.create") {
+		t.Fatalf("expected default schedule.create to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
@@ -293,6 +293,45 @@ func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 	}
 	if decision.Reason != "missing_allowed_tools" || len(decision.MissingTools) != 1 || decision.MissingTools[0] != "file.attach" {
 		t.Fatalf("expected missing tool reason, got %+v", decision)
+	}
+}
+
+func TestSelectInstructionBundleKeepsSkillWhenAllowedToolIsRegisteredButHidden(t *testing.T) {
+	toolSet := NewToolSet([]string{"terminal.run"})
+	for _, toolName := range []string{"terminal.run", "site.app.create", "site.app.publish"} {
+		currentToolName := toolName
+		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		})
+	}
+	instructionBundle := InstructionBundle{Skills: []SkillInstruction{{
+		Name:         "site-prototype",
+		Description:  "Create and publish website prototypes.",
+		Prompt:       "SITE BODY",
+		AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+	}}}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		RetrievalMode: "test",
+		SelectedCandidates: []SkillCandidate{{
+			Name:   "site-prototype",
+			Score:  1,
+			Reason: "test",
+		}},
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:  "김인턴 소개 웹사이트 만들어줘",
+		ToolSet: toolSet,
+	}, retriever)
+	filteredToolSet := toolSetForSelectedSkills(toolSet, selectedBundle)
+
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected hidden registered site skill to be selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	for _, toolName := range []string{"site.app.create", "site.app.publish"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected selected skill to expose %s, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
 	}
 }
 
@@ -872,6 +911,11 @@ func TestWebsiteSkillToolsSurviveWhenSkillIsFifthCandidate(t *testing.T) {
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘.",
+		ToolSet: testToolSet([]string{
+			"terminal.run",
+			"site.app.create",
+			"site.app.publish",
+		}),
 	}, retriever)
 	filteredToolSet := toolSetForSelectedSkills(testToolSet([]string{
 		"terminal.run",

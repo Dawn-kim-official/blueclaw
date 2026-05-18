@@ -447,6 +447,58 @@ func (toolSet *ToolSet) ListRegisteredToolDefinitions() []ToolDefinition {
 	return toolDefinitions
 }
 
+func (toolSet *ToolSet) ListDescribedToolDefinitions() []ToolDefinition {
+	toolDefinitions := []ToolDefinition{}
+	if toolSet == nil {
+		return toolDefinitions
+	}
+	for _, boundTool := range toolSet.boundToolByName {
+		if strings.TrimSpace(boundTool.Availability.Status) == ToolAvailabilityDenied {
+			continue
+		}
+		toolDefinitions = append(toolDefinitions, boundTool.Definition)
+	}
+	sort.SliceStable(toolDefinitions, func(leftIndex int, rightIndex int) bool {
+		return toolDefinitions[leftIndex].Name < toolDefinitions[rightIndex].Name
+	})
+	return toolDefinitions
+}
+
+func (toolSet *ToolSet) ListRegisteredToolNames() []string {
+	toolNames := []string{}
+	if toolSet == nil {
+		return toolNames
+	}
+	for toolName := range toolSet.boundToolByName {
+		toolNames = append(toolNames, toolName)
+	}
+	sort.Strings(toolNames)
+	return toolNames
+}
+
+func (toolSet *ToolSet) ListDescribedToolNames() []string {
+	toolNames := []string{}
+	for _, toolDefinition := range toolSet.ListDescribedToolDefinitions() {
+		toolNames = append(toolNames, toolDefinition.Name)
+	}
+	return toolNames
+}
+
+func (toolSet *ToolSet) ListHiddenDescribedToolNames() []string {
+	toolNames := []string{}
+	if toolSet == nil {
+		return toolNames
+	}
+	for _, toolDefinition := range toolSet.ListDescribedToolDefinitions() {
+		toolName := strings.TrimSpace(toolDefinition.Name)
+		if toolName != "" && !toolSet.IsAllowed(toolName) {
+			toolNames = append(toolNames, toolName)
+		}
+	}
+	sort.Strings(toolNames)
+	return toolNames
+}
+
 func (toolSet *ToolSet) ListToolNames() []string {
 	toolNames := []string{}
 	for toolName := range toolSet.boundToolByName {
@@ -462,31 +514,33 @@ func (toolSet *ToolSet) Descriptions() string {
 	if toolSet == nil {
 		return ""
 	}
-	toolNames := toolSet.ListToolNames()
-	if len(toolNames) == 0 {
+	toolDefinitions := toolSet.ListDescribedToolDefinitions()
+	if len(toolDefinitions) == 0 {
 		return ""
 	}
-	lines := []string{"Available tools. Use them only when they fit the current user goal; tool availability does not make tool use mandatory:"}
-	for _, toolName := range toolNames {
-		boundTool := toolSet.boundToolByName[toolName]
-		toolDefinition := boundTool.Definition
-		line := "- " + toolDefinition.Name
-		description := firstNonEmptyString(specificToolDescription(toolDefinition.Name), toolDefinition.Description)
-		if strings.TrimSpace(description) != "" {
-			line += ": " + strings.TrimSpace(description)
-		}
-		if strings.TrimSpace(boundTool.Availability.Status) == ToolAvailabilityAsk {
-			line += " Availability: ask approval before invoking"
-			if strings.TrimSpace(boundTool.Availability.Reason) != "" {
-				line += " (" + strings.TrimSpace(boundTool.Availability.Reason) + ")"
-			}
-		}
-		if inputSchema := toolDefinitionInputSchema(toolDefinition); len(inputSchema) > 0 {
-			line += " Input schema: " + strings.TrimSpace(string(inputSchema))
-		}
-		lines = append(lines, line)
+	lines := []string{"Available tool catalog. These tools are known to Blueclaw; exposed tools can be called now, hidden tools require a selected skill or require_capabilities before calling. Tool availability does not make tool use mandatory:"}
+	for _, toolDefinition := range toolDefinitions {
+		toolName := strings.TrimSpace(toolDefinition.Name)
+		lines = append(lines, "- "+toolCatalogLine(toolName, toolDefinition, toolSet))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func toolCatalogLine(toolName string, toolDefinition ToolDefinition, toolSet *ToolSet) string {
+	description := firstNonEmptyString(specificToolDescription(toolName), strings.TrimSpace(toolDefinition.Description), "No description.")
+	visibility := "hidden"
+	if toolSet.IsAllowed(toolName) {
+		visibility = "exposed"
+	}
+	availability, _ := toolSet.ToolAvailability(toolName)
+	availabilityStatus := firstNonEmptyString(strings.TrimSpace(availability.Status), ToolAvailabilityAvailable)
+	if availabilityStatus == ToolAvailabilityAsk {
+		availabilityStatus = "ask approval before invoking"
+	}
+	if strings.TrimSpace(availability.Reason) != "" {
+		return toolName + ": " + description + " [" + visibility + ", " + availabilityStatus + ": " + strings.TrimSpace(availability.Reason) + "]"
+	}
+	return toolName + ": " + description + " [" + visibility + ", " + availabilityStatus + "]"
 }
 
 func MarshalToolInput(value any) json.RawMessage {
