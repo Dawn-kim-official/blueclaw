@@ -298,6 +298,7 @@ Blueclaw uses Graphiti as the product memory engine through the `graphiti-memory
 - how the main computer bridge authenticates to `InternKim`
 - whether browser handoff uses a local bridge app, a local web UI, or both
 - whether `Jetson Orin Nano Super` has a reliable enough `KVM` path for the primary guest runtime
+- whether to add a `task.context.describe` meta tool that exposes compact current task status, pending state, recent failures, and available next actions to meta-answer turns
 
 ## Status
 

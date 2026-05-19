@@ -76,6 +76,7 @@ type AgentTurnRequest struct {
 	OutcomeContract            OutcomeContract
 	ActiveGoal                 ActiveGoal
 	QualityAcceptanceGuidance  []string
+	PrecomputedTurnDecision    *TurnDecision
 	TurnStartedAt              time.Time
 }
 

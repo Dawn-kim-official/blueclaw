@@ -182,27 +182,32 @@ func (agentKernel *AgentKernel) GenerateReplyWithContext(responseContext context
 
 func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request AgentTurnRequest) (AgentTurnResult, error) {
 	return agentKernel.RunAgentRequest(responseContext, AgentRequest{
-		RequesterPersonID:      request.RequesterPersonID,
-		RequesterName:          request.RequesterName,
-		RequesterCallingName:   request.RequesterCallingName,
-		RequesterHandle:        request.RequesterHandle,
-		RequesterCircles:       append([]string{}, request.RequesterCircles...),
-		IsApprovalContinuation: request.IsApprovalContinuation,
-		ExistingTaskRunID:      request.ExistingTaskRunID,
-		ProfileName:            request.ProfileName,
-		ConversationID:         request.ConversationID,
-		Prompt:                 request.Prompt,
-		ResponseLanguage:       request.ResponseLanguage,
-		VisibleContext:         request.VisibleContext,
-		MemoryFacts:            request.MemoryFacts,
-		ToolSet:                request.ToolSet,
-		PinnedToolNames:        append([]string{}, request.PinnedToolNames...),
-		PinnedSkillNames:       append([]string{}, request.PinnedSkillNames...),
-		WorkspaceRootPath:      request.WorkspaceRootPath,
-		ActivePaths:            request.ActivePaths,
-		ActiveGoal:             request.ActiveGoal,
-		TurnStartedAt:          request.TurnStartedAt,
+		RequesterPersonID:       request.RequesterPersonID,
+		RequesterName:           request.RequesterName,
+		RequesterCallingName:    request.RequesterCallingName,
+		RequesterHandle:         request.RequesterHandle,
+		RequesterCircles:        append([]string{}, request.RequesterCircles...),
+		IsApprovalContinuation:  request.IsApprovalContinuation,
+		ExistingTaskRunID:       request.ExistingTaskRunID,
+		ProfileName:             request.ProfileName,
+		ConversationID:          request.ConversationID,
+		Prompt:                  request.Prompt,
+		ResponseLanguage:        request.ResponseLanguage,
+		VisibleContext:          request.VisibleContext,
+		MemoryFacts:             request.MemoryFacts,
+		ToolSet:                 request.ToolSet,
+		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:        append([]string{}, request.PinnedSkillNames...),
+		WorkspaceRootPath:       request.WorkspaceRootPath,
+		ActivePaths:             request.ActivePaths,
+		ActiveGoal:              request.ActiveGoal,
+		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
+		TurnStartedAt:           request.TurnStartedAt,
 	})
+}
+
+func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, request AgentRequest) TurnDecision {
+	return NewTurnRouter(agentKernel.intakeLanguageModel, agentKernel.intakeOptions).Plan(responseContext, request)
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
@@ -222,8 +227,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
-	intakePlanner := NewTaskIntakePlanner(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
-	intakeDecision := intakePlanner.Plan(responseContext, intakeRequest)
+	turnRouter := NewTurnRouter(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
+	turnDecision := turnRouter.Plan(responseContext, intakeRequest)
+	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
