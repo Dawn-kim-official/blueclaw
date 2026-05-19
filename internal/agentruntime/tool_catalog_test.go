@@ -1487,10 +1487,13 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
 	}
 	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
-	for _, relativePath := range []string{"DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/content.html", "app/src/styles.css", "app/src/script.js", "pocketbase/pb_hooks/.gitkeep"} {
+	for _, relativePath := range []string{"DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/content.html", "app/src/styles.css", "app/src/script.js"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
 		}
+	}
+	if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, "pocketbase", "pb_hooks", ".gitkeep")); !os.IsNotExist(errorValue) {
+		t.Fatalf("site scaffold must not create PocketBase hooks by default: %v", errorValue)
 	}
 	packageDocument, errorValue := os.ReadFile(filepath.Join(sourceWorkspacePath, "app", "package.json"))
 	if errorValue != nil {
