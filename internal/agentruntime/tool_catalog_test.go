@@ -1487,7 +1487,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
 	}
 	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
-	for _, relativePath := range []string{"DESIGN.md", "app/package.json", "app/src/App.tsx", "pocketbase/pb_hooks/.gitkeep"} {
+	for _, relativePath := range []string{"DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/content.html", "app/src/styles.css", "app/src/script.js", "pocketbase/pb_hooks/.gitkeep"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
 		}
@@ -1496,8 +1496,8 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !strings.Contains(string(packageDocument), `"build": "vite build"`) || !strings.Contains(string(packageDocument), `"react"`) {
-		t.Fatalf("expected vendored Vite scaffold package manifest, got %s", string(packageDocument))
+	if !strings.Contains(string(packageDocument), `"build": "bun scripts/build.ts"`) || strings.Contains(string(packageDocument), "latest") || strings.Contains(string(packageDocument), `"react"`) {
+		t.Fatalf("expected dependency-free scaffold package manifest, got %s", string(packageDocument))
 	}
 	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"home/sites/site-1"`) ||
 		!strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/app"`) {
@@ -1589,6 +1589,93 @@ bun run build
 	if string(distDocument) != "ok" {
 		t.Fatalf("expected build output from Bun-like command, got %q", string(distDocument))
 	}
+}
+
+func TestSiteCreateAppWorkspaceBuildsOfflineWithBun(t *testing.T) {
+	if !terminalTestCanResolveBun() {
+		t.Skip("bun is not installed")
+	}
+	workspacePath := t.TempDir()
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"home/sites/site-1","workspacePath":"home/sites/site-1","status":"draft"}}`}
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "terminal.run"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.create",
+		PolicyResource: "tool:site.app.create",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	createResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.create",
+		Input:    agent.MarshalToolInput(map[string]string{"slug": "demo"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if createResult.Failed() {
+		t.Fatalf("expected site.app.create success, got %s", createResult.ContentText())
+	}
+	var createDocument map[string]any
+	if errorValue := json.Unmarshal([]byte(createResult.ContentText()), &createDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	appWorkspacePath := createDocument["appWorkspacePath"].(string)
+
+	buildResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"workingDirectoryPath": appWorkspacePath,
+			"command":              "bun run build",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if buildResult.Failed() {
+		t.Fatalf("expected offline Bun build to succeed, got %s", buildResult.ContentText())
+	}
+	distPath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "app", "dist", "index.html")
+	distDocument, errorValue := os.ReadFile(distPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	distContent := string(distDocument)
+	for _, expectedText := range []string{"Dependency-free site scaffold", "InternKim site prototype loaded"} {
+		if !strings.Contains(distContent, expectedText) {
+			t.Fatalf("expected built site to contain %q, got %s", expectedText, distContent)
+		}
+	}
+	for _, forbiddenText := range []string{"__SITE_STYLES__", "__SITE_BODY__", "__SITE_SCRIPT__"} {
+		if strings.Contains(distContent, forbiddenText) {
+			t.Fatalf("expected built site to replace placeholder %q, got %s", forbiddenText, distContent)
+		}
+	}
+}
+
+func terminalTestCanResolveBun() bool {
+	for _, path := range []string{
+		"/opt/homebrew/bin/bun",
+		"/usr/local/sbin/bun",
+		"/usr/local/bin/bun",
+		"/usr/sbin/bun",
+		"/usr/bin/bun",
+		"/sbin/bun",
+		"/bin/bun",
+	} {
+		if information, errorValue := os.Stat(path); errorValue == nil && !information.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 func TestFileWriteProtectsManagedSitePackageManifest(t *testing.T) {
