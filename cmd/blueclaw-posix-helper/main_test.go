@@ -46,6 +46,36 @@ func TestHelperCallerAuthorizationAllowsRootAndBlueclawOnly(t *testing.T) {
 	}
 }
 
+func TestPrepareExecProcessDropsIdentityBeforeChangingDirectory(t *testing.T) {
+	steps := []string{}
+	errorValue := prepareExecProcess(
+		1001,
+		1001,
+		[]int{1001, 1002},
+		"/workspace/private/people/person-1/sites/site-1/app",
+		func(userID uint, groupID uint, groupIDs []int) error {
+			steps = append(steps, "identity")
+			if userID != 1001 || groupID != 1001 || len(groupIDs) != 2 {
+				t.Fatalf("unexpected identity: user=%d group=%d groups=%v", userID, groupID, groupIDs)
+			}
+			return nil
+		},
+		func(path string) error {
+			steps = append(steps, "chdir")
+			if path != "/workspace/private/people/person-1/sites/site-1/app" {
+				t.Fatalf("unexpected cwd: %s", path)
+			}
+			return nil
+		},
+	)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(steps) != 2 || steps[0] != "identity" || steps[1] != "chdir" {
+		t.Fatalf("expected identity before chdir, got %v", steps)
+	}
+}
+
 func TestPerformFSOperationCopiesFileWithOverwritePolicy(t *testing.T) {
 	rootPath := t.TempDir()
 	sourcePath := filepath.Join(rootPath, "source.txt")
