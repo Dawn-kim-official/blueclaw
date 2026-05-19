@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +21,16 @@ type SupervisorService struct {
 	FirecrackerConfiguration config.FirecrackerConfiguration
 	WorkspaceVolumeService   WorkspaceVolumeService
 	GuestHealthClient        GuestHealthClient
+	OutboundNetworkService   OutboundNetworkService
 	HealthCheckInterval      time.Duration
 
 	mutex               sync.RWMutex
 	commandByInstanceID map[string]*exec.Cmd
+}
+
+type OutboundNetworkService interface {
+	PrepareOutboundNetwork(OutboundNetwork) error
+	CleanupOutboundNetwork(OutboundNetwork) error
 }
 
 func NewSupervisorService(
@@ -35,6 +42,7 @@ func NewSupervisorService(
 		FirecrackerConfiguration: firecrackerConfiguration,
 		WorkspaceVolumeService:   workspaceVolumeService,
 		GuestHealthClient:        guestHealthClient,
+		OutboundNetworkService:   HostOutboundNetworkService{},
 		commandByInstanceID:      map[string]*exec.Cmd{},
 	}
 }
@@ -52,6 +60,7 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 
 	standardOutputFile, errorValue := os.OpenFile(filepath.Join(bootSpecification.LogDirectoryPath, "stdout.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if errorValue != nil {
+		_ = supervisorService.cleanupOutboundNetwork(bootSpecification.OutboundNetwork)
 		_ = removeGuestJailerDirectory(bootSpecification)
 		return GuestInstance{}, errorValue
 	}
@@ -59,6 +68,7 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 	standardErrorFile, errorValue := os.OpenFile(filepath.Join(bootSpecification.LogDirectoryPath, "stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if errorValue != nil {
 		_ = standardOutputFile.Close()
+		_ = supervisorService.cleanupOutboundNetwork(bootSpecification.OutboundNetwork)
 		_ = removeGuestJailerDirectory(bootSpecification)
 		return GuestInstance{}, errorValue
 	}
@@ -71,6 +81,7 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 	_ = standardOutputFile.Close()
 	_ = standardErrorFile.Close()
 	if errorValue != nil {
+		_ = supervisorService.cleanupOutboundNetwork(bootSpecification.OutboundNetwork)
 		_ = removeGuestJailerDirectory(bootSpecification)
 		return GuestInstance{}, errorValue
 	}
@@ -101,6 +112,10 @@ func (supervisorService *SupervisorService) StopGuest(guestInstance GuestInstanc
 			stopError = errorValue
 		}
 		_ = command.Wait()
+	}
+
+	if cleanupError := supervisorService.cleanupOutboundNetwork(guestInstance.BootSpecification.OutboundNetwork); cleanupError != nil && stopError == nil {
+		stopError = cleanupError
 	}
 
 	if cleanupError := removeGuestJailerDirectory(guestInstance.BootSpecification); cleanupError != nil && stopError == nil {
@@ -195,6 +210,11 @@ func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecif
 		return BootSpecification{}, errorValue
 	}
 
+	outboundNetwork, networkConfigurations, errorValue := supervisorService.prepareOutboundNetwork(instanceID)
+	if errorValue != nil {
+		return BootSpecification{}, errorValue
+	}
+
 	configurationDocument := ConfigurationDocument{
 		BootSource: BootSourceConfiguration{
 			KernelImagePath: kernelImagePath,
@@ -222,6 +242,7 @@ func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecif
 			GuestCID:       supervisorService.FirecrackerConfiguration.VSockCID,
 			UnixSocketPath: vsockGuestSocketPath,
 		},
+		NetworkConfigurations: networkConfigurations,
 	}
 
 	return BootSpecification{
@@ -231,6 +252,7 @@ func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecif
 		ConfigurationFilePath:   configurationFilePath,
 		APIUnixSocketPath:       apiUnixSocketPath,
 		VSockUnixSocketPath:     vsockUnixSocketPath,
+		OutboundNetwork:         outboundNetwork,
 		HealthPortOrService:     supervisorService.FirecrackerConfiguration.HealthPortOrService,
 		VSockCID:                supervisorService.FirecrackerConfiguration.VSockCID,
 		WorkspaceVolumeMetadata: workspaceVolumeMetadata,
@@ -268,6 +290,80 @@ func (supervisorService *SupervisorService) prepareJailerRootAssets(
 	}
 
 	return nil
+}
+
+func (supervisorService *SupervisorService) prepareOutboundNetwork(instanceID string) (OutboundNetwork, []NetworkInterfaceConfiguration, error) {
+	networkConfiguration := resolvedOutboundNetworkConfiguration(supervisorService.FirecrackerConfiguration.OutboundNetwork, instanceID)
+	if !networkConfiguration.Enabled {
+		return OutboundNetwork{}, nil, nil
+	}
+
+	outboundNetwork := OutboundNetwork{
+		Enabled:         true,
+		HostDeviceName:  networkConfiguration.HostDeviceName,
+		NetworkCIDR:     networkConfiguration.NetworkCIDR,
+		HostAddressCIDR: networkConfiguration.HostAddressCIDR,
+	}
+	networkService := supervisorService.OutboundNetworkService
+	if networkService == nil {
+		networkService = HostOutboundNetworkService{}
+	}
+	if errorValue := networkService.PrepareOutboundNetwork(outboundNetwork); errorValue != nil {
+		return OutboundNetwork{}, nil, errorValue
+	}
+
+	return outboundNetwork, []NetworkInterfaceConfiguration{{
+		InterfaceID:     "eth0",
+		GuestMACAddress: networkConfiguration.GuestMACAddress,
+		HostDeviceName:  networkConfiguration.HostDeviceName,
+	}}, nil
+}
+
+func (supervisorService *SupervisorService) cleanupOutboundNetwork(outboundNetwork OutboundNetwork) error {
+	if !outboundNetwork.Enabled {
+		return nil
+	}
+	networkService := supervisorService.OutboundNetworkService
+	if networkService == nil {
+		networkService = HostOutboundNetworkService{}
+	}
+	return networkService.CleanupOutboundNetwork(outboundNetwork)
+}
+
+func resolvedOutboundNetworkConfiguration(configuration config.OutboundNetworkConfiguration, instanceID string) config.OutboundNetworkConfiguration {
+	if !configuration.Enabled {
+		return config.OutboundNetworkConfiguration{}
+	}
+	if strings.TrimSpace(configuration.HostDeviceName) == "" {
+		configuration.HostDeviceName = outboundNetworkDeviceName(instanceID)
+	}
+	if strings.TrimSpace(configuration.GuestMACAddress) == "" {
+		configuration.GuestMACAddress = "AA:FC:00:00:00:01"
+	}
+	if strings.TrimSpace(configuration.NetworkCIDR) == "" {
+		configuration.NetworkCIDR = "172.31.0.0/30"
+	}
+	if strings.TrimSpace(configuration.HostAddressCIDR) == "" {
+		configuration.HostAddressCIDR = "172.31.0.1/30"
+	}
+	if strings.TrimSpace(configuration.GuestAddressCIDR) == "" {
+		configuration.GuestAddressCIDR = "172.31.0.2/30"
+	}
+	if strings.TrimSpace(configuration.GuestGateway) == "" {
+		configuration.GuestGateway = "172.31.0.1"
+	}
+	return configuration
+}
+
+func outboundNetworkDeviceName(instanceID string) string {
+	trimmedInstanceID := strings.TrimSpace(instanceID)
+	if len(trimmedInstanceID) > 8 {
+		trimmedInstanceID = trimmedInstanceID[:8]
+	}
+	if trimmedInstanceID == "" {
+		return "bctap0"
+	}
+	return "bctap" + trimmedInstanceID
 }
 
 func replaceHardLink(sourcePath string, destinationPath string) error {

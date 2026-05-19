@@ -105,7 +105,16 @@
     "guestHTTPPortOrService": "8081",
     "hostHTTPListenAddress": "127.0.0.1:8080",
     "logDirectoryPath": "/var/log/blueclaw-supervisor",
-    "runtimeDirectoryPath": "/var/lib/bc"
+    "runtimeDirectoryPath": "/var/lib/bc",
+    "outboundNetwork": {
+      "enabled": true,
+      "hostDeviceName": "bctap0",
+      "guestMACAddress": "AA:FC:00:00:00:01",
+      "networkCIDR": "172.31.0.0/30",
+      "hostAddressCIDR": "172.31.0.1/30",
+      "guestAddressCIDR": "172.31.0.2/30",
+      "guestGateway": "172.31.0.1"
+    }
   },
   "bridge": {
     "mode": "localAgent",

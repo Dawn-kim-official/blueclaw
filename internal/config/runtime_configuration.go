@@ -121,7 +121,18 @@ type FirecrackerConfiguration struct {
 	HostHTTPListenAddress  string                            `json:"hostHTTPListenAddress"`
 	LogDirectoryPath       string                            `json:"logDirectoryPath"`
 	RuntimeDirectoryPath   string                            `json:"runtimeDirectoryPath"`
+	OutboundNetwork        OutboundNetworkConfiguration      `json:"outboundNetwork"`
 	GuestListenerProxies   []GuestListenerProxyConfiguration `json:"guestListenerProxies"`
+}
+
+type OutboundNetworkConfiguration struct {
+	Enabled          bool   `json:"enabled"`
+	HostDeviceName   string `json:"hostDeviceName"`
+	GuestMACAddress  string `json:"guestMACAddress"`
+	NetworkCIDR      string `json:"networkCIDR"`
+	HostAddressCIDR  string `json:"hostAddressCIDR"`
+	GuestAddressCIDR string `json:"guestAddressCIDR"`
+	GuestGateway     string `json:"guestGateway"`
 }
 
 type GuestListenerProxyConfiguration struct {
