@@ -494,7 +494,7 @@ func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, 
 	}
 	allowedToolNames := []string{}
 	for _, toolName := range toolNamesForAgentTurn(instructionBundle, outcomeContract, request) {
-		if shouldExposeToolForOutcome(toolName, request, executionPlan, hasExecutionPlan, outcomeContract) {
+		if shouldExposeToolForOutcome(toolName, request, executionPlan, hasExecutionPlan, outcomeContract) || selectedSiteToolShouldExpose(toolName, outcomeContract) {
 			allowedToolNames = appendUniqueStrings(allowedToolNames, toolName)
 		}
 	}
@@ -545,6 +545,24 @@ func shouldExposeToolForOutcome(toolName string, request AgentRequest, execution
 
 func outcomeAllowsSiteTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
 	return contractRequiresToolPrefix(outcomeContract, "site.app.") || (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
+}
+
+func selectedSiteToolShouldExpose(toolName string, outcomeContract OutcomeContract) bool {
+	return strings.HasPrefix(strings.TrimSpace(toolName), "site.app.") && contractMentionsToolPrefix(outcomeContract, "site.app.")
+}
+
+func selectedSiteEvidenceToolsForContinuation(contract OutcomeContract, selectedEvidenceHints []string) []string {
+	if !contractMentionsToolPrefix(contract, "site.app.") {
+		return nil
+	}
+	toolNames := []string{}
+	for _, toolName := range selectedEvidenceHints {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "terminal.run" || strings.HasPrefix(trimmedToolName, "site.app.") {
+			toolNames = appendUniqueStrings(toolNames, trimmedToolName)
+		}
+	}
+	return toolNames
 }
 
 func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
@@ -697,7 +715,9 @@ func selectedRequiredAttachmentSuffixes(_ InstructionBundle, _ string) []string 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
 	if activeGoalOutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
-		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHintTools(instructionBundle)...)
+		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
+		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHints...)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForContinuation(contract, selectedEvidenceHints)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
 		}

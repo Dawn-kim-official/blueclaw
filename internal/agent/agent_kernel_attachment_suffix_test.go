@@ -179,6 +179,40 @@ func TestSelectedSkillToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *test
 	}
 }
 
+func TestSelectedSkillToolSetKeepsSelectedSiteToolsWhenActiveGoalWasAttachmentFallback(t *testing.T) {
+	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "file.attach", "site.app.create", "site.app.publish"})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:         "site-prototype",
+			AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"site.app.create", "terminal.run", "site.app.publish"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+	request := AgentRequest{
+		Prompt: "다시 해봐",
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".html"},
+			ArtifactRequirement:        ArtifactRequirementRequired,
+		}},
+	}
+	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeImmediateReply}, instructionBundle, ExecutionPlan{}, false, nil)
+
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
+
+	for _, toolName := range []string{"terminal.run", "site.app.create", "site.app.publish"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to be exposed after selected site skill, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+		if !stringSliceContains(contract.RequiredEvidenceTools, toolName) {
+			t.Fatalf("expected selected site skill to require %s evidence, got %+v", toolName, contract.RequiredEvidenceTools)
+		}
+	}
+}
+
 func TestOutcomeContractRequiresActiveGoalEvidenceForContinuation(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
