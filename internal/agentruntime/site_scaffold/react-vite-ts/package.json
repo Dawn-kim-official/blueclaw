@@ -4,18 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite --host 0.0.0.0",
-    "preview": "vite preview --host 0.0.0.0"
+    "build": "bun scripts/build.ts",
+    "dev": "bun scripts/build.ts && bun --hot --port 5173 dist/index.html",
+    "preview": "bun --port 4173 dist/index.html"
   },
-  "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "lucide-react": "latest",
-    "pocketbase": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "typescript": "latest",
-    "vite": "latest"
-  },
+  "dependencies": {},
   "devDependencies": {}
 }
