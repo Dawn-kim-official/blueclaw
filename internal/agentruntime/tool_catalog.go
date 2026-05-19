@@ -1880,7 +1880,6 @@ func siteStarterFiles(site siteCreateResult) []siteStarterFile {
 	files = append(files, siteAppScaffoldFiles(site)...)
 	files = append(files,
 		siteStarterFile{Path: "pocketbase/pb_migrations/.gitkeep", Content: ""},
-		siteStarterFile{Path: "pocketbase/pb_hooks/.gitkeep", Content: ""},
 	)
 	return files
 }
