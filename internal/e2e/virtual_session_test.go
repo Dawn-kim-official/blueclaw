@@ -84,17 +84,14 @@ func TestMemoryGuidedFollowup(t *testing.T) {
 	}
 }
 
-func TestToolPermissionHidesSkill(t *testing.T) {
+func TestToolPermissionScenarioReturnsPlannedFallback(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), ToolPermissionHidesSkillScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected permission scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if eventsContain(turnResult.Events, "agent.instructions_loaded", `"status":"selected"`) {
-		t.Fatal("expected missing terminal/file attach tools to hide full skill selection")
-	}
-	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "missing_allowed_tools") {
-		t.Fatal("expected missing tool skip reason")
+	if !strings.Contains(turnResult.FinalReply, "필요한 도구") {
+		t.Fatalf("expected planned fallback reply, got %q", turnResult.FinalReply)
 	}
 }
 

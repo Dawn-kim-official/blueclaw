@@ -1457,8 +1457,84 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
 		}
 	}
-	if !strings.Contains(result.ContentText(), `"home/sites/site-1"`) {
+	packageDocument, errorValue := os.ReadFile(filepath.Join(sourceWorkspacePath, "app", "package.json"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(string(packageDocument), `"build": "vite build"`) || !strings.Contains(string(packageDocument), `"react"`) {
+		t.Fatalf("expected vendored Vite scaffold package manifest, got %s", string(packageDocument))
+	}
+	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"home/sites/site-1"`) ||
+		!strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/app"`) {
 		t.Fatalf("expected virtual source workspace in result, got %s", result.ContentText())
+	}
+}
+
+func TestFileWriteProtectsManagedSitePackageManifest(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"file.write"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	managedResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "home/sites/site-1/app/package.json",
+			"content": `{"project":"not a package manifest"}`,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !managedResult.Failed() || managedResult.Failure.Code != "managed_manifest_protected" {
+		t.Fatalf("expected managed manifest protection, got %+v", managedResult)
+	}
+
+	tmpResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path":    "tmp/demo/package.json",
+			"content": `{"project":"freeform package file"}`,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if tmpResult.Failed() {
+		t.Fatalf("expected tmp package manifest write to remain allowed, got %+v", tmpResult)
+	}
+}
+
+func TestTerminalRunPreflightsNodePackageBuildManifest(t *testing.T) {
+	workspacePath := t.TempDir()
+	invalidPackagePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "node-app", "package.json")
+	writeTestFile(t, invalidPackagePath, `{"project":"not a package manifest"}`)
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"workingDirectoryPath": "tmp/node-app",
+			"command":              "bun run build",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.Failure.Code != "package_manifest_invalid" || result.Failure.Stage != "package_manifest_preflight" {
+		t.Fatalf("expected package manifest preflight failure, got %+v", result)
+	}
+	if !strings.Contains(result.ContentText(), "scripts") || !strings.Contains(result.ContentText(), "tmp/node-app/package.json") {
+		t.Fatalf("expected manifest detail in result, got %s", result.ContentText())
 	}
 }
 

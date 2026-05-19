@@ -339,11 +339,11 @@ func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()
 func virtualCapabilityResponse(toolName string) string {
 	switch toolName {
 	case "site.app.create":
-		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"home/sites/site-1","sourceWorkspacePath":"home/sites/site-1"}}`
+		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"home/sites/site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app"}}`
 	case "site.app.publish":
 		return `{"status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.intern.kim"}}`
 	case "site.app.status":
-		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"home/sites/site-1","sourceWorkspacePath":"home/sites/site-1"}}`
+		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"home/sites/site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app"}}`
 	case "site.app.logs":
 		return `{"status":"ok","result":{"logs":[]}}`
 	default:

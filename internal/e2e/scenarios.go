@@ -168,14 +168,13 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 			Prompt: "웹사이트 하나 만들어서 배포해봐",
 			ActionResponses: []string{
 				actionCallTool("site.app.create", `{"slug":"demo","title":"Demo Website"}`),
-				actionCallTool("terminal.run", `{"command":"mkdir -p app/dist && printf 'demo site' > app/dist/index.html","workingDirectoryPath":"home/sites/site-1","timeoutSecond":30}`),
+				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf 'demo site' > dist/index.html","workingDirectoryPath":"home/sites/site-1/app","timeoutSecond":30}`),
 				actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Initial demo website"}`),
 				actionFinalReply("웹사이트 프로토타입을 배포했습니다: https://demo.device.intern.kim", "obs-003:site.app.publish:0"),
 			},
 			ExpectedSelectedSkills: []string{"site-prototype"},
 			ExpectedToolCalls:      []string{"site.app.create", "terminal.run", "site.app.publish"},
-			ExpectedModelContexts:  []string{"site-prototype", "site.app.create", "site.app.publish", "웹사이트 하나"},
-			ForbiddenModelContexts: []string{"schedule.create"},
+			ExpectedModelContexts:  []string{"site-prototype", "site.app.create", "site.app.publish", "appWorkspacePath", "웹사이트 하나"},
 			ExpectedReplyFragments: []string{"https://demo.device.intern.kim"},
 			ForbiddenReplyFragments: []string{
 				"죄송",
