@@ -7,6 +7,7 @@ type BootSpecification struct {
 	ConfigurationFilePath   string
 	APIUnixSocketPath       string
 	VSockUnixSocketPath     string
+	OutboundNetwork         OutboundNetwork
 	JailerArguments         []string
 	HealthPortOrService     string
 	VSockCID                uint32
@@ -15,10 +16,11 @@ type BootSpecification struct {
 }
 
 type ConfigurationDocument struct {
-	BootSource           BootSourceConfiguration `json:"boot-source"`
-	DriveConfigurations  []DriveConfiguration    `json:"drives"`
-	MachineConfiguration MachineConfiguration    `json:"machine-config"`
-	VSockConfiguration   VSockConfiguration      `json:"vsock"`
+	BootSource            BootSourceConfiguration         `json:"boot-source"`
+	DriveConfigurations   []DriveConfiguration            `json:"drives"`
+	MachineConfiguration  MachineConfiguration            `json:"machine-config"`
+	VSockConfiguration    VSockConfiguration              `json:"vsock"`
+	NetworkConfigurations []NetworkInterfaceConfiguration `json:"network-interfaces,omitempty"`
 }
 
 type BootSourceConfiguration struct {
@@ -41,6 +43,19 @@ type MachineConfiguration struct {
 type VSockConfiguration struct {
 	GuestCID       uint32 `json:"guest_cid"`
 	UnixSocketPath string `json:"uds_path"`
+}
+
+type NetworkInterfaceConfiguration struct {
+	InterfaceID     string `json:"iface_id"`
+	GuestMACAddress string `json:"guest_mac"`
+	HostDeviceName  string `json:"host_dev_name"`
+}
+
+type OutboundNetwork struct {
+	Enabled         bool
+	HostDeviceName  string
+	NetworkCIDR     string
+	HostAddressCIDR string
 }
 
 type GuestInstance struct {

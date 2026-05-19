@@ -20,6 +20,21 @@ func (readyGuestHealthClient) CheckHealth(healthContext context.Context, vsockUn
 	return nil
 }
 
+type recordingOutboundNetworkService struct {
+	preparedNetwork OutboundNetwork
+	cleanedNetwork  OutboundNetwork
+}
+
+func (service *recordingOutboundNetworkService) PrepareOutboundNetwork(outboundNetwork OutboundNetwork) error {
+	service.preparedNetwork = outboundNetwork
+	return nil
+}
+
+func (service *recordingOutboundNetworkService) CleanupOutboundNetwork(outboundNetwork OutboundNetwork) error {
+	service.cleanedNetwork = outboundNetwork
+	return nil
+}
+
 func TestBuildBootSpecificationIncludesWorkspaceAndVSock(t *testing.T) {
 	workspacePath := t.TempDir()
 	kernelImagePath := filepath.Join(workspacePath, "kernel")
@@ -89,6 +104,60 @@ func TestBuildBootSpecificationIncludesWorkspaceAndVSock(t *testing.T) {
 	}
 }
 
+func TestBuildBootSpecificationIncludesOutboundNetworkWhenEnabled(t *testing.T) {
+	workspacePath := t.TempDir()
+	kernelImagePath := filepath.Join(workspacePath, "kernel")
+	rootfsImagePath := filepath.Join(workspacePath, "rootfs.ext4")
+	if errorValue := os.WriteFile(kernelImagePath, []byte("kernel"), 0o600); errorValue != nil {
+		t.Fatalf("expected kernel image fixture: %v", errorValue)
+	}
+	if errorValue := os.WriteFile(rootfsImagePath, []byte("rootfs"), 0o600); errorValue != nil {
+		t.Fatalf("expected rootfs fixture: %v", errorValue)
+	}
+	outboundNetworkService := &recordingOutboundNetworkService{}
+	supervisorService := NewSupervisorService(
+		config.FirecrackerConfiguration{
+			FirecrackerPath:        "/usr/bin/firecracker",
+			JailerPath:             "/usr/bin/jailer",
+			KernelImagePath:        kernelImagePath,
+			RootfsImagePath:        rootfsImagePath,
+			WorkspaceImagePath:     filepath.Join(workspacePath, "workspace.ext4"),
+			VCPUCount:              4,
+			MemoryMiB:              8192,
+			VSockCID:               52,
+			HealthPortOrService:    "8080",
+			GuestHTTPPortOrService: "8081",
+			HostHTTPListenAddress:  "127.0.0.1:8080",
+			LogDirectoryPath:       filepath.Join(workspacePath, "log"),
+			OutboundNetwork: config.OutboundNetworkConfiguration{
+				Enabled: true,
+			},
+		},
+		WorkspaceVolumeService{ImageSizeByte: 1024 * 1024, FormatterPath: writeFakeExt4Formatter(t, workspacePath)},
+		readyGuestHealthClient{},
+	)
+	supervisorService.OutboundNetworkService = outboundNetworkService
+
+	bootSpecification, errorValue := supervisorService.buildBootSpecification()
+	if errorValue != nil {
+		t.Fatalf("expected boot specification to build: %v", errorValue)
+	}
+
+	if len(bootSpecification.ConfigurationDocument.NetworkConfigurations) != 1 {
+		t.Fatalf("expected one network interface, got %+v", bootSpecification.ConfigurationDocument.NetworkConfigurations)
+	}
+	networkConfiguration := bootSpecification.ConfigurationDocument.NetworkConfigurations[0]
+	if networkConfiguration.InterfaceID != "eth0" || networkConfiguration.GuestMACAddress != "AA:FC:00:00:00:01" {
+		t.Fatalf("expected default guest network configuration, got %+v", networkConfiguration)
+	}
+	if outboundNetworkService.preparedNetwork.NetworkCIDR != "172.31.0.0/30" {
+		t.Fatalf("expected host network setup to use guest subnet, got %+v", outboundNetworkService.preparedNetwork)
+	}
+	if !strings.HasPrefix(networkConfiguration.HostDeviceName, "bctap") {
+		t.Fatalf("expected deterministic tap device, got %+v", networkConfiguration)
+	}
+}
+
 func TestStopGuestRemovesJailerDirectory(t *testing.T) {
 	temporaryDirectory := t.TempDir()
 	instanceID := "testinstance"
@@ -117,6 +186,45 @@ func TestStopGuestRemovesJailerDirectory(t *testing.T) {
 
 	if _, errorValue := os.Stat(filepath.Dir(jailerRootPath)); !os.IsNotExist(errorValue) {
 		t.Fatalf("expected jailer directory to be removed, got %v", errorValue)
+	}
+}
+
+func TestStopGuestCleansOutboundNetwork(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	instanceID := "testinstance"
+	jailerRootPath := buildJailerRootPath(temporaryDirectory, instanceID)
+	if errorValue := os.MkdirAll(filepath.Join(jailerRootPath, "nested"), 0o700); errorValue != nil {
+		t.Fatalf("expected jailer fixture: %v", errorValue)
+	}
+
+	command := exec.Command("sleep", "30")
+	if errorValue := command.Start(); errorValue != nil {
+		t.Fatalf("expected process fixture: %v", errorValue)
+	}
+
+	outboundNetworkService := &recordingOutboundNetworkService{}
+	supervisorService := NewSupervisorService(config.FirecrackerConfiguration{}, WorkspaceVolumeService{}, readyGuestHealthClient{})
+	supervisorService.OutboundNetworkService = outboundNetworkService
+	supervisorService.commandByInstanceID[instanceID] = command
+
+	errorValue := supervisorService.StopGuest(GuestInstance{
+		InstanceID: instanceID,
+		BootSpecification: BootSpecification{
+			JailerRootPath: jailerRootPath,
+			OutboundNetwork: OutboundNetwork{
+				Enabled:         true,
+				HostDeviceName:  "bctap-test",
+				NetworkCIDR:     "172.31.0.0/30",
+				HostAddressCIDR: "172.31.0.1/30",
+			},
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected stop to succeed: %v", errorValue)
+	}
+
+	if outboundNetworkService.cleanedNetwork.HostDeviceName != "bctap-test" {
+		t.Fatalf("expected outbound network cleanup, got %+v", outboundNetworkService.cleanedNetwork)
 	}
 }
 
