@@ -223,11 +223,24 @@ func isDeniedAbsoluteWorkspacePath(path string) bool {
 }
 
 func (scope WorkspaceScope) EnvironmentVariables() map[string]string {
+	runtimeRootPath := filepath.Join(scope.RequesterDraftRootPath, ".runtime")
+	bunRuntimeRootPath := filepath.Join(runtimeRootPath, "bun")
 	return map[string]string{
 		"BLUECLAW_REQUESTER_TMP":       scope.RequesterTmpRootPath,
 		"BLUECLAW_TASK_TMP":            scope.RequesterDraftRootPath,
 		"BLUECLAW_REQUESTER_ARTIFACTS": scope.RequesterArtifactRootPath,
 		"BLUECLAW_DEPENDENCY_CACHE":    scope.DependencyCacheRootPath,
+		"HOME":                         scope.RequesterRootPath,
+		"TMPDIR":                       filepath.Join(runtimeRootPath, "tmp"),
+		"TMP":                          filepath.Join(runtimeRootPath, "tmp"),
+		"TEMP":                         filepath.Join(runtimeRootPath, "tmp"),
+		"XDG_CACHE_HOME":               filepath.Join(runtimeRootPath, "cache"),
+		"XDG_CONFIG_HOME":              filepath.Join(runtimeRootPath, "config"),
+		"XDG_RUNTIME_DIR":              filepath.Join(runtimeRootPath, "runtime"),
+		"BUN_TMPDIR":                   filepath.Join(bunRuntimeRootPath, "tmp"),
+		"BUN_INSTALL":                  filepath.Join(bunRuntimeRootPath, "install"),
+		"BUN_INSTALL_CACHE_DIR":        filepath.Join(bunRuntimeRootPath, "cache"),
+		"npm_config_cache":             filepath.Join(runtimeRootPath, "npm"),
 	}
 }
 

@@ -125,16 +125,25 @@ func applyPOSIXEnvironment(environmentVariables map[string]string, identity Exec
 		result[name] = value
 	}
 	if strings.TrimSpace(identity.HomeDirectoryPath) != "" {
-		setDefaultEnvironmentValue(result, "HOME", identity.HomeDirectoryPath)
+		result["HOME"] = identity.HomeDirectoryPath
 		setDefaultEnvironmentValue(result, "BLUECLAW_REQUESTER_TMP", identity.HomeDirectoryPath+"/tmp")
 		setDefaultEnvironmentValue(result, "BLUECLAW_TASK_TMP", identity.HomeDirectoryPath+"/tmp")
 		setDefaultEnvironmentValue(result, "BLUECLAW_REQUESTER_ARTIFACTS", identity.HomeDirectoryPath+"/artifacts")
 	}
+	taskTmpPath := firstNonEmptyString(result["BLUECLAW_TASK_TMP"], identity.HomeDirectoryPath+"/tmp")
+	runtimeRootPath := taskTmpPath + "/.runtime"
 	dependencyCachePath := "/workspace/shared/cache/dependencies"
 	setDefaultEnvironmentValue(result, "BLUECLAW_DEPENDENCY_CACHE", dependencyCachePath)
-	setDefaultEnvironmentValue(result, "XDG_CACHE_HOME", dependencyCachePath+"/xdg")
-	setDefaultEnvironmentValue(result, "npm_config_cache", dependencyCachePath+"/npm")
-	setDefaultEnvironmentValue(result, "BUN_INSTALL_CACHE_DIR", dependencyCachePath+"/bun")
+	setDefaultEnvironmentValue(result, "TMPDIR", runtimeRootPath+"/tmp")
+	setDefaultEnvironmentValue(result, "TMP", runtimeRootPath+"/tmp")
+	setDefaultEnvironmentValue(result, "TEMP", runtimeRootPath+"/tmp")
+	setDefaultEnvironmentValue(result, "XDG_CACHE_HOME", runtimeRootPath+"/cache")
+	setDefaultEnvironmentValue(result, "XDG_CONFIG_HOME", runtimeRootPath+"/config")
+	setDefaultEnvironmentValue(result, "XDG_RUNTIME_DIR", runtimeRootPath+"/runtime")
+	setDefaultEnvironmentValue(result, "BUN_TMPDIR", runtimeRootPath+"/bun/tmp")
+	setDefaultEnvironmentValue(result, "BUN_INSTALL", runtimeRootPath+"/bun/install")
+	setDefaultEnvironmentValue(result, "BUN_INSTALL_CACHE_DIR", runtimeRootPath+"/bun/cache")
+	setDefaultEnvironmentValue(result, "npm_config_cache", runtimeRootPath+"/npm")
 	setDefaultEnvironmentValue(result, "GOMODCACHE", dependencyCachePath+"/go/pkg/mod")
 	setDefaultEnvironmentValue(result, "GOCACHE", dependencyCachePath+"/go/build")
 	setDefaultEnvironmentValue(result, "PIP_CACHE_DIR", dependencyCachePath+"/pip")

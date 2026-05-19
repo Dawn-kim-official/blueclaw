@@ -70,6 +70,15 @@ func TestCommandPlanUsesPOSIXHelperForExecutionIdentity(t *testing.T) {
 	if commandPlan.EnvironmentVariables["BLUECLAW_REQUESTER_ARTIFACTS"] != workspaceRootPath+"/artifacts" {
 		t.Fatalf("expected requester artifacts environment, got %+v", commandPlan.EnvironmentVariables)
 	}
+	if commandPlan.EnvironmentVariables["TMPDIR"] != workspaceRootPath+"/tmp/.runtime/tmp" {
+		t.Fatalf("expected requester runtime tmp environment, got %+v", commandPlan.EnvironmentVariables)
+	}
+	if commandPlan.EnvironmentVariables["BUN_TMPDIR"] != workspaceRootPath+"/tmp/.runtime/bun/tmp" {
+		t.Fatalf("expected requester Bun tmp environment, got %+v", commandPlan.EnvironmentVariables)
+	}
+	if commandPlan.EnvironmentVariables["BUN_INSTALL"] != workspaceRootPath+"/tmp/.runtime/bun/install" {
+		t.Fatalf("expected requester Bun install environment, got %+v", commandPlan.EnvironmentVariables)
+	}
 	if commandPlan.Timeout != 3*time.Second {
 		t.Fatalf("expected timeout to survive POSIX wrapping, got %+v", commandPlan.Timeout)
 	}

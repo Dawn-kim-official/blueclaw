@@ -1590,6 +1590,53 @@ func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	}
 }
 
+func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command": `test -d "$TMPDIR" && test -d "$BUN_TMPDIR" && test -d "$BUN_INSTALL" && printf '%s\n%s\n%s\n%s' "$HOME" "$TMPDIR" "$BUN_TMPDIR" "$BUN_INSTALL"`,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected terminal.run success, got %s", result.ContentText())
+	}
+	var commandResult security.CommandResult
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &commandResult); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	requesterRootPath := filepath.Join(workspacePath, "private", "people", "person-1")
+	for _, expectedText := range []string{
+		requesterRootPath,
+		filepath.Join(requesterRootPath, "tmp", ".runtime", "tmp"),
+		filepath.Join(requesterRootPath, "tmp", ".runtime", "bun", "tmp"),
+		filepath.Join(requesterRootPath, "tmp", ".runtime", "bun", "install"),
+	} {
+		if !strings.Contains(commandResult.Stdout, expectedText) {
+			t.Fatalf("expected runtime environment path %s in stdout, got %q", expectedText, commandResult.Stdout)
+		}
+		if expectedText != requesterRootPath {
+			if _, errorValue := os.Stat(expectedText); errorValue != nil {
+				t.Fatalf("expected runtime environment directory %s: %v", expectedText, errorValue)
+			}
+		}
+	}
+}
+
 func TestTerminalRunRelativeWorkingDirectoryUsesConversationDefault(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)

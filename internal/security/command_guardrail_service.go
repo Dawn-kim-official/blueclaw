@@ -517,10 +517,25 @@ func sanitizeEnvironmentVariables(environmentVariables map[string]string, worksp
 	}
 
 	allowedEnvironmentVariableName := map[string]bool{
-		"TERM":      true,
-		"LANG":      true,
-		"LC_ALL":    true,
-		"COLORTERM": true,
+		"TERM":                         true,
+		"LANG":                         true,
+		"LC_ALL":                       true,
+		"COLORTERM":                    true,
+		"BLUECLAW_REQUESTER_TMP":       true,
+		"BLUECLAW_TASK_TMP":            true,
+		"BLUECLAW_REQUESTER_ARTIFACTS": true,
+		"BLUECLAW_DEPENDENCY_CACHE":    true,
+		"HOME":                         true,
+		"TMPDIR":                       true,
+		"TMP":                          true,
+		"TEMP":                         true,
+		"XDG_CACHE_HOME":               true,
+		"XDG_CONFIG_HOME":              true,
+		"XDG_RUNTIME_DIR":              true,
+		"BUN_TMPDIR":                   true,
+		"BUN_INSTALL":                  true,
+		"BUN_INSTALL_CACHE_DIR":        true,
+		"npm_config_cache":             true,
 	}
 
 	for name, value := range environmentVariables {
