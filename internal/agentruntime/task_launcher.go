@@ -46,6 +46,7 @@ type TaskLaunchRequest struct {
 	ResponseLanguage          string
 	VisibleContext            agent.VisibleContext
 	ActiveGoal                agent.ActiveGoal
+	PrecomputedTurnDecision   *agent.TurnDecision
 	PinnedToolNames           []string
 	PinnedSkillNames          []string
 	HistoryProvider           HistoryProvider
@@ -154,6 +155,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ResponseLanguage:        request.ResponseLanguage,
 		VisibleContext:          request.VisibleContext,
 		ActiveGoal:              request.ActiveGoal,
+		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
 		MemoryFacts:             memoryFacts,
 		ToolSet:                 toolSet,
 		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),

@@ -13,6 +13,8 @@ import (
 
 type IntakeClassification string
 type TaskShape string
+type TurnRoute string
+type ApprovalSignal string
 
 const (
 	IntakeClassificationQuickReply        IntakeClassification = "quick_reply"
@@ -26,6 +28,19 @@ const (
 	TaskShapeScheduledTask      TaskShape = "scheduled_task"
 	TaskShapeBrowserHandoffTask TaskShape = "browser_handoff_task"
 	TaskShapeApprovalGatedTask  TaskShape = "approval_gated_task"
+
+	TurnRouteContinueTask   TurnRoute = "continue_task"
+	TurnRouteReviseTask     TurnRoute = "revise_task"
+	TurnRouteAnswerQuestion TurnRoute = "answer_question"
+	TurnRouteStartTask      TurnRoute = "start_task"
+	TurnRouteAnswerMeta     TurnRoute = "answer_meta"
+	TurnRouteClarify        TurnRoute = "clarify"
+	TurnRouteConsume        TurnRoute = "consume"
+	TurnRouteGiveUp         TurnRoute = "give_up"
+
+	ApprovalSignalApprove ApprovalSignal = "approve"
+	ApprovalSignalReject  ApprovalSignal = "reject"
+	ApprovalSignalUnclear ApprovalSignal = "unclear"
 )
 
 type IntakeOptions struct {
@@ -34,27 +49,51 @@ type IntakeOptions struct {
 }
 
 type AgentRequest struct {
-	RequesterPersonID      string
-	RequesterName          string
-	RequesterCallingName   string
-	RequesterHandle        string
-	RequesterCircles       []string
-	IsApprovalContinuation bool
-	ExistingTaskRunID      string
-	ProfileName            string
-	ConversationID         string
-	Prompt                 string
-	ResponseLanguage       string
-	VisibleContext         VisibleContext
-	MemoryFacts            []memory.MemoryFact
-	ToolSet                *ToolSet
-	PinnedToolNames        []string
-	PinnedSkillNames       []string
-	WorkspaceRootPath      string
-	ActivePaths            []string
-	InstructionPrompt      string
-	ActiveGoal             ActiveGoal
-	TurnStartedAt          time.Time
+	RequesterPersonID       string
+	RequesterName           string
+	RequesterCallingName    string
+	RequesterHandle         string
+	RequesterCircles        []string
+	IsApprovalContinuation  bool
+	ExistingTaskRunID       string
+	ProfileName             string
+	ConversationID          string
+	Prompt                  string
+	ResponseLanguage        string
+	VisibleContext          VisibleContext
+	MemoryFacts             []memory.MemoryFact
+	ToolSet                 *ToolSet
+	PinnedToolNames         []string
+	PinnedSkillNames        []string
+	WorkspaceRootPath       string
+	ActivePaths             []string
+	InstructionPrompt       string
+	ActiveGoal              ActiveGoal
+	PendingConfirmation     PendingConfirmationContext
+	PendingChoice           PendingChoiceContext
+	PendingInput            PendingInputContext
+	AllowGiveUp             bool
+	AllowGiveUpReason       string
+	PrecomputedTurnDecision *TurnDecision
+	TurnStartedAt           time.Time
+}
+
+type PendingConfirmationContext struct {
+	TaskRunID string
+	Prompt    string
+	Question  string
+}
+
+type PendingChoiceContext struct {
+	TaskRunID     string
+	Question      string
+	SelectionMode string
+	Options       []ChoiceReplyOption
+}
+
+type PendingInputContext struct {
+	TaskRunID string
+	Question  string
 }
 
 type IntakeDecision struct {
@@ -68,13 +107,52 @@ type IntakeDecision struct {
 	UsedDeterministicFallback bool                 `json:"usedDeterministicFallback"`
 }
 
+type TurnDecision struct {
+	Route                     TurnRoute            `json:"route"`
+	Classification            IntakeClassification `json:"classification"`
+	TaskShape                 TaskShape            `json:"taskShape"`
+	EffortLevel               EffortLevel          `json:"effortLevel"`
+	RequestedOutputFormats    []string             `json:"requestedOutputFormats"`
+	ResponseLanguage          string               `json:"responseLanguage"`
+	Reason                    string               `json:"reason"`
+	UserFacingReply           string               `json:"userFacingReply"`
+	Approval                  *ApprovalSignal      `json:"approval,omitempty"`
+	Choices                   []string             `json:"choices,omitempty"`
+	UsedDeterministicFallback bool                 `json:"usedDeterministicFallback"`
+}
+
+func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
+	return IntakeDecision{
+		Classification:            turnDecision.Classification,
+		TaskShape:                 turnDecision.TaskShape,
+		EffortLevel:               turnDecision.EffortLevel,
+		RequestedOutputFormats:    append([]string{}, turnDecision.RequestedOutputFormats...),
+		ResponseLanguage:          turnDecision.ResponseLanguage,
+		Reason:                    turnDecision.Reason,
+		UserFacingReply:           turnDecision.UserFacingReply,
+		UsedDeterministicFallback: turnDecision.UsedDeterministicFallback,
+	}
+}
+
 type TaskIntakePlanner struct {
+	languageModel llm.LanguageModelProvider
+	options       IntakeOptions
+}
+
+type TurnRouter struct {
 	languageModel llm.LanguageModelProvider
 	options       IntakeOptions
 }
 
 func NewTaskIntakePlanner(languageModel llm.LanguageModelProvider, options IntakeOptions) TaskIntakePlanner {
 	return TaskIntakePlanner{
+		languageModel: languageModel,
+		options:       normalizeIntakeOptions(options),
+	}
+}
+
+func NewTurnRouter(languageModel llm.LanguageModelProvider, options IntakeOptions) TurnRouter {
+	return TurnRouter{
 		languageModel: languageModel,
 		options:       normalizeIntakeOptions(options),
 	}
@@ -88,40 +166,46 @@ func normalizeIntakeOptions(options IntakeOptions) IntakeOptions {
 }
 
 func (taskIntakePlanner TaskIntakePlanner) Plan(ctx context.Context, request AgentRequest) IntakeDecision {
-	defaultDecision := taskIntakePlanner.deterministicDecision(request)
-	if !taskIntakePlanner.options.IsEnabled || taskIntakePlanner.languageModel == nil {
+	return NewTurnRouter(taskIntakePlanner.languageModel, taskIntakePlanner.options).Plan(ctx, request).IntakeDecision()
+}
+
+func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) TurnDecision {
+	if request.PrecomputedTurnDecision != nil {
+		return turnRouter.normalizeDecision(*request.PrecomputedTurnDecision, turnRouter.deterministicDecision(request), request)
+	}
+	defaultDecision := turnRouter.deterministicDecision(request)
+	if !turnRouter.options.IsEnabled || turnRouter.languageModel == nil {
 		return defaultDecision
 	}
-
-	intakeDecision, errorValue := taskIntakePlanner.planWithLanguageModel(ctx, request)
+	turnDecision, errorValue := turnRouter.planWithLanguageModel(ctx, request)
 	if errorValue != nil {
 		return defaultDecision
 	}
-	return taskIntakePlanner.normalizeDecision(intakeDecision, defaultDecision, request)
+	return turnRouter.normalizeDecision(turnDecision, defaultDecision, request)
 }
 
-func (taskIntakePlanner TaskIntakePlanner) planWithLanguageModel(ctx context.Context, request AgentRequest) (IntakeDecision, error) {
-	structuredResponse, errorValue := taskIntakePlanner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: taskIntakePlanner.buildMessages(request),
+func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request AgentRequest) (TurnDecision, error) {
+	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+		Messages: turnRouter.buildMessages(request),
 		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:               "blueclaw_task_intake_effort",
-			Document:           `{"type":"object","properties":{"classification":{"type":"string","enum":["quick_reply","bounded_task","needs_confirmation","unsupported"]},"taskShape":{"type":"string","enum":["immediate_reply","research_task","maintenance_task","scheduled_task","browser_handoff_task","approval_gated_task"]},"effortLevel":{"type":"string","enum":["quick","standard","deep","extended"]},"requestedOutputFormats":{"anyOf":[{"type":"array","items":{"type":"string","enum":["html","pptx","pdf","txt","docx","xlsx","csv"]}},{"type":"null"}]},"responseLanguage":{"type":"string","enum":["ko","en","same_as_conversation"]},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["classification","taskShape","effortLevel","requestedOutputFormats","responseLanguage","reason","userFacingReply"],"additionalProperties":false}`,
+			Name:               "blueclaw_turn_router",
+			Document:           turnRouterSchema(request),
 			IsStrictlyEnforced: true,
 		},
 	})
 	if errorValue != nil {
-		return IntakeDecision{}, errorValue
+		return TurnDecision{}, errorValue
 	}
 
-	var intakeDecision IntakeDecision
-	errorValue = json.Unmarshal([]byte(structuredResponse.Content), &intakeDecision)
+	var turnDecision TurnDecision
+	errorValue = json.Unmarshal([]byte(structuredResponse.Content), &turnDecision)
 	if errorValue != nil {
-		return IntakeDecision{}, errorValue
+		return TurnDecision{}, errorValue
 	}
-	return intakeDecision, nil
+	return turnDecision, nil
 }
 
-func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) []llm.Message {
+func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	toolDescriptions := "No tools are available."
 	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 {
 		toolNames := request.ToolSet.ListToolNames()
@@ -130,7 +214,7 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic task intake planner. Classify whether the current request can be handled in one bounded execution and choose a task shape. Do not use platform-specific assumptions. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, or replaces an active task. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -151,11 +235,14 @@ func (taskIntakePlanner TaskIntakePlanner) buildMessages(request AgentRequest) [
 	if goalDescription := activeGoalDescription(request.ActiveGoal); goalDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: goalDescription})
 	}
+	if routingContext := turnRoutingContextDescription(request); routingContext != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: routingContext})
+	}
 	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
 	return messages
 }
 
-func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRequest) IntakeDecision {
+func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDecision {
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
 	classification := IntakeClassificationQuickReply
 	reason := "short request can be answered directly"
@@ -163,17 +250,17 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
 		classification = IntakeClassificationBoundedTask
 		reason = "request may benefit from bounded tool use"
-		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
+		effortLevel = turnRouter.options.DefaultEffortLevel
 	}
 	if requestRequiresFollowUpToolWork(request) {
 		classification = IntakeClassificationBoundedTask
 		reason = "request resumes previous visible tool work"
-		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
+		effortLevel = turnRouter.options.DefaultEffortLevel
 	}
 	if request.VisibleContext.HasMoreBefore {
 		classification = IntakeClassificationBoundedTask
 		reason = "request has additional retrievable conversation history"
-		effortLevel = taskIntakePlanner.options.DefaultEffortLevel
+		effortLevel = turnRouter.options.DefaultEffortLevel
 	}
 	if looksLikeLargeRequest(prompt) {
 		classification = IntakeClassificationNeedsConfirmation
@@ -184,7 +271,8 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 		reason = "request is outside the available execution boundary"
 	}
 	responseLanguage := ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
-	return IntakeDecision{
+	return TurnDecision{
+		Route:                     deterministicTurnRoute(request),
 		Classification:            classification,
 		TaskShape:                 deterministicTaskShape(request, classification),
 		EffortLevel:               LargerEffortLevel(effortLevel, minimumEffortLevelForRequest(request)),
@@ -195,7 +283,18 @@ func (taskIntakePlanner TaskIntakePlanner) deterministicDecision(request AgentRe
 	}
 }
 
-func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDecision, defaultDecision IntakeDecision, request AgentRequest) IntakeDecision {
+func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDecision TurnDecision, request AgentRequest) TurnDecision {
+	decision.Route = normalizeTurnRoute(decision.Route, request)
+	if decision.Route == "" {
+		decision.Route = defaultDecision.Route
+	}
+	hasPendingConfirmation := strings.TrimSpace(request.PendingConfirmation.TaskRunID) != ""
+	decision.Approval = normalizeApprovalSignal(decision.Approval, hasPendingConfirmation)
+	if hasPendingConfirmation && decision.Approval != nil && *decision.Approval == ApprovalSignalApprove {
+		decision.Route = TurnRouteContinueTask
+	}
+	decision.Choices = normalizeChoiceSelections(decision.Choices, request.PendingChoice)
+	decision = applyRouteToIntakeDecision(decision)
 	normalizedClassification := normalizeClassification(decision.Classification)
 	if normalizedClassification == "" {
 		return defaultDecision
@@ -214,12 +313,12 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		decision.Reason = firstNonEmptyString(decision.Reason, "request resumes previous visible tool work")
 		decision.UserFacingReply = ""
 	}
-	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision) {
+	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision.IntakeDecision()) {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
 		decision.UserFacingReply = ""
 	}
-	if shouldTreatAsBoundedSitePrototype(request, decision) {
+	if shouldTreatAsBoundedSitePrototype(request, decision.IntakeDecision()) {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = "available site.app tools can create and publish the requested prototype"
 		decision.UserFacingReply = ""
@@ -249,6 +348,120 @@ func (taskIntakePlanner TaskIntakePlanner) normalizeDecision(decision IntakeDeci
 		decision.UserFacingReply = defaultUserFacingReplyForLanguage(decision.Classification, decision.ResponseLanguage)
 	}
 	return decision
+}
+
+func turnRouterSchema(request AgentRequest) string {
+	routeValues := []string{
+		string(TurnRouteContinueTask),
+		string(TurnRouteReviseTask),
+		string(TurnRouteAnswerQuestion),
+		string(TurnRouteStartTask),
+		string(TurnRouteAnswerMeta),
+		string(TurnRouteClarify),
+		string(TurnRouteConsume),
+	}
+	if request.AllowGiveUp {
+		routeValues = append(routeValues, string(TurnRouteGiveUp))
+	}
+	properties := map[string]any{
+		"route": map[string]any{"type": "string", "enum": routeValues},
+		"classification": map[string]any{"type": "string", "enum": []string{
+			string(IntakeClassificationQuickReply),
+			string(IntakeClassificationBoundedTask),
+			string(IntakeClassificationNeedsConfirmation),
+			string(IntakeClassificationUnsupported),
+		}},
+		"taskShape": map[string]any{"type": "string", "enum": []string{
+			string(TaskShapeImmediateReply),
+			string(TaskShapeResearchTask),
+			string(TaskShapeMaintenanceTask),
+			string(TaskShapeScheduledTask),
+			string(TaskShapeBrowserHandoffTask),
+			string(TaskShapeApprovalGatedTask),
+		}},
+		"effortLevel": map[string]any{"type": "string", "enum": []string{
+			string(EffortLevelQuick),
+			string(EffortLevelStandard),
+			string(EffortLevelDeep),
+			string(EffortLevelExtended),
+		}},
+		"requestedOutputFormats": map[string]any{"anyOf": []any{
+			map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"html", "pptx", "pdf", "txt", "docx", "xlsx", "csv"}}},
+			map[string]any{"type": "null"},
+		}},
+		"responseLanguage": map[string]any{"type": "string", "enum": []string{"ko", "en", "same_as_conversation"}},
+		"reason":           map[string]any{"type": "string"},
+		"userFacingReply":  map[string]any{"type": "string"},
+	}
+	requiredProperties := []string{"route", "classification", "taskShape", "effortLevel", "requestedOutputFormats", "responseLanguage", "reason", "userFacingReply"}
+	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
+		properties["approval"] = map[string]any{"type": "string", "enum": []string{string(ApprovalSignalApprove), string(ApprovalSignalReject), string(ApprovalSignalUnclear)}}
+		requiredProperties = append(requiredProperties, "approval")
+	}
+	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
+		properties["choices"] = map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": pendingChoiceKeys(request.PendingChoice)}, "uniqueItems": true}
+		requiredProperties = append(requiredProperties, "choices")
+	}
+	document, errorValue := json.Marshal(map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"required":             requiredProperties,
+		"additionalProperties": false,
+	})
+	if errorValue != nil {
+		return `{"type":"object","properties":{"route":{"type":"string"},"classification":{"type":"string"},"taskShape":{"type":"string"},"effortLevel":{"type":"string"},"requestedOutputFormats":{"type":"null"},"responseLanguage":{"type":"string"},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["route","classification","taskShape","effortLevel","requestedOutputFormats","responseLanguage","reason","userFacingReply"],"additionalProperties":false}`
+	}
+	return string(document)
+}
+
+func pendingChoiceKeys(pendingChoice PendingChoiceContext) []string {
+	keys := []string{}
+	for _, option := range pendingChoice.Options {
+		key := strings.TrimSpace(option.Key)
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+func turnRoutingContextDescription(request AgentRequest) string {
+	lines := []string{}
+	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
+		lines = append(lines,
+			"Pending confirmation:",
+			"- Task: "+strings.TrimSpace(request.PendingConfirmation.Prompt),
+			"- Question: "+strings.TrimSpace(request.PendingConfirmation.Question),
+			"- Return approval=approve only when the latest user message clearly authorizes this exact pending action.",
+		)
+	}
+	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
+		optionLines := []string{}
+		for _, option := range request.PendingChoice.Options {
+			optionLines = append(optionLines, strings.TrimSpace(option.Key)+" / "+strings.TrimSpace(option.Label))
+		}
+		lines = append(lines,
+			"Pending choice:",
+			"- Question: "+strings.TrimSpace(request.PendingChoice.Question),
+			"- Selection mode: "+strings.TrimSpace(request.PendingChoice.SelectionMode),
+			"- Options: "+strings.Join(optionLines, "; "),
+			"- Return choices as option keys only. Return an empty array when the latest message does not select valid options.",
+		)
+	}
+	if strings.TrimSpace(request.PendingInput.TaskRunID) != "" {
+		lines = append(lines,
+			"Pending input:",
+			"- Question: "+strings.TrimSpace(request.PendingInput.Question),
+			"- Use continue_task or revise_task when the latest message answers or modifies this pending input.",
+		)
+	}
+	if request.AllowGiveUp {
+		lines = append(lines, "Give-up route is allowed because: "+strings.TrimSpace(request.AllowGiveUpReason))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 func resolveDecisionResponseLanguage(decisionLanguage string, requestLanguage string) string {
@@ -317,6 +530,142 @@ func normalizeClassification(classification IntakeClassification) IntakeClassifi
 	default:
 		return ""
 	}
+}
+
+func normalizeTurnRoute(route TurnRoute, request AgentRequest) TurnRoute {
+	switch route {
+	case TurnRouteContinueTask, TurnRouteReviseTask, TurnRouteAnswerQuestion, TurnRouteStartTask, TurnRouteAnswerMeta, TurnRouteClarify, TurnRouteConsume:
+		return route
+	case TurnRouteGiveUp:
+		if request.AllowGiveUp {
+			return route
+		}
+		if hasPendingOrActiveTaskContext(request) {
+			return TurnRouteAnswerMeta
+		}
+		return TurnRouteClarify
+	default:
+		return ""
+	}
+}
+
+func deterministicTurnRoute(request AgentRequest) TurnRoute {
+	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
+		return TurnRouteContinueTask
+	}
+	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
+		return TurnRouteContinueTask
+	}
+	if strings.TrimSpace(request.PendingInput.TaskRunID) != "" {
+		return TurnRouteContinueTask
+	}
+	if strings.TrimSpace(request.ActiveGoal.TaskRunID) != "" {
+		if turnRouterPromptLooksIndependent(request.Prompt) && !turnRouterPromptLooksLikeGoalContinuation(request.Prompt) {
+			return TurnRouteStartTask
+		}
+		return TurnRouteContinueTask
+	}
+	if turnRouterLooksLikeBareConfirmationReply(request.Prompt) {
+		return TurnRouteConsume
+	}
+	return TurnRouteStartTask
+}
+
+func applyRouteToIntakeDecision(decision TurnDecision) TurnDecision {
+	switch decision.Route {
+	case TurnRouteClarify:
+		decision.Classification = IntakeClassificationNeedsConfirmation
+		decision.TaskShape = TaskShapeApprovalGatedTask
+		if decision.UserFacingReply == "" {
+			decision.UserFacingReply = decision.Reason
+		}
+	case TurnRouteGiveUp:
+		decision.Classification = IntakeClassificationUnsupported
+		if decision.UserFacingReply == "" {
+			decision.UserFacingReply = decision.Reason
+		}
+	}
+	return decision
+}
+
+func hasPendingOrActiveTaskContext(request AgentRequest) bool {
+	return strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" ||
+		strings.TrimSpace(request.PendingChoice.TaskRunID) != "" ||
+		strings.TrimSpace(request.PendingInput.TaskRunID) != "" ||
+		strings.TrimSpace(request.ActiveGoal.TaskRunID) != ""
+}
+
+func normalizeApprovalSignal(signal *ApprovalSignal, hasPendingConfirmation bool) *ApprovalSignal {
+	if !hasPendingConfirmation {
+		return nil
+	}
+	if signal == nil {
+		unclear := ApprovalSignalUnclear
+		return &unclear
+	}
+	normalizedSignal := ApprovalSignal(strings.TrimSpace(string(*signal)))
+	switch normalizedSignal {
+	case ApprovalSignalApprove, ApprovalSignalReject, ApprovalSignalUnclear:
+		return &normalizedSignal
+	default:
+		unclear := ApprovalSignalUnclear
+		return &unclear
+	}
+}
+
+func normalizeChoiceSelections(selections []string, pendingChoice PendingChoiceContext) []string {
+	if strings.TrimSpace(pendingChoice.TaskRunID) == "" {
+		return nil
+	}
+	validChoices := map[string]bool{}
+	for _, option := range pendingChoice.Options {
+		key := strings.TrimSpace(option.Key)
+		if key != "" {
+			validChoices[key] = true
+		}
+	}
+	normalizedChoices := []string{}
+	seenChoices := map[string]bool{}
+	for _, selection := range selections {
+		normalizedSelection := strings.TrimSpace(selection)
+		if !validChoices[normalizedSelection] || seenChoices[normalizedSelection] {
+			continue
+		}
+		seenChoices[normalizedSelection] = true
+		normalizedChoices = append(normalizedChoices, normalizedSelection)
+	}
+	if strings.TrimSpace(pendingChoice.SelectionMode) != "multiple" && len(normalizedChoices) > 1 {
+		return nil
+	}
+	return normalizedChoices
+}
+
+func turnRouterLooksLikeBareConfirmationReply(prompt string) bool {
+	normalizedPrompt := strings.TrimSpace(strings.ToLower(prompt))
+	confirmationReplies := map[string]bool{
+		"ㅇ": true, "응": true, "네": true, "예": true, "그래": true, "좋아": true,
+		"진행해": true, "진행해줘": true, "해": true, "해줘": true,
+		"approved": true, "rejected": true, "yes": true, "y": true, "no": true, "n": true,
+		"ok": true, "okay": true, "go ahead": true,
+	}
+	return confirmationReplies[normalizedPrompt]
+}
+
+func turnRouterPromptLooksLikeGoalContinuation(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{
+		"우선", "계속", "진행", "그대로", "좋아", "해봐", "다시 해", "다시 진행", "그럼",
+		"continue", "go ahead", "proceed", "retry",
+	})
+}
+
+func turnRouterPromptLooksIndependent(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{
+		"캘린더", "일정", "회의", "휴가", "알림", "예약", "dm", "메일", "보내", "전송",
+		"검색", "찾아", "조사", "작성", "만들", "수정", "삭제", "배포", "열어",
+		"calendar", "meeting", "remind", "schedule", "send", "email", "search", "write", "create", "delete", "deploy",
+	})
 }
 
 func defaultUserFacingReply(classification IntakeClassification) string {

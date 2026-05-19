@@ -41,8 +41,8 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if len(languageModel.requests) != 1 {
 		t.Fatalf("expected one intake model call, got %d", len(languageModel.requests))
 	}
-	if languageModel.requests[0].StructuredOutputSchema.Name != "blueclaw_task_intake_effort" {
-		t.Fatalf("expected intake schema, got %q", languageModel.requests[0].StructuredOutputSchema.Name)
+	if languageModel.requests[0].StructuredOutputSchema.Name != "blueclaw_turn_router" {
+		t.Fatalf("expected turn router schema, got %q", languageModel.requests[0].StructuredOutputSchema.Name)
 	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"taskShape"`) {
 		t.Fatalf("expected task shape in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
@@ -69,6 +69,82 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 
 	if strings.Join(decision.RequestedOutputFormats, ",") != "html" {
 		t.Fatalf("expected structured html output format, got %+v", decision.RequestedOutputFormats)
+	}
+}
+
+func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
+	noPendingSchema := turnRouterSchema(AgentRequest{})
+	if strings.Contains(noPendingSchema, `"approval"`) {
+		t.Fatalf("expected no approval field without pending confirmation, got %s", noPendingSchema)
+	}
+	if strings.Contains(noPendingSchema, `"choices"`) {
+		t.Fatalf("expected no choices field without pending choice, got %s", noPendingSchema)
+	}
+
+	pendingSchema := turnRouterSchema(AgentRequest{
+		PendingConfirmation: PendingConfirmationContext{TaskRunID: "task-1"},
+		PendingChoice: PendingChoiceContext{
+			TaskRunID: "task-2",
+			Options:   []ChoiceReplyOption{{Key: "A", Label: "Option A"}},
+		},
+		AllowGiveUp: true,
+	})
+	for _, expected := range []string{`"approval"`, `"choices"`, `"give_up"`, `"A"`} {
+		if !strings.Contains(pendingSchema, expected) {
+			t.Fatalf("expected %s in pending schema, got %s", expected, pendingSchema)
+		}
+	}
+}
+
+func TestTurnRouterNormalizesConditionalFields(t *testing.T) {
+	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
+	decision := router.normalizeDecision(TurnDecision{
+		Route:                  TurnRouteGiveUp,
+		Classification:         IntakeClassificationBoundedTask,
+		TaskShape:              TaskShapeMaintenanceTask,
+		EffortLevel:            EffortLevelStandard,
+		RequestedOutputFormats: []string{"pptx"},
+		ResponseLanguage:       "ko",
+		Choices:                []string{"B", "A", "A"},
+	}, router.deterministicDecision(AgentRequest{}), AgentRequest{
+		PendingConfirmation: PendingConfirmationContext{TaskRunID: "task-1"},
+		PendingChoice: PendingChoiceContext{
+			TaskRunID:     "task-2",
+			SelectionMode: "multiple",
+			Options: []ChoiceReplyOption{
+				{Key: "A", Label: "Option A"},
+			},
+		},
+	})
+
+	if decision.Approval == nil || *decision.Approval != ApprovalSignalUnclear {
+		t.Fatalf("expected missing pending approval to normalize to unclear, got %+v", decision.Approval)
+	}
+	if decision.Route != TurnRouteAnswerMeta {
+		t.Fatalf("expected disallowed give_up to normalize to answer_meta, got %+v", decision.Route)
+	}
+	if strings.Join(decision.Choices, ",") != "A" {
+		t.Fatalf("expected choices to be whitelisted and deduplicated, got %+v", decision.Choices)
+	}
+}
+
+func TestTurnRouterApproveForcesContinuation(t *testing.T) {
+	approval := ApprovalSignalApprove
+	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
+	decision := router.normalizeDecision(TurnDecision{
+		Route:            TurnRouteStartTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		EffortLevel:      EffortLevelStandard,
+		ResponseLanguage: "ko",
+		Reason:           "approval",
+		Approval:         &approval,
+	}, router.deterministicDecision(AgentRequest{}), AgentRequest{
+		PendingConfirmation: PendingConfirmationContext{TaskRunID: "task-1"},
+	})
+
+	if decision.Route != TurnRouteContinueTask {
+		t.Fatalf("expected approval to force continuation, got %+v", decision)
 	}
 }
 

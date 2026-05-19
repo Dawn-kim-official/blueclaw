@@ -627,7 +627,7 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 
-	toolContextIndex := messageIndex(languageModel.request.Messages, "Available tools.")
+	toolContextIndex := messageIndex(languageModel.request.Messages, "Available tool catalog")
 	visibleContextIndex := messageIndex(languageModel.request.Messages, "admin: 이전 메시지")
 	memoryIndex := messageIndex(languageModel.request.Messages, "간결한 설계")
 	promptIndex := userMessageIndex(languageModel.request.Messages, event.Prompt)
@@ -790,14 +790,14 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
 	requests := languageModel.Requests()
-	if len(requests) != 9 {
+	if len(requests) != 8 {
 		t.Fatalf("expected approval classification before continuation turn, got %d requests: %+v", len(requests), connectorRequestSchemaNames(requests))
 	}
-	if requests[4].StructuredOutputSchema.Name != "blueclaw_confirmation_reply_decision" {
+	if requests[4].StructuredOutputSchema.Name != "blueclaw_turn_router" {
 		t.Fatalf("expected fifth model request to classify confirmation, got %q", requests[4].StructuredOutputSchema.Name)
 	}
-	if !structuredMessagesContain(requests[7].Messages, "The user approved the pending action") {
-		t.Fatalf("expected active goal context to carry approval context, got %+v", requests[7].Messages)
+	if !structuredMessagesContain(requests[6].Messages, "The user approved the pending action") {
+		t.Fatalf("expected active goal context to carry approval context, got %+v", requests[6].Messages)
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
@@ -849,8 +849,8 @@ func TestConnectorRuntimeTreatsAnyPendingConfirmationReplyAsTerminal(t *testing.
 	if errorValue != nil {
 		t.Fatalf("expected pending confirmation reply to process: %v", errorValue)
 	}
-	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.Reason != "confirmation_rejected" {
-		t.Fatalf("expected non-approval reply to cancel pending confirmation, got %+v", secondResult)
+	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.Reason != "confirmation_question" {
+		t.Fatalf("expected pending confirmation question to be answered after cancelling pending action, got %+v", secondResult)
 	}
 	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "dispatch-1" {
 		t.Fatalf("expected pending confirmation attachment to resolve, got %+v", adapter.resolutions)
