@@ -179,7 +179,7 @@ func TestSelectedSkillToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *test
 	}
 }
 
-func TestSelectedSkillToolSetKeepsSelectedSiteToolsWhenActiveGoalWasAttachmentFallback(t *testing.T) {
+func TestSelectedSkillToolSetKeepsMatchingSelectedSkillToolsWhenActiveGoalWasAttachmentFallback(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "file.attach", "site.app.create", "site.app.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -196,6 +196,7 @@ func TestSelectedSkillToolSetKeepsSelectedSiteToolsWhenActiveGoalWasAttachmentFa
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.attach"},
 			RequiredAttachmentSuffixes: []string{".html"},
+			SelectedEvidenceHints:      []string{"site.app.create", "terminal.run", "site.app.publish"},
 			ArtifactRequirement:        ArtifactRequirementRequired,
 		}},
 	}
