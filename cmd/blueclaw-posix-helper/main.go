@@ -130,19 +130,17 @@ func runExec(arguments []string) error {
 	if errorValue != nil {
 		return errorValue
 	}
-	if errorValue := os.Chdir(*workingDirectoryPath); errorValue != nil {
-		return errorValue
-	}
-	if errorValue := syscall.Setgroups(groupIDs); errorValue != nil {
-		return errorValue
-	}
-	if errorValue := syscall.Setgid(int(*groupID)); errorValue != nil {
-		return errorValue
-	}
-	if errorValue := syscall.Setuid(int(*userID)); errorValue != nil {
+	if errorValue := prepareExecProcess(*userID, *groupID, groupIDs, *workingDirectoryPath, applyIdentity, os.Chdir); errorValue != nil {
 		return errorValue
 	}
 	return syscall.Exec(executableArguments[0], executableArguments, os.Environ())
+}
+
+func prepareExecProcess(userID uint, groupID uint, groupIDs []int, workingDirectoryPath string, applyIdentityFunction func(uint, uint, []int) error, changeDirectoryFunction func(string) error) error {
+	if errorValue := applyIdentityFunction(userID, groupID, groupIDs); errorValue != nil {
+		return errorValue
+	}
+	return changeDirectoryFunction(workingDirectoryPath)
 }
 
 func runFS(arguments []string) error {
