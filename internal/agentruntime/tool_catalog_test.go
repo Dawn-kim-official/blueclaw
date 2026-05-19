@@ -1297,6 +1297,41 @@ func TestWorkspacePathResolverMapsVirtualHomeToRequesterPrivateRoot(t *testing.T
 	}
 }
 
+func TestWorkspaceScopeEnvironmentStaysUnderRequesterPrivateRoot(t *testing.T) {
+	workspacePath := t.TempDir()
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	environmentVariables := scope.EnvironmentVariables()
+	requesterRootPath := filepath.Join(workspacePath, "private", "people", "person-1")
+	taskRuntimeRootPath := filepath.Join(requesterRootPath, "tmp", "task-1", ".runtime")
+	expectedEnvironmentPaths := map[string]string{
+		"HOME":                  requesterRootPath,
+		"TMPDIR":                filepath.Join(taskRuntimeRootPath, "tmp"),
+		"TMP":                   filepath.Join(taskRuntimeRootPath, "tmp"),
+		"TEMP":                  filepath.Join(taskRuntimeRootPath, "tmp"),
+		"XDG_CACHE_HOME":        filepath.Join(taskRuntimeRootPath, "cache"),
+		"XDG_CONFIG_HOME":       filepath.Join(taskRuntimeRootPath, "config"),
+		"XDG_RUNTIME_DIR":       filepath.Join(taskRuntimeRootPath, "runtime"),
+		"BUN_TMPDIR":            filepath.Join(taskRuntimeRootPath, "bun", "tmp"),
+		"BUN_INSTALL":           filepath.Join(taskRuntimeRootPath, "bun", "install"),
+		"BUN_INSTALL_CACHE_DIR": filepath.Join(taskRuntimeRootPath, "bun", "cache"),
+		"npm_config_cache":      filepath.Join(taskRuntimeRootPath, "npm"),
+	}
+	for name, expectedPath := range expectedEnvironmentPaths {
+		actualPath := environmentVariables[name]
+		if actualPath != expectedPath {
+			t.Fatalf("expected %s to be %s, got %s", name, expectedPath, actualPath)
+		}
+		if name != "HOME" && !strings.HasPrefix(actualPath, requesterRootPath+string(filepath.Separator)) {
+			t.Fatalf("expected %s to stay under requester root, got %s", name, actualPath)
+		}
+		for _, deniedPrefix := range []string{"/tmp", "/opt", filepath.Join(workspacePath, "tmp"), filepath.Join(workspacePath, ".blueclaw")} {
+			if actualPath == deniedPrefix || strings.HasPrefix(actualPath, deniedPrefix+string(filepath.Separator)) {
+				t.Fatalf("expected %s to avoid denied prefix %s, got %s", name, deniedPrefix, actualPath)
+			}
+		}
+	}
+}
+
 func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
@@ -1467,6 +1502,92 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"home/sites/site-1"`) ||
 		!strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/app"`) {
 		t.Fatalf("expected virtual source workspace in result, got %s", result.ContentText())
+	}
+}
+
+func TestSiteCreateAppWorkspaceSupportsBunLikeBuildRuntime(t *testing.T) {
+	workspacePath := t.TempDir()
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"home/sites/site-1","workspacePath":"home/sites/site-1","status":"draft"}}`}
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "terminal.run"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.create",
+		PolicyResource: "tool:site.app.create",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	createResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.create",
+		Input:    agent.MarshalToolInput(map[string]string{"slug": "demo"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if createResult.Failed() {
+		t.Fatalf("expected site.app.create success, got %s", createResult.ContentText())
+	}
+	var createDocument map[string]any
+	if errorValue := json.Unmarshal([]byte(createResult.ContentText()), &createDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	appWorkspacePath, isString := createDocument["appWorkspacePath"].(string)
+	if !isString || strings.TrimSpace(appWorkspacePath) == "" {
+		t.Fatalf("expected appWorkspacePath in site.app.create result, got %s", createResult.ContentText())
+	}
+
+	buildCommand := `
+bun() {
+  if [ "$1" != "run" ] || [ "$2" != "build" ]; then
+    return 127
+  fi
+  for directory in "$HOME" "$TMPDIR" "$TMP" "$TEMP" "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$XDG_RUNTIME_DIR" "$BUN_TMPDIR" "$BUN_INSTALL" "$BUN_INSTALL_CACHE_DIR" "$npm_config_cache"; do
+    if [ ! -d "$directory" ] || [ ! -w "$directory" ]; then
+      echo 'error: AccessDenied accessing temporary directory. Please set $BUN_TMPDIR or $BUN_INSTALL' >&2
+      return 74
+    fi
+  done
+  case "$BUN_TMPDIR" in "$HOME"/*) ;; *) echo "BUN_TMPDIR escaped requester home: $BUN_TMPDIR" >&2; return 75 ;; esac
+  case "$BUN_INSTALL" in "$HOME"/*) ;; *) echo "BUN_INSTALL escaped requester home: $BUN_INSTALL" >&2; return 75 ;; esac
+  test -f package.json || return 76
+  mkdir -p dist
+  printf ok > dist/index.html
+}
+bun run build
+`
+	buildResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"workingDirectoryPath": appWorkspacePath,
+			"environmentVariables": map[string]string{
+				"BUN_TMPDIR":  "/tmp/not-blueclaw",
+				"BUN_INSTALL": "/opt/not-blueclaw",
+				"TMPDIR":      "/tmp/not-blueclaw",
+			},
+			"command": buildCommand,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if buildResult.Failed() {
+		t.Fatalf("expected Bun-like build to succeed with requester runtime dirs, got %s", buildResult.ContentText())
+	}
+	distPath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "app", "dist", "index.html")
+	distDocument, errorValue := os.ReadFile(distPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if string(distDocument) != "ok" {
+		t.Fatalf("expected build output from Bun-like command, got %q", string(distDocument))
 	}
 }
 
