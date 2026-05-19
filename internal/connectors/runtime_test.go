@@ -807,6 +807,59 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	}
 }
 
+func TestConnectorRuntimeTreatsAnyPendingConfirmationReplyAsTerminal(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_task_intake_effort": {
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+			},
+			"blueclaw_execution_plan": {
+				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
+			},
+			"blueclaw_confirmation_message": {
+				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
+			},
+			"blueclaw_confirmation_reply_decision": {
+				`{"decision":"question","reason":"user asked a follow-up instead of approving"}`,
+			},
+			"blueclaw_reply": {
+				`{"reply":"요청하신 작업은 취소했습니다."}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.delete"})
+
+	firstEvent := testInboundEvent("message-1")
+	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
+	firstResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, firstEvent)
+	if errorValue != nil {
+		t.Fatalf("expected first event to process: %v", errorValue)
+	}
+	if firstResult.TaskRunID == "" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected confirmation request, result=%+v replies=%+v", firstResult, adapter.sentReplies)
+	}
+
+	secondEvent := testInboundEvent("message-2")
+	secondEvent.Prompt = "왜 승인이 필요해?"
+	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
+	if errorValue != nil {
+		t.Fatalf("expected pending confirmation reply to process: %v", errorValue)
+	}
+	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.Reason != "confirmation_rejected" {
+		t.Fatalf("expected non-approval reply to cancel pending confirmation, got %+v", secondResult)
+	}
+	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "dispatch-1" {
+		t.Fatalf("expected pending confirmation attachment to resolve, got %+v", adapter.resolutions)
+	}
+	if connectorContainsSchemaName(languageModel.Requests(), "blueclaw_agent_turn_action") {
+		t.Fatalf("non-approval confirmation reply must not launch a new agent turn, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+}
+
 func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{

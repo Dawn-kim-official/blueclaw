@@ -946,21 +946,38 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 	decision, errorValue := connectorRuntime.agentKernel.ClassifyConfirmationReply(ctx, approval.IntentPrompt, approval.ApprovalQuestion, event.Prompt)
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".approval.classify_failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID), slog.String("error", errorValue.Error()))
-		return pendingApproval{}, agent.ConfirmationReplyDecision{}, false
+		return approval, agent.ConfirmationReplyDecision{Decision: "rejected", Reason: "classification_failed"}, true
 	}
+	decision = terminalConfirmationDecision(decision)
 	connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
 		"messageID":   event.MessageID,
 		"decision":    decision.Decision,
 		"reason":      decision.Reason,
 		"replyPrompt": strings.TrimSpace(event.Prompt),
 	}))
-	if decision.Decision != "approved" && decision.Decision != "rejected" {
-		return approval, decision, false
-	}
 	if decision.Decision == "approved" {
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
 	}
 	return approval, decision, true
+}
+
+func terminalConfirmationDecision(decision agent.ConfirmationReplyDecision) agent.ConfirmationReplyDecision {
+	switch strings.TrimSpace(decision.Decision) {
+	case "approved":
+		return agent.ConfirmationReplyDecision{Decision: "approved", Reason: strings.TrimSpace(decision.Reason)}
+	case "rejected":
+		return agent.ConfirmationReplyDecision{Decision: "rejected", Reason: strings.TrimSpace(decision.Reason)}
+	default:
+		originalDecision := strings.TrimSpace(decision.Decision)
+		reason := strings.TrimSpace(decision.Reason)
+		if originalDecision != "" {
+			reason = firstNonEmptyString("non_terminal_confirmation_reply:"+originalDecision, reason)
+		}
+		return agent.ConfirmationReplyDecision{
+			Decision: "rejected",
+			Reason:   firstNonEmptyString(reason, "non_approval_reply"),
+		}
+	}
 }
 
 func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent) PlatformInboundEvent {
