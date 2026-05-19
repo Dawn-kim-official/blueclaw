@@ -776,6 +776,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), 02770); errorValue != nil {
 		return actorToolFailure("mkdir_all", "terminal_working_directory", workingDirectory.VirtualPath, errorValue), nil
 	}
+	if toolFailure := preflightNodePackageBuild(toolContext, workspaceActor, workspacepath.Directory(workingDirectory), input.Command); toolFailure != nil {
+		return *toolFailure, nil
+	}
 	input.ExecutionIdentity = toolCatalogBuilder.executionIdentityForRequester(handlerContext.request)
 	commandResult, errorValue := workspaceActor.Run(toolContext, input)
 	content := marshalToolResult(commandResult)
@@ -966,6 +969,82 @@ func terminalSessionToolResult(commandResult security.CommandResult, errorValue 
 		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_session", content, json.RawMessage(content))
 	}
 	return agent.ToolSuccess(content)
+}
+
+func preflightNodePackageBuild(ctx context.Context, workspaceActor security.WorkspaceActor, workingDirectory workspacepath.Directory, command string) *agent.ToolResult {
+	if !commandRunsNodePackageBuild(command) {
+		return nil
+	}
+	packagePath := workingDirectory.JoinVirtualFile("package.json")
+	document, errorValue := workspaceActor.ReadFile(ctx, packagePath, 256*1024)
+	if errorValue != nil {
+		return packageManifestInvalidFailure(packagePath.VirtualPath, "package.json is missing or unreadable: "+errorValue.Error())
+	}
+	var packageDocument map[string]any
+	if errorValue := json.Unmarshal(document, &packageDocument); errorValue != nil {
+		return packageManifestInvalidFailure(packagePath.VirtualPath, "package.json is not valid JSON: "+errorValue.Error())
+	}
+	scripts, isObject := packageDocument["scripts"].(map[string]any)
+	if !isObject {
+		return packageManifestInvalidFailure(packagePath.VirtualPath, "package.json has no scripts object")
+	}
+	buildScript, isString := scripts["build"].(string)
+	if !isString || strings.TrimSpace(buildScript) == "" {
+		return packageManifestInvalidFailure(packagePath.VirtualPath, "package.json has no scripts.build command")
+	}
+	return nil
+}
+
+func commandRunsNodePackageBuild(command string) bool {
+	tokens := terminalCommandWords(command)
+	for index := 0; index < len(tokens); index++ {
+		switch tokens[index] {
+		case "bun", "npm", "pnpm":
+			if index+2 < len(tokens) && tokens[index+1] == "run" && tokens[index+2] == "build" {
+				return true
+			}
+		case "yarn":
+			if index+1 < len(tokens) && tokens[index+1] == "build" {
+				return true
+			}
+			if index+2 < len(tokens) && tokens[index+1] == "run" && tokens[index+2] == "build" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func terminalCommandWords(command string) []string {
+	replacer := strings.NewReplacer("\n", " ", "\t", " ", ";", " ", "&&", " ", "||", " ")
+	fields := strings.Fields(replacer.Replace(command))
+	words := make([]string, 0, len(fields))
+	for _, field := range fields {
+		word := strings.Trim(field, `"'`)
+		if word != "" {
+			words = append(words, word)
+		}
+	}
+	return words
+}
+
+func packageManifestInvalidFailure(path string, detail string) *agent.ToolResult {
+	content := marshalToolResult(map[string]string{
+		"code":   "package_manifest_invalid",
+		"path":   strings.TrimSpace(path),
+		"detail": strings.TrimSpace(detail),
+	})
+	return &agent.ToolResult{
+		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
+		Failure: &agent.ToolFailure{
+			Kind:            agent.FailureInvalidInput,
+			Code:            "package_manifest_invalid",
+			Stage:           "package_manifest_preflight",
+			UserSafeSummary: content,
+			Retryable:       true,
+			SafeRetry:       true,
+		},
+	}
 }
 
 func statusToolResult(status security.TerminalSessionStatus, errorValue error) agent.ToolResult {
@@ -1210,6 +1289,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", errorValue.Error()), nil
 	}
+	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
+		return managedSiteManifestProtectedFailure(resolvedPath.VirtualPath), nil
+	}
 	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_write", "file.write cannot modify built-in skill files"), nil
 	}
@@ -1234,6 +1316,35 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 		"path":      resolvedPath.VirtualPath,
 		"sizeBytes": len(input.Content),
 	})), nil
+}
+
+func isManagedSitePackageManifestPath(virtualPath string) bool {
+	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(strings.TrimSpace(virtualPath), "/workspace/")))
+	parts := strings.Split(cleanPath, "/")
+	return len(parts) == 5 &&
+		parts[0] == "home" &&
+		parts[1] == "sites" &&
+		parts[3] == "app" &&
+		parts[4] == "package.json"
+}
+
+func managedSiteManifestProtectedFailure(path string) agent.ToolResult {
+	content := marshalToolResult(map[string]string{
+		"code":   "managed_manifest_protected",
+		"path":   strings.TrimSpace(path),
+		"detail": "site.app.create manages this build manifest; edit DESIGN.md and app source files instead of overwriting app/package.json",
+	})
+	return agent.ToolResult{
+		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
+		Failure: &agent.ToolFailure{
+			Kind:            agent.FailurePolicyBlocked,
+			Code:            "managed_manifest_protected",
+			Stage:           "file_write",
+			UserSafeSummary: content,
+			Retryable:       true,
+			SafeRetry:       true,
+		},
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -1613,6 +1724,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolCo
 	}
 	site.SourceWorkspacePath = sourceWorkspace.VirtualPath
 	site.WorkspacePath = sourceWorkspace.VirtualPath
+	site.AppWorkspacePath = filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, "app"))
 	document, errorValue := json.Marshal(site)
 	if errorValue != nil {
 		return nil, errorValue
@@ -1628,6 +1740,7 @@ type siteCreateResult struct {
 	PublishedURL        string `json:"publishedURL"`
 	WorkspacePath       string `json:"workspacePath"`
 	SourceWorkspacePath string `json:"sourceWorkspacePath"`
+	AppWorkspacePath    string `json:"appWorkspacePath"`
 	Status              string `json:"status"`
 }
 
@@ -1680,17 +1793,16 @@ func workspacePathForSiteStarterFile(sourceWorkspace workspacepath.Directory, re
 }
 
 func siteStarterFiles(site siteCreateResult) []siteStarterFile {
-	return []siteStarterFile{
+	files := []siteStarterFile{
 		{Path: ".internkim/site.json", Content: siteWorkspaceMetadata(site)},
 		{Path: "DESIGN.md", Content: siteDesignDocument(site)},
-		{Path: "app/package.json", Content: sitePackageDocument(site)},
-		{Path: "app/index.html", Content: siteIndexDocument(site)},
-		{Path: "app/src/main.tsx", Content: siteMainTSXDocument()},
-		{Path: "app/src/App.tsx", Content: siteAppTSXDocument(site)},
-		{Path: "app/src/styles.css", Content: siteStylesDocument()},
-		{Path: "pocketbase/pb_migrations/.gitkeep", Content: ""},
-		{Path: "pocketbase/pb_hooks/.gitkeep", Content: ""},
 	}
+	files = append(files, siteAppScaffoldFiles(site)...)
+	files = append(files,
+		siteStarterFile{Path: "pocketbase/pb_migrations/.gitkeep", Content: ""},
+		siteStarterFile{Path: "pocketbase/pb_hooks/.gitkeep", Content: ""},
+	)
+	return files
 }
 
 func siteWorkspaceMetadata(site siteCreateResult) string {
