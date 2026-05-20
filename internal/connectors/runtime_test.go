@@ -272,6 +272,37 @@ func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing
 	}
 }
 
+func TestConnectorRuntimeSuppressesConsumeReactionWithoutBotAddressing(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_addressing_classification": {
+				`{"addressingClass":"assistant_requested"}`,
+			},
+			"blueclaw_turn_router": {
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"","reactionEmojiName":"white_check_mark"}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-consume"))
+	if errorValue != nil {
+		t.Fatalf("expected consume event to process: %v", errorValue)
+	}
+
+	if result.Reason != "consume_reaction_suppressed_not_addressed" || result.TaskRunID == "" {
+		t.Fatalf("expected suppressed consume reaction result, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 0 || len(adapter.reactions) != 0 {
+		t.Fatalf("expected no reply or reaction, replies=%+v reactions=%+v", adapter.sentReplies, adapter.reactions)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reaction.skipped", "not_addressed_to_bot") {
+		t.Fatal("expected reaction skipped event")
+	}
+}
+
 func TestConnectorRuntimeConsumeWithoutReactionAdapterDoesNotReply(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
