@@ -65,6 +65,14 @@ type ReplyTarget struct {
 	DedupeKey      string `json:"dedupeKey"`
 }
 
+type ReactionTarget struct {
+	Platform       string `json:"platform"`
+	ConversationID string `json:"conversationID"`
+	MessageID      string `json:"messageID"`
+	EmojiName      string `json:"emojiName"`
+	Reason         string `json:"reason"`
+}
+
 type OutboundReply struct {
 	Message         string                 `json:"message"`
 	TaskRunID       string                 `json:"taskRunID,omitempty"`
@@ -257,6 +265,10 @@ type PlatformAdapter interface {
 
 type InteractionResolvingAdapter interface {
 	ResolveInteraction(context.Context, InteractionResolution) error
+}
+
+type MessageReactionAdapter interface {
+	AddReaction(context.Context, ReactionTarget) error
 }
 
 type InteractionResolution struct {
@@ -870,6 +882,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	turnResult := launchResult.TurnResult
 	taskRunID := turnResult.TaskRun.TaskRunID
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
+	if turnResult.TurnRoute == agent.TurnRouteConsume {
+		reason := connectorRuntime.addConsumeReaction(ctx, platform, adapter, event, taskRunID, turnResult.ReactionEmojiName)
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: reason}, nil
+	}
 	if turnResult.TaskRun.Status == task.TaskStatusCancelled {
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
@@ -920,6 +936,47 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID))
 	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, reactionEmojiName string) string {
+	reactionAdapter, isSupported := adapter.(MessageReactionAdapter)
+	if !isSupported {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reaction.skipped", marshalConnectorEventBody(map[string]string{
+			"messageID": event.MessageID,
+			"reason":    "reaction_adapter_unavailable",
+		}))
+		return "consume_no_reaction_adapter"
+	}
+	target := ReactionTarget{
+		Platform:       platform,
+		ConversationID: event.ConversationID,
+		MessageID:      event.MessageID,
+		EmojiName:      consumeReactionEmojiName(reactionEmojiName),
+		Reason:         "consume",
+	}
+	if errorValue := reactionAdapter.AddReaction(ctx, target); errorValue != nil {
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reaction.failed", marshalConnectorEventBody(map[string]string{
+			"messageID": event.MessageID,
+			"emojiName": target.EmojiName,
+			"error":     errorValue.Error(),
+		}))
+		connectorRuntime.logger.Warn("connector."+platform+".reaction.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		return "consume_reaction_failed"
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reaction.sent", marshalConnectorEventBody(map[string]string{
+		"messageID": event.MessageID,
+		"emojiName": target.EmojiName,
+		"reason":    target.Reason,
+	}))
+	return "consume_reacted"
+}
+
+func consumeReactionEmojiName(reactionEmojiName string) string {
+	reactionEmojiName = strings.TrimSpace(reactionEmojiName)
+	if reactionEmojiName == "" {
+		return agent.DefaultReactionEmojiName
+	}
+	return reactionEmojiName
 }
 
 func (connectorRuntime *ConnectorRuntime) shouldIgnoreOrphanAskAction(personID string, event PlatformInboundEvent, hasPendingConfirmation bool) bool {

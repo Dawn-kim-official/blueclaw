@@ -43,6 +43,25 @@ func TestBuildAgentActionRequestIncludesExecutionStateAndTerminalTail(t *testing
 	}
 }
 
+func TestTerminalObservationTailPreservesToolInteractionInputAndResult(t *testing.T) {
+	observation := terminalFailureObservation("obs-002", "tmp/site/app", "bun run build", "CouldntReadCurrentDirectory")
+
+	tail, ok := terminalObservationTail(observation)
+
+	if !ok {
+		t.Fatal("expected terminal tail")
+	}
+	if tail.ObservationID != "obs-002" || tail.ToolName != "terminal.run" {
+		t.Fatalf("expected observation identity preserved, got %+v", tail)
+	}
+	if tail.WorkingDirectory != "tmp/site/app" || tail.Command != "bun run build" {
+		t.Fatalf("expected tool input preserved, got %+v", tail)
+	}
+	if len(tail.StderrTail) != 1 || tail.StderrTail[0] != "CouldntReadCurrentDirectory" {
+		t.Fatalf("expected result tail preserved, got %+v", tail.StderrTail)
+	}
+}
+
 func TestNormalizeExecutionStateEnforcesLimits(t *testing.T) {
 	state := ExecutionState{
 		KnownFacts:     []string{"a", "a", "b", "c", "d", "e", "f", "g", "h", "i"},

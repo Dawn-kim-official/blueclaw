@@ -95,6 +95,39 @@ func TestCapabilityPlatformAdapterResolvesInteraction(t *testing.T) {
 	}
 }
 
+func TestCapabilityPlatformAdapterAddsReaction(t *testing.T) {
+	var receivedPath string
+	var receivedBody capabilityReactionRequest
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		receivedPath = request.URL.Path
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedBody); errorValue != nil {
+			t.Fatalf("expected request body to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{}`), nil
+	}}
+	adapter := NewCapabilityPlatformAdapter("mattermost", capability.Client{
+		Endpoint:   "http://capability.test",
+		HTTPClient: httpClient,
+	})
+
+	errorValue := adapter.AddReaction(context.Background(), ReactionTarget{
+		ConversationID: "channel-1",
+		MessageID:      "post-1",
+		EmojiName:      "white_check_mark",
+		Reason:         "consume",
+	})
+	if errorValue != nil {
+		t.Fatalf("expected reaction add to succeed: %v", errorValue)
+	}
+
+	if receivedPath != "/v1/platform/mattermost/reaction.add" {
+		t.Fatalf("unexpected reaction path %q", receivedPath)
+	}
+	if receivedBody.ConversationID != "channel-1" || receivedBody.MessageID != "post-1" || receivedBody.EmojiName != "white_check_mark" || receivedBody.Reason != "consume" {
+		t.Fatalf("unexpected reaction body %+v", receivedBody)
+	}
+}
+
 func TestCapabilityPlatformAdapterUsesCapabilityEndpointsWithoutAuthorization(t *testing.T) {
 	receivedAuthorizationByPath := map[string]string{}
 	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {

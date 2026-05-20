@@ -30,6 +30,13 @@ type capabilityProgressRequest struct {
 	ReplyTargetID string `json:"replyTargetID"`
 }
 
+type capabilityReactionRequest struct {
+	ConversationID string `json:"conversationID"`
+	MessageID      string `json:"messageID"`
+	EmojiName      string `json:"emojiName"`
+	Reason         string `json:"reason"`
+}
+
 type capabilityReplyRequest struct {
 	ReplyTargetID   string                      `json:"replyTargetID"`
 	Message         string                      `json:"message"`
@@ -188,6 +195,15 @@ func (adapter CapabilityPlatformAdapter) StartProgress(ctx context.Context, repl
 
 func (adapter CapabilityPlatformAdapter) StopProgress(ctx context.Context, replyTarget ReplyTarget) error {
 	return adapter.post(ctx, "progress.stop", capabilityProgressRequest{ReplyTargetID: replyTarget.ReplyTargetID}, nil)
+}
+
+func (adapter CapabilityPlatformAdapter) AddReaction(ctx context.Context, target ReactionTarget) error {
+	return adapter.post(ctx, "reaction.add", capabilityReactionRequest{
+		ConversationID: strings.TrimSpace(target.ConversationID),
+		MessageID:      strings.TrimSpace(target.MessageID),
+		EmojiName:      strings.TrimSpace(target.EmojiName),
+		Reason:         strings.TrimSpace(target.Reason),
+	}, nil)
 }
 
 func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTarget ReplyTarget, reply OutboundReply) (string, error) {
