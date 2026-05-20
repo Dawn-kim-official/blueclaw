@@ -80,6 +80,14 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 	if strings.Contains(noPendingSchema, `"choices"`) {
 		t.Fatalf("expected no choices field without pending choice, got %s", noPendingSchema)
 	}
+	if !strings.Contains(noPendingSchema, `"clarificationQuestion"`) || !strings.Contains(noPendingSchema, `"clarificationOptions"`) {
+		t.Fatalf("expected optional clarify fields in base schema, got %s", noPendingSchema)
+	}
+	for _, expectedEmojiName := range []string{`"reactionEmojiName"`, `"white_check_mark"`, `"thumbsup"`, `"tada"`, `"rocket"`, `"ok_hand"`, `"hourglass_flowing_sand"`, `"sparkles"`, `"wave"`} {
+		if !strings.Contains(noPendingSchema, expectedEmojiName) {
+			t.Fatalf("expected reaction emoji enum value %s in schema, got %s", expectedEmojiName, noPendingSchema)
+		}
+	}
 
 	pendingSchema := turnRouterSchema(AgentRequest{
 		PendingConfirmation: PendingConfirmationContext{TaskRunID: "task-1"},
@@ -93,6 +101,78 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 		if !strings.Contains(pendingSchema, expected) {
 			t.Fatalf("expected %s in pending schema, got %s", expected, pendingSchema)
 		}
+	}
+}
+
+func TestTurnRouterNormalizesClarificationFields(t *testing.T) {
+	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
+	decision := router.normalizeDecision(TurnDecision{
+		Route:                 TurnRouteClarify,
+		Classification:        IntakeClassificationQuickReply,
+		TaskShape:             TaskShapeImmediateReply,
+		EffortLevel:           EffortLevelQuick,
+		ResponseLanguage:      "ko",
+		Reason:                "needs finite choice",
+		ClarificationQuestion: " 어느 방식으로 진행할까요? ",
+		ClarificationOptions: []ClarificationOption{
+			{Key: "A", Label: "A안", Value: "first"},
+			{Key: "A", Label: "duplicate"},
+			{Label: "B안", Value: "second"},
+			{Key: "C", Label: ""},
+		},
+	}, router.deterministicDecision(AgentRequest{}), AgentRequest{})
+
+	if decision.Classification != IntakeClassificationNeedsConfirmation {
+		t.Fatalf("expected clarify route to require confirmation, got %+v", decision)
+	}
+	if decision.UserFacingReply != "어느 방식으로 진행할까요?" {
+		t.Fatalf("expected clarification question as reply, got %q", decision.UserFacingReply)
+	}
+	if len(decision.ClarificationOptions) != 2 {
+		t.Fatalf("expected two valid unique options, got %+v", decision.ClarificationOptions)
+	}
+	if decision.ClarificationOptions[0].Key != "A" || decision.ClarificationOptions[1].Key == "" {
+		t.Fatalf("unexpected normalized options: %+v", decision.ClarificationOptions)
+	}
+}
+
+func TestTurnRouterNormalizesReactionEmojiNameToEnum(t *testing.T) {
+	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
+	nullDecision := router.normalizeDecision(TurnDecision{
+		Route:            TurnRouteConsume,
+		Classification:   IntakeClassificationQuickReply,
+		TaskShape:        TaskShapeImmediateReply,
+		EffortLevel:      EffortLevelQuick,
+		ResponseLanguage: "ko",
+		Reason:           "ack",
+	}, router.deterministicDecision(AgentRequest{}), AgentRequest{})
+	validDecision := router.normalizeDecision(TurnDecision{
+		Route:             TurnRouteConsume,
+		Classification:    IntakeClassificationQuickReply,
+		TaskShape:         TaskShapeImmediateReply,
+		EffortLevel:       EffortLevelQuick,
+		ResponseLanguage:  "ko",
+		Reason:            "ack",
+		ReactionEmojiName: ":TADA:",
+	}, router.deterministicDecision(AgentRequest{}), AgentRequest{})
+	invalidDecision := router.normalizeDecision(TurnDecision{
+		Route:             TurnRouteConsume,
+		Classification:    IntakeClassificationQuickReply,
+		TaskShape:         TaskShapeImmediateReply,
+		EffortLevel:       EffortLevelQuick,
+		ResponseLanguage:  "ko",
+		Reason:            "ack",
+		ReactionEmojiName: "unknown_custom_emoji",
+	}, router.deterministicDecision(AgentRequest{}), AgentRequest{})
+
+	if nullDecision.ReactionEmojiName != DefaultReactionEmojiName {
+		t.Fatalf("expected missing emoji to default, got %q", nullDecision.ReactionEmojiName)
+	}
+	if validDecision.ReactionEmojiName != "tada" {
+		t.Fatalf("expected valid emoji to normalize, got %q", validDecision.ReactionEmojiName)
+	}
+	if invalidDecision.ReactionEmojiName != DefaultReactionEmojiName {
+		t.Fatalf("expected invalid emoji to default, got %q", invalidDecision.ReactionEmojiName)
 	}
 }
 
@@ -581,6 +661,43 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "needs_confirmation") {
 		t.Fatal("expected intake event")
+	}
+}
+
+func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"needs output choice","userFacingReply":"","clarificationQuestion":"어떤 형식으로 만들까요?","clarificationOptions":[{"key":"A","label":"웹사이트","value":"website"},{"key":"B","label":"발표자료","value":"slides"}]}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finalReplyDocument("should not run"),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "소개 자료 만들어줘",
+		ToolSet:           newTestToolSet([]string{"ask.choice"}),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected clarify result: %v", errorValue)
+	}
+
+	if result.UserNotice != "어떤 형식으로 만들까요?" {
+		t.Fatalf("expected clarification question, got %q", result.UserNotice)
+	}
+	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
+		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "ask.requested", `"kind":"choice_single"`) {
+		t.Fatalf("expected choice ask event, got %+v", events)
+	}
+	if !taskEventsContain(events, "ask.requested", `"recommendedOptionKey":"A"`) {
+		t.Fatalf("expected first option to be recommended, got %+v", events)
+	}
+	if len(replyLanguageModel.requests) != 0 {
+		t.Fatalf("expected agent loop not to run, got %d model calls", len(replyLanguageModel.requests))
 	}
 }
 

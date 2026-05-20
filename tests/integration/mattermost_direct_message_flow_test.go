@@ -98,6 +98,10 @@ func (client *mattermostIntegrationConversationClient) FetchPosts(string, string
 	return nil, nil
 }
 
+func (client *mattermostIntegrationConversationClient) AddReaction(string, string) error {
+	return nil
+}
+
 func newMattermostIdentityService(personID string, email string) *identity.IdentityService {
 	policyDocument := policy.PolicyDocument{
 		People: []policy.PersonPolicy{

@@ -22,6 +22,7 @@ type ConversationClient interface {
 	CreatePost(conversationID string, rootID string, message string) (string, error)
 	PublishTyping(userID string, conversationID string, parentID string) error
 	FetchPosts(conversationID string, beforePostID string, limit int) ([]ConversationPost, error)
+	AddReaction(postID string, emojiName string) error
 }
 
 type ConversationPost struct {
@@ -96,6 +97,10 @@ func (adapter Adapter) StopProgress(context.Context, connectors.ReplyTarget) err
 
 func (adapter Adapter) SendReply(_ context.Context, replyTarget connectors.ReplyTarget, reply connectors.OutboundReply) (string, error) {
 	return adapter.ConversationClient.CreatePost(replyTarget.ConversationID, replyTarget.ReplyTargetID, reply.Message)
+}
+
+func (adapter Adapter) AddReaction(_ context.Context, target connectors.ReactionTarget) error {
+	return adapter.ConversationClient.AddReaction(target.MessageID, target.EmojiName)
 }
 
 func (adapter Adapter) FetchHistory(_ context.Context, historyCursor string, limit int) (connectors.VisibleContext, error) {

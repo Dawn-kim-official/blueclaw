@@ -38,10 +38,35 @@ const (
 	TurnRouteConsume        TurnRoute = "consume"
 	TurnRouteGiveUp         TurnRoute = "give_up"
 
+	DefaultReactionEmojiName = "white_check_mark"
+
 	ApprovalSignalApprove ApprovalSignal = "approve"
 	ApprovalSignalReject  ApprovalSignal = "reject"
 	ApprovalSignalUnclear ApprovalSignal = "unclear"
 )
+
+var allowedReactionEmojiNames = []string{
+	DefaultReactionEmojiName,
+	"thumbsup",
+	"eyes",
+	"tada",
+	"heart",
+	"pray",
+	"raised_hands",
+	"clap",
+	"thinking_face",
+	"rocket",
+	"ok_hand",
+	"memo",
+	"hourglass_flowing_sand",
+	"mag",
+	"bulb",
+	"sparkles",
+	"fire",
+	"sob",
+	"sweat_smile",
+	"wave",
+}
 
 type IntakeOptions struct {
 	IsEnabled          bool
@@ -97,28 +122,39 @@ type PendingInputContext struct {
 }
 
 type IntakeDecision struct {
-	Classification            IntakeClassification `json:"classification"`
-	TaskShape                 TaskShape            `json:"taskShape"`
-	EffortLevel               EffortLevel          `json:"effortLevel"`
-	RequestedOutputFormats    []string             `json:"requestedOutputFormats"`
-	ResponseLanguage          string               `json:"responseLanguage"`
-	Reason                    string               `json:"reason"`
-	UserFacingReply           string               `json:"userFacingReply"`
-	UsedDeterministicFallback bool                 `json:"usedDeterministicFallback"`
+	Classification            IntakeClassification  `json:"classification"`
+	TaskShape                 TaskShape             `json:"taskShape"`
+	EffortLevel               EffortLevel           `json:"effortLevel"`
+	RequestedOutputFormats    []string              `json:"requestedOutputFormats"`
+	ResponseLanguage          string                `json:"responseLanguage"`
+	Reason                    string                `json:"reason"`
+	UserFacingReply           string                `json:"userFacingReply"`
+	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
+	ClarificationOptions      []ClarificationOption `json:"clarificationOptions,omitempty"`
+	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
+}
+
+type ClarificationOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	Value string `json:"value,omitempty"`
 }
 
 type TurnDecision struct {
-	Route                     TurnRoute            `json:"route"`
-	Classification            IntakeClassification `json:"classification"`
-	TaskShape                 TaskShape            `json:"taskShape"`
-	EffortLevel               EffortLevel          `json:"effortLevel"`
-	RequestedOutputFormats    []string             `json:"requestedOutputFormats"`
-	ResponseLanguage          string               `json:"responseLanguage"`
-	Reason                    string               `json:"reason"`
-	UserFacingReply           string               `json:"userFacingReply"`
-	Approval                  *ApprovalSignal      `json:"approval,omitempty"`
-	Choices                   []string             `json:"choices,omitempty"`
-	UsedDeterministicFallback bool                 `json:"usedDeterministicFallback"`
+	Route                     TurnRoute             `json:"route"`
+	Classification            IntakeClassification  `json:"classification"`
+	TaskShape                 TaskShape             `json:"taskShape"`
+	EffortLevel               EffortLevel           `json:"effortLevel"`
+	RequestedOutputFormats    []string              `json:"requestedOutputFormats"`
+	ResponseLanguage          string                `json:"responseLanguage"`
+	Reason                    string                `json:"reason"`
+	UserFacingReply           string                `json:"userFacingReply"`
+	Approval                  *ApprovalSignal       `json:"approval,omitempty"`
+	Choices                   []string              `json:"choices,omitempty"`
+	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
+	ClarificationOptions      []ClarificationOption `json:"clarificationOptions,omitempty"`
+	ReactionEmojiName         string                `json:"reactionEmojiName,omitempty"`
+	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
 }
 
 func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
@@ -130,6 +166,8 @@ func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 		ResponseLanguage:          turnDecision.ResponseLanguage,
 		Reason:                    turnDecision.Reason,
 		UserFacingReply:           turnDecision.UserFacingReply,
+		ClarificationQuestion:     turnDecision.ClarificationQuestion,
+		ClarificationOptions:      append([]ClarificationOption{}, turnDecision.ClarificationOptions...),
 		UsedDeterministicFallback: turnDecision.UsedDeterministicFallback,
 	}
 }
@@ -214,7 +252,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, or replaces an active task. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, or replaces an active task. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Use clarify when the latest request cannot be routed safely without a user choice; when route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. When route is consume, set reactionEmojiName to one enum value that matches the message. For non-consume routes, set reactionEmojiName to null or omit it. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -294,6 +332,9 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		decision.Route = TurnRouteContinueTask
 	}
 	decision.Choices = normalizeChoiceSelections(decision.Choices, request.PendingChoice)
+	decision.ClarificationQuestion = strings.TrimSpace(decision.ClarificationQuestion)
+	decision.ClarificationOptions = normalizeClarificationOptions(decision.ClarificationOptions)
+	decision.ReactionEmojiName = NormalizeReactionEmojiName(decision.ReactionEmojiName)
 	decision = applyRouteToIntakeDecision(decision)
 	normalizedClassification := normalizeClassification(decision.Classification)
 	if normalizedClassification == "" {
@@ -392,6 +433,14 @@ func turnRouterSchema(request AgentRequest) string {
 		"responseLanguage": map[string]any{"type": "string", "enum": []string{"ko", "en", "same_as_conversation"}},
 		"reason":           map[string]any{"type": "string"},
 		"userFacingReply":  map[string]any{"type": "string"},
+		"clarificationQuestion": map[string]any{
+			"type": "string",
+		},
+		"clarificationOptions": clarificationOptionsSchema(),
+		"reactionEmojiName": map[string]any{"anyOf": []any{
+			map[string]any{"type": "string", "enum": allowedReactionEmojiNames},
+			map[string]any{"type": "null"},
+		}},
 	}
 	requiredProperties := []string{"route", "classification", "taskShape", "effortLevel", "requestedOutputFormats", "responseLanguage", "reason", "userFacingReply"}
 	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
@@ -423,6 +472,24 @@ func pendingChoiceKeys(pendingChoice PendingChoiceContext) []string {
 		}
 	}
 	return keys
+}
+
+func clarificationOptionsSchema() map[string]any {
+	return map[string]any{
+		"type":     "array",
+		"minItems": 0,
+		"maxItems": 5,
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"key":   map[string]any{"type": "string"},
+				"label": map[string]any{"type": "string"},
+				"value": map[string]any{"type": "string"},
+			},
+			"required":             []string{"key", "label"},
+			"additionalProperties": false,
+		},
+	}
 }
 
 func turnRoutingContextDescription(request AgentRequest) string {
@@ -577,6 +644,9 @@ func applyRouteToIntakeDecision(decision TurnDecision) TurnDecision {
 		decision.Classification = IntakeClassificationNeedsConfirmation
 		decision.TaskShape = TaskShapeApprovalGatedTask
 		if decision.UserFacingReply == "" {
+			decision.UserFacingReply = decision.ClarificationQuestion
+		}
+		if decision.UserFacingReply == "" {
 			decision.UserFacingReply = decision.Reason
 		}
 	case TurnRouteGiveUp:
@@ -638,6 +708,58 @@ func normalizeChoiceSelections(selections []string, pendingChoice PendingChoiceC
 		return nil
 	}
 	return normalizedChoices
+}
+
+func normalizeClarificationOptions(options []ClarificationOption) []ClarificationOption {
+	normalizedOptions := []ClarificationOption{}
+	seenKeys := map[string]bool{}
+	for index, option := range options {
+		label := strings.TrimSpace(option.Label)
+		if label == "" {
+			continue
+		}
+		key := strings.TrimSpace(option.Key)
+		if key == "" {
+			key = clarificationOptionKey(index)
+		}
+		if seenKeys[key] {
+			continue
+		}
+		seenKeys[key] = true
+		value := strings.TrimSpace(option.Value)
+		if value == "" {
+			value = label
+		}
+		normalizedOptions = append(normalizedOptions, ClarificationOption{Key: key, Label: label, Value: value})
+		if len(normalizedOptions) >= 5 {
+			break
+		}
+	}
+	if len(normalizedOptions) < 2 {
+		return nil
+	}
+	return normalizedOptions
+}
+
+func clarificationOptionKey(index int) string {
+	if index >= 0 && index < 26 {
+		return string(rune('A' + index))
+	}
+	return "O"
+}
+
+func NormalizeReactionEmojiName(emojiName string) string {
+	normalizedEmojiName := strings.Trim(strings.TrimSpace(emojiName), ":")
+	if normalizedEmojiName == "" {
+		return DefaultReactionEmojiName
+	}
+	normalizedEmojiName = strings.ToLower(normalizedEmojiName)
+	for _, allowedEmojiName := range allowedReactionEmojiNames {
+		if normalizedEmojiName == allowedEmojiName {
+			return normalizedEmojiName
+		}
+	}
+	return DefaultReactionEmojiName
 }
 
 func turnRouterLooksLikeBareConfirmationReply(prompt string) bool {

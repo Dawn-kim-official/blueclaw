@@ -40,6 +40,16 @@ type TerminalObservationTail struct {
 	AttemptFingerprint string   `json:"attemptFingerprint,omitempty"`
 }
 
+type toolInteraction struct {
+	ObservationID      string
+	ToolName           string
+	Input              terminalObservationInputDocument
+	ResultContent      string
+	FailureStage       string
+	ErrorCode          string
+	AttemptFingerprint string
+}
+
 func normalizeExecutionState(state ExecutionState) ExecutionState {
 	state.Goal = truncateText(compactWhitespace(state.Goal), 300)
 	state.Workspace = truncateText(compactWhitespace(state.Workspace), 160)
@@ -165,9 +175,8 @@ func compactTerminalObservationTails(observations []turnObservation, limit int) 
 }
 
 func terminalObservationTail(observation turnObservation) (TerminalObservationTail, bool) {
-	input := terminalObservationInput(observation.ToolInputKey)
-	content := strings.TrimSpace(observation.ContentText())
-	if content == "" && input.Command == "" && input.WorkingDirectory == "" {
+	interaction := toolInteractionFromObservation(observation)
+	if interaction.ResultContent == "" && interaction.Input.Command == "" && interaction.Input.WorkingDirectory == "" {
 		return TerminalObservationTail{}, false
 	}
 	var result struct {
@@ -176,15 +185,15 @@ func terminalObservationTail(observation turnObservation) (TerminalObservationTa
 		Stderr   string `json:"stderr"`
 		TimedOut bool   `json:"timedOut"`
 	}
-	hasResult := json.Unmarshal([]byte(content), &result) == nil
+	hasResult := json.Unmarshal([]byte(interaction.ResultContent), &result) == nil
 	tail := TerminalObservationTail{
-		ObservationID:      observation.ObservationID,
-		ToolName:           observation.Tool,
-		WorkingDirectory:   input.WorkingDirectory,
-		Command:            input.Command,
-		FailureStage:       observation.FailureStage(),
-		ErrorCode:          observation.FailureCode(),
-		AttemptFingerprint: strings.TrimSpace(observation.AttemptFingerprint),
+		ObservationID:      interaction.ObservationID,
+		ToolName:           interaction.ToolName,
+		WorkingDirectory:   interaction.Input.WorkingDirectory,
+		Command:            interaction.Input.Command,
+		FailureStage:       interaction.FailureStage,
+		ErrorCode:          interaction.ErrorCode,
+		AttemptFingerprint: interaction.AttemptFingerprint,
 	}
 	if hasResult {
 		exitCode := result.ExitCode
@@ -194,8 +203,20 @@ func terminalObservationTail(observation turnObservation) (TerminalObservationTa
 		tail.TimedOut = result.TimedOut
 		return tail, true
 	}
-	tail.StderrTail, tail.StderrTruncated = tailLines(content, terminalObservationTailMaxLines, terminalObservationTailMaxCharacters)
+	tail.StderrTail, tail.StderrTruncated = tailLines(interaction.ResultContent, terminalObservationTailMaxLines, terminalObservationTailMaxCharacters)
 	return tail, true
+}
+
+func toolInteractionFromObservation(observation turnObservation) toolInteraction {
+	return toolInteraction{
+		ObservationID:      observation.ObservationID,
+		ToolName:           strings.TrimSpace(observation.Tool),
+		Input:              terminalObservationInput(observation.ToolInputKey),
+		ResultContent:      strings.TrimSpace(observation.ContentText()),
+		FailureStage:       observation.FailureStage(),
+		ErrorCode:          observation.FailureCode(),
+		AttemptFingerprint: strings.TrimSpace(observation.AttemptFingerprint),
+	}
 }
 
 type terminalObservationInputDocument struct {

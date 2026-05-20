@@ -233,11 +233,18 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
+	if turnDecision.Route == TurnRouteConsume {
+		return agentKernel.completeConsumedRequest(intakeRequest, turnDecision)
+	}
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
-		return agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
+		result.TurnRoute = turnDecision.Route
+		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
-		return agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusBlocked)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusBlocked)
+		result.TurnRoute = turnDecision.Route
+		return result, errorValue
 	}
 
 	requiredAttachmentSuffixes := attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)
@@ -245,6 +252,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	confirmationEvidenceHints := confirmationEvidenceHintsForRequest(request, intakeDecision, evidenceHints)
 	confirmationResult, isBlocked, executionPlan, hasExecutionPlan, errorValue := agentKernel.applyConfirmationGate(responseContext, request, intakeDecision, confirmationEvidenceHints)
 	if isBlocked || errorValue != nil {
+		confirmationResult.TurnRoute = turnDecision.Route
 		return confirmationResult, errorValue
 	}
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
@@ -295,12 +303,29 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		turnOptions,
 	)
 	result, errorValue := agentTurnRunner.RunTurn(responseContext, turnRequest)
+	result.TurnRoute = turnDecision.Route
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
+}
+
+func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, decision TurnDecision) (AgentTurnResult, error) {
+	taskRun := agentKernel.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
+	reactionEmojiName := NormalizeReactionEmojiName(decision.ReactionEmojiName)
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(decision.IntakeDecision()))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.consumed", marshalEventBody(map[string]string{
+		"route":             string(decision.Route),
+		"reason":            strings.TrimSpace(decision.Reason),
+		"reactionEmojiName": reactionEmojiName,
+	}))
+	completedTaskRun, errorValue := agentKernel.taskRunService.CompleteTaskRun(taskRun.TaskRunID, "consumed")
+	if errorValue != nil {
+		return AgentTurnResult{}, errorValue
+	}
+	return AgentTurnResult{TaskRun: completedTaskRun, TurnRoute: TurnRouteConsume, ReactionEmojiName: reactionEmojiName, ReplySuppressed: true, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
 func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, evidenceHints []string) (AgentTurnResult, bool, ExecutionPlan, bool, error) {
@@ -1609,9 +1634,23 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 	if finalReply == "" {
 		finalReply = defaultExecutionBoundaryReply(request.ResponseLanguage)
 	}
+	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
+		finalReply = firstNonEmptyString(strings.TrimSpace(intakeDecision.ClarificationQuestion), finalReply)
+	}
 	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, status, intakeDecision.Reason)
 	if errorValue != nil {
 		return AgentTurnResult{}, errorValue
+	}
+	if status == task.TaskStatusWaitingUserInput && intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]any{
+			"kind":                 "choice_single",
+			"question":             finalReply,
+			"message":              finalReply,
+			"options":              intakeDecision.ClarificationOptions,
+			"recommendedOptionKey": intakeDecision.ClarificationOptions[0].Key,
+			"selectionMode":        "single",
+			"responseLanguage":     request.ResponseLanguage,
+		}))
 	}
 	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, status))
 	blockedTaskRun.Result = finalReply

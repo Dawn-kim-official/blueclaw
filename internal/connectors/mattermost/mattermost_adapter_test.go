@@ -75,6 +75,20 @@ func TestAdapterSendsMattermostDirectAndThreadReplies(t *testing.T) {
 	}
 }
 
+func TestAdapterAddsMattermostReaction(t *testing.T) {
+	conversationClient := &testMattermostConversationClient{}
+	adapter := NewAdapter(testMattermostIdentityClient{}, conversationClient)
+
+	errorValue := adapter.AddReaction(context.Background(), connectors.ReactionTarget{MessageID: "post-1", EmojiName: "white_check_mark"})
+
+	if errorValue != nil {
+		t.Fatalf("expected reaction: %v", errorValue)
+	}
+	if len(conversationClient.reactions) != 1 || conversationClient.reactions[0].postID != "post-1" || conversationClient.reactions[0].emojiName != "white_check_mark" {
+		t.Fatalf("expected reaction on post, got %+v", conversationClient.reactions)
+	}
+}
+
 func TestAdapterFetchesVisibleHistoryBeforeCurrentPost(t *testing.T) {
 	conversationClient := &testMattermostConversationClient{
 		historyPosts: []ConversationPost{
@@ -114,6 +128,7 @@ func (client testMattermostIdentityClient) ResolveUserIdentity(externalUserID st
 
 type testMattermostConversationClient struct {
 	posts                 []testMattermostPost
+	reactions             []testMattermostReaction
 	typingParentIDs       []string
 	historyPosts          []ConversationPost
 	historyConversationID string
@@ -124,6 +139,11 @@ type testMattermostPost struct {
 	conversationID string
 	rootID         string
 	message        string
+}
+
+type testMattermostReaction struct {
+	postID    string
+	emojiName string
 }
 
 func (client *testMattermostConversationClient) CreatePost(conversationID string, rootID string, message string) (string, error) {
@@ -140,6 +160,11 @@ func (client *testMattermostConversationClient) FetchPosts(conversationID string
 	client.historyConversationID = conversationID
 	client.historyBeforePostID = beforePostID
 	return client.historyPosts, nil
+}
+
+func (client *testMattermostConversationClient) AddReaction(postID string, emojiName string) error {
+	client.reactions = append(client.reactions, testMattermostReaction{postID: postID, emojiName: emojiName})
+	return nil
 }
 
 func httptestRequest(payload []byte) *http.Request {

@@ -236,6 +236,97 @@ func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T)
 	}
 }
 
+func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"","reactionEmojiName":"tada"}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	event := testInboundEvent("message-consume")
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected consume event to process: %v", errorValue)
+	}
+
+	if result.Reason != "consume_reacted" || result.TaskRunID == "" {
+		t.Fatalf("expected consume reaction result, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 0 {
+		t.Fatalf("expected no reply for consume, got %+v", adapter.sentReplies)
+	}
+	if len(adapter.reactions) != 1 {
+		t.Fatalf("expected one reaction, got %+v", adapter.reactions)
+	}
+	reaction := adapter.reactions[0]
+	if reaction.MessageID != event.MessageID || reaction.EmojiName != "tada" || reaction.Reason != "consume" {
+		t.Fatalf("unexpected consume reaction: %+v", reaction)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reaction.sent", "tada") {
+		t.Fatal("expected reaction event")
+	}
+}
+
+func TestConnectorRuntimeConsumeWithoutReactionAdapterDoesNotReply(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":""}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	noReactionAdapter := testAdapterWithoutReaction{adapter: adapter}
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), noReactionAdapter, testInboundEvent("message-consume"))
+	if errorValue != nil {
+		t.Fatalf("expected consume event to process: %v", errorValue)
+	}
+
+	if result.Reason != "consume_no_reaction_adapter" {
+		t.Fatalf("expected no-adapter consume result, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 0 || len(adapter.reactions) != 0 {
+		t.Fatalf("expected no reply or reaction, replies=%+v reactions=%+v", adapter.sentReplies, adapter.reactions)
+	}
+}
+
+func TestConnectorRuntimeReactionFailureDoesNotSendFallbackReply(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":""}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	adapter.reactionError = errors.New("reaction failed")
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-consume"))
+	if errorValue != nil {
+		t.Fatalf("expected consume event to process: %v", errorValue)
+	}
+
+	if result.Reason != "consume_reaction_failed" {
+		t.Fatalf("expected reaction failure result, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 0 {
+		t.Fatalf("expected no fallback reply, got %+v", adapter.sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reaction.failed", "reaction failed") {
+		t.Fatal("expected reaction failure event")
+	}
+}
+
 func TestLatestApprovalQuestionUsesOnlyUserFacingMessage(t *testing.T) {
 	taskEvents := []task.TaskEvent{{
 		Name: "confirmation.requested",
@@ -300,6 +391,9 @@ func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutTask(t *testing.T) {
 	}
 	if result.TaskRunID != "" || len(adapter.sentReplies) != 0 || len(adapter.progressStarts) != 0 {
 		t.Fatalf("expected no task/reply/progress, got result=%+v replies=%d progress=%d", result, len(adapter.sentReplies), len(adapter.progressStarts))
+	}
+	if len(adapter.reactions) != 0 {
+		t.Fatalf("expected addressing ignored message not to receive reaction, got %+v", adapter.reactions)
 	}
 	if len(languageModel.requests) != 0 {
 		t.Fatalf("expected no language model calls, got %d", len(languageModel.requests))
@@ -1446,8 +1540,10 @@ func TestPlatformInboundEventOnlyUsesTextAndSenderCompatibilityAliases(t *testin
 type testAdapter struct {
 	senderEmail        string
 	sendReplyError     error
+	reactionError      error
 	httpParseResult    HTTPParseResult
 	sentReplies        []testReply
+	reactions          []ReactionTarget
 	progressStarts     []ReplyTarget
 	progressStops      []ReplyTarget
 	progressStopErrors []error
@@ -1604,6 +1700,14 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, rep
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
 
+func (adapter *testAdapter) AddReaction(_ context.Context, target ReactionTarget) error {
+	if adapter.reactionError != nil {
+		return adapter.reactionError
+	}
+	adapter.reactions = append(adapter.reactions, target)
+	return nil
+}
+
 func (adapter *testAdapter) ResolveInteraction(_ context.Context, resolution InteractionResolution) error {
 	adapter.resolutions = append(adapter.resolutions, resolution)
 	return nil
@@ -1619,6 +1723,50 @@ func (adapter *testAdapter) FetchHistory(_ context.Context, historyCursor string
 
 func (adapter *testAdapter) NotInvitedReply() string {
 	return "not invited"
+}
+
+type testAdapterWithoutReaction struct {
+	adapter *testAdapter
+}
+
+func (adapter testAdapterWithoutReaction) Name() string {
+	return adapter.adapter.Name()
+}
+
+func (adapter testAdapterWithoutReaction) ParseHTTPEvent(ctx context.Context, request *http.Request) (HTTPParseResult, error) {
+	return adapter.adapter.ParseHTTPEvent(ctx, request)
+}
+
+func (adapter testAdapterWithoutReaction) ParseRealtimeEvent(ctx context.Context, payload []byte, source string) (PlatformInboundEvent, bool, error) {
+	return adapter.adapter.ParseRealtimeEvent(ctx, payload, source)
+}
+
+func (adapter testAdapterWithoutReaction) ResolveIdentity(ctx context.Context, senderID string) (identity.PlatformAccountIdentity, error) {
+	return adapter.adapter.ResolveIdentity(ctx, senderID)
+}
+
+func (adapter testAdapterWithoutReaction) StartProgress(ctx context.Context, target ReplyTarget) error {
+	return adapter.adapter.StartProgress(ctx, target)
+}
+
+func (adapter testAdapterWithoutReaction) StopProgress(ctx context.Context, target ReplyTarget) error {
+	return adapter.adapter.StopProgress(ctx, target)
+}
+
+func (adapter testAdapterWithoutReaction) SendReply(ctx context.Context, target ReplyTarget, reply OutboundReply) (string, error) {
+	return adapter.adapter.SendReply(ctx, target, reply)
+}
+
+func (adapter testAdapterWithoutReaction) ResolveInteraction(ctx context.Context, resolution InteractionResolution) error {
+	return adapter.adapter.ResolveInteraction(ctx, resolution)
+}
+
+func (adapter testAdapterWithoutReaction) FetchHistory(ctx context.Context, historyCursor string, limit int) (VisibleContext, error) {
+	return adapter.adapter.FetchHistory(ctx, historyCursor, limit)
+}
+
+func (adapter testAdapterWithoutReaction) NotInvitedReply() string {
+	return adapter.adapter.NotInvitedReply()
 }
 
 type testLanguageModel struct {
