@@ -218,7 +218,7 @@ func TestConnectorRuntimeRequesterEmailPrefersPolicyPrimaryEmail(t *testing.T) {
 }
 
 func TestConnectorRuntimeSkipsAddressingClassifierForDirectMessage(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassHumanRequested), reply: "ok"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-1")
 	event.Context.ConversationType = "D"
@@ -269,37 +269,6 @@ func TestConnectorRuntimeReactsToConsumedAddressedMessageWithoutReply(t *testing
 	}
 	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reaction.sent", "tada") {
 		t.Fatal("expected reaction event")
-	}
-}
-
-func TestConnectorRuntimeSuppressesConsumeReactionWithoutBotAddressing(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_addressing_classification": {
-				`{"addressingClass":"assistant_requested"}`,
-			},
-			"blueclaw_turn_router": {
-				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"acknowledgement","userFacingReply":"","reactionEmojiName":"white_check_mark"}`,
-			},
-		},
-	})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
-	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
-	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
-
-	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-consume"))
-	if errorValue != nil {
-		t.Fatalf("expected consume event to process: %v", errorValue)
-	}
-
-	if result.Reason != "consume_reaction_suppressed_not_addressed" || result.TaskRunID == "" {
-		t.Fatalf("expected suppressed consume reaction result, got %+v", result)
-	}
-	if len(adapter.sentReplies) != 0 || len(adapter.reactions) != 0 {
-		t.Fatalf("expected no reply or reaction, replies=%+v reactions=%+v", adapter.sentReplies, adapter.reactions)
-	}
-	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reaction.skipped", "not_addressed_to_bot") {
-		t.Fatal("expected reaction skipped event")
 	}
 }
 
@@ -388,7 +357,7 @@ func TestLatestApprovalQuestionDoesNotFallBackToReason(t *testing.T) {
 }
 
 func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassHumanRequested), reply: "ok"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.BotMentioned = true
@@ -407,7 +376,7 @@ func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testi
 }
 
 func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutTask(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassAssistantRequested), reply: "unused"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "unused"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.OtherPersonMentioned = true
@@ -432,7 +401,7 @@ func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutTask(t *testing.T) {
 }
 
 func TestConnectorRuntimeProcessesAssistantRequestedAmbiguousChannelMessage(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassAssistantRequested), reply: "ok"}
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
@@ -449,8 +418,8 @@ func TestConnectorRuntimeProcessesAssistantRequestedAmbiguousChannelMessage(t *t
 }
 
 func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testing.T) {
-	replyLanguageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassHumanRequested), reply: "ok"}
-	intakeLanguageModel := &addressingTestLanguageModel{addressingClass: string(agent.AddressingClassAssistantRequested), reply: "unused"}
+	replyLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "ok"}
+	intakeLanguageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "unused"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, replyLanguageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
 
@@ -472,18 +441,19 @@ func TestConnectorRuntimeUsesIntakeLanguageModelForAddressingClassifier(t *testi
 
 func TestConnectorRuntimeIgnoresNonAssistantAddressingClasses(t *testing.T) {
 	tests := []struct {
-		name            string
-		addressingClass string
-		reason          string
+		name             string
+		addressingTarget string
+		reason           string
 	}{
-		{name: "human", addressingClass: string(agent.AddressingClassHumanRequested), reason: "addressing_human_requested"},
-		{name: "anyone", addressingClass: string(agent.AddressingClassAnyoneRequested), reason: "addressing_anyone_requested"},
-		{name: "not request", addressingClass: string(agent.AddressingClassNotARequest), reason: "addressing_not_a_request"},
+		{name: "human", addressingTarget: string(agent.AddressingTargetHuman), reason: "addressing_human"},
+		{name: "anyone", addressingTarget: string(agent.AddressingTargetAnyone), reason: "addressing_anyone"},
+		{name: "none", addressingTarget: string(agent.AddressingTargetNone), reason: "addressing_none"},
+		{name: "unclear", addressingTarget: string(agent.AddressingTargetUnclear), reason: "addressing_unclear"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			languageModel := &addressingTestLanguageModel{addressingClass: test.addressingClass, reply: "unused"}
+			languageModel := &addressingTestLanguageModel{addressingTarget: test.addressingTarget, reply: "unused"}
 			connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 
 			result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testChannelInboundEvent("message-1"))
@@ -1817,10 +1787,10 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(context.Contex
 }
 
 type addressingTestLanguageModel struct {
-	addressingClass string
-	addressingError error
-	reply           string
-	requests        []llm.StructuredResponseRequest
+	addressingTarget string
+	addressingError  error
+	reply            string
+	requests         []llm.StructuredResponseRequest
 }
 
 func (languageModel *addressingTestLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -1833,7 +1803,7 @@ func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ c
 		if languageModel.addressingError != nil {
 			return llm.StructuredResponse{}, languageModel.addressingError
 		}
-		return llm.StructuredResponse{Content: `{"addressingClass":` + strconv.Quote(languageModel.addressingClass) + `}`}, nil
+		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldReply":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot)) + `}`}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
 }
