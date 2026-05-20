@@ -9,13 +9,14 @@ import (
 	"blueclaw/internal/llm"
 )
 
-type AddressingClass string
+type AddressingTarget string
 
 const (
-	AddressingClassAssistantRequested AddressingClass = "assistant_requested"
-	AddressingClassHumanRequested     AddressingClass = "human_requested"
-	AddressingClassAnyoneRequested    AddressingClass = "anyone_requested"
-	AddressingClassNotARequest        AddressingClass = "not_a_request"
+	AddressingTargetBot     AddressingTarget = "bot"
+	AddressingTargetHuman   AddressingTarget = "human"
+	AddressingTargetAnyone  AddressingTarget = "anyone"
+	AddressingTargetNone    AddressingTarget = "none"
+	AddressingTargetUnclear AddressingTarget = "unclear"
 )
 
 type AddressingClassificationRequest struct {
@@ -26,30 +27,46 @@ type AddressingClassificationRequest struct {
 	VisibleContext   VisibleContext
 }
 
-type addressingClassificationDocument struct {
-	AddressingClass AddressingClass `json:"addressingClass"`
+type AddressingDecision struct {
+	Target      AddressingTarget
+	ShouldReply bool
+	Reason      string
 }
 
-func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request AddressingClassificationRequest) (AddressingClass, error) {
+type addressingClassificationDocument struct {
+	Target      AddressingTarget `json:"target"`
+	ShouldReply bool             `json:"shouldReply"`
+	Reason      string           `json:"reason,omitempty"`
+}
+
+func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request AddressingClassificationRequest) (AddressingDecision, error) {
 	languageModel := agentKernel.addressingLanguageModel()
 	if languageModel == nil {
-		return "", errors.New("language model is not configured")
+		return AddressingDecision{}, errors.New("language model is not configured")
 	}
+	includeReason := agentKernel.intakeOptions.DebugAddressingReason
 	structuredResponse, errorValue := languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages:               addressingClassificationMessages(request),
-		StructuredOutputSchema: addressingClassificationSchema(),
+		StructuredOutputSchema: addressingClassificationSchema(includeReason),
 	})
 	if errorValue != nil {
-		return "", errorValue
+		return AddressingDecision{}, errorValue
 	}
 	var document addressingClassificationDocument
 	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &document); errorValue != nil {
-		return "", errorValue
+		return AddressingDecision{}, errorValue
 	}
-	if !isValidAddressingClass(document.AddressingClass) {
-		return "", errors.New("invalid addressing class")
+	if !isValidAddressingTarget(document.Target) {
+		return AddressingDecision{}, errors.New("invalid addressing target")
 	}
-	return document.AddressingClass, nil
+	decision := AddressingDecision{
+		Target:      document.Target,
+		ShouldReply: document.ShouldReply,
+	}
+	if includeReason {
+		decision.Reason = strings.TrimSpace(document.Reason)
+	}
+	return decision, nil
 }
 
 func (agentKernel *AgentKernel) addressingLanguageModel() llm.LanguageModelProvider {
@@ -61,13 +78,23 @@ func (agentKernel *AgentKernel) addressingLanguageModel() llm.LanguageModelProvi
 
 func addressingClassificationMessages(request AddressingClassificationRequest) []llm.Message {
 	return []llm.Message{
-		{Role: "system", Content: "Classify who is being asked to respond in a multi-person conversation. Return only the requested JSON enum. Do not answer the user."},
+		{Role: "system", Content: "Classify the intended target of the latest message in a multi-person conversation. Return only the requested JSON. Do not answer the user."},
 		{Role: "user", Content: addressingClassificationPrompt(request)},
 	}
 }
 
 func addressingClassificationPrompt(request AddressingClassificationRequest) string {
 	lines := []string{
+		"Choose target:",
+		"- bot: the latest message is intended for the assistant",
+		"- human: the latest message is intended for another human, including short replies to a recent human-directed message",
+		"- anyone: the latest message is addressed to the room or anyone present",
+		"- none: the latest message has no response target",
+		"- unclear: there is not enough evidence",
+		"Set shouldReply=true only when the assistant should visibly handle the latest message with text, a tool action, a clarification, or an emoji reaction.",
+		"Set shouldReply=false for messages intended for another human, ambient messages, or unclear target.",
+		"If the latest message is a short acknowledgement such as \"네\", \"확인해볼게요\", \"좋아요\", or \"고마워\" and recent context shows it follows a human-directed message, choose target=human and shouldReply=false.",
+		"Only choose target=bot when the assistant is explicitly addressed, the latest message answers the assistant's own question, or recent context clearly makes the assistant the intended responder.",
 		"conversationType: " + strings.TrimSpace(request.ConversationType),
 		"senderName: " + strings.TrimSpace(request.SenderName),
 		"senderHandle: " + strings.TrimSpace(request.SenderHandle),
@@ -96,17 +123,21 @@ func firstNonEmptyAddressingText(values ...string) string {
 	return ""
 }
 
-func addressingClassificationSchema() llm.StructuredOutputSchema {
+func addressingClassificationSchema(includeReason bool) llm.StructuredOutputSchema {
+	document := `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldReply":{"type":"boolean"}},"required":["target","shouldReply"],"additionalProperties":false}`
+	if includeReason {
+		document = `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldReply":{"type":"boolean"},"reason":{"type":"string"}},"required":["target","shouldReply","reason"],"additionalProperties":false}`
+	}
 	return llm.StructuredOutputSchema{
 		Name:               "blueclaw_addressing_classification",
-		Document:           `{"type":"object","properties":{"addressingClass":{"type":"string","enum":["assistant_requested","human_requested","anyone_requested","not_a_request"]}},"required":["addressingClass"],"additionalProperties":false}`,
+		Document:           document,
 		IsStrictlyEnforced: true,
 	}
 }
 
-func isValidAddressingClass(addressingClass AddressingClass) bool {
-	switch addressingClass {
-	case AddressingClassAssistantRequested, AddressingClassHumanRequested, AddressingClassAnyoneRequested, AddressingClassNotARequest:
+func isValidAddressingTarget(target AddressingTarget) bool {
+	switch target {
+	case AddressingTargetBot, AddressingTargetHuman, AddressingTargetAnyone, AddressingTargetNone, AddressingTargetUnclear:
 		return true
 	}
 	return false

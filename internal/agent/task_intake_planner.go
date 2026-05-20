@@ -69,8 +69,9 @@ var allowedReactionEmojiNames = []string{
 }
 
 type IntakeOptions struct {
-	IsEnabled          bool
-	DefaultEffortLevel EffortLevel
+	IsEnabled             bool
+	DefaultEffortLevel    EffortLevel
+	DebugAddressingReason bool
 }
 
 type AgentRequest struct {

@@ -939,13 +939,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 }
 
 func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, reactionEmojiName string) string {
-	if shouldSuppressConsumeReactionForAddressing(event) {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reaction.skipped", marshalConnectorEventBody(map[string]string{
-			"messageID": event.MessageID,
-			"reason":    "not_addressed_to_bot",
-		}))
-		return "consume_reaction_suppressed_not_addressed"
-	}
 	reactionAdapter, isSupported := adapter.(MessageReactionAdapter)
 	if !isSupported {
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reaction.skipped", marshalConnectorEventBody(map[string]string{
@@ -976,10 +969,6 @@ func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context
 		"reason":    target.Reason,
 	}))
 	return "consume_reacted"
-}
-
-func shouldSuppressConsumeReactionForAddressing(event PlatformInboundEvent) bool {
-	return isMultiPersonConversation(event) && !event.Context.Addressing.BotMentioned
 }
 
 func consumeReactionEmojiName(reactionEmojiName string) string {

@@ -26,7 +26,7 @@ func (connectorRuntime *ConnectorRuntime) shouldLaunchForAddressing(ctx context.
 	if event.Context.Addressing.OtherPersonMentioned {
 		return false, "addressed_to_other_person"
 	}
-	addressingClass, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, agent.AddressingClassificationRequest{
+	addressingDecision, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, agent.AddressingClassificationRequest{
 		Prompt:           event.Prompt,
 		ConversationType: event.Context.ConversationType,
 		SenderName:       event.Context.Sender.Name,
@@ -37,10 +37,10 @@ func (connectorRuntime *ConnectorRuntime) shouldLaunchForAddressing(ctx context.
 		connectorRuntime.logger.Warn("connector."+platform+".addressing.classifier_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
 		return false, "addressing_classifier_failed"
 	}
-	if addressingClass == agent.AddressingClassAssistantRequested {
+	if addressingDecision.Target == agent.AddressingTargetBot {
 		return true, ""
 	}
-	return false, "addressing_" + string(addressingClass)
+	return false, "addressing_" + string(addressingDecision.Target)
 }
 
 func isMultiPersonConversation(event PlatformInboundEvent) bool {
