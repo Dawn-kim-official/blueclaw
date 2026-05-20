@@ -63,6 +63,9 @@ func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request 
 		Target:      document.Target,
 		ShouldReply: document.ShouldReply,
 	}
+	if decision.Target == AddressingTargetHuman {
+		decision.ShouldReply = false
+	}
 	if includeReason {
 		decision.Reason = strings.TrimSpace(document.Reason)
 	}

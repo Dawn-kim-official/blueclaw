@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"blueclaw/internal/llm"
 )
 
 func TestAddressingClassificationSchemaOmitsReasonByDefault(t *testing.T) {
@@ -36,4 +39,34 @@ func TestAddressingClassificationPromptGuidesHumanDirectedAcknowledgements(t *te
 			t.Fatalf("expected addressing prompt to contain %q, got %s", fragment, prompt)
 		}
 	}
+}
+
+func TestAddressingClassificationOverridesHumanShouldReply(t *testing.T) {
+	agentKernel := NewAgentKernel(nil, nil)
+	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
+		content: `{"target":"human","shouldReply":true}`,
+	})
+
+	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "네 확인해볼게요"})
+	if errorValue != nil {
+		t.Fatalf("expected addressing classification: %v", errorValue)
+	}
+	if decision.Target != AddressingTargetHuman {
+		t.Fatalf("expected human target, got %+v", decision)
+	}
+	if decision.ShouldReply {
+		t.Fatalf("expected human target to override shouldReply=false, got %+v", decision)
+	}
+}
+
+type addressingStaticLanguageModel struct {
+	content string
+}
+
+func (languageModel addressingStaticLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (languageModel addressingStaticLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
