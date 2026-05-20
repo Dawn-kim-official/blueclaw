@@ -53,6 +53,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), `requestedOutputFormats should be ["html"], not ["html","pptx"]`) {
 		t.Fatal("expected intake prompt to disambiguate html presentation requests from pptx file requests")
 	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Prefer consume with reactionEmojiName for lightweight acknowledgement") {
+		t.Fatal("expected intake prompt to prefer reactions over text emoji")
+	}
 }
 
 func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
