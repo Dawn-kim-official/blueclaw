@@ -630,14 +630,44 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorEvent(ctx contex
 		connectorRuntime.markQueuedConnectorEventFailed(queuedEvent, errorValue)
 		return
 	}
+	connectorRuntime.logConnectorQueueWait(event)
 	lock := connectorRuntime.conversationLock(event.Platform + ":" + event.ConversationID)
 	if shouldProcessBeforeConversationLock(event) {
 		connectorRuntime.processQueuedConnectorEventWithAdapter(ctx, adapter, queuedEvent)
 		return
 	}
+	lockStartedAt := time.Now()
 	lock.Lock()
+	connectorRuntime.logConnectorLockWait(event, time.Since(lockStartedAt))
 	defer lock.Unlock()
 	connectorRuntime.processQueuedConnectorEventWithAdapter(ctx, adapter, queuedEvent)
+}
+
+func (connectorRuntime *ConnectorRuntime) logConnectorQueueWait(event PlatformInboundEvent) {
+	if event.RawReceivedAt.IsZero() {
+		return
+	}
+	waitDuration := time.Since(event.RawReceivedAt)
+	if waitDuration < 0 {
+		return
+	}
+	connectorRuntime.logger.Info(
+		"blueclaw.connector.queue_wait",
+		slog.String("platform", event.Platform),
+		slog.String("messageID", event.MessageID),
+		slog.String("conversationID", event.ConversationID),
+		slog.Int64("duration_ms", waitDuration.Milliseconds()),
+	)
+}
+
+func (connectorRuntime *ConnectorRuntime) logConnectorLockWait(event PlatformInboundEvent, waitDuration time.Duration) {
+	connectorRuntime.logger.Info(
+		"blueclaw.connector.lock_wait",
+		slog.String("platform", event.Platform),
+		slog.String("messageID", event.MessageID),
+		slog.String("conversationID", event.ConversationID),
+		slog.Int64("duration_ms", waitDuration.Milliseconds()),
+	)
 }
 
 func (connectorRuntime *ConnectorRuntime) processQueuedConnectorEventWithAdapter(ctx context.Context, adapter PlatformAdapter, queuedEvent QueuedConnectorEvent) {
@@ -847,6 +877,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	precomputedTurnDecision := precomputedTurnDecisionForLaunch(turnDecision, hasPendingConfirmation, askTurnDecision, hasAskTurnDecision)
+	taskStartedAt := time.Now()
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, agentruntime.TaskLaunchRequest{
 		Source:                    agentruntime.TaskLaunchSourceConnector,
 		SourceReference:           event.DedupeKey(),
@@ -881,7 +912,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 	turnResult := launchResult.TurnResult
 	taskRunID := turnResult.TaskRun.TaskRunID
-	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID))
+	taskDuration := time.Since(taskStartedAt)
+	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int64("duration_ms", taskDuration.Milliseconds()))
+	connectorRuntime.appendTaskExecutionDuration(taskRunID, taskDuration)
 	if turnResult.TurnRoute == agent.TurnRouteConsume {
 		reason := connectorRuntime.addConsumeReaction(ctx, platform, adapter, event, taskRunID, turnResult.ReactionEmojiName)
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: reason}, nil
@@ -977,6 +1010,15 @@ func consumeReactionEmojiName(reactionEmojiName string) string {
 		return agent.DefaultReactionEmojiName
 	}
 	return reactionEmojiName
+}
+
+func (connectorRuntime *ConnectorRuntime) appendTaskExecutionDuration(taskRunID string, duration time.Duration) {
+	if strings.TrimSpace(taskRunID) == "" {
+		return
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "blueclaw.task.execution_duration", marshalConnectorEventBody(map[string]any{
+		"durationMs": duration.Milliseconds(),
+	}))
 }
 
 func (connectorRuntime *ConnectorRuntime) shouldIgnoreOrphanAskAction(personID string, event PlatformInboundEvent, hasPendingConfirmation bool) bool {

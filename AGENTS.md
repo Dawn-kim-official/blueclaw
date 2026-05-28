@@ -21,6 +21,7 @@ Always apply the code style preferences below. The only exception is when workin
 
 - User-facing answers, failure explanations, approval wording, and recovery direction must go through the LLM.
 - Deterministic runtime code may validate, normalize, enforce schemas, orchestrate retries, and record diagnostics, but must not compose fallback sentences for users.
+- Exact control acknowledgements for slash commands, such as stop/stop-all, may use deterministic system responses; do not expand that exception to task judgment, failure explanation, recovery direction, or confirmation wording.
 - When a failure requires a judgment, request structured output first, then use that structured decision as input to an LLM-generated user reply.
 - Deterministic helpers may prepare safe facts for the model, such as failure stage, error code, known context, and attempted actions.
 - If remote and local LLM paths both fail to produce a safe reply, do not send a fixed outage message to the user. Leave task events and admin-only diagnostics instead.

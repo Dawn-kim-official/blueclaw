@@ -55,6 +55,24 @@ func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
 	if len(adapter.progressStops) != 1 {
 		t.Fatalf("expected one progress stop, got %d", len(adapter.progressStops))
 	}
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "blueclaw.task.execution_duration", "durationMs") {
+		t.Fatal("expected task execution duration event")
+	}
+}
+
+func TestOnlyExactStopCommandsBypassConversationLock(t *testing.T) {
+	stopEvent := testInboundEvent("message-stop")
+	stopEvent.Prompt = "/중단"
+	askEvent := testInboundEvent("message-ask")
+	askEvent.LegacyFields = map[string]interface{}{"askAction": "confirm"}
+	askEvent.Prompt = "approved"
+
+	if !shouldProcessBeforeConversationLock(stopEvent) {
+		t.Fatal("expected exact stop command to bypass conversation lock")
+	}
+	if shouldProcessBeforeConversationLock(askEvent) {
+		t.Fatal("ask interaction should keep conversation lock ordering")
+	}
 }
 
 func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T) {
