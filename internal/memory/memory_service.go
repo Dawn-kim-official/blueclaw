@@ -25,6 +25,10 @@ type GraphMemoryMirror interface {
 	ListAccessibleNamespaces(context.Context, MemorySearchRequest) ([]MemoryNamespace, error)
 }
 
+type GraphMemoryReporter interface {
+	ListMemoryGraph(context.Context, int) (MemoryGraph, error)
+}
+
 type MemorySearchRequest struct {
 	Query                     string   `json:"query"`
 	ReaderPersonID            string   `json:"readerPersonID"`

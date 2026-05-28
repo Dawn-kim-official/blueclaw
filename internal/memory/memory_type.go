@@ -65,3 +65,52 @@ type MemoryHealth struct {
 	LastIngestionError string `json:"lastIngestionError,omitempty"`
 	Error              string `json:"error,omitempty"`
 }
+
+type MemoryGraphNamespace struct {
+	NamespaceID         string    `json:"namespaceID"`
+	ScopeType           string    `json:"scopeType"`
+	ScopePersonID       string    `json:"scopePersonID,omitempty"`
+	ScopeConversationID string    `json:"scopeConversationID,omitempty"`
+	ScopeCircleID       string    `json:"scopeCircleID,omitempty"`
+	SecurityLevelRank   int       `json:"securityLevelRank"`
+	RequiredClasses     []string  `json:"requiredClasses"`
+	EpisodeCount        int       `json:"episodeCount"`
+	UpdatedAt           time.Time `json:"updatedAt"`
+}
+
+type MemoryGraphEpisode struct {
+	EpisodeID       string    `json:"episodeID"`
+	Platform        string    `json:"platform"`
+	MessageID       string    `json:"messageID"`
+	ConversationID  string    `json:"conversationID"`
+	SenderPersonID  string    `json:"senderPersonID"`
+	NamespaceIDs    []string  `json:"namespaceIDs"`
+	IngestionStatus string    `json:"ingestionStatus"`
+	IngestionError  string    `json:"ingestionError,omitempty"`
+	OccurredAt      time.Time `json:"occurredAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+type MemoryGraphNode struct {
+	NodeID    string `json:"nodeID"`
+	Label     string `json:"label"`
+	Kind      string `json:"kind"`
+	ScopeType string `json:"scopeType,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+type MemoryGraphEdge struct {
+	SourceID string `json:"sourceID"`
+	TargetID string `json:"targetID"`
+	Label    string `json:"label"`
+	Weight   int    `json:"weight"`
+}
+
+type MemoryGraph struct {
+	Health     MemoryHealth           `json:"health"`
+	Namespaces []MemoryGraphNamespace `json:"namespaces"`
+	Episodes   []MemoryGraphEpisode   `json:"episodes"`
+	Facts      []MemoryFact           `json:"facts"`
+	Nodes      []MemoryGraphNode      `json:"nodes"`
+	Edges      []MemoryGraphEdge      `json:"edges"`
+}

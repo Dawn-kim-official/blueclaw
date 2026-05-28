@@ -135,8 +135,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		runtimeConfiguration.Memory.GraphitiEndpoint,
 		time.Duration(runtimeConfiguration.Memory.TimeoutSecond)*time.Second,
 	))
+	var memoryGraphReporter memory.GraphMemoryReporter
 	if database.SQL != nil {
-		memoryService.UseMirror(postgres.NewGraphitiMemoryRepository(database))
+		graphitiMemoryRepository := postgres.NewGraphitiMemoryRepository(database)
+		memoryService.UseMirror(graphitiMemoryRepository)
+		memoryGraphReporter = graphitiMemoryRepository
 	}
 	pinnedMemoryStore := memory.NewMarkdownStore(pinnedMemoryRootPath(runtimeConfiguration), pinnedMemoryHardLimitCharacterCount(runtimeConfiguration))
 	pinnedMemoryStore.UseCompressor(memory.NewLLMMarkdownMemoryCompressor(languageModelProvider), pinnedMemoryCompressionTargetCharacterCount(runtimeConfiguration))
@@ -231,6 +234,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			IdentityService: identityService,
 			WorkspaceID:     runtimeConfiguration.Memory.WorkspaceID,
 			TaskRunService:  taskRunService,
+		},
+		MemoryGraphHandler: adminapi.MemoryGraphHandler{
+			MemoryService: memoryService,
+			Reporter:      memoryGraphReporter,
+			Identity:      identityService,
 		},
 		BackupHandler: adminapi.BackupHandler{
 			Coordinator: backupCoordinator,
