@@ -84,7 +84,7 @@ ON CONFLICT (episode_id) DO UPDATE SET
 func (repository GraphitiMemoryRepository) ListAccessibleNamespaces(ctx context.Context, request memory.MemorySearchRequest) ([]memory.MemoryNamespace, error) {
 	rows, errorValue := repository.database.SQL.QueryContext(ctx, `
 SELECT namespace_id, scope_type, COALESCE(scope_person_id, ''), COALESCE(scope_conversation_id, ''), COALESCE(scope_circle_id, ''),
-       security_level_rank, required_classes
+       security_level_rank, COALESCE(array_to_json(required_classes)::text, '[]')
 FROM graphiti_namespace
 WHERE
   (scope_type = 'user' AND scope_person_id = $1)
@@ -122,6 +122,7 @@ ORDER BY scope_type, namespace_id`,
 	namespaces := []memory.MemoryNamespace{}
 	for rows.Next() {
 		var namespace memory.MemoryNamespace
+		var requiredClassesDocument string
 		errorValue = rows.Scan(
 			&namespace.NamespaceID,
 			&namespace.ScopeType,
@@ -129,11 +130,12 @@ ORDER BY scope_type, namespace_id`,
 			&namespace.ScopeConversationID,
 			&namespace.ScopeCircleID,
 			&namespace.SecurityLevelRank,
-			&namespace.RequiredClasses,
+			&requiredClassesDocument,
 		)
 		if errorValue != nil {
 			return nil, errorValue
 		}
+		namespace.RequiredClasses = stringSliceFromDocument(requiredClassesDocument)
 		namespaces = append(namespaces, namespace)
 	}
 	return namespaces, rows.Err()
@@ -160,7 +162,7 @@ func (repository GraphitiMemoryRepository) ListMemoryGraph(ctx context.Context, 
 func (repository GraphitiMemoryRepository) listMemoryGraphNamespaces(ctx context.Context, limit int) ([]memory.MemoryGraphNamespace, error) {
 	rows, errorValue := repository.database.SQL.QueryContext(ctx, `
 SELECT namespace_id, scope_type, COALESCE(scope_person_id, ''), COALESCE(scope_conversation_id, ''), COALESCE(scope_circle_id, ''),
-       security_level_rank, required_classes, updated_at
+       security_level_rank, COALESCE(array_to_json(required_classes)::text, '[]'), updated_at
 FROM graphiti_namespace
 ORDER BY updated_at DESC, namespace_id
 LIMIT $1`, limit)
@@ -172,6 +174,7 @@ LIMIT $1`, limit)
 	namespaces := []memory.MemoryGraphNamespace{}
 	for rows.Next() {
 		var namespace memory.MemoryGraphNamespace
+		var requiredClassesDocument string
 		errorValue = rows.Scan(
 			&namespace.NamespaceID,
 			&namespace.ScopeType,
@@ -179,12 +182,13 @@ LIMIT $1`, limit)
 			&namespace.ScopeConversationID,
 			&namespace.ScopeCircleID,
 			&namespace.SecurityLevelRank,
-			&namespace.RequiredClasses,
+			&requiredClassesDocument,
 			&namespace.UpdatedAt,
 		)
 		if errorValue != nil {
 			return nil, errorValue
 		}
+		namespace.RequiredClasses = stringSliceFromDocument(requiredClassesDocument)
 		namespaces = append(namespaces, namespace)
 	}
 	return namespaces, rows.Err()
@@ -242,6 +246,21 @@ func namespaceIDsFromDocument(document string) []string {
 		namespaceIDs = append(namespaceIDs, namespace.NamespaceID)
 	}
 	return namespaceIDs
+}
+
+func stringSliceFromDocument(document string) []string {
+	var values []string
+	if errorValue := json.Unmarshal([]byte(document), &values); errorValue != nil {
+		return []string{}
+	}
+	filteredValues := []string{}
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			filteredValues = append(filteredValues, trimmedValue)
+		}
+	}
+	return filteredValues
 }
 
 func buildMemoryGraph(namespaces []memory.MemoryGraphNamespace, episodes []memory.MemoryGraphEpisode) memory.MemoryGraph {
