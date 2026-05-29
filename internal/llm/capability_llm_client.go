@@ -61,6 +61,10 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateRecoveryResponse(response
 	return capabilityLLMClient.generateResponse(responseContext, prompt, "device")
 }
 
+func (capabilityLLMClient CapabilityLLMClient) GenerateLocalRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
+	return capabilityLLMClient.generateResponse(responseContext, prompt, "device")
+}
+
 func (capabilityLLMClient CapabilityLLMClient) generateResponse(responseContext context.Context, prompt string, executionMode string) (string, error) {
 	if capabilityLLMClient.CapabilityClient.HTTPClient == nil {
 		return "", errors.New("capability llm http client is not configured")

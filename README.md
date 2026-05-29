@@ -223,7 +223,7 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 - `executionMode` is `local`, `remote`, or `auto`; InternKim decides whether that maps to OpenRouter, LiteRT-LM, Jetson GPU, or another provider
 - `tools/blueclaw-litert-wrapper` is kept as an InternKim-side reference utility, not as a Blueclaw product runtime dependency
 - user-facing replies, approval wording, recovery direction, and failure reports are generated through the LLM path
-- if remote and local LLM paths are both unavailable, Blueclaw records admin-only diagnostics and suppresses outbound user replies instead of sending a fixed fallback sentence
+- if remote failure wording cannot be generated, Blueclaw tries local LLM wording and then falls back to a compact raw error summary for real task failures; full suppression is reserved for intentionally ignored runtime cases such as duplicates, cancellations, and self/bot messages
 
 ## Virtual Session E2E
 

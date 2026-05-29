@@ -159,7 +159,7 @@ func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerSuppressesReplyWhenAllModelCallsFail(t *testing.T) {
+func TestAgentTurnRunnerReportsRawErrorWhenAllModelCallsFail(t *testing.T) {
 	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("model unavailable")}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 
@@ -174,16 +174,19 @@ func TestAgentTurnRunnerSuppressesReplyWhenAllModelCallsFail(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
-	if result.FinalReply != "" || !result.ReplySuppressed {
-		t.Fatalf("expected suppressed user reply, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
+	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "model unavailable") {
+		t.Fatalf("expected raw error reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.llm_unavailable", "model unavailable") {
 		t.Fatal("expected admin diagnostic event")
 	}
 }
 
-func TestAgentTurnRunnerDoesNotUseLanguageFallbackWhenAllModelCallsFail(t *testing.T) {
-	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("model unavailable")}
+func TestAgentTurnRunnerUsesLocalRecoveryNoticeWhenRemoteModelCallsFail(t *testing.T) {
+	languageModel := localRecoveryFallbackLanguageModel{
+		errorValue:         errors.New("model unavailable"),
+		localRecoveryReply: "The request could not be answered because the model call returned no usable action. The next check is the model routing log.",
+	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -193,10 +196,13 @@ func TestAgentTurnRunnerDoesNotUseLanguageFallbackWhenAllModelCallsFail(t *testi
 		ResponseLanguage:  ResponseLanguageEnglish,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected suppressed failure reply: %v", errorValue)
+		t.Fatalf("expected local recovery reply: %v", errorValue)
 	}
-	if result.FinalReply != "" || !result.ReplySuppressed {
-		t.Fatalf("expected no deterministic language fallback, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
+	if result.UserNotice != languageModel.localRecoveryReply || result.ReplySuppressed {
+		t.Fatalf("expected local recovery reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_notice", "local_llm") {
+		t.Fatal("expected local LLM notice event")
 	}
 }
 
@@ -222,8 +228,8 @@ func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModel
 	if errorValue != nil {
 		t.Fatalf("expected failed turn without deterministic capability reply: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed || result.FinalReply != "" || !result.ReplySuppressed {
-		t.Fatalf("expected suppressed failed task, got status=%s reply=%q suppressed=%v", result.TaskRun.Status, result.FinalReply, result.ReplySuppressed)
+	if result.TaskRun.Status != task.TaskStatusFailed || result.ReplySuppressed || !strings.Contains(result.UserNotice, "structured action unavailable") {
+		t.Fatalf("expected raw failed task notice, got status=%s reply=%q suppressed=%v", result.TaskRun.Status, result.UserNotice, result.ReplySuppressed)
 	}
 	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "math.calculate") {
 		t.Fatal("expected no deterministic capability fallback event")
@@ -2488,7 +2494,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t 
 	}
 }
 
-func TestAgentTurnRunnerSuppressesLimitReplyWhenGenerationKeepsLeakingDiagnostics(t *testing.T) {
+func TestAgentTurnRunnerReportsRawLimitErrorWhenGenerationKeepsLeakingDiagnostics(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
@@ -2514,8 +2520,8 @@ func TestAgentTurnRunnerSuppressesLimitReplyWhenGenerationKeepsLeakingDiagnostic
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.FinalReply != "" || !result.ReplySuppressed {
-		t.Fatalf("expected invalid generated limit reply to be suppressed, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
+	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "invalid_repair") {
+		t.Fatalf("expected raw invalid limit reply error, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.llm_unavailable", "invalid_repair") {
 		t.Fatal("expected admin diagnostic for invalid limit reply")
@@ -2832,6 +2838,23 @@ func (languageModel failingRecoveryLanguageModel) GenerateResponse(context.Conte
 
 func (languageModel failingRecoveryLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	return llm.StructuredResponse{}, languageModel.errorValue
+}
+
+type localRecoveryFallbackLanguageModel struct {
+	errorValue         error
+	localRecoveryReply string
+}
+
+func (languageModel localRecoveryFallbackLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", languageModel.errorValue
+}
+
+func (languageModel localRecoveryFallbackLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, languageModel.errorValue
+}
+
+func (languageModel localRecoveryFallbackLanguageModel) GenerateLocalRecoveryResponse(context.Context, string) (string, error) {
+	return languageModel.localRecoveryReply, nil
 }
 
 func taskEventsContain(taskEvents []task.TaskEvent, name string, bodyFragment string) bool {
