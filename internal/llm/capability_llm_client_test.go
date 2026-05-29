@@ -224,6 +224,36 @@ func TestCapabilityLLMClientRecoveryResponseUsesLocalCapableExecutionMode(t *tes
 	}
 }
 
+func TestCapabilityLLMClientLocalRecoveryResponseUsesDeviceExecutionMode(t *testing.T) {
+	var receivedDocument capabilityTextResponseRequestDocument
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected request document to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma","content":"local failure notice","selectedBackend":"device"}`), nil
+	}}
+
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName:     "gemma",
+		ExecutionMode: "remote",
+	}
+
+	response, errorValue := client.GenerateLocalRecoveryResponse(context.Background(), "hello")
+	if errorValue != nil {
+		t.Fatalf("expected local recovery response: %v", errorValue)
+	}
+	if response != "local failure notice" {
+		t.Fatalf("expected local recovery response, got %q", response)
+	}
+	if receivedDocument.ExecutionMode != "device" {
+		t.Fatalf("expected device execution mode, got %q", receivedDocument.ExecutionMode)
+	}
+}
+
 type fakeCapabilityHTTPClient struct {
 	handler func(*http.Request) (*http.Response, error)
 }

@@ -24,7 +24,8 @@ Always apply the code style preferences below. The only exception is when workin
 - Exact control acknowledgements for slash commands, such as stop/stop-all, may use deterministic system responses; do not expand that exception to task judgment, failure explanation, recovery direction, or confirmation wording.
 - When a failure requires a judgment, request structured output first, then use that structured decision as input to an LLM-generated user reply.
 - Deterministic helpers may prepare safe facts for the model, such as failure stage, error code, known context, and attempted actions.
-- If remote and local LLM paths both fail to produce a safe reply, do not send a fixed outage message to the user. Leave task events and admin-only diagnostics instead.
+- For real task failures, do not fully suppress the user reply. Try local LLM failure wording first, then send a compact raw error summary if no LLM path can produce a usable notice.
+- Full suppression is only for intentionally ignored control/runtime cases such as duplicate delivery, cancelled task output, or self/bot messages.
 
 ## Code Style
 

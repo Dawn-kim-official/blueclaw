@@ -797,11 +797,11 @@ func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected direct reply failure result: %v", errorValue)
 	}
-	if strings.Contains(strings.ToLower(result.FinalReply), "calculation tool") || strings.Contains(strings.ToLower(result.FinalReply), "data processing") {
-		t.Fatalf("expected no invented tool failure, got %q", result.FinalReply)
+	if strings.Contains(strings.ToLower(result.UserNotice), "calculation tool") || strings.Contains(strings.ToLower(result.UserNotice), "data processing") {
+		t.Fatalf("expected no invented tool failure, got %q", result.UserNotice)
 	}
-	if result.FinalReply != "" || !result.ReplySuppressed {
-		t.Fatalf("expected no deterministic fallback reply, got reply=%q suppressed=%v", result.FinalReply, result.ReplySuppressed)
+	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "model failed") {
+		t.Fatalf("expected raw model error reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.llm_unavailable", "model failed") {
 		t.Fatal("expected LLM unavailable diagnostic event")

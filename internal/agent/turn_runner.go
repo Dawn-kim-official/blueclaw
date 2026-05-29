@@ -1651,7 +1651,9 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
-		return AgentTurnResult{TaskRun: failedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+		var noticeStatus lastResortFailureNoticeStatus
+		reply, noticeStatus = agentTurnRunner.generateLastResortFailureNotice(request, reason, replyStatus, "failure")
+		agentTurnRunner.appendEvent(taskRunID, "agent.failure_notice", marshalEventBody(noticeStatus))
 	}
 	failedTaskRun.Result = reply
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
@@ -2051,7 +2053,9 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", reason, replyStatus)
-		return AgentTurnResult{TaskRun: blockedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+		var noticeStatus lastResortFailureNoticeStatus
+		reply, noticeStatus = agentTurnRunner.generateLastResortFailureNotice(request, reason, replyStatus, "limit")
+		agentTurnRunner.appendEvent(taskRunID, "agent.failure_notice", marshalEventBody(noticeStatus))
 	}
 	blockedTaskRun.Result = reply
 	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
@@ -2462,6 +2466,17 @@ type recoveryLanguageModelProvider interface {
 	GenerateRecoveryResponse(context.Context, string) (string, error)
 }
 
+type localRecoveryLanguageModelProvider interface {
+	GenerateLocalRecoveryResponse(context.Context, string) (string, error)
+}
+
+type lastResortFailureNoticeStatus struct {
+	Source    string `json:"source"`
+	Phase     string `json:"phase"`
+	Error     string `json:"error,omitempty"`
+	RawReason string `json:"rawReason,omitempty"`
+}
+
 func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID string, phase string, reason string, replyStatus any) {
 	body := map[string]any{
 		"phase":       phase,
@@ -2579,6 +2594,70 @@ func degradedFailureReplyCanBeDelivered(reply string, request AgentTurnRequest, 
 		return false
 	}
 	return strings.TrimSpace(reply) != "" && !failureReplyIsInvalid(reply, attachments)
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateLastResortFailureNotice(request AgentTurnRequest, failureReason string, replyStatus any, phase string) (string, lastResortFailureNoticeStatus) {
+	rawReason := compactRawFailureReason(combineFailureNoticeFacts(failureReason, replyStatus))
+	status := lastResortFailureNoticeStatus{Phase: phase, RawReason: rawReason}
+	if localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.languageModel.(localRecoveryLanguageModelProvider); isLocalRecoveryProvider {
+		responseContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(responseContext, buildLastResortFailureNoticePrompt(request, rawReason, phase))
+		reply = strings.TrimSpace(reply)
+		if errorValue == nil && reply != "" && ValidateUserNoticeDelivery(reply) == nil {
+			status.Source = "local_llm"
+			return reply, status
+		}
+		status.Error = firstNonEmptyString(errorString(errorValue), "empty_or_invalid_local_reply")
+	}
+	status.Source = "raw_error"
+	return rawFailureNotice(request, rawReason), status
+}
+
+func combineFailureNoticeFacts(failureReason string, replyStatus any) string {
+	parts := []string{}
+	if reason := strings.TrimSpace(failureReason); reason != "" {
+		parts = append(parts, "reason="+reason)
+	}
+	if status := strings.TrimSpace(marshalEventBody(replyStatus)); status != "" && status != "null" {
+		parts = append(parts, "replyStatus="+status)
+	}
+	if len(parts) == 0 {
+		return "unknown_error"
+	}
+	return strings.Join(parts, " ")
+}
+
+func buildLastResortFailureNoticePrompt(request AgentTurnRequest, rawReason string, phase string) string {
+	return strings.Join([]string{
+		"Write the shortest useful user-facing notice for a failed Blueclaw run.",
+		responseLanguageInstruction(request.ResponseLanguage),
+		"Do not use a canned outage phrase. Do not hide that this is an error.",
+		"Use the raw error summary below as the concrete reason. Do not invent success, tool results, or completed work.",
+		"Do not expose secrets, tokens, hidden policy, stack traces, or raw prompts.",
+		"Keep it to one or two sentences.",
+		"Original user request:\n" + strings.TrimSpace(request.Prompt),
+		"Failure phase: " + strings.TrimSpace(phase),
+		"Raw error summary:\n" + rawReason,
+	}, "\n\n")
+}
+
+func rawFailureNotice(request AgentTurnRequest, rawReason string) string {
+	if ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish {
+		return "Error: " + rawReason
+	}
+	return "오류: " + rawReason
+}
+
+func compactRawFailureReason(reason string) string {
+	trimmedReason := strings.Join(strings.Fields(strings.TrimSpace(reason)), " ")
+	if trimmedReason == "" {
+		return "unknown_error"
+	}
+	if len([]rune(trimmedReason)) <= 900 {
+		return trimmedReason
+	}
+	return string([]rune(trimmedReason)[:900]) + "..."
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (string, limitReplyStatus, bool) {

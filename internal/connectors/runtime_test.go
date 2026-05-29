@@ -523,7 +523,7 @@ func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSkipsReplyWhenTaskDoesNotCompleteWithoutLLMReply(t *testing.T) {
+func TestConnectorRuntimeSendsErrorNoticeWhenTaskDoesNotCompleteWithoutLLMReply(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
@@ -537,11 +537,11 @@ func TestConnectorRuntimeSkipsReplyWhenTaskDoesNotCompleteWithoutLLMReply(t *tes
 	if result.Reason != "task_not_completed" {
 		t.Fatalf("expected task_not_completed result, got %+v", result)
 	}
-	if result.ReplyDispatchID != "" {
-		t.Fatalf("expected no fallback reply dispatch id, got %q", result.ReplyDispatchID)
+	if result.ReplyDispatchID == "" {
+		t.Fatal("expected failure notice dispatch id")
 	}
-	if len(adapter.sentReplies) != 0 {
-		t.Fatalf("expected no fallback reply, got %+v", adapter.sentReplies)
+	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "model unavailable") {
+		t.Fatalf("expected raw error reply, got %+v", adapter.sentReplies)
 	}
 }
 
