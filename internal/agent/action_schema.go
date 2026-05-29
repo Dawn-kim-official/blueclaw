@@ -22,7 +22,7 @@ func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames
 func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
 	var variants []any
 	variants = append(variants,
-		finalReplyActionSchema(hasFailureDebt),
+		finishActionSchema(hasFailureDebt),
 		failActionSchema(hasFailureDebt),
 	)
 	if allowQualityCriteria {
@@ -33,7 +33,7 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
 			continue
 		}
-		variants = append(variants, callToolActionSchema(toolDefinition))
+		variants = append(variants, continueActionSchema(toolDefinition))
 	}
 
 	document, errorValue := json.Marshal(map[string]any{"oneOf": variants})
@@ -51,7 +51,7 @@ func requireCapabilitiesActionSchema() map[string]any {
 			"toolNames":            stringArraySchema(0),
 			"skillNames":           stringArraySchema(0),
 			"reason":               stringSchema(),
-			"goalStatus":           enumValuesStringSchema([]string{"in_progress", "blocked"}),
+			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
 			"goalSatisfied":        booleanSchema(),
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
@@ -61,9 +61,9 @@ func requireCapabilitiesActionSchema() map[string]any {
 	}
 }
 
-func finalReplyActionSchema(hasFailureDebt bool) map[string]any {
+func finishActionSchema(hasFailureDebt bool) map[string]any {
 	failureResolutionValues := []string{"none", "recovered_with_success", "no_tool_fallback"}
-	requiredFields := []string{"action", "finalReply", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview", "executionStateUpdate"}
+	requiredFields := []string{"action", "message", "goalStatus", "goalSatisfied", "completionEvidence", "qualityReview", "executionStateUpdate"}
 	if hasFailureDebt {
 		failureResolutionValues = []string{"recovered_with_success", "no_tool_fallback"}
 		requiredFields = append(requiredFields, "failureResolution")
@@ -71,8 +71,8 @@ func finalReplyActionSchema(hasFailureDebt bool) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":               enumStringSchema("final_reply"),
-			"finalReply":           stringSchema(),
+			"action":               enumStringSchema("finish"),
+			"message":              stringSchema(),
 			"failureResolution":    enumValuesStringSchema(failureResolutionValues),
 			"goalStatus":           enumValuesStringSchema([]string{"satisfied"}),
 			"goalSatisfied":        booleanSchema(),
@@ -126,15 +126,16 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 	}
 }
 
-func callToolActionSchema(toolDefinition ToolDefinition) map[string]any {
+func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":               enumStringSchema("call_tool"),
+			"action":               enumStringSchema("continue"),
 			"toolName":             enumStringSchema(toolDefinition.Name),
 			"toolInput":            toolInputSchema(toolDefinition),
+			"message":              stringSchema(),
 			"reason":               stringSchema(),
-			"goalStatus":           enumValuesStringSchema([]string{"in_progress", "blocked"}),
+			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
 			"goalSatisfied":        booleanSchema(),
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
@@ -288,11 +289,11 @@ func failureReportFactsSchema() map[string]any {
 }
 
 func fallbackActionSchema() string {
-	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["final_reply"]},"finalReply":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","finalReply","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"],"additionalProperties":false}]}`
+	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"],"additionalProperties":false}]}`
 }
 
 func finalizerActionSchema() string {
-	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finalReplyActionSchema(false), failActionSchema(false)}})
+	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finishActionSchema(false), failActionSchema(false)}})
 	if errorValue != nil {
 		return fallbackActionSchema()
 	}

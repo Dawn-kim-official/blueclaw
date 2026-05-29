@@ -23,7 +23,7 @@ import (
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinalReply("done")})
+	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
 	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "사용자는 발표자료 생성을 자주 요청한다."); errorValue != nil {
 		t.Fatalf("expected pinned memory setup to succeed: %v", errorValue)
@@ -91,7 +91,7 @@ func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
 func TestTaskLauncherAuditsPinnedMemoryFailureAndRunsWithoutMemory(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinalReply("done")})
+	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
 	rootPath := t.TempDir()
 	if errorValue := os.WriteFile(filepath.Join(rootPath, "people"), []byte("not a directory"), 0600); errorValue != nil {
 		t.Fatalf("expected pinned memory failure setup to succeed: %v", errorValue)
@@ -856,8 +856,8 @@ func (store failingGraphMemoryStore) SearchFacts(context.Context, memory.MemoryS
 	return nil, store.errorValue
 }
 
-func runtimeFinalReply(reply string) string {
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finalReply":"` + reply + `"}`
+func runtimeFinishMessage(reply string) string {
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finishMessage":"` + reply + `"}`
 }
 
 func containsString(values []string, expected string) bool {

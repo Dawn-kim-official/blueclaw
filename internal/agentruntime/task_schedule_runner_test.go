@@ -14,7 +14,7 @@ func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinalReply("scheduled done")})
+	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("scheduled done")})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},

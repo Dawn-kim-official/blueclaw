@@ -81,11 +81,11 @@ type VirtualSessionResult struct {
 }
 
 type VirtualTurnResult struct {
-	TaskRunID    string
-	FinalReply   string
-	Attachments  []agent.FileAttachment
-	Events       []task.TaskEvent
-	ModelContext string
+	TaskRunID     string
+	FinishMessage string
+	Attachments   []agent.FileAttachment
+	Events        []task.TaskEvent
+	ModelContext  string
 }
 
 type VirtualSessionHarness struct {
@@ -424,11 +424,11 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		return VirtualTurnResult{}, fmt.Errorf("virtual turn did not dispatch a reply; events: %s", summarizeEvents(events))
 	}
 	return VirtualTurnResult{
-		TaskRunID:    runtimeResult.TaskRunID,
-		FinalReply:   outboundReply.Message,
-		Attachments:  outboundReply.Attachments,
-		Events:       harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
-		ModelContext: harness.modelContextSince(modelRequestStartIndex),
+		TaskRunID:     runtimeResult.TaskRunID,
+		FinishMessage: outboundReply.Message,
+		Attachments:   outboundReply.Attachments,
+		Events:        harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
+		ModelContext:  harness.modelContextSince(modelRequestStartIndex),
 	}, nil
 }
 
@@ -452,7 +452,7 @@ func (harness *VirtualSessionHarness) modelContextSince(startIndex int) string {
 func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turnResult VirtualTurnResult) {
 	harness.history = append(harness.history,
 		connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "샘플 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt},
-		connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinalReply},
+		connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinishMessage},
 	)
 }
 
@@ -509,13 +509,13 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		}
 	}
 	for _, fragment := range virtualTurn.ExpectedReplyFragments {
-		if !strings.Contains(turnResult.FinalReply, fragment) {
-			return fmt.Errorf("expected reply fragment %q in %q", fragment, turnResult.FinalReply)
+		if !strings.Contains(turnResult.FinishMessage, fragment) {
+			return fmt.Errorf("expected reply fragment %q in %q", fragment, turnResult.FinishMessage)
 		}
 	}
 	for _, fragment := range virtualTurn.ForbiddenReplyFragments {
-		if strings.Contains(turnResult.FinalReply, fragment) {
-			return fmt.Errorf("forbidden reply fragment %q found in %q", fragment, turnResult.FinalReply)
+		if strings.Contains(turnResult.FinishMessage, fragment) {
+			return fmt.Errorf("forbidden reply fragment %q found in %q", fragment, turnResult.FinishMessage)
 		}
 	}
 	return nil
@@ -921,7 +921,7 @@ func virtualRelevanceScore(fact memory.MemoryFact, query string) float64 {
 	return score
 }
 
-func actionFinalReply(reply string, evidence ...string) string {
+func actionFinishMessage(reply string, evidence ...string) string {
 	evidenceDocuments := []string{}
 	for _, value := range evidence {
 		parts := strings.Split(value, ":")
@@ -930,15 +930,15 @@ func actionFinalReply(reply string, evidence ...string) string {
 		}
 		evidenceDocuments = append(evidenceDocuments, `{"observationID":`+quote(parts[0])+`,"toolName":`+quote(parts[1])+`,"attachmentIndex":`+parts[2]+`}`)
 	}
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[` + strings.Join(evidenceDocuments, ",") + `],"finalReply":` + quote(reply) + `}`
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[` + strings.Join(evidenceDocuments, ",") + `],"finishMessage":` + quote(reply) + `}`
 }
 
-func actionNoToolFallbackFinalReply(reply string) string {
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"failureResolution":"no_tool_fallback","finalReply":` + quote(reply) + `}`
+func actionNoToolFallbackFinishMessage(reply string) string {
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"failureResolution":"no_tool_fallback","finishMessage":` + quote(reply) + `}`
 }
 
 func actionCallTool(toolName string, input string) string {
-	return `{"action":"call_tool","toolName":` + quote(toolName) + `,"toolInput":` + input + `}`
+	return `{"action":"continue","toolName":` + quote(toolName) + `,"toolInput":` + input + `}`
 }
 
 func quote(value string) string {

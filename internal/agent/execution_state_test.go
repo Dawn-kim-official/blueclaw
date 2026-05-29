@@ -112,7 +112,7 @@ func terminalFailureObservation(observationID string, workingDirectoryPath strin
 	})
 	return turnObservation{
 		ObservationID:      observationID,
-		Action:             "call_tool",
+		Action:             "continue",
 		Tool:               "terminal.run",
 		Output:             ToolOutput{Content: content},
 		Failure:            &ToolFailure{Kind: FailureExternalService, Code: FailureCodes.OperationFailed.String(), Stage: "terminal_run", UserSafeSummary: content},
@@ -139,9 +139,9 @@ func TestExecutionStateSchemaIsPresentOnToolCalls(t *testing.T) {
 	}
 	for _, variant := range schema.OneOf {
 		properties := mapFromAny(variant["properties"])
-		if action := mapFromAny(properties["action"]); containsString(stringSliceFromAny(action["enum"]), "call_tool") {
+		if action := mapFromAny(properties["action"]); containsString(stringSliceFromAny(action["enum"]), "continue") {
 			if _, exists := properties["executionStateUpdate"]; !exists {
-				t.Fatalf("expected executionStateUpdate on call_tool schema: %s", schemaDocument)
+				t.Fatalf("expected executionStateUpdate on continue schema: %s", schemaDocument)
 			}
 		}
 	}

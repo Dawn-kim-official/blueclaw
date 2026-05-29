@@ -16,7 +16,7 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticScheduleLanguageModel{content: scheduleFinalReply("오늘 조사한 핵심 변화는 세 가지입니다.")})
+	agentKernel.UseLanguageModelProvider(staticScheduleLanguageModel{content: scheduleFinishMessage("오늘 조사한 핵심 변화는 세 가지입니다.")})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},
@@ -45,8 +45,8 @@ func TestCronScheduleRunsDailyResearchPromptAndAdvancesToNextDay(t *testing.T) {
 	if !result.DidRun {
 		t.Fatal("expected due daily research schedule to run")
 	}
-	if result.LaunchResult.TurnResult.FinalReply != "오늘 조사한 핵심 변화는 세 가지입니다." {
-		t.Fatalf("expected daily research reply, got %q", result.LaunchResult.TurnResult.FinalReply)
+	if result.LaunchResult.TurnResult.FinishMessage != "오늘 조사한 핵심 변화는 세 가지입니다." {
+		t.Fatalf("expected daily research reply, got %q", result.LaunchResult.TurnResult.FinishMessage)
 	}
 	if result.TaskSchedule.LastTaskRunID == "" {
 		t.Fatalf("expected launched task run id, got %+v", result.TaskSchedule)
@@ -72,6 +72,6 @@ func (languageModel staticScheduleLanguageModel) GenerateStructuredResponse(cont
 	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
 
-func scheduleFinalReply(reply string) string {
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finalReply":"` + reply + `"}`
+func scheduleFinishMessage(reply string) string {
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finishMessage":"` + reply + `"}`
 }

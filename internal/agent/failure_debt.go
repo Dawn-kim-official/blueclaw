@@ -81,7 +81,7 @@ func recoveryToolBudgetTotal(budget RecoveryBudget) int {
 func activeFailureDebt(observations []turnObservation) (FailureDebt, bool) {
 	var activeDebt FailureDebt
 	for _, observation := range observations {
-		if observation.Action != "call_tool" {
+		if observation.Action != "continue" {
 			continue
 		}
 		if observation.Failed() && strings.TrimSpace(observation.ToolInputKey) != "" {
@@ -111,7 +111,7 @@ func previousFailedToolInput(observations []turnObservation, toolName string, to
 	expectedKey := canonicalToolCallKey(toolName, toolInput)
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
-		if observation.Action != "call_tool" {
+		if observation.Action != "continue" {
 			continue
 		}
 		if !observation.Failed() {
@@ -227,7 +227,7 @@ func activeFailureDebtEventBody(observations []turnObservation, budget RecoveryB
 func attemptLedger(observations []turnObservation) []attemptLedgerEntry {
 	entries := []attemptLedgerEntry{}
 	for _, observation := range observations {
-		if observation.Action != "call_tool" || strings.TrimSpace(observation.Tool) == "" {
+		if observation.Action != "continue" || strings.TrimSpace(observation.Tool) == "" {
 			continue
 		}
 		status := "success"
@@ -262,7 +262,7 @@ func failureDebtFinalizationGate(observations []turnObservation, actionDocument 
 	case failureResolutionRecoveredWithSuccess:
 		return completionGateResult{Message: "FailureDebt is active because no later successful tool call resolved the latest failure"}
 	case failureResolutionFailureReport:
-		return completionGateResult{Message: "FailureDebt failure reports must use the fail action, not final_reply"}
+		return completionGateResult{Message: "FailureDebt failure reports must use the fail action, not finish"}
 	default:
 		return completionGateResult{Message: failureDebtFinalizationMessage(failureDebt)}
 	}
@@ -271,7 +271,7 @@ func failureDebtFinalizationGate(observations []turnObservation, actionDocument 
 func buildFailureReportFacts(observations []turnObservation, budget RecoveryBudget) failureReportFacts {
 	facts := failureReportFacts{BudgetState: failureReportBudgetState(observations, budget)}
 	for _, observation := range observations {
-		if observation.Action != "call_tool" || !observation.Failed() {
+		if observation.Action != "continue" || !observation.Failed() {
 			continue
 		}
 		facts.Attempts = append(facts.Attempts, failureReportAttempt{
@@ -328,7 +328,7 @@ func failureReportMessage(observation turnObservation) string {
 func failureDebtActionContractMessage(facts failureReportFacts) string {
 	return strings.Join([]string{
 		"FailureDebt is active. The action schema now requires failureResolution.",
-		"If you can answer directly without tools, return final_reply with failureResolution=no_tool_fallback and do not apologize or mention the failed tool unless the user asked about internals.",
+		"If you can answer directly without tools, return finish with failureResolution=no_tool_fallback and do not apologize or mention the failed tool unless the user asked about internals.",
 		"If you cannot answer directly and recovery budget is exhausted, return fail with failureResolution=failure_report and copy the relevant facts into usedFailureFacts.",
 		"FailureReportFacts:\n" + marshalEventBody(facts),
 	}, "\n")
@@ -381,7 +381,7 @@ func usedFailureFactsContainAttempt(attempts []failureReportAttempt, expectedAtt
 
 func failureDebtFinalizationMessage(failureDebt FailureDebt) string {
 	latestFailure := failureDebt.LatestFailure
-	parts := []string{"A failed tool call created FailureDebt, so final_reply is locked."}
+	parts := []string{"A failed tool call created FailureDebt, so finish is locked."}
 	if strings.TrimSpace(latestFailure.Tool) != "" {
 		parts = append(parts, "tool="+strings.TrimSpace(latestFailure.Tool))
 	}

@@ -293,6 +293,7 @@ const connectorClaimLeaseDuration = 15 * time.Minute
 const connectorProgressHeartbeatInterval = time.Minute
 const connectorMaximumAttemptCount = 5
 const connectorReplyKindSuccess = "success"
+const connectorReplyKindCheckpoint = "checkpoint"
 const connectorReplyKindUserNotice = "user_notice"
 const connectorReplyKindPermissionNotice = "permission_notice"
 
@@ -905,6 +906,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		PersonAccess:              personAccess,
 		MemoryNamespaces:          connectorRuntime.accessibleNamespaces(personID, personAccess, event),
 		AccessibleConversationIDs: []string{event.ConversationID},
+		CheckpointSender: func(checkpointContext context.Context, checkpoint agent.AgentCheckpoint) error {
+			return connectorRuntime.sendCheckpointReply(checkpointContext, platform, event, replyTarget, checkpoint, sendReply)
+		},
 	})
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
@@ -933,12 +937,12 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		}
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_not_completed"}, nil
 	}
-	if agent.FinalReplyContainsNonDeliverableArtifactLocator(turnResult.FinalReply) {
+	if agent.FinishMessageContainsNonDeliverableArtifactLocator(turnResult.FinishMessage) {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", "", "non_deliverable_artifact_locator"))
 		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "non_deliverable_artifact_locator"))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "non_deliverable_artifact_locator"}, nil
 	}
-	if agent.FinalReplyClaimsAttachmentDelivery(turnResult.FinalReply) && len(turnResult.Attachments) == 0 {
+	if agent.FinishMessageClaimsAttachmentDelivery(turnResult.FinishMessage) && len(turnResult.Attachments) == 0 {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", "", "missing_attachment_evidence"))
 		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "missing_attachment_evidence"))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "missing_attachment_evidence"}, nil
@@ -952,7 +956,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{
-		Message:         turnResult.FinalReply,
+		Message:         turnResult.FinishMessage,
 		TaskRunID:       taskRunID,
 		ReplyKind:       connectorReplyKindSuccess,
 		Attachments:     turnResult.Attachments,
@@ -1798,8 +1802,8 @@ func latestConfirmationContinuationInstruction(taskEvents []task.TaskEvent) stri
 	return ""
 }
 
-func (connectorRuntime *ConnectorRuntime) completeApprovedPendingTask(pendingTaskRun task.TaskRun, continuationTaskRunID string, finalReply string) {
-	result := strings.TrimSpace(finalReply)
+func (connectorRuntime *ConnectorRuntime) completeApprovedPendingTask(pendingTaskRun task.TaskRun, continuationTaskRunID string, finishMessage string) {
+	result := strings.TrimSpace(finishMessage)
 	if result == "" {
 		result = "Approved and continued in task " + continuationTaskRunID + "."
 	}
@@ -1834,6 +1838,35 @@ func (connectorRuntime *ConnectorRuntime) appendConnectorReplyEvent(taskRunID st
 		return
 	}
 	connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, name, marshalConnectorEventBody(body))
+}
+
+func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Context, platform string, event PlatformInboundEvent, replyTarget ReplyTarget, checkpoint agent.AgentCheckpoint, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) error {
+	message := strings.TrimSpace(checkpoint.Message)
+	taskRunID := strings.TrimSpace(checkpoint.TaskRunID)
+	reply := OutboundReply{
+		Message:   message,
+		TaskRunID: taskRunID,
+		ReplyKind: connectorReplyKindCheckpoint,
+	}
+	if message == "" {
+		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, reply, "", "", "missing_checkpoint_message"))
+		return errors.New("missing checkpoint message")
+	}
+	if errorValue := agent.ValidateUserNoticeDelivery(message); errorValue != nil {
+		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, reply, "", "", "invalid_checkpoint_message"))
+		return errorValue
+	}
+	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
+	if errorValue != nil {
+		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.failed", connectorReplyEventBody(event, reply, "", "", errorValue.Error()))
+		connectorRuntime.logger.Error("connector."+platform+".checkpoint.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		return errorValue
+	}
+	if connectorRuntime.outboxRepository() == nil {
+		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.sent", connectorReplyEventBody(event, reply, "", dispatchID, ""))
+	}
+	connectorRuntime.logger.Info("connector."+platform+".checkpoint.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID))
+	return nil
 }
 
 func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Context, platform string, event PlatformInboundEvent, taskRunID string, replyTarget ReplyTarget, turnResult agent.AgentTurnResult, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {

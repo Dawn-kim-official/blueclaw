@@ -196,17 +196,17 @@ func (taskSchedulePoller TaskSchedulePoller) enqueueTaskScheduleReply(result tas
 
 func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.OutboundReply, error) {
 	turnResult := result.LaunchResult.TurnResult
-	reply := strings.TrimSpace(turnResult.FinalReply)
+	reply := strings.TrimSpace(turnResult.FinishMessage)
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
 		return connectors.OutboundReply{}, errors.New("scheduled task did not complete: taskRunID=" + turnResult.TaskRun.TaskRunID + " status=" + string(turnResult.TaskRun.Status))
 	}
 	if reply == "" {
 		return connectors.OutboundReply{}, errors.New("scheduled task completed without a reply")
 	}
-	if agent.FinalReplyContainsNonDeliverableArtifactLocator(reply) {
+	if agent.FinishMessageContainsNonDeliverableArtifactLocator(reply) {
 		return connectors.OutboundReply{}, errors.New("scheduled task reply exposes non-deliverable artifact locator")
 	}
-	if agent.FinalReplyClaimsAttachmentDelivery(reply) && len(turnResult.Attachments) == 0 {
+	if agent.FinishMessageClaimsAttachmentDelivery(reply) && len(turnResult.Attachments) == 0 {
 		return connectors.OutboundReply{}, errors.New("scheduled task reply claims attachments without evidence")
 	}
 	return connectors.OutboundReply{Message: reply, Attachments: turnResult.Attachments}, nil

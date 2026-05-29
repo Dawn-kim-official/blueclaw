@@ -87,9 +87,9 @@ func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseW
 		return
 	}
 	writeJSON(responseWriter, http.StatusOK, map[string]any{
-		"taskRun":     launchResult.TurnResult.TaskRun,
-		"finalReply":  launchResult.TurnResult.FinalReply,
-		"attachments": launchResult.TurnResult.Attachments,
+		"taskRun":       launchResult.TurnResult.TaskRun,
+		"finishMessage": launchResult.TurnResult.FinishMessage,
+		"attachments":   launchResult.TurnResult.Attachments,
 	})
 }
 

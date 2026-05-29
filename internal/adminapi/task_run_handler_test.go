@@ -18,7 +18,7 @@ import (
 func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticAdminLanguageModel{content: `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finalReply":"admin done"}`})
+	agentKernel.UseLanguageModelProvider(staticAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finishMessage":"admin done"}`})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"admin": {"memory.search"},

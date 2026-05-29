@@ -772,10 +772,10 @@ func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testin
 	}
 }
 
-func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T) {
+func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"call_tool","toolName":"conversation.history","toolInput":{"limit":20}}`,
-		connectorFinalReplyWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
+		`{"action":"continue","toolName":"conversation.history","toolInput":{"limit":20}}`,
+		connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-1")
@@ -803,8 +803,8 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinalReply(t *testing.T)
 
 func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"name":"daily research brief","prompt":"매일 업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"}}`,
-		connectorFinalReply("매일 아침 7시에 조사해서 알려드릴게요."),
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","prompt":"매일 업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"}}`,
+		connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorScheduledTaskSkill())
@@ -858,8 +858,8 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"call_tool","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
-			connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
+			`{"action":"continue","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1057,8 +1057,8 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"우선 진행합니다.","platform":"mattermost"}}`,
-			connectorFinalReplyWithEvidence("샘플에게 DM을 보냈습니다.", "obs-001", "platform.dm.send", 0),
+			`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"우선 진행합니다.","platform":"mattermost"}}`,
+			connectorFinishMessageWithEvidence("샘플에게 DM을 보냈습니다.", "obs-001", "platform.dm.send", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1132,7 +1132,7 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 			},
 		},
 		ActionResponses: []string{
-			connectorFinalReply("캘린더 요청을 처리했습니다."),
+			connectorFinishMessage("캘린더 요청을 처리했습니다."),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1177,8 +1177,8 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 			`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
 		}},
 		ActionResponses: []string{
-			`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
-			connectorFinalReplyWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.event.add", 0),
+			`{"action":"continue","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.event.add", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1221,8 +1221,8 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
-		connectorFinalReplyWithEvidence("브라우저를 확인했습니다", "obs-001", "browser.snapshot", 0),
+		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
+		connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-001", "browser.snapshot", 0),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorBrowserSnapshotSkill())
@@ -1410,6 +1410,31 @@ func TestConnectorRuntimeRecordsQueuedOutboxSendFailure(t *testing.T) {
 	}
 	if !connectorTaskEventsContain(connectorRuntime, taskRunID, "connector.reply.failed", "mattermost send failed") {
 		t.Fatal("expected queued reply failed event")
+	}
+}
+
+func TestConnectorRuntimeSendsCheckpointReplyKind(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	event := testInboundEvent("message-checkpoint")
+	replyTarget := ReplyTarget{ConversationID: event.ConversationID, ReplyTargetID: event.ReplyTargetID}
+
+	errorValue := connectorRuntime.sendCheckpointReply(context.Background(), adapter.Name(), event, replyTarget, agent.AgentCheckpoint{
+		TaskRunID: "task-1",
+		Message:   "작업 중입니다.",
+		ToolName:  "terminal.run",
+	}, adapter.SendReply)
+	if errorValue != nil {
+		t.Fatalf("expected checkpoint reply to send: %v", errorValue)
+	}
+	if len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected one sent reply, got %+v", adapter.sentReplies)
+	}
+	reply := adapter.sentReplies[0]
+	if reply.replyKind != connectorReplyKindCheckpoint || reply.taskRunID != "task-1" || reply.message != "작업 중입니다." {
+		t.Fatalf("expected checkpoint reply kind and task run id, got %+v", reply)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.sent", connectorReplyKindCheckpoint) {
+		t.Fatal("expected checkpoint sent event")
 	}
 }
 
@@ -1801,7 +1826,7 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(context.Contex
 	if languageModel.errorValue != nil {
 		return llm.StructuredResponse{}, languageModel.errorValue
 	}
-	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
+	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
 
 type addressingTestLanguageModel struct {
@@ -1823,7 +1848,7 @@ func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ c
 		}
 		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldReply":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot)) + `}`}, nil
 	}
-	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
+	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
 
 type recordingLanguageModel struct {
@@ -1837,7 +1862,7 @@ func (languageModel *recordingLanguageModel) GenerateResponse(context.Context, s
 
 func (languageModel *recordingLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	languageModel.request = structuredResponseRequest
-	return llm.StructuredResponse{Content: connectorFinalReply(languageModel.reply)}, nil
+	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
 
 type staticScopeLanguageModel struct {
@@ -1852,7 +1877,7 @@ func (languageModel staticScopeLanguageModel) GenerateStructuredResponse(_ conte
 	if structuredResponseRequest.StructuredOutputSchema.Name == "blueclaw_graphiti_ingestion_route" {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
-	return llm.StructuredResponse{Content: connectorFinalReply("ok")}, nil
+	return llm.StructuredResponse{Content: connectorFinishMessage("ok")}, nil
 }
 
 type fakeGraphMemoryStore struct {
@@ -1963,12 +1988,12 @@ func findAgentToolDefinition(toolDefinitions []agent.ToolDefinition, toolName st
 	return agent.ToolDefinition{}, false
 }
 
-func connectorFinalReply(reply string) string {
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finalReply":` + strconv.Quote(reply) + `}`
+func connectorFinishMessage(reply string) string {
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finishMessage":` + strconv.Quote(reply) + `}`
 }
 
-func connectorFinalReplyWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}],"finalReply":` + strconv.Quote(reply) + `}`
+func connectorFinishMessageWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}],"finishMessage":` + strconv.Quote(reply) + `}`
 }
 
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {

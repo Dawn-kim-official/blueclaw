@@ -7,7 +7,7 @@ import (
 
 func TestSiteAppCreateSummaryKeepsAgentWorkspacePaths(t *testing.T) {
 	summary := summarizeObservationContent(turnObservation{
-		Action: "call_tool",
+		Action: "continue",
 		Tool:   "site.app.create",
 		Output: ToolOutput{Content: `{
 			"siteID":"site-1",
@@ -29,7 +29,7 @@ func TestSiteAppCreateSummaryKeepsAgentWorkspacePaths(t *testing.T) {
 
 func TestWorkspacePathSummaryHidesNonAgentWorkspacePath(t *testing.T) {
 	summary := summarizeObservationContent(turnObservation{
-		Action: "call_tool",
+		Action: "continue",
 		Tool:   "site.app.create",
 		Output: ToolOutput{Content: `{
 			"siteID":"site-1",

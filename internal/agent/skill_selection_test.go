@@ -211,7 +211,7 @@ func TestAgentKernelActionSchemaUsesSelectedSkillAllowedTools(t *testing.T) {
 		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"schedule request","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("done"),
+		finishMessageDocument("done"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))

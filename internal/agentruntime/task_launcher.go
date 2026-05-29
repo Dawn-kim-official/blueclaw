@@ -53,6 +53,7 @@ type TaskLaunchRequest struct {
 	PersonAccess              policy.PersonAccess
 	MemoryNamespaces          []memory.MemoryNamespace
 	AccessibleConversationIDs []string
+	CheckpointSender          agent.AgentCheckpointSender
 }
 
 type TaskLaunchResult struct {
@@ -162,6 +163,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		PinnedSkillNames:        append([]string{}, request.PinnedSkillNames...),
 		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
 		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
+		CheckpointSender:        request.CheckpointSender,
 	})
 	if errorValue != nil {
 		return TaskLaunchResult{}, errorValue
