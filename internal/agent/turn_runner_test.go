@@ -30,11 +30,11 @@ func structuredFailureToolResult(content string, message string, code string, st
 	}
 }
 
-func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
+func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"alpha","toolInput":{"value":"one"}}`,
-		`{"action":"call_tool","toolName":"beta","toolInput":{"value":"two"}}`,
-		finalReplyDocument("done"),
+		`{"action":"continue","toolName":"alpha","toolInput":{"value":"one"}}`,
+		`{"action":"continue","toolName":"beta","toolInput":{"value":"two"}}`,
+		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestToolSet([]string{"alpha", "beta"})
@@ -54,8 +54,8 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "done" {
-		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
@@ -68,9 +68,101 @@ func TestAgentTurnRunnerCallsToolsUntilFinalReply(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","message":"작업 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,
+		finishMessageDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"alpha"})
+	wasToolCalled := false
+	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		wasToolCalled = true
+		return ToolSuccess("alpha result"), nil
+	})
+	checkpoints := []AgentCheckpoint{}
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		ToolSet:           toolRegistry,
+		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
+			checkpoints = append(checkpoints, checkpoint)
+			return nil
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if !wasToolCalled {
+		t.Fatal("expected tool to run after checkpoint")
+	}
+	if result.FinishMessage != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
+	}
+	if len(checkpoints) != 1 || checkpoints[0].Message != "작업 중입니다." || checkpoints[0].ToolName != "alpha" {
+		t.Fatalf("expected checkpoint before tool, got %+v", checkpoints)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.sent", "alpha") {
+		t.Fatal("expected checkpoint sent event")
+	}
+}
+
+func TestAgentTurnRunnerRunsToolWhenCheckpointFails(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","message":"작업 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,
+		finishMessageDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"alpha"})
+	wasToolCalled := false
+	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		wasToolCalled = true
+		return ToolSuccess("alpha result"), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		ToolSet:           toolRegistry,
+		CheckpointSender: func(context.Context, AgentCheckpoint) error {
+			return errors.New("send failed")
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if !wasToolCalled {
+		t.Fatal("expected tool to run after failed checkpoint")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.failed", "send failed") {
+		t.Fatal("expected checkpoint failure event")
+	}
+}
+
+func TestCompletionGateRejectsFutureWorkPromiseWithoutScheduleEvidence(t *testing.T) {
+	goalSatisfied := true
+	result := validateCompletionGate(nil, nil, nil, turnActionDocument{
+		Action:             "finish",
+		FinishMessage:      "지금부터 고치겠습니다. 완료 후 공유하겠습니다.",
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      &goalSatisfied,
+		CompletionEvidence: []completionEvidenceReference{},
+		QualityReview:      []qualityReviewItem{},
+	})
+	if result.IsSatisfied {
+		t.Fatal("expected completion gate to reject future work promise")
+	}
+	if !strings.Contains(result.Message, "schedule.create") {
+		t.Fatalf("expected schedule evidence guidance, got %q", result.Message)
+	}
+}
+
 func TestAgentTurnRunnerRejectsAttachmentClaimWithoutAttachmentEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("첨부된 파일들을 확인해 주세요."),
+		finishMessageDocument("첨부된 파일들을 확인해 주세요."),
 		`{"action":"fail","reason":"attachment evidence missing"}`,
 		recoveryDecisionDocument("attachment evidence was missing", "no attachment was available", "ask the user to retry file generation", "explain that attachment evidence was missing"),
 	}, textResponses: []string{
@@ -238,7 +330,7 @@ func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModel
 
 func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
 		`{"action":"fail","reason":"blocked_by_captcha"}`,
 		recoveryDecisionDocument("browser access was blocked", "captcha or bot detection was observed", "ask for another source or direct access", "explain that automated access was blocked"),
 	}, textResponses: []string{
@@ -271,8 +363,8 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"DESIGN.md"}}`,
-		finalReplyWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"DESIGN.md"}}`,
+		finishMessageWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.attach", 0),
 		`{"action":"fail","reason":"html attachment missing"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
@@ -308,8 +400,8 @@ func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T)
 
 func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
-		finalReplyWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
+		finishMessageWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"file.attach"})
@@ -345,7 +437,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 
 func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("done"),
+		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 
@@ -365,8 +457,8 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 
 func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"forbidden","toolInput":{}}`,
-		noToolFallbackFinalReplyDocument("recovered"),
+		`{"action":"continue","toolName":"forbidden","toolInput":{}}`,
+		noToolFallbackFinishMessageDocument("recovered"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"allowed"})
@@ -383,8 +475,8 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover: %v", errorValue)
 	}
-	if result.FinalReply != "recovered" {
-		t.Fatalf("expected recovered reply, got %q", result.FinalReply)
+	if result.FinishMessage != "recovered" {
+		t.Fatalf("expected recovered reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.forbidden.result", FailureCodes.PolicyBlocked.String()) {
 		t.Fatal("expected denied tool result event")
@@ -394,8 +486,8 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 func TestAgentTurnRunnerRequireCapabilitiesPinsHiddenTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"require_capabilities","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
-		`{"action":"call_tool","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
-		finalReplyWithEvidence("created", "obs-002", "site.app.create", 0),
+		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
+		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolSet([]string{"skill.search"})
@@ -423,8 +515,8 @@ func TestAgentTurnRunnerRequireCapabilitiesPinsHiddenTool(t *testing.T) {
 	if siteCreateCallCount != 1 {
 		t.Fatalf("expected site.app.create to be invoked once, got %d", siteCreateCallCount)
 	}
-	if result.FinalReply != "created" {
-		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "created" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capabilities_required", "site.app.create") {
 		t.Fatal("expected capability require event")
@@ -434,8 +526,8 @@ func TestAgentTurnRunnerRequireCapabilitiesPinsHiddenTool(t *testing.T) {
 func TestAgentTurnRunnerRequireCapabilitiesPinsSkillInstructionsAndTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"require_capabilities","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
-		`{"action":"call_tool","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
-		finalReplyWithEvidence("created", "obs-002", "site.app.create", 0),
+		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
+		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolSet([]string{"skill.search"})
@@ -460,8 +552,8 @@ func TestAgentTurnRunnerRequireCapabilitiesPinsSkillInstructionsAndTools(t *test
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "created" {
-		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "created" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	if len(languageModel.requests) < 2 || !strings.Contains(joinMessageContent(languageModel.requests[1].Messages), "SITE WORKFLOW BODY") {
 		t.Fatalf("expected pinned skill instructions in next model request")
@@ -484,8 +576,8 @@ func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.
 
 func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"alpha","toolInput":{"value":"one"}}`,
-		finalReplyDocument("done"),
+		`{"action":"continue","toolName":"alpha","toolInput":{"value":"one"}}`,
+		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestToolSet([]string{"alpha"})
@@ -510,13 +602,13 @@ func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
+func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("browser tool is unavailable"),
-		`{"action":"call_tool","toolName":"memory.search","toolInput":{}}`,
-		finalReplyDocument("still no screenshot"),
-		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
-		finalReplyWithEvidence("observed", "obs-004", "browser.screenshot", 0),
+		finishMessageDocument("browser tool is unavailable"),
+		`{"action":"continue","toolName":"memory.search","toolInput":{}}`,
+		finishMessageDocument("still no screenshot"),
+		`{"action":"continue","toolName":"browser.screenshot","toolInput":{}}`,
+		finishMessageWithEvidence("observed", "obs-004", "browser.screenshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"browser.screenshot", "memory.search"})
@@ -542,8 +634,8 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected browser tool requirement to recover: %v", errorValue)
 	}
-	if result.FinalReply != "observed" {
-		t.Fatalf("expected final reply after tool use, got %q", result.FinalReply)
+	if result.FinishMessage != "observed" {
+		t.Fatalf("expected final reply after tool use, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "browser.screenshot") {
 		t.Fatal("expected completion requirement event")
@@ -559,11 +651,11 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinalReply(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing.T) {
+func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("PPT 못 만들어요"),
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
-		finalReplyWithEvidence("PPTX를 첨부했습니다.", "obs-002", "file.attach", 0),
+		finishMessageDocument("PPT 못 만들어요"),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-002", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"file.attach"})
@@ -587,8 +679,8 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 	if errorValue != nil {
 		t.Fatalf("expected required evidence to recover: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "deck.pptx") {
-		t.Fatalf("expected artifact-aware reply, got %q", result.FinalReply)
+	if !strings.Contains(result.FinishMessage, "deck.pptx") {
+		t.Fatalf("expected artifact-aware reply, got %q", result.FinishMessage)
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
@@ -603,9 +695,9 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinalReply(t *testing
 
 func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
-		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-002", "file.attach", 0),
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
+		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-002", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"file.write", "file.attach"})
@@ -643,10 +735,10 @@ func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *t
 
 func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"DESIGN.md"}}`,
-		finalReplyWithEvidence("첨부했습니다.", "obs-001", "file.attach", 0),
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
-		finalReplyWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.attach", 0),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"DESIGN.md"}}`,
+		finishMessageWithEvidence("첨부했습니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestToolSet([]string{"file.attach"})
@@ -677,8 +769,8 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected required suffix evidence to recover: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "deck.pptx") {
-		t.Fatalf("expected artifact-aware reply, got %q", result.FinalReply)
+	if !strings.Contains(result.FinishMessage, "deck.pptx") {
+		t.Fatalf("expected artifact-aware reply, got %q", result.FinishMessage)
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
@@ -697,8 +789,8 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "presentation.md"), "Hermes Agent 장단점 분석")
 	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.html"), "<html><body>Hermes Agent 장단점 분석</body></html>")
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.html"}}`,
-		finalReplyWithEvidence("deck.html 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.html"}}`,
+		finishMessageWithEvidence("deck.html 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
 	toolRegistry := newTestToolSet([]string{"file.attach"})
@@ -745,7 +837,7 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 	writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
 
-	languageModel := &sequenceLanguageModel{contents: []string{finalReplyDocument("unused")}}
+	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("unused")}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
@@ -778,8 +870,8 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected auto attachment evidence to succeed: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "deck.pptx") || !strings.Contains(result.FinalReply, "deck.pdf") {
-		t.Fatalf("expected artifact-aware final reply, got %q", result.FinalReply)
+	if !strings.Contains(result.FinishMessage, "deck.pptx") || !strings.Contains(result.FinishMessage, "deck.pdf") {
+		t.Fatalf("expected artifact-aware final reply, got %q", result.FinishMessage)
 	}
 	if len(result.Attachments) != 2 {
 		t.Fatalf("expected two attachments, got %+v", result.Attachments)
@@ -800,8 +892,8 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build another deck"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build another deck"}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.attach"})
@@ -950,7 +1042,7 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 	writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
 
-	languageModel := &sequenceLanguageModel{contents: []string{finalReplyDocument("unused")}}
+	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("unused")}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
@@ -990,7 +1082,7 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 
 func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("done"),
+		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolSet([]string{"terminal.run"})
@@ -1019,8 +1111,8 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn result: %v", errorValue)
 	}
-	if result.FinalReply != "done" {
-		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "simple-slides") {
@@ -1042,10 +1134,10 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRejectsUnsatisfiedFinalReply(t *testing.T) {
+func TestAgentTurnRunnerRejectsUnsatisfiedFinishMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"final_reply","goalStatus":"in_progress","goalSatisfied":false,"completionEvidence":[],"finalReply":"done"}`,
-		finalReplyDocument("now done"),
+		`{"action":"finish","goalStatus":"in_progress","goalSatisfied":false,"completionEvidence":[],"finishMessage":"done"}`,
+		finishMessageDocument("now done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 
@@ -1057,8 +1149,8 @@ func TestAgentTurnRunnerRejectsUnsatisfiedFinalReply(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover: %v", errorValue)
 	}
-	if result.FinalReply != "now done" {
-		t.Fatalf("expected recovered final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "now done" {
+		t.Fatalf("expected recovered final reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "goalSatisfied=true") {
 		t.Fatal("expected goalSatisfied completion gate event")
@@ -1067,8 +1159,8 @@ func TestAgentTurnRunnerRejectsUnsatisfiedFinalReply(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"unstable","toolInput":{}}`,
-		finalReplyWithEvidence("done", "obs-001", "unstable", 0),
+		`{"action":"continue","toolName":"unstable","toolInput":{}}`,
+		finishMessageWithEvidence("done", "obs-001", "unstable", 0),
 		failureReportDocument("tool failed", "unstable", "{}", FailureCodes.OperationFailed.String(), "unstable", "failed"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
@@ -1096,9 +1188,9 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 
 func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"unstable","toolInput":{}}`,
-		finalReplyDocument("handled failure"),
-		noToolFallbackFinalReplyDocument("handled failure"),
+		`{"action":"continue","toolName":"unstable","toolInput":{}}`,
+		finishMessageDocument("handled failure"),
+		noToolFallbackFinishMessageDocument("handled failure"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"unstable"})
@@ -1115,8 +1207,8 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover: %v", errorValue)
 	}
-	if result.FinalReply != "handled failure" {
-		t.Fatalf("expected final reply after failure, got %q", result.FinalReply)
+	if result.FinishMessage != "handled failure" {
+		t.Fatalf("expected final reply after failure, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "FailureDebt") {
 		t.Fatal("expected final reply to be locked until fallback resolution")
@@ -1125,8 +1217,8 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 
 func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
-		noToolFallbackFinalReplyDocument("1 + 2/4 = 1.5"),
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
+		noToolFallbackFinishMessageDocument("1 + 2/4 = 1.5"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"math.calculate"})
@@ -1144,8 +1236,8 @@ func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T)
 	if errorValue != nil {
 		t.Fatalf("expected no-tool fallback to complete: %v", errorValue)
 	}
-	if result.FinalReply != "1 + 2/4 = 1.5" {
-		t.Fatalf("expected direct fallback answer, got %q", result.FinalReply)
+	if result.FinishMessage != "1 + 2/4 = 1.5" {
+		t.Fatalf("expected direct fallback answer, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", FailureCodes.OperationFailed.String()) {
 		t.Fatal("expected internal tool failure event to remain recorded")
@@ -1158,7 +1250,7 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 		Options: TurnOptions{RecoveryBudget: defaultRecoveryBudget()},
 		Observations: []turnObservation{{
 			ObservationID:      "obs-001",
-			Action:             "call_tool",
+			Action:             "continue",
 			Tool:               "math.calculate",
 			Output:             ToolOutput{Content: "bc: command not found"},
 			Failure:            &ToolFailure{Kind: FailureExternalService, Code: FailureCodes.OperationFailed.String(), Stage: "bc_execution", UserSafeSummary: "bc: command not found"},
@@ -1173,15 +1265,15 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 	if !structuredRequestsContain([]llm.StructuredResponseRequest{request}, "FailureReportFacts") {
 		t.Fatal("expected debt-aware request to inject FailureReportFacts")
 	}
-	finalReplyVariant := actionSchemaVariant(t, schemaDocument, "final_reply")
-	finalReplyRequired := stringSliceFromAny(finalReplyVariant["required"])
-	if !containsString(finalReplyRequired, "finalReply") || !containsString(finalReplyRequired, "failureResolution") {
-		t.Fatalf("expected final_reply to require finalReply and failureResolution, got %+v", finalReplyRequired)
+	finishMessageVariant := actionSchemaVariant(t, schemaDocument, "finish")
+	finishMessageRequired := stringSliceFromAny(finishMessageVariant["required"])
+	if !containsString(finishMessageRequired, "message") || !containsString(finishMessageRequired, "failureResolution") {
+		t.Fatalf("expected finish to require message and failureResolution, got %+v", finishMessageRequired)
 	}
-	finalReplyProperties := mapFromAny(finalReplyVariant["properties"])
-	finalReplyFailureResolution := mapFromAny(finalReplyProperties["failureResolution"])
-	if containsString(stringSliceFromAny(finalReplyFailureResolution["enum"]), failureResolutionFailureReport) {
-		t.Fatal("final_reply schema must not allow failure_report; failure reports must use fail with usedFailureFacts")
+	finishMessageProperties := mapFromAny(finishMessageVariant["properties"])
+	finishMessageFailureResolution := mapFromAny(finishMessageProperties["failureResolution"])
+	if containsString(stringSliceFromAny(finishMessageFailureResolution["enum"]), failureResolutionFailureReport) {
+		t.Fatal("finish schema must not allow failure_report; failure reports must use fail with usedFailureFacts")
 	}
 	failVariant := actionSchemaVariant(t, schemaDocument, "fail")
 	failRequired := stringSliceFromAny(failVariant["required"])
@@ -1220,7 +1312,7 @@ func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 
 func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
 		failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 	}, textResponses: []string{
@@ -1254,7 +1346,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
+			`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
 			failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
@@ -1288,7 +1380,7 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	generatedReply := "recipient_resolve/not_found 단계에서 수신자를 찾지 못했습니다."
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
+			`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
 			failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
@@ -1320,9 +1412,9 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"이동하","message":"확인 부탁해"}}`,
-		finalReplyWithEvidence("sent", "obs-003", "platform.dm.send", 0),
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"이동하","message":"확인 부탁해"}}`,
+		finishMessageWithEvidence("sent", "obs-003", "platform.dm.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
 	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
@@ -1347,8 +1439,8 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	if callCount != 2 {
 		t.Fatalf("expected corrected retry, got %d calls", callCount)
 	}
-	if result.FinalReply != "sent" {
-		t.Fatalf("expected final reply after corrected retry, got %q", result.FinalReply)
+	if result.FinishMessage != "sent" {
+		t.Fatalf("expected final reply after corrected retry, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recovery_attempt", "corrected_retry") {
 		t.Fatal("expected corrected retry event")
@@ -1357,9 +1449,9 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"첫 번째"}}`,
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"두 번째"}}`,
-		finalReplyWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "platform.dm.send", 0),
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"첫 번째"}}`,
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"두 번째"}}`,
+		finishMessageWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "platform.dm.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
@@ -1392,7 +1484,7 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 }
 
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
-	failure := newFailureObservation("obs-001", "call_tool", "platform.dm.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
+	failure := newFailureObservation("obs-001", "continue", "platform.dm.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
 	passiveGuidance := recoveryGuidanceObservation(2, failure)
 	spentGuidance := recoveryGuidanceObservation(3, failure)
 	spentGuidance.RecoveryAttemptSpent = true
@@ -1411,11 +1503,11 @@ func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		`{"action":"call_tool","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"동하"}}`,
-		`{"action":"call_tool","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"이동하"}}`,
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"동하"}}`,
+		`{"action":"continue","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"이동하"}}`,
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
 		failureReportDocument("mattermost still unavailable", "platform.dm.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
@@ -1457,8 +1549,8 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		`{"action":"call_tool","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
 		failureReportDocument("send failed", "platform.dm.send", "동하", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("message send failed", "message_send/operation_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
@@ -1495,8 +1587,8 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"calculation_tool","toolInput":{"expression":"1+1"}}`,
-		noToolFallbackFinalReplyDocument("I can answer without that unavailable tool."),
+		`{"action":"continue","toolName":"calculation_tool","toolInput":{"expression":"1+1"}}`,
+		noToolFallbackFinishMessageDocument("I can answer without that unavailable tool."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"math.calculate"})
@@ -1514,8 +1606,8 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover from unavailable tool: %v", errorValue)
 	}
-	if result.FinalReply != "I can answer without that unavailable tool." {
-		t.Fatalf("expected final reply after unavailable tool observation, got %q", result.FinalReply)
+	if result.FinishMessage != "I can answer without that unavailable tool." {
+		t.Fatalf("expected final reply after unavailable tool observation, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.calculation_tool.requested", "calculation_tool") {
 		t.Fatal("expected unavailable tool request event")
@@ -1527,9 +1619,9 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
-		`{"action":"call_tool","toolName":"browser.press","toolInput":{}}`,
-		finalReplyWithEvidence("searched", "obs-001", "browser.fill", 0),
+		`{"action":"continue","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
+		`{"action":"continue","toolName":"browser.press","toolInput":{}}`,
+		finishMessageWithEvidence("searched", "obs-001", "browser.fill", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	pressCallCount := 0
@@ -1551,8 +1643,8 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "searched" {
-		t.Fatalf("expected searched reply, got %q", result.FinalReply)
+	if result.FinishMessage != "searched" {
+		t.Fatalf("expected searched reply, got %q", result.FinishMessage)
 	}
 	if pressCallCount != 0 {
 		t.Fatalf("expected malformed press input not to invoke tool, got %d calls", pressCallCount)
@@ -1564,9 +1656,9 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.snapshot","toolInput":{}}`,
-		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
-		finalReplyWithEvidence("filled", "obs-001", "browser.snapshot", 0),
+		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
+		finishMessageWithEvidence("filled", "obs-001", "browser.snapshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	fillCallCount := 0
@@ -1588,8 +1680,8 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "filled" {
-		t.Fatalf("expected filled reply, got %q", result.FinalReply)
+	if result.FinishMessage != "filled" {
+		t.Fatalf("expected filled reply, got %q", result.FinishMessage)
 	}
 	if fillCallCount != 0 {
 		t.Fatalf("expected malformed fill input not to invoke tool, got %d calls", fillCallCount)
@@ -1601,9 +1693,9 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.open","toolInput":{}}`,
-		`{"action":"call_tool","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
-		finalReplyWithEvidence("opened", "obs-002", "browser.open", 0),
+		`{"action":"continue","toolName":"browser.open","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
+		finishMessageWithEvidence("opened", "obs-002", "browser.open", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	navigateCallCount := 0
@@ -1622,8 +1714,8 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "opened" {
-		t.Fatalf("expected opened reply, got %q", result.FinalReply)
+	if result.FinishMessage != "opened" {
+		t.Fatalf("expected opened reply, got %q", result.FinishMessage)
 	}
 	if navigateCallCount != 1 {
 		t.Fatalf("expected only valid navigate input to invoke tool, got %d calls", navigateCallCount)
@@ -1635,7 +1727,7 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 
 func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
+		`{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"browser.open"})
@@ -1652,8 +1744,8 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if !strings.Contains(result.FinalReply, "완료") && !strings.Contains(result.FinalReply, "열") {
-		t.Fatalf("expected browser-open completion reply, got %q", result.FinalReply)
+	if !strings.Contains(result.FinishMessage, "완료") && !strings.Contains(result.FinishMessage, "열") {
+		t.Fatalf("expected browser-open completion reply, got %q", result.FinishMessage)
 	}
 	if len(languageModel.requests) != 1 {
 		t.Fatalf("expected no extra model calls after browser.open, got %d", len(languageModel.requests))
@@ -1665,9 +1757,9 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("말로만 답변"),
-		`{"action":"call_tool","toolName":"browser.open","toolInput":{"url":"https://console.cloud.google.com/"}}`,
-		finalReplyWithEvidence("열었습니다", "obs-002", "browser.open", 0),
+		finishMessageDocument("말로만 답변"),
+		`{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://console.cloud.google.com/"}}`,
+		finishMessageWithEvidence("열었습니다", "obs-002", "browser.open", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"browser.open"})
@@ -1688,8 +1780,8 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "열었습니다" {
-		t.Fatalf("expected browser-backed reply, got %q", result.FinalReply)
+	if result.FinishMessage != "열었습니다" {
+		t.Fatalf("expected browser-backed reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "browser.") {
 		t.Fatal("expected browser follow-up completion gate to reject tool-free reply")
@@ -1731,8 +1823,8 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"set_quality_criteria","qualityCriteria":[{"id":"done-once","description":"criteria are declared","required":true}],"goalStatus":"in_progress","goalSatisfied":false}`,
-		`{"action":"call_tool","toolName":"alpha","toolInput":{}}`,
-		`{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"alpha"}],"qualityReview":[{"id":"done-once","passed":true,"evidence":[{"observationID":"obs-002","toolName":"alpha"}]}],"finalReply":"done"}`,
+		`{"action":"continue","toolName":"alpha","toolInput":{}}`,
+		`{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"alpha"}],"qualityReview":[{"id":"done-once","passed":true,"evidence":[{"observationID":"obs-002","toolName":"alpha"}]}],"finishMessage":"done"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"alpha"})
@@ -1750,8 +1842,8 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "done" {
-		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	if len(languageModel.requests) < 2 {
 		t.Fatalf("expected at least two model requests, got %d", len(languageModel.requests))
@@ -1766,8 +1858,8 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 
 func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
-		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
 		recoveryDecisionDocument("browser.fill input stayed malformed", "the tool was not invoked", "ask the model to retry with valid input", "explain that the run stopped before completion"),
 	}, textResponses: []string{
 		"I could not finish the browser fill request before this run stopped. Please try again with the current page still open.",
@@ -1802,7 +1894,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 
 func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
 	observations := []turnObservation{
-		newFailureObservation("obs-001", "call_tool", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory 'artifacts': Permission denied"}`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
+		newFailureObservation("obs-001", "continue", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory 'artifacts': Permission denied"}`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
 	}
 	prompt := buildLimitReachedPrompt(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "max_iterations", observations, nil, ExecutionState{}, recoveryDecision{})
 
@@ -1844,8 +1936,8 @@ func TestRequiredArtifactFailureReplyRejectsGenericFailureSummary(t *testing.T) 
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
 	observations := []turnObservation{
-		newFailureObservation("obs-001", "call_tool", "browser_handoff.openURL", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureExternalService, FailureCodes.OperationFailed, "browser_handoff"),
-		newFailureObservation("obs-002", "call_tool", "terminal.run", `[ ERROR ] Failed converting Markdown. (EACCES: permission denied, open '/workspace/tmp-457-sVDK32cv3ara-.html')`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
+		newFailureObservation("obs-001", "continue", "browser_handoff.openURL", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureExternalService, FailureCodes.OperationFailed, "browser_handoff"),
+		newFailureObservation("obs-002", "continue", "terminal.run", `[ ERROR ] Failed converting Markdown. (EACCES: permission denied, open '/workspace/tmp-457-sVDK32cv3ara-.html')`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
 	}
 	reply := "요청하신 웹사이트 접속과 최종 PPT 변환 도구 실행 과정에서 오류가 발생하여 파일이 생성되지 않았습니다. 현재 브라우저 연결 문제와 프레젠테이션 생성을 위한 시스템 환경 오류가 확인되었으며, 이에 대한 추가적인 엔지니어링 확인이 필요한 상황입니다."
 
@@ -1862,8 +1954,8 @@ func TestRequiredArtifactFailureReplyAcceptsConcreteNaturalSummary(t *testing.T)
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
 	observations := []turnObservation{
-		newFailureObservation("obs-001", "call_tool", "browser_handoff.openURL", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureExternalService, FailureCodes.OperationFailed, "browser_handoff"),
-		newFailureObservation("obs-002", "call_tool", "terminal.run", `[ ERROR ] Failed converting Markdown. (EACCES: permission denied, open '/workspace/tmp-457-sVDK32cv3ara-.html')`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
+		newFailureObservation("obs-001", "continue", "browser_handoff.openURL", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureExternalService, FailureCodes.OperationFailed, "browser_handoff"),
+		newFailureObservation("obs-002", "continue", "terminal.run", `[ ERROR ] Failed converting Markdown. (EACCES: permission denied, open '/workspace/tmp-457-sVDK32cv3ara-.html')`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
 	}
 	reply := "PPTX는 첨부되지 않았습니다. 브라우저 열기는 Companion 미연결로 실패했고, 슬라이드 빌드는 Marp 임시 HTML 생성 권한 문제로 중단되어 simple-slides 임시 디렉터리 설정 확인이 필요합니다."
 
@@ -1896,10 +1988,10 @@ func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.fill","toolInput":{}}`,
-		`{"action":"call_tool","toolName":"alpha","toolInput":{}}`,
-		`{"action":"call_tool","toolName":"beta","toolInput":{}}`,
-		finalReplyDocument("done"),
+		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
+		`{"action":"continue","toolName":"alpha","toolInput":{}}`,
+		`{"action":"continue","toolName":"beta","toolInput":{}}`,
+		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 2})
 	toolRegistry := newTestToolSet([]string{"browser.fill", "alpha", "beta"})
@@ -1922,8 +2014,8 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if result.FinalReply != "done" {
-		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_input_malformed", "browser.fill") {
 		t.Fatal("expected malformed tool event")
@@ -1932,9 +2024,9 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
-		finalReplyDocument("명령 실행은 완료됐습니다.\n\n@marp-team/marp-cli v4.3.1"),
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"marp --version"}}`,
+		finishMessageDocument("명령 실행은 완료됐습니다.\n\n@marp-team/marp-cli v4.3.1"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -1959,8 +2051,8 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	if toolCallCount != 1 {
 		t.Fatalf("expected duplicate tool call not to execute, got %d calls", toolCallCount)
 	}
-	if !strings.Contains(result.FinalReply, "@marp-team/marp-cli v4.3.1") {
-		t.Fatalf("expected final reply from successful observation, got %q", result.FinalReply)
+	if !strings.Contains(result.FinishMessage, "@marp-team/marp-cli v4.3.1") {
+		t.Fatalf("expected final reply from successful observation, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_rejected", "obs-001") {
 		t.Fatal("expected duplicate rejection event")
@@ -1969,9 +2061,9 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"ask.confirm","toolInput":{"message":"배포는 외부 영향이 있는 작업이므로 확인이 필요합니다."}}`,
-		`{"action":"call_tool","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish prototype"}}`,
-		finalReplyWithEvidence("배포했습니다.", "obs-002", "site.app.publish", 0),
+		`{"action":"continue","toolName":"ask.confirm","toolInput":{"message":"배포는 외부 영향이 있는 작업이므로 확인이 필요합니다."}}`,
+		`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish prototype"}}`,
+		finishMessageWithEvidence("배포했습니다.", "obs-002", "site.app.publish", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 4})
 	publishCallCount := 0
@@ -2009,8 +2101,8 @@ func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"ask.confirm","toolInput":{"message":"동하 님에게 DM을 보내도 될까요?","reason":"external send"}}`,
-		finalReplyDocument("승인 요청했습니다."),
+		`{"action":"continue","toolName":"ask.confirm","toolInput":{"message":"동하 님에게 DM을 보내도 될까요?","reason":"external send"}}`,
+		finishMessageDocument("승인 요청했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
 	toolRegistry := newTestToolSet([]string{"ask.confirm", "terminal.run", "site.app.create", "site.app.publish", "platform.dm.send"})
@@ -2044,7 +2136,7 @@ func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing
 
 func TestAgentTurnRunnerWaitingApprovalUsesOnlyUserFacingMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"ask.confirm","toolInput":{"userFacingMessage":"동하 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}}`,
+		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"동하 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
 	toolRegistry := newTestToolSet([]string{"ask.confirm"})
@@ -2091,8 +2183,8 @@ func TestAgentTurnRunnerWaitingApprovalUsesOnlyUserFacingMessage(t *testing.T) {
 
 func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-10T00:00:00+09:00","endISO":"2026-05-13T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}`,
-		`{"action":"call_tool","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-11T00:00:00+09:00","endISO":"2026-05-14T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}`,
+		`{"action":"continue","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-10T00:00:00+09:00","endISO":"2026-05-13T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}`,
+		`{"action":"continue","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-11T00:00:00+09:00","endISO":"2026-05-14T00:00:00+09:00","timeZone":"Asia/Seoul","isAllDay":true}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -2128,8 +2220,8 @@ func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
-		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -2165,9 +2257,9 @@ func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
-		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"intervalSecond":60,"kind":"interval","prompt":"죄송합니다."}}`,
-		finalReplyDocument("예약을 만들었습니다."),
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"intervalSecond":60,"kind":"interval","prompt":"죄송합니다."}}`,
+		finishMessageDocument("예약을 만들었습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
@@ -2199,11 +2291,11 @@ func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *te
 
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		finalReplyDocument("done"),
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
 	terminalCallCount := 0
@@ -2248,10 +2340,10 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
-			noToolFallbackFinalReplyDocument("텍스트로 대신 드립니다."),
-			noToolFallbackFinalReplyDocument("텍스트로 대신 드립니다."),
-			noToolFallbackFinalReplyDocument("텍스트로 대신 드립니다."),
+			`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build deck"}}`,
+			noToolFallbackFinishMessageDocument("텍스트로 대신 드립니다."),
+			noToolFallbackFinishMessageDocument("텍스트로 대신 드립니다."),
+			noToolFallbackFinishMessageDocument("텍스트로 대신 드립니다."),
 			recoveryDecisionDocument("file attachment missing", "deck build failed", "stop the repeated state", "report the missing artifact"),
 		},
 		textResponses: []string{"PPTX 첨부를 완료하지 못했습니다. 빌드 실패 뒤에도 필수 첨부 증거가 없어 작업을 중단했습니다."},
@@ -2292,11 +2384,11 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"tmp/deck/DESIGN.md","content":"colors: blue"}}`,
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		finalReplyDocument("done"),
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/DESIGN.md","content":"colors: blue"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
 	terminalCallCount := 0
@@ -2340,10 +2432,10 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 
 func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"call_tool","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
-		`{"action":"call_tool","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"file.write"}],"finalReply":"done"}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		`{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"file.write"}],"finishMessage":"done"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 5})
 	terminalCallCount := 0
@@ -2386,7 +2478,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T
 func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{"검색은 시작했지만 결과 정리는 아직 남았습니다. 지금 확인된 내용은 다시 이어서 처리할 수 있게 저장했습니다."},
 	}
@@ -2416,7 +2508,7 @@ func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{
 			"요청하신 HTML 파일을 생성해 첨부했습니다.",
@@ -2464,7 +2556,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{
 			"아래 파일을 확인해 주세요.\n[Hermes_Agent_Slide_Part1.html]",
@@ -2497,7 +2589,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t 
 func TestAgentTurnRunnerReportsRawLimitErrorWhenGenerationKeepsLeakingDiagnostics(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{
 			"I used 10 minutes and 7 iterations before the budget stopped.",
@@ -2549,9 +2641,9 @@ func TestAgentTurnRunnerAddsModelFacingLimitPressureWarnings(t *testing.T) {
 
 func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
-		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
-		finalReplyWithEvidence("캡처했습니다.", "obs-002", "browser.screenshot", 0),
+		`{"action":"continue","toolName":"browser.screenshot","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.screenshot","toolInput":{}}`,
+		finishMessageWithEvidence("캡처했습니다.", "obs-002", "browser.screenshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
 	toolRegistry := newTestToolSet([]string{"browser.screenshot"})
@@ -2585,8 +2677,8 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "browser-screenshot-2.png" {
 		t.Fatalf("expected latest screenshot attachment, got %+v", result.Attachments)
 	}
-	if result.FinalReply != "캡처했습니다." {
-		t.Fatalf("expected finalizer reply, got %q", result.FinalReply)
+	if result.FinishMessage != "캡처했습니다." {
+		t.Fatalf("expected finalizer reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.finalizer_action", "obs-002") {
 		t.Fatal("expected finalizer action with completion evidence")
@@ -2595,7 +2687,7 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"browser.screenshot","toolInput":{}}`,
+		`{"action":"continue","toolName":"browser.screenshot","toolInput":{}}`,
 		`{"action":"fail","reason":"not complete"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
@@ -2627,14 +2719,14 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 	if len(result.Attachments) != 0 {
 		t.Fatalf("expected no secret attachment delivery, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.finalizer_rejected", "finalizer did not return final_reply") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.finalizer_rejected", "finalizer did not return finish") {
 		t.Fatal("expected finalizer rejection event")
 	}
 }
 
 func TestAgentTurnRunnerDoesNotCompleteEffortStopFromUnrequestedAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.pick","toolInput":{}}`,
+		`{"action":"continue","toolName":"file.pick","toolInput":{}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 1})
 	toolRegistry := newTestToolSet([]string{"file.pick"})
@@ -2669,8 +2761,8 @@ func TestAgentTurnRunnerDoesNotCompleteEffortStopFromUnrequestedAttachment(t *te
 
 func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"large","toolInput":{}}`,
-		finalReplyDocument("summarized"),
+		`{"action":"continue","toolName":"large","toolInput":{}}`,
+		finishMessageDocument("summarized"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{ToolResultMaxBytes: 8})
 	toolRegistry := newTestToolSet([]string{"large"})
@@ -2695,7 +2787,7 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{"작업을 시작했지만 완료 전에 멈췄습니다. 다시 시도하면 이어서 처리할 수 있어요."},
 	}
@@ -2725,8 +2817,8 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
-			`{"action":"call_tool","toolName":"loop","toolInput":{}}`,
+			`{"action":"continue","toolName":"loop","toolInput":{}}`,
+			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{"도구 호출이 더 진행되기 전에 멈췄습니다. 확인된 내용까지만 바탕으로 다시 이어갈 수 있어요."},
 	}
@@ -2952,12 +3044,12 @@ func writeAgentTestFile(t *testing.T, path string, content string) {
 	}
 }
 
-func finalReplyDocument(reply string) string {
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finalReply":` + strconv.Quote(reply) + `}`
+func finishMessageDocument(reply string) string {
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finishMessage":` + strconv.Quote(reply) + `}`
 }
 
-func noToolFallbackFinalReplyDocument(reply string) string {
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"failureResolution":"no_tool_fallback","finalReply":` + strconv.Quote(reply) + `}`
+func noToolFallbackFinishMessageDocument(reply string) string {
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"failureResolution":"no_tool_fallback","finishMessage":` + strconv.Quote(reply) + `}`
 }
 
 func failureReportDocument(reason string, toolName string, inputSummary string, errorCode string, failureStage string, message string) string {
@@ -2988,6 +3080,6 @@ func exhaustedRecoveryBudgetForTest() RecoveryBudget {
 	return RecoveryBudget{CorrectedRetry: -1, AlternateRoute: -1, AdjacentTool: -1, NoToolFallback: -1}
 }
 
-func finalReplyWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {
-	return `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}],"finalReply":` + strconv.Quote(reply) + `}`
+func finishMessageWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}],"finishMessage":` + strconv.Quote(reply) + `}`
 }

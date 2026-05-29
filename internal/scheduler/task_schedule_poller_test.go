@@ -241,7 +241,7 @@ func TestTaskSchedulePollerDoesNotDeliverWaitingTaskReply(t *testing.T) {
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     deliveryRepository,
-		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"call_tool","toolName":"ask.confirm","toolInput":{"message":"확인이 필요해요."}}`),
+		TaskScheduleRunner:     testTaskScheduleRunner(`{"action":"continue","toolName":"ask.confirm","toolInput":{"message":"확인이 필요해요."}}`),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
@@ -412,5 +412,5 @@ func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(contex
 	if strings.HasPrefix(languageModel.content, "{") {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
-	return llm.StructuredResponse{Content: `{"action":"final_reply","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finalReply":"` + languageModel.content + `"}`}, nil
+	return llm.StructuredResponse{Content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finishMessage":"` + languageModel.content + `"}`}, nil
 }

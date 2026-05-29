@@ -53,13 +53,13 @@ func validateQualityReview(criteria []qualityCriterion, review []qualityReviewIt
 		}
 		item, isFound := reviewByID[criterion.ID]
 		if !isFound {
-			return errors.New("final_reply qualityReview must include required criterion " + criterion.ID)
+			return errors.New("finish qualityReview must include required criterion " + criterion.ID)
 		}
 		if !item.Passed {
-			return errors.New("final_reply qualityReview did not pass required criterion " + criterion.ID)
+			return errors.New("finish qualityReview did not pass required criterion " + criterion.ID)
 		}
 		if len(item.Evidence) == 0 {
-			return errors.New("final_reply qualityReview for " + criterion.ID + " must cite evidence")
+			return errors.New("finish qualityReview for " + criterion.ID + " must cite evidence")
 		}
 		if errorValue := validateQualityEvidenceReferences(item.Evidence, observations); errorValue != nil {
 			return errorValue

@@ -78,13 +78,14 @@ type AgentTurnRequest struct {
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
 	TurnStartedAt              time.Time
+	CheckpointSender           AgentCheckpointSender
 }
 
 type AgentTurnResult struct {
 	TaskRun           task.TaskRun
 	TurnRoute         TurnRoute
 	ReactionEmojiName string
-	FinalReply        string
+	FinishMessage     string
 	UserNotice        string
 	ReplySuppressed   bool
 	Attachments       []FileAttachment
@@ -92,9 +93,18 @@ type AgentTurnResult struct {
 	ToolNames         []string
 }
 
+type AgentCheckpointSender func(context.Context, AgentCheckpoint) error
+
+type AgentCheckpoint struct {
+	TaskRunID string
+	Message   string
+	ToolName  string
+}
+
 type turnActionDocument struct {
 	Action               string                        `json:"action"`
-	FinalReply           string                        `json:"finalReply"`
+	FinishMessage        string                        `json:"finishMessage"`
+	Message              string                        `json:"message"`
 	ToolName             string                        `json:"toolName"`
 	ToolInput            json.RawMessage               `json:"toolInput"`
 	ToolNames            []string                      `json:"toolNames"`
@@ -422,9 +432,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}))
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "set_quality_criteria", marshalEventBody(map[string]any{"criteria": state.QualityCriteria}))
 			continue
-		case "final_reply":
+		case "finish":
 			completionGateResult := validateCompletionGateForRequestWithRecoveryBudget(request, toolUseRequirements, state.Observations, state.QualityCriteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
-			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "final_reply", completionGateResult.ValidityState)
+			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "finish", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
 				observation := completionGateObservation(len(state.Observations)+1, completionGateResult.Message)
 				state.Observations = append(state.Observations, observation)
@@ -439,24 +449,22 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				continue
 			}
 			agentTurnRunner.appendQualityReview(taskRun.TaskRunID, state.QualityCriteria, actionDocument.QualityReview, state.Observations)
-			reply := strings.TrimSpace(actionDocument.FinalReply)
+			reply := finishActionMessage(actionDocument)
 			if reply == "" {
-				reply = strings.TrimSpace(actionDocument.Reply)
-			}
-			if reply == "" {
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "final_reply", "empty final reply")
-				return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "empty final reply", state.Observations, state.Attachments, state.ExecutionState)
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "finish", "empty finish message")
+				return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "empty finish message", state.Observations, state.Attachments, state.ExecutionState)
 			}
 			if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
 				return cancelledResult, nil
 			}
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "final_reply", reply)
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "finish", reply)
 			completedTaskRun, completeError := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
 			if completeError != nil {
 				return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
 			}
-			return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
-		case "call_tool":
+			return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
+		case "continue":
+			state.Observations = agentTurnRunner.sendCheckpointMessage(taskContext, taskRun.TaskRunID, request, actionDocument, state.Observations)
 			outcome := agentTurnRunner.handleToolCallAction(taskContext, taskRun.TaskRunID, stepID, iteration, request, toolUseRequirements, &state, actionDocument, successfulToolCalls, stopForNoProgress)
 			if outcome.ShouldReturn {
 				return outcome.Result, nil
@@ -534,10 +542,10 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	}
 	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, recoveryStep)
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {
-		agentTurnRunner.saveStep(taskRunID, stepID, pausedResult.TaskRun.Status, "call_tool "+actionDocument.ToolName, observation.ContentText())
+		agentTurnRunner.saveStep(taskRunID, stepID, pausedResult.TaskRun.Status, "continue "+actionDocument.ToolName, observation.ContentText())
 		return toolCallActionOutcome{Result: pausedResult, ShouldReturn: true, WasHandled: true}
 	}
-	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "call_tool "+actionDocument.ToolName, observation.ContentText())
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "continue "+actionDocument.ToolName, observation.ContentText())
 	return toolCallActionOutcome{WasHandled: true}
 }
 
@@ -562,7 +570,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 
 func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
 	if validationError := validateBrowserToolInput(actionDocument.ToolName, actionDocument.ToolInput); validationError != nil {
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.InvalidInput, "tool_input")
+		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, FailureCodes.InvalidInput, "tool_input")
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
@@ -574,7 +582,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string
 		if isTerminalToolNameError(validationError) {
 			failureCode = FailureCodes.ToolNameInShell
 		}
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "call_tool", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, failureCode, "tool_input")
+		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "continue", actionDocument.ToolName, validationError.Error(), FailureInvalidInput, failureCode, "tool_input")
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.tool_input_malformed", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "malformed_tool_input "+actionDocument.ToolName, observation.ContentText())
@@ -709,6 +717,94 @@ func (agentTurnRunner *AgentTurnRunner) cancelledTaskResultOrCurrent(taskRunID s
 	return AgentTurnResult{TaskRun: taskRun, ReplySuppressed: true, Attachments: attachments}
 }
 
+func (agentTurnRunner *AgentTurnRunner) sendCheckpointMessage(ctx context.Context, taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) []turnObservation {
+	message := strings.TrimSpace(actionDocument.Message)
+	if message == "" || agentTurnRunner == nil {
+		return observations
+	}
+	if !checkpointMessageAllowed(message, observations) {
+		agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.skipped", marshalEventBody(map[string]any{
+			"toolName": actionDocument.ToolName,
+			"reason":   "rate_limited_or_duplicate",
+		}))
+		return observations
+	}
+	observation := newContentObservation(nextObservationID(len(observations)+1), "checkpoint", "", marshalEventBody(map[string]any{
+		"message":  message,
+		"toolName": actionDocument.ToolName,
+	}))
+	observation.Summary = message
+	if request.CheckpointSender != nil {
+		errorValue := request.CheckpointSender(ctx, AgentCheckpoint{
+			TaskRunID: taskRunID,
+			Message:   message,
+			ToolName:  strings.TrimSpace(actionDocument.ToolName),
+		})
+		if errorValue != nil {
+			observation.Output.Content = marshalEventBody(map[string]any{
+				"message":  message,
+				"toolName": actionDocument.ToolName,
+				"status":   "failed",
+				"error":    errorValue.Error(),
+			})
+			agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.failed", marshalEventBody(map[string]any{
+				"toolName": actionDocument.ToolName,
+				"error":    errorValue.Error(),
+			}))
+			return append(observations, observation)
+		}
+		observation.Output.Content = marshalEventBody(map[string]any{
+			"message":  message,
+			"toolName": actionDocument.ToolName,
+			"status":   "sent",
+		})
+		agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.sent", marshalEventBody(map[string]any{
+			"toolName": actionDocument.ToolName,
+		}))
+		return append(observations, observation)
+	}
+	observation.Output.Content = marshalEventBody(map[string]any{
+		"message":  message,
+		"toolName": actionDocument.ToolName,
+		"status":   "skipped",
+		"reason":   "missing_sender",
+	})
+	agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.skipped", marshalEventBody(map[string]any{
+		"toolName": actionDocument.ToolName,
+		"reason":   "missing_sender",
+	}))
+	return append(observations, observation)
+}
+
+func checkpointMessageAllowed(message string, observations []turnObservation) bool {
+	normalizedMessage := normalizeCheckpointMessage(message)
+	count := 0
+	for _, observation := range observations {
+		if observation.Action != "checkpoint" {
+			continue
+		}
+		count++
+		if normalizeCheckpointMessage(checkpointObservationMessage(observation)) == normalizedMessage {
+			return false
+		}
+	}
+	return count < 3
+}
+
+func normalizeCheckpointMessage(message string) string {
+	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(message))), " ")
+}
+
+func checkpointObservationMessage(observation turnObservation) string {
+	var document struct {
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(observation.ContentText()), &document) == nil {
+		return document.Message
+	}
+	return observation.Summary
+}
+
 func isWaitingForUser(status task.TaskStatus) bool {
 	return status == task.TaskStatusWaitingApproval || status == task.TaskStatusWaitingUserInput
 }
@@ -721,6 +817,10 @@ func toolObservationMessage(observation turnObservation) string {
 		return ""
 	}
 	return strings.TrimSpace(document.Message)
+}
+
+func finishActionMessage(actionDocument turnActionDocument) string {
+	return firstNonEmptyString(actionDocument.FinishMessage, actionDocument.Message, actionDocument.Reply)
 }
 
 func approvalObservationUserFacingMessage(observation turnObservation) string {
@@ -765,23 +865,23 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 }
 
 func buildAgentSystemInstruction(request AgentTurnRequest) string {
-	instruction := "You are Blueclaw. Work as a careful task agent. Use tools when they materially improve the answer. Return exactly one final answer to the user through final_reply only when goalSatisfied is true. Every final_reply must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
+	instruction := "You are Blueclaw. Work as a careful task agent. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName and toolInput; optional continue.message is a short checkpoint and the tool still runs in the same action. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
 	instruction += " If you know a needed tool or skill by name but it is missing from the current action schema, use require_capabilities with exact toolNames or skillNames; use tool.describe to inspect available tool schemas and skill.search to find skill names. Never run a Blueclaw tool name as a shell command in terminal.run."
 	instruction += " Ask the user only when their confirmation, choice, or free-form input is required. Use ask.confirm before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Do not ask for confirmation before ordinary non-destructive writes."
 	instruction += " When calling ask.confirm, set userFacingMessage to the exact confirmation question shown to the user, written in the same language as the original user request. reasonCode and reasonDetail are internal only and must not contain user-facing prose. When calling ask.choice, include a recommendedOptionKey except for ask.confirm, and provide explicit options."
-	instruction += " If a tool call fails, it creates FailureDebt. Do not return final_reply until a later different recovery succeeds, or you can answer from current context without tools and set failureResolution=no_tool_fallback, or recovery budget is exhausted and you use fail. Never repeat the same failed tool input fingerprint; recovery must change the input, route/provider, tool, or fall back without tools."
+	instruction += " If a tool call fails, it creates FailureDebt. Do not finish until a later different recovery succeeds, or you can answer from current context without tools and set failureResolution=no_tool_fallback, or recovery budget is exhausted and you use fail. Never repeat the same failed tool input fingerprint; recovery must change the input, route/provider, tool, or fall back without tools."
 	instruction += " Maintain executionStateUpdate on every structured action as compact working memory: goal, workspace, knownFacts, triedAndFailed, currentBlocker, and nextPlan. Keep it short and update it from the latest observation instead of copying raw logs."
 	instruction += " For artifact work, set_quality_criteria and qualityReview are useful for your own acceptance criteria, but they are guidance and evidence, not a reason to withhold a usable artifact."
 	if len(request.QualityAcceptanceGuidance) > 0 {
 		instruction += " Quality guidance: " + strings.Join(request.QualityAcceptanceGuidance, " ")
 	}
 	if len(request.RequiredAttachmentSuffixes) > 0 {
-		instruction += " This task requires attached artifacts with these filename suffixes before final_reply: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
+		instruction += " This task requires attached artifacts with these filename suffixes before finish: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
 	}
-	instruction += " Artifact workflow: write source under tmp/<slug>, run builds with terminal.run workingDirectoryPath tmp/<slug>, create outputs under build/, promote final outputs with file.promote to artifacts/<slug> or an allowed circle/shared destination, then attach promoted files with file.attach. final_reply may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths."
+	instruction += " Artifact workflow: write source under tmp/<slug>, run builds with terminal.run workingDirectoryPath tmp/<slug>, create outputs under build/, promote final outputs with file.promote to artifacts/<slug> or an allowed circle/shared destination, then attach promoted files with file.attach. finish.message may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths. finish.message must not promise future work such as starting now, waiting, or sharing later unless schedule.create succeeded and is cited as evidence."
 	return instruction
 }
 
@@ -965,7 +1065,7 @@ func validateTerminalToolInput(toolName string, toolInput json.RawMessage, toolS
 	if commandToolName := firstTerminalCommandToken(command); toolSet != nil && toolSet.IsRegistered(commandToolName) {
 		return terminalToolNameError{toolName: commandToolName}
 	}
-	for _, toolAlias := range []string{"file.write", "file.promote", "file.attach", "set_quality_criteria", "final_reply"} {
+	for _, toolAlias := range []string{"file.write", "file.promote", "file.attach", "set_quality_criteria", "finish", "finish"} {
 		if strings.Contains(command, toolAlias) {
 			return errors.New(strings.TrimSpace(toolName) + " command cannot call Blueclaw action " + toolAlias + "; call that action directly instead")
 		}
@@ -1139,7 +1239,7 @@ func previousSuccessfulExternalSend(observations []turnObservation, toolName str
 	}
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
-		if observation.Action != "call_tool" || observation.Failed() {
+		if observation.Action != "continue" || observation.Failed() {
 			continue
 		}
 		if strings.TrimSpace(observation.Tool) == strings.TrimSpace(toolName) {
@@ -1280,7 +1380,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 }
 
 func toolFailureObservation(observationID string, toolName string, message string) turnObservation {
-	return newFailureObservation(observationID, "call_tool", toolName, message, FailureUnknown, FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
+	return newFailureObservation(observationID, "continue", toolName, message, FailureUnknown, FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
 }
 
 func recoveryGuidanceObservation(index int, observation turnObservation) turnObservation {
@@ -1334,8 +1434,27 @@ func terminalPathRecoveryGuidance(observation turnObservation) string {
 	case "terminal_working_directory_access":
 		return "Recovery route: retry terminal.run with workingDirectoryPath set to tmp/<slug> or home/<path>, use relative paths inside the command, then promote accepted output to artifacts/<slug> or an allowed circle/shared path."
 	default:
+		if terminalCurrentDirectoryRecoveryNeeded(observation) {
+			return "Recovery route: the command could not read its current working directory. Retry terminal.run with an existing virtual workspace directory. For site projects, use site.app.status and run builds from appWorkspacePath such as home/sites/<siteID>/app, not source subdirectories like app/src; run scripts with relative paths from that app directory."
+		}
 		return ""
 	}
+}
+
+func terminalCurrentDirectoryRecoveryNeeded(observation turnObservation) bool {
+	summary := strings.ToLower(observation.FailureSummary() + " " + observation.ContentText())
+	for _, fragment := range []string{
+		"couldntreadcurrentdirectory",
+		"could not read current directory",
+		"couldn't read current directory",
+		"getcwd",
+		"chdir",
+	} {
+		if strings.Contains(summary, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 func terminalPythonDependencyRecoveryGuidance(observation turnObservation) string {
@@ -1414,7 +1533,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 	}
 	observation := turnObservation{
 		ObservationID:   observationID,
-		Action:          "call_tool",
+		Action:          "continue",
 		Tool:            toolName,
 		Output:          toolResult.Output,
 		Failure:         toolResult.Failure,
@@ -1674,11 +1793,11 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 	}
 	transition := advanceAgentTask(agentState)
 	switch transition.Effect.Kind {
-	case agentEffectCallTool:
+	case agentEffectContinue:
 		if transition.Effect.ToolCall != nil && transition.Effect.ToolCall.ToolName == "file.attach" {
 			return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, *transition.Effect.ToolCall)
 		}
-	case agentEffectFinalReply:
+	case agentEffectFinish:
 		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state)
 	case agentEffectNone:
 		if len(transition.State.Observations) > len(observations) {
@@ -1766,7 +1885,7 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState) completionTransition {
-	actionDocument := completionStateFinalReplyDocument(state)
+	actionDocument := completionStateFinishDocument(state)
 	completionGateResult := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
@@ -1782,31 +1901,33 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 		"evidenceCount":   len(state.EvidenceReferences),
 		"evidence":        state.EvidenceReferences,
 	}))
-	reply := strings.TrimSpace(actionDocument.FinalReply)
+	reply := strings.TrimSpace(actionDocument.FinishMessage)
 	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	return completionTransition{
 		Observations:  observations,
 		Attachments:   appendUniqueAttachments(attachments, completionGateResult.Attachments),
-		Result:        AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)},
+		Result:        AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)},
 		IsCompleted:   true,
 		DidTransition: true,
 		Action:        completionActionFinalizeWithEvidence,
 	}
 }
 
-func completionStateFinalReplyDocument(state CompletionState) turnActionDocument {
+func completionStateFinishDocument(state CompletionState) turnActionDocument {
 	goalSatisfied := true
+	message := completionStateFinishMessage(state)
 	return turnActionDocument{
-		Action:             "final_reply",
-		FinalReply:         completionStateFinalReply(state),
+		Action:             "finish",
+		FinishMessage:      message,
+		Message:            message,
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      &goalSatisfied,
 		CompletionEvidence: state.EvidenceReferences,
 	}
 }
 
-func completionStateFinalReply(state CompletionState) string {
+func completionStateFinishMessage(state CompletionState) string {
 	filenames := completionStateFilenames(state)
 	if len(filenames) == 0 {
 		return completionStateToolReply(state)
@@ -1972,8 +2093,8 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		return AgentTurnResult{}, false
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_action", marshalEventBody(actionDocument))
-	if strings.TrimSpace(actionDocument.Action) != "final_reply" {
-		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "finalizer did not return final_reply"}))
+	if strings.TrimSpace(actionDocument.Action) != "finish" {
+		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "finalizer did not return finish"}))
 		return AgentTurnResult{}, false
 	}
 	completionGateResult := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
@@ -1983,23 +2104,23 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 	}
 	agentTurnRunner.appendValidityReview(taskRunID, "limit_finalizer", completionGateResult.ValidityState)
 	agentTurnRunner.appendQualityReview(taskRunID, criteria, actionDocument.QualityReview, observations)
-	reply := strings.TrimSpace(actionDocument.FinalReply)
+	reply := strings.TrimSpace(actionDocument.FinishMessage)
 	if reply == "" {
 		reply = strings.TrimSpace(actionDocument.Reply)
 	}
 	if reply == "" {
-		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "empty final reply"}))
+		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "empty finish message"}))
 		return AgentTurnResult{}, false
 	}
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
-	return AgentTurnResult{TaskRun: completedTaskRun, FinalReply: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
+	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation, executionState ExecutionState) (turnActionDocument, error) {
 	messages := agentTurnRunner.buildTurnMessages(request, observations, executionState)
 	messages = append(messages, llm.Message{
 		Role:    "system",
-		Content: "The current run is near its limit. Do not call tools. If a useful result or attachment already exists, return final_reply with goalSatisfied=true and cite successful completionEvidence. If the goal is not satisfied, return a concise fail reply that accurately says what stopped and what evidence exists.",
+		Content: "The current run is near its limit. Do not call tools. If a useful result or attachment already exists, use finish with goalSatisfied=true and cite successful completionEvidence. If the goal is not satisfied, return a concise fail reply that accurately says what stopped and what evidence exists.",
 	})
 	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: messages,
@@ -2063,10 +2184,13 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 
 func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
 	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
-		return completionGateResult{Message: "final_reply requires goalSatisfied=true"}
+		return completionGateResult{Message: "finish requires goalSatisfied=true"}
 	}
 	if strings.TrimSpace(actionDocument.GoalStatus) != "" && strings.TrimSpace(actionDocument.GoalStatus) != "satisfied" {
-		return completionGateResult{Message: "final_reply requires goalStatus=satisfied"}
+		return completionGateResult{Message: "finish requires goalStatus=satisfied"}
+	}
+	if finishMessagePromisesFutureWork(finishActionMessage(actionDocument)) && !hasScheduleCreateEvidence(observations, actionDocument.CompletionEvidence) {
+		return completionGateResult{Message: "finish.message promises future work without successful schedule.create evidence"}
 	}
 	if errorValue := validateObservedToolRequirements(requirements, observations); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
@@ -2078,14 +2202,55 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	if errorValue := validateQualityReview(criteria, actionDocument.QualityReview, observations); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
-	if FinalReplyClaimsAttachmentDelivery(actionDocument.FinalReply) && len(attachments) == 0 {
-		return completionGateResult{Message: "final_reply claims attached files but completionEvidence does not cite an attachment"}
+	if FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) && len(attachments) == 0 {
+		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
 	}
-	requiresAttachmentEvidence := FinalReplyClaimsAttachmentDelivery(actionDocument.FinalReply) || len(attachments) > 0
-	if errorValue := ValidateFinalReplyDelivery(actionDocument.FinalReply, attachments, requiresAttachmentEvidence); errorValue != nil {
+	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) || len(attachments) > 0
+	if errorValue := ValidateFinishMessageDelivery(actionDocument.FinishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
+}
+
+func finishMessagePromisesFutureWork(message string) bool {
+	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
+	for _, phrase := range []string{
+		"기다려",
+		"기다려 주세요",
+		"작업을 시작",
+		"시작하겠습니다",
+		"고치겠습니다",
+		"개선해 보겠습니다",
+		"개선하겠습니다",
+		"완료 후",
+		"공유하겠습니다",
+		"다시 공유",
+		"조금만 기다",
+		"i'll",
+		"i will",
+		"i’ll",
+		"will update",
+		"will share",
+		"get started",
+		"start working",
+	} {
+		if strings.Contains(normalizedMessage, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasScheduleCreateEvidence(observations []turnObservation, references []completionEvidenceReference) bool {
+	for _, reference := range references {
+		if strings.TrimSpace(reference.ToolName) != "schedule.create" {
+			continue
+		}
+		if _, isFound := findSuccessfulObservation(observations, reference); isFound {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCompletionGateForRequest(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
@@ -2201,7 +2366,7 @@ func evidenceMissingGuidance(evidenceKind string, message string) string {
 	case "required_tool_missing":
 		return "The final reply needs successful tool evidence before completion. Use the required tool if it has not run, or cite an existing successful observation. " + message
 	case "attachment_missing":
-		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use file.attach before final_reply. " + message
+		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use file.attach before finish. " + message
 	case "attachment_invalid":
 		return "The final reply needs valid attachment evidence. Recheck the artifact path and required suffix, then attach a valid file. " + message
 	case "evidence_reference_invalid":
@@ -2242,7 +2407,7 @@ func validateObservedToolRequirements(requirements []toolUseRequirement, observa
 		}
 		isSatisfied, _ := completionRequirementStatus(requirement, observations)
 		if !isSatisfied {
-			return errors.New("final_reply requires successful observation for " + requirementLabel(requirement))
+			return errors.New("finish requires successful observation for " + requirementLabel(requirement))
 		}
 	}
 	return nil

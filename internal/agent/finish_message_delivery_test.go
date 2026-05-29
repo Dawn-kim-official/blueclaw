@@ -2,7 +2,7 @@ package agent
 
 import "testing"
 
-func TestFinalReplyClaimsAttachmentDeliveryUsesPositiveClaims(t *testing.T) {
+func TestFinishMessageClaimsAttachmentDeliveryUsesPositiveClaims(t *testing.T) {
 	claimingReplies := []string{
 		"요청하신 파일을 생성해 첨부했습니다.",
 		"아래 파일을 확인해 주세요.",
@@ -10,7 +10,7 @@ func TestFinalReplyClaimsAttachmentDeliveryUsesPositiveClaims(t *testing.T) {
 		"The PDF has been delivered.",
 	}
 	for _, reply := range claimingReplies {
-		if !FinalReplyClaimsAttachmentDelivery(reply) {
+		if !FinishMessageClaimsAttachmentDelivery(reply) {
 			t.Fatalf("expected attachment delivery claim for %q", reply)
 		}
 	}
@@ -22,7 +22,7 @@ func TestFinalReplyClaimsAttachmentDeliveryUsesPositiveClaims(t *testing.T) {
 		"The file creation needs to be tried again.",
 	}
 	for _, reply := range nonClaimingReplies {
-		if FinalReplyClaimsAttachmentDelivery(reply) {
+		if FinishMessageClaimsAttachmentDelivery(reply) {
 			t.Fatalf("expected no attachment delivery claim for %q", reply)
 		}
 	}

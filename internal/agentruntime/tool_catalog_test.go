@@ -1459,7 +1459,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 
 func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	workspacePath := t.TempDir()
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"home/sites/site-1","workspacePath":"home/sites/site-1","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site description","idea":"Demo site idea","purpose":"portfolio","audience":"buyers","archetype":"portfolio","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"home/sites/site-1","workspacePath":"home/sites/site-1","status":"draft","ownerIdentity":{"personID":"person-1","displayName":"Owner"}}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -1487,7 +1487,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
 	}
 	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
-	for _, relativePath := range []string{"DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/content.html", "app/src/styles.css", "app/src/script.js"} {
+	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/content.html", "app/src/styles.css", "app/src/script.js"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
 		}
@@ -1501,6 +1501,20 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	}
 	if !strings.Contains(string(packageDocument), `"build": "bun scripts/build.ts"`) || strings.Contains(string(packageDocument), "latest") || strings.Contains(string(packageDocument), `"react"`) {
 		t.Fatalf("expected dependency-free scaffold package manifest, got %s", string(packageDocument))
+	}
+	metadataDocument, errorValue := os.ReadFile(filepath.Join(sourceWorkspacePath, ".internkim", "site.json"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(string(metadataDocument), `"idea": "Demo site idea"`) || !strings.Contains(string(metadataDocument), `"archetype": "portfolio"`) || !strings.Contains(string(metadataDocument), `"owner"`) {
+		t.Fatalf("expected site metadata mirror, got %s", string(metadataDocument))
+	}
+	ideaDocument, errorValue := os.ReadFile(filepath.Join(sourceWorkspacePath, ".internkim", "idea.md"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(string(ideaDocument), "Demo site idea") {
+		t.Fatalf("expected site idea mirror, got %s", string(ideaDocument))
 	}
 	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"home/sites/site-1"`) ||
 		!strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/app"`) {
@@ -1591,6 +1605,103 @@ bun run build
 	}
 	if string(distDocument) != "ok" {
 		t.Fatalf("expected build output from Bun-like command, got %q", string(distDocument))
+	}
+}
+
+func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","status":"draft"}}`}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.status",
+		PolicyResource: "tool:site.app.status",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.status",
+		Input:    agent.MarshalToolInput(map[string]string{"siteID": "site-1"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(result.ContentText(), `"workspaceHealth":"stale_build"`) || !strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.build"`) {
+		t.Fatalf("expected workspace health annotation, got %s", result.ContentText())
+	}
+}
+
+func TestSiteBuildRejectsSourceSubdirectoryCWD(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.build"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.build",
+		Input: agent.MarshalToolInput(map[string]string{
+			"appWorkspacePath": "home/sites/site-1/app/src",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "not app/src") || !strings.Contains(result.ContentText(), "home/sites/site-1/app") {
+		t.Fatalf("expected canonical cwd failure, got %s", result.ContentText())
+	}
+}
+
+func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
+	workspacePath := t.TempDir()
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","status":"draft"}}`}
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.repair"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.status",
+		PolicyResource: "tool:site.app.status",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.repair",
+		Input:    agent.MarshalToolInput(map[string]string{"siteID": "site-1"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected repair success, got %s", result.ContentText())
+	}
+	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
+	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json"} {
+		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
+			t.Fatalf("expected repaired file %s: %v", relativePath, errorValue)
+		}
+	}
+	if !strings.Contains(result.ContentText(), `"publishedUnchanged":true`) {
+		t.Fatalf("expected repair result to preserve published snapshot, got %s", result.ContentText())
 	}
 }
 

@@ -17,7 +17,7 @@ func progressEvents(observations []turnObservation) []progressEvent {
 		if observation.Action == "require_capabilities" && !observation.Failed() {
 			events = append(events, progressEvent{Kind: "capability_required", Key: observation.ObservationID + ":" + observation.ContentText()})
 		}
-		if observation.Action == "call_tool" && !observation.Failed() {
+		if observation.Action == "continue" && !observation.Failed() {
 			events = append(events, progressEvent{Kind: "tool_success", Key: observation.ObservationID + ":" + observation.Tool})
 		}
 		if observation.Failed() && strings.TrimSpace(observation.AttemptFingerprint) != "" && !seenFailures[observation.AttemptFingerprint] {
@@ -29,10 +29,10 @@ func progressEvents(observations []turnObservation) []progressEvent {
 				events = append(events, progressEvent{Kind: "attachment", Key: attachment.DevicePath})
 			}
 		}
-		if observation.Action == "call_tool" && observation.Tool == "file.promote" && !observation.Failed() {
+		if observation.Action == "continue" && observation.Tool == "file.promote" && !observation.Failed() {
 			events = append(events, progressEvent{Kind: "artifact_promoted", Key: observation.Output.Content})
 		}
-		if observation.Action == "call_tool" && observation.Tool == "file.write" && !observation.Failed() {
+		if observation.Action == "continue" && observation.Tool == "file.write" && !observation.Failed() {
 			events = append(events, progressEvent{Kind: "file_rewrite", Key: observation.ToolInputKey + ":" + observation.Output.Content})
 		}
 	}

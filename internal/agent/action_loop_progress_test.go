@@ -24,13 +24,13 @@ func TestActionProgressTrackerResetsWhenProgressAppears(t *testing.T) {
 
 	progress := tracker.evaluate([]turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "web.search",
 		Output:        ToolOutput{Content: "ok"},
 	}})
 	afterProgress := tracker.evaluate([]turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "web.search",
 		Output:        ToolOutput{Content: "ok"},
 	}})

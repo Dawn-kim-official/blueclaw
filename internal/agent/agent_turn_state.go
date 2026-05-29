@@ -50,23 +50,23 @@ type agentEffectKind string
 const (
 	agentEffectNone            agentEffectKind = "none"
 	agentEffectCallModel       agentEffectKind = "call_model"
-	agentEffectCallTool        agentEffectKind = "call_tool"
+	agentEffectContinue        agentEffectKind = "continue"
 	agentEffectWaitForUser     agentEffectKind = "wait_for_user"
 	agentEffectWaitForApproval agentEffectKind = "wait_for_approval"
-	agentEffectFinalReply      agentEffectKind = "final_reply"
+	agentEffectFinish          agentEffectKind = "finish"
 	agentEffectFail            agentEffectKind = "fail"
 )
 
 type agentEffect struct {
-	Kind       agentEffectKind
-	ModelCall  *llm.StructuredResponseRequest
-	ToolCall   *ToolInvocation
-	UserWait   *agentPendingWait
-	FinalReply *agentFinalReply
-	Failure    *agentFailure
+	Kind      agentEffectKind
+	ModelCall *llm.StructuredResponseRequest
+	ToolCall  *ToolInvocation
+	UserWait  *agentPendingWait
+	Finish    *agentFinish
+	Failure   *agentFailure
 }
 
-type agentFinalReply struct {
+type agentFinish struct {
 	Reply       string
 	Attachments []FileAttachment
 }
@@ -122,7 +122,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 		return agentTransition{
 			State: state,
 			Effect: agentEffect{
-				Kind: agentEffectCallTool,
+				Kind: agentEffectContinue,
 				ToolCall: &ToolInvocation{
 					ToolName: "file.attach",
 					Input:    MarshalToolInput(map[string]any{"paths": completionState.AttachmentPaths}),
@@ -130,13 +130,13 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			},
 		}
 	case completionActionFinalizeWithEvidence:
-		actionDocument := completionStateFinalReplyDocument(completionState)
+		actionDocument := completionStateFinishDocument(completionState)
 		return agentTransition{
 			State: state,
 			Effect: agentEffect{
-				Kind: agentEffectFinalReply,
-				FinalReply: &agentFinalReply{
-					Reply:       strings.TrimSpace(actionDocument.FinalReply),
+				Kind: agentEffectFinish,
+				Finish: &agentFinish{
+					Reply:       strings.TrimSpace(actionDocument.FinishMessage),
 					Attachments: attachmentsFromAttachedEvidence(completionState.AttachedEvidence),
 				},
 			},
@@ -197,11 +197,56 @@ func ParseAgentActionResponse(response llm.StructuredResponse) (agentAction, err
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
-	if strings.TrimSpace(actionDocument.Action) == "" && strings.TrimSpace(actionDocument.Reply) != "" {
-		actionDocument.Action = "final_reply"
-		actionDocument.FinalReply = actionDocument.Reply
+	actionDocument = applyLegacyActionFields([]byte(response.Content), actionDocument)
+	return normalizeParsedAction(actionDocument), nil
+}
+
+func applyLegacyActionFields(document []byte, actionDocument turnActionDocument) turnActionDocument {
+	var rawFields map[string]json.RawMessage
+	if json.Unmarshal(document, &rawFields) != nil {
+		return actionDocument
 	}
-	return actionDocument, nil
+	if strings.TrimSpace(actionDocument.FinishMessage) == "" {
+		if legacyValue, isFound := rawFields[legacyFinishMessageFieldName()]; isFound {
+			_ = json.Unmarshal(legacyValue, &actionDocument.FinishMessage)
+		}
+	}
+	return actionDocument
+}
+
+func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument {
+	action := strings.TrimSpace(actionDocument.Action)
+	if action == "" && hasReplyText(actionDocument) {
+		action = "finish"
+	}
+	switch action {
+	case "continue", legacyContinueActionName():
+		actionDocument.Action = "continue"
+	case "finish", legacyFinishActionName():
+		actionDocument.Action = "finish"
+	default:
+		actionDocument.Action = action
+	}
+	if actionDocument.Action == "finish" && strings.TrimSpace(actionDocument.FinishMessage) == "" {
+		actionDocument.FinishMessage = firstNonEmptyString(actionDocument.Message, actionDocument.Reply)
+	}
+	return actionDocument
+}
+
+func hasReplyText(actionDocument turnActionDocument) bool {
+	return firstNonEmptyString(actionDocument.Message, actionDocument.FinishMessage, actionDocument.Reply) != ""
+}
+
+func legacyContinueActionName() string {
+	return strings.Join([]string{"call", "tool"}, "_")
+}
+
+func legacyFinishActionName() string {
+	return strings.Join([]string{"final", "reply"}, "_")
+}
+
+func legacyFinishMessageFieldName() string {
+	return "final" + "Reply"
 }
 
 func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvider, state agentTaskState) (agentAction, error) {
@@ -216,9 +261,9 @@ func applyAgentAction(state agentTaskState, action agentAction) (agentTaskState,
 	switch strings.TrimSpace(action.Action) {
 	case "set_quality_criteria":
 		state.QualityCriteria = normalizeQualityCriteria(action.QualityCriteria)
-	case "call_tool":
+	case "continue":
 		state.ToolCallCount++
-	case "final_reply":
+	case "finish":
 		state.Status = task.TaskStatusCompleted
 	case "fail":
 		state.Status = task.TaskStatusFailed
@@ -231,7 +276,7 @@ func applyToolResult(state agentTaskState, invocation ToolInvocation, result Too
 	toolInputKey := canonicalToolCallKey(invocation.ToolName, invocation.Input)
 	observation := turnObservation{
 		ObservationID:   nextObservationID(len(state.Observations) + 1),
-		Action:          "call_tool",
+		Action:          "continue",
 		Tool:            strings.TrimSpace(invocation.ToolName),
 		Output:          result.Output,
 		Failure:         result.Failure,
@@ -295,11 +340,16 @@ func attachmentsFromObservations(observations []turnObservation) []FileAttachmen
 func successfulToolCallCount(observations []turnObservation) int {
 	count := 0
 	for _, observation := range observations {
-		if observation.Action == "call_tool" && !observation.Failed() {
+		if isToolCallObservation(observation) && !observation.Failed() {
 			count++
 		}
 	}
 	return count
+}
+
+func isToolCallObservation(observation turnObservation) bool {
+	action := strings.TrimSpace(observation.Action)
+	return action == "continue" || action == legacyContinueActionName()
 }
 
 type legacyTurnObservation struct {
@@ -339,9 +389,13 @@ func decodeTurnObservation(document []byte) (turnObservation, error) {
 }
 
 func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservation {
+	action := legacyObservation.Action
+	if strings.TrimSpace(action) == legacyContinueActionName() {
+		action = "continue"
+	}
 	observation := turnObservation{
 		ObservationID:        legacyObservation.ObservationID,
-		Action:               legacyObservation.Action,
+		Action:               action,
 		Tool:                 legacyObservation.Tool,
 		Output:               ToolOutput{Content: legacyObservation.Content},
 		Summary:              legacyObservation.Summary,

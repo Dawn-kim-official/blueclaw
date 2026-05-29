@@ -382,8 +382,8 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 		`{"classification":"unsupported","taskShape":"scheduled_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","executionMode":"message","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
-		finalReplyDocument("1분 간격으로 10번 보내도록 예약했습니다."),
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","executionMode":"message","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}}`,
+		finishMessageDocument("1분 간격으로 10번 보내도록 예약했습니다."),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -411,8 +411,8 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 	if errorValue != nil {
 		t.Fatalf("expected promoted scheduled task: %v", errorValue)
 	}
-	if result.FinalReply != "1분 간격으로 10번 보내도록 예약했습니다." {
-		t.Fatalf("expected schedule final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "1분 간격으로 10번 보내도록 예약했습니다." {
+		t.Fatalf("expected schedule final reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
 		t.Fatal("expected selected scheduled skill to promote intake")
@@ -424,8 +424,8 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"deep","requestedOutputFormats":["pptx"],"reason":"previous permission failure","userFacingReply":"Gamma나 Canva를 사용하세요."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
-		finalReplyWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
+		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -476,8 +476,8 @@ func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testi
 		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"standard","requestedOutputFormats":["pptx"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
-		finalReplyWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
+		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
@@ -636,7 +636,7 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"too broad","userFacingReply":"Please narrow this first."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("should not run"),
+		finishMessageDocument("should not run"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"expensive"})
@@ -672,7 +672,7 @@ func TestAgentKernelCreatesChoiceAskForClarificationOptions(t *testing.T) {
 		`{"route":"clarify","classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"needs output choice","userFacingReply":"","clarificationQuestion":"어떤 형식으로 만들까요?","clarificationOptions":[{"key":"A","label":"웹사이트","value":"website"},{"key":"B","label":"발표자료","value":"slides"}]}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("should not run"),
+		finishMessageDocument("should not run"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 
@@ -709,7 +709,7 @@ func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("hello"),
+		finishMessageDocument("hello"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"expensive"})
@@ -726,8 +726,8 @@ func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected quick reply: %v", errorValue)
 	}
-	if result.FinalReply != "hello" {
-		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "hello" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	if len(replyLanguageModel.requests) != 1 {
 		t.Fatalf("expected one direct reply request, got %d", len(replyLanguageModel.requests))
@@ -746,9 +746,9 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"quick with useful tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"primary.lookup","toolInput":{"query":"hello"}}`,
-		`{"action":"call_tool","toolName":"backup.lookup","toolInput":{"query":"hello"}}`,
-		finalReplyWithEvidence("backup answer", "obs-003", "backup.lookup", 0),
+		`{"action":"continue","toolName":"primary.lookup","toolInput":{"query":"hello"}}`,
+		`{"action":"continue","toolName":"backup.lookup","toolInput":{"query":"hello"}}`,
+		finishMessageWithEvidence("backup answer", "obs-003", "backup.lookup", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"primary.lookup", "backup.lookup"})
@@ -772,8 +772,8 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected quick recovery: %v", errorValue)
 	}
-	if result.FinalReply != "backup answer" {
-		t.Fatalf("expected recovered final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "backup answer" {
+		t.Fatalf("expected recovered final reply, got %q", result.FinishMessage)
 	}
 	if primaryCallCount != 1 || backupCallCount != 1 {
 		t.Fatalf("expected one primary failure and one backup recovery, got primary=%d backup=%d", primaryCallCount, backupCallCount)
@@ -813,8 +813,8 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"math.calculate","toolInput":{"expression":"1+1"}}`,
-		finalReplyWithEvidence("2", "obs-001", "math.calculate", 0),
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+1"}}`,
+		finishMessageWithEvidence("2", "obs-001", "math.calculate", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"math.calculate"})
@@ -831,8 +831,8 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected quick calculator reply: %v", errorValue)
 	}
-	if result.FinalReply != "2" {
-		t.Fatalf("expected calculator final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "2" {
+		t.Fatalf("expected calculator final reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", "result") {
 		t.Fatal("expected calculator tool event")
@@ -844,7 +844,7 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		finalReplyDocument("deck created too early"),
+		finishMessageDocument("deck created too early"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -890,8 +890,8 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 	if errorValue != nil {
 		t.Fatalf("expected quick reply: %v", errorValue)
 	}
-	if result.FinalReply != "deck created too early" {
-		t.Fatalf("expected final reply, got %q", result.FinalReply)
+	if result.FinishMessage != "deck created too early" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "quick_reply") {
 		t.Fatal("expected quick reply intake event")
@@ -903,8 +903,8 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"call_tool","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
-		finalReplyWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
+		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.attach", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))

@@ -37,8 +37,8 @@ func TestScheduledTaskRunsAndDeliversThroughConnectorOutbox(t *testing.T) {
 		NextRunAt:        &nextRunAt,
 	}}}
 	adapter := &scheduledDeliveryAdapter{}
-	connectorRuntime := newScheduledDeliveryConnectorRuntime(staticScheduleLanguageModel{content: scheduleFinalReply("오늘은 두 가지를 먼저 처리하면 좋아요.")}, adapter, repository)
-	poller := newScheduledDeliveryPoller(staticScheduleLanguageModel{content: scheduleFinalReply("오늘은 두 가지를 먼저 처리하면 좋아요.")}, repository)
+	connectorRuntime := newScheduledDeliveryConnectorRuntime(staticScheduleLanguageModel{content: scheduleFinishMessage("오늘은 두 가지를 먼저 처리하면 좋아요.")}, adapter, repository)
+	poller := newScheduledDeliveryPoller(staticScheduleLanguageModel{content: scheduleFinishMessage("오늘은 두 가지를 먼저 처리하면 좋아요.")}, repository)
 
 	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
 	if errorValue != nil {

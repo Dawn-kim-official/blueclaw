@@ -79,8 +79,8 @@ func TestMemoryGuidedFollowup(t *testing.T) {
 	if !eventsContain(secondTurn.Events, "agent.task_launched", `"memoryFactCount":`) {
 		t.Fatal("expected task launch memory fact count")
 	}
-	if strings.Contains(secondTurn.FinalReply, "아까") {
-		t.Fatalf("expected concrete recalled preference, got %q", secondTurn.FinalReply)
+	if strings.Contains(secondTurn.FinishMessage, "아까") {
+		t.Fatalf("expected concrete recalled preference, got %q", secondTurn.FinishMessage)
 	}
 }
 
@@ -90,8 +90,8 @@ func TestToolPermissionScenarioReturnsPlannedFallback(t *testing.T) {
 		t.Fatalf("expected permission scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if !strings.Contains(turnResult.FinalReply, "필요한 도구") {
-		t.Fatalf("expected planned fallback reply, got %q", turnResult.FinalReply)
+	if !strings.Contains(turnResult.FinishMessage, "필요한 도구") {
+		t.Fatalf("expected planned fallback reply, got %q", turnResult.FinishMessage)
 	}
 }
 

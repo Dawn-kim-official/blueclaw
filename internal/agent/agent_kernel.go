@@ -1627,15 +1627,15 @@ func (agentKernel *AgentKernel) ResumeTask(taskRunID string) (task.TaskRun, erro
 func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus) (AgentTurnResult, error) {
 	taskRun := agentKernel.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
-	finalReply := strings.TrimSpace(intakeDecision.UserFacingReply)
-	if finalReply == "" {
-		finalReply = defaultUserFacingReplyForLanguage(intakeDecision.Classification, request.ResponseLanguage)
+	finishMessage := strings.TrimSpace(intakeDecision.UserFacingReply)
+	if finishMessage == "" {
+		finishMessage = defaultUserFacingReplyForLanguage(intakeDecision.Classification, request.ResponseLanguage)
 	}
-	if finalReply == "" {
-		finalReply = defaultExecutionBoundaryReply(request.ResponseLanguage)
+	if finishMessage == "" {
+		finishMessage = defaultExecutionBoundaryReply(request.ResponseLanguage)
 	}
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
-		finalReply = firstNonEmptyString(strings.TrimSpace(intakeDecision.ClarificationQuestion), finalReply)
+		finishMessage = firstNonEmptyString(strings.TrimSpace(intakeDecision.ClarificationQuestion), finishMessage)
 	}
 	blockedTaskRun, errorValue := agentKernel.taskRunService.PauseTaskRun(taskRun.TaskRunID, status, intakeDecision.Reason)
 	if errorValue != nil {
@@ -1644,8 +1644,8 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 	if status == task.TaskStatusWaitingUserInput && intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]any{
 			"kind":                 "choice_single",
-			"question":             finalReply,
-			"message":              finalReply,
+			"question":             finishMessage,
+			"message":              finishMessage,
 			"options":              intakeDecision.ClarificationOptions,
 			"recommendedOptionKey": intakeDecision.ClarificationOptions[0].Key,
 			"selectionMode":        "single",
@@ -1653,8 +1653,8 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 		}))
 	}
 	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, status))
-	blockedTaskRun.Result = finalReply
-	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: finalReply, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
+	blockedTaskRun.Result = finishMessage
+	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: finishMessage, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
 }
 
 func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, activeGoal ActiveGoal) {

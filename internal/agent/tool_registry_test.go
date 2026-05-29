@@ -93,8 +93,8 @@ func TestToolSetDescriptionsShowRegisteredCatalogWhileActionSchemaUsesExposedToo
 
 func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
 	actionSchema := buildActionSchemaFromToolDefinitions(nil, false, nil, false)
-	if strings.Contains(actionSchema, "call_tool") {
-		t.Fatalf("expected fallback schema to omit call_tool, got %s", actionSchema)
+	if strings.Contains(actionSchema, "continue") {
+		t.Fatalf("expected fallback schema to omit continue, got %s", actionSchema)
 	}
 }
 

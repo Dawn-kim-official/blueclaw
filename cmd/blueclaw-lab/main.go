@@ -170,7 +170,7 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 	fmt.Println("artifactDirectoryPath:", result.ArtifactDirectoryPath)
 	for index, turnResult := range result.TurnResults {
 		fmt.Printf("turn %d taskRunID: %s\n", index+1, turnResult.TaskRunID)
-		fmt.Printf("turn %d reply: %s\n", index+1, turnResult.FinalReply)
+		fmt.Printf("turn %d reply: %s\n", index+1, turnResult.FinishMessage)
 		for _, attachment := range turnResult.Attachments {
 			fmt.Printf("turn %d attachment: %s\n", index+1, attachment.DevicePath)
 		}

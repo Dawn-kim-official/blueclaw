@@ -4,7 +4,7 @@ import "testing"
 
 func TestQualityReviewGuidanceDoesNotBlockCompletion(t *testing.T) {
 	actionDocument := turnActionDocument{
-		Action:             "final_reply",
+		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
 		CompletionEvidence: []completionEvidenceReference{},
@@ -31,7 +31,7 @@ func TestQualityReviewRequiresPassingEvidence(t *testing.T) {
 	}}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "terminal.run",
 		Output:        ToolOutput{Content: "ok"},
 	}}
@@ -53,7 +53,7 @@ func TestQualityReviewRejectsFailedCriterion(t *testing.T) {
 	}}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "file.attach",
 		Output:        ToolOutput{Content: "file attached"},
 	}}
@@ -84,7 +84,7 @@ func TestCompletionGateRejectsFailedDeclaredQualityCriterion(t *testing.T) {
 		Description: "Business plan sample is complete.",
 	}})
 	actionDocument := turnActionDocument{
-		Action:             "final_reply",
+		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
 		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.app.create"}},
@@ -93,11 +93,11 @@ func TestCompletionGateRejectsFailedDeclaredQualityCriterion(t *testing.T) {
 			Passed:   false,
 			Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.app.create"}},
 		}},
-		FinalReply: "완료했습니다.",
+		FinishMessage: "완료했습니다.",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "site.app.create",
 		Output:        ToolOutput{Content: `{"siteID":"site-1"}`},
 	}}
@@ -116,7 +116,7 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 	}})
 	evidence := []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach", AttachmentIndex: intPointer(0)}}
 	actionDocument := turnActionDocument{
-		Action:             "final_reply",
+		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
 		CompletionEvidence: evidence,
@@ -125,11 +125,11 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 			Passed:   true,
 			Evidence: evidence,
 		}},
-		FinalReply: "HTML 파일을 만들었습니다: sandbox:/mnt/data/Hermes_Agent_Analysis.html",
+		FinishMessage: "HTML 파일을 만들었습니다: sandbox:/mnt/data/Hermes_Agent_Analysis.html",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "file.attach",
 		Output:        ToolOutput{Content: "file attached"},
 		Attachments: []FileAttachment{{
@@ -156,15 +156,15 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 
 func TestCompletionGateRejectsUnattachedArtifactFilename(t *testing.T) {
 	actionDocument := turnActionDocument{
-		Action:             "final_reply",
+		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
 		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach", AttachmentIndex: intPointer(0)}},
-		FinalReply:         "요청하신 파일을 생성해 첨부했습니다: Hermes_Agent_Analysis.html",
+		FinishMessage:      "요청하신 파일을 생성해 첨부했습니다: Hermes_Agent_Analysis.html",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "file.attach",
 		Output:        ToolOutput{Content: "file attached"},
 		Attachments: []FileAttachment{{

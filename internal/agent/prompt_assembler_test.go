@@ -42,7 +42,7 @@ func TestPromptAssemblerIncludesTemporalContextInDirectReplies(t *testing.T) {
 func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "browser.snapshot",
 		Output:        ToolOutput{Content: `{"url":"https://example.com","title":"Example","snapshotText":"VISIBLE START ` + strings.Repeat("raw-page-text ", 500) + ` SECRET_COOKIE_VALUE","interactiveRefs":["@e1","@e2"],"profilePath":"/Users/me/Profile","cdpURL":"ws://localhost:9222"}`},
 	}}
@@ -64,7 +64,7 @@ func TestPromptAssemblerIncludesRawToolResultSummary(t *testing.T) {
 	fetchResult := `{"results":[{"url":"https://dawn.kim","content":"Yeomyeonggeori provides AI automation and blockchain solutions."}]}`
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "web.fetch",
 		Output:        ToolOutput{Content: fetchResult},
 		Summary:       fetchResult,
@@ -129,7 +129,7 @@ func TestPromptAssemblerIncludesWritableWorkspaceContext(t *testing.T) {
 func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "browser.screenshot",
 		Output:        ToolOutput{Content: `{"devicePath":"/tmp/internkim-companion-files/screen.png","filename":"screen.png","contentType":"image/png"}`},
 		Summary:       "Screenshot captured. Use the imageRefs for visual inspection.",
@@ -169,14 +169,14 @@ func TestPromptAssemblerCompressesLongObservationHistory(t *testing.T) {
 	for index := 0; index < 20; index++ {
 		observations = append(observations, turnObservation{
 			ObservationID: "obs-" + strings.Repeat("0", 2) + string(rune('a'+index)),
-			Action:        "call_tool",
+			Action:        "continue",
 			Tool:          "browser.snapshot",
 			Output:        ToolOutput{Content: `{"snapshotText":"` + strings.Repeat("very-long-page-output ", 200) + `","interactiveRefs":["@old"]}`},
 		})
 	}
 	observations = append(observations, turnObservation{
 		ObservationID: "obs-latest",
-		Action:        "call_tool",
+		Action:        "continue",
 		Tool:          "browser.snapshot",
 		Output:        ToolOutput{Content: `{"snapshotText":"latest form","interactiveRefs":["@latestSearch","@latestButton"]}`},
 	})

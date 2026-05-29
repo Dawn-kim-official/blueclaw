@@ -6,40 +6,40 @@ import (
 	"strings"
 )
 
-var finalReplyAttachmentDeliveryClaimExpressions = compileRegularExpressions(finalReplyAttachmentDeliveryClaimPatterns())
+var finishMessageAttachmentDeliveryClaimExpressions = compileRegularExpressions(finishMessageAttachmentDeliveryClaimPatterns())
 
-func ValidateFinalReplyDelivery(reply string, attachments []FileAttachment, requiresArtifactEvidence bool) error {
-	if locator := finalReplyNonDeliverableArtifactLocator(reply); locator != "" {
-		return errors.New("final_reply exposes non-deliverable artifact locator " + locator + "; cite attached filenames from completionEvidence only")
+func ValidateFinishMessageDelivery(reply string, attachments []FileAttachment, requiresArtifactEvidence bool) error {
+	if locator := finishMessageNonDeliverableArtifactLocator(reply); locator != "" {
+		return errors.New("finish exposes non-deliverable artifact locator " + locator + "; cite attached filenames from completionEvidence only")
 	}
 	if !requiresArtifactEvidence && len(attachments) == 0 {
 		return nil
 	}
-	if filename := finalReplyUnattachedArtifactFilename(reply, attachments); filename != "" {
-		return errors.New("final_reply mentions artifact filename " + filename + " without matching completionEvidence attachment")
+	if filename := finishMessageUnattachedArtifactFilename(reply, attachments); filename != "" {
+		return errors.New("finish mentions artifact filename " + filename + " without matching completionEvidence attachment")
 	}
 	return nil
 }
 
 func ValidateUserNoticeDelivery(notice string) error {
-	if locator := finalReplyNonDeliverableArtifactLocator(notice); locator != "" {
+	if locator := finishMessageNonDeliverableArtifactLocator(notice); locator != "" {
 		return errors.New("user_notice exposes non-deliverable artifact locator " + locator)
 	}
-	if FinalReplyClaimsAttachmentDelivery(notice) {
+	if FinishMessageClaimsAttachmentDelivery(notice) {
 		return errors.New("user_notice claims unavailable attachment delivery")
 	}
-	if filename := finalReplyUnattachedArtifactFilename(notice, nil); filename != "" {
+	if filename := finishMessageUnattachedArtifactFilename(notice, nil); filename != "" {
 		return errors.New("user_notice mentions unavailable artifact filename " + filename)
 	}
 	return nil
 }
 
-func FinalReplyClaimsAttachmentDelivery(reply string) bool {
+func FinishMessageClaimsAttachmentDelivery(reply string) bool {
 	normalizedReply := strings.ToLower(strings.TrimSpace(reply))
 	if normalizedReply == "" {
 		return false
 	}
-	for _, expression := range finalReplyAttachmentDeliveryClaimExpressions {
+	for _, expression := range finishMessageAttachmentDeliveryClaimExpressions {
 		if expression.MatchString(normalizedReply) {
 			return true
 		}
@@ -47,11 +47,11 @@ func FinalReplyClaimsAttachmentDelivery(reply string) bool {
 	return false
 }
 
-func FinalReplyContainsNonDeliverableArtifactLocator(reply string) bool {
-	return finalReplyNonDeliverableArtifactLocator(reply) != ""
+func FinishMessageContainsNonDeliverableArtifactLocator(reply string) bool {
+	return finishMessageNonDeliverableArtifactLocator(reply) != ""
 }
 
-func finalReplyAttachmentDeliveryClaimPatterns() []string {
+func finishMessageAttachmentDeliveryClaimPatterns() []string {
 	return []string{
 		`(?i)\b(?:i'?ve|i have|we'?ve|we have)\s+(?:attached|sent|delivered)\b`,
 		`(?i)\b(?:attached|sent|delivered)\s+(?:the\s+)?(?:file|files|attachment|attachments|html|pptx|pdf|deck|slides|notes)\b`,
@@ -70,9 +70,9 @@ func compileRegularExpressions(patterns []string) []*regexp.Regexp {
 	return expressions
 }
 
-func finalReplyNonDeliverableArtifactLocator(reply string) string {
+func finishMessageNonDeliverableArtifactLocator(reply string) string {
 	normalizedReply := strings.TrimSpace(reply)
-	for _, pattern := range finalReplyNonDeliverableLocatorPatterns() {
+	for _, pattern := range finishMessageNonDeliverableLocatorPatterns() {
 		if locator := strings.TrimSpace(regexp.MustCompile(pattern).FindString(normalizedReply)); locator != "" {
 			return strings.Trim(locator, " ([")
 		}
@@ -80,7 +80,7 @@ func finalReplyNonDeliverableArtifactLocator(reply string) string {
 	return ""
 }
 
-func finalReplyNonDeliverableLocatorPatterns() []string {
+func finishMessageNonDeliverableLocatorPatterns() []string {
 	return []string{
 		`(?i)\bsandbox:/[^\s\])>"']+`,
 		`(?i)\bfile:/+[^\s\])>"']+`,
@@ -88,9 +88,9 @@ func finalReplyNonDeliverableLocatorPatterns() []string {
 	}
 }
 
-func finalReplyUnattachedArtifactFilename(reply string, attachments []FileAttachment) string {
+func finishMessageUnattachedArtifactFilename(reply string, attachments []FileAttachment) string {
 	attachedFilenames := attachedFilenameSet(attachments)
-	for _, filename := range finalReplyArtifactFilenames(reply) {
+	for _, filename := range finishMessageArtifactFilenames(reply) {
 		if !attachedFilenames[strings.ToLower(filename)] {
 			return filename
 		}
@@ -109,7 +109,7 @@ func attachedFilenameSet(attachments []FileAttachment) map[string]bool {
 	return filenames
 }
 
-func finalReplyArtifactFilenames(reply string) []string {
+func finishMessageArtifactFilenames(reply string) []string {
 	matches := regexp.MustCompile(`[\p{L}\p{N}][\p{L}\p{N}._ -]*\.(?:html|pptx|pdf|txt|md|csv|xlsx|docx)`).FindAllString(reply, -1)
 	filenames := []string{}
 	for _, match := range matches {

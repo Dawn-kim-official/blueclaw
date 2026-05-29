@@ -52,8 +52,11 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if request.GenerationOptions.Temperature == nil || *request.GenerationOptions.Temperature != temperature {
 		t.Fatalf("expected temperature to be preserved, got %+v", request.GenerationOptions)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["call_tool"]`) {
-		t.Fatalf("expected call_tool action variant, got %s", request.StructuredOutputSchema.Document)
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["continue"]`) {
+		t.Fatalf("expected continue action variant, got %s", request.StructuredOutputSchema.Document)
+	}
+	if strings.Contains(request.StructuredOutputSchema.Document, legacyContinueActionName()) || strings.Contains(request.StructuredOutputSchema.Document, legacyFinishActionName()) || strings.Contains(request.StructuredOutputSchema.Document, legacyFinishMessageFieldName()) {
+		t.Fatalf("expected model-facing schema to omit legacy action aliases, got %s", request.StructuredOutputSchema.Document)
 	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site.app.publish"]`) {
 		t.Fatalf("expected toolName enum to be preserved, got %s", request.StructuredOutputSchema.Document)
@@ -131,18 +134,41 @@ func TestParseAgentActionResponseNormalizesLegacyReply(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
-	if action.Action != "final_reply" || action.FinalReply != "done" {
+	if action.Action != "finish" || action.FinishMessage != "done" {
 		t.Fatalf("expected legacy reply to normalize, got %+v", action)
 	}
 }
 
-func TestParseAgentActionResponseParsesToolCall(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"call_tool","toolName":"browser.open","toolInput":{"url":"https://example.com"}}`})
+func TestParseAgentActionResponseNormalizesFinishMessage(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
-	if action.Action != "call_tool" || action.ToolName != "browser.open" {
+	if action.Action != "finish" || action.FinishMessage != "done" || action.Message != "done" {
+		t.Fatalf("expected finish message to normalize, got %+v", action)
+	}
+}
+
+func TestParseAgentActionResponseParsesToolCall(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://example.com"}}`})
+	if errorValue != nil {
+		t.Fatalf("expected parsed action: %v", errorValue)
+	}
+	if action.Action != "continue" || action.ToolName != "browser.open" {
 		t.Fatalf("expected tool call action, got %+v", action)
+	}
+	if string(action.ToolInput) != `{"url":"https://example.com"}` {
+		t.Fatalf("expected tool input to be preserved, got %s", string(action.ToolInput))
+	}
+}
+
+func TestParseAgentActionResponseNormalizesContinueToolCall(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"continue","toolName":"browser.open","message":"opening it","toolInput":{"url":"https://example.com"}}`})
+	if errorValue != nil {
+		t.Fatalf("expected parsed action: %v", errorValue)
+	}
+	if action.Action != "continue" || action.ToolName != "browser.open" || action.Message != "opening it" {
+		t.Fatalf("expected continue action to normalize, got %+v", action)
 	}
 	if string(action.ToolInput) != `{"url":"https://example.com"}` {
 		t.Fatalf("expected tool input to be preserved, got %s", string(action.ToolInput))
@@ -226,7 +252,7 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 
 	transition := advanceAgentTask(state)
 
-	if transition.Effect.Kind != agentEffectCallTool {
+	if transition.Effect.Kind != agentEffectContinue {
 		t.Fatalf("expected file attach effect, got %+v", transition.Effect)
 	}
 	if transition.Effect.ToolCall == nil || transition.Effect.ToolCall.ToolName != "file.attach" {
@@ -237,7 +263,7 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 	}
 }
 
-func TestAdvanceAgentTaskReturnsFinalReplyEffectForSatisfiedBrowserOpen(t *testing.T) {
+func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *testing.T) {
 	state := agentTaskState{
 		Request: AgentTurnRequest{Prompt: "open browser"},
 		Requirements: []toolUseRequirement{{
@@ -245,7 +271,7 @@ func TestAdvanceAgentTaskReturnsFinalReplyEffectForSatisfiedBrowserOpen(t *testi
 		}},
 		Observations: []turnObservation{{
 			ObservationID: "obs-001",
-			Action:        "call_tool",
+			Action:        "continue",
 			Tool:          "browser.open",
 			Output:        ToolOutput{Content: "opened"},
 		}},
@@ -253,18 +279,18 @@ func TestAdvanceAgentTaskReturnsFinalReplyEffectForSatisfiedBrowserOpen(t *testi
 
 	transition := advanceAgentTask(state)
 
-	if transition.Effect.Kind != agentEffectFinalReply {
+	if transition.Effect.Kind != agentEffectFinish {
 		t.Fatalf("expected final reply effect, got %+v", transition.Effect)
 	}
-	if transition.Effect.FinalReply == nil || !strings.Contains(transition.Effect.FinalReply.Reply, "완료") {
-		t.Fatalf("expected completion final reply, got %+v", transition.Effect.FinalReply)
+	if transition.Effect.Finish == nil || !strings.Contains(transition.Effect.Finish.Reply, "완료") {
+		t.Fatalf("expected completion final reply, got %+v", transition.Effect.Finish)
 	}
 }
 
 func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 	events := []task.TaskEvent{{
 		Name: "tool.browser.open.result",
-		Body: `{"observationID":"obs-001","action":"call_tool","tool":"browser.open","content":"opened","isError":false}`,
+		Body: `{"observationID":"obs-001","action":"continue","tool":"browser.open","content":"opened","isError":false}`,
 	}}
 
 	state, errorValue := restoreAgentTaskState(AgentTurnRequest{Prompt: "continue"}, TurnOptions{}, task.TaskRun{
@@ -284,7 +310,7 @@ func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 }
 
 func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) {
-	observation, errorValue := decodeTurnObservation([]byte(`{"observationID":"obs-001","action":"call_tool","tool":"memory.search","content":"memory failed","isError":true,"errorCode":"memory_search_unavailable","failureStage":"graphiti_search","message":"memory failed"}`))
+	observation, errorValue := decodeTurnObservation([]byte(`{"observationID":"obs-001","action":"continue","tool":"memory.search","content":"memory failed","isError":true,"errorCode":"memory_search_unavailable","failureStage":"graphiti_search","message":"memory failed"}`))
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
