@@ -12,11 +12,12 @@ const nextStepPlanMaxListItems = 8
 
 func normalizeNextStepPlan(plan NextStepPlan) NextStepPlan {
 	return NextStepPlan{
-		Objective:        truncateText(compactWhitespace(plan.Objective), nextStepPlanMaxTextCharacters),
-		ExpectedTools:    normalizeNextStepPlanList(plan.ExpectedTools),
-		DoneCriteria:     normalizeNextStepPlanList(plan.DoneCriteria),
-		Risk:             truncateText(compactWhitespace(plan.Risk), nextStepPlanMaxTextCharacters),
-		WorkingSetReason: truncateText(compactWhitespace(plan.WorkingSetReason), nextStepPlanMaxTextCharacters),
+		Objective:           truncateText(compactWhitespace(plan.Objective), nextStepPlanMaxTextCharacters),
+		ExpectedTools:       normalizeNextStepPlanList(plan.ExpectedTools),
+		ExpectedNextResults: normalizeNextStepPlanList(plan.ExpectedNextResults),
+		DoneCriteria:        normalizeNextStepPlanList(plan.DoneCriteria),
+		Risk:                truncateText(compactWhitespace(plan.Risk), nextStepPlanMaxTextCharacters),
+		WorkingSetReason:    truncateText(compactWhitespace(plan.WorkingSetReason), nextStepPlanMaxTextCharacters),
 	}
 }
 
@@ -55,6 +56,7 @@ func nextStepPlanIsEmpty(plan NextStepPlan) bool {
 	plan = normalizeNextStepPlan(plan)
 	return plan.Objective == "" &&
 		len(plan.ExpectedTools) == 0 &&
+		len(plan.ExpectedNextResults) == 0 &&
 		len(plan.DoneCriteria) == 0 &&
 		plan.Risk == "" &&
 		plan.WorkingSetReason == ""

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -27,18 +28,31 @@ type ActiveGoal struct {
 }
 
 type OutcomeContract struct {
-	RequiredEvidenceTools      []string   `json:"requiredEvidenceTools,omitempty"`
-	RequiredEvidenceAnyOf      [][]string `json:"requiredEvidenceAnyOf,omitempty"`
-	RequiredAttachmentSuffixes []string   `json:"requiredAttachmentSuffixes,omitempty"`
-	ArtifactRequirement        string     `json:"artifactRequirement,omitempty"`
-	SelectedEvidenceHints      []string   `json:"selectedEvidenceHints,omitempty"`
-	Source                     string     `json:"source,omitempty"`
+	RequiredEvidenceTools      []string         `json:"requiredEvidenceTools,omitempty"`
+	RequiredEvidenceAnyOf      [][]string       `json:"requiredEvidenceAnyOf,omitempty"`
+	RequiredAttachmentSuffixes []string         `json:"requiredAttachmentSuffixes,omitempty"`
+	ExpectedResults            []ExpectedResult `json:"expectedResults,omitempty"`
+	ArtifactRequirement        string           `json:"artifactRequirement,omitempty"`
+	SelectedEvidenceHints      []string         `json:"selectedEvidenceHints,omitempty"`
+	Source                     string           `json:"source,omitempty"`
+}
+
+type ExpectedResult struct {
+	ID              string   `json:"id,omitempty"`
+	Type            string   `json:"type,omitempty"`
+	Description     string   `json:"description,omitempty"`
+	Required        bool     `json:"required"`
+	AcceptanceHints []string `json:"acceptanceHints,omitempty"`
 }
 
 const (
 	ArtifactRequirementNone      = "none"
 	ArtifactRequirementPreferred = "preferred"
 	ArtifactRequirementRequired  = "required"
+
+	ExpectedResultTypeMessage = "message"
+	ExpectedResultTypeFile    = "file"
+	ExpectedResultTypeLink    = "link"
 )
 
 func activeGoalDescription(activeGoal ActiveGoal) string {
@@ -60,9 +74,50 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = appendUniqueStrings(contract.RequiredAttachmentSuffixes)
 	contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints)
 	contract.RequiredEvidenceAnyOf = normalizeEvidenceAnyOf(contract.RequiredEvidenceAnyOf)
+	contract.ExpectedResults = normalizeExpectedResults(contract.ExpectedResults)
 	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
+}
+
+func normalizeExpectedResults(results []ExpectedResult) []ExpectedResult {
+	normalizedResults := []ExpectedResult{}
+	seenResults := map[string]bool{}
+	for _, result := range results {
+		normalizedResult := normalizeExpectedResult(result, len(normalizedResults)+1)
+		if strings.TrimSpace(normalizedResult.Description) == "" {
+			continue
+		}
+		key := normalizedResult.Type + "\x00" + normalizedResult.Description
+		if seenResults[key] {
+			continue
+		}
+		seenResults[key] = true
+		normalizedResults = append(normalizedResults, normalizedResult)
+	}
+	return normalizedResults
+}
+
+func normalizeExpectedResult(result ExpectedResult, index int) ExpectedResult {
+	result.ID = strings.TrimSpace(result.ID)
+	if result.ID == "" {
+		result.ID = "result-" + strconv.Itoa(index)
+	}
+	result.Type = normalizeExpectedResultType(result.Type)
+	result.Description = strings.TrimSpace(result.Description)
+	result.AcceptanceHints = appendUniqueStrings(result.AcceptanceHints)
+	return result
+}
+
+func normalizeExpectedResultType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case ExpectedResultTypeFile:
+		return ExpectedResultTypeFile
+	case ExpectedResultTypeLink:
+		return ExpectedResultTypeLink
+	default:
+		return ExpectedResultTypeMessage
+	}
 }
 
 func normalizeArtifactRequirement(value string) string {
