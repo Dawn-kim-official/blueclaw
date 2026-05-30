@@ -2152,6 +2152,64 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 	}
 }
 
+func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/app/src/App.tsx","content":"export default function App(){return <main>Portfolio</main>}"}}`,
+		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+		finishMessageWithEvidence("수정 후 빌드했습니다.", "obs-004", "site.app.build", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 6})
+	toolRegistry := newTestToolSet([]string{"site.app.build", "file.write"})
+	buildCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		buildCallCount++
+		if buildCallCount == 1 {
+			return ToolResult{
+				Output: ToolOutput{Content: `{"qualityPath":"/workspace/sites/site-1/.internkim/build-quality.json","issues":[{"target":"app/src/App.tsx"}]}`},
+				Failure: &ToolFailure{
+					Kind:                  FailureInvalidInput,
+					Code:                  "site_quality_gate_failed",
+					Stage:                 "site_build_quality_gate",
+					UserSafeSummary:       "quality gate failed",
+					Retryable:             true,
+					FailureClass:          failureClassQuality,
+					RetryPolicy:           retryPolicyAfterPrecondition,
+					RequiredPreconditions: []string{"source_changed"},
+					RecoveryHints:         []RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file.write", "file.read"}}},
+					AffectedResources:     []AffectedResource{{Path: "app/src/App.tsx", Role: "source"}},
+				},
+			}, nil
+		}
+		return ToolSuccess(`{"qualityPath":"/workspace/sites/site-1/.internkim/build-quality.json","distPath":"/workspace/sites/site-1/app/dist"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"path":"/workspace/sites/site-1/app/src/App.tsx","bytesWritten":64}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "사이트 빌드해서 배포 준비해줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"site.app.build"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected recovery loop to finish: %v", errorValue)
+	}
+	if buildCallCount != 2 {
+		t.Fatalf("expected duplicate build retry to be rejected before tool invocation, got %d build calls", buildCallCount)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "agent.recovery_choice_rejected", "source_changed") {
+		t.Fatal("expected retry without source change to be rejected")
+	}
+	if !taskEventsContain(events, "agent.recovery_guidance", "RecoveryPacket") {
+		t.Fatal("expected model-visible recovery packet")
+	}
+}
+
 func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"ask.confirm","toolInput":{"message":"샘플 님에게 DM을 보내도 될까요?","reason":"external send"}}`,

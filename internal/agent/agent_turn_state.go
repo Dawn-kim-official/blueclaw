@@ -369,6 +369,7 @@ type legacyTurnObservation struct {
 	RecoveryAttemptKey   string           `json:"recoveryAttemptKey,omitempty"`
 	RecoveryStep         string           `json:"recoveryStep,omitempty"`
 	RecoveryAttemptSpent bool             `json:"recoveryAttemptSpent,omitempty"`
+	RecoveryPacket       *RecoveryPacket  `json:"recoveryPacket,omitempty"`
 	Attachments          []FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions      []RecoveryAction `json:"recoveryActions,omitempty"`
 }
@@ -404,6 +405,7 @@ func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservati
 		RecoveryAttemptKey:   legacyObservation.RecoveryAttemptKey,
 		RecoveryStep:         legacyObservation.RecoveryStep,
 		RecoveryAttemptSpent: legacyObservation.RecoveryAttemptSpent,
+		RecoveryPacket:       legacyObservation.RecoveryPacket,
 		Attachments:          append([]FileAttachment{}, legacyObservation.Attachments...),
 		RecoveryActions:      append([]RecoveryAction{}, legacyObservation.RecoveryActions...),
 	}
