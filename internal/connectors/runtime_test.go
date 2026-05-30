@@ -943,14 +943,16 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
 	requests := languageModel.Requests()
-	if len(requests) != 8 {
-		t.Fatalf("expected approval classification before continuation turn, got %d requests: %+v", len(requests), connectorRequestSchemaNames(requests))
+	approvalRouterIndex := connectorSchemaIndexAfter(requests, "blueclaw_turn_router", 1)
+	if approvalRouterIndex < 0 {
+		t.Fatalf("expected approval classification before continuation turn, got requests: %+v", connectorRequestSchemaNames(requests))
 	}
-	if requests[4].StructuredOutputSchema.Name != "blueclaw_turn_router" {
-		t.Fatalf("expected fifth model request to classify confirmation, got %q", requests[4].StructuredOutputSchema.Name)
+	actionIndex := connectorSchemaIndexAfter(requests, "blueclaw_agent_turn_action", approvalRouterIndex)
+	if actionIndex < 0 {
+		t.Fatalf("expected continuation action after approval classification, got requests: %+v", connectorRequestSchemaNames(requests))
 	}
-	if !structuredMessagesContain(requests[6].Messages, "The user approved the pending action") {
-		t.Fatalf("expected active goal context to carry approval context, got %+v", requests[6].Messages)
+	if !structuredMessagesContain(requests[actionIndex].Messages, "The user approved the pending action") {
+		t.Fatalf("expected active goal context to carry approval context, got %+v", requests[actionIndex].Messages)
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
@@ -1990,6 +1992,15 @@ func connectorRequestSchemaNames(requests []llm.StructuredResponseRequest) []str
 		names = append(names, request.StructuredOutputSchema.Name)
 	}
 	return names
+}
+
+func connectorSchemaIndexAfter(requests []llm.StructuredResponseRequest, schemaName string, afterIndex int) int {
+	for index := afterIndex + 1; index < len(requests); index++ {
+		if requests[index].StructuredOutputSchema.Name == schemaName {
+			return index
+		}
+	}
+	return -1
 }
 
 func connectorContainsSchemaName(requests []llm.StructuredResponseRequest, schemaName string) bool {

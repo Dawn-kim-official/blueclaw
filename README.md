@@ -300,6 +300,17 @@ Blueclaw uses Graphiti as the product memory engine through the `graphiti-memory
 - whether `Jetson Orin Nano Super` has a reliable enough `KVM` path for the primary guest runtime
 - whether to add a `task.context.describe` meta tool that exposes compact current task status, pending state, recent failures, and available next actions to meta-answer turns
 
+## Agent Task And Step Runtime
+
+- `Task` is one user request lifecycle from intake through final reply or reaction.
+- `Step` is one internal progress unit inside a Task. A Step either runs one tool with `continue`, or closes the Task with `finish`/`fail`.
+- `Checkpoint` is optional user-visible progress text on a `continue` Step. It never closes the Task and the tool still runs in the same Step.
+- `Final Step` runs no tool and must send the final reply, failure reply, or reaction that closes the Task.
+- Every `continue` action carries `nextStepPlan` with `objective`, `expectedTools`, `doneCriteria`, `risk`, and `workingSetReason`.
+- The next Step working set is built from core tools, selected skills, outcome requirements, recovery packets, and the previous `nextStepPlan.expectedTools`.
+- Tool schemas exposed to the model stay capped at 20. The runtime uses deterministic working sets when candidates fit and calls the compact tool selector only when the stage is ambiguous or exceeds the cap.
+- Completion and recovery gates are independent from tool visibility. Draft/setup evidence such as site creation cannot finish a publish Task without required build, review, publish, and final status evidence.
+
 ## Status
 
 - this README captures the current architecture picture

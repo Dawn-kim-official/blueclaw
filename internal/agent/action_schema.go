@@ -139,8 +139,24 @@ func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 			"goalSatisfied":        booleanSchema(),
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
+			"nextStepPlan":         nextStepPlanSchema(),
 		},
-		"required":             []string{"action", "toolName", "toolInput", "executionStateUpdate"},
+		"required":             []string{"action", "toolName", "toolInput", "executionStateUpdate", "nextStepPlan"},
+		"additionalProperties": false,
+	}
+}
+
+func nextStepPlanSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"objective":        stringSchema(),
+			"expectedTools":    stringArraySchema(0),
+			"doneCriteria":     stringArraySchema(0),
+			"risk":             stringSchema(),
+			"workingSetReason": stringSchema(),
+		},
+		"required":             []string{"objective", "expectedTools", "doneCriteria", "risk", "workingSetReason"},
 		"additionalProperties": false,
 	}
 }

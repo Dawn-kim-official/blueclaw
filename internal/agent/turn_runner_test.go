@@ -2101,16 +2101,21 @@ func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 
 func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"portfolio","title":"Portfolio"}}`,
-		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
-		`{"action":"continue","toolName":"artifact.review","toolInput":{"path":"home/sites/site-1/app/dist/index.html"}}`,
-		`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish portfolio"}}`,
-		finishMessageWithEvidence("같은 URL에 배포했습니다.", "obs-004", "site.app.publish", 0),
+		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the created site","expectedTools":["site.app.build","artifact.review"],"doneCriteria":["site build succeeds"],"risk":"draft may be incomplete","workingSetReason":"creation must lead into build and review"}}`,
+		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"review the built artifact","expectedTools":["artifact.review","site.app.publish"],"doneCriteria":["review passes"],"risk":"visual issues may block publish","workingSetReason":"build output needs review before publish"}}`,
+		`{"action":"continue","toolName":"artifact.review","toolInput":{"path":"home/sites/site-1/app/dist/index.html"},"nextStepPlan":{"objective":"publish reviewed site","expectedTools":["site.app.publish","site.app.status"],"doneCriteria":["publish succeeds"],"risk":"publish may reject stale build","workingSetReason":"review evidence allows publish"}}`,
+		`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish portfolio"},"nextStepPlan":{"objective":"confirm final status","expectedTools":["site.app.status"],"doneCriteria":["status shows published URL"],"risk":"status may not reflect latest version","workingSetReason":"final status is required evidence"}}`,
+		`{"action":"continue","toolName":"site.app.status","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish with status evidence","expectedTools":[],"doneCriteria":["finish with published URL"],"risk":"none","workingSetReason":"all required evidence has been collected"}}`,
+		`{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"site.app.build"},{"observationID":"obs-003","toolName":"artifact.review"},{"observationID":"obs-004","toolName":"site.app.publish"},{"observationID":"obs-005","toolName":"site.app.status"}],"finishMessage":"같은 URL에 배포했습니다."}`,
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 7, MaxToolCallCount: 7})
-	toolRegistry := newTestToolSet([]string{"site.app.create", "site.app.build", "artifact.review", "site.app.publish"})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 8})
+	toolRegistry := newTestToolSet([]string{"site.app.status", "site.app.create", "site.app.build", "artifact.review", "site.app.publish"})
 	toolCalls := []string{}
 	hasBuildQuality := false
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.status")
+		return ToolSuccess(`{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example","revisionCount":1}`), nil
+	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.app.create")
 		return ToolSuccess(`{"siteID":"site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","publishedURL":"https://portfolio.example"}`), nil
@@ -2137,18 +2142,87 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		ConversationID:        "conversation-1",
 		Prompt:                "개인 홈페이지 만들고 배포해줘",
 		ToolSet:               toolRegistry,
-		RequiredEvidenceTools: []string{"site.app.publish"},
-		SkillDecisions:        []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"},
+		AvailableSkills: []SkillInstruction{{
+			Name:         "site-prototype",
+			AllowedTools: []string{"site.app.status", "site.app.create", "site.app.build", "artifact.review", "site.app.publish"},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected site loop to succeed: %v", errorValue)
 	}
-	expectedCalls := []string{"site.app.create", "site.app.build", "artifact.review", "site.app.publish"}
+	expectedCalls := []string{"site.app.create", "site.app.build", "artifact.review", "site.app.publish", "site.app.status"}
 	if strings.Join(toolCalls, ",") != strings.Join(expectedCalls, ",") {
 		t.Fatalf("expected site tool loop %v, got %v", expectedCalls, toolCalls)
 	}
 	if result.TaskRun.Status != task.TaskStatusCompleted || !strings.Contains(result.FinishMessage, "배포") {
 		t.Fatalf("expected completed publish finish, got status=%s message=%q", result.TaskRun.Status, result.FinishMessage)
+	}
+}
+
+func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		toolSelections: []string{
+			`{"selectedToolIDs":["site.app.create"],"reason":"create draft first"}`,
+			`{"selectedToolIDs":["site.app.build"],"reason":"build is still required"}`,
+			`{"selectedToolIDs":["site.app.build"],"reason":"run required build after rejected finish"}`,
+		},
+		contents: []string{
+			`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the draft before finishing","expectedTools":["site.app.build"],"doneCriteria":["build evidence exists"],"risk":"draft creation alone is not completion","workingSetReason":"site.app.build is required evidence"}}`,
+			`{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.app.create"}],"finishMessage":"초안이 만들어졌습니다."}`,
+			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish after build evidence","expectedTools":[],"doneCriteria":["build observation exists"],"risk":"none","workingSetReason":"required evidence has been collected"}}`,
+			finishMessageWithEvidence("빌드까지 완료했습니다.", "obs-003", "site.app.build", 0),
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 4})
+	toolRegistry := newTestToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "site.app.create", "site.app.build"})
+	toolCalls := []string{}
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.create")
+		return ToolSuccess(`{"siteID":"site-1","status":"draft"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.build")
+		return ToolSuccess(`{"siteID":"site-1","distPath":"home/sites/site-1/app/dist"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "개인 홈페이지 만들고 배포해줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"site.app.build"},
+		AvailableSkills: []SkillInstruction{{
+			Name:         "site-prototype",
+			AllowedTools: []string{"site.app.create", "site.app.build"},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected rejected finish to recover into build: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if strings.Join(toolCalls, ",") != "site.app.create,site.app.build" {
+		t.Fatalf("expected create then build, got %+v", toolCalls)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "agent.completion_required", "site.app.build") {
+		t.Fatal("expected early finish to be rejected by completion gate")
+	}
+	if !taskEventsContain(events, "agent.tool_exposure", "site.app.build") {
+		t.Fatal("expected build tool to be exposed after rejected finish")
+	}
+	if !taskEventsContain(events, "agent.tool_exposure", "deterministic") {
+		t.Fatal("expected deterministic per-iteration tool exposure without selector LLM calls")
+	}
+	if !taskEventsContain(events, "agent.next_step_plan", "site.app.build") {
+		t.Fatal("expected next Step plan to be recorded for working set selection")
+	}
+	if !taskEventsContain(events, "agent.step_working_set", "site.app.build") {
+		t.Fatal("expected Step working set event to include planned build tool")
 	}
 }
 
@@ -2979,10 +3053,12 @@ func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options 
 }
 
 type sequenceLanguageModel struct {
-	contents      []string
-	textResponses []string
-	requests      []llm.StructuredResponseRequest
-	textPrompts   []string
+	contents          []string
+	toolSelections    []string
+	textResponses     []string
+	requests          []llm.StructuredResponseRequest
+	selectionRequests []llm.StructuredResponseRequest
+	textPrompts       []string
 }
 
 func recoveryDecisionDocument(whatFailed string, whatWasKnown string, nextAction string, userReplyIntent string) string {
@@ -3009,6 +3085,11 @@ func (languageModel *sequenceLanguageModel) GenerateResponse(_ context.Context, 
 
 func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_tool_selection" {
+		languageModel.selectionRequests = append(languageModel.selectionRequests, request)
+		index := len(languageModel.selectionRequests) - 1
+		if index < len(languageModel.toolSelections) {
+			return llm.StructuredResponse{Content: languageModel.toolSelections[index]}, nil
+		}
 		return llm.StructuredResponse{Content: `{"selectedToolIDs":[],"reason":"test default"}`}, nil
 	}
 	languageModel.requests = append(languageModel.requests, request)

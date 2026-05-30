@@ -76,6 +76,7 @@ type AgentTurnRequest struct {
 	OutcomeContract            OutcomeContract
 	ActiveGoal                 ActiveGoal
 	ToolExposure               ToolExposureEvent
+	CurrentStepPlan            NextStepPlan
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
 	TurnStartedAt              time.Time
@@ -121,6 +122,15 @@ type turnActionDocument struct {
 	RemainingWork        string                        `json:"remainingWork"`
 	UsedFailureFacts     failureReportFacts            `json:"usedFailureFacts"`
 	ExecutionStateUpdate ExecutionState                `json:"executionStateUpdate"`
+	NextStepPlan         NextStepPlan                  `json:"nextStepPlan"`
+}
+
+type NextStepPlan struct {
+	Objective        string   `json:"objective,omitempty"`
+	ExpectedTools    []string `json:"expectedTools,omitempty"`
+	DoneCriteria     []string `json:"doneCriteria,omitempty"`
+	Risk             string   `json:"risk,omitempty"`
+	WorkingSetReason string   `json:"workingSetReason,omitempty"`
 }
 
 type turnObservation struct {
@@ -385,7 +395,17 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			continue
 		}
 
-		actionDocument, actionError := agentTurnRunner.nextAction(taskContext, request, toolUseRequirements, state.Observations, state.ExecutionState, len(state.QualityCriteria) == 0)
+		iterationRequest := agentTurnRunner.requestForStep(taskContext, request, state)
+		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.step_working_set", marshalEventBody(map[string]any{
+			"step":         iteration,
+			"nextStepPlan": state.NextStepPlan,
+			"exposure":     iterationRequest.ToolExposure,
+		}))
+		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_exposure", marshalEventBody(map[string]any{
+			"step":     iteration,
+			"exposure": iterationRequest.ToolExposure,
+		}))
+		actionDocument, actionError := agentTurnRunner.nextAction(taskContext, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, len(state.QualityCriteria) == 0)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.Canceled) {
@@ -400,6 +420,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		if !executionStateIsEmpty(actionDocument.ExecutionStateUpdate) {
 			state.ExecutionState = normalizeExecutionState(actionDocument.ExecutionStateUpdate)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.execution_state", marshalEventBody(state.ExecutionState))
+		}
+		if strings.TrimSpace(actionDocument.Action) == "continue" {
+			state.NextStepPlan = normalizeNextStepPlan(actionDocument.NextStepPlan)
+			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.next_step_plan", marshalEventBody(state.NextStepPlan))
 		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
@@ -466,8 +490,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
 		case "continue":
-			state.Observations = agentTurnRunner.sendCheckpointMessage(taskContext, taskRun.TaskRunID, request, actionDocument, state.Observations)
-			outcome := agentTurnRunner.handleToolCallAction(taskContext, taskRun.TaskRunID, stepID, iteration, request, toolUseRequirements, &state, actionDocument, successfulToolCalls, stopForNoProgress)
+			state.Observations = agentTurnRunner.sendCheckpointMessage(taskContext, taskRun.TaskRunID, iterationRequest, actionDocument, state.Observations)
+			outcome := agentTurnRunner.handleToolCallAction(taskContext, taskRun.TaskRunID, stepID, iteration, iterationRequest, toolUseRequirements, &state, actionDocument, successfulToolCalls, stopForNoProgress)
 			if outcome.ShouldReturn {
 				return outcome.Result, nil
 			}
@@ -868,6 +892,125 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request 
 	return actionDocument, nil
 }
 
+func (agentTurnRunner *AgentTurnRunner) requestForStep(ctx context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
+	plannedRequest := requestWithStepWorkingSetTools(request, state.NextStepPlan, state.Requirements)
+	selectionRequest := buildToolSelectionRequest(
+		plannedRequest.ToolSet,
+		instructionBundleFromTurnRequest(plannedRequest),
+		agentRequestFromTurnRequest(plannedRequest),
+		ExecutionPlan{},
+		false,
+		plannedRequest.OutcomeContract,
+		state.Observations,
+	)
+	selectionDecision, exposureEvent := ToolSelectionDecision{}, ToolExposureEvent{}
+	if toolSelectionFallbackFitsCap(selectionRequest) {
+		exposureEvent.SelectionSource = "deterministic_fallback"
+	} else if deterministicDecision, deterministicEvent, isDeterministic := deterministicToolSelectionDecision(selectionRequest); isDeterministic {
+		selectionDecision = deterministicDecision
+		exposureEvent = deterministicEvent
+	} else if shouldSelectOptionalToolsWithModel(selectionRequest) {
+		selectionDecision, exposureEvent = NewToolSelectionRouter(agentTurnRunner.languageModel).Select(ctx, selectionRequest)
+	}
+	filteredToolSet, exposureEvent := toolSetForAgentTurnWithExposure(
+		plannedRequest.ToolSet,
+		instructionBundleFromTurnRequest(plannedRequest),
+		agentRequestFromTurnRequest(plannedRequest),
+		ExecutionPlan{},
+		false,
+		plannedRequest.OutcomeContract,
+		selectionDecision,
+		exposureEvent,
+		state.Observations,
+	)
+	iterationRequest := plannedRequest
+	iterationRequest.ToolSet = filteredToolSet
+	iterationRequest.ToolExposure = exposureEvent
+	iterationRequest.CurrentStepPlan = normalizeNextStepPlan(state.NextStepPlan)
+	return iterationRequest
+}
+
+func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan, requirements []toolUseRequirement) AgentTurnRequest {
+	normalizedPlan := normalizeNextStepPlan(plan)
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, normalizedPlan.ExpectedTools...)
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, requiredToolNamesForStepWorkingSet(requirements)...)
+	if requestLooksLikeCalendarStep(request) {
+		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, "calendar.event.add", "calendar.event.delete")
+	}
+	return request
+}
+
+func requestLooksLikeCalendarStep(request AgentTurnRequest) bool {
+	return promptLooksLikeCalendarRequest(request.Prompt) ||
+		promptLooksLikeCalendarRequest(request.ActiveGoal.OriginalInstruction) ||
+		promptLooksLikeCalendarRequest(request.ActiveGoal.CurrentObjective)
+}
+
+func requiredToolNamesForStepWorkingSet(requirements []toolUseRequirement) []string {
+	toolNames := []string{}
+	for _, requirement := range requirements {
+		if strings.TrimSpace(requirement.ToolName) != "" {
+			toolNames = appendUniqueStrings(toolNames, requirement.ToolName)
+		}
+		if strings.TrimSpace(requirement.ToolPrefix) != "" {
+			toolNames = appendUniqueStrings(toolNames, toolNamesMatchingPrefix(requirement.ToolPrefix)...)
+		}
+	}
+	return toolNames
+}
+
+func toolNamesMatchingPrefix(prefix string) []string {
+	trimmedPrefix := strings.TrimSpace(prefix)
+	if trimmedPrefix == "" {
+		return nil
+	}
+	switch trimmedPrefix {
+	case "browser.":
+		return []string{"browser.open", "browser.snapshot", "browser.screenshot", "browser.click", "browser.fill", "browser.select", "browser.press", "browser.wait"}
+	default:
+		return nil
+	}
+}
+
+func instructionBundleFromTurnRequest(request AgentTurnRequest) InstructionBundle {
+	return InstructionBundle{
+		Prompt:         request.InstructionPrompt,
+		Skills:         append([]SkillInstruction{}, request.AvailableSkills...),
+		Sources:        append([]InstructionSource{}, request.InstructionSources...),
+		SkillDecisions: append([]SkillSelectionDecision{}, request.SkillDecisions...),
+		RetrievalMode:  request.SkillRetrievalMode,
+		IndexStatus:    request.SkillIndexStatus,
+		CandidateCount: request.SkillCandidateCount,
+		SkillQueries:   append([]string{}, request.SkillQueries...),
+	}
+}
+
+func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
+	return AgentRequest{
+		RequesterPersonID:      request.RequesterPersonID,
+		RequesterName:          request.RequesterName,
+		RequesterCallingName:   request.RequesterCallingName,
+		RequesterHandle:        request.RequesterHandle,
+		RequesterCircles:       append([]string{}, request.RequesterCircles...),
+		IsApprovalContinuation: request.IsApprovalContinuation,
+		ExistingTaskRunID:      request.ExistingTaskRunID,
+		ProfileName:            request.ProfileName,
+		ConversationID:         request.ConversationID,
+		Prompt:                 request.Prompt,
+		ResponseLanguage:       request.ResponseLanguage,
+		VisibleContext:         request.VisibleContext,
+		MemoryFacts:            append([]memory.MemoryFact{}, request.MemoryFacts...),
+		ToolSet:                request.ToolSet,
+		PinnedToolNames:        append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:       append([]string{}, request.PinnedSkillNames...),
+		WorkspaceRootPath:      request.WorkspaceRootPath,
+		ActivePaths:            append([]string{}, request.ActivePaths...),
+		InstructionPrompt:      request.InstructionPrompt,
+		ActiveGoal:             request.ActiveGoal,
+		TurnStartedAt:          request.TurnStartedAt,
+	}
+}
+
 func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnRequest, observations []turnObservation, executionState ExecutionState) []llm.Message {
 	return (PromptAssembler{}).BuildTurnMessages(
 		request,
@@ -883,7 +1026,7 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 }
 
 func buildAgentSystemInstruction(request AgentTurnRequest) string {
-	instruction := "You are Blueclaw. Work as a careful task agent. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName and toolInput; optional continue.message is a short checkpoint and the tool still runs in the same action. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
+	instruction := "You are Blueclaw. Work as a careful task agent. A Task is the full lifecycle for one user request; a Step is one internal progress unit that either runs one tool or closes the Task. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName, toolInput, and nextStepPlan; optional continue.message is a short checkpoint and the tool still runs in the same Step. nextStepPlan must name the next Step objective, expectedTools, doneCriteria, risk, and workingSetReason so the runtime can expose the right working set. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
