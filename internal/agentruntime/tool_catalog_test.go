@@ -1769,6 +1769,44 @@ func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 	}
 }
 
+func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T) {
+	workspacePath := t.TempDir()
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","status":"failed"}}`}
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.repair"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.status",
+		PolicyResource: "tool:site.app.status",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "thread:channel:post",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.repair",
+		Input:    agent.MarshalToolInput(map[string]string{}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected context repair success, got %s", result.ContentText())
+	}
+	if !strings.Contains(httpClient.requestBody, `"conversationID":"thread:channel:post"`) {
+		t.Fatalf("expected site.app.status request to include conversation context, got %s", httpClient.requestBody)
+	}
+	if !strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/app"`) {
+		t.Fatalf("expected repaired app workspace path from resolved site, got %s", result.ContentText())
+	}
+}
+
 func TestSiteCreateAppWorkspaceBuildsOfflineWithBun(t *testing.T) {
 	if !terminalTestCanResolveBun() {
 		t.Skip("bun is not installed")

@@ -841,9 +841,13 @@ func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResul
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext context.Context, input siteAppBuildToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	site, errorValue := toolCatalogBuilder.siteStatusForWorkspaceTool(toolContext, handlerContext.request, input.SiteID, input.Slug)
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_build_status", errorValue.Error()), nil
+	site := siteCreateResult{}
+	if shouldResolveSiteStatusForWorkspaceTool(input.SiteID, input.Slug, input.SourceWorkspacePath, input.AppWorkspacePath) {
+		resolvedSite, errorValue := toolCatalogBuilder.siteStatusForWorkspaceTool(toolContext, handlerContext.request, input.SiteID, input.Slug)
+		if errorValue != nil {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_build_status", errorValue.Error()), nil
+		}
+		site = resolvedSite
 	}
 	sourceWorkspacePath := firstNonEmptyString(input.SourceWorkspacePath, site.SourceWorkspacePath)
 	appWorkspacePath := firstNonEmptyString(input.AppWorkspacePath, site.AppWorkspacePath)
@@ -949,9 +953,13 @@ func writeSuccessfulSiteBuildQuality(ctx context.Context, workspaceActor securit
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext context.Context, input siteAppRepairToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	site, errorValue := toolCatalogBuilder.siteStatusForWorkspaceTool(toolContext, handlerContext.request, input.SiteID, input.Slug)
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_repair_status", errorValue.Error()), nil
+	site := siteCreateResult{}
+	if shouldResolveSiteStatusForWorkspaceTool(input.SiteID, input.Slug, input.SourceWorkspacePath, "") {
+		resolvedSite, errorValue := toolCatalogBuilder.siteStatusForWorkspaceTool(toolContext, handlerContext.request, input.SiteID, input.Slug)
+		if errorValue != nil {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_repair_status", errorValue.Error()), nil
+		}
+		site = resolvedSite
 	}
 	sourceWorkspacePath := firstNonEmptyString(input.SourceWorkspacePath, site.SourceWorkspacePath)
 	if strings.TrimSpace(sourceWorkspacePath) == "" {
@@ -988,10 +996,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext cont
 	})), nil
 }
 
+func shouldResolveSiteStatusForWorkspaceTool(siteID string, slug string, sourceWorkspacePath string, appWorkspacePath string) bool {
+	return strings.TrimSpace(siteID) != "" ||
+		strings.TrimSpace(slug) != "" ||
+		(strings.TrimSpace(sourceWorkspacePath) == "" && strings.TrimSpace(appWorkspacePath) == "")
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) siteStatusForWorkspaceTool(toolContext context.Context, request ToolCatalogRequest, siteID string, slug string) (siteCreateResult, error) {
-	if strings.TrimSpace(siteID) == "" && strings.TrimSpace(slug) == "" {
-		return siteCreateResult{}, nil
-	}
 	if toolCatalogBuilder.capabilityClient.Endpoint == "" {
 		return siteCreateResult{}, errors.New("site.app.status capability is unavailable")
 	}
