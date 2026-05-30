@@ -494,7 +494,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
 		case "continue":
-			state.Observations = agentTurnRunner.sendCheckpointMessage(taskContext, taskRun.TaskRunID, iterationRequest, actionDocument, state.Observations)
 			outcome := agentTurnRunner.handleToolCallAction(taskContext, taskRun.TaskRunID, stepID, iteration, iterationRequest, toolUseRequirements, &state, actionDocument, successfulToolCalls, stopForNoProgress)
 			if outcome.ShouldReturn {
 				return outcome.Result, nil
@@ -566,6 +565,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		result, _ := agentTurnRunner.finalizeOrStopForLimit(ctx, taskRunID, request, "max_tool_calls", requirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration, maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations))
 		return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
 	}
+	state.Observations = agentTurnRunner.sendCheckpointMessage(ctx, taskRunID, request, actionDocument, state.Observations)
 	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage)
 	if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRunID, state.Attachments); isCancelled {
 		return toolCallActionOutcome{Result: cancelledResult, ShouldReturn: true, WasHandled: true}
@@ -2416,8 +2416,11 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 }
 
 func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpectedResults(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
-	result := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
-	if !result.IsSatisfied || len(request.OutcomeContract.ExpectedResults) == 0 {
+	if len(request.OutcomeContract.ExpectedResults) == 0 {
+		return validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+	}
+	result := validateExpectedResultCompletionGate(request, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+	if !result.IsSatisfied {
 		return result
 	}
 	verification, errorValue := verifyExpectedResults(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
@@ -2439,6 +2442,44 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 	result.SuggestedNextTools = suggestedNextToolsForResultVerification(missingResults)
 	if len(result.SuggestedNextTools) == 0 {
 		result.SuggestedNextTools = expectedResultFallbackTools(request.OutcomeContract)
+	}
+	return result
+}
+
+func validateExpectedResultCompletionGate(request AgentTurnRequest, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
+	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
+		return completionGateResult{Message: "finish requires goalSatisfied=true"}
+	}
+	if strings.TrimSpace(actionDocument.GoalStatus) != "" && strings.TrimSpace(actionDocument.GoalStatus) != "satisfied" {
+		return completionGateResult{Message: "finish requires goalStatus=satisfied"}
+	}
+	if finishMessagePromisesFutureWork(finishActionMessage(actionDocument)) && !hasScheduleCreateEvidence(observations, actionDocument.CompletionEvidence) {
+		return completionGateResult{Message: "finish.message promises future work without successful schedule.create evidence"}
+	}
+	failureDebtResult := failureDebtFinalizationGate(observations, actionDocument, recoveryBudget)
+	if !failureDebtResult.IsSatisfied {
+		return completionGateResult{Message: failureDebtResult.Message}
+	}
+	attachments, errorValue := validateCompletionEvidence(nil, observations, actionDocument.CompletionEvidence)
+	if errorValue != nil {
+		return completionGateResult{Message: errorValue.Error()}
+	}
+	if errorValue := validateQualityReview(criteria, actionDocument.QualityReview, observations); errorValue != nil {
+		return completionGateResult{Message: errorValue.Error()}
+	}
+	if FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) && len(attachments) == 0 {
+		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
+	}
+	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) || len(attachments) > 0
+	if errorValue := ValidateFinishMessageDelivery(actionDocument.FinishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
+		return completionGateResult{Message: errorValue.Error()}
+	}
+	result := completionGateResult{IsSatisfied: true, Attachments: attachments}
+	result.ValidityState = buildAttachmentValidityState(request.WorkspaceRootPath, result.Attachments)
+	if !result.ValidityState.Passed {
+		result.IsSatisfied = false
+		result.Message = validityFailureMessage(result.ValidityState)
+		result.Attachments = nil
 	}
 	return result
 }
