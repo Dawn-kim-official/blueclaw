@@ -374,6 +374,46 @@ func TestLatestApprovalQuestionDoesNotFallBackToReason(t *testing.T) {
 	}
 }
 
+func TestLatestAskInteractionSkipsResolvedInteraction(t *testing.T) {
+	taskEvents := []task.TaskEvent{{
+		TaskEventID: "ask-1",
+		Name:        "ask.requested",
+		Body:        `{"kind":"choice_single","question":"배포할 사이트를 선택해 주세요.","options":[{"key":"A","label":"첫 번째"},{"key":"B","label":"두 번째"}]}`,
+	}, {
+		TaskEventID: "resolved-1",
+		Name:        "ask.resolved",
+		Body:        `{"interactionID":"ask-1","kind":"ask_choice_single","choices":["B"]}`,
+	}}
+
+	interaction, isFound := latestAskInteraction("task-1", taskEvents)
+
+	if isFound {
+		t.Fatalf("expected resolved ask interaction to be hidden, got %+v", interaction)
+	}
+}
+
+func TestLatestAskInteractionReturnsNewAskAfterEarlierResolution(t *testing.T) {
+	taskEvents := []task.TaskEvent{{
+		TaskEventID: "ask-1",
+		Name:        "ask.requested",
+		Body:        `{"kind":"choice_single","question":"배포할 사이트를 선택해 주세요.","options":[{"key":"A","label":"첫 번째"},{"key":"B","label":"두 번째"}]}`,
+	}, {
+		TaskEventID: "resolved-1",
+		Name:        "ask.resolved",
+		Body:        `{"interactionID":"ask-1","kind":"ask_choice_single","choices":["B"]}`,
+	}, {
+		TaskEventID: "ask-2",
+		Name:        "ask.requested",
+		Body:        `{"kind":"confirm","message":"복구를 진행할까요?"}`,
+	}}
+
+	interaction, isFound := latestAskInteraction("task-1", taskEvents)
+
+	if !isFound || interaction.InteractionID != "ask-2" || interaction.Kind != "ask_confirm" {
+		t.Fatalf("expected latest unresolved ask interaction, got found=%v interaction=%+v", isFound, interaction)
+	}
+}
+
 func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testing.T) {
 	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
