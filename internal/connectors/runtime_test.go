@@ -1480,6 +1480,12 @@ func TestConnectorRuntimeSendsCheckpointReplyKind(t *testing.T) {
 	}
 }
 
+func TestConnectorProgressHeartbeatIntervalMaintainsTypingIndicator(t *testing.T) {
+	if connectorProgressHeartbeatInterval > 5*time.Second {
+		t.Fatalf("expected progress heartbeat to refresh before typing expires, got %s", connectorProgressHeartbeatInterval)
+	}
+}
+
 func TestConnectorRuntimeDoesNotAutomaticallyIngestOrSearchMemory(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
