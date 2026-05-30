@@ -1969,7 +1969,7 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
 	return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, ToolInvocation{
 		ToolName: "file.attach",
-		Input:    MarshalToolInput(map[string]any{"paths": state.AttachmentPaths}),
+		Input:    MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(state)}),
 	})
 }
 

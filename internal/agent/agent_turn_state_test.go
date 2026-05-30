@@ -55,7 +55,7 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["continue"]`) {
 		t.Fatalf("expected continue action variant, got %s", request.StructuredOutputSchema.Document)
 	}
-	if strings.Contains(request.StructuredOutputSchema.Document, legacyContinueActionName()) || strings.Contains(request.StructuredOutputSchema.Document, legacyFinishActionName()) || strings.Contains(request.StructuredOutputSchema.Document, legacyFinishMessageFieldName()) {
+	if strings.Contains(request.StructuredOutputSchema.Document, `"call_tool"`) || strings.Contains(request.StructuredOutputSchema.Document, `"final_reply"`) || strings.Contains(request.StructuredOutputSchema.Document, `"finalReply"`) {
 		t.Fatalf("expected model-facing schema to omit legacy action aliases, got %s", request.StructuredOutputSchema.Document)
 	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site.app.publish"]`) {
@@ -107,7 +107,7 @@ func TestBuildAgentActionRequestIncludesApprovalUserFacingContract(t *testing.T)
 	toolSet.RegisterTool(ToolDefinition{
 		Name:        "ask.confirm",
 		Description: "Ask for approval.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string"},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string"}},"required":["userFacingMessage","reasonCode"],"additionalProperties":false}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string"},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string"}},"required":["userFacingMessage","reasonCode"]}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("approval requested"), nil
 	})
@@ -129,16 +129,6 @@ func TestBuildAgentActionRequestIncludesApprovalUserFacingContract(t *testing.T)
 	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"reasonCode"`) || !strings.Contains(request.StructuredOutputSchema.Document, `"userFacingMessage"`) {
 		t.Fatalf("expected approval schema fields, got %s", request.StructuredOutputSchema.Document)
-	}
-}
-
-func TestParseAgentActionResponseNormalizesLegacyReply(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"reply":"done"}`})
-	if errorValue != nil {
-		t.Fatalf("expected parsed action: %v", errorValue)
-	}
-	if action.Action != "finish" || action.FinishMessage != "done" {
-		t.Fatalf("expected legacy reply to normalize, got %+v", action)
 	}
 }
 

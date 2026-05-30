@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -127,7 +128,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 				Kind: agentEffectContinue,
 				ToolCall: &ToolInvocation{
 					ToolName: "file.attach",
-					Input:    MarshalToolInput(map[string]any{"paths": completionState.AttachmentPaths}),
+					Input:    MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)}),
 				},
 			},
 		}
@@ -151,6 +152,32 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 		request := BuildAgentActionRequest(state)
 		return agentTransition{State: state, Effect: agentEffect{Kind: agentEffectCallModel, ModelCall: &request}}
 	}
+}
+
+func nextCompletionAttachmentPath(state CompletionState) string {
+	attachedPathByName := map[string]bool{}
+	for _, evidence := range state.AttachedEvidence {
+		if strings.TrimSpace(evidence.DevicePath) != "" {
+			attachedPathByName[strings.TrimSpace(evidence.DevicePath)] = true
+		}
+		if strings.TrimSpace(evidence.Filename) != "" {
+			attachedPathByName[strings.TrimSpace(evidence.Filename)] = true
+		}
+	}
+	for _, path := range state.AttachmentPaths {
+		trimmedPath := strings.TrimSpace(path)
+		if trimmedPath == "" {
+			continue
+		}
+		if attachedPathByName[trimmedPath] || attachedPathByName[filepath.Base(trimmedPath)] {
+			continue
+		}
+		return trimmedPath
+	}
+	if len(state.AttachmentPaths) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(state.AttachmentPaths[0])
 }
 
 func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest {
@@ -199,56 +226,23 @@ func ParseAgentActionResponse(response llm.StructuredResponse) (agentAction, err
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
-	actionDocument = applyLegacyActionFields([]byte(response.Content), actionDocument)
 	return normalizeParsedAction(actionDocument), nil
-}
-
-func applyLegacyActionFields(document []byte, actionDocument turnActionDocument) turnActionDocument {
-	var rawFields map[string]json.RawMessage
-	if json.Unmarshal(document, &rawFields) != nil {
-		return actionDocument
-	}
-	if strings.TrimSpace(actionDocument.FinishMessage) == "" {
-		if legacyValue, isFound := rawFields[legacyFinishMessageFieldName()]; isFound {
-			_ = json.Unmarshal(legacyValue, &actionDocument.FinishMessage)
-		}
-	}
-	return actionDocument
 }
 
 func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument {
 	action := strings.TrimSpace(actionDocument.Action)
-	if action == "" && hasReplyText(actionDocument) {
-		action = "finish"
-	}
 	switch action {
-	case "continue", legacyContinueActionName():
+	case "continue":
 		actionDocument.Action = "continue"
-	case "finish", legacyFinishActionName():
+	case "finish":
 		actionDocument.Action = "finish"
 	default:
 		actionDocument.Action = action
 	}
 	if actionDocument.Action == "finish" && strings.TrimSpace(actionDocument.FinishMessage) == "" {
-		actionDocument.FinishMessage = firstNonEmptyString(actionDocument.Message, actionDocument.Reply)
+		actionDocument.FinishMessage = strings.TrimSpace(actionDocument.Message)
 	}
 	return actionDocument
-}
-
-func hasReplyText(actionDocument turnActionDocument) bool {
-	return firstNonEmptyString(actionDocument.Message, actionDocument.FinishMessage, actionDocument.Reply) != ""
-}
-
-func legacyContinueActionName() string {
-	return strings.Join([]string{"call", "tool"}, "_")
-}
-
-func legacyFinishActionName() string {
-	return strings.Join([]string{"final", "reply"}, "_")
-}
-
-func legacyFinishMessageFieldName() string {
-	return "final" + "Reply"
 }
 
 func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvider, state agentTaskState) (agentAction, error) {
@@ -351,7 +345,7 @@ func successfulToolCallCount(observations []turnObservation) int {
 
 func isToolCallObservation(observation turnObservation) bool {
 	action := strings.TrimSpace(observation.Action)
-	return action == "continue" || action == legacyContinueActionName()
+	return action == "continue"
 }
 
 type legacyTurnObservation struct {
@@ -393,9 +387,6 @@ func decodeTurnObservation(document []byte) (turnObservation, error) {
 
 func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservation {
 	action := legacyObservation.Action
-	if strings.TrimSpace(action) == legacyContinueActionName() {
-		action = "continue"
-	}
 	observation := turnObservation{
 		ObservationID:        legacyObservation.ObservationID,
 		Action:               action,

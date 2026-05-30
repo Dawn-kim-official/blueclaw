@@ -100,7 +100,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolR
 		Definition: agent.ToolDefinition{
 			Name:        "skill.add",
 			Description: "Create or update a user-managed SKILL.md under /workspace/.agents/skills/<name>.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}}},"required":["name","content"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"]}}},"required":["name","content"]}`),
 		},
 		Handler: toolCatalogBuilder.addSkillTool,
 		Result:  agent.IdentityToolResult,
@@ -109,7 +109,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolR
 		Definition: agent.ToolDefinition{
 			Name:        "skill.remove",
 			Description: "Remove a user-managed skill under /workspace/.agents/skills/<name>.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
 		},
 		Handler: toolCatalogBuilder.removeSkillTool,
 		Result:  agent.IdentityToolResult,
