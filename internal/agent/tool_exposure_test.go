@@ -76,10 +76,10 @@ func TestToolExposureCapTruncatesByGroupOrder(t *testing.T) {
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "run custom workflow"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: toolIDs}, ToolExposureEvent{})
 
 	exposedToolIDs := filteredToolSet.ListToolNames()
-	if len(exposedToolIDs) != maxSchemaToolCount {
-		t.Fatalf("expected exactly %d exposed tools, got %d: %+v", maxSchemaToolCount, len(exposedToolIDs), exposedToolIDs)
+	if len(exposedToolIDs) != maxSchemaCallableToolCount {
+		t.Fatalf("expected exactly %d exposed tools, got %d: %+v", maxSchemaCallableToolCount, len(exposedToolIDs), exposedToolIDs)
 	}
-	for _, toolID := range toolIDs[:maxSchemaToolCount] {
+	for _, toolID := range toolIDs[:maxSchemaCallableToolCount] {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected selected tool %s to survive cap, got %+v", toolID, exposedToolIDs)
 		}
