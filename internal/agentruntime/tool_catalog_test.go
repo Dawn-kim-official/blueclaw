@@ -1426,7 +1426,7 @@ func TestTerminalRunPathGuardrailFailureIsRecoverable(t *testing.T) {
 
 func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	workspacePath := t.TempDir()
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
+	sourceWorkspacePath := filepath.Join(workspacePath, "sites", "site-1")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<html>ok</html>")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "node_modules", "ignored.js"), "ignored")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "DESIGN.md"), "custom design")
@@ -1435,7 +1435,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-	}, agent.MarshalToolInput(map[string]any{"siteID": "site-1"}))
+	}, agent.MarshalToolInput(map[string]any{"siteID": "site-1", "sourceWorkspacePath": "home/sites/site-1"}))
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1443,7 +1443,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if inputDocument["sourceWorkspacePath"] != "home/sites/site-1" {
+	if inputDocument["sourceWorkspacePath"] != "/workspace/sites/site-1" {
 		t.Fatalf("unexpected source workspace path: %+v", inputDocument)
 	}
 	if inputDocument["sourceBundleFormat"] != "tar.gz" {
@@ -1506,8 +1506,8 @@ func TestSuccessfulSiteBuildQualityNormalizesAfterBuild(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	qualityPath := workspacepath.Path{
-		ConcretePath: filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", ".internkim", "build-quality.json"),
-		VirtualPath:  "home/sites/site-1/.internkim/build-quality.json",
+		ConcretePath: filepath.Join(workspacePath, "sites", "site-1", ".internkim", "build-quality.json"),
+		VirtualPath:  "/workspace/sites/site-1/.internkim/build-quality.json",
 	}
 	if toolFailure := writeSuccessfulSiteBuildQuality(context.Background(), workspaceActor, qualityPath); toolFailure != nil {
 		t.Fatalf("unexpected quality write failure: %s", toolFailure.ContentText())
@@ -1550,7 +1550,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
 	}
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
+	sourceWorkspacePath := filepath.Join(workspacePath, "sites", "site-1")
 	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
@@ -1580,8 +1580,8 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if !strings.Contains(string(ideaDocument), "Demo site idea") {
 		t.Fatalf("expected site idea mirror, got %s", string(ideaDocument))
 	}
-	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"home/sites/site-1"`) ||
-		!strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/app"`) {
+	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"/workspace/sites/site-1"`) ||
+		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/sites/site-1/app"`) {
 		t.Fatalf("expected virtual source workspace in result, got %s", result.ContentText())
 	}
 }
@@ -1662,7 +1662,7 @@ bun run build
 	if buildResult.Failed() {
 		t.Fatalf("expected Bun-like build to succeed with requester runtime dirs, got %s", buildResult.ContentText())
 	}
-	distPath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "app", "dist", "index.html")
+	distPath := filepath.Join(workspacePath, "sites", "site-1", "app", "dist", "index.html")
 	distDocument, errorValue := os.ReadFile(distPath)
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -1674,7 +1674,7 @@ bun run build
 
 func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	workspacePath := t.TempDir()
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
+	sourceWorkspacePath := filepath.Join(workspacePath, "sites", "site-1")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
@@ -1699,7 +1699,10 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !strings.Contains(result.ContentText(), `"workspaceHealth":"stale_build"`) || !strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.build"`) {
+	if !strings.Contains(result.ContentText(), `"workspaceHealth":"stale_build"`) ||
+		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.build"`) ||
+		!strings.Contains(result.ContentText(), `"sourceWorkspacePath":"/workspace/sites/site-1"`) ||
+		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/sites/site-1/app"`) {
 		t.Fatalf("expected workspace health annotation, got %s", result.ContentText())
 	}
 }
@@ -1758,7 +1761,7 @@ func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected repair success, got %s", result.ContentText())
 	}
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
+	sourceWorkspacePath := filepath.Join(workspacePath, "sites", "site-1")
 	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected repaired file %s: %v", relativePath, errorValue)
@@ -1802,7 +1805,7 @@ func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T)
 	if !strings.Contains(httpClient.requestBody, `"conversationID":"thread:channel:post"`) {
 		t.Fatalf("expected site.app.status request to include conversation context, got %s", httpClient.requestBody)
 	}
-	if !strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/app"`) {
+	if !strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/sites/site-1/app"`) {
 		t.Fatalf("expected repaired app workspace path from resolved site, got %s", result.ContentText())
 	}
 }
@@ -1859,7 +1862,7 @@ func TestSiteCreateAppWorkspaceBuildsOfflineWithBun(t *testing.T) {
 	if buildResult.Failed() {
 		t.Fatalf("expected offline Bun build to succeed, got %s", buildResult.ContentText())
 	}
-	distPath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "app", "dist", "index.html")
+	distPath := filepath.Join(workspacePath, "sites", "site-1", "app", "dist", "index.html")
 	distDocument, errorValue := os.ReadFile(distPath)
 	if errorValue != nil {
 		t.Fatal(errorValue)
