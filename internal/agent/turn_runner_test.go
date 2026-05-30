@@ -142,6 +142,43 @@ func TestAgentTurnRunnerRunsToolWhenCheckpointFails(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerDoesNotSendCheckpointForRejectedToolCall(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","message":"첫 작업입니다.","toolName":"schedule.create","toolInput":{"value":"one"}}`,
+		`{"action":"continue","message":"다시 실행합니다.","toolName":"schedule.create","toolInput":{"value":"one"}}`,
+		finishMessageDocument("done"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
+	toolRegistry := newTestToolSet([]string{"schedule.create"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("alpha result"), nil
+	})
+	checkpoints := []AgentCheckpoint{}
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		ToolSet:           toolRegistry,
+		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
+			checkpoints = append(checkpoints, checkpoint)
+			return nil
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if result.FinishMessage != "done" {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
+	}
+	if len(checkpoints) != 1 || checkpoints[0].Message != "첫 작업입니다." {
+		t.Fatalf("expected only accepted tool call checkpoint, got %+v", checkpoints)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.duplicate_tool_call_rejected", "schedule.create") {
+		t.Fatal("expected duplicate rejection event")
+	}
+}
+
 func TestCompletionGateRejectsFutureWorkPromiseWithoutScheduleEvidence(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGate(nil, nil, nil, turnActionDocument{
@@ -2308,6 +2345,49 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.expected_result_verification", "missing public URL") {
 		t.Fatal("expected result verification event")
+	}
+}
+
+func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		resultVerifications: []string{
+			`{"overallStatus":"satisfied","summary":"public URL exists","results":[{"id":"site-public-link","status":"satisfied","reason":"Publish returned a public URL.","citedObservationIDs":["obs-001"],"missingDescription":"","suggestedNextTools":[]}]}`,
+		},
+		contents: []string{
+			`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish"},"nextStepPlan":{"objective":"finish with public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
+			`{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.app.publish"}],"finishMessage":"배포했습니다: https://portfolio.example"}`,
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"site.app.publish", "file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"publishedURL":"https://portfolio.example"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "개인 홈페이지 배포해줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"file.attach"},
+		OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"file.attach"},
+			ExpectedResults: []ExpectedResult{{
+				ID:          "site-public-link",
+				Type:        ExpectedResultTypeLink,
+				Description: "사용자가 열 수 있는 public URL의 개인 홈페이지",
+				Required:    true,
+			}},
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected run to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if strings.Contains(result.FinishMessage, "첨부") {
+		t.Fatalf("expected link result, got %q", result.FinishMessage)
 	}
 }
 

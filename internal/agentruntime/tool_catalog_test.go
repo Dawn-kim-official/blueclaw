@@ -930,6 +930,37 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	}
 }
 
+func TestFileWriteAcceptsTextAliasAndSinglePathList(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]any{
+			"paths": []string{"home/projects/site/index.html"},
+			"text":  "<html>ready</html>",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if writeResult.Failed() {
+		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
+	}
+	document, errorValue := os.ReadFile(filepath.Join(workspacePath, "private", "people", "person-1", "projects", "site", "index.html"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if string(document) != "<html>ready</html>" {
+		t.Fatalf("expected text alias content to be written, got %q", string(document))
+	}
+}
+
 func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")

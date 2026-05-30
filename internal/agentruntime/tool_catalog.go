@@ -165,9 +165,11 @@ type mathCalculateToolInput struct {
 }
 
 type fileWriteToolInput struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-	Mode    uint32 `json:"mode"`
+	Path    string   `json:"path"`
+	Paths   []string `json:"paths"`
+	Content string   `json:"content"`
+	Text    string   `json:"text"`
+	Mode    uint32   `json:"mode"`
 }
 
 type fileAttachToolInput struct {
@@ -441,7 +443,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "file.write",
 			Description: "Write a UTF-8 text file under the Blueclaw workspace. Use this for markdown, scripts, and source files instead of shell redirection.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"text":{"type":"string","description":"Legacy alias for content."},"mode":{"type":"integer"}},"anyOf":[{"required":["path","content"]},{"required":["path","text"]},{"required":["paths","content"]},{"required":["paths","text"]}],"additionalProperties":false}`),
 		},
 		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)
@@ -1687,7 +1689,15 @@ func normalizeApprovalReasonCode(reasonCode string) string {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(input.Path, scope)
+	path, pathError := singleFileWritePath(input)
+	if pathError != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", pathError.Error()), nil
+	}
+	content, contentError := fileWriteContent(input)
+	if contentError != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", contentError.Error()), nil
+	}
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", errorValue.Error()), nil
 	}
@@ -1711,13 +1721,37 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue := workspaceActor.MkdirAll(toolContext, resolvedPath.Parent(), 02770); errorValue != nil {
 		return actorToolFailure("mkdir_all", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
-	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), fileMode); errorValue != nil {
+	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(content), fileMode); errorValue != nil {
 		return actorToolFailure("write_file", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"path":      resolvedPath.VirtualPath,
-		"sizeBytes": len(input.Content),
+		"sizeBytes": len(content),
 	})), nil
+}
+
+func singleFileWritePath(input fileWriteToolInput) (string, error) {
+	path := strings.TrimSpace(input.Path)
+	if path != "" {
+		return path, nil
+	}
+	if len(input.Paths) == 1 {
+		return strings.TrimSpace(input.Paths[0]), nil
+	}
+	if len(input.Paths) > 1 {
+		return "", errors.New("file.write accepts one path; use separate calls for multiple files")
+	}
+	return "", errors.New("path is required")
+}
+
+func fileWriteContent(input fileWriteToolInput) (string, error) {
+	if input.Content != "" {
+		return input.Content, nil
+	}
+	if input.Text != "" {
+		return input.Text, nil
+	}
+	return "", errors.New("content is required")
 }
 
 func isManagedSitePackageManifestPath(virtualPath string) bool {
