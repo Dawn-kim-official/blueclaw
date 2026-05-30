@@ -9,12 +9,21 @@ import (
 )
 
 type ToolDefinition struct {
-	Name            string          `json:"name"`
-	Description     string          `json:"description"`
-	InputSchema     json.RawMessage `json:"inputSchema,omitempty"`
-	OutputSchema    json.RawMessage `json:"outputSchema,omitempty"`
-	PolicyResource  string          `json:"policyResource,omitempty"`
-	SideEffectClass string          `json:"sideEffectClass,omitempty"`
+	Name            string           `json:"name"`
+	Description     string           `json:"description"`
+	RecoveryCard    ToolRecoveryCard `json:"recoveryCard,omitempty"`
+	InputSchema     json.RawMessage  `json:"inputSchema,omitempty"`
+	OutputSchema    json.RawMessage  `json:"outputSchema,omitempty"`
+	PolicyResource  string           `json:"policyResource,omitempty"`
+	SideEffectClass string           `json:"sideEffectClass,omitempty"`
+}
+
+type ToolRecoveryCard struct {
+	Does       string `json:"does,omitempty"`
+	Produces   string `json:"produces,omitempty"`
+	SideEffect string `json:"sideEffect,omitempty"`
+	UseWhen    string `json:"useWhen,omitempty"`
+	AvoidWhen  string `json:"avoidWhen,omitempty"`
 }
 
 type ToolInvocation struct {

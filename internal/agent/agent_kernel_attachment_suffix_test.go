@@ -85,6 +85,99 @@ func TestOutcomeContractCreatesExpectedResultsForRequestedFile(t *testing.T) {
 	}
 }
 
+func TestOutcomeContractTreatsWebsiteHTMLFormatAsPublicLink(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포해줘"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}},
+		InstructionBundle{},
+		ExecutionPlan{PublicDeploy: true},
+		true,
+		[]string{".html"},
+	)
+
+	if len(contract.RequiredAttachmentSuffixes) != 0 {
+		t.Fatalf("expected no html attachment requirement for site publish, got %+v", contract.RequiredAttachmentSuffixes)
+	}
+	if stringSliceContains(contract.RequiredEvidenceTools, "file.attach") {
+		t.Fatalf("expected no file.attach requirement for site publish, got %+v", contract.RequiredEvidenceTools)
+	}
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected site publish to require a public link, got %+v", contract.ExpectedResults)
+	}
+	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
+		t.Fatalf("expected site publish not to require an attached file, got %+v", contract.ExpectedResults)
+	}
+	if contract.ArtifactRequirement == ArtifactRequirementRequired {
+		t.Fatalf("expected no required artifact contract for site publish, got %+v", contract)
+	}
+	if contract.ArtifactRequirement != ArtifactRequirementNone {
+		t.Fatalf("expected no artifact workflow preference for site publish, got %+v", contract.ArtifactRequirement)
+	}
+}
+
+func TestOutcomeContractKeepsExplicitWebsiteHTMLFileRequest(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}},
+		InstructionBundle{},
+		ExecutionPlan{PublicDeploy: true},
+		true,
+		[]string{".html"},
+	)
+
+	if len(contract.RequiredAttachmentSuffixes) != 1 || contract.RequiredAttachmentSuffixes[0] != ".html" {
+		t.Fatalf("expected explicit html file request to keep suffix, got %+v", contract.RequiredAttachmentSuffixes)
+	}
+	if !stringSliceContains(contract.RequiredEvidenceTools, "file.attach") {
+		t.Fatalf("expected explicit html file request to require file.attach, got %+v", contract.RequiredEvidenceTools)
+	}
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected explicit site file request to still require public link, got %+v", contract.ExpectedResults)
+	}
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
+		t.Fatalf("expected explicit site file request to require attached file, got %+v", contract.ExpectedResults)
+	}
+}
+
+func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name: "direct-message",
+				Completion: SkillCompletion{
+					RequiredEvidenceTools: []string{"platform.dm.send"},
+				},
+			},
+			{
+				Name: "site-prototype",
+				Completion: SkillCompletion{
+					RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "site.app.publish"},
+				},
+			},
+		},
+		SkillDecisions: []SkillSelectionDecision{
+			{Name: "direct-message", Status: "selected"},
+			{Name: "site-prototype", Status: "selected"},
+		},
+	}
+
+	contract := outcomeContractForRequest(
+		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 URL만 알려줘"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask},
+		instructionBundle,
+		ExecutionPlan{PublicDeploy: true},
+		true,
+		nil,
+	)
+
+	if stringSliceContains(contract.RequiredEvidenceTools, "platform.dm.send") {
+		t.Fatalf("expected reply instruction not to require external send evidence, got %+v", contract.RequiredEvidenceTools)
+	}
+	if !stringSliceContains(contract.RequiredEvidenceTools, "site.app.publish") {
+		t.Fatalf("expected site publish evidence to remain required, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
 func expectedResultsContain(results []ExpectedResult, resultType string, descriptionFragment string) bool {
 	for _, result := range results {
 		if result.Type == resultType && strings.Contains(result.Description, descriptionFragment) {

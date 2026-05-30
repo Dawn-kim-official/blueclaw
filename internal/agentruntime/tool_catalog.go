@@ -355,7 +355,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "terminal.run",
 			Description: "Run a guarded non-interactive command inside the Blueclaw workspace.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"integer"}},"required":["command"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"number"}},"required":["command"]}`),
 		},
 		Handler: func(toolContext context.Context, input security.CommandRequest) (agent.ToolResult, error) {
 			return toolCatalogBuilder.runTerminalTool(toolContext, input, handlerContext)
@@ -366,7 +366,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "terminal.session",
 			Description: "Manage a PTY terminal session inside the Blueclaw workspace with action start, write, status, or close.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"integer"}},"required":["action"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"number"}},"required":["action"]}`),
 		},
 		Handler: func(toolContext context.Context, input terminalSessionToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.sessionTerminalTool(toolContext, input, handlerContext)
@@ -388,7 +388,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "site.app.build",
 			Description: "Build an editable InternKim site project from its canonical appWorkspacePath and return build evidence.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"},"appWorkspacePath":{"type":"string"},"timeoutSecond":{"type":"integer"}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"},"appWorkspacePath":{"type":"string"},"timeoutSecond":{"type":"number"}}}`),
 		},
 		Handler: func(toolContext context.Context, input siteAppBuildToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.buildSiteAppTool(toolContext, input, handlerContext)
@@ -437,7 +437,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "file.write",
 			Description: "Write a UTF-8 text file under the Blueclaw workspace. Use this for markdown, scripts, and source files instead of shell redirection.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"number"}},"required":["path","content"]}`),
 		},
 		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)
@@ -478,7 +478,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegist
 		Definition: agent.ToolDefinition{
 			Name:        "skill.search",
 			Description: "Search available Blueclaw skills by concise skill-need descriptions.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"integer"}},"required":["queries"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"number"}},"required":["queries"]}`),
 		},
 		Handler: func(toolContext context.Context, input skillSearchToolInput) (agent.SkillSearchResult, error) {
 			return toolCatalogBuilder.searchSkills(toolContext, input, handlerContext, availableToolSet)
@@ -491,7 +491,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerToolDescribeTool(toolRegis
 		Definition: agent.ToolDefinition{
 			Name:        "tool.describe",
 			Description: "Search or inspect available Blueclaw tools by exact name, prefix, or text query before requiring or calling them.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"toolName":{"type":"string"},"prefix":{"type":"string"},"limit":{"type":"integer"}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"toolName":{"type":"string"},"prefix":{"type":"string"},"limit":{"type":"number"}}}`),
 		},
 		Handler: func(_ context.Context, input toolDescribeToolInput) (map[string]any, error) {
 			return describeTools(input, availableToolSet), nil

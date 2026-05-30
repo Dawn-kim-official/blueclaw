@@ -100,7 +100,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillManagementTools(toolR
 		Definition: agent.ToolDefinition{
 			Name:        "skill.add",
 			Description: "Create or update a user-managed SKILL.md under /workspace/.agents/skills/<name>.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"]}}},"required":["name","content"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"resources":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"number"}},"required":["path","content"]}}},"required":["name","content"]}`),
 		},
 		Handler: toolCatalogBuilder.addSkillTool,
 		Result:  agent.IdentityToolResult,

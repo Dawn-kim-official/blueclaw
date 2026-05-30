@@ -10,7 +10,7 @@ import (
 const executionStateMaxCharacters = 2500
 const executionStateMaxKnownFacts = 8
 const executionStateMaxTriedAndFailed = 6
-const terminalObservationTailMaxLines = 5
+const terminalObservationTailMaxLines = 20
 const terminalObservationTailMaxCharacters = 2000
 
 type ExecutionState struct {
@@ -270,7 +270,6 @@ func executionStateSchema() map[string]any {
 			"currentBlocker": stringSchema(),
 			"nextPlan":       stringSchema(),
 		},
-		"additionalProperties": false,
 	}
 }
 
@@ -278,9 +277,6 @@ func stringArraySchema(maxItems int) map[string]any {
 	schema := map[string]any{
 		"type":  "array",
 		"items": stringSchema(),
-	}
-	if maxItems > 0 {
-		schema["maxItems"] = maxItems
 	}
 	return schema
 }

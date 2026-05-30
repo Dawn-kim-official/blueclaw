@@ -2427,7 +2427,6 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 	if errorValue != nil {
 		result.IsSatisfied = false
 		result.Message = "expected result verification unavailable: " + errorValue.Error()
-		result.SuggestedNextTools = expectedResultFallbackTools(request.OutcomeContract)
 		agentTurnRunner.appendEvent(taskRunID, "agent.expected_result_verification_unavailable", marshalEventBody(map[string]string{"error": errorValue.Error()}))
 		return result
 	}
@@ -2440,9 +2439,6 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 	result.IsSatisfied = false
 	result.Message = expectedResultGateMessage(missingResults)
 	result.SuggestedNextTools = suggestedNextToolsForResultVerification(missingResults)
-	if len(result.SuggestedNextTools) == 0 {
-		result.SuggestedNextTools = expectedResultFallbackTools(request.OutcomeContract)
-	}
 	return result
 }
 
@@ -2464,6 +2460,16 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
+	if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(attachments) == 0 {
+		return completionGateResult{
+			Message: "required file expected result must cite file.attach completionEvidence",
+		}
+	}
+	if missingSuffix := missingRequiredAttachmentSuffix(attachments, request.OutcomeContract.RequiredAttachmentSuffixes); len(attachments) > 0 && missingSuffix != "" {
+		return completionGateResult{
+			Message: "required file expected result must include attachment suffix " + missingSuffix,
+		}
+	}
 	if errorValue := validateQualityReview(criteria, actionDocument.QualityReview, observations); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
@@ -2482,6 +2488,21 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 		result.Attachments = nil
 	}
 	return result
+}
+
+func expectedResultRequiresFileAttachment(contract OutcomeContract) bool {
+	if strings.TrimSpace(contract.ArtifactRequirement) == ArtifactRequirementRequired {
+		return true
+	}
+	if len(contract.RequiredAttachmentSuffixes) > 0 {
+		return true
+	}
+	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
+		if result.Required && result.Type == ExpectedResultTypeFile {
+			return true
+		}
+	}
+	return false
 }
 
 func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
@@ -2519,21 +2540,6 @@ func expectedResultGateMessage(results []ResultVerificationItem) string {
 		parts = append(parts, strings.TrimSpace(result.ID)+": "+strings.TrimSpace(description))
 	}
 	return "finish is missing required expected result: " + strings.Join(parts, "; ")
-}
-
-func expectedResultFallbackTools(contract OutcomeContract) []string {
-	toolNames := []string{}
-	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
-		switch result.Type {
-		case ExpectedResultTypeFile:
-			toolNames = appendUniqueStrings(toolNames, "file.attach", "file.read", "terminal.run")
-		case ExpectedResultTypeLink:
-			toolNames = appendUniqueStrings(toolNames, "site.app.status", "site.app.publish", "browser.open", "browser.snapshot")
-		default:
-			toolNames = appendUniqueStrings(toolNames, "conversation.history")
-		}
-	}
-	return toolNames
 }
 
 func hasDurableArtifactAttachment(attachments []FileAttachment) bool {
@@ -2590,7 +2596,7 @@ func completionGateObservation(index int, message string) turnObservation {
 }
 
 func withCompletionGateRecoveryPacket(observation turnObservation, result completionGateResult) turnObservation {
-	if len(result.SuggestedNextTools) == 0 {
+	if strings.TrimSpace(result.Message) == "" && len(result.SuggestedNextTools) == 0 {
 		return observation
 	}
 	observation.RecoveryPacket = &RecoveryPacket{
@@ -2598,7 +2604,6 @@ func withCompletionGateRecoveryPacket(observation turnObservation, result comple
 		WhyLikely:        result.Message,
 		FailureClass:     failureClassUnknown,
 		RetryPolicy:      retryPolicyAfterPrecondition,
-		AllowedTools:     appendUniqueStrings(result.SuggestedNextTools),
 		EvidenceNeeded:   expectedResultRecoveryEvidence(result),
 		MustDoNext:       []string{"Produce or inspect the missing expected result, then try finish again."},
 		ForbiddenRepeats: nil,

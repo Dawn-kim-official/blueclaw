@@ -29,7 +29,6 @@ func buildRecoveryPacket(observation turnObservation) RecoveryPacket {
 		WhyLikely:           recoveryWhyLikely(observation, failureClass),
 		FailureClass:        failureClass,
 		RetryPolicy:         retryPolicyForObservation(observation),
-		AllowedTools:        recoveryAllowedTools(observation, failureClass),
 		ForbiddenRepeats:    recoveryForbiddenRepeats(observation),
 		EvidenceNeeded:      recoveryEvidenceNeeded(observation),
 		MustDoNext:          recoveryMustDoNext(observation, failureClass),
@@ -117,30 +116,6 @@ func recoveryWhyLikely(observation turnObservation, failureClass string) string 
 	}
 }
 
-func recoveryAllowedTools(observation turnObservation, failureClass string) []string {
-	toolNames := []string{}
-	if observation.Failure != nil {
-		for _, recoveryHint := range observation.Failure.RecoveryHints {
-			toolNames = append(toolNames, recoveryHint.ToolNames...)
-		}
-	}
-	switch failureClass {
-	case failureClassQuality:
-		toolNames = append(toolNames, "file.read", "file.write", "artifact.review", strings.TrimSpace(observation.Tool))
-	case failureClassWorkspace:
-		toolNames = append(toolNames, "site.app.status", "site.app.repair", "terminal.run", strings.TrimSpace(observation.Tool))
-	case failureClassDependency:
-		toolNames = append(toolNames, "terminal.run", "tool.describe", "skill.search", strings.TrimSpace(observation.Tool))
-	case failureClassPermission:
-		toolNames = append(toolNames, "ask.confirm", "ask.input")
-	case failureClassUserInput:
-		toolNames = append(toolNames, "ask.input", "ask.choice")
-	default:
-		return nil
-	}
-	return appendUniqueRecoveryStrings(toolNames)
-}
-
 func recoveryForbiddenRepeats(observation turnObservation) []string {
 	if strings.TrimSpace(observation.Tool) == "" {
 		return nil
@@ -179,11 +154,11 @@ func recoveryMustDoNext(observation turnObservation, failureClass string) []stri
 	}
 	switch failureClass {
 	case failureClassQuality:
-		return []string{"Inspect affected resources.", "Edit the source artifact.", "Retry the failed tool only after source_changed evidence exists."}
+		return []string{"Inspect the failed output or source.", "Change the artifact source or route before retrying.", "Retry the failed tool only after relevant change evidence exists."}
 	case failureClassWorkspace:
-		return []string{"Resolve canonical workspace status.", "Repair or switch to an existing workspace path.", "Retry only after workspace_repaired or path_changed evidence exists."}
+		return []string{"Inspect the workspace facts.", "Change or repair the inaccessible path before retrying.", "Retry only after workspace_changed evidence exists."}
 	case failureClassDependency:
-		return []string{"Use the skill runtime wrapper or install dependencies in the allowed workspace cache.", "Retry only after dependency_changed evidence exists."}
+		return []string{"Inspect the dependency failure.", "Change runtime setup, command, cache, or route before retrying.", "Retry only after dependency_changed evidence exists."}
 	default:
 		return []string{"Change tool input, route, or use an adjacent tool before retrying."}
 	}
@@ -199,10 +174,6 @@ func requiredPreconditionsForObservation(observation turnObservation) []string {
 func recoveryChoiceIsAllowed(failureDebt FailureDebt, observations []turnObservation, toolName string) (bool, string) {
 	failedObservation := failureDebt.LatestFailure
 	trimmedToolName := strings.TrimSpace(toolName)
-	packet := buildRecoveryPacket(failedObservation)
-	if len(packet.AllowedTools) > 0 && !containsRecoveryString(packet.AllowedTools, trimmedToolName) {
-		return false, "RecoveryPacket allows only these tools next: " + strings.Join(packet.AllowedTools, ", ")
-	}
 	if strings.TrimSpace(failedObservation.Tool) == trimmedToolName {
 		missingPreconditions := missingRecoveryPreconditions(failedObservation, observations)
 		if len(missingPreconditions) > 0 {
@@ -291,13 +262,4 @@ func appendUniqueRecoveryStrings(values []string) []string {
 		uniqueValues = append(uniqueValues, trimmedValue)
 	}
 	return uniqueValues
-}
-
-func containsRecoveryString(values []string, expectedValue string) bool {
-	for _, value := range values {
-		if strings.TrimSpace(value) == strings.TrimSpace(expectedValue) {
-			return true
-		}
-	}
-	return false
 }
