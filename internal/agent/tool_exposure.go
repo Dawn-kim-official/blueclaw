@@ -8,7 +8,7 @@ import (
 	"blueclaw/internal/llm"
 )
 
-const maxSchemaCallableToolCount = 20
+const maxSchemaCallableToolCount = 8
 
 type toolExposureGroup struct {
 	Name    string
@@ -388,8 +388,8 @@ func selectedAndPinnedSkillToolNames(instructionBundle InstructionBundle, pinned
 }
 
 func activeGoalCandidateToolNames(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) []string {
-	toolNames := append([]string{}, outcomeContractRequiredToolNames(outcomeContract)...)
-	toolNames = appendUniqueStrings(toolNames, outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract)...)
+	toolNames := append([]string{}, outcomeContractToolNames(outcomeContract)...)
+	toolNames = appendUniqueStrings(toolNames, outcomeContractToolNames(request.ActiveGoal.OutcomeContract)...)
 	if promptLooksLikeCalendarRequest(request.Prompt) {
 		toolNames = appendUniqueStrings(toolNames, "calendar.event.add", "calendar.event.delete")
 	}

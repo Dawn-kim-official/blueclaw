@@ -23,7 +23,7 @@ type EffortLimitProfile struct {
 
 var effortLimitProfiles = []EffortLimitProfile{
 	{EffortLevel: EffortLevelQuick, Duration: time.Minute, MaxIterationCount: 4, MaxToolCallCount: 1},
-	{EffortLevel: EffortLevelStandard, Duration: 10 * time.Minute, MaxIterationCount: 24, MaxToolCallCount: 8},
+	{EffortLevel: EffortLevelStandard, Duration: 10 * time.Minute, MaxIterationCount: 24, MaxToolCallCount: 12},
 	{EffortLevel: EffortLevelDeep, Duration: 30 * time.Minute, MaxIterationCount: 90, MaxToolCallCount: 32},
 	{EffortLevel: EffortLevelExtended, Duration: 2 * time.Hour, MaxIterationCount: 140, MaxToolCallCount: 64},
 }
