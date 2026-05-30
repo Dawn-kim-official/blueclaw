@@ -741,6 +741,45 @@ func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 	}
 }
 
+func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"tool_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"needs tool","userFacingReply":""}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","message":"확인 중입니다.","toolName":"alpha","toolInput":{"value":"one"},"nextStepPlan":{"objective":"finish after alpha","expectedTools":[],"doneCriteria":["alpha succeeds"],"risk":"none","workingSetReason":"alpha provides the answer"}}`,
+		finishMessageWithEvidence("done", "obs-002", "alpha", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	toolRegistry := newTestToolSet([]string{"alpha"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("alpha result"), nil
+	})
+	checkpoints := []AgentCheckpoint{}
+
+	result, errorValue := services.kernel.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "확인해줘",
+		ToolSet:           toolRegistry,
+		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
+			checkpoints = append(checkpoints, checkpoint)
+			return nil
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected task to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if len(checkpoints) != 1 || checkpoints[0].Message != "확인 중입니다." {
+		t.Fatalf("expected checkpoint sender to be preserved, got %+v", checkpoints)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.sent", "alpha") {
+		t.Fatal("expected checkpoint sent event")
+	}
+}
+
 func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"quick with useful tool","userFacingReply":""}`,

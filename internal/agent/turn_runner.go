@@ -933,7 +933,7 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(ctx context.Context, requ
 func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan, requirements []toolUseRequirement) AgentTurnRequest {
 	normalizedPlan := normalizeNextStepPlan(plan)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, normalizedPlan.ExpectedTools...)
-	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, requiredToolNamesForStepWorkingSet(requirements)...)
+	request.OutcomeContract.RequiredEvidenceTools = appendUniqueStrings(request.OutcomeContract.RequiredEvidenceTools, requiredToolNamesForStepWorkingSet(requirements)...)
 	if requestLooksLikeCalendarStep(request) {
 		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, "calendar.event.add", "calendar.event.delete")
 	}
@@ -1008,6 +1008,7 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 		InstructionPrompt:      request.InstructionPrompt,
 		ActiveGoal:             request.ActiveGoal,
 		TurnStartedAt:          request.TurnStartedAt,
+		CheckpointSender:       request.CheckpointSender,
 	}
 }
 

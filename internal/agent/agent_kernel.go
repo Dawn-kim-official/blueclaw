@@ -203,6 +203,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		ActiveGoal:              request.ActiveGoal,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
 		TurnStartedAt:           request.TurnStartedAt,
+		CheckpointSender:        request.CheckpointSender,
 	})
 }
 
@@ -291,6 +292,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		TurnStartedAt:              request.TurnStartedAt,
+		CheckpointSender:           request.CheckpointSender,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 

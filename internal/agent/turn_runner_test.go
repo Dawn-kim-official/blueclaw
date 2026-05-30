@@ -2161,6 +2161,59 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 	}
 }
 
+func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *testing.T) {
+	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	toolRegistry := newTestToolSet([]string{
+		"site.app.status",
+		"site.app.create",
+		"file.write",
+		"terminal.run",
+		"site.app.build",
+		"artifact.review",
+		"site.app.publish",
+		"file.attach",
+	})
+	request := AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "김인턴 너의 개인 홈페이지 하나 만들어서 배포해봐.",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "site.app.publish", "file.attach"},
+		AvailableSkills: []SkillInstruction{{
+			Name: "site-prototype",
+			AllowedTools: []string{
+				"site.app.status",
+				"site.app.create",
+				"file.write",
+				"terminal.run",
+				"site.app.build",
+				"artifact.review",
+				"site.app.publish",
+				"file.attach",
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		ActiveGoal: ActiveGoal{
+			OriginalInstruction: "김인턴 너의 개인 홈페이지 하나 만들어서 배포해봐.",
+			Status:              ActiveGoalStatusActive,
+			OutcomeContract: OutcomeContract{
+				RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "site.app.publish", "file.attach"},
+				ArtifactRequirement:   ArtifactRequirementRequired,
+			},
+		},
+	}
+
+	stepRequest := services.runner.requestForStep(context.Background(), request, agentTaskState{Request: request})
+	for _, toolName := range []string{"site.app.status", "site.app.create", "file.write", "site.app.build", "artifact.review", "site.app.publish"} {
+		if !stepRequest.ToolSet.CanExpose(toolName) {
+			t.Fatalf("expected initial site working set to expose %s, got %+v", toolName, stepRequest.ToolExposure.ExposedToolIDs)
+		}
+	}
+	if strings.Contains(stepRequest.ToolExposure.SelectionReason, "recovery/pinned") {
+		t.Fatalf("required evidence tools must not be treated as pinned recovery tools: %+v", stepRequest.ToolExposure)
+	}
+}
+
 func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		toolSelections: []string{
