@@ -1052,7 +1052,7 @@ func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
 	if errorValue := os.MkdirAll(financeDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.pdf"), "secret")
+	writeTestFile(t, filepath.Join(financeDirectoryPath, "report.md"), "secret")
 	httpClient := &recordingHTTPClient{responseBody: `{"content":"# Report","status":"ok","result":{"content":"# Report"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -1072,17 +1072,17 @@ func TestFileReadCapabilityAllowCirclePathForMember(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "/workspace/circles/finance/report.pdf",
+			"path": "/workspace/circles/finance/report.md",
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.Failed() || result.ContentText() != "# Report" {
+	if result.Failed() || !strings.Contains(result.ContentText(), `"content":"secret"`) {
 		t.Fatalf("expected file.read success, got %+v", result)
 	}
-	if httpClient.requestPath != "/v1/tools/file.read/invoke" {
-		t.Fatalf("expected capability bridge call, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
+	if httpClient.requestPath != "" {
+		t.Fatalf("expected built-in file.read not to call capability bridge, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
 	}
 }
 
@@ -1590,7 +1590,7 @@ func TestSiteBuildQualityGateFailureIncludesRecoveryTargets(t *testing.T) {
 	if result.Failure.Code != "operation_failed" || result.Failure.FailureClass != "fixable_artifact_quality" || result.Failure.RetryPolicy != "after_precondition" || !result.Failure.Retryable {
 		t.Fatalf("expected retryable site quality failure, got %+v", result.Failure)
 	}
-	if !containsTestString(result.Failure.RequiredPreconditions, "source_changed") || len(result.Failure.AffectedResources) == 0 || result.Failure.AffectedResources[0].Path != "src/App.tsx" {
+	if !containsTestString(result.Failure.RequiredPreconditions, "source_changed") || len(result.Failure.AffectedResources) == 0 || result.Failure.AffectedResources[0].Path != "/workspace/sites/site-1/app/src/App.tsx" {
 		t.Fatalf("expected source_changed precondition and affected source, got %+v", result.Failure)
 	}
 	content := result.ContentText()
@@ -1605,7 +1605,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site description","idea":"Demo site idea","purpose":"portfolio","audience":"buyers","archetype":"portfolio","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"home/sites/site-1","workspacePath":"home/sites/site-1","status":"draft","ownerIdentity":{"personID":"person-1","displayName":"Owner"}}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "file.read"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
 		Name:           "site.app.create",
 		PolicyResource: "tool:site.app.create",
@@ -1663,6 +1663,18 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"/workspace/sites/site-1"`) ||
 		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/sites/site-1/app"`) {
 		t.Fatalf("expected virtual source workspace in result, got %s", result.ContentText())
+	}
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "/workspace/sites/site-1/app/src/App.tsx",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() || !strings.Contains(readResult.ContentText(), "function App") {
+		t.Fatalf("expected file.read to inspect materialized site source, got %s", readResult.ContentText())
 	}
 }
 

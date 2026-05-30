@@ -80,6 +80,27 @@ func TestPromptAssemblerIncludesRawToolResultSummary(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblerIncludesCheckpointMessages(t *testing.T) {
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "checkpoint",
+		Output:        ToolOutput{Content: `{"message":"사이트 스캐폴드를 만들고 있습니다.","status":"sent"}`},
+		Summary:       "사이트 스캐폴드를 만들고 있습니다.",
+	}}
+
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt: "개인 홈페이지 만들어줘",
+	}, observations, buildAgentSystemInstruction(AgentTurnRequest{}), "")
+	body := joinMessageContent(messages)
+
+	if !strings.Contains(body, "checkpointMessages") || !strings.Contains(body, "사이트 스캐폴드를 만들고 있습니다.") {
+		t.Fatalf("expected checkpoint messages in progress context, got %s", body)
+	}
+	if !strings.Contains(body, "not as a fresh reply") {
+		t.Fatalf("expected checkpoint continuity instruction, got %s", body)
+	}
+}
+
 func TestPromptAssemblerIncludesTurnDateContext(t *testing.T) {
 	turnStartedAt := time.Date(2026, time.May, 8, 18, 1, 10, 0, time.UTC)
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{

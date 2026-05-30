@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
@@ -160,6 +161,11 @@ type askInputToolInput struct {
 
 type mathCalculateToolInput struct {
 	Expression string `json:"expression"`
+}
+
+type fileReadToolInput struct {
+	Path           string `json:"path"`
+	MaxOutputBytes int    `json:"maxOutputBytes"`
 }
 
 type fileWriteToolInput struct {
@@ -444,6 +450,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		},
 		Result: agent.IdentityToolResult,
 	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileReadToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "file.read",
+			Description: "Read a UTF-8 text file from the Blueclaw workspace. Use this to inspect source files, design docs, build reports, and other editable workspace text.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"maxOutputBytes":{"type":"integer"}},"required":["path"]}`),
+		},
+		Handler: func(toolContext context.Context, input fileReadToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
+	})
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileAttachToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "file.attach",
@@ -661,6 +678,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 	for _, capabilityToolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
 		toolDescriptor := capabilityToolDescriptor
 		toolName := toolDescriptor.Name
+		if toolName == "file.read" {
+			continue
+		}
 		toolRegistry.RegisterBoundTool(agent.BoundTool{
 			Definition: agent.ToolDefinition{
 				Name:            toolName,
@@ -947,9 +967,10 @@ func siteBuildQualityGateFailure(ctx context.Context, workspaceActor security.Wo
 		"qualityPath":         qualityPath.VirtualPath,
 		"blockingIssueCount":  blockingIssueCount,
 		"issues":              quality["issues"],
+		"editableTargets":     siteQualityEditableTargets(quality, appWorkspace),
 		"requiredNextSteps": []string{
-			"Use file.read on the listed target files.",
-			"Use file.write to remove every blocking scaffold/template smell or missing content model.",
+			"Use file.read on one of editableTargets.",
+			"Use file.write on the same editable target to remove every blocking scaffold/template smell or missing content model.",
 			"Run site.app.build again only after source files changed.",
 		},
 		"doNotDo":       []string{"Do not ask an administrator to inspect the quality gate.", "Do not repeat site.app.build without editing the target files first."},
@@ -973,12 +994,12 @@ func siteBuildQualityGateFailure(ctx context.Context, workspaceActor security.Wo
 		ContentType: "application/json",
 		Description: "Site build quality report with blocking issues.",
 	}}
-	result.Failure.AffectedResources = siteQualityAffectedResources(quality)
+	result.Failure.AffectedResources = siteQualityAffectedResources(quality, appWorkspace)
 	result.Failure.Retryable = true
 	return &result
 }
 
-func siteQualityAffectedResources(quality map[string]any) []agent.AffectedResource {
+func siteQualityAffectedResources(quality map[string]any, appWorkspace workspacepath.Path) []agent.AffectedResource {
 	issues, isSlice := quality["issues"].([]any)
 	if !isSlice {
 		return nil
@@ -995,12 +1016,35 @@ func siteQualityAffectedResources(quality map[string]any) []agent.AffectedResour
 			continue
 		}
 		resources = append(resources, agent.AffectedResource{
-			Path:   strings.TrimSpace(target),
+			Path:   siteQualityEditableTargetPath(appWorkspace, target),
 			Role:   "source",
 			Reason: strings.TrimSpace(message),
 		})
 	}
 	return resources
+}
+
+func siteQualityEditableTargets(quality map[string]any, appWorkspace workspacepath.Path) []string {
+	resources := siteQualityAffectedResources(quality, appWorkspace)
+	targets := []string{}
+	for _, resource := range resources {
+		if strings.TrimSpace(resource.Path) != "" {
+			targets = append(targets, strings.TrimSpace(resource.Path))
+		}
+	}
+	return stableUniqueStrings(targets)
+}
+
+func siteQualityEditableTargetPath(appWorkspace workspacepath.Path, target string) string {
+	cleanTarget := filepath.ToSlash(filepath.Clean(strings.TrimSpace(target)))
+	cleanTarget = strings.TrimPrefix(cleanTarget, "/")
+	if cleanTarget == "." || cleanTarget == "" {
+		return appWorkspace.VirtualPath
+	}
+	if strings.HasPrefix(cleanTarget, "app/") {
+		return filepath.ToSlash(filepath.Join(filepath.Dir(appWorkspace.VirtualPath), cleanTarget))
+	}
+	return filepath.ToSlash(filepath.Join(appWorkspace.VirtualPath, cleanTarget))
 }
 
 func siteBlockingIssueCount(quality map[string]any) (int, bool) {
@@ -1720,6 +1764,46 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"path":      resolvedPath.VirtualPath,
 		"sizeBytes": len(input.Content),
+	})), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.Context, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	path := strings.TrimSpace(input.Path)
+	if path == "" {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path is required"), nil
+	}
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", errorValue.Error()), nil
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read", "current account cannot read this file"), nil
+	}
+	maxOutputBytes := input.MaxOutputBytes
+	if maxOutputBytes <= 0 || maxOutputBytes > 1024*1024 {
+		maxOutputBytes = 128 * 1024
+	}
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return *actorFailure, nil
+	}
+	content, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, int64(maxOutputBytes+1))
+	if errorValue != nil {
+		return actorToolFailure("read_file", "file_read", resolvedPath.VirtualPath, errorValue), nil
+	}
+	isTruncated := len(content) > maxOutputBytes
+	if isTruncated {
+		content = content[:maxOutputBytes]
+	}
+	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use a specialized document or artifact tool for binary files"), nil
+	}
+	return agent.ToolSuccess(marshalToolResult(map[string]any{
+		"path":        resolvedPath.VirtualPath,
+		"content":     string(content),
+		"sizeBytes":   len(content),
+		"isTruncated": isTruncated,
 	})), nil
 }
 
