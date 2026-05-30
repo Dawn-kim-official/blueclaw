@@ -258,7 +258,12 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
-	turnToolSet = toolSetForAgentTurn(turnToolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract)
+	toolSelectionRequest := buildToolSelectionRequest(turnToolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract)
+	toolSelectionDecision, toolExposureEvent := ToolSelectionDecision{}, ToolExposureEvent{}
+	if shouldSelectOptionalToolsWithModel(toolSelectionRequest) {
+		toolSelectionDecision, toolExposureEvent = NewToolSelectionRouter(agentKernel.languageModel).Select(responseContext, toolSelectionRequest)
+	}
+	turnToolSet, toolExposureEvent = toolSetForAgentTurnWithExposure(turnToolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, toolSelectionDecision, toolExposureEvent)
 
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
@@ -290,6 +295,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
 		OutcomeContract:            outcomeContract,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
+		ToolExposure:               toolExposureEvent,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		TurnStartedAt:              request.TurnStartedAt,
 	}
@@ -516,23 +522,6 @@ func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBun
 	return toolSet.WithAllowedToolNames(toolNamesForSelectedSkills(instructionBundle))
 }
 
-func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
-	if toolSet == nil {
-		return nil
-	}
-	if !turnToolSelectionIsConstrained(instructionBundle, outcomeContract) {
-		return toolSetForOutcomeReference(toolSet, request, executionPlan, hasExecutionPlan, outcomeContract)
-	}
-	allowedToolNames := []string{}
-	selectedSkillToolNames := selectedAndPinnedSkillToolNameSet(instructionBundle, request.PinnedSkillNames)
-	for _, toolName := range toolNamesForAgentTurn(instructionBundle, outcomeContract, request) {
-		if shouldExposeToolForOutcome(toolName, request, executionPlan, hasExecutionPlan, outcomeContract) || selectedSkillToolShouldExpose(toolName, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract) {
-			allowedToolNames = appendUniqueStrings(allowedToolNames, toolName)
-		}
-	}
-	return toolSet.WithAllowedToolNames(allowedToolNames).WithAdditionalAllowedToolNames(appendUniqueStrings(request.PinnedToolNames, pinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)...))
-}
-
 func turnToolSelectionIsConstrained(instructionBundle InstructionBundle, outcomeContract OutcomeContract) bool {
 	for _, skillDecision := range instructionBundle.SkillDecisions {
 		if skillDecision.Status == "selected" {
@@ -585,6 +574,9 @@ func selectedSkillToolShouldExpose(toolName string, selectedSkillToolNames map[s
 		return false
 	}
 	if isSendEvidenceTool(trimmedToolName) {
+		if activeGoalMentionsTool(request.ActiveGoal, trimmedToolName) {
+			return true
+		}
 		return outcomeAllowsExternalSendTools(request, executionPlan, hasExecutionPlan, outcomeContract)
 	}
 	return true
@@ -683,7 +675,7 @@ func universalAgentToolNames() []string {
 }
 
 func coreAgentToolNames() []string {
-	return []string{"conversation.history", "memory.search", "ask.confirm", "ask.choice", "ask.input", "skill.search", "tool.describe"}
+	return []string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"}
 }
 
 func genericBuiltInToolNames() []string {
