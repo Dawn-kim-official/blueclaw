@@ -395,7 +395,6 @@ func filterGroupToolsForTurn(toolSet *ToolSet, group toolExposureGroup, selected
 func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {
 	toolNames := append([]string{}, request.PinnedToolNames...)
 	toolNames = appendUniqueStrings(toolNames, pinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)...)
-	toolNames = appendUniqueStrings(toolNames, outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract)...)
 	toolNames = appendUniqueStrings(toolNames, recoveryToolNamesFromObservations(observations)...)
 	return toolNames
 }

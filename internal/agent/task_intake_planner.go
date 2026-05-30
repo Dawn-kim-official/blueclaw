@@ -102,6 +102,7 @@ type AgentRequest struct {
 	AllowGiveUpReason       string
 	PrecomputedTurnDecision *TurnDecision
 	TurnStartedAt           time.Time
+	CheckpointSender        AgentCheckpointSender
 }
 
 type PendingConfirmationContext struct {
