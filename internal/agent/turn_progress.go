@@ -16,6 +16,7 @@ type TurnProgress struct {
 	Goal                          string                `json:"goal"`
 	CompletedSteps                []ProgressObservation `json:"completedSteps,omitempty"`
 	FailedOrBlockedSteps          []ProgressObservation `json:"failedOrBlockedSteps,omitempty"`
+	CheckpointMessages            []string              `json:"checkpointMessages,omitempty"`
 	LastSuccessfulObservationID   string                `json:"lastSuccessfulObservationID,omitempty"`
 	LastSuccessfulObservationTool string                `json:"lastSuccessfulObservationTool,omitempty"`
 	AttachmentCandidates          []ProgressAttachment  `json:"attachmentCandidates,omitempty"`
@@ -74,6 +75,7 @@ func buildTurnProgress(request AgentTurnRequest, observations []turnObservation)
 		Goal:          "Answer the current user request.",
 		RemainingWork: "Continue from the latest observation and complete the user's request.",
 	}
+	progress.CheckpointMessages = checkpointMessages(observations)
 	for _, observation := range compactProgressObservations(observations) {
 		if observation.Status == "success" {
 			progress.CompletedSteps = append(progress.CompletedSteps, observation)
@@ -104,6 +106,20 @@ func buildTurnProgress(request AgentTurnRequest, observations []turnObservation)
 	return progress
 }
 
+func checkpointMessages(observations []turnObservation) []string {
+	messages := []string{}
+	for _, observation := range observations {
+		if observation.Action != "checkpoint" {
+			continue
+		}
+		message := strings.TrimSpace(checkpointObservationMessage(observation))
+		if message != "" {
+			messages = append(messages, message)
+		}
+	}
+	return messages
+}
+
 func completionRemainingWork(completionState CompletionState, fallback string) string {
 	switch completionState.RecommendedAction {
 	case completionActionAttachExistingArtifacts:
@@ -122,6 +138,9 @@ func completionRemainingWork(completionState CompletionState, fallback string) s
 func compactProgressObservations(observations []turnObservation) []ProgressObservation {
 	compactedObservations := []ProgressObservation{}
 	for _, observation := range observations {
+		if observation.Action == "checkpoint" {
+			continue
+		}
 		progressObservation := summarizeObservation(observation)
 		index := len(compactedObservations) - 1
 		if index >= 0 && progressObservationSignature(compactedObservations[index]) == progressObservationSignature(progressObservation) {
