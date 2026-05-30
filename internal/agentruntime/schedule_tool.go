@@ -61,7 +61,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.create",
 			Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. Use expiresAt for requests that say until/by/까지만/까지. Set maxRunCount for finite repeats. High-frequency or third-party external repeated sends must include expiresAt or maxRunCount.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","executionMode","kind"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"integer"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"integer"}},"required":["prompt","executionMode","kind"]}`),
 		},
 		Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
@@ -72,7 +72,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.cancel",
 			Description: "Cancel active scheduled tasks and pending approval or user-input waits created by the current requester. Use scope mine for all requester schedules, currentConversation for this conversation, and scheduleIDs for explicit schedule IDs. Cancellation expires records instead of deleting audit history.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","enum":["currentConversation","mine","scheduleIDs"]},"scheduleIDs":{"type":"array","items":{"type":"string"}}},"required":["scope"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","enum":["currentConversation","mine","scheduleIDs"]},"scheduleIDs":{"type":"array","items":{"type":"string"}}},"required":["scope"]}`),
 		},
 		Handler: func(toolContext context.Context, input scheduleCancelToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.cancelScheduleTool(toolContext, input, handlerContext)

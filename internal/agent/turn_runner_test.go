@@ -879,18 +879,15 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
-			Paths []string `json:"paths"`
+			Path string `json:"path"`
 		}
 		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
 			return ToolResult{}, errorValue
 		}
-		attachments := []FileAttachment{}
-		for _, path := range request.Paths {
-			attachments = append(attachments, FileAttachment{
-				DevicePath: path,
-				Filename:   filepath.Base(path),
-			})
-		}
+		attachments := []FileAttachment{{
+			DevicePath: request.Path,
+			Filename:   filepath.Base(request.Path),
+		}}
 		return ToolResult{Output: ToolOutput{Content: "file attached"}, Attachments: attachments}, nil
 	})
 
@@ -946,15 +943,12 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
-			Paths []string `json:"paths"`
+			Path string `json:"path"`
 		}
 		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
 			return ToolResult{}, errorValue
 		}
-		attachments := []FileAttachment{}
-		for _, path := range request.Paths {
-			attachments = append(attachments, FileAttachment{DevicePath: path, Filename: filepath.Base(path)})
-		}
+		attachments := []FileAttachment{{DevicePath: request.Path, Filename: filepath.Base(request.Path)}}
 		return ToolResult{Output: ToolOutput{Content: "file attached"}, Attachments: attachments}, nil
 	})
 
@@ -1084,15 +1078,12 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 	toolRegistry := newTestToolSet([]string{"file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
-			Paths []string `json:"paths"`
+			Path string `json:"path"`
 		}
 		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
 			return ToolResult{}, errorValue
 		}
-		attachments := []FileAttachment{}
-		for _, path := range request.Paths {
-			attachments = append(attachments, FileAttachment{DevicePath: path, Filename: filepath.Base(path)})
-		}
+		attachments := []FileAttachment{{DevicePath: request.Path, Filename: filepath.Base(request.Path)}}
 		return ToolResult{Output: ToolOutput{Content: "file attached"}, Attachments: attachments}, nil
 	})
 
@@ -1322,8 +1313,8 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 	failProperties := mapFromAny(failVariant["properties"])
 	usedFailureFacts := mapFromAny(failProperties["usedFailureFacts"])
 	attempts := mapFromAny(mapFromAny(usedFailureFacts["properties"])["attempts"])
-	if attempts["minItems"] != float64(1) {
-		t.Fatalf("expected usedFailureFacts.attempts minItems=1, got %+v", attempts["minItems"])
+	if attempts["type"] != "array" {
+		t.Fatalf("expected usedFailureFacts.attempts array schema, got %+v", attempts)
 	}
 }
 
@@ -2098,7 +2089,7 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"ask.confirm","toolInput":{"message":"배포는 외부 영향이 있는 작업이므로 확인이 필요합니다."}}`,
+		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"배포는 외부 영향이 있는 작업이므로 확인이 필요합니다.","reasonCode":"external_send"}}`,
 		`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish prototype"}}`,
 		finishMessageWithEvidence("배포했습니다.", "obs-002", "site.app.publish", 0),
 	}}
@@ -2516,7 +2507,7 @@ func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) 
 
 func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"ask.confirm","toolInput":{"message":"동하 님에게 DM을 보내도 될까요?","reason":"external send"}}`,
+		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"동하 님에게 DM을 보내도 될까요?","reasonCode":"external_send","reasonDetail":"external send"}}`,
 		finishMessageDocument("승인 요청했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})

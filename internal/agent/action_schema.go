@@ -56,8 +56,7 @@ func requireCapabilitiesActionSchema() map[string]any {
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
 		},
-		"required":             []string{"action", "toolNames", "skillNames", "executionStateUpdate"},
-		"additionalProperties": false,
+		"required": []string{"action", "toolNames", "skillNames", "executionStateUpdate"},
 	}
 }
 
@@ -81,8 +80,7 @@ func finishActionSchema(hasFailureDebt bool) map[string]any {
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
 		},
-		"required":             requiredFields,
-		"additionalProperties": false,
+		"required": requiredFields,
 	}
 }
 
@@ -98,8 +96,7 @@ func setQualityCriteriaActionSchema() map[string]any {
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
 		},
-		"required":             []string{"action", "qualityCriteria", "executionStateUpdate"},
-		"additionalProperties": false,
+		"required": []string{"action", "qualityCriteria", "executionStateUpdate"},
 	}
 }
 
@@ -119,10 +116,9 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 		requiredFields = append(requiredFields, "failureResolution", "usedFailureFacts")
 	}
 	return map[string]any{
-		"type":                 "object",
-		"properties":           properties,
-		"required":             requiredFields,
-		"additionalProperties": false,
+		"type":       "object",
+		"properties": properties,
+		"required":   requiredFields,
 	}
 }
 
@@ -141,8 +137,7 @@ func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 			"executionStateUpdate": executionStateSchema(),
 			"nextStepPlan":         nextStepPlanSchema(),
 		},
-		"required":             []string{"action", "toolName", "toolInput", "executionStateUpdate", "nextStepPlan"},
-		"additionalProperties": false,
+		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate", "nextStepPlan"},
 	}
 }
 
@@ -157,8 +152,7 @@ func nextStepPlanSchema() map[string]any {
 			"risk":                stringSchema(),
 			"workingSetReason":    stringSchema(),
 		},
-		"required":             []string{"objective", "expectedTools", "doneCriteria", "risk", "workingSetReason"},
-		"additionalProperties": false,
+		"required": []string{"objective", "expectedTools", "doneCriteria", "risk", "workingSetReason"},
 	}
 }
 
@@ -181,29 +175,25 @@ func toolInputSchema(toolDefinition ToolDefinition) any {
 func specificToolInputSchema(toolName string) json.RawMessage {
 	switch strings.TrimSpace(toolName) {
 	case "browser.open":
-		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}`)
 	case "browser.snapshot":
-		return json.RawMessage(`{"type":"object","properties":{"interactive":{"type":"boolean"}},"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"interactive":{"type":"boolean"}}}`)
 	case "browser.screenshot":
-		return json.RawMessage(`{"type":"object","properties":{"ttlSeconds":{"type":"number"}},"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"ttlSeconds":{"type":"number"}}}`)
 	case "browser.click":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"}},"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"}}}`)
 	case "browser.fill":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["text"],"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"text":{"type":"string"}},"required":["text"]}`)
 	case "browser.select":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"value":{"type":"string"}},"required":["value"]}`)
 	case "browser.press":
-		return json.RawMessage(`{"type":"object","properties":{"key":{"type":"string"}},"required":["key"],"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}`)
 	case "browser.wait":
-		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"milliseconds":{"type":"number"}},"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"milliseconds":{"type":"number"}}}`)
 	case "conversation.history":
-		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}},"additionalProperties":false}`)
-	case "memory.search":
-		return json.RawMessage(`{"type":"string"}`)
-	case "memory.remember":
-		return json.RawMessage(`{"type":"string"}`)
+		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}}}`)
 	case "flow.task.add":
-		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"],"additionalProperties":false}`)
+		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"]}`)
 	default:
 		return nil
 	}
@@ -239,8 +229,7 @@ func completionEvidenceSchema() map[string]any {
 				"toolName":        stringSchema(),
 				"attachmentIndex": map[string]any{"type": "number"},
 			},
-			"required":             []string{"observationID", "toolName"},
-			"additionalProperties": false,
+			"required": []string{"observationID", "toolName"},
 		},
 	}
 }
@@ -255,8 +244,7 @@ func qualityCriteriaSchema() map[string]any {
 				"description": stringSchema(),
 				"required":    booleanSchema(),
 			},
-			"required":             []string{"id", "description"},
-			"additionalProperties": false,
+			"required": []string{"id", "description"},
 		},
 	}
 }
@@ -272,8 +260,7 @@ func qualityReviewSchema() map[string]any {
 				"evidence": completionEvidenceSchema(),
 				"notes":    stringSchema(),
 			},
-			"required":             []string{"id", "passed", "evidence"},
-			"additionalProperties": false,
+			"required": []string{"id", "passed", "evidence"},
 		},
 	}
 }
@@ -283,8 +270,7 @@ func failureReportFactsSchema() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"attempts": map[string]any{
-				"type":     "array",
-				"minItems": 1,
+				"type": "array",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -294,19 +280,17 @@ func failureReportFactsSchema() map[string]any {
 						"failureStage": stringSchema(),
 						"message":      stringSchema(),
 					},
-					"required":             []string{"toolName", "inputSummary", "errorCode", "failureStage", "message"},
-					"additionalProperties": false,
+					"required": []string{"toolName", "inputSummary", "errorCode", "failureStage", "message"},
 				},
 			},
 			"budgetState": stringSchema(),
 		},
-		"required":             []string{"attempts", "budgetState"},
-		"additionalProperties": false,
+		"required": []string{"attempts", "budgetState"},
 	}
 }
 
 func fallbackActionSchema() string {
-	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","completionEvidence","qualityReview"],"additionalProperties":false},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"],"additionalProperties":false}]}`
+	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidence":{"type":"array"},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","completionEvidence","qualityReview"]},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"]}]}`
 }
 
 func finalizerActionSchema() string {
@@ -326,8 +310,7 @@ func recoveryDecisionSchema() string {
 			"nextAction":      stringSchema(),
 			"userReplyIntent": stringSchema(),
 		},
-		"required":             []string{"whatFailed", "whatWasKnown", "nextAction", "userReplyIntent"},
-		"additionalProperties": false,
+		"required": []string{"whatFailed", "whatWasKnown", "nextAction", "userReplyIntent"},
 	})
 	if errorValue != nil {
 		return `{"type":"object"}`

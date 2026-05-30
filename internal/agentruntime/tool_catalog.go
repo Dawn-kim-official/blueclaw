@@ -139,8 +139,6 @@ type askConfirmToolInput struct {
 	UserFacingMessage string `json:"userFacingMessage"`
 	ReasonCode        string `json:"reasonCode"`
 	ReasonDetail      string `json:"reasonDetail"`
-	Message           string `json:"message"`
-	Reason            string `json:"reason"`
 }
 
 type askChoiceToolInput struct {
@@ -165,26 +163,22 @@ type mathCalculateToolInput struct {
 }
 
 type fileWriteToolInput struct {
-	Path    string   `json:"path"`
-	Paths   []string `json:"paths"`
-	Content string   `json:"content"`
-	Text    string   `json:"text"`
-	Mode    uint32   `json:"mode"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Mode    uint32 `json:"mode"`
 }
 
 type fileAttachToolInput struct {
-	Path        string   `json:"path"`
-	Paths       []string `json:"paths"`
-	Filename    string   `json:"filename"`
-	ContentType string   `json:"contentType"`
-	Title       string   `json:"title"`
+	Path        string `json:"path"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"contentType"`
+	Title       string `json:"title"`
 }
 
 type filePromoteToolInput struct {
-	Path                     string   `json:"path"`
-	Paths                    []string `json:"paths"`
-	DestinationDirectoryPath string   `json:"destinationDirectoryPath"`
-	Overwrite                bool     `json:"overwrite"`
+	Path                     string `json:"path"`
+	DestinationDirectoryPath string `json:"destinationDirectoryPath"`
+	Overwrite                bool   `json:"overwrite"`
 }
 
 type skillSearchToolInput struct {
@@ -352,7 +346,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "math.calculate",
 			Description: "Evaluate a safe arithmetic expression using bc. Supports numbers, parentheses, +, -, *, /, %, ^, and **.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"expression":{"type":"string"}},"required":["expression"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"expression":{"type":"string"}},"required":["expression"]}`),
 		},
 		Handler: toolCatalogBuilder.calculateMathTool,
 		Result:  agent.IdentityToolResult,
@@ -361,7 +355,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "terminal.run",
 			Description: "Run a guarded non-interactive command inside the Blueclaw workspace.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["command"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"integer"}},"required":["command"]}`),
 		},
 		Handler: func(toolContext context.Context, input security.CommandRequest) (agent.ToolResult, error) {
 			return toolCatalogBuilder.runTerminalTool(toolContext, input, handlerContext)
@@ -372,7 +366,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "terminal.session",
 			Description: "Manage a PTY terminal session inside the Blueclaw workspace with action start, write, status, or close.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"integer"}},"required":["action"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"integer"}},"required":["action"]}`),
 		},
 		Handler: func(toolContext context.Context, input terminalSessionToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.sessionTerminalTool(toolContext, input, handlerContext)
@@ -383,7 +377,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "browser_handoff.openURL",
 			Description: "Ask the Companion bridge to open a URL on the user's computer without running shell commands.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}`),
 		},
 		Handler: func(toolContext context.Context, input browserHandoffOpenURLToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.openBrowserHandoffTool(toolContext, input, handlerContext)
@@ -394,7 +388,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "site.app.build",
 			Description: "Build an editable InternKim site project from its canonical appWorkspacePath and return build evidence.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"},"appWorkspacePath":{"type":"string"},"timeoutSecond":{"type":"integer"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"},"appWorkspacePath":{"type":"string"},"timeoutSecond":{"type":"integer"}}}`),
 		},
 		Handler: func(toolContext context.Context, input siteAppBuildToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.buildSiteAppTool(toolContext, input, handlerContext)
@@ -405,7 +399,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "site.app.repair",
 			Description: "Repair a missing editable InternKim site workspace by recreating the canonical source/app scaffold without changing the published snapshot.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"}}}`),
 		},
 		Handler: func(toolContext context.Context, input siteAppRepairToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.repairSiteAppTool(toolContext, input, handlerContext)
@@ -416,7 +410,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "ask.confirm",
 			Description: "Pause the current task while waiting for explicit user confirmation. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. userFacingMessage is shown directly to the user and must use the same language as the original user request. reasonCode and reasonDetail are internal only.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."},"message":{"type":"string","description":"Legacy alias for userFacingMessage."},"reason":{"type":"string","description":"Legacy internal detail. Never shown to the user."}},"required":["userFacingMessage","reasonCode"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."}},"required":["userFacingMessage","reasonCode"]}`),
 		},
 		Handler: toolCatalogBuilder.askConfirmTool,
 		Result:  agent.IdentityToolResult,
@@ -425,7 +419,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "ask.choice",
 			Description: "Pause the current task and ask the user to choose from explicit options. Always include exactly one recommendedOptionKey. Use selectionMode single or multiple.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","minItems":2,"maxItems":26,"items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"value":{"type":"string"}},"required":["label"],"additionalProperties":false}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"value":{"type":"string"}},"required":["label"]}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"]}`),
 		},
 		Handler: toolCatalogBuilder.askChoiceTool,
 		Result:  agent.IdentityToolResult,
@@ -434,7 +428,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "ask.input",
 			Description: "Pause the current task and ask the user for free-form input needed to continue.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`),
 		},
 		Handler: toolCatalogBuilder.askInputTool,
 		Result:  agent.IdentityToolResult,
@@ -443,7 +437,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "file.write",
 			Description: "Write a UTF-8 text file under the Blueclaw workspace. Use this for markdown, scripts, and source files instead of shell redirection.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"content":{"type":"string"},"text":{"type":"string","description":"Legacy alias for content."},"mode":{"type":"integer"}},"anyOf":[{"required":["path","content"]},{"required":["path","text"]},{"required":["paths","content"]},{"required":["paths","text"]}],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"integer"}},"required":["path","content"]}`),
 		},
 		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)
@@ -453,8 +447,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileAttachToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "file.attach",
-			Description: "Attach one or more existing workspace files to the final reply evidence. Use paths for related artifact sets.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"filename":{"type":"string"},"contentType":{"type":"string"},"title":{"type":"string"}},"additionalProperties":false}`),
+			Description: "Attach one existing workspace file to the final reply evidence.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"filename":{"type":"string"},"contentType":{"type":"string"},"title":{"type":"string"}},"required":["path"]}`),
 		},
 		Handler: func(toolContext context.Context, input fileAttachToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.attachFileTool(toolContext, input, handlerContext)
@@ -465,7 +459,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		Definition: agent.ToolDefinition{
 			Name:        "file.promote",
 			Description: "Copy finished draft artifacts from tmp/<slug>/build into artifacts/<slug>/ or an allowed durable circle/shared directory before attaching.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"destinationDirectoryPath":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["destinationDirectoryPath"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"destinationDirectoryPath":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["path","destinationDirectoryPath"]}`),
 		},
 		Handler: func(toolContext context.Context, input filePromoteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.promoteFileTool(toolContext, input, handlerContext)
@@ -484,7 +478,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegist
 		Definition: agent.ToolDefinition{
 			Name:        "skill.search",
 			Description: "Search available Blueclaw skills by concise skill-need descriptions.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","minItems":0,"maxItems":5,"items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"],"additionalProperties":false}},"limit":{"type":"integer"}},"required":["queries"],"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"integer"}},"required":["queries"]}`),
 		},
 		Handler: func(toolContext context.Context, input skillSearchToolInput) (agent.SkillSearchResult, error) {
 			return toolCatalogBuilder.searchSkills(toolContext, input, handlerContext, availableToolSet)
@@ -497,7 +491,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerToolDescribeTool(toolRegis
 		Definition: agent.ToolDefinition{
 			Name:        "tool.describe",
 			Description: "Search or inspect available Blueclaw tools by exact name, prefix, or text query before requiring or calling them.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"toolName":{"type":"string"},"prefix":{"type":"string"},"limit":{"type":"integer"}},"additionalProperties":false}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"toolName":{"type":"string"},"prefix":{"type":"string"},"limit":{"type":"integer"}}}`),
 		},
 		Handler: func(_ context.Context, input toolDescribeToolInput) (map[string]any, error) {
 			return describeTools(input, availableToolSet), nil
@@ -1585,11 +1579,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.C
 }
 
 func askConfirmUserFacingMessage(input askConfirmToolInput) string {
-	return firstNonEmptyString(input.UserFacingMessage, input.Message)
+	return strings.TrimSpace(input.UserFacingMessage)
 }
 
 func askConfirmReasonDetail(input askConfirmToolInput) string {
-	return firstNonEmptyString(input.ReasonDetail, input.Reason)
+	return strings.TrimSpace(input.ReasonDetail)
 }
 
 type normalizedAskChoiceRequest struct {
@@ -1689,13 +1683,12 @@ func normalizeApprovalReasonCode(reasonCode string) string {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.Context, input fileWriteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
-	path, pathError := singleFileWritePath(input)
-	if pathError != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", pathError.Error()), nil
+	path := strings.TrimSpace(input.Path)
+	if path == "" {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", "path is required"), nil
 	}
-	content, contentError := fileWriteContent(input)
-	if contentError != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", contentError.Error()), nil
+	if input.Content == "" {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", "content is required"), nil
 	}
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
@@ -1721,37 +1714,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue := workspaceActor.MkdirAll(toolContext, resolvedPath.Parent(), 02770); errorValue != nil {
 		return actorToolFailure("mkdir_all", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
-	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(content), fileMode); errorValue != nil {
+	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), fileMode); errorValue != nil {
 		return actorToolFailure("write_file", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"path":      resolvedPath.VirtualPath,
-		"sizeBytes": len(content),
+		"sizeBytes": len(input.Content),
 	})), nil
-}
-
-func singleFileWritePath(input fileWriteToolInput) (string, error) {
-	path := strings.TrimSpace(input.Path)
-	if path != "" {
-		return path, nil
-	}
-	if len(input.Paths) == 1 {
-		return strings.TrimSpace(input.Paths[0]), nil
-	}
-	if len(input.Paths) > 1 {
-		return "", errors.New("file.write accepts one path; use separate calls for multiple files")
-	}
-	return "", errors.New("path is required")
-}
-
-func fileWriteContent(input fileWriteToolInput) (string, error) {
-	if input.Content != "" {
-		return input.Content, nil
-	}
-	if input.Text != "" {
-		return input.Text, nil
-	}
-	return "", errors.New("content is required")
 }
 
 func isManagedSitePackageManifestPath(virtualPath string) bool {
@@ -1784,40 +1753,28 @@ func managedSiteManifestProtectedFailure(path string) agent.ToolResult {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context.Context, input fileAttachToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	attachmentPaths := requestedAttachmentPaths(input.Path, input.Paths)
-	if len(attachmentPaths) == 0 {
+	attachmentPath := strings.TrimSpace(input.Path)
+	if attachmentPath == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_attach", "path is required"), nil
 	}
-	attachments := []agent.FileAttachment{}
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
-	for _, attachmentPath := range attachmentPaths {
-		attachment, failureResult, errorValue := toolCatalogBuilder.fileAttachment(toolContext, attachmentPath, input, handlerContext, scope)
-		if failureResult != nil {
-			return *failureResult, nil
-		}
-		if errorValue != nil {
-			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_attach", errorValue.Error()), nil
-		}
-		attachments = append(attachments, attachment)
+	attachment, failureResult, errorValue := toolCatalogBuilder.fileAttachment(toolContext, attachmentPath, input, handlerContext, scope)
+	if failureResult != nil {
+		return *failureResult, nil
+	}
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_attach", errorValue.Error()), nil
 	}
 	_ = toolContext
 	return agent.ToolResult{
 		Output:      agent.ToolOutput{Content: "file attached"},
-		Attachments: attachments,
+		Attachments: []agent.FileAttachment{attachment},
 	}, nil
 }
 
-func requestedAttachmentPaths(path string, paths []string) []string {
-	attachmentPaths := trimNonEmptyStrings(paths)
-	if strings.TrimSpace(path) != "" {
-		attachmentPaths = append([]string{strings.TrimSpace(path)}, attachmentPaths...)
-	}
-	return attachmentPaths
-}
-
 func (toolCatalogBuilder *ToolCatalogBuilder) promoteFileTool(toolContext context.Context, input filePromoteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	sourcePaths := requestedAttachmentPaths(input.Path, input.Paths)
-	if len(sourcePaths) == 0 {
+	sourcePath := strings.TrimSpace(input.Path)
+	if sourcePath == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "path is required"), nil
 	}
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
@@ -1839,40 +1796,36 @@ func (toolCatalogBuilder *ToolCatalogBuilder) promoteFileTool(toolContext contex
 	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(destinationDirectory), 02770); errorValue != nil {
 		return actorToolFailure("mkdir_all", "file_promote", destinationDirectory.VirtualPath, errorValue), nil
 	}
-	promotedPaths := []string{}
-	for _, sourcePath := range sourcePaths {
-		source, errorValue := resolver.Resolve(sourcePath, scope)
-		if errorValue != nil {
-			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", errorValue.Error()), nil
+	source, errorValue := resolver.Resolve(sourcePath, scope)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", errorValue.Error()), nil
+	}
+	if source.Kind != workspacePathKindDraft {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source path must come from tmp/<slug> draft work"), nil
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, source.ConcretePath) {
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_promote", "current account cannot read the promotion source"), nil
+	}
+	sourceInformation, errorValue := workspaceActor.Stat(toolContext, source)
+	if errorValue != nil {
+		return actorToolFailure("stat", "file_promote", source.VirtualPath, errorValue), nil
+	}
+	if !sourceInformation.IsRegular {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source path is not a regular file"), nil
+	}
+	destination := workspacepath.Directory(destinationDirectory).JoinVirtualFile(source.BaseName())
+	if !input.Overwrite {
+		if _, errorValue := workspaceActor.Stat(toolContext, destination); errorValue == nil {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "destination already exists; set overwrite=true to replace it"), nil
+		} else if !security.IsActorNotFoundError(errorValue) {
+			return actorToolFailure("stat", "file_promote", destination.VirtualPath, errorValue), nil
 		}
-		if source.Kind != workspacePathKindDraft {
-			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source paths must come from tmp/<slug> draft work"), nil
-		}
-		if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, source.ConcretePath) {
-			return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_promote", "current account cannot read the promotion source"), nil
-		}
-		sourceInformation, errorValue := workspaceActor.Stat(toolContext, source)
-		if errorValue != nil {
-			return actorToolFailure("stat", "file_promote", source.VirtualPath, errorValue), nil
-		}
-		if !sourceInformation.IsRegular {
-			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source path is not a regular file"), nil
-		}
-		destination := workspacepath.Directory(destinationDirectory).JoinVirtualFile(source.BaseName())
-		if !input.Overwrite {
-			if _, errorValue := workspaceActor.Stat(toolContext, destination); errorValue == nil {
-				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "destination already exists; set overwrite=true to replace it"), nil
-			} else if !security.IsActorNotFoundError(errorValue) {
-				return actorToolFailure("stat", "file_promote", destination.VirtualPath, errorValue), nil
-			}
-		}
-		if errorValue := workspaceActor.CopyFile(toolContext, source, destination, 0660, input.Overwrite); errorValue != nil {
-			return actorToolFailure("copy_file", "file_promote", destination.VirtualPath, errorValue), nil
-		}
-		promotedPaths = append(promotedPaths, destination.VirtualPath)
+	}
+	if errorValue := workspaceActor.CopyFile(toolContext, source, destination, 0660, input.Overwrite); errorValue != nil {
+		return actorToolFailure("copy_file", "file_promote", destination.VirtualPath, errorValue), nil
 	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
-		"paths": promotedPaths,
+		"path": destination.VirtualPath,
 	})), nil
 }
 
@@ -1962,7 +1915,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) canAccessWorkspacePath(personAcces
 }
 
 func attachmentFilename(input fileAttachToolInput, resolvedPath string) string {
-	if len(input.Paths) == 0 && strings.TrimSpace(input.Filename) != "" {
+	if strings.TrimSpace(input.Filename) != "" {
 		return strings.TrimSpace(input.Filename)
 	}
 	return filepath.Base(resolvedPath)

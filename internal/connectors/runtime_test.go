@@ -843,7 +843,8 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing
 
 func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","prompt":"매일 업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"}}`,
+		`{"action":"require_capabilities","toolNames":["schedule.create"],"skillNames":["scheduled-task"],"executionStateUpdate":{}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","prompt":"매일 업계 뉴스를 조사해서 핵심만 보고해줘.","executionMode":"agent","kind":"cron","cronExpression":"0 7 * * *","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
 		connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)

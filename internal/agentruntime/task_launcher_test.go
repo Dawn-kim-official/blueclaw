@@ -193,7 +193,7 @@ func TestApprovalRequestPausesActiveTaskRun(t *testing.T) {
 
 	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"message":"Approve browser login?"}`),
+		Input:    json.RawMessage(`{"userFacingMessage":"Approve browser login?","reasonCode":"credential_access"}`),
 	})
 
 	if errorValue != nil {
@@ -243,37 +243,6 @@ func TestApprovalRequestStoresUserFacingMessageSeparatelyFromReasonDetail(t *tes
 	}
 	if approvalRequest["reasonCode"] != "external_send" || approvalRequest["reasonDetail"] == "" {
 		t.Fatalf("expected internal reason fields in event, got %+v", approvalRequest)
-	}
-}
-
-func TestApprovalRequestAcceptsLegacyMessageWithoutExposingReasonAsMessage(t *testing.T) {
-	taskEventService := task.NewTaskEventService()
-	taskRunService := task.NewTaskRunService(taskEventService)
-	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
-	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseTaskRunService(taskRunService)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"ask.confirm"},
-	}, nil)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
-		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"message":"승인할까요?","reason":"legacy internal reason"}`),
-	})
-
-	if errorValue != nil {
-		t.Fatalf("expected legacy approval tool to return a result: %v", errorValue)
-	}
-	if toolResult.Failed() {
-		t.Fatalf("expected legacy approval request to succeed, got %+v", toolResult)
-	}
-	approvalEvent := findTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "confirmation.requested")
-	if strings.Contains(approvalEvent.Body, `"reason":"legacy internal reason"`) {
-		t.Fatalf("legacy reason must not be stored as user-facing reason, got %s", approvalEvent.Body)
-	}
-	if !strings.Contains(approvalEvent.Body, `"userFacingMessage":"승인할까요?"`) {
-		t.Fatalf("expected legacy message to become userFacingMessage, got %s", approvalEvent.Body)
 	}
 }
 

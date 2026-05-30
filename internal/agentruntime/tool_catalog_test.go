@@ -43,7 +43,7 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    agent.MarshalToolInput("Call the user master."),
+		Input:    agent.MarshalToolInput(map[string]string{"content": "Call the user master."}),
 	})
 
 	if errorValue != nil {
@@ -79,7 +79,7 @@ func TestMemoryRememberToolRejectsInaccessibleActiveCircle(t *testing.T) {
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    agent.MarshalToolInput("Shared circle fact."),
+		Input:    agent.MarshalToolInput(map[string]string{"content": "Shared circle fact."}),
 	})
 
 	if errorValue != nil {
@@ -108,7 +108,7 @@ func TestMemoryRememberToolEnqueuesCircleMemoryForActiveCircle(t *testing.T) {
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    agent.MarshalToolInput("Compensation data belongs to HR."),
+		Input:    agent.MarshalToolInput(map[string]string{"content": "Compensation data belongs to HR."}),
 	})
 
 	if errorValue != nil {
@@ -140,7 +140,7 @@ func TestMemoryRememberToolRejectsMultipleActiveCircleCandidates(t *testing.T) {
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "memory.remember",
-		Input:    agent.MarshalToolInput("Shared fact."),
+		Input:    agent.MarshalToolInput(map[string]string{"content": "Shared fact."}),
 	})
 
 	if errorValue != nil {
@@ -194,7 +194,7 @@ func TestMemorySearchUsesPersonAndActiveCircleNamespaces(t *testing.T) {
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    agent.MarshalToolInput("memory"),
+		Input:    agent.MarshalToolInput(map[string]string{"query": "memory"}),
 	})
 
 	if errorValue != nil {
@@ -226,7 +226,7 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "memory.search",
-		Input:    agent.MarshalToolInput("Graphiti release notes"),
+		Input:    agent.MarshalToolInput(map[string]string{"query": "Graphiti release notes"}),
 	})
 
 	if errorValue != nil {
@@ -275,7 +275,7 @@ func TestResolveActiveCircleIDIgnoresInaccessibleMention(t *testing.T) {
 	}
 }
 
-func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
+func TestFileAttachToolAttachesSinglePath(t *testing.T) {
 	workspacePath := t.TempDir()
 	requesterDeckPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck")
 	writeTestFile(t, filepath.Join(requesterDeckPath, "deck.pptx"), "pptx")
@@ -293,7 +293,7 @@ func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.attach",
 		Input: agent.MarshalToolInput(map[string]any{
-			"paths": []string{"tmp/deck/deck.pptx", "tmp/deck/deck.pdf", "tmp/deck/deck.html", "tmp/deck/deck-notes.txt"},
+			"path": "tmp/deck/deck.pptx",
 		}),
 	})
 	if errorValue != nil {
@@ -302,10 +302,10 @@ func TestFileAttachToolAttachesMultiplePaths(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected successful attachment result, got %s", result.ContentText())
 	}
-	if len(result.Attachments) != 4 {
-		t.Fatalf("expected four attachments, got %+v", result.Attachments)
+	if len(result.Attachments) != 1 {
+		t.Fatalf("expected one attachment, got %+v", result.Attachments)
 	}
-	if result.Attachments[0].Filename != "deck.pptx" || result.Attachments[3].Filename != "deck-notes.txt" {
+	if result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected attachment filenames to match paths, got %+v", result.Attachments)
 	}
 }
@@ -930,7 +930,7 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	}
 }
 
-func TestFileWriteAcceptsTextAliasAndSinglePathList(t *testing.T) {
+func TestFileWriteAcceptsPortablePathAndContent(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -942,8 +942,8 @@ func TestFileWriteAcceptsTextAliasAndSinglePathList(t *testing.T) {
 	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]any{
-			"paths": []string{"home/projects/site/index.html"},
-			"text":  "<html>ready</html>",
+			"path":    "home/projects/site/index.html",
+			"content": "<html>ready</html>",
 		}),
 	})
 	if errorValue != nil {
@@ -957,7 +957,7 @@ func TestFileWriteAcceptsTextAliasAndSinglePathList(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if string(document) != "<html>ready</html>" {
-		t.Fatalf("expected text alias content to be written, got %q", string(document))
+		t.Fatalf("expected content to be written, got %q", string(document))
 	}
 }
 

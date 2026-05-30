@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -10,35 +11,45 @@ import (
 	"blueclaw/internal/policy"
 )
 
+type memorySearchToolInput struct {
+	Query string `json:"query"`
+}
+
+type memoryRememberToolInput struct {
+	Content string `json:"content"`
+}
+
 func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[string, agent.ToolResult]{
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memorySearchToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.search",
 			Description: "Search Blueclaw graph memory allowed for this requester and conversation.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
 		},
-		Handler: func(toolContext context.Context, input string) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input memorySearchToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.searchMemoryTool(toolContext, input, request)
 		},
 		Result: agent.IdentityToolResult,
 	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[string, agent.ToolResult]{
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memoryRememberToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.remember",
 			Description: "Queue a durable memory update for the current person or active circle.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string"}},"required":["content"]}`),
 		},
-		Handler: func(toolContext context.Context, input string) (agent.ToolResult, error) {
+		Handler: func(toolContext context.Context, input memoryRememberToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.rememberMemoryTool(toolContext, input, request)
 		},
 		Result: agent.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input string, request ToolCatalogRequest) (agent.ToolResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) searchMemoryTool(toolContext context.Context, input memorySearchToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
 	if request.ActiveCircleConflict {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.Conflict, "memory_search", "memory.search has multiple active circle candidates"), nil
 	}
 	memoryFacts, errorValue := toolCatalogBuilder.SearchMemory(toolContext, TaskMemoryRequest{
-		Query:                     firstNonEmptyString(input, request.Prompt),
+		Query:                     firstNonEmptyString(input.Query, request.Prompt),
 		RequesterPersonID:         request.RequesterPersonID,
 		ConversationID:            request.ConversationID,
 		PersonAccess:              request.PersonAccess,
@@ -91,8 +102,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) LoadPinnedMemory(ctx context.Conte
 	return toolCatalogBuilder.pinnedMemoryStore.LoadPinnedMemory(ctx, request.RequesterPersonID)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) rememberMemoryTool(toolContext context.Context, input string, request ToolCatalogRequest) (agent.ToolResult, error) {
-	content := strings.TrimSpace(input)
+func (toolCatalogBuilder *ToolCatalogBuilder) rememberMemoryTool(toolContext context.Context, input memoryRememberToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
+	content := strings.TrimSpace(input.Content)
 	if content == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "memory_remember", "memory.remember requires content"), nil
 	}
