@@ -2099,6 +2099,59 @@ func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"portfolio","title":"Portfolio"}}`,
+		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+		`{"action":"continue","toolName":"artifact.review","toolInput":{"path":"home/sites/site-1/app/dist/index.html"}}`,
+		`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish portfolio"}}`,
+		finishMessageWithEvidence("같은 URL에 배포했습니다.", "obs-004", "site.app.publish", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 7, MaxToolCallCount: 7})
+	toolRegistry := newTestToolSet([]string{"site.app.create", "site.app.build", "artifact.review", "site.app.publish"})
+	toolCalls := []string{}
+	hasBuildQuality := false
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.create")
+		return ToolSuccess(`{"siteID":"site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","publishedURL":"https://portfolio.example"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.build")
+		hasBuildQuality = true
+		return ToolSuccess(`{"qualityPath":"home/sites/site-1/.internkim/build-quality.json","distPath":"home/sites/site-1/app/dist"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "artifact.review"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "artifact.review")
+		return ToolSuccess(`{"status":"passed","blockingIssueCount":0}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.publish")
+		if !hasBuildQuality {
+			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "site_publish", "missing build-quality.json"), nil
+		}
+		return ToolSuccess(`{"siteID":"site-1","publishedURL":"https://portfolio.example","currentVersionID":"rev-2"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "개인 홈페이지 만들고 배포해줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"site.app.publish"},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected site loop to succeed: %v", errorValue)
+	}
+	expectedCalls := []string{"site.app.create", "site.app.build", "artifact.review", "site.app.publish"}
+	if strings.Join(toolCalls, ",") != strings.Join(expectedCalls, ",") {
+		t.Fatalf("expected site tool loop %v, got %v", expectedCalls, toolCalls)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted || !strings.Contains(result.FinishMessage, "배포") {
+		t.Fatalf("expected completed publish finish, got status=%s message=%q", result.TaskRun.Status, result.FinishMessage)
+	}
+}
+
 func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"ask.confirm","toolInput":{"message":"동하 님에게 DM을 보내도 될까요?","reason":"external send"}}`,
