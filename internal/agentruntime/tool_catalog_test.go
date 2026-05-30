@@ -24,6 +24,7 @@ import (
 	"blueclaw/internal/security"
 	"blueclaw/internal/security/actortest"
 	"blueclaw/internal/task"
+	"blueclaw/internal/workspacepath"
 )
 
 func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
@@ -1457,6 +1458,69 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	}
 }
 
+func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
+	files := siteAppScaffoldFiles(siteCreateResult{Slug: "demo-site", Title: "Demo Site"})
+	fileMap := map[string]string{}
+	for _, file := range files {
+		fileMap[file.Path] = file.Content
+	}
+	for _, path := range []string{
+		"app/package.json",
+		"app/index.html",
+		"app/scripts/build.ts",
+		"app/tsconfig.json",
+		"app/vite.config.ts",
+		"app/src/App.tsx",
+		"app/src/main.tsx",
+		"app/src/index.css",
+		"app/src/prototype-data.ts",
+	} {
+		if strings.TrimSpace(fileMap[path]) == "" {
+			t.Fatalf("expected React scaffold file %s", path)
+		}
+	}
+	if _, exists := fileMap["app/src/content.html"]; exists {
+		t.Fatalf("legacy HTML scaffold file should not be present")
+	}
+	for _, expectedText := range []string{`"react"`, `"vite"`, `"@google/design.md"`, `"@vitejs/plugin-react"`, `"bun scripts/build.ts"`} {
+		if !strings.Contains(fileMap["app/package.json"], expectedText) {
+			t.Fatalf("site package manifest must contain %q", expectedText)
+		}
+	}
+	buildScript := fileMap["app/scripts/build.ts"]
+	viteIndex := strings.Index(buildScript, `await runCommand({ name: "bunx", arguments: ["vite", "build"] });`)
+	qualityIndex := strings.LastIndex(buildScript, "writeBuildQuality(qualityIssues);")
+	if viteIndex < 0 || qualityIndex < viteIndex {
+		t.Fatalf("build script must write build-quality.json after vite build")
+	}
+}
+
+func TestSuccessfulSiteBuildQualityNormalizesAfterBuild(t *testing.T) {
+	workspacePath := t.TempDir()
+	factory := actortest.NewDirectWorkspaceActorFactory()
+	workspaceActor, errorValue := factory.Requester(context.Background(), security.WorkspaceActorRequest{
+		WorkspaceRootPath: workspacePath,
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	qualityPath := workspacepath.Path{
+		ConcretePath: filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", ".internkim", "build-quality.json"),
+		VirtualPath:  "home/sites/site-1/.internkim/build-quality.json",
+	}
+	if toolFailure := writeSuccessfulSiteBuildQuality(context.Background(), workspaceActor, qualityPath); toolFailure != nil {
+		t.Fatalf("unexpected quality write failure: %s", toolFailure.ContentText())
+	}
+	document, errorValue := os.ReadFile(qualityPath.ConcretePath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(string(document), `"postBuildNormalized": true`) || !strings.Contains(string(document), `"blockingIssueCount": 0`) {
+		t.Fatalf("unexpected normalized build quality: %s", string(document))
+	}
+}
+
 func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site description","idea":"Demo site idea","purpose":"portfolio","audience":"buyers","archetype":"portfolio","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"home/sites/site-1","workspacePath":"home/sites/site-1","status":"draft","ownerIdentity":{"personID":"person-1","displayName":"Owner"}}}`}
@@ -1487,7 +1551,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
 	}
 	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1")
-	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/content.html", "app/src/styles.css", "app/src/script.js"} {
+	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
 		}
@@ -1499,8 +1563,8 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !strings.Contains(string(packageDocument), `"build": "bun scripts/build.ts"`) || strings.Contains(string(packageDocument), "latest") || strings.Contains(string(packageDocument), `"react"`) {
-		t.Fatalf("expected dependency-free scaffold package manifest, got %s", string(packageDocument))
+	if !strings.Contains(string(packageDocument), `"build": "bun scripts/build.ts"`) || strings.Contains(string(packageDocument), "latest") || !strings.Contains(string(packageDocument), `"react"`) {
+		t.Fatalf("expected React scaffold package manifest, got %s", string(packageDocument))
 	}
 	metadataDocument, errorValue := os.ReadFile(filepath.Join(sourceWorkspacePath, ".internkim", "site.json"))
 	if errorValue != nil {

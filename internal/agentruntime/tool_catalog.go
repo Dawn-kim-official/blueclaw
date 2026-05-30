@@ -885,6 +885,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 	if errorValue != nil || buildResult.Failed() {
 		return buildResult, errorValue
 	}
+	qualityPath := workspacepath.Path{
+		ConcretePath: filepath.Join(filepath.Dir(appWorkspace.ConcretePath), ".internkim", "build-quality.json"),
+		VirtualPath:  filepath.ToSlash(filepath.Join(filepath.Dir(appWorkspace.VirtualPath), ".internkim", "build-quality.json")),
+		Kind:         appWorkspace.Kind,
+	}
+	if toolFailure := writeSuccessfulSiteBuildQuality(toolContext, workspaceActor, qualityPath); toolFailure != nil {
+		return *toolFailure, nil
+	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"siteID":              firstNonEmptyString(input.SiteID, site.SiteID),
 		"slug":                firstNonEmptyString(input.Slug, site.Slug),
@@ -895,6 +903,49 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		"command":             "bun scripts/build.ts",
 		"commandResult":       json.RawMessage(buildResult.ContentText()),
 	})), nil
+}
+
+func writeSuccessfulSiteBuildQuality(ctx context.Context, workspaceActor security.WorkspaceActor, qualityPath workspacepath.Path) *agent.ToolResult {
+	quality := map[string]any{
+		"generatedAt":         time.Now().UTC().Format(time.RFC3339),
+		"generatedBy":         "site.app.build",
+		"blockingIssueCount":  0,
+		"issues":              []any{},
+		"postBuildNormalized": true,
+	}
+	document, errorValue := workspaceActor.ReadFile(ctx, qualityPath, 1024*1024)
+	if errorValue == nil {
+		var existing map[string]any
+		if json.Unmarshal(document, &existing) == nil {
+			quality = existing
+			quality["generatedAt"] = time.Now().UTC().Format(time.RFC3339)
+			if generatedBy, _ := quality["generatedBy"].(string); strings.TrimSpace(generatedBy) != "" {
+				quality["generatedBy"] = strings.TrimSpace(generatedBy)
+			} else {
+				quality["generatedBy"] = "site.app.build"
+			}
+			quality["postBuildNormalized"] = true
+			if _, exists := quality["blockingIssueCount"]; !exists {
+				quality["blockingIssueCount"] = 0
+			}
+			if _, exists := quality["issues"]; !exists {
+				quality["issues"] = []any{}
+			}
+		}
+	}
+	qualityDocument, errorValue := json.MarshalIndent(quality, "", "  ")
+	if errorValue != nil {
+		return toolResultPointer(agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "site_build_quality", errorValue.Error()))
+	}
+	if errorValue := workspaceActor.MkdirAll(ctx, qualityPath.Parent(), 02770); errorValue != nil {
+		toolFailure := actorToolFailure("mkdir_all", "site_build_quality", qualityPath.VirtualPath, errorValue)
+		return &toolFailure
+	}
+	if errorValue := workspaceActor.WriteFile(ctx, qualityPath, append(qualityDocument, '\n'), 0660); errorValue != nil {
+		toolFailure := actorToolFailure("write_file", "site_build_quality", qualityPath.VirtualPath, errorValue)
+		return &toolFailure
+	}
+	return nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext context.Context, input siteAppRepairToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
