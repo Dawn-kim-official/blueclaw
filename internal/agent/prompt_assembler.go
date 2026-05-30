@@ -216,6 +216,9 @@ func buildRuntimeContextDescription(request AgentTurnRequest) string {
 	if workspaceContext := buildWorkspaceContextDescription(request); workspaceContext != "" {
 		lines = append(lines, workspaceContext)
 	}
+	if !nextStepPlanIsEmpty(request.CurrentStepPlan) {
+		lines = append(lines, "Previous Step plan for the current working set:\n"+marshalEventBody(normalizeNextStepPlan(request.CurrentStepPlan)))
+	}
 	return strings.Join(lines, "\n")
 }
 

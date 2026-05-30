@@ -25,6 +25,7 @@ type ToolExposureEvent struct {
 	SelectedToolIDs        []string           `json:"selectedToolIDs,omitempty"`
 	ValidSelectedToolIDs   []string           `json:"validSelectedToolIDs,omitempty"`
 	SelectionReason        string             `json:"selectionReason,omitempty"`
+	SelectionSource        string             `json:"selectionSource,omitempty"`
 	SelectionAttempted     bool               `json:"selectionAttempted,omitempty"`
 	SelectionFailed        bool               `json:"selectionFailed,omitempty"`
 	SelectionFailureReason string             `json:"selectionFailureReason,omitempty"`
@@ -75,6 +76,7 @@ func (router ToolSelectionRouter) Select(ctx context.Context, request toolSelect
 	decision.Reason = strings.TrimSpace(decision.Reason)
 	event.SelectedToolIDs = append([]string{}, decision.SelectedToolIDs...)
 	event.SelectionReason = decision.Reason
+	event.SelectionSource = "model"
 	return decision, event
 }
 
@@ -99,6 +101,9 @@ func (router ToolSelectionRouter) buildMessages(request toolSelectionRequest) []
 	if strings.TrimSpace(request.OutcomeSummary) != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: request.OutcomeSummary})
 	}
+	if strings.TrimSpace(request.RecentProgress) != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: request.RecentProgress})
+	}
 	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: contextDescription})
 	}
@@ -111,19 +116,25 @@ type toolSelectionRequest struct {
 	VisibleContext  VisibleContext
 	ActiveGoal      ActiveGoal
 	OutcomeSummary  string
+	RecentProgress  string
 	ToolSet         *ToolSet
 	CoreGroups      []toolExposureGroup
 	CandidateGroups []toolExposureGroup
 }
 
-func buildToolSelectionRequest(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) toolSelectionRequest {
+func buildToolSelectionRequest(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, observations ...[]turnObservation) toolSelectionRequest {
+	recentObservations := []turnObservation{}
+	if len(observations) > 0 {
+		recentObservations = observations[0]
+	}
 	coreGroups := collectCoreGroups(toolSet)
-	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract)
+	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, recentObservations)
 	return toolSelectionRequest{
 		Prompt:          request.Prompt,
 		VisibleContext:  request.VisibleContext,
 		ActiveGoal:      activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
 		OutcomeSummary:  outcomeContractSummary(outcomeContract),
+		RecentProgress:  toolSelectionRecentProgress(recentObservations),
 		ToolSet:         toolSet,
 		CoreGroups:      coreGroups,
 		CandidateGroups: candidateGroups,
@@ -142,6 +153,100 @@ func shouldSelectOptionalToolsWithModel(request toolSelectionRequest) bool {
 	return false
 }
 
+func deterministicToolSelectionDecision(request toolSelectionRequest) (ToolSelectionDecision, ToolExposureEvent, bool) {
+	if recoveryTools := firstGroupToolIDs(request.CandidateGroups, "G4 recovery/pinned candidates"); len(recoveryTools) > 0 {
+		selection, event := deterministicToolSelection(recoveryTools, "recovery/pinned tools are required for the next repair step")
+		return selection, event, true
+	}
+	if siteWorkflowTools := selectedCandidateWorkflowTools(request.CandidateGroups, siteWorkflowToolOrder()); len(siteWorkflowTools) > 0 {
+		selection, event := deterministicToolSelection(siteWorkflowTools, "site workflow keeps create/build/review/publish tools available across iterations")
+		return selection, event, true
+	}
+	if artifactWorkflowTools := selectedCandidateWorkflowTools(request.CandidateGroups, artifactWorkflowToolOrder()); len(artifactWorkflowTools) > 0 && outcomeNeedsArtifactWorkflow(request.ActiveGoal.OutcomeContract) {
+		selection, event := deterministicToolSelection(artifactWorkflowTools, "artifact workflow tools fit within the action schema cap")
+		return selection, event, true
+	}
+	return ToolSelectionDecision{}, ToolExposureEvent{}, false
+}
+
+func deterministicToolSelection(toolIDs []string, reason string) (ToolSelectionDecision, ToolExposureEvent) {
+	selection := ToolSelectionDecision{
+		SelectedToolIDs: stableUniqueToolIDs(toolIDs),
+		Reason:          reason,
+	}
+	event := ToolExposureEvent{
+		SelectedToolIDs:    append([]string{}, selection.SelectedToolIDs...),
+		SelectionReason:    reason,
+		SelectionSource:    "deterministic",
+		SelectionAttempted: false,
+	}
+	return selection, event
+}
+
+func toolSelectionFallbackFitsCap(request toolSelectionRequest) bool {
+	groups := []toolExposureGroup{}
+	groups = append(groups, request.CoreGroups...)
+	groups = append(groups, request.CandidateGroups...)
+	_, droppedGroups := applyGroupCap(groups, maxSchemaToolCount)
+	return len(droppedGroups) == 0
+}
+
+func firstGroupToolIDs(groups []toolExposureGroup, groupName string) []string {
+	for _, group := range groups {
+		if group.Name == groupName {
+			return append([]string{}, group.ToolIDs...)
+		}
+	}
+	return nil
+}
+
+func selectedCandidateWorkflowTools(groups []toolExposureGroup, orderedToolIDs []string) []string {
+	candidateToolIDByID := map[string]bool{}
+	for _, group := range groups {
+		for _, toolID := range group.ToolIDs {
+			candidateToolIDByID[strings.TrimSpace(toolID)] = true
+		}
+	}
+	selectedToolIDs := []string{}
+	for _, toolID := range orderedToolIDs {
+		if candidateToolIDByID[toolID] {
+			selectedToolIDs = appendUniqueStrings(selectedToolIDs, toolID)
+		}
+	}
+	if len(selectedToolIDs) < 2 {
+		return nil
+	}
+	return selectedToolIDs
+}
+
+func siteWorkflowToolOrder() []string {
+	return []string{
+		"site.app.status",
+		"site.app.create",
+		"file.read",
+		"file.write",
+		"terminal.run",
+		"site.app.build",
+		"browser.open",
+		"browser.snapshot",
+		"browser.screenshot",
+		"artifact.review",
+		"site.app.publish",
+		"site.app.repair",
+	}
+}
+
+func artifactWorkflowToolOrder() []string {
+	return []string{
+		"file.read",
+		"file.write",
+		"terminal.run",
+		"artifact.review",
+		"file.promote",
+		"file.attach",
+	}
+}
+
 func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
 	return []toolExposureGroup{
 		filterGroupTools(toolSet, toolExposureGroup{Name: "G1 control-core", ToolIDs: []string{"skill.search", "tool.describe", "ask.confirm"}}),
@@ -150,22 +255,37 @@ func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
 	}
 }
 
-func collectOptionalCandidateGroups(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) []toolExposureGroup {
+func collectOptionalCandidateGroups(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, observations []turnObservation) []toolExposureGroup {
 	selectedSkillToolNames := selectedAndPinnedSkillToolNameSet(instructionBundle, request.PinnedSkillNames)
 	return []toolExposureGroup{
-		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G4 recovery/pinned candidates", ToolIDs: recoveryPinnedToolNames(instructionBundle, request)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
+		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G4 recovery/pinned candidates", ToolIDs: recoveryPinnedToolNames(instructionBundle, request, observations)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
 		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G5 selected-skill candidates", ToolIDs: selectedAndPinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
 		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G6 active-goal candidates", ToolIDs: activeGoalCandidateToolNames(request, executionPlan, hasExecutionPlan, outcomeContract)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
-		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G7 generic candidates", ToolIDs: genericBuiltInToolNames()}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
+		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G7 generic candidates", ToolIDs: genericCandidateToolNames(toolSet, len(selectedSkillToolNames) > 0)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
 	}
 }
 
-func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selection ToolSelectionDecision, selectionEvent ToolExposureEvent) (*ToolSet, ToolExposureEvent) {
+func genericCandidateToolNames(toolSet *ToolSet, hasSelectedSkill bool) []string {
+	if hasSelectedSkill {
+		return genericBuiltInToolNames()
+	}
+	toolNames := append([]string{}, genericBuiltInToolNames()...)
+	if toolSet != nil {
+		toolNames = appendUniqueStrings(toolNames, toolSet.ListToolNames()...)
+	}
+	return toolNames
+}
+
+func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selection ToolSelectionDecision, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
 	if toolSet == nil {
 		return nil, selectionEvent
 	}
+	recentObservations := []turnObservation{}
+	if len(observations) > 0 {
+		recentObservations = observations[0]
+	}
 	coreGroups := collectCoreGroups(toolSet)
-	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract)
+	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, recentObservations)
 	selectedGroup := selectedOptionalGroup(selection.SelectedToolIDs, candidateGroups)
 	selectionEvent.ValidSelectedToolIDs = append([]string{}, selectedGroup.ToolIDs...)
 
@@ -182,7 +302,14 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	exposedToolIDs, droppedGroups := applyGroupCap(groups, maxSchemaToolCount)
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
 	selectionEvent.DroppedGroups = droppedGroups
-	return toolSet.WithAllowedToolNames(exposedToolIDs), selectionEvent
+	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
+}
+
+func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
+	if len(exposedToolIDs) > 0 {
+		return exposedToolIDs
+	}
+	return []string{"__blueclaw_no_callable_tools__"}
 }
 
 func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selections ...ToolSelectionDecision) *ToolSet {
@@ -265,11 +392,35 @@ func filterGroupToolsForTurn(toolSet *ToolSet, group toolExposureGroup, selected
 	return toolExposureGroup{Name: group.Name, ToolIDs: filteredToolIDs}
 }
 
-func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest) []string {
+func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {
 	toolNames := append([]string{}, request.PinnedToolNames...)
 	toolNames = appendUniqueStrings(toolNames, pinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)...)
 	toolNames = appendUniqueStrings(toolNames, outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract)...)
+	toolNames = appendUniqueStrings(toolNames, recoveryToolNamesFromObservations(observations)...)
 	return toolNames
+}
+
+func recoveryToolNamesFromObservations(observations []turnObservation) []string {
+	for index := len(observations) - 1; index >= 0; index-- {
+		packet := observations[index].RecoveryPacket
+		if packet == nil || len(packet.AllowedTools) == 0 {
+			continue
+		}
+		return appendUniqueStrings(packet.AllowedTools)
+	}
+	return nil
+}
+
+func toolSelectionRecentProgress(observations []turnObservation) string {
+	recentObservations := recentProgressObservations(observations)
+	if len(recentObservations) == 0 {
+		return ""
+	}
+	document, errorValue := json.Marshal(recentObservations)
+	if errorValue != nil {
+		return ""
+	}
+	return "Recent observation progress: " + string(document)
 }
 
 func selectedAndPinnedSkillToolNames(instructionBundle InstructionBundle, pinnedSkillNames []string) []string {
@@ -293,6 +444,9 @@ func activeGoalCandidateToolNames(request AgentRequest, executionPlan ExecutionP
 	}
 	if outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, outcomeContract) {
 		toolNames = appendUniqueStrings(toolNames, "site.app.status", "site.app.create", "site.app.build", "site.app.repair", "site.app.publish", "site.app.history", "site.app.diff", "site.app.rollback")
+	}
+	if promptLooksLikeCalendarRequest(request.Prompt) {
+		toolNames = appendUniqueStrings(toolNames, "calendar.event.add", "calendar.event.delete")
 	}
 	return toolNames
 }

@@ -258,12 +258,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
-	toolSelectionRequest := buildToolSelectionRequest(turnToolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract)
-	toolSelectionDecision, toolExposureEvent := ToolSelectionDecision{}, ToolExposureEvent{}
-	if shouldSelectOptionalToolsWithModel(toolSelectionRequest) {
-		toolSelectionDecision, toolExposureEvent = NewToolSelectionRouter(agentKernel.languageModel).Select(responseContext, toolSelectionRequest)
-	}
-	turnToolSet, toolExposureEvent = toolSetForAgentTurnWithExposure(turnToolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, toolSelectionDecision, toolExposureEvent)
 
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
@@ -295,7 +289,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
 		OutcomeContract:            outcomeContract,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
-		ToolExposure:               toolExposureEvent,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		TurnStartedAt:              request.TurnStartedAt,
 	}
@@ -690,6 +683,8 @@ func genericBuiltInToolNames() []string {
 		"file.write",
 		"file.promote",
 		"file.attach",
+		"calendar.event.add",
+		"calendar.event.delete",
 		"skill.add",
 		"skill.remove",
 		"schedule.create",
