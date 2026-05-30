@@ -1835,15 +1835,54 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 	if strings.Contains(schemaDocument, `{"type":"string","minLength":1}`) {
 		t.Fatalf("expected browser tool inputs to avoid string shortcut branches, got %s", schemaDocument)
 	}
+	assertActionSchemaUsesProviderSafeNestedSubset(t, schemaDocument)
 	for _, fragment := range []string{
 		`"toolName":{"enum":["browser.open"],"type":"string"}`,
-		`"required":["url"]`,
-		`"required":["text"]`,
-		`"required":["value"]`,
 		`"properties":{"milliseconds":{"type":"number"},"ref":{"type":"string"},"selector":{"type":"string"},"target":{"type":"string"}}`,
 	} {
 		if !strings.Contains(schemaDocument, fragment) {
 			t.Fatalf("expected action schema to include %q, got %s", fragment, schemaDocument)
+		}
+	}
+}
+
+func assertActionSchemaUsesProviderSafeNestedSubset(t *testing.T, schemaDocument string) {
+	t.Helper()
+	var document struct {
+		OneOf []map[string]any `json:"oneOf"`
+	}
+	if errorValue := json.Unmarshal([]byte(schemaDocument), &document); errorValue != nil {
+		t.Fatalf("action schema is invalid: %v", errorValue)
+	}
+	for _, variant := range document.OneOf {
+		properties, _ := variant["properties"].(map[string]any)
+		assertProviderSafeNestedSchemaValue(t, properties, true)
+	}
+}
+
+func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMap bool) {
+	t.Helper()
+	document, isDocument := value.(map[string]any)
+	if isDocument {
+		for fieldName, fieldValue := range document {
+			if isPropertiesMap {
+				assertProviderSafeNestedSchemaValue(t, fieldValue, false)
+				continue
+			}
+			if fieldName == "required" || fieldName == "additionalProperties" || fieldName == "maxItems" {
+				t.Fatalf("nested action schema uses unsupported key %s in %+v", fieldName, document)
+			}
+			if fieldName == "type" && fieldValue == "integer" {
+				t.Fatalf("nested action schema uses integer type in %+v", document)
+			}
+			assertProviderSafeNestedSchemaValue(t, fieldValue, fieldName == "properties")
+		}
+		return
+	}
+	values, isValues := value.([]any)
+	if isValues {
+		for _, item := range values {
+			assertProviderSafeNestedSchemaValue(t, item, false)
 		}
 	}
 }
@@ -2190,7 +2229,10 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 }
 
 func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *testing.T) {
-	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	languageModel := &sequenceLanguageModel{toolSelections: []string{
+		`{"selectedToolIDs":["site.app.status","site.app.create","file.write","site.app.build","artifact.review","site.app.publish"],"reason":"model chooses the tools that satisfy the site link expected result"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{
 		"site.app.status",
 		"site.app.create",
@@ -2237,12 +2279,9 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 			t.Fatalf("expected initial site working set to expose %s, got %+v", toolName, stepRequest.ToolExposure.ExposedToolIDs)
 		}
 	}
-	if strings.Contains(stepRequest.ToolExposure.SelectionReason, "recovery/pinned") {
-		t.Fatalf("required evidence tools must not be treated as pinned recovery tools: %+v", stepRequest.ToolExposure)
-	}
 }
 
-func TestAgentTurnRunnerVerifierSuggestedToolsExpandWorkingSet(t *testing.T) {
+func TestAgentTurnRunnerNextStepPlanExpandsWorkingSet(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{
 		"site.app.status",
@@ -2264,17 +2303,16 @@ func TestAgentTurnRunnerVerifierSuggestedToolsExpandWorkingSet(t *testing.T) {
 		Request: request,
 		NextStepPlan: NextStepPlan{
 			Objective:           "prepare a publishable site draft",
+			ExpectedTools:       []string{"site.app.create", "file.write", "terminal.run", "site.app.build"},
 			ExpectedNextResults: []string{"a draft workspace exists", "a build result exists"},
 			DoneCriteria:        []string{"draft and build expected results exist"},
 			Risk:                "site may not exist yet",
 			WorkingSetReason:    "next result expectations explain why the tool set is needed",
 		},
 		Observations: []turnObservation{{
-			ObservationID: "obs-001",
-			Action:        "expected_result_missing",
-			RecoveryPacket: &RecoveryPacket{
-				AllowedTools: []string{"site.app.create", "file.write", "terminal.run", "site.app.build"},
-			},
+			ObservationID:  "obs-001",
+			Action:         "expected_result_missing",
+			RecoveryPacket: &RecoveryPacket{WhyLikely: "A public URL is still missing."},
 		}},
 	}
 
@@ -2379,6 +2417,64 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 	}
 	if strings.Contains(result.FinishMessage, "첨부") {
 		t.Fatalf("expected link result, got %q", result.FinishMessage)
+	}
+}
+
+func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		resultVerifications: []string{
+			`{"overallStatus":"satisfied","summary":"PPTX attached","results":[{"id":"attached-file","status":"satisfied","reason":"file.attach returned an attachment.","citedObservationIDs":["obs-003"],"missingDescription":"","suggestedNextTools":[]}]}`,
+		},
+		contents: []string{
+			`{"action":"continue","toolName":"file.promote","toolInput":{"path":"tmp/deck/build/deck.pptx","destinationDirectoryPath":"artifacts/deck","overwrite":true},"nextStepPlan":{"objective":"attach promoted file","expectedTools":["file.attach"],"expectedNextResults":["attached pptx"],"doneCriteria":["file attached"],"risk":"none","workingSetReason":"file deliverable requires attachment"}}`,
+			`{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.promote"}],"finishMessage":"PPTX를 첨부했습니다."}`,
+			`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"},"nextStepPlan":{"objective":"finish","expectedTools":[],"expectedNextResults":["final message"],"doneCriteria":["attached file delivered"],"risk":"none","workingSetReason":"attachment now exists"}}`,
+			finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.attach", 0),
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
+	toolRegistry := newTestToolSet([]string{"file.promote", "file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.promote"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"path":"artifacts/deck/deck.pptx"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath:  "/tmp/deck.pptx",
+				Filename:    "deck.pptx",
+				ContentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "PPTX 파일로 첨부해줘",
+		ToolSet:           toolRegistry,
+		OutcomeContract: OutcomeContract{
+			ArtifactRequirement:        ArtifactRequirementRequired,
+			RequiredAttachmentSuffixes: []string{".pptx"},
+			ExpectedResults: []ExpectedResult{{
+				ID:          "attached-file",
+				Type:        ExpectedResultTypeFile,
+				Description: "수정 가능한 PPTX 파일 한 개",
+				Required:    true,
+			}},
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected run to complete after attachment: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.attach") {
+		t.Fatal("expected completion gate to require file.attach")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.file.attach.requested", "deck.pptx") {
+		t.Fatal("expected file.attach after promoted-only finish was rejected")
 	}
 }
 

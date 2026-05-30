@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,14 +20,7 @@ func TestBuildAgentActionRequestIncludesExecutionStateAndTerminalTail(t *testing
 			CurrentBlocker: "build cannot see presentation.md",
 			NextPlan:       "inspect cwd",
 		},
-		Observations: []turnObservation{terminalFailureObservation("obs-001", "tmp/deck", "NAME=deck build.sh", strings.Join([]string{
-			"line 1",
-			"line 2",
-			"line 3",
-			"line 4",
-			"line 5",
-			"Error: presentation.md not found",
-		}, "\n"))},
+		Observations: []turnObservation{terminalFailureObservation("obs-001", "tmp/deck", "NAME=deck build.sh", longTerminalOutput("Error: presentation.md not found"))},
 	}
 
 	request := BuildAgentActionRequest(state)
@@ -38,8 +32,33 @@ func TestBuildAgentActionRequestIncludesExecutionStateAndTerminalTail(t *testing
 	if !strings.Contains(body, "Recent terminal observation tails") || !strings.Contains(body, "Error: presentation.md not found") {
 		t.Fatalf("expected terminal tail in prompt, got %s", body)
 	}
-	if strings.Contains(body, "line 1") {
+	if strings.Contains(body, `"line 1"`) {
 		t.Fatalf("expected terminal tail to omit older lines, got %s", body)
+	}
+}
+
+func TestTerminalObservationTailKeepsSmallBuildListingsUseful(t *testing.T) {
+	observation := terminalSuccessObservation("obs-003", "tmp/deck", "ls -R build/", strings.Join([]string{
+		"build/:",
+		"deck-notes.txt",
+		"deck.html",
+		"deck.pdf",
+		"deck.pptx",
+		"review",
+		"",
+		"build/review:",
+		"contact-sheet-01.png",
+		"slide-review.json",
+		"slide-review.md",
+	}, "\n"))
+
+	tail, ok := terminalObservationTail(observation)
+
+	if !ok {
+		t.Fatal("expected terminal tail")
+	}
+	if !strings.Contains(strings.Join(tail.StdoutTail, "\n"), "deck.pptx") {
+		t.Fatalf("expected pptx filename to remain visible, got %+v", tail.StdoutTail)
 	}
 }
 
@@ -119,6 +138,35 @@ func terminalFailureObservation(observationID string, workingDirectoryPath strin
 		ToolInputKey:       canonicalToolCallKey("terminal.run", input),
 		AttemptFingerprint: attemptFingerprint(canonicalToolCallKey("terminal.run", input), FailureCodes.OperationFailed.String()),
 	}
+}
+
+func terminalSuccessObservation(observationID string, workingDirectoryPath string, command string, stdout string) turnObservation {
+	content := marshalEventBody(map[string]any{
+		"exitCode": 0,
+		"stdout":   stdout,
+		"stderr":   "",
+		"timedOut": false,
+	})
+	input := MarshalToolInput(map[string]any{
+		"workingDirectoryPath": workingDirectoryPath,
+		"command":              command,
+	})
+	return turnObservation{
+		ObservationID: observationID,
+		Action:        "continue",
+		Tool:          "terminal.run",
+		Output:        ToolOutput{Content: content},
+		ToolInputKey:  canonicalToolCallKey("terminal.run", input),
+	}
+}
+
+func longTerminalOutput(finalLine string) string {
+	lines := []string{}
+	for index := 1; index <= terminalObservationTailMaxLines+1; index++ {
+		lines = append(lines, "line "+strconv.Itoa(index))
+	}
+	lines = append(lines, finalLine)
+	return strings.Join(lines, "\n")
 }
 
 func messagesText(messages []llm.Message) string {

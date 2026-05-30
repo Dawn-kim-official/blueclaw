@@ -134,7 +134,7 @@ func graphitiIngestionRouterSystemPrompt() string {
 }
 
 func graphitiIngestionRouterSchema() string {
-	return `{"type":"object","properties":{"shouldStore":{"type":"boolean"},"storeWorkspace":{"type":"boolean"},"securityLevelRank":{"type":"integer"},"requiredClasses":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"confidence":{"type":"number"}},"required":["shouldStore","storeWorkspace","securityLevelRank","requiredClasses","reason","confidence"],"additionalProperties":false}`
+	return `{"type":"object","properties":{"shouldStore":{"type":"boolean"},"storeWorkspace":{"type":"boolean"},"securityLevelRank":{"type":"number"},"requiredClasses":{"type":"array","items":{"type":"string"}},"reason":{"type":"string"},"confidence":{"type":"number"}},"required":["shouldStore","storeWorkspace","securityLevelRank","requiredClasses","reason","confidence"],"additionalProperties":false}`
 }
 
 func routeConfidence(confidence float64) float64 {

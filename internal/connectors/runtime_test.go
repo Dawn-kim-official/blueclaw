@@ -1264,8 +1264,9 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
-		connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-001", "browser.snapshot", 0),
+		`{"action":"require_capabilities","toolNames":["browser.snapshot"],"skillNames":["browser-snapshot"],"executionStateUpdate":{"goal":"open browser and observe","workspace":"","knownFacts":[],"triedAndFailed":[],"currentBlocker":"","nextPlan":"observe the current browser"}}`,
+		`{"action":"continue","toolName":"browser.snapshot","toolInput":{},"nextStepPlan":{"objective":"observe the current browser","expectedTools":[],"expectedNextResults":["browser snapshot is available"],"doneCriteria":["snapshot result is available"],"risk":"browser may be unavailable","workingSetReason":"browser.snapshot was explicitly required"}}`,
+		connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-002", "browser.snapshot", 0),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorBrowserSnapshotSkill())
@@ -1292,7 +1293,7 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	}
 
 	requests := languageModel.Requests()
-	if len(requests) < 2 || !structuredMessagesContain(requests[1].Messages, "https://example.com") {
+	if !structuredRequestsContainMessage(requests, "https://example.com") {
 		t.Fatalf("expected typed capability result to be available as tool observation, got %+v", requests)
 	}
 	if adapter.sentReplies[0].message != "브라우저를 확인했습니다" {
@@ -1301,6 +1302,15 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	if len(adapter.sentReplies[0].attachments) != 1 || adapter.sentReplies[0].attachments[0].DevicePath != "/tmp/internkim-companion-files/screen.png" {
 		t.Fatalf("expected final reply attachment, got %+v", adapter.sentReplies[0].attachments)
 	}
+}
+
+func structuredRequestsContainMessage(requests []llm.StructuredResponseRequest, text string) bool {
+	for _, request := range requests {
+		if structuredMessagesContain(request.Messages, text) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestConnectorRuntimeExposesAllowedMcpSchemaCatalog(t *testing.T) {

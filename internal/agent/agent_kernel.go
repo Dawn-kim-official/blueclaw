@@ -470,7 +470,7 @@ func promptLooksLikeExternalSend(prompt string) bool {
 	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
 	return containsAny(normalizedPrompt, []string{
 		"dm", "direct message", "email", "mail", "send", "message",
-		"보내", "전송", "메일", "디엠", "dm으로", "메시지", "전달", "알려줘",
+		"보내", "전송", "메일", "디엠", "dm으로", "메시지", "전달",
 	})
 }
 
@@ -593,9 +593,6 @@ func toolNamesForAgentTurn(instructionBundle InstructionBundle, outcomeContract 
 	}
 	toolNames = appendUniqueStrings(toolNames, request.PinnedToolNames...)
 	toolNames = appendUniqueStrings(toolNames, outcomeContractRequiredToolNames(outcomeContract)...)
-	if outcomeNeedsArtifactWorkflow(outcomeContract) {
-		toolNames = appendUniqueStrings(toolNames, artifactWorkflowToolNames()...)
-	}
 	return toolNames
 }
 
@@ -694,20 +691,6 @@ func genericBuiltInToolNames() []string {
 	}
 }
 
-func artifactWorkflowToolNames() []string {
-	return []string{"terminal.run", "file.write", "file.promote", "file.attach"}
-}
-
-func outcomeNeedsArtifactWorkflow(contract OutcomeContract) bool {
-	if strings.TrimSpace(contract.ArtifactRequirement) == ArtifactRequirementRequired || strings.TrimSpace(contract.ArtifactRequirement) == ArtifactRequirementPreferred {
-		return true
-	}
-	if len(contract.RequiredAttachmentSuffixes) > 0 {
-		return true
-	}
-	return stringSliceContains(outcomeContractRequiredToolNames(contract), "file.attach")
-}
-
 func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
 	toolNames := []string{}
 	selectedSkillNames := selectedSkillNameSet(instructionBundle.SkillDecisions)
@@ -757,6 +740,7 @@ func selectedEvidenceToolsForContinuation(contract OutcomeContract, selectedEvid
 }
 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
+	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	if activeGoalOutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
 		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
@@ -766,7 +750,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
 		}
-		return normalizeOutcomeContract(contract)
+		return sanitizeOutcomeContractForRequest(request, executionPlan, hasExecutionPlan, contract)
 	}
 	contract := OutcomeContract{
 		SelectedEvidenceHints:      appendUniqueStrings(outcomeContractToolNames(request.ActiveGoal.OutcomeContract), selectedEvidenceHintTools(instructionBundle)...),
@@ -779,7 +763,97 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	contract.ExpectedResults = expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, contract.RequiredEvidenceTools, requiredAttachmentSuffixes)
 	contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
 	contract.Source = outcomeContractSource(hasExecutionPlan, requiredAttachmentSuffixes)
+	return sanitizeOutcomeContractForRequest(request, executionPlan, hasExecutionPlan, contract)
+}
+
+func attachmentSuffixesForOutcomeContract(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) []string {
+	if len(requiredAttachmentSuffixes) == 0 {
+		return nil
+	}
+	if !requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) {
+		return append([]string{}, requiredAttachmentSuffixes...)
+	}
+	if !onlyHTMLAttachmentSuffixes(requiredAttachmentSuffixes) {
+		return append([]string{}, requiredAttachmentSuffixes...)
+	}
+	if promptExplicitlyRequestsFileDelivery(request.Prompt) {
+		return append([]string{}, requiredAttachmentSuffixes...)
+	}
+	return nil
+}
+
+func requestExpectsSiteLinkResult(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool) bool {
+	return requestLooksLikeSitePrototypeWork(request) || hasExecutionPlan && executionPlan.PublicDeploy
+}
+
+func onlyHTMLAttachmentSuffixes(requiredAttachmentSuffixes []string) bool {
+	for _, suffix := range requiredAttachmentSuffixes {
+		if strings.ToLower(strings.TrimSpace(suffix)) != ".html" {
+			return false
+		}
+	}
+	return len(requiredAttachmentSuffixes) > 0
+}
+
+func promptExplicitlyRequestsFileDelivery(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{
+		"file", "attach", "attachment", "download", "source", "raw html", "html file",
+		"파일", "첨부", "다운로드", "소스", "원본", "html 파일", "html파일",
+	})
+}
+
+func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) OutcomeContract {
+	contract = normalizeOutcomeContract(contract)
+	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !promptExplicitlyRequestsFileDelivery(request.Prompt) {
+		contract = removeImplicitHTMLFileContract(contract)
+	}
+	if outcomeContractRequiresPublicLinkOnly(contract) {
+		contract.ArtifactRequirement = ArtifactRequirementNone
+	}
 	return normalizeOutcomeContract(contract)
+}
+
+func removeImplicitHTMLFileContract(contract OutcomeContract) OutcomeContract {
+	if !onlyHTMLAttachmentSuffixes(contract.RequiredAttachmentSuffixes) {
+		return contract
+	}
+	contract.RequiredAttachmentSuffixes = nil
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "file.attach")
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "file.attach")
+	contract.ExpectedResults = removeExpectedResultsByType(contract.ExpectedResults, ExpectedResultTypeFile)
+	return contract
+}
+
+func removeToolName(toolNames []string, removedToolName string) []string {
+	values := []string{}
+	for _, toolName := range toolNames {
+		if strings.TrimSpace(toolName) != removedToolName {
+			values = appendUniqueStrings(values, toolName)
+		}
+	}
+	return values
+}
+
+func removeToolNameGroups(groups [][]string, removedToolName string) [][]string {
+	filteredGroups := [][]string{}
+	for _, group := range groups {
+		filteredGroup := removeToolName(group, removedToolName)
+		if len(filteredGroup) > 0 {
+			filteredGroups = append(filteredGroups, filteredGroup)
+		}
+	}
+	return filteredGroups
+}
+
+func removeExpectedResultsByType(results []ExpectedResult, removedType string) []ExpectedResult {
+	filteredResults := []ExpectedResult{}
+	for _, result := range results {
+		if result.Type != removedType {
+			filteredResults = append(filteredResults, result)
+		}
+	}
+	return filteredResults
 }
 
 func activeGoalOutcomeContractHasRequirements(contract OutcomeContract) bool {
@@ -854,12 +928,31 @@ func artifactRequirementForOutcomeContract(intakeDecision IntakeDecision, contra
 	if len(contract.RequiredAttachmentSuffixes) > 0 || stringSliceContains(contract.RequiredEvidenceTools, "file.attach") || evidenceAnyOfContainsTool(contract.RequiredEvidenceAnyOf, "file.attach") {
 		return ArtifactRequirementRequired
 	}
+	if outcomeContractRequiresPublicLinkOnly(contract) {
+		return ArtifactRequirementNone
+	}
 	for _, outputFormat := range intakeDecision.RequestedOutputFormats {
 		if isArtifactOutputFormat(outputFormat) {
 			return ArtifactRequirementPreferred
 		}
 	}
 	return ArtifactRequirementNone
+}
+
+func outcomeContractRequiresPublicLinkOnly(contract OutcomeContract) bool {
+	hasLinkResult := false
+	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
+		if !result.Required {
+			continue
+		}
+		switch result.Type {
+		case ExpectedResultTypeFile:
+			return false
+		case ExpectedResultTypeLink:
+			hasLinkResult = true
+		}
+	}
+	return hasLinkResult
 }
 
 func evidenceAnyOfContainsTool(groups [][]string, toolName string) bool {

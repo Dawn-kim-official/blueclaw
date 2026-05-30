@@ -152,7 +152,6 @@ func nextStepPlanSchema() map[string]any {
 			"risk":                stringSchema(),
 			"workingSetReason":    stringSchema(),
 		},
-		"required": []string{"objective", "expectedTools", "doneCriteria", "risk", "workingSetReason"},
 	}
 }
 
@@ -160,16 +159,48 @@ func toolInputSchema(toolDefinition ToolDefinition) any {
 	if len(toolDefinition.InputSchema) > 0 {
 		var schema any
 		if json.Unmarshal(toolDefinition.InputSchema, &schema) == nil {
-			return schema
+			return portableNestedSchema(schema)
 		}
 	}
 	if schema := specificToolInputSchema(toolDefinition.Name); len(schema) > 0 {
 		var document any
 		if json.Unmarshal(schema, &document) == nil {
-			return document
+			return portableNestedSchema(document)
 		}
 	}
 	return objectSchema()
+}
+
+func portableNestedSchema(value any) any {
+	document, isDocument := value.(map[string]any)
+	if isDocument {
+		clone := map[string]any{}
+		for fieldName, fieldValue := range document {
+			if fieldName == "required" {
+				continue
+			}
+			if fieldName == "type" && fieldValue == "integer" {
+				clone[fieldName] = "number"
+				continue
+			}
+			clone[fieldName] = portableNestedSchema(fieldValue)
+		}
+		if clone["type"] == "object" {
+			if _, isFound := clone["properties"]; !isFound {
+				clone["properties"] = map[string]any{}
+			}
+		}
+		return clone
+	}
+	values, isValues := value.([]any)
+	if isValues {
+		clone := make([]any, 0, len(values))
+		for _, item := range values {
+			clone = append(clone, portableNestedSchema(item))
+		}
+		return clone
+	}
+	return value
 }
 
 func specificToolInputSchema(toolName string) json.RawMessage {
@@ -216,7 +247,7 @@ func booleanSchema() map[string]any {
 }
 
 func objectSchema() map[string]any {
-	return map[string]any{"type": "object"}
+	return map[string]any{"type": "object", "properties": map[string]any{}}
 }
 
 func completionEvidenceSchema() map[string]any {
@@ -229,7 +260,6 @@ func completionEvidenceSchema() map[string]any {
 				"toolName":        stringSchema(),
 				"attachmentIndex": map[string]any{"type": "number"},
 			},
-			"required": []string{"observationID", "toolName"},
 		},
 	}
 }
@@ -244,7 +274,6 @@ func qualityCriteriaSchema() map[string]any {
 				"description": stringSchema(),
 				"required":    booleanSchema(),
 			},
-			"required": []string{"id", "description"},
 		},
 	}
 }
@@ -260,7 +289,6 @@ func qualityReviewSchema() map[string]any {
 				"evidence": completionEvidenceSchema(),
 				"notes":    stringSchema(),
 			},
-			"required": []string{"id", "passed", "evidence"},
 		},
 	}
 }
@@ -280,12 +308,10 @@ func failureReportFactsSchema() map[string]any {
 						"failureStage": stringSchema(),
 						"message":      stringSchema(),
 					},
-					"required": []string{"toolName", "inputSummary", "errorCode", "failureStage", "message"},
 				},
 			},
 			"budgetState": stringSchema(),
 		},
-		"required": []string{"attempts", "budgetState"},
 	}
 }
 
