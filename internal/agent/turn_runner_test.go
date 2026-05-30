@@ -2214,6 +2214,103 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 	}
 }
 
+func TestAgentTurnRunnerVerifierSuggestedToolsExpandWorkingSet(t *testing.T) {
+	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	toolRegistry := newTestToolSet([]string{
+		"site.app.status",
+		"site.app.create",
+		"file.read",
+		"file.write",
+		"terminal.run",
+		"site.app.build",
+		"artifact.review",
+		"site.app.publish",
+	})
+	request := AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "개인 홈페이지 만들고 배포해줘",
+		ToolSet:           toolRegistry,
+	}
+	state := agentTaskState{
+		Request: request,
+		NextStepPlan: NextStepPlan{
+			Objective:           "prepare a publishable site draft",
+			ExpectedNextResults: []string{"a draft workspace exists", "a build result exists"},
+			DoneCriteria:        []string{"draft and build expected results exist"},
+			Risk:                "site may not exist yet",
+			WorkingSetReason:    "next result expectations explain why the tool set is needed",
+		},
+		Observations: []turnObservation{{
+			ObservationID: "obs-001",
+			Action:        "expected_result_missing",
+			RecoveryPacket: &RecoveryPacket{
+				AllowedTools: []string{"site.app.create", "file.write", "terminal.run", "site.app.build"},
+			},
+		}},
+	}
+
+	stepRequest := services.runner.requestForStep(context.Background(), request, state)
+	for _, toolName := range []string{"site.app.create", "file.write", "terminal.run", "site.app.build"} {
+		if !stepRequest.ToolSet.CanExpose(toolName) {
+			t.Fatalf("expected evidence-driven working set to expose %s, got %+v", toolName, stepRequest.ToolExposure.ExposedToolIDs)
+		}
+	}
+}
+
+func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		resultVerifications: []string{
+			`{"overallStatus":"missing","summary":"missing public URL","results":[{"id":"site-public-link","status":"missing","reason":"Only a draft exists.","citedObservationIDs":["obs-001"],"missingDescription":"A public URL is still missing.","suggestedNextTools":["site.app.publish"]}]}`,
+			`{"overallStatus":"satisfied","summary":"public URL exists","results":[{"id":"site-public-link","status":"satisfied","reason":"Publish returned a public URL.","citedObservationIDs":["obs-003"],"missingDescription":"","suggestedNextTools":[]}]}`,
+		},
+		contents: []string{
+			`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"create draft","expectedTools":[],"expectedNextResults":["draft site project exists"],"doneCriteria":["draft exists"],"risk":"none","workingSetReason":"create prepares the project"}}`,
+			`{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.app.create"}],"finishMessage":"초안을 만들었습니다."}`,
+			`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish"},"nextStepPlan":{"objective":"finish after public URL","expectedTools":[],"expectedNextResults":["public URL exists"],"doneCriteria":["public URL exists"],"risk":"none","workingSetReason":"publish should satisfy the expected result"}}`,
+			`{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-003","toolName":"site.app.publish"}],"finishMessage":"배포했습니다: https://portfolio.example"}`,
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
+	toolRegistry := newTestToolSet([]string{"site.app.create", "site.app.publish"})
+	toolCalls := []string{}
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.create")
+		return ToolSuccess(`{"siteID":"site-1","status":"draft"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.publish")
+		return ToolSuccess(`{"siteID":"site-1","publishedURL":"https://portfolio.example"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "개인 홈페이지 만들어서 배포해줘",
+		ToolSet:           toolRegistry,
+		OutcomeContract: OutcomeContract{
+			ExpectedResults: []ExpectedResult{{
+				ID:          "site-public-link",
+				Type:        ExpectedResultTypeLink,
+				Description: "사용자가 열 수 있는 public URL의 개인 홈페이지",
+				Required:    true,
+			}},
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected run to complete after verifier-guided recovery: %v", errorValue)
+	}
+	if strings.Join(toolCalls, ",") != "site.app.create,site.app.publish" {
+		t.Fatalf("expected create then publish, got %+v", toolCalls)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.expected_result_verification", "missing public URL") {
+		t.Fatal("expected result verification event")
+	}
+}
+
 func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		toolSelections: []string{
@@ -3106,12 +3203,14 @@ func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options 
 }
 
 type sequenceLanguageModel struct {
-	contents          []string
-	toolSelections    []string
-	textResponses     []string
-	requests          []llm.StructuredResponseRequest
-	selectionRequests []llm.StructuredResponseRequest
-	textPrompts       []string
+	contents             []string
+	toolSelections       []string
+	resultVerifications  []string
+	textResponses        []string
+	requests             []llm.StructuredResponseRequest
+	selectionRequests    []llm.StructuredResponseRequest
+	verificationRequests []llm.StructuredResponseRequest
+	textPrompts          []string
 }
 
 func recoveryDecisionDocument(whatFailed string, whatWasKnown string, nextAction string, userReplyIntent string) string {
@@ -3145,12 +3244,58 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 		}
 		return llm.StructuredResponse{Content: `{"selectedToolIDs":[],"reason":"test default"}`}, nil
 	}
+	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_result_verifier" {
+		languageModel.verificationRequests = append(languageModel.verificationRequests, request)
+		index := len(languageModel.verificationRequests) - 1
+		if index < len(languageModel.resultVerifications) {
+			return llm.StructuredResponse{Content: languageModel.resultVerifications[index]}, nil
+		}
+		return llm.StructuredResponse{Content: defaultResultVerificationResponse(request)}, nil
+	}
 	languageModel.requests = append(languageModel.requests, request)
 	index := len(languageModel.requests) - 1
 	if index >= len(languageModel.contents) {
 		index = len(languageModel.contents) - 1
 	}
 	return llm.StructuredResponse{Content: languageModel.contents[index]}, nil
+}
+
+func defaultResultVerificationResponse(request llm.StructuredResponseRequest) string {
+	expectedResults := expectedResultsFromVerifierRequest(request)
+	results := []map[string]any{}
+	for _, expectedResult := range expectedResults {
+		results = append(results, map[string]any{
+			"id":                  expectedResult.ID,
+			"status":              "satisfied",
+			"reason":              "test default",
+			"citedObservationIDs": []string{},
+			"missingDescription":  "",
+			"suggestedNextTools":  []string{},
+		})
+	}
+	document, errorValue := json.Marshal(map[string]any{
+		"overallStatus": "satisfied",
+		"summary":       "test default",
+		"results":       results,
+	})
+	if errorValue != nil {
+		return `{"overallStatus":"satisfied","summary":"test default","results":[]}`
+	}
+	return string(document)
+}
+
+func expectedResultsFromVerifierRequest(request llm.StructuredResponseRequest) []ExpectedResult {
+	for _, message := range request.Messages {
+		content := strings.TrimSpace(message.Content)
+		if !strings.HasPrefix(content, "Expected results:\n") {
+			continue
+		}
+		var expectedResults []ExpectedResult
+		if json.Unmarshal([]byte(strings.TrimPrefix(content, "Expected results:\n")), &expectedResults) == nil {
+			return normalizeExpectedResults(expectedResults)
+		}
+	}
+	return nil
 }
 
 type structuredFailureTextRecoveryLanguageModel struct {

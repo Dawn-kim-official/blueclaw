@@ -762,6 +762,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
 		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHints...)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForContinuation(contract, selectedEvidenceHints)...)
+		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
 		}
@@ -775,13 +776,78 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	if len(requiredAttachmentSuffixes) > 0 {
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, "file.attach")
 	}
+	contract.ExpectedResults = expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, contract.RequiredEvidenceTools, requiredAttachmentSuffixes)
 	contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
 	contract.Source = outcomeContractSource(hasExecutionPlan, requiredAttachmentSuffixes)
 	return normalizeOutcomeContract(contract)
 }
 
 func activeGoalOutcomeContractHasRequirements(contract OutcomeContract) bool {
-	return len(contract.RequiredEvidenceTools) > 0 || len(contract.RequiredEvidenceAnyOf) > 0 || len(contract.RequiredAttachmentSuffixes) > 0 || strings.TrimSpace(contract.ArtifactRequirement) != ""
+	return len(contract.ExpectedResults) > 0 || len(contract.RequiredEvidenceTools) > 0 || len(contract.RequiredEvidenceAnyOf) > 0 || len(contract.RequiredAttachmentSuffixes) > 0 || strings.TrimSpace(contract.ArtifactRequirement) != ""
+}
+
+func expectedResultsForRequest(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredEvidenceTools []string, requiredAttachmentSuffixes []string) []ExpectedResult {
+	results := []ExpectedResult{}
+	if requestExpectsPublicSiteResult(request, executionPlan, hasExecutionPlan, requiredEvidenceTools) {
+		results = append(results, ExpectedResult{
+			ID:          "site-public-link",
+			Type:        ExpectedResultTypeLink,
+			Description: "사용자가 열 수 있는 public URL의 웹사이트 프로젝트 한 개",
+			Required:    true,
+			AcceptanceHints: []string{
+				"URL must be visible in a successful tool result or final response.",
+				"Updates should keep the same site project when the task is a revision.",
+			},
+		})
+	}
+	if requestExpectsFileResult(requiredEvidenceTools, requiredAttachmentSuffixes) {
+		results = append(results, ExpectedResult{
+			ID:              "attached-file",
+			Type:            ExpectedResultTypeFile,
+			Description:     "요청한 형식의 파일 한 개 이상이 사용자에게 첨부됨",
+			Required:        true,
+			AcceptanceHints: appendUniqueStrings(requiredAttachmentSuffixes),
+		})
+	}
+	if len(results) == 0 {
+		return nil
+	}
+	results = append(results, ExpectedResult{
+		ID:          "final-message",
+		Type:        ExpectedResultTypeMessage,
+		Description: "사용자에게 현재 Task 결과를 설명하는 최종 답변",
+		Required:    true,
+	})
+	return normalizeExpectedResults(results)
+}
+
+func legacyExpectedResultsForContract(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) []ExpectedResult {
+	return expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, outcomeContractRequiredToolNames(contract), contract.RequiredAttachmentSuffixes)
+}
+
+func requestExpectsPublicSiteResult(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredEvidenceTools []string) bool {
+	if requestLooksLikeSitePrototypeWork(request) || hasExecutionPlan && executionPlan.PublicDeploy {
+		return true
+	}
+	for _, toolName := range requiredEvidenceTools {
+		if strings.HasPrefix(strings.TrimSpace(toolName), "site.app.") {
+			return true
+		}
+	}
+	return false
+}
+
+func requestExpectsFileResult(requiredEvidenceTools []string, requiredAttachmentSuffixes []string) bool {
+	if len(requiredAttachmentSuffixes) > 0 {
+		return true
+	}
+	return stringSliceContains(requiredEvidenceTools, "file.attach")
+}
+
+func appendExpectedResults(results []ExpectedResult, additionalResults ...ExpectedResult) []ExpectedResult {
+	nextResults := append([]ExpectedResult{}, results...)
+	nextResults = append(nextResults, additionalResults...)
+	return normalizeExpectedResults(nextResults)
 }
 
 func artifactRequirementForOutcomeContract(intakeDecision IntakeDecision, contract OutcomeContract) string {

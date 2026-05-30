@@ -150,11 +150,12 @@ func nextStepPlanSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"objective":        stringSchema(),
-			"expectedTools":    stringArraySchema(0),
-			"doneCriteria":     stringArraySchema(0),
-			"risk":             stringSchema(),
-			"workingSetReason": stringSchema(),
+			"objective":           stringSchema(),
+			"expectedTools":       stringArraySchema(0),
+			"expectedNextResults": stringArraySchema(0),
+			"doneCriteria":        stringArraySchema(0),
+			"risk":                stringSchema(),
+			"workingSetReason":    stringSchema(),
 		},
 		"required":             []string{"objective", "expectedTools", "doneCriteria", "risk", "workingSetReason"},
 		"additionalProperties": false,

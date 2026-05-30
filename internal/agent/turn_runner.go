@@ -126,11 +126,12 @@ type turnActionDocument struct {
 }
 
 type NextStepPlan struct {
-	Objective        string   `json:"objective,omitempty"`
-	ExpectedTools    []string `json:"expectedTools,omitempty"`
-	DoneCriteria     []string `json:"doneCriteria,omitempty"`
-	Risk             string   `json:"risk,omitempty"`
-	WorkingSetReason string   `json:"workingSetReason,omitempty"`
+	Objective           string   `json:"objective,omitempty"`
+	ExpectedTools       []string `json:"expectedTools,omitempty"`
+	ExpectedNextResults []string `json:"expectedNextResults,omitempty"`
+	DoneCriteria        []string `json:"doneCriteria,omitempty"`
+	Risk                string   `json:"risk,omitempty"`
+	WorkingSetReason    string   `json:"workingSetReason,omitempty"`
 }
 
 type turnObservation struct {
@@ -252,10 +253,12 @@ type qualityReviewItem struct {
 }
 
 type completionGateResult struct {
-	IsSatisfied   bool
-	Message       string
-	Attachments   []FileAttachment
-	ValidityState ValidityState
+	IsSatisfied        bool
+	Message            string
+	Attachments        []FileAttachment
+	ValidityState      ValidityState
+	ResultVerification ResultVerification
+	SuggestedNextTools []string
 }
 
 type completionTransition struct {
@@ -459,10 +462,11 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "set_quality_criteria", marshalEventBody(map[string]any{"criteria": state.QualityCriteria}))
 			continue
 		case "finish":
-			completionGateResult := validateCompletionGateForRequestWithRecoveryBudget(request, toolUseRequirements, state.Observations, state.QualityCriteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+			completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "finish", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
 				observation := completionGateObservation(len(state.Observations)+1, completionGateResult.Message)
+				observation = withCompletionGateRecoveryPacket(observation, completionGateResult)
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, completionGateEventName(observation), marshalEventBody(observation))
 				if observation.Action == "evidence_missing" {
@@ -893,7 +897,7 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request 
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestForStep(ctx context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
-	plannedRequest := requestWithStepWorkingSetTools(request, state.NextStepPlan, state.Requirements)
+	plannedRequest := requestWithStepWorkingSetTools(request, state.NextStepPlan)
 	selectionRequest := buildToolSelectionRequest(
 		plannedRequest.ToolSet,
 		instructionBundleFromTurnRequest(plannedRequest),
@@ -930,10 +934,9 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(ctx context.Context, requ
 	return iterationRequest
 }
 
-func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan, requirements []toolUseRequirement) AgentTurnRequest {
+func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan) AgentTurnRequest {
 	normalizedPlan := normalizeNextStepPlan(plan)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, normalizedPlan.ExpectedTools...)
-	request.OutcomeContract.RequiredEvidenceTools = appendUniqueStrings(request.OutcomeContract.RequiredEvidenceTools, requiredToolNamesForStepWorkingSet(requirements)...)
 	if requestLooksLikeCalendarStep(request) {
 		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, "calendar.event.add", "calendar.event.delete")
 	}
@@ -944,32 +947,6 @@ func requestLooksLikeCalendarStep(request AgentTurnRequest) bool {
 	return promptLooksLikeCalendarRequest(request.Prompt) ||
 		promptLooksLikeCalendarRequest(request.ActiveGoal.OriginalInstruction) ||
 		promptLooksLikeCalendarRequest(request.ActiveGoal.CurrentObjective)
-}
-
-func requiredToolNamesForStepWorkingSet(requirements []toolUseRequirement) []string {
-	toolNames := []string{}
-	for _, requirement := range requirements {
-		if strings.TrimSpace(requirement.ToolName) != "" {
-			toolNames = appendUniqueStrings(toolNames, requirement.ToolName)
-		}
-		if strings.TrimSpace(requirement.ToolPrefix) != "" {
-			toolNames = appendUniqueStrings(toolNames, toolNamesMatchingPrefix(requirement.ToolPrefix)...)
-		}
-	}
-	return toolNames
-}
-
-func toolNamesMatchingPrefix(prefix string) []string {
-	trimmedPrefix := strings.TrimSpace(prefix)
-	if trimmedPrefix == "" {
-		return nil
-	}
-	switch trimmedPrefix {
-	case "browser.":
-		return []string{"browser.open", "browser.snapshot", "browser.screenshot", "browser.click", "browser.fill", "browser.select", "browser.press", "browser.wait"}
-	default:
-		return nil
-	}
 }
 
 func instructionBundleFromTurnRequest(request AgentTurnRequest) InstructionBundle {
@@ -1027,7 +1004,7 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 }
 
 func buildAgentSystemInstruction(request AgentTurnRequest) string {
-	instruction := "You are Blueclaw. Work as a careful task agent. A Task is the full lifecycle for one user request; a Step is one internal progress unit that either runs one tool or closes the Task. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName, toolInput, and nextStepPlan; optional continue.message is a short checkpoint and the tool still runs in the same Step. nextStepPlan must name the next Step objective, expectedTools, doneCriteria, risk, and workingSetReason so the runtime can expose the right working set. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
+	instruction := "You are Blueclaw. Work as a careful task agent. A Task is the full lifecycle for one user request; a Step is one internal progress unit that either runs one tool or closes the Task. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName, toolInput, and nextStepPlan; optional continue.message is a short checkpoint and the tool still runs in the same Step. nextStepPlan must name the next Step objective, expectedTools, expectedNextResults, doneCriteria, risk, and workingSetReason so the runtime can expose the right working set without forcing one hard route. expectedNextResults describes the natural-language intermediate results the next Step is trying to produce; expectedTools are only likely ways to get them. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
@@ -2066,11 +2043,12 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 
 func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState) completionTransition {
 	actionDocument := completionStateFinishDocument(state)
-	completionGateResult := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(context.Background(), taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
 		observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", completionGateResult.Message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
+		observation = withCompletionGateRecoveryPacket(observation, completionGateResult)
 		observations = append(observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
 		return completionTransition{Observations: observations, Attachments: attachments}
@@ -2277,7 +2255,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "finalizer did not return finish"}))
 		return AgentTurnResult{}, false
 	}
-	completionGateResult := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(ctx, taskRunID, request, requirements, observations, nil, criteria, actionDocument)
 	if !completionGateResult.IsSatisfied {
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
 		return AgentTurnResult{}, false
@@ -2437,6 +2415,34 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 	return validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, defaultRecoveryBudget())
 }
 
+func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpectedResults(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
+	result := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+	if !result.IsSatisfied || len(request.OutcomeContract.ExpectedResults) == 0 {
+		return result
+	}
+	verification, errorValue := verifyExpectedResults(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
+	if errorValue != nil {
+		result.IsSatisfied = false
+		result.Message = "expected result verification unavailable: " + errorValue.Error()
+		result.SuggestedNextTools = expectedResultFallbackTools(request.OutcomeContract)
+		agentTurnRunner.appendEvent(taskRunID, "agent.expected_result_verification_unavailable", marshalEventBody(map[string]string{"error": errorValue.Error()}))
+		return result
+	}
+	result.ResultVerification = verification
+	agentTurnRunner.appendEvent(taskRunID, "agent.expected_result_verification", marshalEventBody(verification))
+	missingResults := blockingExpectedResultItems(request.OutcomeContract, verification, observations)
+	if len(missingResults) == 0 {
+		return result
+	}
+	result.IsSatisfied = false
+	result.Message = expectedResultGateMessage(missingResults)
+	result.SuggestedNextTools = suggestedNextToolsForResultVerification(missingResults)
+	if len(result.SuggestedNextTools) == 0 {
+		result.SuggestedNextTools = expectedResultFallbackTools(request.OutcomeContract)
+	}
+	return result
+}
+
 func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
 	requirements = requirementsWithFailureDebtWaiver(requirements, observations, actionDocument)
 	result := validateCompletionGate(requirements, observations, criteria, actionDocument)
@@ -2463,6 +2469,30 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 		result.Attachments = nil
 	}
 	return result
+}
+
+func expectedResultGateMessage(results []ResultVerificationItem) string {
+	parts := []string{}
+	for _, result := range results {
+		description := firstNonEmptyString(result.MissingDescription, result.Reason, result.ID)
+		parts = append(parts, strings.TrimSpace(result.ID)+": "+strings.TrimSpace(description))
+	}
+	return "finish is missing required expected result: " + strings.Join(parts, "; ")
+}
+
+func expectedResultFallbackTools(contract OutcomeContract) []string {
+	toolNames := []string{}
+	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
+		switch result.Type {
+		case ExpectedResultTypeFile:
+			toolNames = appendUniqueStrings(toolNames, "file.attach", "file.read", "terminal.run")
+		case ExpectedResultTypeLink:
+			toolNames = appendUniqueStrings(toolNames, "site.app.status", "site.app.publish", "browser.open", "browser.snapshot")
+		default:
+			toolNames = appendUniqueStrings(toolNames, "conversation.history")
+		}
+	}
+	return toolNames
 }
 
 func hasDurableArtifactAttachment(attachments []FileAttachment) bool {
@@ -2518,6 +2548,36 @@ func completionGateObservation(index int, message string) turnObservation {
 	return observation
 }
 
+func withCompletionGateRecoveryPacket(observation turnObservation, result completionGateResult) turnObservation {
+	if len(result.SuggestedNextTools) == 0 {
+		return observation
+	}
+	observation.RecoveryPacket = &RecoveryPacket{
+		WhatFailed:       "Expected task result is not satisfied yet.",
+		WhyLikely:        result.Message,
+		FailureClass:     failureClassUnknown,
+		RetryPolicy:      retryPolicyAfterPrecondition,
+		AllowedTools:     appendUniqueStrings(result.SuggestedNextTools),
+		EvidenceNeeded:   expectedResultRecoveryEvidence(result),
+		MustDoNext:       []string{"Produce or inspect the missing expected result, then try finish again."},
+		ForbiddenRepeats: nil,
+	}
+	return observation
+}
+
+func expectedResultRecoveryEvidence(result completionGateResult) []string {
+	if len(result.ResultVerification.Results) == 0 {
+		return []string{result.Message}
+	}
+	values := []string{}
+	for _, item := range result.ResultVerification.Results {
+		if item.Status == "missing" || item.Status == "uncertain" {
+			values = appendUniqueStrings(values, firstNonEmptyString(item.MissingDescription, item.Reason, item.ID))
+		}
+	}
+	return values
+}
+
 func completionGateEventName(observation turnObservation) string {
 	if observation.Action == "evidence_missing" {
 		return "agent.evidence_missing"
@@ -2528,6 +2588,8 @@ func completionGateEventName(observation turnObservation) string {
 func evidenceMissingKind(message string) string {
 	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
 	switch {
+	case strings.Contains(normalizedMessage, "expected result"):
+		return "expected_result_missing"
 	case strings.Contains(normalizedMessage, "requires successful observation"):
 		return "required_tool_missing"
 	case strings.Contains(normalizedMessage, "must include an attachment"):
@@ -2543,6 +2605,8 @@ func evidenceMissingKind(message string) string {
 
 func evidenceMissingGuidance(evidenceKind string, message string) string {
 	switch evidenceKind {
+	case "expected_result_missing":
+		return "The Task expected result is not complete yet. Produce or inspect the missing result, then finish after the expected result verifier can see it. " + message
 	case "required_tool_missing":
 		return "The final reply needs successful tool evidence before completion. Use the required tool if it has not run, or cite an existing successful observation. " + message
 	case "attachment_missing":

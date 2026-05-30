@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSelectedRequiredAttachmentSuffixesStayAdvisoryForSlides(t *testing.T) {
 	instructionBundle := InstructionBundle{
@@ -44,6 +47,51 @@ func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 	if len(toolNames) != 3 || toolNames[0] != "site.app.create" || toolNames[1] != "terminal.run" || toolNames[2] != "site.app.publish" {
 		t.Fatalf("expected selected skill evidence tools, got %+v", toolNames)
 	}
+}
+
+func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{Prompt: "개인 홈페이지 만들어서 배포해줘"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
+		InstructionBundle{},
+		ExecutionPlan{PublicDeploy: true},
+		true,
+		nil,
+	)
+
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected site publish contract to require public link result, got %+v", contract.ExpectedResults)
+	}
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeMessage, "최종 답변") {
+		t.Fatalf("expected site publish contract to include final message result, got %+v", contract.ExpectedResults)
+	}
+}
+
+func TestOutcomeContractCreatesExpectedResultsForRequestedFile(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{Prompt: "pptx 파일 만들어줘"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{".pptx"}},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		[]string{".pptx"},
+	)
+
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
+		t.Fatalf("expected file output contract, got %+v", contract.ExpectedResults)
+	}
+	if len(contract.ExpectedResults[0].AcceptanceHints) == 0 || contract.ExpectedResults[0].AcceptanceHints[0] != ".pptx" {
+		t.Fatalf("expected suffix hint to be preserved, got %+v", contract.ExpectedResults)
+	}
+}
+
+func expectedResultsContain(results []ExpectedResult, resultType string, descriptionFragment string) bool {
+	for _, result := range results {
+		if result.Type == resultType && strings.Contains(result.Description, descriptionFragment) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T) {
