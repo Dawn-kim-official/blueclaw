@@ -8,7 +8,7 @@ import (
 	"blueclaw/internal/llm"
 )
 
-const maxSchemaToolCount = 20
+const maxSchemaCallableToolCount = 16
 
 type toolExposureGroup struct {
 	Name    string
@@ -187,7 +187,7 @@ func toolSelectionFallbackFitsCap(request toolSelectionRequest) bool {
 	groups := []toolExposureGroup{}
 	groups = append(groups, request.CoreGroups...)
 	groups = append(groups, request.CandidateGroups...)
-	_, droppedGroups := applyGroupCap(groups, maxSchemaToolCount)
+	_, droppedGroups := applyGroupCap(groups, maxSchemaCallableToolCount)
 	return len(droppedGroups) == 0
 }
 
@@ -299,7 +299,7 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 		groups = append(groups, candidateGroups...)
 	}
 
-	exposedToolIDs, droppedGroups := applyGroupCap(groups, maxSchemaToolCount)
+	exposedToolIDs, droppedGroups := applyGroupCap(groups, maxSchemaCallableToolCount)
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
 	selectionEvent.DroppedGroups = droppedGroups
 	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
@@ -451,7 +451,7 @@ func activeGoalCandidateToolNames(request AgentRequest, executionPlan ExecutionP
 }
 
 func renderCoreGroupSummary(groups []toolExposureGroup) string {
-	lines := []string{"Core groups are normally available in the action schema unless the 20-tool cap is reached:"}
+	lines := []string{"Core groups are normally available in the action schema unless the provider function budget is reached:"}
 	for _, group := range groups {
 		if len(group.ToolIDs) == 0 {
 			continue
