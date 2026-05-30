@@ -20,6 +20,19 @@ type FailureDebt struct {
 	LatestFailure turnObservation `json:"latestFailure"`
 }
 
+type RecoveryPacket struct {
+	WhatFailed          string               `json:"whatFailed"`
+	WhyLikely           string               `json:"whyLikely,omitempty"`
+	MustDoNext          []string             `json:"mustDoNext,omitempty"`
+	AllowedTools        []string             `json:"allowedTools,omitempty"`
+	ForbiddenRepeats    []string             `json:"forbiddenRepeats,omitempty"`
+	EvidenceNeeded      []string             `json:"evidenceNeeded,omitempty"`
+	FailureClass        string               `json:"failureClass,omitempty"`
+	RetryPolicy         string               `json:"retryPolicy,omitempty"`
+	AffectedResources   []AffectedResource   `json:"affectedResources,omitempty"`
+	DiagnosticArtifacts []DiagnosticArtifact `json:"diagnosticArtifacts,omitempty"`
+}
+
 type attemptLedgerEntry struct {
 	ObservationID      string `json:"observationID"`
 	ToolName           string `json:"toolName"`
@@ -328,6 +341,8 @@ func failureReportMessage(observation turnObservation) string {
 func failureDebtActionContractMessage(facts failureReportFacts) string {
 	return strings.Join([]string{
 		"FailureDebt is active. The action schema now requires failureResolution.",
+		"If a RecoveryPacket is present, choose one of its allowedTools and satisfy evidenceNeeded before retrying the failed tool.",
+		"Do not repeat a failed tool while RecoveryPacket.forbiddenRepeats applies; use an inspect/edit/repair/change-route action first.",
 		"If you can answer directly without tools, return finish with failureResolution=no_tool_fallback and do not apologize or mention the failed tool unless the user asked about internals.",
 		"If you cannot answer directly and recovery budget is exhausted, return fail with failureResolution=failure_report and copy the relevant facts into usedFailureFacts.",
 		"FailureReportFacts:\n" + marshalEventBody(facts),

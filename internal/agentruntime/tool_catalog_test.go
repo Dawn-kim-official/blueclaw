@@ -1521,6 +1521,55 @@ func TestSuccessfulSiteBuildQualityNormalizesAfterBuild(t *testing.T) {
 	}
 }
 
+func TestSiteBuildQualityGateFailureIncludesRecoveryTargets(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourceWorkspacePath := filepath.Join(workspacePath, "sites", "site-1")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{
+  "blockingIssueCount": 1,
+  "issues": [
+    {
+      "severity": "blocking",
+      "category": "templateSmell",
+      "target": "src/App.tsx",
+      "message": "Replace the scaffold starter."
+    }
+  ]
+}`)
+	factory := actortest.NewDirectWorkspaceActorFactory()
+	workspaceActor, errorValue := factory.Requester(context.Background(), security.WorkspaceActorRequest{
+		WorkspaceRootPath: workspacePath,
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	sourceWorkspace := workspacepath.Path{
+		ConcretePath: sourceWorkspacePath,
+		VirtualPath:  "/workspace/sites/site-1",
+	}
+	appWorkspace := workspacepath.Path{
+		ConcretePath: filepath.Join(sourceWorkspacePath, "app"),
+		VirtualPath:  "/workspace/sites/site-1/app",
+	}
+
+	result := siteBuildQualityGateFailure(context.Background(), workspaceActor, sourceWorkspace, appWorkspace, agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", "build failed"))
+	if result == nil || !result.Failed() {
+		t.Fatalf("expected quality gate failure result, got %+v", result)
+	}
+	if result.Failure.Code != "operation_failed" || result.Failure.FailureClass != "fixable_artifact_quality" || result.Failure.RetryPolicy != "after_precondition" || !result.Failure.Retryable {
+		t.Fatalf("expected retryable site quality failure, got %+v", result.Failure)
+	}
+	if !containsTestString(result.Failure.RequiredPreconditions, "source_changed") || len(result.Failure.AffectedResources) == 0 || result.Failure.AffectedResources[0].Path != "src/App.tsx" {
+		t.Fatalf("expected source_changed precondition and affected source, got %+v", result.Failure)
+	}
+	content := result.ContentText()
+	for _, expectedText := range []string{"file.read", "file.write", "src/App.tsx", "/workspace/sites/site-1/.internkim/build-quality.json", "Do not repeat site.app.build"} {
+		if !strings.Contains(content, expectedText) {
+			t.Fatalf("expected quality gate result to contain %q, got %s", expectedText, content)
+		}
+	}
+}
+
 func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site description","idea":"Demo site idea","purpose":"portfolio","audience":"buyers","archetype":"portfolio","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"home/sites/site-1","workspacePath":"home/sites/site-1","status":"draft","ownerIdentity":{"personID":"person-1","displayName":"Owner"}}}`}

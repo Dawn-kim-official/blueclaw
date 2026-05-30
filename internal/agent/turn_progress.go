@@ -60,12 +60,13 @@ type ProgressAttachment struct {
 }
 
 type ToolResultContextItem struct {
-	ObservationID string               `json:"observationID"`
-	ToolName      string               `json:"toolName,omitempty"`
-	Status        string               `json:"status"`
-	Summary       string               `json:"summary"`
-	ImageRefs     []ToolResultImageRef `json:"imageRefs,omitempty"`
-	Attachments   []ProgressAttachment `json:"attachments,omitempty"`
+	ObservationID  string               `json:"observationID"`
+	ToolName       string               `json:"toolName,omitempty"`
+	Status         string               `json:"status"`
+	Summary        string               `json:"summary"`
+	RecoveryPacket *RecoveryPacket      `json:"recoveryPacket,omitempty"`
+	ImageRefs      []ToolResultImageRef `json:"imageRefs,omitempty"`
+	Attachments    []ProgressAttachment `json:"attachments,omitempty"`
 }
 
 func buildTurnProgress(request AgentTurnRequest, observations []turnObservation) TurnProgress {
@@ -193,12 +194,13 @@ func toolResultContextItems(observations []turnObservation) []ToolResultContextI
 			status = "error"
 		}
 		items = append([]ToolResultContextItem{{
-			ObservationID: observation.ObservationID,
-			ToolName:      observation.Tool,
-			Status:        status,
-			Summary:       summary,
-			ImageRefs:     append([]ToolResultImageRef{}, observation.ImageRefs...),
-			Attachments:   progressAttachments(observation),
+			ObservationID:  observation.ObservationID,
+			ToolName:       observation.Tool,
+			Status:         status,
+			Summary:        summary,
+			RecoveryPacket: observation.RecoveryPacket,
+			ImageRefs:      append([]ToolResultImageRef{}, observation.ImageRefs...),
+			Attachments:    progressAttachments(observation),
 		}}, items...)
 	}
 	return items

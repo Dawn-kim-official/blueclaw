@@ -588,6 +588,9 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 	if recoveryAction.Kind != "companion_connect" || recoveryAction.Delivery != "dm_preferred" || recoveryAction.ConnectCommand != "/connect" {
 		t.Fatalf("unexpected recovery action: %+v", recoveryAction)
 	}
+	if len(toolResult.Failure.RecoveryHints) != 1 || toolResult.Failure.RecoveryHints[0].Action != "companion_connect" {
+		t.Fatalf("expected recovery hint normalized onto failure, got %+v", toolResult.Failure)
+	}
 }
 
 func TestPublicBrowserCapabilityKeepsDeviceFallback(t *testing.T) {

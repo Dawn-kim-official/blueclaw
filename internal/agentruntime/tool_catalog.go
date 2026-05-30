@@ -769,6 +769,7 @@ func capabilityToolResult(content string, data json.RawMessage, isFailed bool, m
 		UserSafeSummary: firstNonEmptyString(message, capabilityResultString(data, "message"), content),
 		Retryable:       retryable || capabilityResultBoolean(data, "retryable"),
 		SafeRetry:       safeRetry || capabilityResultBoolean(data, "safeRetry"),
+		RecoveryHints:   capabilityRecoveryHints(data),
 	}
 	return result
 }
@@ -899,6 +900,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		TimeoutSecond:        timeoutSecond,
 	}, handlerContext)
 	if errorValue != nil || buildResult.Failed() {
+		if qualityFailure := siteBuildQualityGateFailure(toolContext, workspaceActor, sourceWorkspace, appWorkspace, buildResult); qualityFailure != nil {
+			return *qualityFailure, errorValue
+		}
 		return buildResult, errorValue
 	}
 	qualityPath := workspacepath.Path{
@@ -919,6 +923,103 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		"command":             "bun scripts/build.ts",
 		"commandResult":       json.RawMessage(buildResult.ContentText()),
 	})), nil
+}
+
+func siteBuildQualityGateFailure(ctx context.Context, workspaceActor security.WorkspaceActor, sourceWorkspace workspacepath.Path, appWorkspace workspacepath.Path, buildResult agent.ToolResult) *agent.ToolResult {
+	qualityPath := workspacepath.Path{
+		ConcretePath: filepath.Join(sourceWorkspace.ConcretePath, ".internkim", "build-quality.json"),
+		VirtualPath:  filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, ".internkim", "build-quality.json")),
+		Kind:         sourceWorkspace.Kind,
+	}
+	qualityDocument, errorValue := workspaceActor.ReadFile(ctx, qualityPath, 1024*1024)
+	if errorValue != nil || !json.Valid(qualityDocument) {
+		return nil
+	}
+	var quality map[string]any
+	if errorValue := json.Unmarshal(qualityDocument, &quality); errorValue != nil {
+		return nil
+	}
+	blockingIssueCount, hasBlockingIssues := siteBlockingIssueCount(quality)
+	if !hasBlockingIssues || blockingIssueCount == 0 {
+		return nil
+	}
+	data := map[string]any{
+		"status":              "blocked",
+		"reason":              "site quality gate failed",
+		"sourceWorkspacePath": sourceWorkspace.VirtualPath,
+		"appWorkspacePath":    appWorkspace.VirtualPath,
+		"qualityPath":         qualityPath.VirtualPath,
+		"blockingIssueCount":  blockingIssueCount,
+		"issues":              quality["issues"],
+		"requiredNextSteps": []string{
+			"Use file.read on the listed target files.",
+			"Use file.write to remove every blocking scaffold/template smell or missing content model.",
+			"Run site.app.build again only after source files changed.",
+		},
+		"doNotDo":       []string{"Do not ask an administrator to inspect the quality gate.", "Do not repeat site.app.build without editing the target files first."},
+		"commandResult": buildResult.ContentText(),
+	}
+	document := json.RawMessage(marshalToolResult(data))
+	summary := "site quality gate failed with blocking issues in " + qualityPath.VirtualPath + "; inspect/edit the listed target files with file.read/file.write, then run site.app.build again"
+	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCode("site_quality_gate_failed"), "site_build_quality_gate", summary, document)
+	result.Output.Content = string(document)
+	result.Failure.FailureClass = "fixable_artifact_quality"
+	result.Failure.RetryPolicy = "after_precondition"
+	result.Failure.RequiredPreconditions = []string{"source_changed"}
+	result.Failure.RecoveryHints = []agent.RecoveryHint{{
+		Action:        "edit_resource",
+		ToolNames:     []string{"file.read", "file.write"},
+		Reason:        "Read and edit the listed target files before retrying the build.",
+		Preconditions: []string{"source_changed"},
+	}}
+	result.Failure.DiagnosticArtifacts = []agent.DiagnosticArtifact{{
+		Path:        qualityPath.VirtualPath,
+		ContentType: "application/json",
+		Description: "Site build quality report with blocking issues.",
+	}}
+	result.Failure.AffectedResources = siteQualityAffectedResources(quality)
+	result.Failure.Retryable = true
+	return &result
+}
+
+func siteQualityAffectedResources(quality map[string]any) []agent.AffectedResource {
+	issues, isSlice := quality["issues"].([]any)
+	if !isSlice {
+		return nil
+	}
+	resources := []agent.AffectedResource{}
+	for _, issue := range issues {
+		issueDocument, isMap := issue.(map[string]any)
+		if !isMap {
+			continue
+		}
+		target, _ := issueDocument["target"].(string)
+		message, _ := issueDocument["message"].(string)
+		if strings.TrimSpace(target) == "" {
+			continue
+		}
+		resources = append(resources, agent.AffectedResource{
+			Path:   strings.TrimSpace(target),
+			Role:   "source",
+			Reason: strings.TrimSpace(message),
+		})
+	}
+	return resources
+}
+
+func siteBlockingIssueCount(quality map[string]any) (int, bool) {
+	value, exists := quality["blockingIssueCount"]
+	if !exists {
+		return 0, false
+	}
+	switch typedValue := value.(type) {
+	case float64:
+		return int(typedValue), true
+	case int:
+		return typedValue, true
+	default:
+		return 0, false
+	}
 }
 
 func writeSuccessfulSiteBuildQuality(ctx context.Context, workspaceActor security.WorkspaceActor, qualityPath workspacepath.Path) *agent.ToolResult {
@@ -2601,6 +2702,27 @@ func capabilityRecoveryActions(result json.RawMessage) []agent.RecoveryAction {
 		return nil
 	}
 	return []agent.RecoveryAction{*document.Recovery}
+}
+
+func capabilityRecoveryHints(result json.RawMessage) []agent.RecoveryHint {
+	var document struct {
+		Recovery *agent.RecoveryAction `json:"recovery"`
+	}
+	if json.Unmarshal(result, &document) != nil || document.Recovery == nil {
+		return nil
+	}
+	if strings.TrimSpace(document.Recovery.Kind) == "" {
+		return nil
+	}
+	toolNames := []string{}
+	if strings.TrimSpace(document.Recovery.ConnectCommand) != "" {
+		toolNames = append(toolNames, "ask.confirm")
+	}
+	return []agent.RecoveryHint{{
+		Action:    strings.TrimSpace(document.Recovery.Kind),
+		ToolNames: toolNames,
+		Reason:    "Capability returned a user-visible recovery action.",
+	}}
 }
 
 func capabilityResultString(result json.RawMessage, fieldName string) string {

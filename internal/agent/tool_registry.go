@@ -39,6 +39,25 @@ type RecoveryAction struct {
 	PlatformUserID string `json:"platformUserID,omitempty"`
 }
 
+type RecoveryHint struct {
+	Action        string   `json:"action,omitempty"`
+	ToolNames     []string `json:"toolNames,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
+	Preconditions []string `json:"preconditions,omitempty"`
+}
+
+type DiagnosticArtifact struct {
+	Path        string `json:"path,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type AffectedResource struct {
+	Path   string `json:"path,omitempty"`
+	Role   string `json:"role,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type ToolOutput struct {
 	Content string          `json:"content,omitempty"`
 	Data    json.RawMessage `json:"data,omitempty"`
@@ -139,12 +158,18 @@ func classifyFailureCodeText(code string) string {
 }
 
 type ToolFailure struct {
-	Kind            FailureKind `json:"kind"`
-	Code            string      `json:"code"`
-	Stage           string      `json:"stage,omitempty"`
-	UserSafeSummary string      `json:"userSafeSummary,omitempty"`
-	Retryable       bool        `json:"retryable,omitempty"`
-	SafeRetry       bool        `json:"safeRetry,omitempty"`
+	Kind                  FailureKind          `json:"kind"`
+	Code                  string               `json:"code"`
+	Stage                 string               `json:"stage,omitempty"`
+	UserSafeSummary       string               `json:"userSafeSummary,omitempty"`
+	Retryable             bool                 `json:"retryable,omitempty"`
+	SafeRetry             bool                 `json:"safeRetry,omitempty"`
+	FailureClass          string               `json:"failureClass,omitempty"`
+	RetryPolicy           string               `json:"retryPolicy,omitempty"`
+	RequiredPreconditions []string             `json:"requiredPreconditions,omitempty"`
+	RecoveryHints         []RecoveryHint       `json:"recoveryHints,omitempty"`
+	DiagnosticArtifacts   []DiagnosticArtifact `json:"diagnosticArtifacts,omitempty"`
+	AffectedResources     []AffectedResource   `json:"affectedResources,omitempty"`
 }
 
 type ToolResult struct {

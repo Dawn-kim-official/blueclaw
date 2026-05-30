@@ -136,6 +136,7 @@ type turnObservation struct {
 	RecoveryAttemptKey   string               `json:"recoveryAttemptKey,omitempty"`
 	RecoveryStep         string               `json:"recoveryStep,omitempty"`
 	RecoveryAttemptSpent bool                 `json:"recoveryAttemptSpent,omitempty"`
+	RecoveryPacket       *RecoveryPacket      `json:"recoveryPacket,omitempty"`
 	Attachments          []FileAttachment     `json:"attachments,omitempty"`
 	RecoveryActions      []RecoveryAction     `json:"recoveryActions,omitempty"`
 }
@@ -623,6 +624,14 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
 	if duplicateFailure, isDuplicateFailure := previousFailedToolInput(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); isDuplicateFailure {
+		if len(requiredPreconditionsForObservation(duplicateFailure)) > 0 {
+			observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, duplicateFailure, "Retrying "+strings.TrimSpace(actionDocument.ToolName)+" requires evidence first: "+strings.Join(missingRecoveryPreconditions(duplicateFailure, state.Observations), ", "))
+			state.Observations = append(state.Observations, observation)
+			agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
+			agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+actionDocument.ToolName, observation.ContentText())
+			result, shouldStop := stopForNoProgress(stepID)
+			return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+		}
 		observation := repeatedFailedAttemptObservation(len(state.Observations)+1, duplicateFailure)
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.failed_fingerprint_rejected", marshalEventBody(observation))
@@ -637,6 +646,14 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(taskRunID string,
 	failureDebt, hasFailureDebt := activeFailureDebt(state.Observations)
 	if !hasFailureDebt {
 		return "", toolCallActionOutcome{}
+	}
+	if isAllowed, reason := recoveryChoiceIsAllowed(failureDebt, state.Observations, actionDocument.ToolName); !isAllowed {
+		observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, failureDebt.LatestFailure, reason)
+		state.Observations = append(state.Observations, observation)
+		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+actionDocument.ToolName, observation.ContentText())
+		result, shouldStop := stopForNoProgress(stepID)
+		return "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
 	recoveryStep := classifyRecoveryStep(failureDebt, actionDocument.ToolName)
 	if !recoveryBudgetAllowsStep(state.Observations, agentTurnRunner.options.RecoveryBudget, recoveryStep) {
@@ -1386,7 +1403,8 @@ func toolFailureObservation(observationID string, toolName string, message strin
 }
 
 func recoveryGuidanceObservation(index int, observation turnObservation) turnObservation {
-	content := recoveryGuidanceContent(observation)
+	packet := buildRecoveryPacket(observation)
+	content := recoveryGuidanceContent(observation) + " " + recoveryPacketContent(packet)
 	return turnObservation{
 		ObservationID:        nextObservationID(index),
 		Action:               "recovery_guidance",
@@ -1395,8 +1413,24 @@ func recoveryGuidanceObservation(index int, observation turnObservation) turnObs
 		Summary:              content,
 		Failure:              observation.Failure,
 		ToolInputKey:         observation.ToolInputKey,
+		RecoveryPacket:       &packet,
 		RecoveryAttemptKey:   observation.RecoveryAttemptKey,
 		RecoveryAttemptSpent: observation.RecoveryAttemptSpent,
+	}
+}
+
+func recoveryChoiceRejectedObservation(index int, failedObservation turnObservation, reason string) turnObservation {
+	packet := buildRecoveryPacket(failedObservation)
+	content := "Invalid recovery choice. " + strings.TrimSpace(reason) + " " + recoveryPacketContent(packet)
+	return turnObservation{
+		ObservationID:  nextObservationID(index),
+		Action:         "policy",
+		Tool:           failedObservation.Tool,
+		Output:         ToolOutput{Content: content},
+		Summary:        content,
+		Failure:        &ToolFailure{Kind: FailurePolicyBlocked, Code: FailureCodes.PolicyBlocked.String(), Stage: "recovery_policy", UserSafeSummary: reason},
+		ToolInputKey:   failedObservation.ToolInputKey,
+		RecoveryPacket: &packet,
 	}
 }
 
