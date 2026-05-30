@@ -75,6 +75,7 @@ type AgentTurnRequest struct {
 	RequiredAttachmentSuffixes []string
 	OutcomeContract            OutcomeContract
 	ActiveGoal                 ActiveGoal
+	ToolExposure               ToolExposureEvent
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
 	TurnStartedAt              time.Time
@@ -916,6 +917,7 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 		"skillQueries":              request.SkillQueries,
 		"activeGoal":                request.ActiveGoal,
 		"outcomeContract":           request.OutcomeContract,
+		"toolExposure":              request.ToolExposure,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {
 		body["status"] = "empty"

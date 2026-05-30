@@ -2897,6 +2897,9 @@ func (languageModel *sequenceLanguageModel) GenerateResponse(_ context.Context, 
 }
 
 func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_tool_selection" {
+		return llm.StructuredResponse{Content: `{"selectedToolIDs":[],"reason":"test default"}`}, nil
+	}
 	languageModel.requests = append(languageModel.requests, request)
 	index := len(languageModel.requests) - 1
 	if index >= len(languageModel.contents) {
