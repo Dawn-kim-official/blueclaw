@@ -852,7 +852,8 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	pendingAskInteraction, hasPendingAskInteraction := connectorRuntime.findPendingAskInteraction(personID, event.ConversationID)
 	previousPrompt := event.Prompt
 	event, askTurnDecision, hasAskTurnDecision := connectorRuntime.resolveAskReply(ctx, platform, personID, event)
-	if hasPendingAskInteraction && event.Prompt != previousPrompt {
+	if hasPendingAskInteraction && askReplyConsumesInteraction(pendingAskInteraction, previousPrompt, event, askTurnDecision, hasAskTurnDecision) {
+		connectorRuntime.appendAskResolvedEvent(pendingAskInteraction, event, askTurnDecision)
 		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingAskInteraction.TaskRunID, pendingAskInteraction)
 	}
 	activeGoal, hasActiveGoal := connectorRuntime.findActiveGoal(personID, event.ConversationID)
@@ -1234,6 +1235,34 @@ func resolvedChoiceKeyText(interaction AskInteraction, choiceKey string) string 
 		return normalizedChoiceKey + " / " + value
 	}
 	return normalizedChoiceKey
+}
+
+func askReplyConsumesInteraction(interaction AskInteraction, previousPrompt string, event PlatformInboundEvent, decision agent.TurnDecision, hasDecision bool) bool {
+	if !hasDecision {
+		return false
+	}
+	if _, isFound := event.LegacyFields["askAction"].(string); isFound {
+		return true
+	}
+	switch strings.TrimSpace(interaction.Kind) {
+	case "ask_choice_single", "ask_choice_multiple":
+		return len(decision.Choices) > 0 && strings.TrimSpace(event.Prompt) != strings.TrimSpace(previousPrompt)
+	case "ask_input":
+		return decision.Route == agent.TurnRouteContinueTask || decision.Route == agent.TurnRouteReviseTask || decision.Route == agent.TurnRouteStartTask
+	default:
+		return strings.TrimSpace(event.Prompt) != strings.TrimSpace(previousPrompt)
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) appendAskResolvedEvent(interaction AskInteraction, event PlatformInboundEvent, decision agent.TurnDecision) {
+	connectorRuntime.agentKernel.AppendTaskEvent(interaction.TaskRunID, "ask.resolved", marshalConnectorEventBody(map[string]any{
+		"interactionID": strings.TrimSpace(interaction.InteractionID),
+		"kind":          strings.TrimSpace(interaction.Kind),
+		"messageID":     strings.TrimSpace(event.MessageID),
+		"choices":       append([]string{}, decision.Choices...),
+		"route":         strings.TrimSpace(string(decision.Route)),
+		"reason":        strings.TrimSpace(decision.Reason),
+	}))
 }
 
 func trimNonEmptyConnectorStrings(values []string) []string {
@@ -1708,8 +1737,16 @@ func latestApprovalResponseLanguage(taskEvents []task.TaskEvent) string {
 }
 
 func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInteraction, bool) {
+	resolvedInteractionIDs := map[string]bool{}
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
+		if taskEvent.Name == "ask.resolved" {
+			interactionID := askResolvedInteractionID(taskEvent)
+			if interactionID != "" {
+				resolvedInteractionIDs[interactionID] = true
+			}
+			continue
+		}
 		if taskEvent.Name != "ask.requested" {
 			continue
 		}
@@ -1719,6 +1756,9 @@ func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInt
 		}
 		interaction.TaskRunID = firstNonEmptyString(interaction.TaskRunID, taskRunID)
 		interaction.InteractionID = firstNonEmptyString(interaction.InteractionID, taskEvent.TaskEventID)
+		if resolvedInteractionIDs[strings.TrimSpace(interaction.InteractionID)] {
+			continue
+		}
 		interaction.Kind = normalizedAskInteractionKind(interaction.Kind)
 		if strings.TrimSpace(interaction.Question) == "" {
 			interaction.Question = strings.TrimSpace(interaction.Message)
@@ -1731,6 +1771,16 @@ func latestAskInteraction(taskRunID string, taskEvents []task.TaskEvent) (AskInt
 		}
 	}
 	return AskInteraction{}, false
+}
+
+func askResolvedInteractionID(taskEvent task.TaskEvent) string {
+	var resolution struct {
+		InteractionID string `json:"interactionID"`
+	}
+	if errorValue := json.Unmarshal([]byte(taskEvent.Body), &resolution); errorValue != nil {
+		return ""
+	}
+	return strings.TrimSpace(resolution.InteractionID)
 }
 
 func latestAskInteractionID(taskEvents []task.TaskEvent) string {
