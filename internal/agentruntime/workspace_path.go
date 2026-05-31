@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/security"
 	"blueclaw/internal/workspacepath"
 )
 
@@ -231,6 +232,7 @@ func (scope WorkspaceScope) EnvironmentVariables() map[string]string {
 		"BLUECLAW_REQUESTER_ARTIFACTS": scope.RequesterArtifactRootPath,
 		"BLUECLAW_DEPENDENCY_CACHE":    scope.DependencyCacheRootPath,
 		"HOME":                         scope.RequesterRootPath,
+		"PATH":                         security.CanonicalRuntimePATH,
 		"TMPDIR":                       filepath.Join(runtimeRootPath, "tmp"),
 		"TMP":                          filepath.Join(runtimeRootPath, "tmp"),
 		"TEMP":                         filepath.Join(runtimeRootPath, "tmp"),

@@ -3,7 +3,6 @@ package security
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -217,17 +216,7 @@ func (commandGuardrailService CommandGuardrailService) resolveExecutablePath(exe
 		return filepath.EvalSymlinks(executableName)
 	}
 
-	searchPaths := []string{
-		"/opt/homebrew/bin",
-		"/usr/local/sbin",
-		"/usr/local/bin",
-		"/usr/sbin",
-		"/usr/bin",
-		"/sbin",
-		"/bin",
-	}
-
-	for _, searchPath := range searchPaths {
+	for _, searchPath := range strings.Split(CanonicalRuntimePATH, ":") {
 		candidatePath := filepath.Join(searchPath, executableName)
 		information, errorValue := os.Stat(candidatePath)
 		if errorValue == nil && !information.IsDir() {
@@ -235,7 +224,7 @@ func (commandGuardrailService CommandGuardrailService) resolveExecutablePath(exe
 		}
 	}
 
-	return exec.LookPath(executableName)
+	return "", errors.New("executable was not found in canonical runtime PATH")
 }
 
 func (commandGuardrailService CommandGuardrailService) validateExecutable(resolvedExecutablePath string) error {
@@ -511,7 +500,6 @@ func isWithinRootPath(rootPath string, targetPath string) bool {
 func sanitizeEnvironmentVariables(environmentVariables map[string]string, workspaceRootPath string) map[string]string {
 	sanitizedEnvironmentVariables := map[string]string{
 		"HOME": workspaceRootPath,
-		"PATH": "/opt/homebrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"TERM": "xterm-256color",
 		"LANG": "C.UTF-8",
 	}
@@ -544,5 +532,5 @@ func sanitizeEnvironmentVariables(environmentVariables map[string]string, worksp
 		}
 	}
 
-	return sanitizedEnvironmentVariables
+	return enforceCanonicalRuntimePATH(sanitizedEnvironmentVariables)
 }

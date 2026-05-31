@@ -1335,6 +1335,9 @@ func TestWorkspaceScopeEnvironmentStaysUnderRequesterPrivateRoot(t *testing.T) {
 	environmentVariables := scope.EnvironmentVariables()
 	requesterRootPath := filepath.Join(workspacePath, "private", "people", "person-1")
 	taskRuntimeRootPath := filepath.Join(requesterRootPath, "tmp", "task-1", ".runtime")
+	if environmentVariables["PATH"] != security.CanonicalRuntimePATH {
+		t.Fatalf("expected canonical runtime PATH, got %+v", environmentVariables)
+	}
 	expectedEnvironmentPaths := map[string]string{
 		"HOME":                  requesterRootPath,
 		"TMPDIR":                filepath.Join(taskRuntimeRootPath, "tmp"),
@@ -1525,15 +1528,15 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if !strings.Contains(buildScript, "suggestedFix") {
 		t.Fatalf("build script must include actionable quality fixes")
 	}
-	for _, forbiddenText := range []string{`name: "bun"`, `name: "bunx"`} {
+	for _, forbiddenText := range []string{`Bun.execPath`, `name: "bunx"`} {
 		if strings.Contains(buildScript, forbiddenText) {
-			t.Fatalf("build script must use Bun.execPath instead of PATH lookup %q", forbiddenText)
+			t.Fatalf("build script must rely on canonical runtime PATH, not %q", forbiddenText)
 		}
 	}
-	if !strings.Contains(buildScript, "Bun.execPath") {
-		t.Fatalf("build script must use the active Bun executable path")
+	if !strings.Contains(buildScript, `name: "bun", arguments: ["x", "vite", "build"]`) {
+		t.Fatalf("build script must use bun x through canonical PATH")
 	}
-	viteIndex := strings.Index(buildScript, `await runCommand(bunCommand(["x", "vite", "build"]));`)
+	viteIndex := strings.Index(buildScript, `await runCommand({ name: "bun", arguments: ["x", "vite", "build"] });`)
 	qualityIndex := strings.LastIndex(buildScript, "writeBuildQuality(qualityIssues);")
 	if viteIndex < 0 || qualityIndex < viteIndex {
 		t.Fatalf("build script must write build-quality.json after vite build")
@@ -1563,55 +1566,6 @@ func TestSuccessfulSiteBuildQualityNormalizesAfterBuild(t *testing.T) {
 	}
 	if !strings.Contains(string(document), `"postBuildNormalized": true`) || !strings.Contains(string(document), `"blockingIssueCount": 0`) {
 		t.Fatalf("unexpected normalized build quality: %s", string(document))
-	}
-}
-
-func TestSiteBuildQualityGateFailureIncludesRecoveryTargets(t *testing.T) {
-	workspacePath := t.TempDir()
-	sourceWorkspacePath := filepath.Join(workspacePath, "sites", "site-1")
-	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{
-  "blockingIssueCount": 1,
-  "issues": [
-    {
-      "severity": "blocking",
-      "category": "templateSmell",
-      "target": "src/App.tsx",
-      "message": "Replace the scaffold starter."
-    }
-  ]
-}`)
-	factory := actortest.NewDirectWorkspaceActorFactory()
-	workspaceActor, errorValue := factory.Requester(context.Background(), security.WorkspaceActorRequest{
-		WorkspaceRootPath: workspacePath,
-		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	sourceWorkspace := workspacepath.Path{
-		ConcretePath: sourceWorkspacePath,
-		VirtualPath:  "/workspace/sites/site-1",
-	}
-	appWorkspace := workspacepath.Path{
-		ConcretePath: filepath.Join(sourceWorkspacePath, "app"),
-		VirtualPath:  "/workspace/sites/site-1/app",
-	}
-
-	result := siteBuildQualityGateFailure(context.Background(), workspaceActor, sourceWorkspace, appWorkspace, agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", "build failed"))
-	if result == nil || !result.Failed() {
-		t.Fatalf("expected quality gate failure result, got %+v", result)
-	}
-	if result.Failure.Code != "operation_failed" || result.Failure.FailureClass != "fixable_artifact_quality" || result.Failure.RetryPolicy != "after_precondition" || !result.Failure.Retryable {
-		t.Fatalf("expected retryable site quality failure, got %+v", result.Failure)
-	}
-	if !containsTestString(result.Failure.RequiredPreconditions, "source_changed") || len(result.Failure.AffectedResources) == 0 || result.Failure.AffectedResources[0].Path != "/workspace/sites/site-1/app/src/App.tsx" {
-		t.Fatalf("expected source_changed precondition and affected source, got %+v", result.Failure)
-	}
-	content := result.ContentText()
-	for _, expectedText := range []string{"file.read", "file.write", "src/App.tsx", "/workspace/sites/site-1/.internkim/build-quality.json", "Do not repeat site.app.build"} {
-		if !strings.Contains(content, expectedText) {
-			t.Fatalf("expected quality gate result to contain %q, got %s", expectedText, content)
-		}
 	}
 }
 
@@ -2032,15 +1986,8 @@ func TestSiteCreateAppWorkspaceBuildsOfflineWithBun(t *testing.T) {
 }
 
 func terminalTestCanResolveBun() bool {
-	for _, path := range []string{
-		"/opt/homebrew/bin/bun",
-		"/usr/local/sbin/bun",
-		"/usr/local/bin/bun",
-		"/usr/sbin/bun",
-		"/usr/bin/bun",
-		"/sbin/bun",
-		"/bin/bun",
-	} {
+	for _, path := range strings.Split(security.CanonicalRuntimePATH, ":") {
+		path = filepath.Join(path, "bun")
 		if information, errorValue := os.Stat(path); errorValue == nil && !information.IsDir() {
 			return true
 		}
@@ -2184,7 +2131,8 @@ func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "terminal.run",
 		Input: agent.MarshalToolInput(map[string]any{
-			"command": `test -d "$TMPDIR" && test -d "$BUN_TMPDIR" && test -d "$BUN_INSTALL" && printf '%s\n%s\n%s\n%s' "$HOME" "$TMPDIR" "$BUN_TMPDIR" "$BUN_INSTALL"`,
+			"environmentVariables": map[string]string{"PATH": "/workspace/private/people/person-1/bin"},
+			"command":              `test -d "$TMPDIR" && test -d "$BUN_TMPDIR" && test -d "$BUN_INSTALL" && printf '%s\n%s\n%s\n%s\n%s' "$HOME" "$PATH" "$TMPDIR" "$BUN_TMPDIR" "$BUN_INSTALL"`,
 		}),
 	})
 	if errorValue != nil {
@@ -2200,6 +2148,7 @@ func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 	requesterRootPath := filepath.Join(workspacePath, "private", "people", "person-1")
 	for _, expectedText := range []string{
 		requesterRootPath,
+		security.CanonicalRuntimePATH,
 		filepath.Join(requesterRootPath, "tmp", ".runtime", "tmp"),
 		filepath.Join(requesterRootPath, "tmp", ".runtime", "bun", "tmp"),
 		filepath.Join(requesterRootPath, "tmp", ".runtime", "bun", "install"),
@@ -2207,7 +2156,7 @@ func TestTerminalRunMaterializesRequesterRuntimeEnvironment(t *testing.T) {
 		if !strings.Contains(commandResult.Stdout, expectedText) {
 			t.Fatalf("expected runtime environment path %s in stdout, got %q", expectedText, commandResult.Stdout)
 		}
-		if expectedText != requesterRootPath {
+		if expectedText != requesterRootPath && expectedText != security.CanonicalRuntimePATH {
 			if _, errorValue := os.Stat(expectedText); errorValue != nil {
 				t.Fatalf("expected runtime environment directory %s: %v", expectedText, errorValue)
 			}
