@@ -906,6 +906,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 	if errorValue != nil || !appStat.IsDirectory {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.NotFound, "site_build_workspace", "appWorkspacePath does not exist; run site.app.repair before building"), nil
 	}
+	if toolFailure := ensureManagedSiteBuildScript(toolContext, workspaceActor, appWorkspace); toolFailure != nil {
+		return *toolFailure, nil
+	}
 	timeoutSecond := input.TimeoutSecond
 	if timeoutSecond <= 0 {
 		timeoutSecond = 180
@@ -943,6 +946,24 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		result[key] = value
 	}
 	return agent.ToolSuccess(marshalToolResult(result)), nil
+}
+
+func ensureManagedSiteBuildScript(ctx context.Context, workspaceActor security.WorkspaceActor, appWorkspace workspacepath.Path) *agent.ToolResult {
+	buildScriptContent := siteManagedBuildScriptContent()
+	if len(buildScriptContent) == 0 {
+		result := agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "site_build_scaffold", "managed site build script is unavailable")
+		return &result
+	}
+	buildScriptPath := workspacepath.Path{
+		ConcretePath: filepath.Join(appWorkspace.ConcretePath, "scripts", "build.ts"),
+		VirtualPath:  filepath.ToSlash(filepath.Join(appWorkspace.VirtualPath, "scripts", "build.ts")),
+		Kind:         appWorkspace.Kind,
+	}
+	if errorValue := workspaceActor.WriteFile(ctx, buildScriptPath, buildScriptContent, 0660); errorValue != nil {
+		result := actorToolFailure("write_file", "site_build_scaffold", buildScriptPath.VirtualPath, errorValue)
+		return &result
+	}
+	return nil
 }
 
 func siteBuildQualityPayload(ctx context.Context, workspaceActor security.WorkspaceActor, sourceWorkspace workspacepath.Path, appWorkspace workspacepath.Path) map[string]any {
