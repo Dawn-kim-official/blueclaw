@@ -36,6 +36,14 @@ func siteAppScaffoldFiles(site siteCreateResult) []siteStarterFile {
 	return files
 }
 
+func siteManagedBuildScriptContent() []byte {
+	document, errorValue := siteScaffoldFS.ReadFile(filepath.Join(siteScaffoldRoot, "scripts", "build.ts"))
+	if errorValue != nil {
+		return nil
+	}
+	return document
+}
+
 func siteScaffoldContent(site siteCreateResult, content string) string {
 	replacements := map[string]string{
 		"__SITE_PACKAGE_NAME__": sanitizeWorkspaceSlug(site.Slug),
