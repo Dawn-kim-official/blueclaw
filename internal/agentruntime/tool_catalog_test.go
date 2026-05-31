@@ -1525,7 +1525,15 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if !strings.Contains(buildScript, "suggestedFix") {
 		t.Fatalf("build script must include actionable quality fixes")
 	}
-	viteIndex := strings.Index(buildScript, `await runCommand({ name: "bunx", arguments: ["vite", "build"] });`)
+	for _, forbiddenText := range []string{`name: "bun"`, `name: "bunx"`} {
+		if strings.Contains(buildScript, forbiddenText) {
+			t.Fatalf("build script must use Bun.execPath instead of PATH lookup %q", forbiddenText)
+		}
+	}
+	if !strings.Contains(buildScript, "Bun.execPath") {
+		t.Fatalf("build script must use the active Bun executable path")
+	}
+	viteIndex := strings.Index(buildScript, `await runCommand(bunCommand(["x", "vite", "build"]));`)
 	qualityIndex := strings.LastIndex(buildScript, "writeBuildQuality(qualityIssues);")
 	if viteIndex < 0 || qualityIndex < viteIndex {
 		t.Fatalf("build script must write build-quality.json after vite build")
