@@ -13,6 +13,10 @@ type QualityIssue = {
 	suggestedFix: string;
 };
 
+function bunCommand(arguments_: string[]): Command {
+	return { name: Bun.execPath, arguments: arguments_ };
+}
+
 async function runCommand(command: Command): Promise<void> {
 	const commandProcess = Bun.spawn([command.name, ...command.arguments], {
 		stdout: "inherit",
@@ -81,9 +85,9 @@ const qualityIssues = collectQualityIssues();
 writeBuildQuality(qualityIssues);
 
 if (!existsSync("node_modules")) {
-	await runCommand({ name: "bun", arguments: ["install"] });
+	await runCommand(bunCommand(["install"]));
 }
 
-await runCommand({ name: "bunx", arguments: ["@google/design.md", "lint", "../DESIGN.md"] });
-await runCommand({ name: "bunx", arguments: ["vite", "build"] });
+await runCommand(bunCommand(["x", "@google/design.md", "lint", "../DESIGN.md"]));
+await runCommand(bunCommand(["x", "vite", "build"]));
 writeBuildQuality(qualityIssues);
