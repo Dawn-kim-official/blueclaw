@@ -61,6 +61,9 @@ func TestCommandPlanUsesPOSIXHelperForExecutionIdentity(t *testing.T) {
 	if commandPlan.EnvironmentVariables["HOME"] != workspaceRootPath {
 		t.Fatalf("expected POSIX HOME environment, got %+v", commandPlan.EnvironmentVariables)
 	}
+	if commandPlan.EnvironmentVariables["PATH"] != CanonicalRuntimePATH {
+		t.Fatalf("expected canonical runtime PATH, got %+v", commandPlan.EnvironmentVariables)
+	}
 	if commandPlan.EnvironmentVariables["BLUECLAW_REQUESTER_TMP"] != workspaceRootPath+"/tmp" {
 		t.Fatalf("expected requester tmp environment, got %+v", commandPlan.EnvironmentVariables)
 	}
@@ -81,6 +84,29 @@ func TestCommandPlanUsesPOSIXHelperForExecutionIdentity(t *testing.T) {
 	}
 	if commandPlan.Timeout != 3*time.Second {
 		t.Fatalf("expected timeout to survive POSIX wrapping, got %+v", commandPlan.Timeout)
+	}
+}
+
+func TestSanitizeEnvironmentIgnoresRequesterPATH(t *testing.T) {
+	environmentVariables := sanitizeEnvironmentVariables(map[string]string{
+		"PATH": "/workspace/private/people/person-1/bin",
+		"HOME": "/workspace/private/people/person-1",
+	}, "/workspace")
+
+	if environmentVariables["PATH"] != CanonicalRuntimePATH {
+		t.Fatalf("expected requester PATH to be ignored, got %+v", environmentVariables)
+	}
+}
+
+func TestApplyPOSIXEnvironmentPreservesCanonicalPATH(t *testing.T) {
+	environmentVariables := applyPOSIXEnvironment(map[string]string{
+		"PATH": "/workspace/private/people/person-1/bin",
+	}, ExecutionIdentity{
+		HomeDirectoryPath: "/workspace/private/people/person-1",
+	})
+
+	if environmentVariables["PATH"] != CanonicalRuntimePATH {
+		t.Fatalf("expected canonical runtime PATH after POSIX environment, got %+v", environmentVariables)
 	}
 }
 

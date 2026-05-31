@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"blueclaw/internal/security"
 )
 
 func TestRunCapabilitiesReportsFilesystemSupport(t *testing.T) {
@@ -73,6 +75,26 @@ func TestPrepareExecProcessDropsIdentityBeforeChangingDirectory(t *testing.T) {
 	}
 	if len(steps) != 2 || steps[0] != "identity" || steps[1] != "chdir" {
 		t.Fatalf("expected identity before chdir, got %v", steps)
+	}
+}
+
+func TestCanonicalExecEnvironmentReplacesPATH(t *testing.T) {
+	environment := canonicalExecEnvironment([]string{
+		"HOME=/workspace/private/people/person-1",
+		"PATH=/workspace/private/people/person-1/bin",
+		"LANG=C.UTF-8",
+	})
+
+	if len(environment) != 3 {
+		t.Fatalf("expected canonical environment without duplicate PATH, got %+v", environment)
+	}
+	if environment[0] != "PATH="+security.CanonicalRuntimePATH {
+		t.Fatalf("expected canonical PATH first, got %+v", environment)
+	}
+	for _, value := range environment[1:] {
+		if len(value) >= 5 && value[:5] == "PATH=" {
+			t.Fatalf("expected user PATH to be removed, got %+v", environment)
+		}
 	}
 }
 

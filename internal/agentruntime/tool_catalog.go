@@ -848,6 +848,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		if security.IsCommandPathGuardrailError(errorValue) {
 			return terminalPathGuardrailFailure(commandResult, content), nil
 		}
+		if runtimePathFailure := terminalRuntimePathFailure(input, commandResult, content); runtimePathFailure != nil {
+			return *runtimePathFailure, nil
+		}
 		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", content, json.RawMessage(content)), nil
 	}
 	_ = toolContext
@@ -856,7 +859,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 
 func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResult {
 	message := "current account cannot use this workspace path: terminal workingDirectoryPath " + strings.TrimSpace(workingDirectoryPath) + "; recovery: use tmp/<slug> relative to the default writable directory for draft work, then promote accepted files to artifacts/<slug> or an allowed circle/shared path"
-	result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "terminal_working_directory_access", message)
+	document := json.RawMessage(marshalToolResult(map[string]any{
+		"failureClass":      "workspace_permission",
+		"path":              strings.TrimSpace(workingDirectoryPath),
+		"requiredAccess":    "write",
+		"suggestedNextTool": "site.app.status",
+		"message":           message,
+	}))
+	result := agent.ToolFailureWithOutput(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "workspace_permission", message, document)
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	return result
@@ -919,9 +929,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		TimeoutSecond:        timeoutSecond,
 	}, handlerContext)
 	if errorValue != nil || buildResult.Failed() {
-		if qualityFailure := siteBuildQualityGateFailure(toolContext, workspaceActor, sourceWorkspace, appWorkspace, buildResult); qualityFailure != nil {
-			return *qualityFailure, errorValue
-		}
 		return buildResult, errorValue
 	}
 	qualityPath := workspacepath.Path{
@@ -1005,69 +1012,6 @@ func siteBuildQualityPayload(ctx context.Context, workspaceActor security.Worksp
 	}
 	payload["qualityStatus"] = "passed"
 	return payload
-}
-
-func siteBuildQualityGateFailure(ctx context.Context, workspaceActor security.WorkspaceActor, sourceWorkspace workspacepath.Path, appWorkspace workspacepath.Path, buildResult agent.ToolResult) *agent.ToolResult {
-	qualityPath := workspacepath.Path{
-		ConcretePath: filepath.Join(sourceWorkspace.ConcretePath, ".internkim", "build-quality.json"),
-		VirtualPath:  filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, ".internkim", "build-quality.json")),
-		Kind:         sourceWorkspace.Kind,
-	}
-	qualityDocument, errorValue := workspaceActor.ReadFile(ctx, qualityPath, 1024*1024)
-	if errorValue != nil || !json.Valid(qualityDocument) {
-		return nil
-	}
-	var quality map[string]any
-	if errorValue := json.Unmarshal(qualityDocument, &quality); errorValue != nil {
-		return nil
-	}
-	blockingIssueCount, hasBlockingIssues := siteBlockingIssueCount(quality)
-	if !hasBlockingIssues || blockingIssueCount == 0 {
-		return nil
-	}
-	data := map[string]any{
-		"status":              "blocked",
-		"reason":              "site build reported quality issues before producing a complete build output",
-		"sourceWorkspacePath": sourceWorkspace.VirtualPath,
-		"appWorkspacePath":    appWorkspace.VirtualPath,
-		"qualityPath":         qualityPath.VirtualPath,
-		"blockingIssueCount":  blockingIssueCount,
-		"issues":              quality["issues"],
-		"qualitySummary":      siteQualityIssueSummaries(quality),
-		"editableTargets":     siteQualityEditableTargets(quality, appWorkspace),
-		"requiredNextSteps": []string{
-			"Use file.read on one of editableTargets.",
-			"Use file.write on the same editable target to remove every blocking scaffold/template smell or missing content model.",
-			"Run site.app.build again only after source files changed.",
-		},
-		"doNotDo":       []string{"Do not ask an administrator to inspect the quality gate.", "Do not repeat site.app.build without editing the target files first."},
-		"commandResult": buildResult.ContentText(),
-	}
-	document := json.RawMessage(marshalToolResult(data))
-	summary := "site build reported quality issues in " + qualityPath.VirtualPath
-	if lines := siteQualityIssueSummaries(quality); len(lines) > 0 {
-		summary += ": " + strings.Join(lines, "; ")
-	}
-	summary += "; inspect/edit the listed target files with file.read/file.write, then run site.app.build again"
-	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCode("site_quality_gate_failed"), "site_build_quality_gate", summary, document)
-	result.Output.Content = string(document)
-	result.Failure.FailureClass = "fixable_artifact_quality"
-	result.Failure.RetryPolicy = "after_precondition"
-	result.Failure.RequiredPreconditions = []string{"source_changed"}
-	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:        "edit_resource",
-		ToolNames:     []string{"file.read", "file.write"},
-		Reason:        "Read and edit the listed target files before retrying the build.",
-		Preconditions: []string{"source_changed"},
-	}}
-	result.Failure.DiagnosticArtifacts = []agent.DiagnosticArtifact{{
-		Path:        qualityPath.VirtualPath,
-		ContentType: "application/json",
-		Description: "Site build quality report with blocking issues.",
-	}}
-	result.Failure.AffectedResources = siteQualityAffectedResources(quality, appWorkspace)
-	result.Failure.Retryable = true
-	return &result
 }
 
 func siteQualityAffectedResources(quality map[string]any, appWorkspace workspacepath.Path) []agent.AffectedResource {
@@ -1302,6 +1246,27 @@ func terminalPathGuardrailFailure(commandResult security.CommandResult, content 
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	return result
+}
+
+func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandResult security.CommandResult, content string) *agent.ToolResult {
+	combinedText := strings.ToLower(commandResult.Stderr + "\n" + commandResult.Stdout + "\n" + content)
+	if !strings.Contains(combinedText, "not found in $path") && !strings.Contains(combinedText, "command not found") && !strings.Contains(combinedText, "executable file not found") {
+		return nil
+	}
+	document := json.RawMessage(marshalToolResult(map[string]any{
+		"failureClass":      "terminal_runtime_path",
+		"command":           commandRequest.Command,
+		"actualPATH":        commandRequest.EnvironmentVariables["PATH"],
+		"canonicalPATH":     security.CanonicalRuntimePATH,
+		"executionUser":     commandRequest.ExecutionIdentity.UserName,
+		"workingDirectory":  commandRequest.WorkingDirectoryPath,
+		"commandResult":     commandResult,
+		"recommendedAction": "Fix Blueclaw runtime PATH propagation; do not change site source or ask the user to use external hosting.",
+	}))
+	result := agent.ToolFailureWithOutput(agent.FailureDependencyUnavailable, agent.FailureCode("terminal_runtime_path"), "terminal_runtime_path", "terminal runtime PATH did not expose a managed executable", document)
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = false
+	return &result
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) workspaceActorForRequest(toolContext context.Context, request ToolCatalogRequest) (security.WorkspaceActor, *agent.ToolResult) {
@@ -2078,6 +2043,7 @@ func isWorkspaceManagedEnvironmentName(name string) bool {
 		"BLUECLAW_REQUESTER_ARTIFACTS",
 		"BLUECLAW_DEPENDENCY_CACHE",
 		"HOME",
+		"PATH",
 		"TMPDIR",
 		"TMP",
 		"TEMP",

@@ -133,7 +133,18 @@ func runExec(arguments []string) error {
 	if errorValue := prepareExecProcess(*userID, *groupID, groupIDs, *workingDirectoryPath, applyIdentity, os.Chdir); errorValue != nil {
 		return errorValue
 	}
-	return syscall.Exec(executableArguments[0], executableArguments, os.Environ())
+	return syscall.Exec(executableArguments[0], executableArguments, canonicalExecEnvironment(os.Environ()))
+}
+
+func canonicalExecEnvironment(environment []string) []string {
+	result := []string{"PATH=" + security.CanonicalRuntimePATH}
+	for _, value := range environment {
+		if strings.HasPrefix(value, "PATH=") {
+			continue
+		}
+		result = append(result, value)
+	}
+	return result
 }
 
 func prepareExecProcess(userID uint, groupID uint, groupIDs []int, workingDirectoryPath string, applyIdentityFunction func(uint, uint, []int) error, changeDirectoryFunction func(string) error) error {
