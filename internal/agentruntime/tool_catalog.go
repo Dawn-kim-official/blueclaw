@@ -929,7 +929,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 	if toolFailure := writeSuccessfulSiteBuildQuality(toolContext, workspaceActor, qualityPath); toolFailure != nil {
 		return *toolFailure, nil
 	}
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
+	result := map[string]any{
 		"siteID":              firstNonEmptyString(input.SiteID, site.SiteID),
 		"slug":                firstNonEmptyString(input.Slug, site.Slug),
 		"sourceWorkspacePath": sourceWorkspace.VirtualPath,
@@ -938,7 +938,52 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		"qualityPath":         filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, ".internkim", "build-quality.json")),
 		"command":             "bun scripts/build.ts",
 		"commandResult":       json.RawMessage(buildResult.ContentText()),
-	})), nil
+	}
+	for key, value := range siteBuildQualityPayload(toolContext, workspaceActor, sourceWorkspace, appWorkspace) {
+		result[key] = value
+	}
+	return agent.ToolSuccess(marshalToolResult(result)), nil
+}
+
+func siteBuildQualityPayload(ctx context.Context, workspaceActor security.WorkspaceActor, sourceWorkspace workspacepath.Path, appWorkspace workspacepath.Path) map[string]any {
+	qualityPath := workspacepath.Path{
+		ConcretePath: filepath.Join(sourceWorkspace.ConcretePath, ".internkim", "build-quality.json"),
+		VirtualPath:  filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, ".internkim", "build-quality.json")),
+		Kind:         sourceWorkspace.Kind,
+	}
+	payload := map[string]any{
+		"qualityStatus":      "missing_report",
+		"qualityIssues":      []any{},
+		"qualityIssueCount":  0,
+		"blockingIssueCount": 0,
+		"editableTargets":    []string{},
+	}
+	qualityDocument, errorValue := workspaceActor.ReadFile(ctx, qualityPath, 1024*1024)
+	if errorValue != nil || !json.Valid(qualityDocument) {
+		return payload
+	}
+	var quality map[string]any
+	if errorValue := json.Unmarshal(qualityDocument, &quality); errorValue != nil {
+		payload["qualityStatus"] = "invalid_report"
+		return payload
+	}
+	issues, _ := quality["issues"].([]any)
+	blockingIssueCount, _ := siteBlockingIssueCount(quality)
+	payload["qualityIssues"] = issues
+	payload["qualityIssueCount"] = len(issues)
+	payload["blockingIssueCount"] = blockingIssueCount
+	payload["editableTargets"] = siteQualityEditableTargets(quality, appWorkspace)
+	if len(issues) > 0 {
+		payload["qualityStatus"] = "needs_improvement"
+		payload["recommendedNextActions"] = []string{
+			"Inspect qualityIssues and editableTargets.",
+			"Revise the affected source files when improvement budget remains.",
+			"Publish with the report if build output is acceptable and improvement budget is exhausted.",
+		}
+		return payload
+	}
+	payload["qualityStatus"] = "passed"
+	return payload
 }
 
 func siteBuildQualityGateFailure(ctx context.Context, workspaceActor security.WorkspaceActor, sourceWorkspace workspacepath.Path, appWorkspace workspacepath.Path, buildResult agent.ToolResult) *agent.ToolResult {
@@ -961,12 +1006,13 @@ func siteBuildQualityGateFailure(ctx context.Context, workspaceActor security.Wo
 	}
 	data := map[string]any{
 		"status":              "blocked",
-		"reason":              "site quality gate failed",
+		"reason":              "site build reported quality issues before producing a complete build output",
 		"sourceWorkspacePath": sourceWorkspace.VirtualPath,
 		"appWorkspacePath":    appWorkspace.VirtualPath,
 		"qualityPath":         qualityPath.VirtualPath,
 		"blockingIssueCount":  blockingIssueCount,
 		"issues":              quality["issues"],
+		"qualitySummary":      siteQualityIssueSummaries(quality),
 		"editableTargets":     siteQualityEditableTargets(quality, appWorkspace),
 		"requiredNextSteps": []string{
 			"Use file.read on one of editableTargets.",
@@ -977,7 +1023,11 @@ func siteBuildQualityGateFailure(ctx context.Context, workspaceActor security.Wo
 		"commandResult": buildResult.ContentText(),
 	}
 	document := json.RawMessage(marshalToolResult(data))
-	summary := "site quality gate failed with blocking issues in " + qualityPath.VirtualPath + "; inspect/edit the listed target files with file.read/file.write, then run site.app.build again"
+	summary := "site build reported quality issues in " + qualityPath.VirtualPath
+	if lines := siteQualityIssueSummaries(quality); len(lines) > 0 {
+		summary += ": " + strings.Join(lines, "; ")
+	}
+	summary += "; inspect/edit the listed target files with file.read/file.write, then run site.app.build again"
 	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCode("site_quality_gate_failed"), "site_build_quality_gate", summary, document)
 	result.Output.Content = string(document)
 	result.Failure.FailureClass = "fixable_artifact_quality"
@@ -1012,16 +1062,48 @@ func siteQualityAffectedResources(quality map[string]any, appWorkspace workspace
 		}
 		target, _ := issueDocument["target"].(string)
 		message, _ := issueDocument["message"].(string)
+		suggestedFix, _ := issueDocument["suggestedFix"].(string)
 		if strings.TrimSpace(target) == "" {
 			continue
+		}
+		reason := strings.TrimSpace(message)
+		if strings.TrimSpace(suggestedFix) != "" {
+			reason = strings.TrimSpace(reason + " " + strings.TrimSpace(suggestedFix))
 		}
 		resources = append(resources, agent.AffectedResource{
 			Path:   siteQualityEditableTargetPath(appWorkspace, target),
 			Role:   "source",
-			Reason: strings.TrimSpace(message),
+			Reason: reason,
 		})
 	}
 	return resources
+}
+
+func siteQualityIssueSummaries(quality map[string]any) []string {
+	issues, isSlice := quality["issues"].([]any)
+	if !isSlice {
+		return nil
+	}
+	summaries := []string{}
+	for _, issue := range issues {
+		issueDocument, isMap := issue.(map[string]any)
+		if !isMap {
+			continue
+		}
+		target, _ := issueDocument["target"].(string)
+		message, _ := issueDocument["message"].(string)
+		suggestedFix, _ := issueDocument["suggestedFix"].(string)
+		category, _ := issueDocument["category"].(string)
+		text := firstNonEmptyString(strings.TrimSpace(message), strings.TrimSpace(suggestedFix), strings.TrimSpace(category))
+		if text == "" {
+			continue
+		}
+		summaries = append(summaries, firstNonEmptyString(strings.TrimSpace(target), "site")+": "+text)
+		if len(summaries) >= 3 {
+			return summaries
+		}
+	}
+	return summaries
 }
 
 func siteQualityEditableTargets(quality map[string]any, appWorkspace workspacepath.Path) []string {

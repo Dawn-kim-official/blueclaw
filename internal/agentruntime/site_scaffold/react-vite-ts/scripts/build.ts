@@ -10,6 +10,7 @@ type QualityIssue = {
 	category: string;
 	target: string;
 	message: string;
+	suggestedFix: string;
 };
 
 async function runCommand(command: Command): Promise<void> {
@@ -42,6 +43,7 @@ function collectQualityIssues(): QualityIssue[] {
 			category: "contentModel",
 			target: "src/prototype-data.ts",
 			message: "Create domain-specific prototype data before building the site.",
+			suggestedFix: "Add realistic domain data in src/prototype-data.ts and render that data from App.tsx.",
 		});
 	}
 	if (sourceContainsAny(appSource + styleSource, [
@@ -56,6 +58,7 @@ function collectQualityIssues(): QualityIssue[] {
 			category: "templateSmell",
 			target: "src/App.tsx",
 			message: "Replace the scaffold starter instead of editing its copy or card-grid structure.",
+			suggestedFix: "Replace starter sections with a domain-specific first screen, real content structure, and non-generic UI flow.",
 		});
 	}
 	return issues;
@@ -75,10 +78,7 @@ if (!existsSync("../DESIGN.md")) {
 }
 
 const qualityIssues = collectQualityIssues();
-if (qualityIssues.some((issue) => issue.severity === "blocking")) {
-	writeBuildQuality(qualityIssues);
-	throw new Error("site quality gate failed; see ../.internkim/build-quality.json");
-}
+writeBuildQuality(qualityIssues);
 
 if (!existsSync("node_modules")) {
 	await runCommand({ name: "bun", arguments: ["install"] });

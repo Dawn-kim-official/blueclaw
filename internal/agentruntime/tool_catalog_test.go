@@ -1519,6 +1519,12 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 		}
 	}
 	buildScript := fileMap["app/scripts/build.ts"]
+	if strings.Contains(buildScript, "site quality gate failed") {
+		t.Fatalf("build script must report quality issues without failing the build")
+	}
+	if !strings.Contains(buildScript, "suggestedFix") {
+		t.Fatalf("build script must include actionable quality fixes")
+	}
 	viteIndex := strings.Index(buildScript, `await runCommand({ name: "bunx", arguments: ["vite", "build"] });`)
 	qualityIndex := strings.LastIndex(buildScript, "writeBuildQuality(qualityIssues);")
 	if viteIndex < 0 || qualityIndex < viteIndex {
@@ -1598,6 +1604,51 @@ func TestSiteBuildQualityGateFailureIncludesRecoveryTargets(t *testing.T) {
 		if !strings.Contains(content, expectedText) {
 			t.Fatalf("expected quality gate result to contain %q, got %s", expectedText, content)
 		}
+	}
+}
+
+func TestSiteBuildQualityPayloadReportsIssuesAsSuccessData(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourceWorkspacePath := filepath.Join(workspacePath, "sites", "site-1")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{
+  "blockingIssueCount": 1,
+  "issues": [
+    {
+      "severity": "blocking",
+      "category": "templateSmell",
+      "target": "src/App.tsx",
+      "message": "Replace the scaffold starter.",
+      "suggestedFix": "Use a domain-specific first screen."
+    }
+  ]
+}`)
+	factory := actortest.NewDirectWorkspaceActorFactory()
+	workspaceActor, errorValue := factory.Requester(context.Background(), security.WorkspaceActorRequest{
+		WorkspaceRootPath: workspacePath,
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	sourceWorkspace := workspacepath.Path{
+		ConcretePath: sourceWorkspacePath,
+		VirtualPath:  "/workspace/sites/site-1",
+	}
+	appWorkspace := workspacepath.Path{
+		ConcretePath: filepath.Join(sourceWorkspacePath, "app"),
+		VirtualPath:  "/workspace/sites/site-1/app",
+	}
+
+	payload := siteBuildQualityPayload(context.Background(), workspaceActor, sourceWorkspace, appWorkspace)
+	if payload["qualityStatus"] != "needs_improvement" || payload["qualityIssueCount"] != 1 || payload["blockingIssueCount"] != 1 {
+		t.Fatalf("expected quality issue payload, got %+v", payload)
+	}
+	targets, _ := payload["editableTargets"].([]string)
+	if !containsTestString(targets, "/workspace/sites/site-1/app/src/App.tsx") {
+		t.Fatalf("expected editable target, got %+v", payload)
+	}
+	if _, exists := payload["recommendedNextActions"]; !exists {
+		t.Fatalf("expected recommended next actions, got %+v", payload)
 	}
 }
 
