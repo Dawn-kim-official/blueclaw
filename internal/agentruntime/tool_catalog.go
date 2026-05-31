@@ -1136,7 +1136,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext cont
 		return actorToolFailure("mkdir_all", "site_repair_workspace", sourceWorkspace.VirtualPath, errorValue), nil
 	}
 	site.SourceWorkspacePath = sourceWorkspace.VirtualPath
-	site.WorkspacePath = sourceWorkspace.VirtualPath
+	site.WorkspacePath = canonicalSiteProjectWorkspacePath(firstNonEmptyString(input.SiteID, site.SiteID, siteProjectIDFromPath(sourceWorkspace.VirtualPath)))
 	site.AppWorkspacePath = filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, "app"))
 	if toolFailure := writeSiteStarterFiles(toolContext, workspaceActor, workspacepath.Directory(sourceWorkspace), site); toolFailure != nil {
 		return *toolFailure, nil
@@ -1144,7 +1144,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext cont
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"siteID":              site.SiteID,
 		"slug":                site.Slug,
+		"workspacePath":       site.WorkspacePath,
 		"sourceWorkspacePath": site.SourceWorkspacePath,
+		"draftPath":           site.SourceWorkspacePath,
 		"appWorkspacePath":    site.AppWorkspacePath,
 		"workspaceHealth":     "ready",
 		"publishedUnchanged":  true,
@@ -2127,7 +2129,7 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
-	if strings.TrimSpace(toolName) == "site.app.publish" {
+	if siteToolNeedsSourceBundle(toolName) {
 		toolInput, toolFailure, errorValue := toolCatalogBuilder.enrichSitePublishInput(toolContext, request, toolInput)
 		return toolInput, toolFailure, errorValue
 	}
@@ -2136,7 +2138,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolCon
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
-	if strings.TrimSpace(toolName) != "site.app.publish" {
+	if !siteToolNeedsSourceBundle(toolName) {
 		return toolInput, nil
 	}
 	toolInput, toolFailure, errorValue := toolCatalogBuilder.enrichSitePublishInput(context.Background(), request, toolInput)
@@ -2144,6 +2146,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName
 		return nil, errors.New(toolFailure.ContentText())
 	}
 	return toolInput, errorValue
+}
+
+func siteToolNeedsSourceBundle(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "site.app.publish", "site.app.preview":
+		return true
+	default:
+		return false
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) enrichSitePublishInput(toolContext context.Context, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
@@ -2253,7 +2264,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusResult(toolConte
 	health := toolCatalogBuilder.siteWorkspaceHealth(toolContext, request, siteID, sourceWorkspacePath)
 	if resolvedSourceWorkspacePath, _ := health["sourceWorkspacePath"].(string); strings.TrimSpace(resolvedSourceWorkspacePath) != "" {
 		document["sourceWorkspacePath"] = resolvedSourceWorkspacePath
-		document["workspacePath"] = resolvedSourceWorkspacePath
+		document["draftPath"] = resolvedSourceWorkspacePath
+		if siteID := firstNonEmptyString(siteID, siteProjectIDFromPath(resolvedSourceWorkspacePath)); siteID != "" {
+			document["workspacePath"] = filepath.ToSlash(filepath.Join("home", "sites", siteID))
+		}
 	}
 	if resolvedAppWorkspacePath, _ := health["appWorkspacePath"].(string); strings.TrimSpace(resolvedAppWorkspacePath) != "" {
 		document["appWorkspacePath"] = resolvedAppWorkspacePath
@@ -2528,7 +2542,14 @@ func canonicalSiteSourceWorkspacePath(siteID string) string {
 	if strings.TrimSpace(siteID) == "" {
 		return ""
 	}
-	return filepath.ToSlash(filepath.Join("/workspace", "sites", strings.TrimSpace(siteID)))
+	return filepath.ToSlash(filepath.Join(canonicalSiteProjectWorkspacePath(siteID), "draft"))
+}
+
+func canonicalSiteProjectWorkspacePath(siteID string) string {
+	if strings.TrimSpace(siteID) == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Join("home", "sites", strings.TrimSpace(siteID)))
 }
 
 func sourceWorkspacePathFromSiteAppWorkspacePath(appWorkspacePath string) string {
@@ -2547,6 +2568,12 @@ func siteProjectIDFromPath(path string) string {
 	for _, prefix := range []string{"home/sites/", "workspace/sites/", "sites/"} {
 		if siteID := pathSegmentAfterPrefix(cleanPath, prefix); siteID != "" {
 			return siteID
+		}
+	}
+	parts := strings.Split(cleanPath, "/")
+	for index := 0; index+1 < len(parts); index++ {
+		if parts[index] == "sites" && parts[index+1] != "" {
+			return parts[index+1]
 		}
 	}
 	return ""
@@ -2581,6 +2608,7 @@ func shouldPreferCanonicalSiteWorkspacePath(path string) bool {
 	return cleanPath == "" ||
 		strings.HasPrefix(cleanPath, "home/sites/") ||
 		strings.HasPrefix(cleanPath, "workspace/sites/") ||
+		strings.HasPrefix(cleanPath, "workspace/private/people/") ||
 		strings.HasPrefix(cleanPath, "sites/")
 }
 
