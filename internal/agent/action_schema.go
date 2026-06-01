@@ -12,19 +12,23 @@ func (agentTurnRunner *AgentTurnRunner) buildActionSchema(toolRegistry *ToolSet,
 	return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt)
 }
 
-func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
+func (toolSet *ToolSet) ActionSchema(allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
 	if toolSet == nil {
-		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt)
+		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
 	}
-	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames, hasFailureDebt)
+	return buildActionSchemaFromToolDefinitions(toolSet.ListToolDefinitions(), allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
 }
 
-func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
+func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
+	allowFail := true
+	if len(allowFailValues) > 0 {
+		allowFail = allowFailValues[0]
+	}
 	var variants []any
-	variants = append(variants,
-		finishActionSchema(hasFailureDebt),
-		failActionSchema(hasFailureDebt),
-	)
+	variants = append(variants, finishActionSchema(hasFailureDebt))
+	if allowFail {
+		variants = append(variants, failActionSchema(hasFailureDebt))
+	}
 	if allowQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
 	}

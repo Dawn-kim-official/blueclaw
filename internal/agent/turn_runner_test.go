@@ -1318,6 +1318,33 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 	}
 }
 
+func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
+	toolRegistry := newTestToolSet([]string{"site.app.publish", "file.write"})
+	request := BuildAgentActionRequest(agentTaskState{
+		Request: AgentTurnRequest{ToolSet: toolRegistry},
+		Options: TurnOptions{RecoveryBudget: defaultRecoveryBudget()},
+		Observations: []turnObservation{{
+			ObservationID:      "obs-001",
+			Action:             "continue",
+			Tool:               "site.app.publish",
+			Output:             ToolOutput{Content: "starter scaffold remains"},
+			Failure:            &ToolFailure{Kind: FailureInvalidInput, Code: FailureCodes.InvalidInput.String(), Stage: "site_publish", UserSafeSummary: "starter scaffold remains"},
+			ToolInputKey:       "site.app.publish\x00{\"siteID\":\"site-1\"}",
+			AttemptFingerprint: "site.app.publish\x00{\"siteID\":\"site-1\"}\x00invalid_input",
+		}},
+	})
+	schemaDocument := request.StructuredOutputSchema.Document
+	if actionSchemaHasVariant(t, schemaDocument, "fail") {
+		t.Fatalf("expected fail action to be hidden while recovery budget remains, got %s", schemaDocument)
+	}
+	if !actionSchemaHasVariant(t, schemaDocument, "finish") {
+		t.Fatalf("expected finish fallback to remain available, got %s", schemaDocument)
+	}
+	if !actionSchemaHasVariant(t, schemaDocument, "continue") {
+		t.Fatalf("expected recovery tool actions to remain available, got %s", schemaDocument)
+	}
+}
+
 func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 	result := validateFailureReportAction(turnActionDocument{
 		Action:            "fail",
@@ -3538,6 +3565,21 @@ func structuredRequestsContain(requests []llm.StructuredResponseRequest, fragmen
 
 func actionSchemaVariant(t *testing.T, schemaDocument string, actionName string) map[string]any {
 	t.Helper()
+	if variant, isFound := findActionSchemaVariant(t, schemaDocument, actionName); isFound {
+		return variant
+	}
+	t.Fatalf("expected action schema variant %q in %s", actionName, schemaDocument)
+	return nil
+}
+
+func actionSchemaHasVariant(t *testing.T, schemaDocument string, actionName string) bool {
+	t.Helper()
+	_, isFound := findActionSchemaVariant(t, schemaDocument, actionName)
+	return isFound
+}
+
+func findActionSchemaVariant(t *testing.T, schemaDocument string, actionName string) (map[string]any, bool) {
+	t.Helper()
 	var schema struct {
 		OneOf []map[string]any `json:"oneOf"`
 	}
@@ -3548,11 +3590,10 @@ func actionSchemaVariant(t *testing.T, schemaDocument string, actionName string)
 		properties := mapFromAny(variant["properties"])
 		actionProperty := mapFromAny(properties["action"])
 		if containsString(stringSliceFromAny(actionProperty["enum"]), actionName) {
-			return variant
+			return variant, true
 		}
 	}
-	t.Fatalf("expected action schema variant %q in %s", actionName, schemaDocument)
-	return nil
+	return nil, false
 }
 
 func mapFromAny(value any) map[string]any {
