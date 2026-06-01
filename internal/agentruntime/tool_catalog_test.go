@@ -1533,6 +1533,9 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 			t.Fatalf("build script must rely on canonical runtime PATH, not %q", forbiddenText)
 		}
 	}
+	if !strings.Contains(buildScript, `PATH: canonicalRuntimePATH`) {
+		t.Fatalf("build script must pass canonical PATH to child commands")
+	}
 	if !strings.Contains(buildScript, `name: "bun", arguments: ["x", "vite", "build"]`) {
 		t.Fatalf("build script must use bun x through canonical PATH")
 	}

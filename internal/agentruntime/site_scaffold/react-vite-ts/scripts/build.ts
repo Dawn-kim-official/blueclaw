@@ -13,8 +13,11 @@ type QualityIssue = {
 	suggestedFix: string;
 };
 
+const canonicalRuntimePATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
 async function runCommand(command: Command): Promise<void> {
 	const commandProcess = Bun.spawn([command.name, ...command.arguments], {
+		env: { ...Bun.env, PATH: canonicalRuntimePATH },
 		stdout: "inherit",
 		stderr: "inherit",
 	});
