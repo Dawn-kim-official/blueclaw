@@ -44,6 +44,9 @@ func buildRecoveryPacket(observation turnObservation) RecoveryPacket {
 		}
 		packet.AffectedResources = append([]AffectedResource{}, failure.AffectedResources...)
 		packet.DiagnosticArtifacts = append([]DiagnosticArtifact{}, failure.DiagnosticArtifacts...)
+		for _, recoveryHint := range failure.RecoveryHints {
+			packet.AllowedTools = appendUniqueRecoveryStrings(append(packet.AllowedTools, recoveryHint.ToolNames...))
+		}
 	}
 	return packet
 }

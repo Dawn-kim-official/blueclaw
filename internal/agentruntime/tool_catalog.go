@@ -952,7 +952,76 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 	for key, value := range siteBuildQualityPayload(toolContext, workspaceActor, sourceWorkspace, appWorkspace) {
 		result[key] = value
 	}
+	if deliveryBlocked, _ := result["deliveryBlocked"].(bool); deliveryBlocked {
+		return siteDeliveryBlockedBuildResult(result), nil
+	}
 	return agent.ToolSuccess(marshalToolResult(result)), nil
+}
+
+func siteDeliveryBlockedBuildResult(result map[string]any) agent.ToolResult {
+	return agent.ToolResult{
+		Output: agent.ToolOutput{Content: marshalToolResult(result)},
+		Failure: &agent.ToolFailure{
+			Kind:                  agent.FailureInvalidInput,
+			Code:                  agent.FailureCodes.InvalidInput.String(),
+			Stage:                 "site_build_delivery",
+			UserSafeSummary:       siteDeliveryBlockedSummary(result),
+			Retryable:             true,
+			SafeRetry:             true,
+			FailureClass:          "fixable_artifact_quality",
+			RetryPolicy:           "after_precondition",
+			RequiredPreconditions: []string{"source_changed"},
+			RecoveryHints: []agent.RecoveryHint{{
+				Action:    "edit_resource",
+				ToolNames: []string{"file.read", "file.write"},
+				Reason:    "Replace starter scaffold content in editableTargets, then run site.app.build again.",
+			}},
+			AffectedResources: siteDeliveryBlockedAffectedResources(result),
+		},
+	}
+}
+
+func siteDeliveryBlockedSummary(result map[string]any) string {
+	if blockers, isSlice := result["deliveryBlockers"].([]string); isSlice && len(blockers) > 0 {
+		return "site build produced a non-deliverable starter scaffold: " + strings.Join(blockers, "; ")
+	}
+	if blockers, isSlice := result["deliveryBlockers"].([]any); isSlice && len(blockers) > 0 {
+		values := []string{}
+		for _, blocker := range blockers {
+			if text, isString := blocker.(string); isString && strings.TrimSpace(text) != "" {
+				values = append(values, strings.TrimSpace(text))
+			}
+		}
+		if len(values) > 0 {
+			return "site build produced a non-deliverable starter scaffold: " + strings.Join(values, "; ")
+		}
+	}
+	return "site build produced a non-deliverable starter scaffold; replace starter content before publishing."
+}
+
+func siteDeliveryBlockedAffectedResources(result map[string]any) []agent.AffectedResource {
+	targets, isSlice := result["editableTargets"].([]string)
+	if !isSlice {
+		if values, ok := result["editableTargets"].([]any); ok {
+			for _, value := range values {
+				if text, isString := value.(string); isString {
+					targets = append(targets, text)
+				}
+			}
+		}
+	}
+	resources := []agent.AffectedResource{}
+	for _, target := range targets {
+		if strings.TrimSpace(target) == "" {
+			continue
+		}
+		resources = append(resources, agent.AffectedResource{
+			Path:   strings.TrimSpace(target),
+			Role:   "source",
+			Reason: "Starter scaffold content must be replaced before delivery.",
+		})
+	}
+	return resources
 }
 
 func ensureManagedSiteBuildScript(ctx context.Context, workspaceActor security.WorkspaceActor, appWorkspace workspacepath.Path) *agent.ToolResult {

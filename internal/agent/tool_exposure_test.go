@@ -239,6 +239,52 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 	}
 }
 
+func TestRecoveryWorkingSetUsesActiveFailureHints(t *testing.T) {
+	toolSet := testToolSet([]string{"file.read", "file.write", "site.app.build", "site.app.publish", "skill.search", "tool.describe", "ask.confirm"})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:         "site-prototype",
+			AllowedTools: []string{"file.read", "file.write", "site.app.build", "site.app.publish"},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+	observation := turnObservation{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "site.app.build",
+		Output:        ToolOutput{Content: "starter scaffold remains"},
+		Failure: &ToolFailure{
+			Kind:                  FailureInvalidInput,
+			Code:                  FailureCodes.InvalidInput.String(),
+			Stage:                 "site_build_delivery",
+			UserSafeSummary:       "starter scaffold remains",
+			RequiredPreconditions: []string{"source_changed"},
+			RecoveryHints: []RecoveryHint{{
+				Action:    "edit_resource",
+				ToolNames: []string{"file.read", "file.write"},
+			}},
+		},
+		ToolInputKey:       "site.app.build\x00{\"siteID\":\"site-1\"}",
+		AttemptFingerprint: "site.app.build\x00{\"siteID\":\"site-1\"}\x00invalid_input",
+	}
+	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{}, []turnObservation{observation})
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic {
+		t.Fatal("expected active recovery hints to select deterministically")
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{}, selection, event, []turnObservation{observation})
+
+	for _, toolID := range []string{"file.read", "file.write"} {
+		if !filteredToolSet.IsAllowed(toolID) {
+			t.Fatalf("expected recovery hint tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
+		}
+	}
+	if filteredToolSet.IsAllowed("site.app.publish") {
+		t.Fatalf("expected publish to stay hidden until source changes and rebuild succeeds, got %+v", event.ExposedToolIDs)
+	}
+}
+
 func TestGenericFallbackKeepsExplicitCapabilityToolsBeforeBuiltIns(t *testing.T) {
 	toolSet := testToolSet([]string{"conversation.history", "memory.search", "browser.snapshot", "file.write", "terminal.run"})
 	instructionBundle := InstructionBundle{}
