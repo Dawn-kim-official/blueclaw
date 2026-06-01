@@ -442,8 +442,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileWriteToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "file.write",
-			Description: "Write a UTF-8 text file under the Blueclaw workspace. Use this for markdown, scripts, and source files instead of shell redirection.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"mode":{"type":"number"}},"required":["path","content"]}`),
+			Description: "Overwrite one UTF-8 text file under the Blueclaw workspace. Treat content as the complete file body, like terminal redirection to a file: include the text exactly as it should appear in the file, with real line breaks for multiline source.",
+			RecoveryCard: agent.ToolRecoveryCard{
+				Does:       "Overwrites one workspace text file with the exact content string.",
+				Produces:   "A written source, document, script, or config file at the requested path.",
+				SideEffect: "workspace_write",
+				UseWhen:    "A source file, design document, script, or generated text artifact must be created or replaced.",
+				AvoidWhen:  "You only need to inspect files, append shell output, or run commands; do not pass escaped newline sequences when writing multiline source.",
+			},
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."},"mode":{"type":"number","description":"Optional POSIX file mode."}},"required":["path","content"]}`),
 		},
 		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)

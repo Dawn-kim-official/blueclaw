@@ -961,6 +961,25 @@ func TestFileWriteAcceptsPortablePathAndContent(t *testing.T) {
 	}
 }
 
+func TestFileWriteDescribesContentAsExactFileBody(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolDefinition, isFound := toolRegistry.ToolDefinition("file.write")
+	if !isFound {
+		t.Fatal("expected file.write definition")
+	}
+	if !strings.Contains(toolDefinition.Description, "complete file body") {
+		t.Fatalf("expected file.write description to explain exact file body, got %q", toolDefinition.Description)
+	}
+	if !strings.Contains(string(toolDefinition.InputSchema), "real line breaks") {
+		t.Fatalf("expected file.write schema to explain multiline content, got %s", string(toolDefinition.InputSchema))
+	}
+	if !strings.Contains(toolDefinition.RecoveryCard.AvoidWhen, "escaped newline sequences") {
+		t.Fatalf("expected file.write recovery card to warn about escaped newlines, got %+v", toolDefinition.RecoveryCard)
+	}
+}
+
 func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
