@@ -15,6 +15,7 @@ type IntakeClassification string
 type TaskShape string
 type TurnRoute string
 type ApprovalSignal string
+type BusyRoute string
 
 const (
 	IntakeClassificationQuickReply        IntakeClassification = "quick_reply"
@@ -37,6 +38,12 @@ const (
 	TurnRouteClarify        TurnRoute = "clarify"
 	TurnRouteConsume        TurnRoute = "consume"
 	TurnRouteGiveUp         TurnRoute = "give_up"
+
+	BusyRouteStatus    BusyRoute = "status"
+	BusyRouteSteer     BusyRoute = "steer"
+	BusyRouteReplace   BusyRoute = "replace"
+	BusyRouteNewTask   BusyRoute = "new_task"
+	BusyRouteUnrelated BusyRoute = "unrelated"
 
 	DefaultReactionEmojiName = "white_check_mark"
 
@@ -95,6 +102,7 @@ type AgentRequest struct {
 	ActivePaths             []string
 	InstructionPrompt       string
 	ActiveGoal              ActiveGoal
+	ActiveTask              ActiveTaskContext
 	PendingConfirmation     PendingConfirmationContext
 	PendingChoice           PendingChoiceContext
 	PendingInput            PendingInputContext
@@ -109,6 +117,13 @@ type PendingConfirmationContext struct {
 	TaskRunID string
 	Prompt    string
 	Question  string
+}
+
+type ActiveTaskContext struct {
+	TaskRunID string
+	Prompt    string
+	Status    string
+	Summary   string
 }
 
 type PendingChoiceContext struct {
@@ -156,6 +171,8 @@ type TurnDecision struct {
 	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
 	ClarificationOptions      []ClarificationOption `json:"clarificationOptions,omitempty"`
 	ReactionEmojiName         string                `json:"reactionEmojiName,omitempty"`
+	BusyRoute                 BusyRoute             `json:"busyRoute,omitempty"`
+	BusyInstruction           string                `json:"busyInstruction,omitempty"`
 	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
 }
 
@@ -334,6 +351,8 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		decision.Route = TurnRouteContinueTask
 	}
 	decision.Choices = normalizeChoiceSelections(decision.Choices, request.PendingChoice)
+	decision.BusyRoute = normalizeBusyRoute(decision.BusyRoute, decision.Route, request)
+	decision.BusyInstruction = strings.TrimSpace(decision.BusyInstruction)
 	decision.ClarificationQuestion = strings.TrimSpace(decision.ClarificationQuestion)
 	decision.ClarificationOptions = normalizeClarificationOptions(decision.ClarificationOptions)
 	decision.ReactionEmojiName = NormalizeReactionEmojiName(decision.ReactionEmojiName)
@@ -453,6 +472,17 @@ func turnRouterSchema(request AgentRequest) string {
 		properties["choices"] = map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": pendingChoiceKeys(request.PendingChoice)}, "uniqueItems": true}
 		requiredProperties = append(requiredProperties, "choices")
 	}
+	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" {
+		properties["busyRoute"] = map[string]any{"type": "string", "enum": []string{
+			string(BusyRouteStatus),
+			string(BusyRouteSteer),
+			string(BusyRouteReplace),
+			string(BusyRouteNewTask),
+			string(BusyRouteUnrelated),
+		}}
+		properties["busyInstruction"] = map[string]any{"type": "string"}
+		requiredProperties = append(requiredProperties, "busyRoute", "busyInstruction")
+	}
 	document, errorValue := json.Marshal(map[string]any{
 		"type":                 "object",
 		"properties":           properties,
@@ -463,6 +493,28 @@ func turnRouterSchema(request AgentRequest) string {
 		return `{"type":"object","properties":{"route":{"type":"string"},"classification":{"type":"string"},"taskShape":{"type":"string"},"effortLevel":{"type":"string"},"requestedOutputFormats":{"type":"null"},"responseLanguage":{"type":"string"},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["route","classification","taskShape","effortLevel","requestedOutputFormats","responseLanguage","reason","userFacingReply"],"additionalProperties":false}`
 	}
 	return string(document)
+}
+
+func normalizeBusyRoute(busyRoute BusyRoute, turnRoute TurnRoute, request AgentRequest) BusyRoute {
+	if strings.TrimSpace(request.ActiveTask.TaskRunID) == "" {
+		return ""
+	}
+	switch busyRoute {
+	case BusyRouteStatus, BusyRouteSteer, BusyRouteReplace, BusyRouteNewTask, BusyRouteUnrelated:
+		return busyRoute
+	}
+	switch turnRoute {
+	case TurnRouteAnswerQuestion, TurnRouteAnswerMeta:
+		return BusyRouteStatus
+	case TurnRouteContinueTask, TurnRouteReviseTask:
+		return BusyRouteSteer
+	case TurnRouteStartTask:
+		return BusyRouteNewTask
+	case TurnRouteConsume, TurnRouteGiveUp:
+		return BusyRouteUnrelated
+	default:
+		return BusyRouteNewTask
+	}
 }
 
 func pendingChoiceKeys(pendingChoice PendingChoiceContext) []string {
@@ -522,6 +574,21 @@ func turnRoutingContextDescription(request AgentRequest) string {
 			"Pending input:",
 			"- Question: "+strings.TrimSpace(request.PendingInput.Question),
 			"- Use continue_task or revise_task when the latest message answers or modifies this pending input.",
+		)
+	}
+	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" {
+		lines = append(lines,
+			"Active task in this conversation:",
+			"- Task run ID: "+strings.TrimSpace(request.ActiveTask.TaskRunID),
+			"- Status: "+strings.TrimSpace(request.ActiveTask.Status),
+			"- Original instruction: "+strings.TrimSpace(request.ActiveTask.Prompt),
+			"- Current progress summary: "+strings.TrimSpace(request.ActiveTask.Summary),
+			"- Choose busyRoute=status when the latest message asks whether work is happening or asks for progress.",
+			"- Choose busyRoute=steer when the latest message corrects or redirects the active task without explicitly cancelling it.",
+			"- Choose busyRoute=replace only when the latest message clearly cancels or replaces the active task with a new instruction.",
+			"- Choose busyRoute=new_task when the latest message is independent and should not affect the active task.",
+			"- Choose busyRoute=unrelated when the message should not start or alter work.",
+			"- Natural-language stop words are not task stop commands. Only exact slash commands stop tasks.",
 		)
 	}
 	if request.AllowGiveUp {
@@ -664,7 +731,8 @@ func hasPendingOrActiveTaskContext(request AgentRequest) bool {
 	return strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" ||
 		strings.TrimSpace(request.PendingChoice.TaskRunID) != "" ||
 		strings.TrimSpace(request.PendingInput.TaskRunID) != "" ||
-		strings.TrimSpace(request.ActiveGoal.TaskRunID) != ""
+		strings.TrimSpace(request.ActiveGoal.TaskRunID) != "" ||
+		strings.TrimSpace(request.ActiveTask.TaskRunID) != ""
 }
 
 func normalizeApprovalSignal(signal *ApprovalSignal, hasPendingConfirmation bool) *ApprovalSignal {

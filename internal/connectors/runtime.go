@@ -872,6 +872,19 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", ignoreReason))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: ignoreReason}, nil
 	}
+	if !isApprovalContinuation && !hasPendingAskInteraction {
+		busyResult, errorValue := connectorRuntime.handleBusyMessageIfNeeded(ctx, platform, event, replyTarget, personID, sendReply)
+		if errorValue != nil {
+			return ConnectorRuntimeResult{}, errorValue
+		}
+		if busyResult.isHandled {
+			return busyResult.connectorResult, nil
+		}
+		if busyResult.clearActiveGoal {
+			activeGoal = agent.ActiveGoal{}
+			hasActiveGoal = false
+		}
+	}
 	if !isProgressStarted {
 		stopProgress = connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
 		isProgressStarted = true

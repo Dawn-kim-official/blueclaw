@@ -101,6 +101,134 @@ func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T)
 	}
 }
 
+func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked for progress","userFacingReply":"","busyRoute":"status","busyInstruction":""}`,
+			},
+			"blueclaw_reply": {
+				`{"reply":"지금 처리 중입니다."}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if _, isFound := connectorRuntime.latestCurrentConversationActiveTask("person-1", "direct-1"); !isFound {
+		t.Fatal("expected active task before busy status event")
+	}
+	event := testInboundEvent("message-busy-status")
+	event.Prompt = "하고 있어?"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected busy status event to process: %v", errorValue)
+	}
+	if result.Reason != "busy_status" || result.TaskRunID != activeTaskRun.TaskRunID {
+		t.Fatalf("expected busy status for active task, got %+v", result)
+	}
+	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected no new task run, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "지금 처리 중입니다." {
+		t.Fatalf("expected status reply, got %+v", adapter.sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, activeTaskRun.TaskRunID, "task.status.requested", "message-busy-status") {
+		t.Fatal("expected status request event")
+	}
+}
+
+func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"revise_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user corrected active task","userFacingReply":"","busyRoute":"steer","busyInstruction":"PDF 대신 HTML로 작성한다."}`,
+			},
+			"blueclaw_reply": {
+				`{"reply":"방향 수정 내용을 현재 작업에 반영하겠습니다."}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "PDF 보고서 작성")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if _, isFound := connectorRuntime.latestCurrentConversationActiveTask("person-1", "direct-1"); !isFound {
+		t.Fatal("expected active task before busy steer event")
+	}
+	event := testInboundEvent("message-busy-steer")
+	event.Prompt = "아니 PDF 말고 HTML로 해"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected busy steer event to process: %v", errorValue)
+	}
+	if result.Reason != "busy_steer" || result.TaskRunID != activeTaskRun.TaskRunID {
+		t.Fatalf("expected busy steer for active task, got %+v", result)
+	}
+	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected no new task run, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	}
+	if !connectorTaskEventsContain(connectorRuntime, activeTaskRun.TaskRunID, "task.steer.requested", "PDF 대신 HTML") {
+		t.Fatal("expected steer request event")
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "방향 수정 내용을 현재 작업에 반영하겠습니다." {
+		t.Fatalf("expected steer acknowledgement, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user replaced active task","userFacingReply":"","busyRoute":"replace","busyInstruction":"새 지시로 교체한다."}`,
+				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"replacement task","userFacingReply":""}`,
+			},
+		},
+		ActionResponses: []string{
+			connectorFinishMessage("새 작업으로 진행했습니다."),
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "기존 작업")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-busy-replace")
+	event.Prompt = "아니 그거 취소하고 새 작업 해"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected busy replace event to process: %v", errorValue)
+	}
+	cancelledTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(activeTaskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected active task cancelled, got found=%v task=%+v", isFound, cancelledTaskRun)
+	}
+	if result.TaskRunID == "" || result.TaskRunID == activeTaskRun.TaskRunID {
+		t.Fatalf("expected replacement task result, got %+v", result)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, activeTaskRun.TaskRunID, "task.replaced", "message-busy-replace") {
+		t.Fatal("expected replaced event")
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "새 작업으로 진행했습니다." {
+		t.Fatalf("expected replacement reply, got %+v", adapter.sentReplies)
+	}
+}
+
 func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 	reply := OutboundReply{
 		Message:   "attached",
