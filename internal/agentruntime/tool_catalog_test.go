@@ -1524,6 +1524,9 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if strings.Contains(fileMap["app/package.json"], "@google/design.md") {
 		t.Fatalf("site package manifest must not depend on nested design.md CLI")
 	}
+	if strings.Contains(fileMap["app/package.json"], `": "^`) {
+		t.Fatalf("site package manifest must pin exact dependency versions")
+	}
 	buildScript := fileMap["app/scripts/build.ts"]
 	if strings.Contains(buildScript, "site quality gate failed") {
 		t.Fatalf("build script must report quality issues without failing the build")
