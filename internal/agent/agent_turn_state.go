@@ -189,6 +189,7 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 	blockedToolNames := blockedToolNamesForPreconditions(state.Request.ToolSet, requirements, state.Observations)
 	failureFacts := buildFailureReportFacts(state.Observations, state.Options.RecoveryBudget)
 	hasFailureDebt := len(failureFacts.Attempts) > 0
+	allowFail := shouldExposeFailAction(state)
 	messages := (PromptAssembler{}).BuildTurnMessages(
 		state.Request,
 		state.Observations,
@@ -206,18 +207,26 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 		Messages: messages,
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
-			Document:           actionSchemaForToolSet(state.Request.ToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt),
+			Document:           actionSchemaForToolSet(state.Request.ToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail),
 			IsStrictlyEnforced: true,
 		},
 		GenerationOptions: state.Options.GenerationOptions,
 	}
 }
 
-func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool) string {
-	if toolSet == nil {
-		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt)
+func shouldExposeFailAction(state agentTaskState) bool {
+	failureDebt, hasFailureDebt := activeFailureDebt(state.Observations)
+	if !hasFailureDebt {
+		return true
 	}
-	return toolSet.ActionSchema(allowQualityCriteria, blockedToolNames, hasFailureDebt)
+	return recoveryToolBudgetExhaustedForRequest(state.Observations, state.Request.ToolSet, state.Options.RecoveryBudget, failureDebt)
+}
+
+func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
+	if toolSet == nil {
+		return buildActionSchemaFromToolDefinitions(nil, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
+	}
+	return toolSet.ActionSchema(allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFailValues...)
 }
 
 func ParseAgentActionResponse(response llm.StructuredResponse) (agentAction, error) {
