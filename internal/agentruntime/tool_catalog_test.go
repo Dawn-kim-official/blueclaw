@@ -1539,11 +1539,17 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if !strings.Contains(buildScript, `PATH: canonicalRuntimePATH`) {
 		t.Fatalf("build script must pass canonical PATH to child commands")
 	}
-	if !strings.Contains(buildScript, `lintDesignDocument();`) || !strings.Contains(buildScript, `collectDesignIssues`) {
-		t.Fatalf("build script must lint DESIGN.md in-process")
+	if !strings.Contains(buildScript, `collectDesignQualityIssues`) || !strings.Contains(buildScript, `category: "designDocument"`) {
+		t.Fatalf("build script must report DESIGN.md quality issues in-process")
 	}
 	if strings.Contains(buildScript, "@google/design.md") {
 		t.Fatalf("build script must not spawn nested design.md CLI")
+	}
+	if strings.Contains(buildScript, "DESIGN.md lint failed") {
+		t.Fatalf("build script must not fail solely because DESIGN.md quality issues were reported")
+	}
+	if strings.Contains(buildScript, "DESIGN.md is required") {
+		t.Fatalf("build script must not fail solely because DESIGN.md is missing")
 	}
 	if !strings.Contains(buildScript, `name: "bun", arguments: ["x", "vite", "build"]`) {
 		t.Fatalf("build script must use bun x through canonical PATH")
