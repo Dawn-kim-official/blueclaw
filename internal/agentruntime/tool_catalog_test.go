@@ -1641,6 +1641,31 @@ func TestSiteBuildQualityPayloadReportsIssuesAsSuccessData(t *testing.T) {
 	}
 }
 
+func TestSiteDeliveryBlockedBuildResultCreatesRecoveryFailure(t *testing.T) {
+	result := siteDeliveryBlockedBuildResult(map[string]any{
+		"deliveryBlocked": true,
+		"deliveryBlockers": []string{
+			"src/App.tsx: Replace the scaffold starter.",
+		},
+		"editableTargets": []string{"/workspace/sites/site-1/app/src/App.tsx"},
+	})
+	if result.Failure == nil {
+		t.Fatal("expected delivery blocked build to create recoverable failure")
+	}
+	if result.Failure.Stage != "site_build_delivery" {
+		t.Fatalf("expected site_build_delivery failure, got %+v", result.Failure)
+	}
+	if !containsTestString(result.Failure.RequiredPreconditions, "source_changed") {
+		t.Fatalf("expected source_changed precondition, got %+v", result.Failure.RequiredPreconditions)
+	}
+	if len(result.Failure.RecoveryHints) == 0 || !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "file.write") {
+		t.Fatalf("expected file.write recovery hint, got %+v", result.Failure.RecoveryHints)
+	}
+	if len(result.Failure.AffectedResources) != 1 || result.Failure.AffectedResources[0].Path != "/workspace/sites/site-1/app/src/App.tsx" {
+		t.Fatalf("expected affected source resource, got %+v", result.Failure.AffectedResources)
+	}
+}
+
 func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site description","idea":"Demo site idea","purpose":"portfolio","audience":"buyers","archetype":"portfolio","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"home/sites/site-1/draft","workspacePath":"home/sites/site-1","status":"draft","ownerIdentity":{"personID":"person-1","displayName":"Owner"}}}`}

@@ -203,7 +203,7 @@ func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
 func collectOptionalCandidateGroups(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, observations []turnObservation) []toolExposureGroup {
 	selectedSkillToolNames := selectedAndPinnedSkillToolNameSet(instructionBundle, request.PinnedSkillNames)
 	return []toolExposureGroup{
-		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G4 recovery/pinned candidates", ToolIDs: recoveryPinnedToolNames(instructionBundle, request)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
+		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G4 recovery/pinned candidates", ToolIDs: recoveryPinnedToolNames(instructionBundle, request, observations)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
 		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G5 selected-skill candidates", ToolIDs: selectedAndPinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
 		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G6 active-goal candidates", ToolIDs: activeGoalCandidateToolNames(request, executionPlan, hasExecutionPlan, outcomeContract)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
 		filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G7 generic candidates", ToolIDs: genericCandidateToolNames(toolSet, len(selectedSkillToolNames) > 0)}, selectedSkillToolNames, request, executionPlan, hasExecutionPlan, outcomeContract),
@@ -356,9 +356,27 @@ func filterGroupToolsForTurn(toolSet *ToolSet, group toolExposureGroup, selected
 	return toolExposureGroup{Name: group.Name, ToolIDs: filteredToolIDs}
 }
 
-func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest) []string {
+func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {
 	toolNames := append([]string{}, request.PinnedToolNames...)
 	toolNames = appendUniqueStrings(toolNames, pinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)...)
+	toolNames = appendUniqueStrings(toolNames, activeRecoveryToolNames(observations)...)
+	return toolNames
+}
+
+func activeRecoveryToolNames(observations []turnObservation) []string {
+	failureDebt, hasFailureDebt := activeFailureDebt(observations)
+	if !hasFailureDebt {
+		return nil
+	}
+	toolNames := []string{}
+	if failureDebt.LatestFailure.Failure != nil {
+		for _, recoveryHint := range failureDebt.LatestFailure.Failure.RecoveryHints {
+			toolNames = appendUniqueStrings(toolNames, recoveryHint.ToolNames...)
+		}
+	}
+	if failureDebt.LatestFailure.RecoveryPacket != nil {
+		toolNames = appendUniqueStrings(toolNames, failureDebt.LatestFailure.RecoveryPacket.AllowedTools...)
+	}
 	return toolNames
 }
 
