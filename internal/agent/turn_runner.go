@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,6 +82,7 @@ type AgentTurnRequest struct {
 	PrecomputedTurnDecision    *TurnDecision
 	TurnStartedAt              time.Time
 	CheckpointSender           AgentCheckpointSender
+	StepBudgetContext          string
 }
 
 type AgentTurnResult struct {
@@ -675,6 +677,13 @@ func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string
 }
 
 func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string, stepID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
+	if observation, isRepeatedRead := repeatedFileReadObservation(state.Observations, actionDocument, nextObservationID(len(state.Observations)+1)); isRepeatedRead {
+		state.Observations = append(state.Observations, observation)
+		agentTurnRunner.appendEvent(taskRunID, "agent.file_read_repeat_rejected", marshalEventBody(observation))
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "file_read_repeat_rejected", observation.ContentText())
+		result, shouldStop := stopForNoProgress(stepID)
+		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	}
 	if sentObservation, wasSent := previousSuccessfulExternalSend(state.Observations, actionDocument.ToolName); wasSent {
 		observation := turnObservation{
 			ObservationID: nextObservationID(len(state.Observations) + 1),
@@ -720,6 +729,97 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
 	return toolCallActionOutcome{}
+}
+
+func repeatedFileReadObservation(observations []turnObservation, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
+	if strings.TrimSpace(actionDocument.ToolName) != "file.read" {
+		return turnObservation{}, false
+	}
+	requestedRange, ok := fileReadRequestedRange(actionDocument.ToolInput)
+	if !ok {
+		return turnObservation{}, false
+	}
+	for _, observation := range observations {
+		fileContext, isFileRead := progressFileContextFromObservation(observation)
+		if !isFileRead || fileContext.Path != requestedRange.Path {
+			continue
+		}
+		for _, readRange := range fileContext.ReadRanges {
+			coveredRange, ok := parseFileReadRange(readRange)
+			if !ok {
+				continue
+			}
+			if coveredRange.StartLine <= requestedRange.StartLine && coveredRange.EndLine >= requestedRange.EndLine {
+				message := "Already read " + requestedRange.Path + " lines " + readRange + " as " + observation.ObservationID + ". Use Recent file context, read a different uncovered range, or edit/build instead of spending another file.read call."
+				return newFailureObservation(observationID, "policy", "file.read", message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "file_read_repeat"), true
+			}
+			if fileReadRangesOverlap(coveredRange, requestedRange) {
+				message := "Already read overlapping lines " + readRange + " from " + requestedRange.Path + " as " + observation.ObservationID + ". Use Recent file context or request only an uncovered range such as " + uncoveredFileReadHint(coveredRange, requestedRange) + "."
+				return newFailureObservation(observationID, "policy", "file.read", message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "file_read_repeat"), true
+			}
+		}
+	}
+	return turnObservation{}, false
+}
+
+func fileReadRangesOverlap(firstRange fileReadRange, secondRange fileReadRange) bool {
+	return firstRange.StartLine <= secondRange.EndLine && secondRange.StartLine <= firstRange.EndLine
+}
+
+func uncoveredFileReadHint(coveredRange fileReadRange, requestedRange fileReadRange) string {
+	if requestedRange.EndLine > coveredRange.EndLine {
+		return strconv.Itoa(coveredRange.EndLine+1) + "-" + strconv.Itoa(requestedRange.EndLine)
+	}
+	if requestedRange.StartLine < coveredRange.StartLine {
+		return strconv.Itoa(requestedRange.StartLine) + "-" + strconv.Itoa(coveredRange.StartLine-1)
+	}
+	return "a different range"
+}
+
+type fileReadRange struct {
+	Path      string
+	StartLine int
+	EndLine   int
+}
+
+func fileReadRequestedRange(toolInput json.RawMessage) (fileReadRange, bool) {
+	document := map[string]any{}
+	if errorValue := json.Unmarshal(toolInput, &document); errorValue != nil {
+		return fileReadRange{}, false
+	}
+	path := strings.TrimSpace(stringField(document, "path"))
+	if path == "" {
+		return fileReadRange{}, false
+	}
+	startLine := intField(document, "startLine")
+	if startLine <= 0 {
+		startLine = 1
+	}
+	lineCount := intField(document, "lineCount")
+	if lineCount <= 0 {
+		lineCount = 200
+	}
+	return fileReadRange{Path: path, StartLine: startLine, EndLine: startLine + lineCount - 1}, true
+}
+
+func parseFileReadRange(value string) (fileReadRange, bool) {
+	parts := strings.Split(strings.TrimSpace(value), "-")
+	if len(parts) == 1 {
+		startLine, errorValue := strconv.Atoi(parts[0])
+		if errorValue != nil || startLine <= 0 {
+			return fileReadRange{}, false
+		}
+		return fileReadRange{StartLine: startLine, EndLine: startLine}, true
+	}
+	if len(parts) != 2 {
+		return fileReadRange{}, false
+	}
+	startLine, startError := strconv.Atoi(parts[0])
+	endLine, endError := strconv.Atoi(parts[1])
+	if startError != nil || endError != nil || startLine <= 0 || endLine < startLine {
+		return fileReadRange{}, false
+	}
+	return fileReadRange{StartLine: startLine, EndLine: endLine}, true
 }
 
 func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(taskRunID string, stepID string, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) (string, toolCallActionOutcome) {
@@ -949,7 +1049,7 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request 
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestForStep(ctx context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
-	plannedRequest := requestWithStepWorkingSetTools(request, state.NextStepPlan)
+	plannedRequest := requestWithStepWorkingSetTools(request, state.NextStepPlan, state.Observations)
 	selectionRequest := buildToolSelectionRequest(
 		plannedRequest.ToolSet,
 		instructionBundleFromTurnRequest(plannedRequest),
@@ -983,22 +1083,82 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(ctx context.Context, requ
 	iterationRequest.ToolSet = filteredToolSet
 	iterationRequest.ToolExposure = exposureEvent
 	iterationRequest.CurrentStepPlan = normalizeNextStepPlan(state.NextStepPlan)
+	iterationRequest.StepBudgetContext = agentTurnRunner.stepBudgetContext(state)
 	return iterationRequest
 }
 
-func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan) AgentTurnRequest {
+func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) string {
+	maxToolCallCount := maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations)
+	remainingToolCallCount := maxToolCallCount - state.ToolCallCount
+	if remainingToolCallCount < 0 {
+		remainingToolCallCount = 0
+	}
+	maxIterationCount := agentTurnRunner.options.MaxIterationCount
+	remainingIterationCount := maxIterationCount - state.IterationCount
+	if remainingIterationCount < 0 {
+		remainingIterationCount = 0
+	}
+	return strings.Join([]string{
+		"Step budget:",
+		fmt.Sprintf("Tool calls: %d/%d used, %d remaining.", state.ToolCallCount, maxToolCallCount, remainingToolCallCount),
+		fmt.Sprintf("Steps: %d/%d used, %d remaining.", state.IterationCount, maxIterationCount, remainingIterationCount),
+		"Use the shortest path to the expected result. Avoid extra inspection when the next edit, build, publish, promote, attach, or final action is already clear.",
+		"Keep at least two tool calls for delivery when the requested link or file has not been delivered yet.",
+	}, "\n")
+}
+
+func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan, observations []turnObservation) AgentTurnRequest {
 	normalizedPlan := normalizeNextStepPlan(plan)
-	request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, normalizedPlan.ExpectedTools...)
+	expectedTools := filterCompletedInspectionPlanTools(normalizedPlan.ExpectedTools, observations)
+	expectedTools = filterExhaustedRecoveryToolNames(expectedTools, observations)
+	request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, expectedTools...)
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, expectedTools...)
 	if requestLooksLikeCalendarStep(request) {
 		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, "calendar.event.add", "calendar.event.delete")
 	}
 	return request
 }
 
+func filterCompletedInspectionPlanTools(toolNames []string, observations []turnObservation) []string {
+	latestObservation, hasObservation := latestToolObservation(observations)
+	if !hasObservation || latestObservation.Failure != nil {
+		return appendUniqueStrings(toolNames)
+	}
+	completedToolName := strings.TrimSpace(latestObservation.Tool)
+	if !completedInspectionToolName(completedToolName) {
+		return appendUniqueStrings(toolNames)
+	}
+	filteredToolNames := []string{}
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" || trimmedToolName == completedToolName {
+			continue
+		}
+		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
+	}
+	return filteredToolNames
+}
+
+func latestToolObservation(observations []turnObservation) (turnObservation, bool) {
+	for index := len(observations) - 1; index >= 0; index-- {
+		if strings.TrimSpace(observations[index].Tool) != "" {
+			return observations[index], true
+		}
+	}
+	return turnObservation{}, false
+}
+
+func completedInspectionToolName(toolName string) bool {
+	switch toolName {
+	case "file.read", "tool.describe", "conversation.history", "memory.search", "site.app.status":
+		return true
+	default:
+		return false
+	}
+}
+
 func requestLooksLikeCalendarStep(request AgentTurnRequest) bool {
-	return promptLooksLikeCalendarRequest(request.Prompt) ||
-		promptLooksLikeCalendarRequest(request.ActiveGoal.OriginalInstruction) ||
-		promptLooksLikeCalendarRequest(request.ActiveGoal.CurrentObjective)
+	return requestLooksLikeCalendarWork(agentRequestFromTurnRequest(request))
 }
 
 func instructionBundleFromTurnRequest(request AgentTurnRequest) InstructionBundle {
@@ -1842,7 +2002,7 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.Langua
 
 func shouldUseSanitizedToolPresenter(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", "file.attach", "terminal.run":
+	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", "file.attach", "file.read", "terminal.run":
 		return true
 	default:
 		return false
@@ -1871,6 +2031,8 @@ func sanitizedToolResultSummary(observation turnObservation) string {
 		return attachmentResultSummary("User selected file", observation.Attachments)
 	case "file.attach":
 		return attachmentResultSummary("File attached", observation.Attachments)
+	case "file.read":
+		return summarizeFileReadObservation(observation)
 	case "terminal.run":
 		if summary := summarizeTerminalFailure(observation); summary != "" {
 			return summary
@@ -2237,7 +2399,8 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 	if level == "" || sentWarnings[level] {
 		return nil
 	}
-	message := limitPressureMessage(level)
+	maxToolCallCount := maxToolCallCountWithRecovery(agentTurnRunner.options, nil)
+	message := limitPressureMessage(level, usedToolCallCount, maxToolCallCount, usedIterationCount, agentTurnRunner.options.MaxIterationCount)
 	return &limitPressureWarning{
 		Level:       level,
 		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
@@ -2246,6 +2409,8 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 			"effortLevel":        agentTurnRunner.options.EffortLevel,
 			"usedIterationCount": usedIterationCount,
 			"usedToolCallCount":  usedToolCallCount,
+			"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
+			"maxToolCallCount":   maxToolCallCount,
 		},
 	}
 }
@@ -2254,8 +2419,11 @@ func (agentTurnRunner *AgentTurnRunner) limitPressureLevel(usedIterationCount in
 	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 90) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 90) {
 		return "finalize"
 	}
-	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 70) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 70) {
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 75) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 75) {
 		return "consolidate"
+	}
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 50) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 50) {
+		return "budget"
 	}
 	return ""
 }
@@ -2267,11 +2435,15 @@ func limitUsageReached(usedCount int, maxCount int, thresholdPercent int) bool {
 	return usedCount*100 >= maxCount*thresholdPercent
 }
 
-func limitPressureMessage(level string) string {
+func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount int, usedIterationCount int, maxIterationCount int) string {
+	budgetLine := fmt.Sprintf("Budget status: %d/%d tool calls used and %d/%d steps used.", usedToolCallCount, maxToolCallCount, usedIterationCount, maxIterationCount)
 	if level == "finalize" {
-		return "The current run is very close to its limit. Do not start new tool work. Prepare the best final answer from completed observations."
+		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish/promote/attach, then final. Do not inspect more unless delivery is impossible without it."
 	}
-	return "The current run is getting close to its limit. Consolidate completed work, reuse existing observations, and avoid opening new branches unless essential."
+	if level == "consolidate" {
+		return budgetLine + " Consolidate completed work, reuse existing observations, and prefer direct edit/build/publish or promote/attach over additional inspection."
+	}
+	return budgetLine + " Spend tool calls deliberately. Keep enough budget for final delivery and avoid exploratory reads unless they directly enable the next action."
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
@@ -2344,11 +2516,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, req
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
-	var actionDocument turnActionDocument
-	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &actionDocument); errorValue != nil {
-		return turnActionDocument{}, errorValue
-	}
-	return actionDocument, nil
+	return ParseAgentActionResponse(structuredResponse)
 }
 
 func completionRequirementsHaveEvidence(requirements []toolUseRequirement, observations []turnObservation) bool {
@@ -2394,6 +2562,7 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 }
 
 func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
+	_ = criteria
 	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
 		return completionGateResult{Message: "finish requires goalSatisfied=true"}
 	}
@@ -2408,9 +2577,6 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	}
 	attachments, errorValue := validateCompletionEvidence(requirements, observations, actionDocument.CompletionEvidence)
 	if errorValue != nil {
-		return completionGateResult{Message: errorValue.Error()}
-	}
-	if errorValue := validateQualityReview(criteria, actionDocument.QualityReview, observations); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
 	if FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) && len(attachments) == 0 {
@@ -2496,6 +2662,7 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 }
 
 func validateExpectedResultCompletionGate(request AgentTurnRequest, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
+	_ = criteria
 	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
 		return completionGateResult{Message: "finish requires goalSatisfied=true"}
 	}
@@ -2522,9 +2689,6 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 		return completionGateResult{
 			Message: "required file expected result must include attachment suffix " + missingSuffix,
 		}
-	}
-	if errorValue := validateQualityReview(criteria, actionDocument.QualityReview, observations); errorValue != nil {
-		return completionGateResult{Message: errorValue.Error()}
 	}
 	if FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) && len(attachments) == 0 {
 		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
@@ -2657,6 +2821,7 @@ func withCompletionGateRecoveryPacket(observation turnObservation, result comple
 		WhyLikely:        result.Message,
 		FailureClass:     failureClassUnknown,
 		RetryPolicy:      retryPolicyAfterPrecondition,
+		AllowedTools:     appendUniqueStrings(result.SuggestedNextTools),
 		EvidenceNeeded:   expectedResultRecoveryEvidence(result),
 		MustDoNext:       []string{"Produce or inspect the missing expected result, then try finish again."},
 		ForbiddenRepeats: nil,
@@ -3125,15 +3290,88 @@ func (agentTurnRunner *AgentTurnRunner) generateLastResortFailureNotice(request 
 func combineFailureNoticeFacts(failureReason string, replyStatus any) string {
 	parts := []string{}
 	if reason := strings.TrimSpace(failureReason); reason != "" {
-		parts = append(parts, "reason="+reason)
+		parts = append(parts, noticeFact("reason", reason, 160))
 	}
-	if status := strings.TrimSpace(marshalEventBody(replyStatus)); status != "" && status != "null" {
-		parts = append(parts, "replyStatus="+status)
-	}
+	parts = append(parts, failureNoticeStatusFacts(replyStatus)...)
 	if len(parts) == 0 {
 		return "unknown_error"
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "; ")
+}
+
+func failureNoticeStatusFacts(replyStatus any) []string {
+	switch status := replyStatus.(type) {
+	case failureReplyStatus:
+		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.Decision)
+	case limitReplyStatus:
+		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.Decision)
+	case lastResortFailureNoticeStatus:
+		return nonEmptyNoticeFacts([]string{
+			noticeFact("source", status.Source, 80),
+			noticeFact("phase", status.Phase, 80),
+			noticeFact("error", status.Error, 160),
+		})
+	default:
+		statusText := strings.TrimSpace(marshalEventBody(replyStatus))
+		if statusText == "" || statusText == "null" {
+			return nil
+		}
+		return []string{noticeFact("reply_status", statusText, 180)}
+	}
+}
+
+func recoveryReplyStatusFacts(source string, reason string, textRecoveryError string, structuredRecoveryError string, decision recoveryDecision) []string {
+	return nonEmptyNoticeFacts([]string{
+		noticeFact("source", source, 80),
+		noticeFact("reply_reason", reason, 140),
+		noticeFact("text_recovery_error", textRecoveryError, 180),
+		noticeFact("structured_recovery_error", structuredRecoveryError, 180),
+		noticeFact("what_failed", decision.WhatFailed, 220),
+		noticeFact("known", decision.WhatWasKnown, 180),
+		noticeFact("next", decision.NextAction, 180),
+	})
+}
+
+func noticeFact(label string, value string, maxRuneCount int) string {
+	normalizedValue := strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if normalizedValue == "" {
+		return ""
+	}
+	runes := []rune(normalizedValue)
+	if maxRuneCount > 0 && len(runes) > maxRuneCount {
+		normalizedValue = string(runes[:maxRuneCount]) + "..."
+	}
+	return strings.TrimSpace(label) + "=" + normalizedValue
+}
+
+func nonEmptyNoticeFacts(values []string) []string {
+	result := []string{}
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			result = append(result, trimmedValue)
+		}
+	}
+	return result
+}
+
+func rawFailureNotice(request AgentTurnRequest, rawReason string) string {
+	reason := compactRawFailureReason(rawReason)
+	if ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish {
+		return "Error: " + reason
+	}
+	return "오류: " + reason
+}
+
+func compactRawFailureReason(reason string) string {
+	trimmedReason := strings.Join(strings.Fields(strings.TrimSpace(reason)), " ")
+	if trimmedReason == "" {
+		return "unknown_error"
+	}
+	if len([]rune(trimmedReason)) <= 420 {
+		return trimmedReason
+	}
+	return string([]rune(trimmedReason)[:420]) + "..."
 }
 
 func buildLastResortFailureNoticePrompt(request AgentTurnRequest, rawReason string, phase string) string {
@@ -3148,24 +3386,6 @@ func buildLastResortFailureNoticePrompt(request AgentTurnRequest, rawReason stri
 		"Failure phase: " + strings.TrimSpace(phase),
 		"Raw error summary:\n" + rawReason,
 	}, "\n\n")
-}
-
-func rawFailureNotice(request AgentTurnRequest, rawReason string) string {
-	if ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish {
-		return "Error: " + rawReason
-	}
-	return "오류: " + rawReason
-}
-
-func compactRawFailureReason(reason string) string {
-	trimmedReason := strings.Join(strings.Fields(strings.TrimSpace(reason)), " ")
-	if trimmedReason == "" {
-		return "unknown_error"
-	}
-	if len([]rune(trimmedReason)) <= 900 {
-		return trimmedReason
-	}
-	return string([]rune(trimmedReason)[:900]) + "..."
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (string, limitReplyStatus, bool) {

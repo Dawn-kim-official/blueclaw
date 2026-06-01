@@ -447,6 +447,131 @@ func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
 	}
 }
 
+func TestSiteArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:        "site-prototype",
+				Description: "Create, publish, and update website prototypes, homepages, web apps, landing pages, and deployed sites.",
+				WhenToUse:   "Use for website, homepage, web app, site, publish, deploy, 홈페이지, 웹사이트, 사이트, and 배포 requests.",
+				Prompt:      "Use site tools.",
+				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+			},
+			{
+				Name:        "mail",
+				Description: "Search, read, and send mail messages.",
+				WhenToUse:   "Use when the user wants to operate on real email.",
+				Prompt:      "Use mail tools.",
+				Source:      InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
+			},
+			{
+				Name:        "calendar",
+				Description: "Create, list, and update calendar events and schedules.",
+				WhenToUse:   "Use when the user wants to operate on real calendar data.",
+				Prompt:      "Use calendar tools.",
+				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
+			},
+			{
+				Name:        "browser",
+				Description: "Control the browser and inspect web pages.",
+				WhenToUse:   "Use when the user wants interactive browser control.",
+				Prompt:      "Use browser tools.",
+				Source:      InstructionSource{Path: "skills/browser/SKILL.md", SkillName: "browser"},
+			},
+		},
+	}
+
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{
+			{Name: "mail", Score: 30, Reason: "bm25_fallback"},
+			{Name: "calendar", Score: 29, Reason: "bm25_fallback"},
+			{Name: "browser", Score: 28, Reason: "bm25_fallback"},
+			{Name: "site-prototype", Score: 8, Reason: "bm25_fallback"},
+		},
+		RetrievalMode: "bm25_fallback",
+		IndexStatus:   "ready",
+	}}
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 세련된 개인 홈페이지 하나 만들어서 배포해줘",
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{
+			{ID: "site-public-link", Type: "link", Description: "public website URL", Required: true},
+		}}},
+	}, retriever)
+
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
+		t.Fatalf("expected site-prototype selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	for _, skillName := range []string{"mail", "calendar", "browser"} {
+		if skillDecisionHasStatus(selectedBundle.SkillDecisions, skillName, "selected") {
+			t.Fatalf("expected %s not to be selected for site content mentions, got %+v", skillName, selectedBundle.SkillDecisions)
+		}
+	}
+	if strings.Contains(selectedBundle.Prompt, "Use mail tools.") || strings.Contains(selectedBundle.Prompt, "Use calendar tools.") || strings.Contains(selectedBundle.Prompt, "Use browser tools.") {
+		t.Fatalf("expected content-domain skill bodies to be omitted, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:        "simple-slides",
+				Description: "Generate clean presentation slides with Marp and attach the requested files.",
+				WhenToUse:   "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
+				Prompt:      "Use simple-slides tools.",
+				Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+			},
+			{
+				Name:        "mail",
+				Description: "Search, read, and send mail messages.",
+				WhenToUse:   "Use when the user wants to operate on real email.",
+				Prompt:      "Use mail tools.",
+				Source:      InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
+			},
+			{
+				Name:        "calendar",
+				Description: "Create, list, and update calendar events and schedules.",
+				WhenToUse:   "Use when the user wants to operate on real calendar data.",
+				Prompt:      "Use calendar tools.",
+				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
+			},
+			{
+				Name:        "browser",
+				Description: "Control the browser and inspect web pages.",
+				WhenToUse:   "Use when the user wants interactive browser control.",
+				Prompt:      "Use browser tools.",
+				Source:      InstructionSource{Path: "skills/browser/SKILL.md", SkillName: "browser"},
+			},
+		},
+	}
+
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{
+			{Name: "mail", Score: 30, Reason: "bm25_fallback"},
+			{Name: "calendar", Score: 29, Reason: "bm25_fallback"},
+			{Name: "browser", Score: 28, Reason: "bm25_fallback"},
+			{Name: "simple-slides", Score: 8, Reason: "bm25_fallback"},
+		},
+		RetrievalMode: "bm25_fallback",
+		IndexStatus:   "ready",
+	}}
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘",
+	}, retriever)
+
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "simple-slides", "selected") {
+		t.Fatalf("expected simple-slides selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	for _, skillName := range []string{"mail", "calendar", "browser"} {
+		if skillDecisionHasStatus(selectedBundle.SkillDecisions, skillName, "selected") {
+			t.Fatalf("expected %s not to be selected for slides content mentions, got %+v", skillName, selectedBundle.SkillDecisions)
+		}
+	}
+	if strings.Contains(selectedBundle.Prompt, "Use mail tools.") || strings.Contains(selectedBundle.Prompt, "Use calendar tools.") || strings.Contains(selectedBundle.Prompt, "Use browser tools.") {
+		t.Fatalf("expected content-domain skill bodies to be omitted, got %q", selectedBundle.Prompt)
+	}
+}
+
 func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
@@ -1121,6 +1246,15 @@ func (retriever staticSkillRetriever) Search(context.Context, AgentRequest, []Sk
 }
 
 func (retriever staticSkillRetriever) Refresh(context.Context, []SkillInstruction) {}
+
+func skillDecisionHasStatus(skillDecisions []SkillSelectionDecision, skillName string, status string) bool {
+	for _, skillDecision := range skillDecisions {
+		if skillDecision.Name == skillName && skillDecision.Status == status {
+			return true
+		}
+	}
+	return false
+}
 
 func testToolSet(toolNames []string) *ToolSet {
 	toolRegistry := newTestToolSet(toolNames)

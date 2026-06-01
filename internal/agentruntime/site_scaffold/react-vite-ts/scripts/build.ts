@@ -121,8 +121,7 @@ function writeBuildQuality(issues: QualityIssue[]): void {
 }
 
 async function buildVite(): Promise<void> {
-	const vite = await import("vite");
-	await vite.build();
+	await runCommand({ name: "bun", arguments: ["--bun", "./node_modules/vite/bin/vite.js", "build"] });
 }
 
 const qualityIssues = [...collectDesignQualityIssues(), ...collectQualityIssues()];

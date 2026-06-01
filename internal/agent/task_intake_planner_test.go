@@ -626,7 +626,7 @@ func TestTaskIntakePlannerKeepsSyntheticConnectorVerificationQuick(t *testing.T)
 func TestEffortLimitProfileMapping(t *testing.T) {
 	profile := EffortLimitProfileForLevel(EffortLevelDeep)
 
-	if profile.MaxIterationCount != 90 || profile.MaxToolCallCount != 32 || profile.Duration.Minutes() != 30 {
+	if profile.MaxIterationCount != 72 || profile.MaxToolCallCount != 30 || profile.Duration.Minutes() != 40 {
 		t.Fatalf("expected deep profile, got %+v", profile)
 	}
 }

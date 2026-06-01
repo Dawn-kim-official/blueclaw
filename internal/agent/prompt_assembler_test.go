@@ -39,6 +39,19 @@ func TestPromptAssemblerIncludesTemporalContextInDirectReplies(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblerIncludesStepBudgetContext(t *testing.T) {
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt:            "사이트 만들어줘",
+		TurnStartedAt:     time.Date(2026, 5, 12, 8, 32, 27, 0, time.UTC),
+		StepBudgetContext: "Step budget:\nTool calls: 10/24 used, 14 remaining.",
+	}, nil, "base", "")
+	body := joinMessageContent(messages)
+
+	if !strings.Contains(body, "Step budget:") || !strings.Contains(body, "Tool calls: 10/24 used") {
+		t.Fatalf("expected step budget context, got %s", body)
+	}
+}
+
 func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",

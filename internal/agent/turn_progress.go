@@ -17,6 +17,7 @@ type TurnProgress struct {
 	CompletedSteps                []ProgressObservation `json:"completedSteps,omitempty"`
 	FailedOrBlockedSteps          []ProgressObservation `json:"failedOrBlockedSteps,omitempty"`
 	CheckpointMessages            []string              `json:"checkpointMessages,omitempty"`
+	RecentFiles                   []ProgressFileContext `json:"recentFiles,omitempty"`
 	LastSuccessfulObservationID   string                `json:"lastSuccessfulObservationID,omitempty"`
 	LastSuccessfulObservationTool string                `json:"lastSuccessfulObservationTool,omitempty"`
 	AttachmentCandidates          []ProgressAttachment  `json:"attachmentCandidates,omitempty"`
@@ -60,6 +61,17 @@ type ProgressAttachment struct {
 	HasDevicePayload bool   `json:"hasDevicePayload"`
 }
 
+type ProgressFileContext struct {
+	Path                 string   `json:"path"`
+	LastObservationID    string   `json:"lastObservationID"`
+	ReadRanges           []string `json:"readRanges,omitempty"`
+	TotalLines           int      `json:"totalLines,omitempty"`
+	SizeBytes            int      `json:"sizeBytes,omitempty"`
+	IsTruncated          bool     `json:"isTruncated,omitempty"`
+	Summary              string   `json:"summary,omitempty"`
+	RepeatedReadGuidance string   `json:"repeatedReadGuidance,omitempty"`
+}
+
 type ToolResultContextItem struct {
 	ObservationID  string               `json:"observationID"`
 	ToolName       string               `json:"toolName,omitempty"`
@@ -87,6 +99,7 @@ func buildTurnProgress(request AgentTurnRequest, observations []turnObservation)
 		}
 	}
 	progress.AttemptLedger = attemptLedger(observations)
+	progress.RecentFiles = recentFileContexts(observations)
 	progress.OmittedObservationCount = omittedObservationCount(progress)
 	progress.CompletedSteps = keepLatestProgressObservations(progress.CompletedSteps)
 	progress.FailedOrBlockedSteps = keepLatestProgressObservations(progress.FailedOrBlockedSteps)
@@ -278,6 +291,8 @@ func summarizeObservationContent(observation turnObservation) string {
 			return "User selected a file and it is available as attachment evidence."
 		}
 		return summarizeSafeJSONFields(content, []string{"filename", "sizeBytes", "contentType", "expiresAt"})
+	case "file.read":
+		return summarizeFileReadObservation(observation)
 	case "browser.open":
 		return summarizeSafeJSONFields(content, []string{"url", "title", "status", "ok"})
 	case "browser.click", "browser.fill", "browser.select", "browser.press", "browser.wait":
@@ -293,6 +308,173 @@ func summarizeObservationContent(observation turnObservation) string {
 			return truncateText(compactWhitespace(redactUnsafeText(content)), 500)
 		}
 		return summarizeSafeJSONFields(content, []string{"ok", "status", "message", "error", "url", "title", "filename", "sizeBytes", "contentType"})
+	}
+}
+
+func recentFileContexts(observations []turnObservation) []ProgressFileContext {
+	byPath := map[string]ProgressFileContext{}
+	order := []string{}
+	for _, observation := range observations {
+		context, isFileRead := progressFileContextFromObservation(observation)
+		if !isFileRead {
+			continue
+		}
+		existingContext, exists := byPath[context.Path]
+		if !exists {
+			order = append(order, context.Path)
+			byPath[context.Path] = context
+			continue
+		}
+		context.ReadRanges = appendUniqueStrings(append(existingContext.ReadRanges, context.ReadRanges...))
+		if existingContext.Summary != "" && context.Summary == "" {
+			context.Summary = existingContext.Summary
+		}
+		context.RepeatedReadGuidance = repeatedReadGuidance(context.Path, context.ReadRanges)
+		if context.RepeatedReadGuidance == "" {
+			context.RepeatedReadGuidance = "Already read " + strings.TrimSpace(context.Path) + "; use this context, read a different range, or edit/build instead of rereading the same content."
+		}
+		byPath[context.Path] = context
+	}
+	if len(order) > 6 {
+		order = order[len(order)-6:]
+	}
+	result := []ProgressFileContext{}
+	for _, path := range order {
+		result = append(result, byPath[path])
+	}
+	return result
+}
+
+func progressFileContextFromObservation(observation turnObservation) (ProgressFileContext, bool) {
+	if strings.TrimSpace(observation.Tool) != "file.read" || observation.Failed() {
+		return ProgressFileContext{}, false
+	}
+	payload := map[string]any{}
+	if json.Unmarshal([]byte(observation.ContentText()), &payload) != nil {
+		return ProgressFileContext{}, false
+	}
+	path := stringField(payload, "path")
+	content := stringField(payload, "content")
+	if path == "" {
+		return ProgressFileContext{}, false
+	}
+	startLine := intField(payload, "startLine")
+	endLine := intField(payload, "endLine")
+	totalLines := intField(payload, "totalLines")
+	sizeBytes := intField(payload, "sizeBytes")
+	readRange := formatLineRange(startLine, endLine)
+	return ProgressFileContext{
+		Path:              path,
+		LastObservationID: observation.ObservationID,
+		ReadRanges:        appendUniqueStrings([]string{readRange}),
+		TotalLines:        totalLines,
+		SizeBytes:         sizeBytes,
+		IsTruncated:       booleanField(payload, "isTruncated"),
+		Summary:           summarizeFileReadContent(path, content),
+	}, true
+}
+
+func summarizeFileReadObservation(observation turnObservation) string {
+	context, isFileRead := progressFileContextFromObservation(observation)
+	if !isFileRead {
+		return summarizeSafeJSONFields(observation.ContentText(), []string{"path", "startLine", "endLine", "totalLines", "sizeBytes", "isTruncated"})
+	}
+	parts := []string{
+		"path=" + context.Path,
+		"range=" + strings.Join(context.ReadRanges, ","),
+	}
+	if context.TotalLines > 0 {
+		parts = append(parts, fmt.Sprintf("totalLines=%d", context.TotalLines))
+	}
+	if context.SizeBytes > 0 {
+		parts = append(parts, fmt.Sprintf("sizeBytes=%d", context.SizeBytes))
+	}
+	if context.Summary != "" {
+		parts = append(parts, "summary="+context.Summary)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatLineRange(startLine int, endLine int) string {
+	if startLine <= 0 || endLine <= 0 {
+		return "default"
+	}
+	if startLine == endLine {
+		return fmt.Sprintf("%d", startLine)
+	}
+	return fmt.Sprintf("%d-%d", startLine, endLine)
+}
+
+func repeatedReadGuidance(path string, ranges []string) string {
+	if len(ranges) < 2 {
+		return ""
+	}
+	return "Already read " + strings.TrimSpace(path) + " ranges " + strings.Join(ranges, ", ") + "; use this context, read a different range, or edit/build instead of rereading the same content."
+}
+
+func summarizeFileReadContent(path string, content string) string {
+	values := appendUniqueStrings(fileContentExportNames(content))
+	values = appendUniqueStrings(values, markdownHeadingNames(content)...)
+	if len(values) == 0 {
+		values = append(values, truncateText(compactWhitespace(content), 240))
+	}
+	if len(values) > 12 {
+		values = values[:12]
+	}
+	return strings.TrimSpace(filepathBase(path) + " symbols/headings: " + strings.Join(values, ", "))
+}
+
+func fileContentExportNames(content string) []string {
+	names := []string{}
+	for _, line := range strings.Split(content, "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		for index, field := range fields {
+			if field != "export" || index+2 >= len(fields) {
+				continue
+			}
+			kind := fields[index+1]
+			if kind != "const" && kind != "let" && kind != "var" && kind != "function" && kind != "type" && kind != "interface" && kind != "class" {
+				continue
+			}
+			names = appendUniqueStrings(names, cleanSymbolName(fields[index+2]))
+		}
+	}
+	return names
+}
+
+func markdownHeadingNames(content string) []string {
+	names := []string{}
+	for _, line := range strings.Split(content, "\n") {
+		trimmedLine := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmedLine, "#") {
+			continue
+		}
+		names = appendUniqueStrings(names, truncateText(compactWhitespace(strings.TrimLeft(trimmedLine, "# ")), 80))
+	}
+	return names
+}
+
+func cleanSymbolName(value string) string {
+	return strings.Trim(strings.TrimSpace(value), "=:;,{(")
+}
+
+func filepathBase(path string) string {
+	path = strings.TrimRight(strings.TrimSpace(path), "/")
+	index := strings.LastIndex(path, "/")
+	if index < 0 {
+		return path
+	}
+	return path[index+1:]
+}
+
+func intField(document map[string]any, key string) int {
+	switch value := document[key].(type) {
+	case float64:
+		return int(value)
+	case int:
+		return value
+	default:
+		return 0
 	}
 }
 

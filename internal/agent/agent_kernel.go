@@ -468,9 +468,26 @@ func promptLooksLikeConfirmationCandidate(prompt string) bool {
 
 func promptLooksLikeExternalSend(prompt string) bool {
 	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if promptLooksLikeArtifactCreationPrompt(normalizedPrompt) && !promptLooksLikeExplicitExternalSendPrompt(normalizedPrompt) {
+		return false
+	}
 	return containsAny(normalizedPrompt, []string{
 		"dm", "direct message", "email", "mail", "send", "message",
 		"보내", "전송", "메일", "디엠", "dm으로", "메시지", "전달",
+	})
+}
+
+func promptLooksLikeArtifactCreationPrompt(normalizedPrompt string) bool {
+	return containsAny(normalizedPrompt, []string{
+		"website", "web app", "homepage", "landing page", "site", "slides", "slide deck", "presentation", "pptx", "powerpoint", "deck",
+		"웹사이트", "홈페이지", "사이트", "발표자료", "슬라이드", "프레젠테이션", "피피티", "파워포인트", "자료", "파일", "첨부",
+	})
+}
+
+func promptLooksLikeExplicitExternalSendPrompt(normalizedPrompt string) bool {
+	return containsAny(normalizedPrompt, []string{
+		"dm", "direct message", "email to", "send to", "mail to", "@",
+		"dm으로", "디엠", "메일로", "이메일로", "에게", "한테", "전송해", "보내줘",
 	})
 }
 
@@ -508,6 +525,26 @@ func promptLooksLikeCalendarRequest(prompt string) bool {
 	return containsAny(normalizedPrompt, []string{
 		"calendar", "event", "일정", "캘린더", "달력", "회의", "약속", "휴가",
 	})
+}
+
+func requestLooksLikeCalendarWork(request AgentRequest) bool {
+	if requestLooksLikeSitePrototypeWork(request) || requestLooksLikeSlidesArtifactWork(request) {
+		return false
+	}
+	return promptLooksLikeCalendarRequest(request.Prompt) ||
+		promptLooksLikeCalendarRequest(request.ActiveGoal.OriginalInstruction) ||
+		promptLooksLikeCalendarRequest(request.ActiveGoal.CurrentObjective)
+}
+
+func requestLooksLikeSlidesArtifactWork(request AgentRequest) bool {
+	if !expectedResultIncludesType(request.ActiveGoal.OutcomeContract, "file") {
+		return false
+	}
+	return textContainsAny(strings.ToLower(strings.Join([]string{
+		request.Prompt,
+		request.ActiveGoal.OriginalInstruction,
+		request.ActiveGoal.CurrentObjective,
+	}, "\n")), []string{"slides", "slide deck", "presentation", "pptx", "powerpoint", "슬라이드", "발표자료", "프레젠테이션", "피피티", "파워포인트"})
 }
 
 func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBundle) *ToolSet {
@@ -1015,7 +1052,7 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 		return intakeDecision.TaskShape == TaskShapeScheduledTask
 	}
 	if strings.HasPrefix(trimmedToolName, "calendar.") {
-		return promptLooksLikeCalendarRequest(request.Prompt)
+		return requestLooksLikeCalendarWork(request)
 	}
 	return false
 }
@@ -1375,6 +1412,7 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	querySet, hasStructuredQueries := skillSearchQueryRouter.Build(ctx, request)
 	retrievalResult := retrieveSkillCandidates(ctx, request, instructionBundle.Skills, skillRetriever, querySet, hasStructuredQueries)
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
+	dominantSkillName := dominantArtifactSkillName(request, candidateByName)
 	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
 	for _, skillInstruction := range candidateInstructions {
 		skillCandidate, isFound := candidateByName[skillInstruction.Name]
@@ -1388,6 +1426,10 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 				skillDecision = availabilityDecision
 				skillDecision.Score = skillCandidate.Score
 			}
+		}
+		if skillDecision.Status == "selected" && shouldSkipDominatedArtifactSkill(skillInstruction.Name, skillCandidate, dominantSkillName) {
+			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "dominated_by_"+dominantSkillName, nil)
+			skillDecision.Score = skillCandidate.Score
 		}
 		if skillDecision.Status == "selected" && len(selectedSkillInstructions) >= maxSelectedSkillInstructionCount {
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "selected_skill_limit_reached", nil)
@@ -1444,6 +1486,58 @@ func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, requ
 		buildSelectedSkillInstructionPrompt(pinnedSkillInstructions),
 	}), "\n\n")
 	return instructionBundle
+}
+
+func dominantArtifactSkillName(request AgentRequest, candidateByName map[string]SkillCandidate) string {
+	if sitePrototypeShouldDominateSkillSelection(request, candidateByName["site-prototype"]) {
+		return "site-prototype"
+	}
+	if simpleSlidesShouldDominateSkillSelection(request, candidateByName["simple-slides"]) {
+		return "simple-slides"
+	}
+	return ""
+}
+
+func shouldSkipDominatedArtifactSkill(skillName string, skillCandidate SkillCandidate, dominantSkillName string) bool {
+	if dominantSkillName == "" || skillName == dominantSkillName {
+		return false
+	}
+	return skillCandidate.Reason != "direct_skill_name"
+}
+
+func sitePrototypeShouldDominateSkillSelection(request AgentRequest, skillCandidate SkillCandidate) bool {
+	if skillCandidate.Name == "" || skillCandidate.Score < minimumSelectionScoreForCandidate(skillCandidate) {
+		return false
+	}
+	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, "link") {
+		return true
+	}
+	return textContainsAny(strings.ToLower(request.Prompt), []string{"website", "web app", "homepage", "landing page", "site", "publish", "deploy", "웹사이트", "홈페이지", "사이트", "랜딩", "배포"})
+}
+
+func simpleSlidesShouldDominateSkillSelection(request AgentRequest, skillCandidate SkillCandidate) bool {
+	if skillCandidate.Name == "" || skillCandidate.Score < minimumSelectionScoreForCandidate(skillCandidate) {
+		return false
+	}
+	return textContainsAny(strings.ToLower(request.Prompt), []string{"slides", "slide deck", "presentation", "pptx", "powerpoint", "슬라이드", "발표자료", "프레젠테이션", "피피티", "파워포인트"})
+}
+
+func expectedResultIncludesType(outcomeContract OutcomeContract, resultType string) bool {
+	for _, expectedResult := range outcomeContract.ExpectedResults {
+		if strings.TrimSpace(expectedResult.Type) == resultType {
+			return true
+		}
+	}
+	return false
+}
+
+func textContainsAny(text string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(text, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func alwaysSelectedSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, profileName string, existingSkillDecisions []SkillSelectionDecision) []SkillInstruction {
