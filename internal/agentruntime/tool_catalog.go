@@ -1001,6 +1001,18 @@ func siteBuildQualityPayload(ctx context.Context, workspaceActor security.Worksp
 	payload["qualityIssueCount"] = len(issues)
 	payload["blockingIssueCount"] = blockingIssueCount
 	payload["editableTargets"] = siteQualityEditableTargets(quality, appWorkspace)
+	deliveryBlockers := siteDeliveryBlockerSummaries(quality)
+	if len(deliveryBlockers) > 0 {
+		payload["qualityStatus"] = "delivery_blocked"
+		payload["deliveryBlocked"] = true
+		payload["deliveryBlockers"] = deliveryBlockers
+		payload["recommendedNextActions"] = []string{
+			"Do not publish while deliveryBlocked is true.",
+			"Edit the listed editableTargets to replace starter scaffold content.",
+			"Run site.app.build again after source changes.",
+		}
+		return payload
+	}
 	if len(issues) > 0 {
 		payload["qualityStatus"] = "needs_improvement"
 		payload["recommendedNextActions"] = []string{
@@ -1012,6 +1024,64 @@ func siteBuildQualityPayload(ctx context.Context, workspaceActor security.Worksp
 	}
 	payload["qualityStatus"] = "passed"
 	return payload
+}
+
+func siteDeliveryBlockerSummaries(quality map[string]any) []string {
+	issues, isSlice := quality["issues"].([]any)
+	if !isSlice {
+		return nil
+	}
+	summaries := []string{}
+	for _, issue := range issues {
+		issueDocument, isMap := issue.(map[string]any)
+		if !isMap {
+			continue
+		}
+		if !siteQualityIssueBlocksDelivery(issueDocument) {
+			continue
+		}
+		target, _ := issueDocument["target"].(string)
+		message, _ := issueDocument["message"].(string)
+		suggestedFix, _ := issueDocument["suggestedFix"].(string)
+		text := firstNonEmptyString(strings.TrimSpace(message), strings.TrimSpace(suggestedFix), "Starter scaffold remains.")
+		summaries = append(summaries, firstNonEmptyString(strings.TrimSpace(target), "site")+": "+text)
+	}
+	return summaries
+}
+
+func siteQualityIssueBlocksDelivery(issue map[string]any) bool {
+	category, _ := issue["category"].(string)
+	if strings.TrimSpace(category) == "templateSmell" {
+		return true
+	}
+	return siteQualityIssueContainsStarterMarker(issue)
+}
+
+func siteQualityIssueContainsStarterMarker(issue map[string]any) bool {
+	for _, value := range issue {
+		text, isString := value.(string)
+		if !isString {
+			continue
+		}
+		if siteTextContainsStarterMarker(text) {
+			return true
+		}
+	}
+	return false
+}
+
+func siteTextContainsStarterMarker(value string) bool {
+	for _, marker := range []string{
+		"INTERNKIM_SITE_STARTER_REPLACE_ME",
+		"Replace this starter",
+		"Beautiful default scaffold",
+		"InternKim React prototype",
+	} {
+		if strings.Contains(value, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func siteQualityAffectedResources(quality map[string]any, appWorkspace workspacepath.Path) []agent.AffectedResource {
