@@ -1626,8 +1626,11 @@ func TestSiteBuildQualityPayloadReportsIssuesAsSuccessData(t *testing.T) {
 	}
 
 	payload := siteBuildQualityPayload(context.Background(), workspaceActor, sourceWorkspace, appWorkspace)
-	if payload["qualityStatus"] != "needs_improvement" || payload["qualityIssueCount"] != 1 || payload["blockingIssueCount"] != 1 {
+	if payload["qualityStatus"] != "delivery_blocked" || payload["qualityIssueCount"] != 1 || payload["blockingIssueCount"] != 1 {
 		t.Fatalf("expected quality issue payload, got %+v", payload)
+	}
+	if payload["deliveryBlocked"] != true {
+		t.Fatalf("expected starter leakage to block delivery, got %+v", payload)
 	}
 	targets, _ := payload["editableTargets"].([]string)
 	if !containsTestString(targets, "/workspace/sites/site-1/app/src/App.tsx") {
