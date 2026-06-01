@@ -120,6 +120,11 @@ function writeBuildQuality(issues: QualityIssue[]): void {
 	}, null, 2) + "\n");
 }
 
+async function buildVite(): Promise<void> {
+	const vite = await import("vite");
+	await vite.build();
+}
+
 const qualityIssues = [...collectDesignQualityIssues(), ...collectQualityIssues()];
 writeBuildQuality(qualityIssues);
 
@@ -127,5 +132,5 @@ if (!existsSync("node_modules")) {
 	await runCommand({ name: "bun", arguments: ["install"] });
 }
 
-await runCommand({ name: "bun", arguments: ["x", "vite", "build"] });
+await buildVite();
 writeBuildQuality(qualityIssues);

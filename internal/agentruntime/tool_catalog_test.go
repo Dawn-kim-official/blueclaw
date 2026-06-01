@@ -1551,10 +1551,13 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if strings.Contains(buildScript, "DESIGN.md is required") {
 		t.Fatalf("build script must not fail solely because DESIGN.md is missing")
 	}
-	if !strings.Contains(buildScript, `name: "bun", arguments: ["x", "vite", "build"]`) {
-		t.Fatalf("build script must use bun x through canonical PATH")
+	if !strings.Contains(buildScript, `await buildVite();`) {
+		t.Fatalf("build script must call Vite in-process")
 	}
-	viteIndex := strings.Index(buildScript, `await runCommand({ name: "bun", arguments: ["x", "vite", "build"] });`)
+	if strings.Contains(buildScript, `arguments: ["x", "vite", "build"]`) {
+		t.Fatalf("build script must not spawn nested bun x vite")
+	}
+	viteIndex := strings.Index(buildScript, `await buildVite();`)
 	qualityIndex := strings.LastIndex(buildScript, "writeBuildQuality(qualityIssues);")
 	if viteIndex < 0 || qualityIndex < viteIndex {
 		t.Fatalf("build script must write build-quality.json after vite build")
