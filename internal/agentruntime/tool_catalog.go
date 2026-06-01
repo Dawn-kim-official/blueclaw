@@ -928,8 +928,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		WorkingDirectoryPath: appWorkspace.VirtualPath,
 		TimeoutSecond:        timeoutSecond,
 	}, handlerContext)
-	if errorValue != nil || buildResult.Failed() {
+	if errorValue != nil {
 		return buildResult, errorValue
+	}
+	if buildResult.Failed() {
+		return siteBuildCommandFailureResult(buildResult, appWorkspace), nil
 	}
 	qualityPath := workspacepath.Path{
 		ConcretePath: filepath.Join(filepath.Dir(appWorkspace.ConcretePath), ".internkim", "build-quality.json"),
@@ -956,6 +959,88 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		return siteDeliveryBlockedBuildResult(result), nil
 	}
 	return agent.ToolSuccess(marshalToolResult(result)), nil
+}
+
+func siteBuildCommandFailureResult(buildResult agent.ToolResult, appWorkspace workspacepath.Path) agent.ToolResult {
+	if siteBuildFailureLooksSourceFixable(buildResult.ContentText()) {
+		buildResult.Failure = &agent.ToolFailure{
+			Kind:                  agent.FailureInvalidInput,
+			Code:                  agent.FailureCodes.InvalidInput.String(),
+			Stage:                 "site_build_source",
+			UserSafeSummary:       siteBuildSourceFailureSummary(buildResult.ContentText()),
+			Retryable:             true,
+			SafeRetry:             true,
+			FailureClass:          "fixable_artifact_quality",
+			RetryPolicy:           "after_precondition",
+			RequiredPreconditions: []string{"source_changed"},
+			RecoveryHints: []agent.RecoveryHint{{
+				Action:    "edit_resource",
+				ToolNames: []string{"file.read", "file.write"},
+				Reason:    "Inspect the source file named in the build error, fix the syntax or content, then run site.app.build again.",
+			}},
+			AffectedResources: siteBuildFailureAffectedResources(buildResult.ContentText(), appWorkspace),
+		}
+	}
+	return buildResult
+}
+
+func siteBuildFailureLooksSourceFixable(content string) bool {
+	lowerContent := strings.ToLower(content)
+	return strings.Contains(lowerContent, "syntax error") ||
+		strings.Contains(lowerContent, "transform failed") ||
+		strings.Contains(lowerContent, "vite:esbuild") ||
+		strings.Contains(lowerContent, "/src/")
+}
+
+func siteBuildSourceFailureSummary(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		trimmedLine := strings.TrimSpace(line)
+		if strings.Contains(strings.ToLower(trimmedLine), "syntax error") {
+			return trimmedLine
+		}
+	}
+	return "site source failed to compile; inspect and fix the affected source file."
+}
+
+func siteBuildFailureAffectedResources(content string, appWorkspace workspacepath.Path) []agent.AffectedResource {
+	resources := []agent.AffectedResource{}
+	for _, resourcePath := range siteBuildFailureSourcePaths(content, appWorkspace) {
+		resources = append(resources, agent.AffectedResource{
+			Path:   resourcePath,
+			Role:   "source",
+			Reason: "Build reported a source compile error here.",
+		})
+	}
+	return resources
+}
+
+func siteBuildFailureSourcePaths(content string, appWorkspace workspacepath.Path) []string {
+	paths := []string{}
+	for _, line := range strings.Split(content, "\n") {
+		if !strings.Contains(line, "/src/") {
+			continue
+		}
+		for _, field := range strings.Fields(line) {
+			cleanField := strings.Trim(field, "\"'`,:;()[]{}")
+			sourceIndex := strings.Index(cleanField, "/src/")
+			if sourceIndex < 0 {
+				continue
+			}
+			sourcePath := siteBuildFailureSourcePathFromField(cleanField[sourceIndex+1:])
+			paths = append(paths, filepath.ToSlash(filepath.Join(appWorkspace.VirtualPath, sourcePath)))
+		}
+	}
+	return stableUniqueStrings(paths)
+}
+
+func siteBuildFailureSourcePathFromField(field string) string {
+	sourcePath := strings.Trim(field, "\"'`,:;()[]{}")
+	for _, extension := range []string{".tsx", ".ts", ".jsx", ".js", ".css"} {
+		if index := strings.Index(sourcePath, extension); index >= 0 {
+			return sourcePath[:index+len(extension)]
+		}
+	}
+	return sourcePath
 }
 
 func siteDeliveryBlockedBuildResult(result map[string]any) agent.ToolResult {
