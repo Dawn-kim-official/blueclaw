@@ -19,7 +19,6 @@
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {
-    "@google/design.md": "^0.1.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

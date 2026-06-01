@@ -36,6 +36,47 @@ function sourceContainsAny(source: string, values: string[]): boolean {
 	return values.some((value) => source.includes(value));
 }
 
+function collectDesignIssues(source: string): string[] {
+	const issues: string[] = [];
+	if (!source.startsWith("---\n")) {
+		issues.push("DESIGN.md must start with YAML front matter");
+		return issues;
+	}
+	const frontMatterEnd = source.indexOf("\n---", 4);
+	if (frontMatterEnd < 0) {
+		issues.push("DESIGN.md front matter must end with ---");
+		return issues;
+	}
+	const frontMatter = source.slice(4, frontMatterEnd);
+	for (const key of ["colors", "typography", "rounded", "spacing", "components"]) {
+		if (!new RegExp("^" + key + "\\s*:", "m").test(frontMatter)) {
+			issues.push("DESIGN.md front matter is missing " + key);
+		}
+	}
+	const body = source.slice(frontMatterEnd + 4);
+	let previousIndex = -1;
+	for (const section of ["Overview", "Colors", "Typography", "Layout", "Elevation & Depth", "Shapes", "Components", "Do's and Don'ts"]) {
+		const sectionIndex = body.indexOf("## " + section);
+		if (sectionIndex < 0) {
+			issues.push("DESIGN.md body is missing section: " + section);
+			continue;
+		}
+		if (sectionIndex < previousIndex) {
+			issues.push("DESIGN.md section order is wrong at: " + section);
+		}
+		previousIndex = sectionIndex;
+	}
+	return issues;
+}
+
+function lintDesignDocument(): void {
+	const designSource = readSource("../DESIGN.md");
+	const issues = collectDesignIssues(designSource);
+	if (issues.length > 0) {
+		throw new Error("DESIGN.md lint failed: " + issues.join("; "));
+	}
+}
+
 function collectQualityIssues(): QualityIssue[] {
 	const appSource = readSource("src/App.tsx");
 	const styleSource = readSource("src/index.css");
@@ -87,6 +128,6 @@ if (!existsSync("node_modules")) {
 	await runCommand({ name: "bun", arguments: ["install"] });
 }
 
-await runCommand({ name: "bun", arguments: ["x", "@google/design.md", "lint", "../DESIGN.md"] });
+lintDesignDocument();
 await runCommand({ name: "bun", arguments: ["x", "vite", "build"] });
 writeBuildQuality(qualityIssues);
