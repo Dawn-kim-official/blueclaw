@@ -67,7 +67,7 @@ func observedResultsFromObservation(observation turnObservation) []ObservedResul
 			ObservationID: observation.ObservationID,
 			ToolName:      observation.Tool,
 		})
-		if urlValue := firstObservedURL(content); urlValue != "" {
+		if urlValue := firstObservedURL(content); urlValue != "" && observationCanDeliverLink(observation, content) {
 			results = append(results, ObservedResult{
 				Type:          ExpectedResultTypeLink,
 				Description:   observedResultDescription(observation, "URL: "+urlValue),
@@ -81,6 +81,26 @@ func observedResultsFromObservation(observation turnObservation) []ObservedResul
 		results = append(results, observedResultFromAttachment(observation.ObservationID, observation.Tool, attachment))
 	}
 	return results
+}
+
+func observationCanDeliverLink(observation turnObservation, content string) bool {
+	switch strings.TrimSpace(observation.Tool) {
+	case "site.app.create":
+		return false
+	case "site.app.status":
+		return !siteObservationHasDraftStatus(content)
+	default:
+		return true
+	}
+}
+
+func siteObservationHasDraftStatus(content string) bool {
+	var document map[string]any
+	if errorValue := json.Unmarshal([]byte(content), &document); errorValue != nil {
+		return false
+	}
+	status, _ := document["status"].(string)
+	return strings.TrimSpace(status) == "draft"
 }
 
 func observedResultFromAttachment(observationID string, toolName string, attachment FileAttachment) ObservedResult {
@@ -160,7 +180,8 @@ func verifyExpectedResults(ctx context.Context, languageModel llm.LanguageModelP
 	if errorValue := json.Unmarshal([]byte(response.Content), &verification); errorValue != nil {
 		return ResultVerification{}, errorValue
 	}
-	return normalizeResultVerification(expectedResults, verification), nil
+	observedResults = deduplicateObservedResults(observedResults)
+	return enforceObservedResultRequirements(expectedResults, observedResults, normalizeResultVerification(expectedResults, verification)), nil
 }
 
 func resultVerifierMessages(request AgentTurnRequest, expectedResults []ExpectedResult, observedResults []ObservedResult) []llm.Message {
@@ -224,6 +245,53 @@ func normalizeResultVerificationItem(item ResultVerificationItem) ResultVerifica
 	item.MissingDescription = strings.TrimSpace(item.MissingDescription)
 	item.CitedObservationIDs = appendUniqueStrings(item.CitedObservationIDs)
 	item.SuggestedNextTools = appendUniqueStrings(item.SuggestedNextTools)
+	return item
+}
+
+func enforceObservedResultRequirements(expectedResults []ExpectedResult, observedResults []ObservedResult, verification ResultVerification) ResultVerification {
+	hasLinkResult := observedResultsContainType(observedResults, ExpectedResultTypeLink)
+	hasFileResult := observedResultsContainType(observedResults, ExpectedResultTypeFile)
+	for index, item := range verification.Results {
+		expectedResult := expectedResultByID(expectedResults, item.ID)
+		if !expectedResult.Required {
+			continue
+		}
+		if expectedResult.Type == ExpectedResultTypeLink && !hasLinkResult {
+			verification.Results[index] = missingObservedResultItem(item, "No link result was observed.")
+		}
+		if expectedResult.Type == ExpectedResultTypeFile && !hasFileResult {
+			verification.Results[index] = missingObservedResultItem(item, "No file result was observed.")
+		}
+	}
+	verification.OverallStatus = normalizeResultVerificationOverallStatus(verification.OverallStatus, verification.Results)
+	return verification
+}
+
+func expectedResultByID(expectedResults []ExpectedResult, id string) ExpectedResult {
+	for _, expectedResult := range expectedResults {
+		if expectedResult.ID == id {
+			return expectedResult
+		}
+	}
+	return ExpectedResult{}
+}
+
+func observedResultsContainType(observedResults []ObservedResult, resultType string) bool {
+	for _, result := range observedResults {
+		if normalizeExpectedResultType(result.Type) == resultType {
+			return true
+		}
+	}
+	return false
+}
+
+func missingObservedResultItem(item ResultVerificationItem, reason string) ResultVerificationItem {
+	item.Status = "missing"
+	item.Reason = reason
+	item.CitedObservationIDs = nil
+	if item.MissingDescription == "" {
+		item.MissingDescription = reason
+	}
 	return item
 }
 
