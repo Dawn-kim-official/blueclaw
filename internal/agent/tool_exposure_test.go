@@ -25,10 +25,13 @@ func TestToolExposureKeepsSelectedToolsBeforeCore(t *testing.T) {
 	if filteredToolSet.IsAllowed("site.app.publish") {
 		t.Fatalf("expected unselected fallback skill tool to be hidden when selection is valid, got %+v", filteredToolSet.ListToolNames())
 	}
-	for _, toolID := range []string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history"} {
+	for _, toolID := range []string{"skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected core tool %s to remain exposed, got %+v", toolID, filteredToolSet.ListToolNames())
 		}
+	}
+	if filteredToolSet.IsAllowed("tool.describe") {
+		t.Fatalf("expected low-priority tool.describe to be dropped under cap pressure, got %+v", filteredToolSet.ListToolNames())
 	}
 	if event.UsedFallbackGroups {
 		t.Fatalf("expected valid model selection to avoid fallback groups: %+v", event)
@@ -285,6 +288,58 @@ func TestRecoveryWorkingSetUsesActiveFailureHints(t *testing.T) {
 	}
 }
 
+func TestRecoveryWorkingSetDropsExhaustedTool(t *testing.T) {
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "file.edit",
+		Failure: &ToolFailure{
+			Kind:            FailureInvalidInput,
+			Code:            FailureCodes.InvalidInput.String(),
+			Stage:           "file_edit",
+			UserSafeSummary: "oldText must match exactly once",
+			RecoveryHints: []RecoveryHint{{
+				Action:    "inspect_or_edit_text",
+				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
+			}},
+		},
+		ToolInputKey: "file.edit\x00{\"path\":\"App.tsx\"}",
+	}, {
+		ObservationID: "obs-002",
+		Action:        "policy",
+		Tool:          "file.edit",
+		Output:        ToolOutput{Content: "The recovery budget for corrected_retry is exhausted."},
+		RecoveryStep:  recoveryStepCorrectedRetry,
+		Summary:       "The recovery budget for corrected_retry is exhausted.",
+	}}
+
+	toolNames := recoveryPinnedToolNames(InstructionBundle{}, AgentRequest{PinnedToolNames: []string{"file.edit", "file.write"}}, observations)
+
+	if stringSliceContains(toolNames, "file.edit") {
+		t.Fatalf("expected exhausted file.edit to be removed, got %+v", toolNames)
+	}
+	if !stringSliceContains(toolNames, "file.write") || !stringSliceContains(toolNames, "file.patch") {
+		t.Fatalf("expected alternate edit tools to remain, got %+v", toolNames)
+	}
+}
+
+func TestPlannedToolsDropRepeatedFileRead(t *testing.T) {
+	observations := []turnObservation{
+		newFailureObservation("obs-001", "policy", "file.read", "Already read tmp/deck/presentation.md lines 1-400.", FailurePolicyBlocked, FailureCodes.PolicyBlocked, "file_read_repeat"),
+	}
+
+	toolNames := filterExhaustedRecoveryToolNames([]string{"file.read", "terminal.run", "file.attach"}, observations)
+
+	if stringSliceContains(toolNames, "file.read") {
+		t.Fatalf("expected repeated file.read to be removed, got %+v", toolNames)
+	}
+	for _, toolName := range []string{"terminal.run", "file.attach"} {
+		if !stringSliceContains(toolNames, toolName) {
+			t.Fatalf("expected %s to remain available, got %+v", toolName, toolNames)
+		}
+	}
+}
+
 func TestGenericFallbackKeepsExplicitCapabilityToolsBeforeBuiltIns(t *testing.T) {
 	toolSet := testToolSet([]string{"conversation.history", "memory.search", "browser.snapshot", "file.write", "terminal.run"})
 	instructionBundle := InstructionBundle{}
@@ -307,7 +362,7 @@ func TestToolSelectionContextUsesCompactCards(t *testing.T) {
 	if strings.Contains(cards, "inputSchema") || strings.Contains(cards, "properties") {
 		t.Fatalf("expected compact card to omit full schema, got %s", cards)
 	}
-	if !strings.Contains(summary, "G1 control-core: skill.search, tool.describe, ask.confirm") {
+	if !strings.Contains(summary, "G1 control-core: skill.search, ask.confirm") || !strings.Contains(summary, "G3 memory-context-core: tool.describe") {
 		t.Fatalf("expected compact core summary, got %s", summary)
 	}
 }

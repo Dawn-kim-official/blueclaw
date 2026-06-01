@@ -5,40 +5,37 @@ import (
 	"testing"
 )
 
-func TestSiteAppCreateSummaryKeepsAgentWorkspacePaths(t *testing.T) {
-	summary := summarizeObservationContent(turnObservation{
-		Action: "continue",
-		Tool:   "site.app.create",
-		Output: ToolOutput{Content: `{
-			"siteID":"site-1",
-			"slug":"demo",
-			"workspacePath":"home/sites/site-1",
-			"sourceWorkspacePath":"home/sites/site-1",
-			"hostSourcePath":"/root/.blueclaw/workspace/sites/site-1",
-			"status":"draft"
-		}`},
-	})
-
-	if !strings.Contains(summary, "sourceWorkspacePath=home/sites/site-1") {
-		t.Fatalf("expected sourceWorkspacePath in summary, got %q", summary)
+func TestBuildTurnProgressKeepsRecentFileContext(t *testing.T) {
+	observations := []turnObservation{
+		{
+			ObservationID: "obs-001",
+			Action:        "continue",
+			Tool:          "file.read",
+			Output:        ToolOutput{Content: `{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","content":"export const profile = { name: \"Kim Intern\" }\nexport const services = [{ title: \"Mail\" }, { title: \"Slides\" }]","startLine":1,"endLine":20,"totalLines":80,"sizeBytes":2048,"isTruncated":false}`},
+		},
+		{
+			ObservationID: "obs-002",
+			Action:        "continue",
+			Tool:          "file.read",
+			Output:        ToolOutput{Content: `{"path":"home/sites/site-1/draft/app/src/prototype-data.ts","content":"export const profile = { name: \"Kim Intern\" }\nexport const services = [{ title: \"Mail\" }, { title: \"Slides\" }]","startLine":1,"endLine":20,"totalLines":80,"sizeBytes":2048,"isTruncated":false}`},
+		},
 	}
-	if strings.Contains(summary, "hostSourcePath") || strings.Contains(summary, "/root/.blueclaw") {
-		t.Fatalf("expected host path to stay hidden, got %q", summary)
+
+	progress := buildTurnProgress(AgentTurnRequest{}, observations)
+
+	if len(progress.RecentFiles) != 1 {
+		t.Fatalf("expected one recent file context, got %+v", progress.RecentFiles)
 	}
-}
-
-func TestWorkspacePathSummaryHidesNonAgentWorkspacePath(t *testing.T) {
-	summary := summarizeObservationContent(turnObservation{
-		Action: "continue",
-		Tool:   "site.app.create",
-		Output: ToolOutput{Content: `{
-			"siteID":"site-1",
-			"workspacePath":"/root/.blueclaw/workspace/sites/site-1",
-			"sourceWorkspacePath":"/root/.blueclaw/workspace/sites/site-1"
-		}`},
-	})
-
-	if strings.Contains(summary, "/root/.blueclaw") {
-		t.Fatalf("expected non-agent workspace path to stay hidden, got %q", summary)
+	fileContext := progress.RecentFiles[0]
+	if fileContext.Path != "home/sites/site-1/draft/app/src/prototype-data.ts" {
+		t.Fatalf("expected prototype data path, got %q", fileContext.Path)
+	}
+	for _, expected := range []string{"profile", "services", "1-20"} {
+		if !strings.Contains(fileContext.Summary+strings.Join(fileContext.ReadRanges, ","), expected) {
+			t.Fatalf("expected recent file context to include %q, got %+v", expected, fileContext)
+		}
+	}
+	if !strings.Contains(fileContext.RepeatedReadGuidance, "edit/build") {
+		t.Fatalf("expected repeated read guidance, got %+v", fileContext)
 	}
 }

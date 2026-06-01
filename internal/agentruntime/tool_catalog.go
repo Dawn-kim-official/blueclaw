@@ -381,7 +381,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[security.CommandRequest, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "terminal.run",
-			Description: "Run a guarded non-interactive command inside the Blueclaw workspace.",
+			Description: "Run a guarded non-interactive command inside the Blueclaw workspace. Use file.write, file.edit, or file.patch for source file creation and edits instead of shell heredocs or redirection.",
+			RecoveryCard: agent.ToolRecoveryCard{
+				Does:       "Runs one non-interactive workspace command for inspection, dependency install, build, render, or tests.",
+				Produces:   "Command stdout, stderr, exit status, and runtime diagnostics.",
+				SideEffect: "workspace_write",
+				UseWhen:    "You need to execute a toolchain command, build, render, test, list files, or inspect environment state.",
+				AvoidWhen:  "You are creating or editing source files with heredoc, tee, or shell redirection; use file.write, file.edit, or file.patch instead.",
+			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"number"}},"required":["command"]}`),
 		},
 		Handler: func(toolContext context.Context, input security.CommandRequest) (agent.ToolResult, error) {
@@ -909,6 +916,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if toolFailure := toolCatalogBuilder.materializeTerminalRuntimeDirectories(toolContext, workspaceActor, scope, input.EnvironmentVariables); toolFailure != nil {
 		return *toolFailure, nil
 	}
+	if toolFailure := terminalSourceWriteMisuseFailure(input.Command); toolFailure != nil {
+		return *toolFailure, nil
+	}
 	if toolFailure := preflightNodePackageBuild(toolContext, workspaceActor, workspacepath.Directory(workingDirectory), input.Command); toolFailure != nil {
 		return *toolFailure, nil
 	}
@@ -1033,6 +1043,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 }
 
 func siteBuildCommandFailureResult(buildResult agent.ToolResult, appWorkspace workspacepath.Path) agent.ToolResult {
+	payload := siteBuildFailurePayload(buildResult, appWorkspace)
+	buildResult.Output.Data = json.RawMessage(marshalToolResult(payload))
 	if siteBuildFailureLooksSourceFixable(buildResult.ContentText()) {
 		buildResult.Failure = &agent.ToolFailure{
 			Kind:                  agent.FailureInvalidInput,
@@ -1053,6 +1065,60 @@ func siteBuildCommandFailureResult(buildResult agent.ToolResult, appWorkspace wo
 		}
 	}
 	return buildResult
+}
+
+func siteBuildFailurePayload(buildResult agent.ToolResult, appWorkspace workspacepath.Path) map[string]any {
+	content := buildResult.ContentText()
+	sourceWorkspacePath := filepath.Dir(appWorkspace.ConcretePath)
+	return map[string]any{
+		"target":                  appWorkspace.VirtualPath,
+		"stderrTail":              terminalFailureTail(content),
+		"likelyCause":             siteBuildLikelyCause(content),
+		"suggestedSourceFiles":    siteBuildFailureSuggestedSourceFiles(content, appWorkspace),
+		"canUseExistingFreshDist": siteBuildStatus(sourceWorkspacePath) == "fresh",
+		"buildStatus":             siteBuildStatus(sourceWorkspacePath),
+		"command":                 "bun scripts/build.ts",
+		"commandResult":           content,
+	}
+}
+
+func terminalFailureTail(content string) string {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) <= 24 {
+		return strings.TrimSpace(content)
+	}
+	return strings.TrimSpace(strings.Join(lines[len(lines)-24:], "\n"))
+}
+
+func siteBuildLikelyCause(content string) string {
+	lowerContent := strings.ToLower(content)
+	switch {
+	case strings.Contains(lowerContent, "command not found") && strings.Contains(lowerContent, "bun"):
+		return "managed runtime PATH does not include bun"
+	case strings.Contains(lowerContent, "permission denied") || strings.Contains(lowerContent, "eacces"):
+		return "workspace permission problem"
+	case siteBuildFailureLooksSourceFixable(content):
+		return "editable source compile error"
+	case strings.Contains(lowerContent, "cannot find module") || strings.Contains(lowerContent, "could not resolve"):
+		return "dependency or import resolution error"
+	default:
+		return "site build command failed"
+	}
+}
+
+func siteBuildFailureSuggestedSourceFiles(content string, appWorkspace workspacepath.Path) []string {
+	files := []string{}
+	for _, resource := range siteBuildFailureAffectedResources(content, appWorkspace) {
+		files = append(files, resource.Path)
+	}
+	if len(files) > 0 {
+		return files
+	}
+	return []string{
+		filepath.ToSlash(filepath.Join(appWorkspace.VirtualPath, "src", "App.tsx")),
+		filepath.ToSlash(filepath.Join(appWorkspace.VirtualPath, "src", "index.css")),
+		filepath.ToSlash(filepath.Join(appWorkspace.VirtualPath, "src", "prototype-data.ts")),
+	}
 }
 
 func siteBuildFailureLooksSourceFixable(content string) bool {
@@ -1562,6 +1628,112 @@ func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandR
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = false
 	return &result
+}
+
+func terminalSourceWriteMisuseFailure(command string) *agent.ToolResult {
+	target := terminalSourceWriteTarget(command)
+	if target == "" {
+		return nil
+	}
+	message := "terminal.run is for commands, builds, renders, and inspection; use file.write, file.edit, or file.patch to create or edit source files"
+	document := json.RawMessage(marshalToolResult(map[string]any{
+		"failureClass":       "source_edit_tool_misuse",
+		"command":            command,
+		"detectedTarget":     target,
+		"suggestedNextTools": []string{"file.write", "file.edit", "file.patch"},
+		"message":            message,
+	}))
+	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_source_write", message, document)
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	result.Failure.RetryPolicy = "different_tool"
+	result.Failure.RecoveryHints = []agent.RecoveryHint{{
+		Action:    "edit_resource",
+		ToolNames: []string{"file.write", "file.edit", "file.patch"},
+		Reason:    "Write source content through file tools so the runtime can preserve context, permissions, and recovery state.",
+	}}
+	return &result
+}
+
+func terminalSourceWriteTarget(command string) string {
+	if strings.Contains(command, "<<") {
+		return "shell heredoc"
+	}
+	fields := strings.Fields(command)
+	for index, field := range fields {
+		if sourcePath := shellRedirectSourcePath(field, nextShellField(fields, index)); sourcePath != "" {
+			return sourcePath
+		}
+	}
+	return ""
+}
+
+func nextShellField(fields []string, index int) string {
+	nextIndex := index + 1
+	if nextIndex >= len(fields) {
+		return ""
+	}
+	return fields[nextIndex]
+}
+
+func shellRedirectSourcePath(field string, nextField string) string {
+	if strings.Contains(field, ">&") || strings.Contains(field, "<&") {
+		return ""
+	}
+	switch field {
+	case ">", ">>", "1>", "1>>":
+		if terminalWritePathLooksLikeSource(nextField) {
+			return nextField
+		}
+		return ""
+	}
+	for _, prefix := range []string{">>", ">", "1>>", "1>"} {
+		if strings.HasPrefix(field, prefix) {
+			candidatePath := strings.TrimPrefix(field, prefix)
+			if terminalWritePathLooksLikeSource(candidatePath) {
+				return candidatePath
+			}
+		}
+	}
+	return ""
+}
+
+func terminalWritePathLooksLikeSource(path string) bool {
+	cleanPath := strings.Trim(strings.TrimSpace(path), `"'`)
+	if cleanPath == "" {
+		return false
+	}
+	slashPath := filepath.ToSlash(cleanPath)
+	if strings.HasPrefix(slashPath, "dist/") || strings.HasPrefix(slashPath, "build/") || strings.Contains(slashPath, "/dist/") || strings.Contains(slashPath, "/build/") {
+		return false
+	}
+	extension := strings.ToLower(filepath.Ext(cleanPath))
+	if !terminalWriteExtensionLooksLikeSource(extension) {
+		return false
+	}
+	baseName := strings.ToLower(filepath.Base(cleanPath))
+	if terminalWriteBaseNameLooksLikeSource(baseName) {
+		return true
+	}
+	return strings.HasPrefix(slashPath, "src/") || strings.HasPrefix(slashPath, "app/src/") || strings.Contains(slashPath, "/src/")
+}
+
+func terminalWriteExtensionLooksLikeSource(extension string) bool {
+	switch extension {
+	case ".ts", ".tsx", ".js", ".jsx", ".css", ".scss", ".html", ".md", ".mdx", ".json", ".toml", ".yaml", ".yml", ".svelte", ".vue", ".go", ".py", ".sh":
+		return true
+	default:
+		return false
+	}
+}
+
+func terminalWriteBaseNameLooksLikeSource(baseName string) bool {
+	switch baseName {
+	case "package.json", "vite.config.ts", "vite.config.js", "tsconfig.json", "tailwind.config.ts", "tailwind.config.js", "design.md", "presentation.md":
+		return true
+	default:
+		return false
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) workspaceActorForRequest(toolContext context.Context, request ToolCatalogRequest) (security.WorkspaceActor, *agent.ToolResult) {
@@ -2398,11 +2570,19 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 func isManagedSitePackageManifestPath(virtualPath string) bool {
 	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(strings.TrimSpace(virtualPath), "/workspace/")))
 	parts := strings.Split(cleanPath, "/")
-	return len(parts) == 5 &&
+	if len(parts) == 5 &&
 		parts[0] == "home" &&
 		parts[1] == "sites" &&
 		parts[3] == "app" &&
-		parts[4] == "package.json"
+		parts[4] == "package.json" {
+		return true
+	}
+	return len(parts) == 6 &&
+		parts[0] == "home" &&
+		parts[1] == "sites" &&
+		parts[3] == "draft" &&
+		parts[4] == "app" &&
+		parts[5] == "package.json"
 }
 
 func managedSiteManifestProtectedFailure(path string) agent.ToolResult {
@@ -2827,6 +3007,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolCo
 	site.SourceWorkspacePath = sourceWorkspace.VirtualPath
 	site.WorkspacePath = sourceWorkspace.VirtualPath
 	site.AppWorkspacePath = filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, "app"))
+	site.UIPrimitiveImports = siteUIPrimitiveImports()
+	site.SourceGuidance = siteSourceGuidance()
 	document, errorValue := json.Marshal(site)
 	if errorValue != nil {
 		return nil, errorValue
@@ -2974,6 +3156,8 @@ type siteCreateResult struct {
 	WorkspacePath       string           `json:"workspacePath"`
 	SourceWorkspacePath string           `json:"sourceWorkspacePath"`
 	AppWorkspacePath    string           `json:"appWorkspacePath"`
+	UIPrimitiveImports  []string         `json:"uiPrimitiveImports,omitempty"`
+	SourceGuidance      string           `json:"sourceGuidance,omitempty"`
 	Status              string           `json:"status"`
 }
 
@@ -3055,6 +3239,7 @@ func siteWorkspaceMetadata(site siteCreateResult) string {
 		"owner":          site.OwnerIdentity,
 		"collaborators":  site.Collaborators,
 		"stack":          "React + Vite + TypeScript + Tailwind + shadcn/ui scaffold with Stitch DESIGN.md",
+		"uiPrimitives":   siteUIPrimitiveImports(),
 		"designDefault":  "starter scaffold only; customize through DESIGN.md before publish",
 		"sourceContract": "editable source is owned by the requester actor",
 	}, "", "  ")
@@ -3062,6 +3247,23 @@ func siteWorkspaceMetadata(site siteCreateResult) string {
 		return "{}\n"
 	}
 	return string(document) + "\n"
+}
+
+func siteUIPrimitiveImports() []string {
+	return []string{
+		"Badge from ./components/ui/badge",
+		"Button from ./components/ui/button",
+		"Card, CardContent, CardDescription, CardHeader, CardTitle from ./components/ui/card",
+		"Input from ./components/ui/input",
+		"Textarea from ./components/ui/textarea",
+		"Separator from ./components/ui/separator",
+		"Tabs, TabsContent, TabsList, TabsTrigger from ./components/ui/tabs",
+		"Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger from ./components/ui/dialog",
+	}
+}
+
+func siteSourceGuidance() string {
+	return "Use local shadcn-style primitives from ./components/ui/* and customize App.tsx, prototype-data.ts, and index.css. Keep package.json, Vite, Tailwind, and scripts managed."
 }
 
 func siteIdeaMarkdown(site siteCreateResult) string {

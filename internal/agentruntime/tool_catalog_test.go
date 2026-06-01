@@ -1589,6 +1589,87 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 }
 
+func TestTerminalRunRejectsSourceWriteHeredoc(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command":              "cat <<'EOF' > app/src/index.css\nbody { color: black; }\nEOF",
+			"workingDirectoryPath": "tmp/site",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected terminal.run source write failure, got %s", result.ContentText())
+	}
+	if result.Failure.Stage != "terminal_source_write" {
+		t.Fatalf("expected terminal_source_write stage, got %+v", result.Failure)
+	}
+	if !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "file.write") {
+		t.Fatalf("expected file.write recovery hint, got %+v", result.Failure.RecoveryHints)
+	}
+}
+
+func TestTerminalRunRejectsSourceFileRedirection(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command":              "printf 'export default function App(){}' > app/src/App.tsx",
+			"workingDirectoryPath": "tmp/site",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected terminal.run source write failure, got %s", result.ContentText())
+	}
+	if !strings.Contains(result.ContentText(), "file.write") {
+		t.Fatalf("expected source write failure to suggest file.write, got %s", result.ContentText())
+	}
+}
+
+func TestTerminalRunAllowsStderrRedirection(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command":              "printf ok 2>&1",
+			"workingDirectoryPath": "tmp/deck",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected terminal.run stderr redirection success, got %s", result.ContentText())
+	}
+}
+
 func TestTerminalRunAllowsServiceOwnedPathText(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
@@ -1748,8 +1829,14 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if strings.Contains(buildScript, "DESIGN.md is required") {
 		t.Fatalf("build script must not fail solely because DESIGN.md is missing")
 	}
-	if !strings.Contains(buildScript, `await buildVite();`) {
-		t.Fatalf("build script must call Vite in-process")
+	if !strings.Contains(buildScript, `arguments: ["--bun", "./node_modules/vite/bin/vite.js", "build"]`) {
+		t.Fatalf("build script must call the installed local Vite with Bun")
+	}
+	if strings.Contains(buildScript, `import("vite")`) {
+		t.Fatalf("build script must not resolve Vite through Bun's package cache")
+	}
+	if strings.Contains(buildScript, `name: "./node_modules/.bin/vite"`) {
+		t.Fatalf("build script must not require a node executable through Vite's shebang")
 	}
 	if strings.Contains(buildScript, `arguments: ["x", "vite", "build"]`) {
 		t.Fatalf("build script must not spawn nested bun x vite")
@@ -2275,7 +2362,7 @@ func TestFileWriteProtectsManagedSitePackageManifest(t *testing.T) {
 	managedResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path":    "home/sites/site-1/app/package.json",
+			"path":    "home/sites/site-1/draft/app/package.json",
 			"content": `{"project":"not a package manifest"}`,
 		}),
 	})

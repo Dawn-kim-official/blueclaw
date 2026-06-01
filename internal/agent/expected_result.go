@@ -181,7 +181,7 @@ func verifyExpectedResults(ctx context.Context, languageModel llm.LanguageModelP
 		return ResultVerification{}, errorValue
 	}
 	observedResults = deduplicateObservedResults(observedResults)
-	return enforceObservedResultRequirements(expectedResults, observedResults, normalizeResultVerification(expectedResults, verification)), nil
+	return enforceObservedResultRequirements(expectedResults, observedResults, finishActionMessage(actionDocument), normalizeResultVerification(expectedResults, verification)), nil
 }
 
 func resultVerifierMessages(request AgentTurnRequest, expectedResults []ExpectedResult, observedResults []ObservedResult) []llm.Message {
@@ -190,7 +190,7 @@ func resultVerifierMessages(request AgentTurnRequest, expectedResults []Expected
 	return []llm.Message{
 		{
 			Role:    "system",
-			Content: "You verify whether a Blueclaw task produced the user's expected results. Expected results are natural-language deliverables. Types are only delivery shapes: message, file, link. Judge flexibly from observed results, not from tool names alone. Return missing when a required result is clearly absent, uncertain when evidence is ambiguous, and satisfied when the result is present.",
+			Content: "You verify whether a Blueclaw task produced the user's expected results. Expected results are natural-language deliverables. Types are only delivery shapes: message, file, link. Judge flexibly from observed results, not from tool names alone. Return missing when a required result is clearly absent, uncertain when evidence is ambiguous, and satisfied when the result is present. For required link results, the final message must include an exact observed URL so the user can open it.",
 		},
 		{
 			Role:    "system",
@@ -248,7 +248,7 @@ func normalizeResultVerificationItem(item ResultVerificationItem) ResultVerifica
 	return item
 }
 
-func enforceObservedResultRequirements(expectedResults []ExpectedResult, observedResults []ObservedResult, verification ResultVerification) ResultVerification {
+func enforceObservedResultRequirements(expectedResults []ExpectedResult, observedResults []ObservedResult, finishMessage string, verification ResultVerification) ResultVerification {
 	hasLinkResult := observedResultsContainType(observedResults, ExpectedResultTypeLink)
 	hasFileResult := observedResultsContainType(observedResults, ExpectedResultTypeFile)
 	for index, item := range verification.Results {
@@ -259,12 +259,47 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 		if expectedResult.Type == ExpectedResultTypeLink && !hasLinkResult {
 			verification.Results[index] = missingObservedResultItem(item, "No link result was observed.")
 		}
+		if expectedResult.Type == ExpectedResultTypeLink && hasLinkResult && !finishMessageContainsObservedLink(finishMessage, observedResults) {
+			verification.Results[index] = missingObservedResultItem(item, "Final message does not include an exact observed link URL.")
+		}
 		if expectedResult.Type == ExpectedResultTypeFile && !hasFileResult {
 			verification.Results[index] = missingObservedResultItem(item, "No file result was observed.")
 		}
 	}
 	verification.OverallStatus = normalizeResultVerificationOverallStatus(verification.OverallStatus, verification.Results)
 	return verification
+}
+
+func finishMessageContainsObservedLink(finishMessage string, observedResults []ObservedResult) bool {
+	messageURLs := observedURLsFromText(finishMessage)
+	if len(messageURLs) == 0 {
+		return false
+	}
+	for _, observedResult := range observedResults {
+		if normalizeExpectedResultType(observedResult.Type) != ExpectedResultTypeLink {
+			continue
+		}
+		observedURL := normalizeObservedURL(observedResult.URL)
+		if observedURL == "" {
+			continue
+		}
+		if stringSliceContains(messageURLs, observedURL) {
+			return true
+		}
+	}
+	return false
+}
+
+func observedURLsFromText(value string) []string {
+	urls := []string{}
+	for _, match := range observedURLPattern.FindAllString(value, -1) {
+		urls = appendUniqueStrings(urls, normalizeObservedURL(match))
+	}
+	return urls
+}
+
+func normalizeObservedURL(value string) string {
+	return strings.TrimRight(strings.TrimSpace(value), ".,);:!?")
 }
 
 func expectedResultByID(expectedResults []ExpectedResult, id string) ExpectedResult {

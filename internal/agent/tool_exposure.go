@@ -194,9 +194,9 @@ func firstGroupToolIDs(groups []toolExposureGroup, groupName string) []string {
 
 func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
 	return []toolExposureGroup{
-		filterGroupTools(toolSet, toolExposureGroup{Name: "G1 control-core", ToolIDs: []string{"skill.search", "tool.describe", "ask.confirm"}}),
+		filterGroupTools(toolSet, toolExposureGroup{Name: "G1 control-core", ToolIDs: []string{"skill.search", "ask.confirm"}}),
 		filterGroupTools(toolSet, toolExposureGroup{Name: "G2 interaction-core", ToolIDs: []string{"ask.choice", "ask.input", "memory.search"}}),
-		filterGroupTools(toolSet, toolExposureGroup{Name: "G3 memory-context-core", ToolIDs: []string{"conversation.history", "memory.remember"}}),
+		filterGroupTools(toolSet, toolExposureGroup{Name: "G3 memory-context-core", ToolIDs: []string{"conversation.history", "memory.remember", "tool.describe"}}),
 	}
 }
 
@@ -357,7 +357,7 @@ func filterGroupToolsForTurn(toolSet *ToolSet, group toolExposureGroup, selected
 }
 
 func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {
-	toolNames := append([]string{}, request.PinnedToolNames...)
+	toolNames := filterExhaustedRecoveryToolNames(request.PinnedToolNames, observations)
 	toolNames = appendUniqueStrings(toolNames, pinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)...)
 	toolNames = appendUniqueStrings(toolNames, activeRecoveryToolNames(observations)...)
 	return toolNames
@@ -377,7 +377,53 @@ func activeRecoveryToolNames(observations []turnObservation) []string {
 	if failureDebt.LatestFailure.RecoveryPacket != nil {
 		toolNames = appendUniqueStrings(toolNames, failureDebt.LatestFailure.RecoveryPacket.AllowedTools...)
 	}
-	return toolNames
+	return filterExhaustedRecoveryToolNames(toolNames, observations)
+}
+
+func filterExhaustedRecoveryToolNames(toolNames []string, observations []turnObservation) []string {
+	exhaustedToolNames := exhaustedRecoveryToolNames(observations)
+	if len(exhaustedToolNames) == 0 {
+		return appendUniqueStrings(toolNames)
+	}
+	filteredToolNames := []string{}
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" || exhaustedToolNames[trimmedToolName] {
+			continue
+		}
+		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
+	}
+	return filteredToolNames
+}
+
+func exhaustedRecoveryToolNames(observations []turnObservation) map[string]bool {
+	exhaustedToolNames := map[string]bool{}
+	for _, observation := range observations {
+		if observationLooksLikeFileReadRepeat(observation) {
+			exhaustedToolNames["file.read"] = true
+			continue
+		}
+		if !observationLooksLikeRecoveryBudgetExhausted(observation) {
+			continue
+		}
+		toolName := strings.TrimSpace(observation.Tool)
+		if toolName != "" {
+			exhaustedToolNames[toolName] = true
+		}
+	}
+	return exhaustedToolNames
+}
+
+func observationLooksLikeFileReadRepeat(observation turnObservation) bool {
+	return strings.TrimSpace(observation.Tool) == "file.read" &&
+		observation.Failure != nil &&
+		strings.TrimSpace(observation.Failure.Stage) == "file_read_repeat"
+}
+
+func observationLooksLikeRecoveryBudgetExhausted(observation turnObservation) bool {
+	return strings.TrimSpace(observation.Action) == "policy" &&
+		strings.TrimSpace(observation.RecoveryStep) != "" &&
+		strings.Contains(strings.ToLower(observation.ContentText()), "recovery budget")
 }
 
 func toolSelectionRecentProgress(observations []turnObservation) string {
@@ -408,7 +454,7 @@ func selectedAndPinnedSkillToolNames(instructionBundle InstructionBundle, pinned
 func activeGoalCandidateToolNames(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) []string {
 	toolNames := append([]string{}, outcomeContractToolNames(outcomeContract)...)
 	toolNames = appendUniqueStrings(toolNames, outcomeContractToolNames(request.ActiveGoal.OutcomeContract)...)
-	if promptLooksLikeCalendarRequest(request.Prompt) {
+	if requestLooksLikeCalendarWork(request) {
 		toolNames = appendUniqueStrings(toolNames, "calendar.event.add", "calendar.event.delete")
 	}
 	return toolNames

@@ -209,6 +209,35 @@ func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T)
 	}
 }
 
+func TestOutcomeContractIgnoresMailKeywordForArtifactAttachmentGoal(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "direct-message",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"platform.dm.send"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	}
+	intakeDecision := IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask}
+
+	contract := outcomeContractForRequest(
+		AgentRequest{Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘"},
+		intakeDecision,
+		instructionBundle,
+		ExecutionPlan{},
+		false,
+		[]string{".pptx"},
+	)
+
+	if stringSliceContains(contract.RequiredEvidenceTools, "platform.dm.send") {
+		t.Fatalf("expected artifact attachment request not to require DM send evidence, got %+v", contract.RequiredEvidenceTools)
+	}
+	if !stringSliceContains(contract.RequiredEvidenceTools, "file.attach") {
+		t.Fatalf("expected artifact attachment request to require file.attach, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
 func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{

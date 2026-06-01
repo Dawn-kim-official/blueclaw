@@ -67,6 +67,16 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"nextStepPlan"`) {
 		t.Fatalf("expected continue action to require nextStepPlan, got %s", request.StructuredOutputSchema.Document)
 	}
+	finishVariant := actionSchemaVariant(t, request.StructuredOutputSchema.Document, "finish")
+	requiredFields := stringSliceFromAny(finishVariant["required"])
+	for _, fieldName := range []string{"message", "completionEvidence", "qualityReview", "executionStateUpdate"} {
+		if !containsString(requiredFields, fieldName) {
+			t.Fatalf("expected finish schema to require %s, got %+v", fieldName, requiredFields)
+		}
+	}
+	if strings.Contains(request.StructuredOutputSchema.Document, `"finishMessage"`) {
+		t.Fatalf("expected model-facing schema to omit legacy finishMessage, got %s", request.StructuredOutputSchema.Document)
+	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["require_capabilities"]`) {
 		t.Fatalf("expected require_capabilities escape hatch in schema, got %s", request.StructuredOutputSchema.Document)
 	}
