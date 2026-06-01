@@ -9,6 +9,7 @@ const (
 	recoveryStepCorrectedRetry = "corrected_retry"
 	recoveryStepAlternateRoute = "alternate_route"
 	recoveryStepAdjacentTool   = "adjacent_tool"
+	recoveryStepPrecondition   = "precondition"
 	recoveryStepInspection     = "inspection"
 	recoveryStepRejectedRepeat = "rejected_repeat"
 
@@ -103,6 +104,9 @@ func activeFailureDebt(observations []turnObservation) (FailureDebt, bool) {
 			continue
 		}
 		if !observation.Failed() && strings.TrimSpace(activeDebt.LatestFailure.ObservationID) != "" {
+			if strings.TrimSpace(observation.RecoveryStep) == recoveryStepInspection {
+				continue
+			}
 			activeDebt = FailureDebt{}
 		}
 	}
@@ -147,10 +151,29 @@ func classifyRecoveryStep(failureDebt FailureDebt, toolName string) string {
 	if isAlternateRouteToolPair(failedToolName, recoveryToolName) {
 		return recoveryStepAlternateRoute
 	}
+	if toolCanSatisfyRecoveryPrecondition(failureDebt.LatestFailure, recoveryToolName) {
+		return recoveryStepPrecondition
+	}
 	if isInspectionRecoveryTool(recoveryToolName) {
 		return recoveryStepInspection
 	}
 	return recoveryStepAdjacentTool
+}
+
+func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolName string) bool {
+	for _, precondition := range requiredPreconditionsForObservation(failedObservation) {
+		switch strings.TrimSpace(precondition) {
+		case "source_changed":
+			if toolName == "file.write" || toolName == "file.edit" || toolName == "file.patch" || toolName == "file.promote" {
+				return true
+			}
+		case "workspace_repaired":
+			if toolName == "site.app.repair" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isInspectionRecoveryTool(toolName string) bool {
@@ -196,6 +219,8 @@ func recoveryBudgetAllowsStep(observations []turnObservation, budget RecoveryBud
 		return recoveryStepUseCount(observations, recoveryStepAlternateRoute) < budget.AlternateRoute
 	case recoveryStepAdjacentTool:
 		return recoveryStepUseCount(observations, recoveryStepAdjacentTool) < budget.AdjacentTool
+	case recoveryStepPrecondition:
+		return true
 	case recoveryStepInspection:
 		return true
 	default:

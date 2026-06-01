@@ -2632,11 +2632,12 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
 		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
+		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"}}`,
 		finishMessageDocument("확인했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
-		MaxIterationCount: 5,
-		MaxToolCallCount:  3,
+		MaxIterationCount: 6,
+		MaxToolCallCount:  4,
 		RecoveryBudget: RecoveryBudget{
 			CorrectedRetry: 0,
 			AlternateRoute: 0,
@@ -2644,7 +2645,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 			NoToolFallback: 0,
 		},
 	})
-	toolRegistry := newTestToolSet([]string{"site.app.build", "file.read"})
+	toolRegistry := newTestToolSet([]string{"site.app.build", "file.read", "file.edit"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "source failed"},
@@ -2666,12 +2667,18 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		fileReadCount++
 		return ToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","content":"broken"}`), nil
 	})
+	fileEditCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.edit"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		fileEditCount++
+		return ToolSuccess(`{"path":"home/sites/site-1/draft/app/src/App.tsx","matchCount":1}`), nil
+	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "사이트 빌드 문제 확인해줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"site.app.build", "file.read", "file.edit"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected inspection recovery to continue: %v", errorValue)
@@ -2679,12 +2686,18 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 	if fileReadCount != 1 {
 		t.Fatalf("expected file.read to run despite exhausted adjacent budget, got %d", fileReadCount)
 	}
+	if fileEditCount != 1 {
+		t.Fatalf("expected file.edit precondition action to run despite exhausted adjacent budget, got %d", fileEditCount)
+	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if taskEventsContain(events, "agent.recovery_budget_exhausted", "file.read") {
 		t.Fatal("did not expect inspection tool to be blocked by adjacent recovery budget")
 	}
 	if !taskEventsContain(events, "agent.recovery_attempt", "inspection") {
 		t.Fatal("expected inspection recovery event")
+	}
+	if !taskEventsContain(events, "agent.recovery_attempt", "precondition") {
+		t.Fatal("expected precondition recovery event")
 	}
 }
 
