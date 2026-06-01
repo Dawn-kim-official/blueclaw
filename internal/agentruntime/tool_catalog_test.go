@@ -1516,10 +1516,13 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if _, exists := fileMap["app/src/content.html"]; exists {
 		t.Fatalf("legacy HTML scaffold file should not be present")
 	}
-	for _, expectedText := range []string{`"react"`, `"vite"`, `"@google/design.md"`, `"@vitejs/plugin-react"`, `"bun scripts/build.ts"`} {
+	for _, expectedText := range []string{`"react"`, `"vite"`, `"@vitejs/plugin-react"`, `"bun scripts/build.ts"`} {
 		if !strings.Contains(fileMap["app/package.json"], expectedText) {
 			t.Fatalf("site package manifest must contain %q", expectedText)
 		}
+	}
+	if strings.Contains(fileMap["app/package.json"], "@google/design.md") {
+		t.Fatalf("site package manifest must not depend on nested design.md CLI")
 	}
 	buildScript := fileMap["app/scripts/build.ts"]
 	if strings.Contains(buildScript, "site quality gate failed") {
@@ -1535,6 +1538,12 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	}
 	if !strings.Contains(buildScript, `PATH: canonicalRuntimePATH`) {
 		t.Fatalf("build script must pass canonical PATH to child commands")
+	}
+	if !strings.Contains(buildScript, `lintDesignDocument();`) || !strings.Contains(buildScript, `collectDesignIssues`) {
+		t.Fatalf("build script must lint DESIGN.md in-process")
+	}
+	if strings.Contains(buildScript, "@google/design.md") {
+		t.Fatalf("build script must not spawn nested design.md CLI")
 	}
 	if !strings.Contains(buildScript, `name: "bun", arguments: ["x", "vite", "build"]`) {
 		t.Fatalf("build script must use bun x through canonical PATH")
