@@ -704,7 +704,7 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(taskRunID string,
 func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, observation turnObservation, recoveryStep string) {
 	if recoveryStep != "" {
 		observation.RecoveryStep = recoveryStep
-		observation.RecoveryAttemptSpent = true
+		observation.RecoveryAttemptSpent = recoveryStep != recoveryStepInspection
 		observation.RecoveryAttemptKey = canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 	}
 	state.Observations = append(state.Observations, observation)
