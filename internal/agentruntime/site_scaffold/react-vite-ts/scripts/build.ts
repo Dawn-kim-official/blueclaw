@@ -128,9 +128,6 @@ async function buildVite(): Promise<void> {
 const qualityIssues = [...collectDesignQualityIssues(), ...collectQualityIssues()];
 writeBuildQuality(qualityIssues);
 
-if (!existsSync("node_modules")) {
-	await runCommand({ name: "bun", arguments: ["install"] });
-}
-
+await runCommand({ name: "bun", arguments: ["install"] });
 await buildVite();
 writeBuildQuality(qualityIssues);
