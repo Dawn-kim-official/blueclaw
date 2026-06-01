@@ -9,6 +9,7 @@ const (
 	recoveryStepCorrectedRetry = "corrected_retry"
 	recoveryStepAlternateRoute = "alternate_route"
 	recoveryStepAdjacentTool   = "adjacent_tool"
+	recoveryStepInspection     = "inspection"
 	recoveryStepRejectedRepeat = "rejected_repeat"
 
 	failureResolutionRecoveredWithSuccess = "recovered_with_success"
@@ -146,7 +147,19 @@ func classifyRecoveryStep(failureDebt FailureDebt, toolName string) string {
 	if isAlternateRouteToolPair(failedToolName, recoveryToolName) {
 		return recoveryStepAlternateRoute
 	}
+	if isInspectionRecoveryTool(recoveryToolName) {
+		return recoveryStepInspection
+	}
 	return recoveryStepAdjacentTool
+}
+
+func isInspectionRecoveryTool(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "file.read", "tool.describe", "site.app.status", "conversation.history":
+		return true
+	default:
+		return false
+	}
 }
 
 func isAlternateRouteToolPair(firstToolName string, secondToolName string) bool {
@@ -183,6 +196,8 @@ func recoveryBudgetAllowsStep(observations []turnObservation, budget RecoveryBud
 		return recoveryStepUseCount(observations, recoveryStepAlternateRoute) < budget.AlternateRoute
 	case recoveryStepAdjacentTool:
 		return recoveryStepUseCount(observations, recoveryStepAdjacentTool) < budget.AdjacentTool
+	case recoveryStepInspection:
+		return true
 	default:
 		return false
 	}
