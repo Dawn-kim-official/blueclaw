@@ -32,7 +32,7 @@ func progressEvents(observations []turnObservation) []progressEvent {
 		if observation.Action == "continue" && observation.Tool == "file.promote" && !observation.Failed() {
 			events = append(events, progressEvent{Kind: "artifact_promoted", Key: observation.Output.Content})
 		}
-		if observation.Action == "continue" && observation.Tool == "file.write" && !observation.Failed() {
+		if observation.Action == "continue" && (observation.Tool == "file.write" || observation.Tool == "file.edit" || observation.Tool == "file.patch") && !observation.Failed() {
 			events = append(events, progressEvent{Kind: "file_rewrite", Key: observation.ToolInputKey + ":" + observation.Output.Content})
 		}
 	}

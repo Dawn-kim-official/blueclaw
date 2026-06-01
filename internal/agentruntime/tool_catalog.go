@@ -30,6 +30,9 @@ import (
 
 const inlineAttachmentMaximumBytes = 25 * 1024 * 1024
 const siteSourceBundleMaximumBytes = 64 * 1024 * 1024
+const defaultFileReadMaximumBytes = 128 * 1024
+const maximumFileReadBytes = 1024 * 1024
+const maximumEditableTextFileBytes = 2 * 1024 * 1024
 
 type HistoryProvider interface {
 	FetchHistory(context.Context, string, int) (agent.VisibleContext, error)
@@ -166,12 +169,30 @@ type mathCalculateToolInput struct {
 type fileReadToolInput struct {
 	Path           string `json:"path"`
 	MaxOutputBytes int    `json:"maxOutputBytes"`
+	StartLine      int    `json:"startLine"`
+	LineCount      int    `json:"lineCount"`
 }
 
 type fileWriteToolInput struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
 	Mode    uint32 `json:"mode"`
+}
+
+type fileEditToolInput struct {
+	Path    string `json:"path"`
+	OldText string `json:"oldText"`
+	NewText string `json:"newText"`
+}
+
+type filePatchToolInput struct {
+	Edits []filePatchEditInput `json:"edits"`
+}
+
+type filePatchEditInput struct {
+	Path    string `json:"path"`
+	OldText string `json:"oldText"`
+	NewText string `json:"newText"`
 }
 
 type fileAttachToolInput struct {
@@ -308,7 +329,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.DefaultAllowedToolNames([]string{"conversation.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "tool.describe", "schedule.create", "schedule.cancel"})
+	return agent.DefaultAllowedToolNames([]string{"conversation.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "tool.describe", "schedule.create", "schedule.cancel"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -460,11 +481,54 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileReadToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "file.read",
-			Description: "Read a UTF-8 text file from the Blueclaw workspace. Use this to inspect source files, design docs, build reports, and other editable workspace text.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"maxOutputBytes":{"type":"integer"}},"required":["path"]}`),
+			Description: "Read UTF-8 workspace text with line metadata. Use startLine and lineCount to inspect source ranges before exact edits.",
+			RecoveryCard: agent.ToolRecoveryCard{
+				Does:       "Reads a text file or a requested line range from the workspace.",
+				Produces:   "Text content plus path, line range, total line count, size, and truncation metadata.",
+				SideEffect: "read",
+				UseWhen:    "You need current file content before file.edit, file.patch, or file.write.",
+				AvoidWhen:  "The file is binary or you already have the exact current text needed for an edit.",
+			},
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"startLine":{"type":"integer","description":"Optional 1-based first line to return."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."}},"required":["path"]}`),
 		},
 		Handler: func(toolContext context.Context, input fileReadToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
+	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileEditToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "file.edit",
+			Description: "Apply one exact text replacement in a UTF-8 workspace file. The oldText must appear exactly once.",
+			RecoveryCard: agent.ToolRecoveryCard{
+				Does:       "Replaces one exact oldText occurrence with newText in one workspace text file.",
+				Produces:   "A modified source, document, script, or config file with match metadata.",
+				SideEffect: "workspace_write",
+				UseWhen:    "A small targeted source or document change is needed and the current oldText is known.",
+				AvoidWhen:  "The change creates a new file, rewrites most of a file, or oldText is missing or ambiguous; use file.read first.",
+			},
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to modify."},"oldText":{"type":"string","description":"Exact existing text to replace; must appear exactly once."},"newText":{"type":"string","description":"Replacement text to write in place of oldText."}},"required":["path","oldText","newText"]}`),
+		},
+		Handler: func(toolContext context.Context, input fileEditToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.editFileTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
+	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[filePatchToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "file.patch",
+			Description: "Apply multiple exact text replacements as one all-or-nothing workspace patch. Each oldText must appear exactly once at the point it is applied.",
+			RecoveryCard: agent.ToolRecoveryCard{
+				Does:       "Applies structured exact replacements across one or more workspace text files.",
+				Produces:   "Modified source, document, script, or config files only after every edit validates.",
+				SideEffect: "workspace_write",
+				UseWhen:    "Several targeted edits should be applied together after reading current files.",
+				AvoidWhen:  "You need unified diff syntax, broad file rewrites, or the current oldText snippets are not known.",
+			},
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to modify."},"oldText":{"type":"string","description":"Exact existing text to replace; must appear exactly once when this edit is applied."},"newText":{"type":"string","description":"Replacement text."}},"required":["path","oldText","newText"]}}},"required":["edits"]}`),
+		},
+		Handler: func(toolContext context.Context, input filePatchToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.patchFileTool(toolContext, input, handlerContext)
 		},
 		Result: agent.IdentityToolResult,
 	})
@@ -982,7 +1046,7 @@ func siteBuildCommandFailureResult(buildResult agent.ToolResult, appWorkspace wo
 			RequiredPreconditions: []string{"source_changed"},
 			RecoveryHints: []agent.RecoveryHint{{
 				Action:    "edit_resource",
-				ToolNames: []string{"file.read", "file.write"},
+				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
 				Reason:    "Inspect the source file named in the build error, fix the syntax or content, then run site.app.build again.",
 			}},
 			AffectedResources: siteBuildFailureAffectedResources(buildResult.ContentText(), appWorkspace),
@@ -1065,7 +1129,7 @@ func siteDeliveryBlockedBuildResult(result map[string]any) agent.ToolResult {
 			RequiredPreconditions: []string{"source_changed"},
 			RecoveryHints: []agent.RecoveryHint{{
 				Action:    "edit_resource",
-				ToolNames: []string{"file.read", "file.write"},
+				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
 				Reason:    "Replace starter scaffold content in editableTargets, then run site.app.build again.",
 			}},
 			AffectedResources: siteDeliveryBlockedAffectedResources(result),
@@ -2082,8 +2146,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read", "current account cannot read this file"), nil
 	}
 	maxOutputBytes := input.MaxOutputBytes
-	if maxOutputBytes <= 0 || maxOutputBytes > 1024*1024 {
-		maxOutputBytes = 128 * 1024
+	if maxOutputBytes <= 0 || maxOutputBytes > maximumFileReadBytes {
+		maxOutputBytes = defaultFileReadMaximumBytes
 	}
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
 	if actorFailure != nil {
@@ -2100,12 +2164,235 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use a specialized document or artifact tool for binary files"), nil
 	}
+	readResult := fileReadResult(string(content), input.StartLine, input.LineCount)
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"path":        resolvedPath.VirtualPath,
-		"content":     string(content),
+		"content":     readResult.Content,
+		"startLine":   readResult.StartLine,
+		"endLine":     readResult.EndLine,
+		"totalLines":  readResult.TotalLines,
 		"sizeBytes":   len(content),
 		"isTruncated": isTruncated,
 	})), nil
+}
+
+type fileReadOutput struct {
+	Content    string
+	StartLine  int
+	EndLine    int
+	TotalLines int
+}
+
+func fileReadResult(content string, startLine int, lineCount int) fileReadOutput {
+	lines := splitFileLines(content)
+	totalLines := len(lines)
+	if totalLines == 0 {
+		return fileReadOutput{}
+	}
+	if startLine <= 0 {
+		return fileReadOutput{
+			Content:    content,
+			StartLine:  1,
+			EndLine:    totalLines,
+			TotalLines: totalLines,
+		}
+	}
+	if startLine > totalLines {
+		return fileReadOutput{
+			StartLine:  startLine,
+			EndLine:    startLine - 1,
+			TotalLines: totalLines,
+		}
+	}
+	if lineCount <= 0 {
+		lineCount = 200
+	}
+	endLine := startLine + lineCount - 1
+	if endLine > totalLines {
+		endLine = totalLines
+	}
+	return fileReadOutput{
+		Content:    strings.Join(lines[startLine-1:endLine], "\n"),
+		StartLine:  startLine,
+		EndLine:    endLine,
+		TotalLines: totalLines,
+	}
+}
+
+func splitFileLines(content string) []string {
+	if content == "" {
+		return nil
+	}
+	normalizedContent := strings.TrimSuffix(content, "\n")
+	if normalizedContent == "" {
+		return []string{""}
+	}
+	return strings.Split(normalizedContent, "\n")
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) editFileTool(toolContext context.Context, input fileEditToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	edit := filePatchEditInput{Path: input.Path, OldText: input.OldText, NewText: input.NewText}
+	patchInput := filePatchToolInput{Edits: []filePatchEditInput{edit}}
+	result, errorValue := toolCatalogBuilder.patchFileTool(toolContext, patchInput, handlerContext)
+	if result.Failed() && result.Failure.Stage == "file_patch" {
+		result.Failure.Stage = "file_edit"
+	}
+	return result, errorValue
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) patchFileTool(toolContext context.Context, input filePatchToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	if len(input.Edits) == 0 {
+		return fileExactEditFailure("file_patch", "", -1, 0, "edits is required"), nil
+	}
+	if len(input.Edits) > 100 {
+		return fileExactEditFailure("file_patch", "", -1, len(input.Edits), "too many edits; split the patch into smaller groups"), nil
+	}
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return *actorFailure, nil
+	}
+	patchState := newFilePatchState()
+	for editIndex, edit := range input.Edits {
+		if result := toolCatalogBuilder.validatePatchEdit(toolContext, handlerContext, workspaceActor, patchState, edit, editIndex); result != nil {
+			return *result, nil
+		}
+	}
+	if result := writePatchState(toolContext, workspaceActor, patchState); result != nil {
+		return *result, nil
+	}
+	return agent.ToolSuccess(marshalToolResult(map[string]any{
+		"editedFiles": patchState.virtualPaths(),
+		"editCount":   len(input.Edits),
+	})), nil
+}
+
+type filePatchState struct {
+	originalContents map[string]string
+	currentContents  map[string]string
+	resolvedPaths    map[string]ResolvedWorkspacePath
+	pathOrder        []string
+}
+
+func newFilePatchState() *filePatchState {
+	return &filePatchState{
+		originalContents: map[string]string{},
+		currentContents:  map[string]string{},
+		resolvedPaths:    map[string]ResolvedWorkspacePath{},
+	}
+}
+
+func (patchState *filePatchState) virtualPaths() []string {
+	paths := []string{}
+	for _, key := range patchState.pathOrder {
+		paths = append(paths, patchState.resolvedPaths[key].VirtualPath)
+	}
+	return paths
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) validatePatchEdit(toolContext context.Context, handlerContext toolHandlerContext, workspaceActor security.WorkspaceActor, patchState *filePatchState, edit filePatchEditInput, editIndex int) *agent.ToolResult {
+	if strings.TrimSpace(edit.Path) == "" {
+		result := fileExactEditFailure("file_patch", "", editIndex, 0, "path is required")
+		return &result
+	}
+	if edit.OldText == "" {
+		result := fileExactEditFailure("file_patch", strings.TrimSpace(edit.Path), editIndex, 0, "oldText is required")
+		return &result
+	}
+	resolvedPath, result := toolCatalogBuilder.resolveEditableFilePath(toolContext, handlerContext, workspaceActor, strings.TrimSpace(edit.Path), patchState)
+	if result != nil {
+		return result
+	}
+	key := resolvedPath.ConcretePath
+	currentContent := patchState.currentContents[key]
+	matchCount := strings.Count(currentContent, edit.OldText)
+	if matchCount != 1 {
+		result := fileExactEditFailure("file_patch", resolvedPath.VirtualPath, editIndex, matchCount, "oldText must match exactly once; read the file and retry with a more specific snippet")
+		return &result
+	}
+	patchState.currentContents[key] = strings.Replace(currentContent, edit.OldText, edit.NewText, 1)
+	return nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveEditableFilePath(toolContext context.Context, handlerContext toolHandlerContext, workspaceActor security.WorkspaceActor, path string, patchState *filePatchState) (ResolvedWorkspacePath, *agent.ToolResult) {
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
+	if errorValue != nil {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_patch", errorValue.Error())
+		return ResolvedWorkspacePath{}, &result
+	}
+	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
+		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_patch", "site.app.create manages this build manifest; edit DESIGN.md and app source files instead of app/package.json")
+		return ResolvedWorkspacePath{}, &result
+	}
+	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
+		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_patch", "file.patch cannot modify built-in skill files")
+		return ResolvedWorkspacePath{}, &result
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) || !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
+		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_patch", "current account cannot edit this file")
+		return ResolvedWorkspacePath{}, &result
+	}
+	if _, isLoaded := patchState.currentContents[resolvedPath.ConcretePath]; isLoaded {
+		return resolvedPath, nil
+	}
+	content, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, maximumEditableTextFileBytes+1)
+	if errorValue != nil {
+		result := actorToolFailure("read_file", "file_patch", resolvedPath.VirtualPath, errorValue)
+		return ResolvedWorkspacePath{}, &result
+	}
+	if len(content) > maximumEditableTextFileBytes {
+		result := fileExactEditFailure("file_patch", resolvedPath.VirtualPath, -1, 0, "file is too large for exact edit; rewrite a smaller generated file or use a more specific workflow")
+		return ResolvedWorkspacePath{}, &result
+	}
+	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_patch", "file.patch supports UTF-8 text files; use a specialized document or artifact tool for binary files")
+		return ResolvedWorkspacePath{}, &result
+	}
+	patchState.originalContents[resolvedPath.ConcretePath] = string(content)
+	patchState.currentContents[resolvedPath.ConcretePath] = string(content)
+	patchState.resolvedPaths[resolvedPath.ConcretePath] = resolvedPath
+	patchState.pathOrder = append(patchState.pathOrder, resolvedPath.ConcretePath)
+	return resolvedPath, nil
+}
+
+func writePatchState(toolContext context.Context, workspaceActor security.WorkspaceActor, patchState *filePatchState) *agent.ToolResult {
+	writtenKeys := []string{}
+	for _, key := range patchState.pathOrder {
+		resolvedPath := patchState.resolvedPaths[key]
+		if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(patchState.currentContents[key]), 0660); errorValue != nil {
+			rollbackPatchWrites(toolContext, workspaceActor, patchState, writtenKeys)
+			result := actorToolFailure("write_file", "file_patch", resolvedPath.VirtualPath, errorValue)
+			return &result
+		}
+		writtenKeys = append(writtenKeys, key)
+	}
+	return nil
+}
+
+func rollbackPatchWrites(toolContext context.Context, workspaceActor security.WorkspaceActor, patchState *filePatchState, writtenKeys []string) {
+	for _, key := range writtenKeys {
+		resolvedPath := patchState.resolvedPaths[key]
+		_ = workspaceActor.WriteFile(toolContext, resolvedPath, []byte(patchState.originalContents[key]), 0660)
+	}
+}
+
+func fileExactEditFailure(stage string, path string, editIndex int, matchCount int, guidance string) agent.ToolResult {
+	content := marshalToolResult(map[string]any{
+		"path":       strings.TrimSpace(path),
+		"editIndex":  editIndex,
+		"matchCount": matchCount,
+		"guidance":   strings.TrimSpace(guidance),
+	})
+	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, content, json.RawMessage(content))
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	result.Failure.RetryPolicy = "different_input"
+	result.Failure.RecoveryHints = []agent.RecoveryHint{{
+		Action:    "inspect_or_edit_text",
+		ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
+		Reason:    "Read the current file content, then retry with an exact oldText snippet or rewrite the full file.",
+	}}
+	return result
 }
 
 func isManagedSitePackageManifestPath(virtualPath string) bool {

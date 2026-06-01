@@ -980,6 +980,178 @@ func TestFileWriteDescribesContentAsExactFileBody(t *testing.T) {
 	}
 }
 
+func TestFileReadReturnsLineRangeMetadata(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "source.ts")
+	writeTestFile(t, filePath, "one\ntwo\nthree\nfour\n")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":      "tmp/source.ts",
+			"startLine": 2,
+			"lineCount": 2,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() {
+		t.Fatalf("expected file.read success, got %s", readResult.ContentText())
+	}
+	resultData := map[string]any{}
+	if errorValue := json.Unmarshal([]byte(readResult.ContentText()), &resultData); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if resultData["content"] != "two\nthree" || resultData["startLine"] != float64(2) || resultData["endLine"] != float64(3) || resultData["totalLines"] != float64(4) {
+		t.Fatalf("expected line range metadata, got %+v", resultData)
+	}
+}
+
+func TestFileEditReplacesSingleExactMatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "source.ts")
+	writeTestFile(t, filePath, "const title = 'Old';\n")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	editResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.edit",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":    "tmp/source.ts",
+			"oldText": "Old",
+			"newText": "New",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if editResult.Failed() {
+		t.Fatalf("expected file.edit success, got %s", editResult.ContentText())
+	}
+	document, errorValue := os.ReadFile(filePath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if string(document) != "const title = 'New';\n" {
+		t.Fatalf("expected exact replacement, got %q", string(document))
+	}
+}
+
+func TestFileEditRejectsAmbiguousExactMatch(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "source.ts")
+	writeTestFile(t, filePath, "same\nsame\n")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	editResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.edit",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":    "tmp/source.ts",
+			"oldText": "same",
+			"newText": "changed",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !editResult.Failed() {
+		t.Fatalf("expected ambiguous file.edit to fail, got %s", editResult.ContentText())
+	}
+	if editResult.Failure.Stage != "file_edit" || !strings.Contains(editResult.ContentText(), `"matchCount":2`) {
+		t.Fatalf("expected match count failure, got %+v %s", editResult.Failure, editResult.ContentText())
+	}
+	document, errorValue := os.ReadFile(filePath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if string(document) != "same\nsame\n" {
+		t.Fatalf("expected failed edit not to modify file, got %q", string(document))
+	}
+}
+
+func TestFilePatchAppliesMultipleExactEdits(t *testing.T) {
+	workspacePath := t.TempDir()
+	firstPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "one.ts")
+	secondPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "two.ts")
+	writeTestFile(t, firstPath, "alpha")
+	writeTestFile(t, secondPath, "beta")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	patchResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.patch",
+		Input: agent.MarshalToolInput(map[string]any{
+			"edits": []map[string]string{
+				{"path": "tmp/one.ts", "oldText": "alpha", "newText": "ALPHA"},
+				{"path": "tmp/two.ts", "oldText": "beta", "newText": "BETA"},
+			},
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if patchResult.Failed() {
+		t.Fatalf("expected file.patch success, got %s", patchResult.ContentText())
+	}
+	assertTestFileContent(t, firstPath, "ALPHA")
+	assertTestFileContent(t, secondPath, "BETA")
+}
+
+func TestFilePatchValidationIsAllOrNothing(t *testing.T) {
+	workspacePath := t.TempDir()
+	firstPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "one.ts")
+	secondPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "two.ts")
+	writeTestFile(t, firstPath, "alpha")
+	writeTestFile(t, secondPath, "beta")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	patchResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.patch",
+		Input: agent.MarshalToolInput(map[string]any{
+			"edits": []map[string]string{
+				{"path": "tmp/one.ts", "oldText": "alpha", "newText": "ALPHA"},
+				{"path": "tmp/two.ts", "oldText": "missing", "newText": "BETA"},
+			},
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !patchResult.Failed() {
+		t.Fatalf("expected file.patch failure, got %s", patchResult.ContentText())
+	}
+	if !strings.Contains(patchResult.ContentText(), `"editIndex":1`) || !strings.Contains(patchResult.ContentText(), `"matchCount":0`) {
+		t.Fatalf("expected failing edit metadata, got %s", patchResult.ContentText())
+	}
+	assertTestFileContent(t, firstPath, "alpha")
+	assertTestFileContent(t, secondPath, "beta")
+}
+
 func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	workspacePath := t.TempDir()
 	financeDirectoryPath := filepath.Join(workspacePath, "circles", "finance")
@@ -2912,6 +3084,17 @@ func writeTestFile(t *testing.T, path string, content string) {
 	}
 	if errorValue := os.WriteFile(path, []byte(content), 0600); errorValue != nil {
 		t.Fatal(errorValue)
+	}
+}
+
+func assertTestFileContent(t *testing.T, path string, expectedContent string) {
+	t.Helper()
+	content, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if string(content) != expectedContent {
+		t.Fatalf("expected %q, got %q", expectedContent, string(content))
 	}
 }
 

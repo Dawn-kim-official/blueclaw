@@ -232,7 +232,10 @@ func sitePrototypeSkill() agent.SkillInstruction {
 func sitePrototypeToolNames() []string {
 	return []string{
 		"terminal.run",
+		"file.read",
 		"file.write",
+		"file.edit",
+		"file.patch",
 		"site.app.create",
 		"site.app.publish",
 		"site.app.status",
