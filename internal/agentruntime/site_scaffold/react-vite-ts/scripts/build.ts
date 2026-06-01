@@ -36,21 +36,22 @@ function sourceContainsAny(source: string, values: string[]): boolean {
 	return values.some((value) => source.includes(value));
 }
 
-function collectDesignIssues(source: string): string[] {
-	const issues: string[] = [];
+function collectDesignQualityIssues(): QualityIssue[] {
+	const source = readSource("../DESIGN.md");
+	const issueMessages: string[] = [];
 	if (!source.startsWith("---\n")) {
-		issues.push("DESIGN.md must start with YAML front matter");
-		return issues;
+		issueMessages.push("DESIGN.md must start with YAML front matter");
+		return issueMessages.map(createDesignQualityIssue);
 	}
 	const frontMatterEnd = source.indexOf("\n---", 4);
 	if (frontMatterEnd < 0) {
-		issues.push("DESIGN.md front matter must end with ---");
-		return issues;
+		issueMessages.push("DESIGN.md front matter must end with ---");
+		return issueMessages.map(createDesignQualityIssue);
 	}
 	const frontMatter = source.slice(4, frontMatterEnd);
 	for (const key of ["colors", "typography", "rounded", "spacing", "components"]) {
 		if (!new RegExp("^" + key + "\\s*:", "m").test(frontMatter)) {
-			issues.push("DESIGN.md front matter is missing " + key);
+			issueMessages.push("DESIGN.md front matter is missing " + key);
 		}
 	}
 	const body = source.slice(frontMatterEnd + 4);
@@ -58,23 +59,25 @@ function collectDesignIssues(source: string): string[] {
 	for (const section of ["Overview", "Colors", "Typography", "Layout", "Elevation & Depth", "Shapes", "Components", "Do's and Don'ts"]) {
 		const sectionIndex = body.indexOf("## " + section);
 		if (sectionIndex < 0) {
-			issues.push("DESIGN.md body is missing section: " + section);
+			issueMessages.push("DESIGN.md body is missing section: " + section);
 			continue;
 		}
 		if (sectionIndex < previousIndex) {
-			issues.push("DESIGN.md section order is wrong at: " + section);
+			issueMessages.push("DESIGN.md section order is wrong at: " + section);
 		}
 		previousIndex = sectionIndex;
 	}
-	return issues;
+	return issueMessages.map(createDesignQualityIssue);
 }
 
-function lintDesignDocument(): void {
-	const designSource = readSource("../DESIGN.md");
-	const issues = collectDesignIssues(designSource);
-	if (issues.length > 0) {
-		throw new Error("DESIGN.md lint failed: " + issues.join("; "));
-	}
+function createDesignQualityIssue(message: string): QualityIssue {
+	return {
+		severity: "warning",
+		category: "designDocument",
+		target: "../DESIGN.md",
+		message,
+		suggestedFix: "Rewrite DESIGN.md using the canonical Stitch front matter and required section order.",
+	};
 }
 
 function collectQualityIssues(): QualityIssue[] {
@@ -117,17 +120,12 @@ function writeBuildQuality(issues: QualityIssue[]): void {
 	}, null, 2) + "\n");
 }
 
-if (!existsSync("../DESIGN.md")) {
-	throw new Error("DESIGN.md is required at the site workspace root");
-}
-
-const qualityIssues = collectQualityIssues();
+const qualityIssues = [...collectDesignQualityIssues(), ...collectQualityIssues()];
 writeBuildQuality(qualityIssues);
 
 if (!existsSync("node_modules")) {
 	await runCommand({ name: "bun", arguments: ["install"] });
 }
 
-lintDesignDocument();
 await runCommand({ name: "bun", arguments: ["x", "vite", "build"] });
 writeBuildQuality(qualityIssues);
