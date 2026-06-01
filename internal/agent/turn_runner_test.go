@@ -68,6 +68,41 @@ func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerAppliesPendingSteeringEvent(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		finishMessageDocument("HTML로 작성하겠습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "PDF 보고서를 작성한다")
+	services.taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.steer.requested", marshalEventBody(map[string]string{
+		"messageID":   "message-steer",
+		"instruction": "PDF 대신 HTML로 작성한다.",
+		"reason":      "user corrected output format",
+	}))
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ExistingTaskRunID: taskRun.TaskRunID,
+		ConversationID:    "conversation-1",
+		Prompt:            "PDF 보고서를 작성한다",
+		ResponseLanguage:  "ko",
+		ToolSet:           newTestToolSet(nil),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected steering event to apply: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(taskRun.TaskRunID), "task.steer.applied", "message-steer") {
+		t.Fatal("expected steer applied event")
+	}
+	if !strings.Contains(joinMessageContent(languageModel.requests[0].Messages), "PDF 대신 HTML") {
+		t.Fatalf("expected steering instruction in model context, got %+v", languageModel.requests[0].Messages)
+	}
+}
+
 func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","message":"작업 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,

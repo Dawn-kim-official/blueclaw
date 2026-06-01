@@ -355,6 +355,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	successfulToolCalls := map[string]turnObservation{}
 	limitPressureWarnings := map[string]bool{}
 	progressTracker := newActionProgressTracker(state.Observations)
+	appliedSteerEventIDs := appliedSteerEventIDsFromTaskEvents(agentTurnRunner.taskRunService.ListTaskEvent(taskRun.TaskRunID))
 	stopForNoProgress := func(stepID string) (AgentTurnResult, bool) {
 		progressEvaluation := progressTracker.evaluate(state.Observations)
 		if progressEvaluation.HasProgress {
@@ -378,6 +379,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
 			return cancelledResult, nil
 		}
+		state.Observations = agentTurnRunner.applyPendingSteeringEvents(taskRun.TaskRunID, state.Observations, appliedSteerEventIDs)
 		state.IterationCount = iteration - 1
 		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, state.ToolCallCount, len(state.Observations)+1, limitPressureWarnings); warning != nil {
 			state.Observations = append(state.Observations, warning.Observation)
@@ -577,6 +579,56 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	}
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "continue "+actionDocument.ToolName, observation.ContentText())
 	return toolCallActionOutcome{WasHandled: true}
+}
+
+func (agentTurnRunner *AgentTurnRunner) applyPendingSteeringEvents(taskRunID string, observations []turnObservation, appliedEventIDs map[string]bool) []turnObservation {
+	for _, taskEvent := range agentTurnRunner.taskRunService.ListTaskEvent(taskRunID) {
+		if taskEvent.Name != "task.steer.requested" || appliedEventIDs[taskEvent.TaskEventID] {
+			continue
+		}
+		var document struct {
+			MessageID   string `json:"messageID"`
+			Instruction string `json:"instruction"`
+			Reason      string `json:"reason"`
+		}
+		if json.Unmarshal([]byte(taskEvent.Body), &document) != nil {
+			continue
+		}
+		instruction := strings.TrimSpace(document.Instruction)
+		if instruction == "" {
+			continue
+		}
+		observation := newContentObservation(nextObservationID(len(observations)+1), "steer", "", marshalEventBody(map[string]string{
+			"instruction": instruction,
+			"reason":      strings.TrimSpace(document.Reason),
+			"messageID":   strings.TrimSpace(document.MessageID),
+		}))
+		observation.Summary = "User steering instruction: " + instruction
+		observations = append(observations, observation)
+		appliedEventIDs[taskEvent.TaskEventID] = true
+		agentTurnRunner.appendEvent(taskRunID, "task.steer.applied", marshalEventBody(map[string]string{
+			"sourceEventID": taskEvent.TaskEventID,
+			"observationID": observation.ObservationID,
+			"messageID":     strings.TrimSpace(document.MessageID),
+		}))
+	}
+	return observations
+}
+
+func appliedSteerEventIDsFromTaskEvents(taskEvents []task.TaskEvent) map[string]bool {
+	eventIDs := map[string]bool{}
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name != "task.steer.applied" {
+			continue
+		}
+		var document struct {
+			SourceEventID string `json:"sourceEventID"`
+		}
+		if json.Unmarshal([]byte(taskEvent.Body), &document) == nil && strings.TrimSpace(document.SourceEventID) != "" {
+			eventIDs[strings.TrimSpace(document.SourceEventID)] = true
+		}
+	}
+	return eventIDs
 }
 
 func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
@@ -1007,6 +1059,7 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction := "You are Blueclaw. Work as a careful task agent. A Task is the full lifecycle for one user request; a Step is one internal progress unit that either runs one tool or closes the Task. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName, toolInput, and nextStepPlan; optional continue.message is a short checkpoint and the tool still runs in the same Step. If Progress ledger already contains checkpointMessages, any new continue.message must read as a continuation or standalone status, not as a fresh reply to the user's original request; avoid repeated greetings, repeated user names, and promises to start later. nextStepPlan must name the next Step objective, expectedTools, expectedNextResults, doneCriteria, risk, and workingSetReason so the runtime can expose the right working set without forcing one hard route. expectedNextResults describes the natural-language intermediate results the next Step is trying to produce; expectedTools are only likely ways to get them. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
+	instruction += " If a steer observation appears, treat it as the latest user correction for the current task and update the plan before continuing."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
 	instruction += " If you know a needed tool or skill by name but it is missing from the current action schema, use require_capabilities with exact toolNames or skillNames; use tool.describe to inspect available tool schemas and skill.search to find skill names. Never run a Blueclaw tool name as a shell command in terminal.run."
 	instruction += " Ask the user only when their confirmation, choice, or free-form input is required. Use ask.confirm before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Do not ask for confirmation before ordinary non-destructive writes."
