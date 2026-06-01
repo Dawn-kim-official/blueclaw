@@ -680,6 +680,8 @@ func genericBuiltInToolNames() []string {
 		"browser_handoff.openURL",
 		"file.read",
 		"file.write",
+		"file.edit",
+		"file.patch",
 		"file.promote",
 		"file.attach",
 		"calendar.event.add",
@@ -1313,7 +1315,7 @@ func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, a
 	}
 	for _, toolName := range allowedTools {
 		switch strings.TrimSpace(toolName) {
-		case "terminal.run", "file.write", "file.promote", "file.attach":
+		case "terminal.run", "file.write", "file.edit", "file.patch", "file.promote", "file.attach":
 			return true
 		}
 	}

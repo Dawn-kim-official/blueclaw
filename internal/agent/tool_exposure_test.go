@@ -312,6 +312,45 @@ func TestToolSelectionContextUsesCompactCards(t *testing.T) {
 	}
 }
 
+func TestFileToolCardsSeparateWriteEditAndPatchRoles(t *testing.T) {
+	toolSet := NewToolSet([]string{"file.write", "file.edit", "file.patch"})
+	handler := func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	}
+	toolSet.RegisterTool(ToolDefinition{
+		Name: "file.write",
+		RecoveryCard: ToolRecoveryCard{
+			Does:      "Overwrites one workspace text file with the exact content string.",
+			UseWhen:   "A new file or full rewrite is needed.",
+			AvoidWhen: "A small targeted source change is needed.",
+		},
+	}, handler)
+	toolSet.RegisterTool(ToolDefinition{
+		Name: "file.edit",
+		RecoveryCard: ToolRecoveryCard{
+			Does:      "Replaces one exact oldText occurrence with newText.",
+			UseWhen:   "A small targeted source change is needed.",
+			AvoidWhen: "The oldText is missing or ambiguous.",
+		},
+	}, handler)
+	toolSet.RegisterTool(ToolDefinition{
+		Name: "file.patch",
+		RecoveryCard: ToolRecoveryCard{
+			Does:      "Applies structured exact replacements across files.",
+			UseWhen:   "Several targeted edits should be applied together.",
+			AvoidWhen: "A broad file rewrite is needed.",
+		},
+	}, handler)
+
+	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "file tools", ToolIDs: []string{"file.write", "file.edit", "file.patch"}}})
+
+	for _, expectedText := range []string{"file.write", "full rewrite", "file.edit", "oldText", "file.patch", "Several targeted edits"} {
+		if !strings.Contains(cards, expectedText) {
+			t.Fatalf("expected file tool card text %q in %s", expectedText, cards)
+		}
+	}
+}
+
 func TestToolSelectionRouterReturnsEmptyOnModelFailure(t *testing.T) {
 	router := NewToolSelectionRouter(failingRecoveryLanguageModel{})
 	decision, event := router.Select(context.Background(), toolSelectionRequest{

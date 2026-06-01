@@ -204,7 +204,7 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 		}
 		switch normalizedPrecondition {
 		case "source_changed":
-			if observation.Tool == "file.write" || observation.Tool == "file.promote" {
+			if observation.Tool == "file.write" || observation.Tool == "file.edit" || observation.Tool == "file.patch" || observation.Tool == "file.promote" {
 				return true
 			}
 		case "workspace_repaired":
