@@ -1542,6 +1542,9 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if !strings.Contains(buildScript, `PATH: canonicalRuntimePATH`) {
 		t.Fatalf("build script must pass canonical PATH to child commands")
 	}
+	if strings.Contains(buildScript, `existsSync("node_modules")`) {
+		t.Fatalf("build script must refresh dependencies instead of trusting stale node_modules")
+	}
 	if !strings.Contains(buildScript, `collectDesignQualityIssues`) || !strings.Contains(buildScript, `category: "designDocument"`) {
 		t.Fatalf("build script must report DESIGN.md quality issues in-process")
 	}
