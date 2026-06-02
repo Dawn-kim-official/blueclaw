@@ -128,3 +128,34 @@ func TestRequiredLinkVerificationAcceptsExactObservedURLInFinalMessage(t *testin
 		t.Fatalf("expected satisfied verification with exact final URL, got %+v", verification)
 	}
 }
+
+func TestRequiredLinkVerificationAcceptsTrailingSlashDifference(t *testing.T) {
+	expectedResults := []ExpectedResult{{
+		ID:          "site-public-link",
+		Type:        ExpectedResultTypeLink,
+		Description: "사용자가 열 수 있는 public URL의 개인 홈페이지",
+		Required:    true,
+	}}
+	verification := ResultVerification{
+		OverallStatus: "satisfied",
+		Results: []ResultVerificationItem{{
+			ID:                  "site-public-link",
+			Status:              "satisfied",
+			Reason:              "A published URL exists.",
+			CitedObservationIDs: []string{"obs-001"},
+		}},
+	}
+	observedResults := []ObservedResult{{
+		Type:          ExpectedResultTypeLink,
+		Description:   "site.app.publish result: URL: https://portfolio-probe.device.example.test",
+		ObservationID: "obs-001",
+		ToolName:      "site.app.publish",
+		URL:           "https://portfolio-probe.device.example.test",
+	}}
+
+	verification = enforceObservedResultRequirements(expectedResults, observedResults, "배포했습니다: https://portfolio-probe.device.example.test/", verification)
+
+	if verification.OverallStatus != "satisfied" {
+		t.Fatalf("expected satisfied verification with trailing slash difference, got %+v", verification)
+	}
+}
