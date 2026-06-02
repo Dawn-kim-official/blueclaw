@@ -915,8 +915,13 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	if toolContextIndex < 0 || visibleContextIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
 		t.Fatalf("expected visible context, memory, and prompt messages, got %+v", languageModel.request.Messages)
 	}
-	if !(toolContextIndex < visibleContextIndex && visibleContextIndex < memoryIndex && memoryIndex < promptIndex) {
-		t.Fatalf("expected tool context before visible context before memory before prompt, got tool=%d visible=%d memory=%d prompt=%d", toolContextIndex, visibleContextIndex, memoryIndex, promptIndex)
+	contextBody := joinConnectorMessageContent(languageModel.request.Messages)
+	toolContextTextIndex := strings.Index(contextBody, "Available tool catalog")
+	visibleContextTextIndex := strings.Index(contextBody, "admin: 이전 메시지")
+	memoryTextIndex := strings.Index(contextBody, "간결한 설계")
+	promptTextIndex := strings.LastIndex(contextBody, event.Prompt)
+	if !(toolContextTextIndex < visibleContextTextIndex && visibleContextTextIndex < memoryTextIndex && memoryTextIndex < promptTextIndex) {
+		t.Fatalf("expected tool context before visible context before memory before prompt, got %q", contextBody)
 	}
 }
 
@@ -2111,6 +2116,14 @@ func structuredMessagesContain(messages []llm.Message, fragment string) bool {
 		}
 	}
 	return false
+}
+
+func joinConnectorMessageContent(messages []llm.Message) string {
+	parts := []string{}
+	for _, message := range messages {
+		parts = append(parts, message.Content)
+	}
+	return strings.Join(parts, "\n")
 }
 
 func messageIndex(messages []llm.Message, fragment string) int {

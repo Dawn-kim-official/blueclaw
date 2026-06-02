@@ -47,17 +47,17 @@ func TestCapabilityPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {
 	}
 }
 
-func TestCapabilityPlatformAdapterParsesMattermostAskAction(t *testing.T) {
+func TestCapabilityPlatformAdapterParsesNormalizedAskAction(t *testing.T) {
 	adapter := NewCapabilityPlatformAdapter("mattermost", capability.Client{})
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/connectors/mattermost/events",
-		bytes.NewReader([]byte(`{"user_id":"user-1","post_id":"post-1","channel_id":"channel-1","context":{"action":"ask.choice","interactionID":"interaction-1","taskRunID":"task-1","conversationID":"channel-1","replyTargetID":"reply-target-1","choiceKey":"B","responseLanguage":"ko"}}`)),
+		bytes.NewReader([]byte(`{"event":{"conversationID":"channel-1","messageID":"ask:post-1:ask.choice:interaction-1:B","senderID":"user-1","replyTargetID":"reply-target-1","prompt":"selected B","responseLanguage":"ko","context":{"channelID":"channel-1","conversationType":"direct"},"legacyFields":{"askAction":"choice","interactionID":"interaction-1","taskRunID":"task-1","choiceKey":"B","postID":"post-1"}}}`)),
 	)
 
 	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected ask action to parse: %v", errorValue)
+		t.Fatalf("expected normalized ask action to parse: %v", errorValue)
 	}
 
 	if !parseResult.HasEvent {
@@ -68,6 +68,23 @@ func TestCapabilityPlatformAdapterParsesMattermostAskAction(t *testing.T) {
 	}
 	if parseResult.Event.LegacyFields["askAction"] != "choice" || parseResult.Event.LegacyFields["choiceKey"] != "B" || parseResult.Event.LegacyFields["postID"] != "post-1" {
 		t.Fatalf("expected ask legacy fields, got %+v", parseResult.Event.LegacyFields)
+	}
+}
+
+func TestCapabilityPlatformAdapterDoesNotParseMattermostRawAskAction(t *testing.T) {
+	adapter := NewCapabilityPlatformAdapter("mattermost", capability.Client{})
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/connectors/mattermost/events",
+		bytes.NewReader([]byte(`{"user_id":"user-1","post_id":"post-1","channel_id":"channel-1","context":{"action":"ask.choice","interactionID":"interaction-1","taskRunID":"task-1","conversationID":"channel-1","replyTargetID":"reply-target-1","choiceKey":"B","responseLanguage":"ko"}}`)),
+	)
+
+	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected raw ask payload to be ignored without parser error: %v", errorValue)
+	}
+	if parseResult.HasEvent {
+		t.Fatalf("expected raw Mattermost payload to stay outside Blueclaw core, got %+v", parseResult.Event)
 	}
 }
 

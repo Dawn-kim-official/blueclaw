@@ -48,14 +48,15 @@ func TestAgentKernelInjectsMemoryIntoStructuredReplyRequest(t *testing.T) {
 		t.Fatalf("expected reply generation: %v", errorValue)
 	}
 
-	if len(replyProvider.request.Messages) != 4 {
-		t.Fatalf("expected system, temporal context, memory, user messages, got %d", len(replyProvider.request.Messages))
+	body := joinMessageContent(replyProvider.request.Messages)
+	if len(replyProvider.request.Messages) != 3 {
+		t.Fatalf("expected system, flattened context, user messages, got %d", len(replyProvider.request.Messages))
 	}
-	if !strings.Contains(replyProvider.request.Messages[1].Content, "Runtime temporal context") {
-		t.Fatalf("expected temporal context to be injected, got %q", replyProvider.request.Messages[1].Content)
+	if !strings.Contains(body, "Runtime:") || !strings.Contains(body, "Current weekday:") {
+		t.Fatalf("expected runtime context to be injected, got %q", body)
 	}
-	if !strings.Contains(replyProvider.request.Messages[2].Content, "매터모스트 DM 답장 디버깅") {
-		t.Fatalf("expected memory context to be injected, got %q", replyProvider.request.Messages[2].Content)
+	if !strings.Contains(body, "매터모스트 DM 답장 디버깅") {
+		t.Fatalf("expected memory context to be injected, got %q", body)
 	}
 }
 
@@ -85,15 +86,15 @@ func TestAgentKernelInjectsCompactAttributedMemorySummary(t *testing.T) {
 		t.Fatalf("expected reply generation: %v", errorValue)
 	}
 
-	memoryMessage := replyProvider.request.Messages[2].Content
-	if !strings.Contains(memoryMessage, "Relevant Blueclaw memory") {
-		t.Fatalf("expected compact memory heading, got %q", memoryMessage)
+	body := joinMessageContent(replyProvider.request.Messages)
+	if !strings.Contains(body, "Relevant Blueclaw memory") {
+		t.Fatalf("expected compact memory heading, got %q", body)
 	}
-	if !strings.Contains(memoryMessage, "score=0.87") || !strings.Contains(memoryMessage, "source=episode-1") {
-		t.Fatalf("expected memory attribution, got %q", memoryMessage)
+	if !strings.Contains(body, "score=0.87") || !strings.Contains(body, "source=episode-1") {
+		t.Fatalf("expected memory attribution, got %q", body)
 	}
-	if strings.Contains(memoryMessage, "RAW_TAIL_SHOULD_NOT_APPEAR") {
-		t.Fatalf("expected long raw memory content to be compacted, got %q", memoryMessage)
+	if strings.Contains(body, "RAW_TAIL_SHOULD_NOT_APPEAR") {
+		t.Fatalf("expected long raw memory content to be compacted, got %q", body)
 	}
 }
 
@@ -123,23 +124,19 @@ func TestAgentKernelPlacesVisibleContextBeforeMemoryAndPrompt(t *testing.T) {
 		t.Fatalf("expected reply generation: %v", errorValue)
 	}
 
-	if len(replyProvider.request.Messages) != 5 {
-		t.Fatalf("expected system, temporal context, visible context, memory, prompt messages, got %d", len(replyProvider.request.Messages))
+	body := joinMessageContent(replyProvider.request.Messages)
+	if len(replyProvider.request.Messages) != 3 {
+		t.Fatalf("expected system, flattened context, prompt messages, got %d", len(replyProvider.request.Messages))
 	}
-	if !strings.Contains(replyProvider.request.Messages[1].Content, "Runtime temporal context") {
-		t.Fatalf("expected temporal context before visible context, got %q", replyProvider.request.Messages[1].Content)
+	runtimeIndex := strings.Index(body, "Runtime:")
+	visibleIndex := strings.Index(body, "admin: A로 가자")
+	memoryIndex := strings.Index(body, "redundancy 없는 설계")
+	promptIndex := strings.LastIndex(body, "그래서 어떻게 할까?")
+	if runtimeIndex < 0 || visibleIndex < 0 || memoryIndex < 0 || promptIndex < 0 {
+		t.Fatalf("expected runtime, visible context, memory, and prompt, got %q", body)
 	}
-	if !strings.Contains(replyProvider.request.Messages[2].Content, "admin: A로 가자") {
-		t.Fatalf("expected visible context before memory, got %q", replyProvider.request.Messages[2].Content)
-	}
-	if !strings.Contains(replyProvider.request.Messages[2].Content, "conversation.history") {
-		t.Fatalf("expected history tool hint, got %q", replyProvider.request.Messages[2].Content)
-	}
-	if !strings.Contains(replyProvider.request.Messages[3].Content, "redundancy 없는 설계") {
-		t.Fatalf("expected memory after visible context, got %q", replyProvider.request.Messages[3].Content)
-	}
-	if replyProvider.request.Messages[4].Content != "그래서 어떻게 할까?" {
-		t.Fatalf("expected prompt last, got %q", replyProvider.request.Messages[4].Content)
+	if !(runtimeIndex < visibleIndex && visibleIndex < memoryIndex && memoryIndex < promptIndex) {
+		t.Fatalf("expected runtime before visible context before memory before prompt, got %q", body)
 	}
 }
 

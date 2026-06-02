@@ -16,7 +16,7 @@ func TestPromptAssemblerIncludesTemporalContext(t *testing.T) {
 	body := joinMessageContent(messages)
 
 	for _, expected := range []string{
-		"Runtime temporal context:",
+		"Runtime:",
 		"Current date: 2026-05-12",
 		"Current weekday: Tuesday",
 		"Current time: 2026-05-12T17:32:27+09:00",
@@ -34,7 +34,7 @@ func TestPromptAssemblerIncludesTemporalContextInDirectReplies(t *testing.T) {
 	messages := (PromptAssembler{}).BuildReplyMessages("오늘 무슨 요일이야?", VisibleContext{}, "", "")
 	body := joinMessageContent(messages)
 
-	if !strings.Contains(body, "Runtime temporal context") || !strings.Contains(body, "Current date:") || !strings.Contains(body, "Current weekday:") {
+	if !strings.Contains(body, "Runtime:") || !strings.Contains(body, "Current date:") || !strings.Contains(body, "Current weekday:") {
 		t.Fatalf("expected direct reply temporal context, got %s", body)
 	}
 }
@@ -122,7 +122,7 @@ func TestPromptAssemblerIncludesTurnDateContext(t *testing.T) {
 	}, nil, "base", "")
 	body := joinMessageContent(messages)
 
-	if !strings.Contains(body, "Runtime context") || !strings.Contains(body, "Current turn date: 2026-05-09") || !strings.Contains(body, "Current turn weekday: Saturday") || !strings.Contains(body, "Default calendar timezone: Asia/Seoul") {
+	if !strings.Contains(body, "Runtime:") || !strings.Contains(body, "Current date: 2026-05-09") || !strings.Contains(body, "Current weekday: Saturday") || !strings.Contains(body, "Time zone: Asia/Seoul") {
 		t.Fatalf("expected turn date context, got %s", body)
 	}
 }
