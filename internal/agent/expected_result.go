@@ -299,7 +299,8 @@ func observedURLsFromText(value string) []string {
 }
 
 func normalizeObservedURL(value string) string {
-	return strings.TrimRight(strings.TrimSpace(value), ".,);:!?")
+	normalizedURL := strings.TrimRight(strings.TrimSpace(value), ".,);:!?")
+	return strings.TrimRight(normalizedURL, "/")
 }
 
 func expectedResultByID(expectedResults []ExpectedResult, id string) ExpectedResult {
