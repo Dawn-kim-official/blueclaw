@@ -337,7 +337,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.DefaultAllowedToolNames([]string{"conversation.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "tool.describe", "schedule.create", "schedule.cancel"})
+	return agent.DefaultAllowedToolNames([]string{"conversation.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "document.read", "image.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "tool.describe", "schedule.create", "schedule.cancel"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -767,10 +767,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 		if toolName == "file.read" {
 			continue
 		}
+		toolDescription := firstNonEmptyString(toolDescriptor.Description, defaultCapabilityToolDescription(toolName))
 		toolRegistry.RegisterBoundTool(agent.BoundTool{
 			Definition: agent.ToolDefinition{
 				Name:            toolName,
-				Description:     firstNonEmptyString(toolDescriptor.Description, "InternKim capability tool"),
+				Description:     toolDescription,
 				InputSchema:     toolDescriptor.InputSchema,
 				OutputSchema:    toolDescriptor.OutputSchema,
 				PolicyResource:  toolDescriptor.PolicyResource,
@@ -824,6 +825,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				return capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
 			},
 		})
+	}
+}
+
+func defaultCapabilityToolDescription(toolName string) string {
+	switch strings.TrimSpace(toolName) {
+	case "document.read":
+		return "Read a workspace document or Mattermost attachment path as Markdown using the shared document conversion pipeline. Use for PDFs, office documents, and other non-image files listed in the conversation attachment catalog."
+	case "image.read":
+		return "Load a workspace image or Mattermost image attachment path into the model as an image input. Use only when visual inspection is needed; do not call for PDFs or text documents."
+	default:
+		return "InternKim capability tool"
 	}
 }
 
@@ -2932,8 +2944,48 @@ func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolCon
 		toolInput, toolFailure, errorValue := toolCatalogBuilder.enrichSitePublishInput(toolContext, request, toolInput)
 		return toolInput, toolFailure, errorValue
 	}
+	if capabilityToolNeedsWorkspacePath(toolName) {
+		input, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePathInput(toolName, request, toolInput)
+		return input, nil, errorValue
+	}
 	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput(toolName, request, toolInput)
 	return toolInput, nil, errorValue
+}
+
+func capabilityToolNeedsWorkspacePath(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "document.read", "image.read":
+		return true
+	default:
+		return false
+	}
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInput(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
+	inputDocument := map[string]any{}
+	if len(toolInput) > 0 {
+		if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
+			return nil, errorValue
+		}
+	}
+	path, _ := inputDocument["path"].(string)
+	resolvedPath, errorValue := toolCatalogBuilder.resolveReadableCapabilityPath(request, path)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	inputDocument["path"] = toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath)
+	return json.Marshal(inputDocument)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableCapabilityPath(request ToolCatalogRequest, path string) (ResolvedWorkspacePath, error) {
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
+	if errorValue != nil {
+		return ResolvedWorkspacePath{}, errorValue
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
+		return ResolvedWorkspacePath{}, errors.New("current account cannot read this file")
+	}
+	return resolvedPath, nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
@@ -3315,23 +3367,6 @@ func toolResultPointer(result agent.ToolResult) *agent.ToolResult {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) error {
-	if strings.TrimSpace(toolName) != "file.read" {
-		return nil
-	}
-	inputDocument := map[string]any{}
-	if len(toolInput) > 0 {
-		if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
-			return errorValue
-		}
-	}
-	path, _ := inputDocument["path"].(string)
-	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
-	if errorValue != nil {
-		return errorValue
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		return errors.New("current account cannot read this file")
-	}
 	return nil
 }
 
@@ -3592,12 +3627,12 @@ func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
 	if len(result) == 0 {
 		return nil
 	}
-	var attachment agent.FileAttachment
+	var attachment capabilityFileAttachment
 	if errorValue := json.Unmarshal(result, &attachment); errorValue == nil && strings.TrimSpace(attachment.DevicePath) != "" {
-		return []agent.FileAttachment{attachment}
+		return []agent.FileAttachment{attachment.agentFileAttachment()}
 	}
 	var document struct {
-		Attachments []agent.FileAttachment `json:"attachments"`
+		Attachments []capabilityFileAttachment `json:"attachments"`
 	}
 	if errorValue := json.Unmarshal(result, &document); errorValue != nil {
 		return nil
@@ -3605,10 +3640,30 @@ func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
 	attachments := []agent.FileAttachment{}
 	for _, candidate := range document.Attachments {
 		if strings.TrimSpace(candidate.DevicePath) != "" {
-			attachments = append(attachments, candidate)
+			attachments = append(attachments, candidate.agentFileAttachment())
 		}
 	}
 	return attachments
+}
+
+type capabilityFileAttachment struct {
+	DevicePath    string `json:"devicePath"`
+	Filename      string `json:"filename,omitempty"`
+	ContentType   string `json:"contentType,omitempty"`
+	SizeBytes     int64  `json:"sizeBytes,omitempty"`
+	Title         string `json:"title,omitempty"`
+	ContentBase64 string `json:"contentBase64,omitempty"`
+}
+
+func (attachment capabilityFileAttachment) agentFileAttachment() agent.FileAttachment {
+	return agent.FileAttachment{
+		DevicePath:    attachment.DevicePath,
+		Filename:      attachment.Filename,
+		ContentType:   attachment.ContentType,
+		SizeBytes:     attachment.SizeBytes,
+		Title:         attachment.Title,
+		ContentBase64: attachment.ContentBase64,
+	}
 }
 
 func capabilityRecoveryActions(result json.RawMessage) []agent.RecoveryAction {
