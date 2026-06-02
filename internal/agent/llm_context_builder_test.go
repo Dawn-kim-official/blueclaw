@@ -82,6 +82,45 @@ func TestLLMContextBuilderOmitsEmptyOptionalSections(t *testing.T) {
 	}
 }
 
+func TestLLMContextBuilderIncludesAttachmentCatalog(t *testing.T) {
+	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
+		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
+		VisibleContext: VisibleContext{
+			Messages: []VisibleContextMessage{{
+				Speaker: "admin",
+				Text:    "이 파일 봐줘",
+				Materials: []VisibleContextMaterial{{
+					MaterialID:  "mattermost:file-1",
+					Filename:    "report.pdf",
+					ContentType: "application/pdf",
+					Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/report.pdf",
+					MessageID:   "post-1",
+				}},
+			}},
+			Materials: []VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-2",
+				Filename:    "screen.png",
+				ContentType: "image/png",
+				Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/post-2/screen.png",
+				MessageID:   "post-2",
+			}},
+		},
+	})
+
+	for _, expected := range []string{
+		"admin attached materialID=mattermost:file-1",
+		"filename=report.pdf",
+		"Available conversation attachments:",
+		"materialID=mattermost:file-2",
+		"filename=screen.png",
+		"path=/workspace/circles/staff/inbox/mattermost/thread-1/post-2/screen.png",
+	} {
+		if !strings.Contains(contextText, expected) {
+			t.Fatalf("expected attachment catalog %q, got %s", expected, contextText)
+		}
+	}
+}
+
 func assertContextOrder(t *testing.T, contextText string, fragments []string) {
 	t.Helper()
 	searchStart := 0

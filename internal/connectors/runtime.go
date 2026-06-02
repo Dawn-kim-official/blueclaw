@@ -212,6 +212,7 @@ type VisibleContext struct {
 	ChannelName      string                  `json:"channelName,omitempty"`
 	Addressing       AddressingMetadata      `json:"addressing,omitempty"`
 	InputAttachments []InputAttachment       `json:"inputAttachments,omitempty"`
+	Materials        []InputAttachment       `json:"materials,omitempty"`
 }
 
 type InputAttachment struct {
@@ -242,10 +243,11 @@ type VisibleContextSender struct {
 }
 
 type VisibleContextMessage struct {
-	Speaker            string `json:"speaker"`
-	SpeakerCallingName string `json:"speakerCallingName,omitempty"`
-	SpeakerHandle      string `json:"speakerHandle,omitempty"`
-	Text               string `json:"text"`
+	Speaker            string            `json:"speaker"`
+	SpeakerCallingName string            `json:"speakerCallingName,omitempty"`
+	SpeakerHandle      string            `json:"speakerHandle,omitempty"`
+	Text               string            `json:"text"`
+	InputAttachments   []InputAttachment `json:"inputAttachments,omitempty"`
 }
 
 type HTTPParseResult struct {
@@ -923,7 +925,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		stopProgress = connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
 		isProgressStarted = true
 	}
-	event = connectorRuntime.withInputParts(ctx, adapter, event, personID)
+	event = connectorRuntime.withAttachmentMaterials(ctx, adapter, event, personID)
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	precomputedTurnDecision := precomputedTurnDecisionForLaunch(turnDecision, hasPendingConfirmation, askTurnDecision, hasAskTurnDecision)
@@ -1992,51 +1994,110 @@ func (connectorRuntime *ConnectorRuntime) withInitialVisibleContext(ctx context.
 	if strings.TrimSpace(event.Context.HistoryCursor) == "" {
 		event.Context.HistoryCursor = historyCursor
 	}
-	if len(visibleContext.Messages) == 0 {
+	if len(visibleContext.Messages) == 0 && len(visibleContext.Materials) == 0 {
 		return event
 	}
 	event.Context.Messages = visibleContext.Messages
+	event.Context.Materials = append(event.Context.Materials, visibleContext.Materials...)
 	event.Context.HasMoreBefore = visibleContext.HasMoreBefore
 	event.Context.HistoryCursor = firstNonEmptyString(visibleContext.HistoryCursor, event.Context.HistoryCursor)
 	event.Context.ResponseLanguage = firstNonEmptyString(event.Context.ResponseLanguage, visibleContext.ResponseLanguage)
 	return event
 }
 
-func (connectorRuntime *ConnectorRuntime) withInputParts(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, personID string) PlatformInboundEvent {
-	if len(event.InputParts) > 0 || len(event.Context.InputAttachments) == 0 {
+func (connectorRuntime *ConnectorRuntime) withAttachmentMaterials(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, personID string) PlatformInboundEvent {
+	attachments := connectorUniqueInputAttachments(append(event.Context.Materials, event.Context.InputAttachments...))
+	if len(attachments) == 0 {
 		return event
 	}
 	importingAdapter, isSupported := adapter.(InputAttachmentImportingAdapter)
 	if !isSupported {
-		event.InputParts = append(event.InputParts, agent.TextAgentPart("The user attached file(s), but this platform adapter cannot import them into the LLM context."))
+		event.Context.Materials = attachments
 		return event
 	}
-	targetDirectoryPath := connectorInputAttachmentDirectory(personID, event)
+	scope := connectorInputAttachmentScope(personID, event)
+	targetDirectoryPath := connectorInputAttachmentDirectory(scope, event)
 	result, errorValue := importingAdapter.ImportInputAttachments(ctx, InputAttachmentImportRequest{
 		MessageID:           event.MessageID,
 		TargetDirectoryPath: targetDirectoryPath,
-		InputAttachments:    append([]InputAttachment{}, event.Context.InputAttachments...),
+		InputAttachments:    attachments,
 	})
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+adapter.Name()+".attachments.import_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		event.InputParts = append(event.InputParts, agent.TextAgentPart("The user attached file(s), but attachment import failed before the model could inspect them: "+errorValue.Error()))
+		event.Context.Materials = attachments
 		return event
 	}
-	event.InputParts = append(event.InputParts, result.InputParts...)
 	if len(result.InputAttachments) > 0 {
-		event.Context.InputAttachments = result.InputAttachments
+		importedAttachments := connectorReadableInputAttachments(result.InputAttachments, personID, scope)
+		event.Context.InputAttachments = connectorReadableInputAttachments(event.Context.InputAttachments, personID, scope)
+		event.Context.Materials = connectorUniqueInputAttachments(importedAttachments)
 	}
 	return event
 }
 
-func connectorInputAttachmentDirectory(personID string, event PlatformInboundEvent) string {
-	owner := strings.TrimSpace(personID)
-	if owner == "" {
-		owner = "unknown"
-	}
+func connectorInputAttachmentScope(personID string, event PlatformInboundEvent) agentruntime.ConversationResourceScope {
+	return agentruntime.ConversationScopeForRequest("/workspace", agentruntime.ToolCatalogRequest{
+		RequesterPersonID:       personID,
+		ConversationID:          event.ConversationID,
+		ConversationType:        event.Context.ConversationType,
+		ConversationChannelID:   event.Context.ChannelID,
+		ConversationChannelName: event.Context.ChannelName,
+	})
+}
+
+func connectorInputAttachmentDirectory(scope agentruntime.ConversationResourceScope, event PlatformInboundEvent) string {
 	platform := connectorSafePathSegment(firstNonEmptyString(event.Platform, "platform"))
+	conversationID := connectorSafePathSegment(firstNonEmptyString(event.ConversationID, "conversation"))
 	messageID := connectorSafePathSegment(firstNonEmptyString(event.MessageID, "message"))
-	return "/workspace/private/people/" + connectorSafePathSegment(owner) + "/inbox/" + platform + "/" + messageID
+	return strings.TrimRight(scope.DefaultDirectoryPath, "/") + "/inbox/" + platform + "/" + conversationID + "/" + messageID
+}
+
+func connectorReadableInputAttachments(attachments []InputAttachment, personID string, scope agentruntime.ConversationResourceScope) []InputAttachment {
+	result := make([]InputAttachment, 0, len(attachments))
+	for _, attachment := range attachments {
+		attachment.Path = connectorReadableAttachmentPath(attachment.Path, personID, scope)
+		result = append(result, attachment)
+	}
+	return result
+}
+
+func connectorReadableAttachmentPath(path string, personID string, scope agentruntime.ConversationResourceScope) string {
+	if scope.Kind != "private" || strings.TrimSpace(personID) == "" {
+		return path
+	}
+	prefix := "/workspace/private/people/" + connectorSafePathSegment(personID)
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == prefix {
+		return "home"
+	}
+	if strings.HasPrefix(trimmedPath, prefix+"/") {
+		return "home/" + strings.TrimPrefix(trimmedPath, prefix+"/")
+	}
+	return path
+}
+
+func connectorUniqueInputAttachments(attachments []InputAttachment) []InputAttachment {
+	seen := map[string]bool{}
+	result := make([]InputAttachment, 0, len(attachments))
+	for _, attachment := range attachments {
+		key := connectorInputAttachmentKey(attachment)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, attachment)
+	}
+	return result
+}
+
+func connectorInputAttachmentKey(attachment InputAttachment) string {
+	if strings.TrimSpace(attachment.FileID) != "" {
+		return strings.TrimSpace(attachment.Platform) + ":" + strings.TrimSpace(attachment.FileID)
+	}
+	if strings.TrimSpace(attachment.Path) != "" {
+		return strings.TrimSpace(attachment.Platform) + ":" + strings.TrimSpace(attachment.Path)
+	}
+	return ""
 }
 
 func connectorSafePathSegment(value string) string {
@@ -2533,15 +2594,47 @@ func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContex
 			SpeakerCallingName: message.SpeakerCallingName,
 			SpeakerHandle:      message.SpeakerHandle,
 			Text:               message.Text,
+			Materials:          agentVisibleContextMaterials(message.InputAttachments),
 		})
 	}
 
 	return agent.VisibleContext{
 		Messages:         messages,
+		Materials:        agentVisibleContextMaterials(visibleContext.Materials),
 		HasMoreBefore:    visibleContext.HasMoreBefore,
 		HistoryCursor:    visibleContext.HistoryCursor,
 		ResponseLanguage: visibleContext.ResponseLanguage,
 	}
+}
+
+func agentVisibleContextMaterials(attachments []InputAttachment) []agent.VisibleContextMaterial {
+	materials := make([]agent.VisibleContextMaterial, 0, len(attachments))
+	for _, attachment := range attachments {
+		if strings.TrimSpace(attachment.FileID) == "" && strings.TrimSpace(attachment.Path) == "" {
+			continue
+		}
+		materials = append(materials, agent.VisibleContextMaterial{
+			MaterialID:  attachmentMaterialID(attachment),
+			Platform:    attachment.Platform,
+			MessageID:   attachment.MessageID,
+			Filename:    attachment.Filename,
+			ContentType: attachment.ContentType,
+			SizeBytes:   attachment.SizeBytes,
+			Path:        attachment.Path,
+			IsAvailable: attachment.IsAvailable,
+			ErrorCode:   attachment.ErrorCode,
+			Message:     attachment.Message,
+		})
+	}
+	return materials
+}
+
+func attachmentMaterialID(attachment InputAttachment) string {
+	fileID := strings.TrimSpace(attachment.FileID)
+	if fileID != "" {
+		return firstNonEmptyString(strings.TrimSpace(attachment.Platform), "attachment") + ":" + fileID
+	}
+	return firstNonEmptyString(strings.TrimSpace(attachment.Platform), "attachment") + ":" + connectorSafePathSegment(attachment.Path)
 }
 
 func responseLanguageForEvent(event PlatformInboundEvent) string {

@@ -1028,25 +1028,22 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSendsImportedImageAttachmentToModel(t *testing.T) {
+func TestConnectorRuntimeAddsImportedImageAttachmentCatalog(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "이미지 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
-		InputParts: []agent.AgentPart{{
-			Type: agent.AgentPartTypeImage,
-			Image: &agent.AgentImagePart{
-				MimeType:   "image/png",
-				DataBase64: "aW1hZ2U=",
-				Filename:   "mascot.png",
-			},
-			File: &agent.AgentFilePart{
-				Path:        "/workspace/private/people/person-1/inbox/mattermost/post-1/mascot.png",
-				Filename:    "mascot.png",
-				ContentType: "image/png",
-			},
+		InputAttachments: []InputAttachment{{
+			Platform:    "mattermost",
+			FileID:      "file-1",
+			MessageID:   "message-1",
+			Filename:    "mascot.png",
+			ContentType: "image/png",
+			Path:        "/workspace/private/people/person-1/inbox/mattermost/direct-1/message-1/mascot.png",
+			IsAvailable: true,
 		}},
 	}
 	event := testInboundEvent("message-1")
+	event.Context.ConversationType = "D"
 	event.Context.InputAttachments = []InputAttachment{{Platform: "mattermost", FileID: "file-1", MessageID: "message-1"}}
 
 	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
@@ -1056,24 +1053,29 @@ func TestConnectorRuntimeSendsImportedImageAttachmentToModel(t *testing.T) {
 	if len(adapter.inputAttachmentImportRequests) != 1 {
 		t.Fatalf("expected one attachment import request, got %+v", adapter.inputAttachmentImportRequests)
 	}
-	if !connectorMessagesContainImagePart(languageModel.request.Messages, "image/png", "aW1hZ2U=") {
-		t.Fatalf("expected imported image part in model request, got %+v", languageModel.request.Messages)
+	body := joinConnectorMessageContent(languageModel.request.Messages)
+	for _, expected := range []string{"Available conversation attachments", "filename=mascot.png", "contentType=image/png", "path=home/inbox/mattermost/direct-1/message-1/mascot.png"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected attachment catalog %q in model request, got %s", expected, body)
+		}
+	}
+	if connectorMessagesContainImagePart(languageModel.request.Messages, "image/png", "aW1hZ2U=") {
+		t.Fatalf("expected no automatic image rehydrate, got %+v", languageModel.request.Messages)
 	}
 }
 
-func TestConnectorRuntimeSendsMarkitdownPreviewAttachmentToModel(t *testing.T) {
+func TestConnectorRuntimeAddsDocumentAttachmentCatalog(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "파일 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
-		InputParts: []agent.AgentPart{{
-			Type: agent.AgentPartTypeFile,
-			File: &agent.AgentFilePart{
-				Path:             "/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf",
-				Filename:         "report.pdf",
-				ContentType:      "application/pdf",
-				MarkdownPreview:  "# Report\n\nConverted content",
-				ConversionStatus: "converted",
-			},
+		InputAttachments: []InputAttachment{{
+			Platform:    "mattermost",
+			FileID:      "file-1",
+			MessageID:   "message-1",
+			Filename:    "report.pdf",
+			ContentType: "application/pdf",
+			Path:        "/workspace/circles/staff/inbox/mattermost/direct-1/message-1/report.pdf",
+			IsAvailable: true,
 		}},
 	}
 	event := testInboundEvent("message-1")
@@ -1084,26 +1086,30 @@ func TestConnectorRuntimeSendsMarkitdownPreviewAttachmentToModel(t *testing.T) {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 	body := joinConnectorMessageContent(languageModel.request.Messages)
-	for _, expected := range []string{"report.pdf", "Markdown preview:", "Converted content"} {
+	for _, expected := range []string{"Available conversation attachments", "filename=report.pdf", "contentType=application/pdf", "path=/workspace/circles/staff/inbox/mattermost/direct-1/message-1/report.pdf"} {
 		if !strings.Contains(body, expected) {
-			t.Fatalf("expected MarkItDown preview %q in model request, got %s", expected, body)
+			t.Fatalf("expected attachment catalog %q in model request, got %s", expected, body)
 		}
+	}
+	if strings.Contains(body, "Markdown preview:") || strings.Contains(body, "Converted content") {
+		t.Fatalf("expected no automatic document rehydrate, got %s", body)
 	}
 }
 
-func TestConnectorRuntimeSendsUnsupportedAttachmentMetadataToModel(t *testing.T) {
+func TestConnectorRuntimeAddsUnavailableAttachmentCatalog(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "파일 메타데이터 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
-		InputParts: []agent.AgentPart{{
-			Type: agent.AgentPartTypeFile,
-			File: &agent.AgentFilePart{
-				Path:              "/workspace/private/people/person-1/inbox/mattermost/post-1/archive.bin",
-				Filename:          "archive.bin",
-				ContentType:       "application/octet-stream",
-				ConversionStatus:  "failed",
-				ConversionMessage: "unsupported format",
-			},
+		InputAttachments: []InputAttachment{{
+			Platform:    "mattermost",
+			FileID:      "file-1",
+			MessageID:   "message-1",
+			Filename:    "archive.bin",
+			ContentType: "application/octet-stream",
+			Path:        "/workspace/circles/staff/inbox/mattermost/direct-1/message-1/archive.bin",
+			IsAvailable: false,
+			ErrorCode:   "download_failed",
+			Message:     "unsupported format",
 		}},
 	}
 	event := testInboundEvent("message-1")
@@ -1114,7 +1120,7 @@ func TestConnectorRuntimeSendsUnsupportedAttachmentMetadataToModel(t *testing.T)
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 	body := joinConnectorMessageContent(languageModel.request.Messages)
-	for _, expected := range []string{"archive.bin", "application/octet-stream", "conversionStatus: failed", "/workspace/private/people/person-1/inbox/mattermost/post-1/archive.bin"} {
+	for _, expected := range []string{"archive.bin", "application/octet-stream", "available=false", "errorCode=download_failed", "unsupported format"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected unsupported file metadata %q in model request, got %s", expected, body)
 		}

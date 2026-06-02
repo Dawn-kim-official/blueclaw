@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -1363,6 +1364,7 @@ func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, a
 
 type VisibleContext struct {
 	Messages         []VisibleContextMessage
+	Materials        []VisibleContextMaterial
 	HasMoreBefore    bool
 	HistoryCursor    string
 	ResponseLanguage string
@@ -1373,6 +1375,20 @@ type VisibleContextMessage struct {
 	SpeakerCallingName string
 	SpeakerHandle      string
 	Text               string
+	Materials          []VisibleContextMaterial
+}
+
+type VisibleContextMaterial struct {
+	MaterialID  string
+	Platform    string
+	MessageID   string
+	Filename    string
+	ContentType string
+	SizeBytes   int64
+	Path        string
+	IsAvailable bool
+	ErrorCode   string
+	Message     string
 }
 
 func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {
@@ -1784,9 +1800,20 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 		if text != "" {
 			contextLines = append(contextLines, "- "+speaker+": "+text)
 		}
+		for _, material := range message.Materials {
+			if line := formatVisibleContextMaterial(material); line != "" {
+				contextLines = append(contextLines, "- "+speaker+" attached "+line)
+			}
+		}
+	}
+	materialLines := []string{}
+	for _, material := range visibleContext.Materials {
+		if line := formatVisibleContextMaterial(material); line != "" {
+			materialLines = append(materialLines, "- "+line)
+		}
 	}
 
-	if len(contextLines) == 0 && !visibleContext.HasMoreBefore {
+	if len(contextLines) == 0 && len(materialLines) == 0 && !visibleContext.HasMoreBefore {
 		return ""
 	}
 
@@ -1795,11 +1822,56 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 		historyLine = "There are earlier visible messages not included here. Ask for conversation.history if older context is needed."
 	}
 
-	if len(contextLines) == 0 {
+	if len(contextLines) == 0 && len(materialLines) == 0 {
 		return "Recent visible conversation context:\n" + historyLine
 	}
 
-	return "Recent visible conversation context:\n" + strings.Join(contextLines, "\n") + "\n" + historyLine
+	sections := []string{}
+	if len(contextLines) > 0 {
+		sections = append(sections, strings.Join(contextLines, "\n"))
+	}
+	if len(materialLines) > 0 {
+		sections = append(sections, "Available conversation attachments:\n"+strings.Join(materialLines, "\n"))
+	}
+	sections = append(sections, historyLine)
+	return "Recent visible conversation context:\n" + strings.Join(sections, "\n")
+}
+
+func formatVisibleContextMaterial(material VisibleContextMaterial) string {
+	filename := strings.TrimSpace(material.Filename)
+	path := strings.TrimSpace(material.Path)
+	if filename == "" && path == "" {
+		return ""
+	}
+	values := []string{}
+	if material.MaterialID != "" {
+		values = append(values, "materialID="+material.MaterialID)
+	}
+	if filename != "" {
+		values = append(values, "filename="+filename)
+	}
+	if material.ContentType != "" {
+		values = append(values, "contentType="+material.ContentType)
+	}
+	if material.SizeBytes > 0 {
+		values = append(values, fmt.Sprintf("sizeBytes=%d", material.SizeBytes))
+	}
+	if path != "" {
+		values = append(values, "path="+path)
+	}
+	if material.MessageID != "" {
+		values = append(values, "sourceMessageID="+material.MessageID)
+	}
+	if !material.IsAvailable {
+		values = append(values, "available=false")
+	}
+	if material.ErrorCode != "" {
+		values = append(values, "errorCode="+material.ErrorCode)
+	}
+	if material.Message != "" {
+		values = append(values, "message="+material.Message)
+	}
+	return strings.Join(values, " ")
 }
 
 func formatSpeakerLabel(callingName string, handle string, fullName string) string {
