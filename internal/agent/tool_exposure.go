@@ -176,9 +176,7 @@ func deterministicToolSelection(toolIDs []string, reason string) (ToolSelectionD
 }
 
 func toolSelectionFallbackFitsCap(request toolSelectionRequest) bool {
-	groups := []toolExposureGroup{}
-	groups = append(groups, request.CoreGroups...)
-	groups = append(groups, request.CandidateGroups...)
+	groups := fallbackToolExposureGroups(request.CoreGroups, request.CandidateGroups)
 	_, droppedGroups := applyGroupCap(groups, maxSchemaCallableToolCount)
 	return len(droppedGroups) == 0
 }
@@ -259,8 +257,7 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 		groups = append(groups, coreGroups...)
 	} else {
 		selectionEvent.UsedFallbackGroups = true
-		groups = append(groups, coreGroups...)
-		groups = append(groups, candidateGroups...)
+		groups = fallbackToolExposureGroups(coreGroups, candidateGroups)
 	}
 
 	exposedToolIDs, droppedGroups := applyGroupCap(groups, maxSchemaCallableToolCount)
@@ -274,6 +271,26 @@ func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
 		return exposedToolIDs
 	}
 	return []string{"__blueclaw_no_callable_tools__"}
+}
+
+func fallbackToolExposureGroups(coreGroups []toolExposureGroup, candidateGroups []toolExposureGroup) []toolExposureGroup {
+	orderedGroups := []toolExposureGroup{}
+	orderedGroups = append(orderedGroups, candidateGroupsWithName(candidateGroups, "G4 recovery/pinned candidates")...)
+	orderedGroups = append(orderedGroups, candidateGroupsWithName(candidateGroups, "G5 selected-skill candidates")...)
+	orderedGroups = append(orderedGroups, candidateGroupsWithName(candidateGroups, "G6 active-goal candidates")...)
+	orderedGroups = append(orderedGroups, coreGroups...)
+	orderedGroups = append(orderedGroups, candidateGroupsWithName(candidateGroups, "G7 generic candidates")...)
+	return orderedGroups
+}
+
+func candidateGroupsWithName(groups []toolExposureGroup, name string) []toolExposureGroup {
+	matchingGroups := []toolExposureGroup{}
+	for _, group := range groups {
+		if group.Name == name {
+			matchingGroups = append(matchingGroups, group)
+		}
+	}
+	return matchingGroups
 }
 
 func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selections ...ToolSelectionDecision) *ToolSet {

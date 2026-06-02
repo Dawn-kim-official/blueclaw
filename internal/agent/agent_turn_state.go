@@ -155,7 +155,16 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 }
 
 func nextCompletionAttachmentPath(state CompletionState) string {
+	paths := nextCompletionAttachmentPaths(state)
+	if len(paths) == 0 {
+		return ""
+	}
+	return paths[0]
+}
+
+func nextCompletionAttachmentPaths(state CompletionState) []string {
 	attachedPathByName := map[string]bool{}
+	paths := []string{}
 	for _, evidence := range state.AttachedEvidence {
 		if strings.TrimSpace(evidence.DevicePath) != "" {
 			attachedPathByName[strings.TrimSpace(evidence.DevicePath)] = true
@@ -172,12 +181,9 @@ func nextCompletionAttachmentPath(state CompletionState) string {
 		if attachedPathByName[trimmedPath] || attachedPathByName[filepath.Base(trimmedPath)] {
 			continue
 		}
-		return trimmedPath
+		paths = append(paths, trimmedPath)
 	}
-	if len(state.AttachmentPaths) == 0 {
-		return ""
-	}
-	return strings.TrimSpace(state.AttachmentPaths[0])
+	return paths
 }
 
 func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest {

@@ -310,6 +310,42 @@ func TestFileAttachToolAttachesSinglePath(t *testing.T) {
 	}
 }
 
+func TestFileAttachToolAttachesMultipleFiles(t *testing.T) {
+	workspacePath := t.TempDir()
+	requesterDeckPath := filepath.Join(workspacePath, "private", "people", "person-1", "artifacts", "deck")
+	writeTestFile(t, filepath.Join(requesterDeckPath, "deck.html"), "<html></html>")
+	writeTestFile(t, filepath.Join(requesterDeckPath, "deck.pptx"), "pptx")
+
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.attach",
+		Input: agent.MarshalToolInput(map[string]any{
+			"files": []map[string]string{
+				{"path": "artifacts/deck/deck.html", "contentType": "text/html"},
+				{"path": "artifacts/deck/deck.pptx", "contentType": "application/vnd.openxmlformats-officedocument.presentationml.presentation"},
+			},
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected successful attachment result, got %s", result.ContentText())
+	}
+	if len(result.Attachments) != 2 {
+		t.Fatalf("expected two attachments, got %+v", result.Attachments)
+	}
+	if result.Attachments[0].Filename != "deck.html" || result.Attachments[1].Filename != "deck.pptx" {
+		t.Fatalf("expected attachment filenames to match paths, got %+v", result.Attachments)
+	}
+}
+
 func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
