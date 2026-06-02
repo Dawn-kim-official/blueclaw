@@ -19,7 +19,7 @@ func TestCapabilityPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/connectors/mattermost/events",
-		bytes.NewReader([]byte(`{"conversationID":"channel-1","messageID":"post-1","senderID":"user-1","replyTargetID":"reply-target-1","prompt":"안녕","context":{"messages":[{"speaker":"admin","text":"이전"}],"hasMoreBefore":true,"historyCursor":"cursor-1"}}`)),
+		bytes.NewReader([]byte(`{"conversationID":"channel-1","messageID":"post-1","senderID":"user-1","replyTargetID":"reply-target-1","prompt":"안녕","inputParts":[{"type":"image","image":{"mimeType":"image/png","dataBase64":"aW1hZ2U=","filename":"screen.png"}}],"context":{"messages":[{"speaker":"admin","text":"이전"}],"hasMoreBefore":true,"historyCursor":"cursor-1","inputAttachments":[{"platform":"mattermost","fileID":"file-1","messageID":"post-1"}]}}`)),
 	)
 
 	parseResult, errorValue := adapter.ParseHTTPEvent(context.Background(), request)
@@ -44,6 +44,12 @@ func TestCapabilityPlatformAdapterParsesNormalizedHTTPEvent(t *testing.T) {
 	}
 	if !parseResult.Event.Context.HasMoreBefore || parseResult.Event.Context.HistoryCursor != "cursor-1" {
 		t.Fatalf("expected history metadata, got %+v", parseResult.Event.Context)
+	}
+	if len(parseResult.Event.InputParts) != 1 || parseResult.Event.InputParts[0].Type != agent.AgentPartTypeImage {
+		t.Fatalf("expected input image part, got %+v", parseResult.Event.InputParts)
+	}
+	if len(parseResult.Event.Context.InputAttachments) != 1 || parseResult.Event.Context.InputAttachments[0].FileID != "file-1" {
+		t.Fatalf("expected input attachment metadata, got %+v", parseResult.Event.Context.InputAttachments)
 	}
 }
 
@@ -109,6 +115,37 @@ func TestCapabilityPlatformAdapterResolvesInteraction(t *testing.T) {
 	}
 	if receivedPath != "/v1/platform/mattermost/interaction.resolve" || receivedBody["dispatchID"] != "post-1" {
 		t.Fatalf("unexpected resolve request path=%q body=%+v", receivedPath, receivedBody)
+	}
+}
+
+func TestCapabilityPlatformAdapterImportsInputAttachments(t *testing.T) {
+	var receivedPath string
+	var receivedBody InputAttachmentImportRequest
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		receivedPath = request.URL.Path
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedBody); errorValue != nil {
+			t.Fatalf("expected request body to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"inputParts":[{"type":"file","file":{"path":"/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf","filename":"report.pdf","markdownPreview":"# Report"}}]}`), nil
+	}}
+	adapter := NewCapabilityPlatformAdapter("mattermost", capability.Client{
+		Endpoint:   "http://capability.test",
+		HTTPClient: httpClient,
+	})
+
+	result, errorValue := adapter.ImportInputAttachments(context.Background(), InputAttachmentImportRequest{
+		MessageID:           "post-1",
+		TargetDirectoryPath: "/workspace/private/people/person-1/inbox/mattermost/post-1",
+		InputAttachments:    []InputAttachment{{Platform: "mattermost", FileID: "file-1"}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected attachment import to succeed: %v", errorValue)
+	}
+	if receivedPath != "/v1/platform/mattermost/attachments.import" || receivedBody.MessageID != "post-1" {
+		t.Fatalf("unexpected import request path=%q body=%+v", receivedPath, receivedBody)
+	}
+	if len(result.InputParts) != 1 || result.InputParts[0].Type != agent.AgentPartTypeFile {
+		t.Fatalf("expected imported file part, got %+v", result.InputParts)
 	}
 }
 

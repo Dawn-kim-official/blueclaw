@@ -43,6 +43,7 @@ type TaskLaunchRequest struct {
 	ActiveCircleConflict      bool
 	ReplyTargetID             string
 	Prompt                    string
+	InputParts                []agent.AgentPart
 	ResponseLanguage          string
 	VisibleContext            agent.VisibleContext
 	ActiveGoal                agent.ActiveGoal
@@ -153,6 +154,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ProfileName:             normalizedProfileName,
 		ConversationID:          request.ConversationID,
 		Prompt:                  request.Prompt,
+		InputParts:              append([]agent.AgentPart{}, request.InputParts...),
 		ResponseLanguage:        request.ResponseLanguage,
 		VisibleContext:          request.VisibleContext,
 		ActiveGoal:              request.ActiveGoal,

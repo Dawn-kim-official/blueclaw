@@ -185,6 +185,15 @@ func (adapter CapabilityPlatformAdapter) FetchHistory(ctx context.Context, histo
 	return response, nil
 }
 
+func (adapter CapabilityPlatformAdapter) ImportInputAttachments(ctx context.Context, request InputAttachmentImportRequest) (InputAttachmentImportResult, error) {
+	var response InputAttachmentImportResult
+	errorValue := adapter.post(ctx, "attachments.import", request, &response)
+	if errorValue != nil {
+		return InputAttachmentImportResult{}, errorValue
+	}
+	return response, nil
+}
+
 func (adapter CapabilityPlatformAdapter) NotInvitedReply() string {
 	return CapabilityNotInvitedReply
 }

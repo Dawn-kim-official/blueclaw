@@ -12,6 +12,7 @@ type LLMContextBuilder struct{}
 type LLMContextInput struct {
 	ResponseLanguage  string
 	UserPrompt        string
+	InputParts        []AgentPart
 	TurnStartedAt     time.Time
 	InstructionPrompt string
 	ToolDescription   string
@@ -197,6 +198,7 @@ func agentTurnRequestForContext(input LLMContextInput) AgentTurnRequest {
 		WorkspaceDefaultPath:  input.WorkspaceContext.DefaultPath,
 		CurrentStepPlan:       input.CurrentStepPlan,
 		VisibleContext:        input.VisibleContext,
+		InputParts:            append([]AgentPart{}, input.InputParts...),
 		ActiveGoal:            input.ActiveGoal,
 		RequiredEvidenceTools: nil,
 	}

@@ -45,6 +45,7 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		ConversationChannelName:   event.Context.ChannelName,
 		ReplyTargetID:             event.ReplyTargetID,
 		Prompt:                    event.Prompt,
+		InputParts:                append([]agent.AgentPart{}, event.InputParts...),
 		ResponseLanguage:          responseLanguageForEvent(event),
 		VisibleContext:            event.Context.ToAgentVisibleContext(),
 		ActiveGoal:                activeGoalForLaunch(turn.ActiveGoal, turn.HasActiveGoal),

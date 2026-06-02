@@ -1028,6 +1028,99 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeSendsImportedImageAttachmentToModel(t *testing.T) {
+	languageModel := &recordingLanguageModel{reply: "이미지 확인"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
+		InputParts: []agent.AgentPart{{
+			Type: agent.AgentPartTypeImage,
+			Image: &agent.AgentImagePart{
+				MimeType:   "image/png",
+				DataBase64: "aW1hZ2U=",
+				Filename:   "mascot.png",
+			},
+			File: &agent.AgentFilePart{
+				Path:        "/workspace/private/people/person-1/inbox/mattermost/post-1/mascot.png",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+			},
+		}},
+	}
+	event := testInboundEvent("message-1")
+	event.Context.InputAttachments = []InputAttachment{{Platform: "mattermost", FileID: "file-1", MessageID: "message-1"}}
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+	if len(adapter.inputAttachmentImportRequests) != 1 {
+		t.Fatalf("expected one attachment import request, got %+v", adapter.inputAttachmentImportRequests)
+	}
+	if !connectorMessagesContainImagePart(languageModel.request.Messages, "image/png", "aW1hZ2U=") {
+		t.Fatalf("expected imported image part in model request, got %+v", languageModel.request.Messages)
+	}
+}
+
+func TestConnectorRuntimeSendsMarkitdownPreviewAttachmentToModel(t *testing.T) {
+	languageModel := &recordingLanguageModel{reply: "파일 확인"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
+		InputParts: []agent.AgentPart{{
+			Type: agent.AgentPartTypeFile,
+			File: &agent.AgentFilePart{
+				Path:             "/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf",
+				Filename:         "report.pdf",
+				ContentType:      "application/pdf",
+				MarkdownPreview:  "# Report\n\nConverted content",
+				ConversionStatus: "converted",
+			},
+		}},
+	}
+	event := testInboundEvent("message-1")
+	event.Context.InputAttachments = []InputAttachment{{Platform: "mattermost", FileID: "file-1", MessageID: "message-1"}}
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+	body := joinConnectorMessageContent(languageModel.request.Messages)
+	for _, expected := range []string{"report.pdf", "Markdown preview:", "Converted content"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected MarkItDown preview %q in model request, got %s", expected, body)
+		}
+	}
+}
+
+func TestConnectorRuntimeSendsUnsupportedAttachmentMetadataToModel(t *testing.T) {
+	languageModel := &recordingLanguageModel{reply: "파일 메타데이터 확인"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
+		InputParts: []agent.AgentPart{{
+			Type: agent.AgentPartTypeFile,
+			File: &agent.AgentFilePart{
+				Path:              "/workspace/private/people/person-1/inbox/mattermost/post-1/archive.bin",
+				Filename:          "archive.bin",
+				ContentType:       "application/octet-stream",
+				ConversionStatus:  "failed",
+				ConversionMessage: "unsupported format",
+			},
+		}},
+	}
+	event := testInboundEvent("message-1")
+	event.Context.InputAttachments = []InputAttachment{{Platform: "mattermost", FileID: "file-1", MessageID: "message-1"}}
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+	body := joinConnectorMessageContent(languageModel.request.Messages)
+	for _, expected := range []string{"archive.bin", "application/octet-stream", "conversionStatus: failed", "/workspace/private/people/person-1/inbox/mattermost/post-1/archive.bin"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected unsupported file metadata %q in model request, got %s", expected, body)
+		}
+	}
+}
+
 func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "맥락 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1877,18 +1970,21 @@ func TestPlatformInboundEventOnlyUsesTextAndSenderCompatibilityAliases(t *testin
 }
 
 type testAdapter struct {
-	senderEmail        string
-	sendReplyError     error
-	reactionError      error
-	httpParseResult    HTTPParseResult
-	sentReplies        []testReply
-	reactions          []ReactionTarget
-	progressStarts     []ReplyTarget
-	progressStops      []ReplyTarget
-	progressStopErrors []error
-	historyCursors     []string
-	operationNames     []string
-	resolutions        []InteractionResolution
+	senderEmail                   string
+	sendReplyError                error
+	reactionError                 error
+	httpParseResult               HTTPParseResult
+	inputAttachmentImportResult   InputAttachmentImportResult
+	inputAttachmentImportError    error
+	inputAttachmentImportRequests []InputAttachmentImportRequest
+	sentReplies                   []testReply
+	reactions                     []ReactionTarget
+	progressStarts                []ReplyTarget
+	progressStops                 []ReplyTarget
+	progressStopErrors            []error
+	historyCursors                []string
+	operationNames                []string
+	resolutions                   []InteractionResolution
 }
 
 type testReply struct {
@@ -2018,6 +2114,14 @@ func (adapter *testAdapter) ResolveIdentity(context.Context, string) (identity.P
 		Email:          adapter.senderEmail,
 		DisplayName:    "Sender",
 	}, nil
+}
+
+func (adapter *testAdapter) ImportInputAttachments(_ context.Context, request InputAttachmentImportRequest) (InputAttachmentImportResult, error) {
+	adapter.inputAttachmentImportRequests = append(adapter.inputAttachmentImportRequests, request)
+	if adapter.inputAttachmentImportError != nil {
+		return InputAttachmentImportResult{}, adapter.inputAttachmentImportError
+	}
+	return adapter.inputAttachmentImportResult, nil
 }
 
 func (adapter *testAdapter) StartProgress(_ context.Context, target ReplyTarget) error {
@@ -2218,6 +2322,11 @@ func structuredMessagesContain(messages []llm.Message, fragment string) bool {
 		if strings.Contains(message.Content, fragment) {
 			return true
 		}
+		for _, part := range message.Parts {
+			if part.Type == "text" && strings.Contains(part.Text, fragment) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -2226,8 +2335,24 @@ func joinConnectorMessageContent(messages []llm.Message) string {
 	parts := []string{}
 	for _, message := range messages {
 		parts = append(parts, message.Content)
+		for _, messagePart := range message.Parts {
+			if messagePart.Type == "text" {
+				parts = append(parts, messagePart.Text)
+			}
+		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func connectorMessagesContainImagePart(messages []llm.Message, mimeType string, dataBase64 string) bool {
+	for _, message := range messages {
+		for _, part := range message.Parts {
+			if part.Type == "image" && part.MimeType == mimeType && part.DataBase64 == dataBase64 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func messageIndex(messages []llm.Message, fragment string) int {
