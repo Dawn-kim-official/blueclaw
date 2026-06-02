@@ -52,6 +52,56 @@ func TestPromptAssemblerIncludesStepBudgetContext(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblerIncludesInputImagePart(t *testing.T) {
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt: "이거 뭔지 알아?",
+		InputParts: []AgentPart{{
+			Type: AgentPartTypeImage,
+			Image: &AgentImagePart{
+				MimeType:   "image/png",
+				DataBase64: "aW1hZ2U=",
+				Filename:   "mascot.png",
+			},
+			File: &AgentFilePart{
+				Path:        "/workspace/private/people/person-1/inbox/mattermost/post-1/mascot.png",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+			},
+		}},
+	}, nil, "base", "")
+
+	if !messagesContainImagePart(messages) {
+		t.Fatalf("expected input image part in LLM messages, got %+v", messages)
+	}
+	body := joinMessageContent(messages)
+	if !strings.Contains(body, "Attached file:") || !strings.Contains(body, "mascot.png") {
+		t.Fatalf("expected image file context text, got %s", body)
+	}
+}
+
+func TestPromptAssemblerIncludesInputFileMarkdownPreview(t *testing.T) {
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt: "요약해줘",
+		InputParts: []AgentPart{{
+			Type: AgentPartTypeFile,
+			File: &AgentFilePart{
+				Path:             "/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf",
+				Filename:         "report.pdf",
+				ContentType:      "application/pdf",
+				MarkdownPreview:  "# 보고서\n\n핵심 내용",
+				ConversionStatus: "converted",
+			},
+		}},
+	}, nil, "base", "")
+
+	body := joinMessageContent(messages)
+	for _, expected := range []string{"report.pdf", "Markdown preview:", "# 보고서", "핵심 내용"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected file markdown preview %q, got %s", expected, body)
+		}
+	}
+}
+
 func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
@@ -235,6 +285,11 @@ func joinMessageContent(messages []llm.Message) string {
 	parts := []string{}
 	for _, message := range messages {
 		parts = append(parts, message.Content)
+		for _, messagePart := range message.Parts {
+			if messagePart.Type == "text" {
+				parts = append(parts, messagePart.Text)
+			}
+		}
 	}
 	return strings.Join(parts, "\n")
 }

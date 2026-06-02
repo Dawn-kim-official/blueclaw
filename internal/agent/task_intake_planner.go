@@ -92,6 +92,7 @@ type AgentRequest struct {
 	ProfileName             string
 	ConversationID          string
 	Prompt                  string
+	InputParts              []AgentPart
 	ResponseLanguage        string
 	VisibleContext          VisibleContext
 	MemoryFacts             []memory.MemoryFact

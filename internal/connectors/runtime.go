@@ -53,6 +53,7 @@ type PlatformInboundEvent struct {
 	SenderID         string                 `json:"senderID"`
 	ReplyTargetID    string                 `json:"replyTargetID"`
 	Prompt           string                 `json:"prompt"`
+	InputParts       []agent.AgentPart      `json:"inputParts,omitempty"`
 	ResponseLanguage string                 `json:"responseLanguage,omitempty"`
 	Context          VisibleContext         `json:"context"`
 	RawReceivedAt    time.Time              `json:"-"`
@@ -210,6 +211,20 @@ type VisibleContext struct {
 	ChannelID        string                  `json:"channelID,omitempty"`
 	ChannelName      string                  `json:"channelName,omitempty"`
 	Addressing       AddressingMetadata      `json:"addressing,omitempty"`
+	InputAttachments []InputAttachment       `json:"inputAttachments,omitempty"`
+}
+
+type InputAttachment struct {
+	Platform    string `json:"platform,omitempty"`
+	FileID      string `json:"fileID,omitempty"`
+	MessageID   string `json:"messageID,omitempty"`
+	Filename    string `json:"filename,omitempty"`
+	ContentType string `json:"contentType,omitempty"`
+	SizeBytes   int64  `json:"sizeBytes,omitempty"`
+	Path        string `json:"path,omitempty"`
+	IsAvailable bool   `json:"isAvailable,omitempty"`
+	ErrorCode   string `json:"errorCode,omitempty"`
+	Message     string `json:"message,omitempty"`
 }
 
 type AddressingMetadata struct {
@@ -269,6 +284,21 @@ type PlatformAdapter interface {
 
 type InteractionResolvingAdapter interface {
 	ResolveInteraction(context.Context, InteractionResolution) error
+}
+
+type InputAttachmentImportingAdapter interface {
+	ImportInputAttachments(context.Context, InputAttachmentImportRequest) (InputAttachmentImportResult, error)
+}
+
+type InputAttachmentImportRequest struct {
+	MessageID           string            `json:"messageID"`
+	TargetDirectoryPath string            `json:"targetDirectoryPath"`
+	InputAttachments    []InputAttachment `json:"inputAttachments"`
+}
+
+type InputAttachmentImportResult struct {
+	InputParts       []agent.AgentPart `json:"inputParts,omitempty"`
+	InputAttachments []InputAttachment `json:"inputAttachments,omitempty"`
 }
 
 type MessageReactionAdapter interface {
@@ -893,6 +923,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		stopProgress = connectorRuntime.startProgressHeartbeat(ctx, adapter, replyTarget)
 		isProgressStarted = true
 	}
+	event = connectorRuntime.withInputParts(ctx, adapter, event, personID)
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	precomputedTurnDecision := precomputedTurnDecisionForLaunch(turnDecision, hasPendingConfirmation, askTurnDecision, hasAskTurnDecision)
@@ -1969,6 +2000,60 @@ func (connectorRuntime *ConnectorRuntime) withInitialVisibleContext(ctx context.
 	event.Context.HistoryCursor = firstNonEmptyString(visibleContext.HistoryCursor, event.Context.HistoryCursor)
 	event.Context.ResponseLanguage = firstNonEmptyString(event.Context.ResponseLanguage, visibleContext.ResponseLanguage)
 	return event
+}
+
+func (connectorRuntime *ConnectorRuntime) withInputParts(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, personID string) PlatformInboundEvent {
+	if len(event.InputParts) > 0 || len(event.Context.InputAttachments) == 0 {
+		return event
+	}
+	importingAdapter, isSupported := adapter.(InputAttachmentImportingAdapter)
+	if !isSupported {
+		event.InputParts = append(event.InputParts, agent.TextAgentPart("The user attached file(s), but this platform adapter cannot import them into the LLM context."))
+		return event
+	}
+	targetDirectoryPath := connectorInputAttachmentDirectory(personID, event)
+	result, errorValue := importingAdapter.ImportInputAttachments(ctx, InputAttachmentImportRequest{
+		MessageID:           event.MessageID,
+		TargetDirectoryPath: targetDirectoryPath,
+		InputAttachments:    append([]InputAttachment{}, event.Context.InputAttachments...),
+	})
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+adapter.Name()+".attachments.import_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
+		event.InputParts = append(event.InputParts, agent.TextAgentPart("The user attached file(s), but attachment import failed before the model could inspect them: "+errorValue.Error()))
+		return event
+	}
+	event.InputParts = append(event.InputParts, result.InputParts...)
+	if len(result.InputAttachments) > 0 {
+		event.Context.InputAttachments = result.InputAttachments
+	}
+	return event
+}
+
+func connectorInputAttachmentDirectory(personID string, event PlatformInboundEvent) string {
+	owner := strings.TrimSpace(personID)
+	if owner == "" {
+		owner = "unknown"
+	}
+	platform := connectorSafePathSegment(firstNonEmptyString(event.Platform, "platform"))
+	messageID := connectorSafePathSegment(firstNonEmptyString(event.MessageID, "message"))
+	return "/workspace/private/people/" + connectorSafePathSegment(owner) + "/inbox/" + platform + "/" + messageID
+}
+
+func connectorSafePathSegment(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	result := strings.Builder{}
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '-' || character == '_' {
+			result.WriteRune(character)
+			continue
+		}
+		result.WriteRune('-')
+	}
+	segment := strings.Trim(result.String(), "-_")
+	if segment == "" {
+		return "unknown"
+	}
+	return segment
 }
 
 func (connectorRuntime *ConnectorRuntime) Health() ConnectorRuntimeHealth {

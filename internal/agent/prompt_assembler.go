@@ -25,6 +25,7 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		ResponseLanguage:  input.RuntimeRequest.ResponseLanguage,
 		UserPrompt:        input.RuntimeRequest.Prompt,
+		InputParts:        append([]AgentPart{}, input.RuntimeRequest.InputParts...),
 		TurnStartedAt:     input.TurnStartedAt,
 		InstructionPrompt: input.InstructionPrompt,
 		ToolDescription:   input.ToolDescription,
@@ -65,7 +66,7 @@ func (promptAssembler PromptAssembler) BuildTurnMessages(request AgentTurnReques
 		Observations:      observations,
 		ExecutionState:    executionState,
 	})
-	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
+	messages = append(messages, userMessageFromPromptAndParts(request.Prompt, request.InputParts))
 	return messages
 }
 
@@ -90,6 +91,22 @@ func (promptAssembler PromptAssembler) BuildReplyMessages(prompt string, visible
 	}
 	messages = append(messages, llm.Message{Role: "user", Content: prompt})
 	return messages
+}
+
+func userMessageFromPromptAndParts(prompt string, inputParts []AgentPart) llm.Message {
+	if len(inputParts) == 0 {
+		return llm.Message{Role: "user", Content: strings.TrimSpace(prompt)}
+	}
+	parts := []AgentPart{}
+	if strings.TrimSpace(prompt) != "" {
+		parts = append(parts, TextAgentPart(prompt))
+	}
+	parts = append(parts, inputParts...)
+	llmParts := AgentPartsToLLMParts(parts)
+	if len(llmParts) == 0 {
+		return llm.Message{Role: "user", Content: strings.TrimSpace(prompt)}
+	}
+	return llm.Message{Role: "user", Parts: llmParts}
 }
 
 func (promptAssembler PromptAssembler) appendTemporalContextMessage(messages *[]llm.Message, turnStartedAt time.Time) {

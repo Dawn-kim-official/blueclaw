@@ -55,6 +55,7 @@ type AgentTurnRequest struct {
 	ProfileName                string
 	ConversationID             string
 	Prompt                     string
+	InputParts                 []AgentPart
 	ResponseLanguage           string
 	VisibleContext             VisibleContext
 	MemoryFacts                []memory.MemoryFact
@@ -110,6 +111,7 @@ type turnActionDocument struct {
 	Action               string                        `json:"action"`
 	FinishMessage        string                        `json:"finishMessage"`
 	Message              string                        `json:"message"`
+	ReplyParts           []AgentPart                   `json:"replyParts,omitempty"`
 	ToolName             string                        `json:"toolName"`
 	ToolInput            json.RawMessage               `json:"toolInput"`
 	ToolNames            []string                      `json:"toolNames"`
@@ -1020,7 +1022,18 @@ func toolObservationMessage(observation turnObservation) string {
 }
 
 func finishActionMessage(actionDocument turnActionDocument) string {
-	return firstNonEmptyString(actionDocument.FinishMessage, actionDocument.Message, actionDocument.Reply)
+	return firstNonEmptyString(actionDocument.FinishMessage, actionDocument.Message, actionDocument.Reply, replyPartsText(actionDocument.ReplyParts))
+}
+
+func replyPartsText(parts []AgentPart) string {
+	textParts := []string{}
+	for _, part := range parts {
+		if strings.TrimSpace(part.Type) != AgentPartTypeText || strings.TrimSpace(part.Text) == "" {
+			continue
+		}
+		textParts = append(textParts, strings.TrimSpace(part.Text))
+	}
+	return strings.TrimSpace(strings.Join(textParts, "\n\n"))
 }
 
 func approvalObservationUserFacingMessage(observation turnObservation) string {
@@ -2624,11 +2637,12 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
-	if FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) && len(attachments) == 0 {
+	finishMessage := finishActionMessage(actionDocument)
+	if FinishMessageClaimsAttachmentDelivery(finishMessage) && len(attachments) == 0 {
 		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
 	}
-	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) || len(attachments) > 0
-	if errorValue := ValidateFinishMessageDelivery(actionDocument.FinishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
+	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(finishMessage) || len(attachments) > 0
+	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
