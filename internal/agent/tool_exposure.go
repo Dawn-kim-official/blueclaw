@@ -254,7 +254,9 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	groups := []toolExposureGroup{}
 	if len(selectedGroup.ToolIDs) > 0 {
 		groups = append(groups, selectedGroup)
-		groups = append(groups, coreGroups...)
+		if selectionEvent.SelectionSource != "deterministic" {
+			groups = append(groups, coreGroups...)
+		}
 	} else {
 		selectionEvent.UsedFallbackGroups = true
 		groups = fallbackToolExposureGroups(coreGroups, candidateGroups)
@@ -375,7 +377,6 @@ func filterGroupToolsForTurn(toolSet *ToolSet, group toolExposureGroup, selected
 
 func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {
 	toolNames := filterExhaustedRecoveryToolNames(request.PinnedToolNames, observations)
-	toolNames = appendUniqueStrings(toolNames, pinnedSkillToolNames(instructionBundle, request.PinnedSkillNames)...)
 	toolNames = appendUniqueStrings(toolNames, activeRecoveryToolNames(observations)...)
 	return toolNames
 }

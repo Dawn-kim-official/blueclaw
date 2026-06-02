@@ -288,6 +288,98 @@ func TestRecoveryWorkingSetUsesActiveFailureHints(t *testing.T) {
 	}
 }
 
+func TestRecoveryWorkingSetDoesNotLetPinnedSkillToolsCrowdOutRecoveryHints(t *testing.T) {
+	siteToolNames := []string{
+		"site.app.build",
+		"site.app.publish",
+		"site.app.status",
+		"terminal.run",
+		"terminal.session",
+		"browser.open",
+		"browser.snapshot",
+		"browser.screenshot",
+		"file.read",
+		"file.edit",
+		"file.patch",
+		"file.write",
+		"site.app.create",
+		"site.app.repair",
+		"site.app.preview",
+		"site.app.history",
+		"site.app.diff",
+		"site.app.logs",
+		"site.app.rollback",
+		"site.app.unpublish",
+		"site.app.restore",
+		"site.app.delete",
+		"artifact.review",
+		"user.confirm",
+	}
+	toolSet := testToolSet(append(siteToolNames, "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "tool.describe"))
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:         "site-prototype",
+			AllowedTools: siteToolNames,
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+	observation := turnObservation{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "site.app.build",
+		Failure: &ToolFailure{
+			Kind:                  FailureInvalidInput,
+			Code:                  FailureCodes.InvalidInput.String(),
+			Stage:                 "site_build_source",
+			UserSafeSummary:       "source failed to compile",
+			RequiredPreconditions: []string{"source_changed"},
+			RecoveryHints: []RecoveryHint{{
+				Action:    "edit_resource",
+				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
+			}},
+		},
+		ToolInputKey:       "site.app.build\x00{\"siteID\":\"site-1\"}",
+		AttemptFingerprint: "site.app.build\x00{\"siteID\":\"site-1\"}\x00invalid_input",
+	}
+	request := AgentRequest{
+		Prompt:          "개인 홈페이지 배포해줘",
+		PinnedSkillNames: []string{"site-prototype"},
+	}
+	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, []turnObservation{observation})
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic {
+		t.Fatal("expected active recovery hints to select deterministically")
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event, []turnObservation{observation})
+
+	for _, toolID := range []string{"file.read", "file.edit", "file.patch", "file.write"} {
+		if !filteredToolSet.IsAllowed(toolID) {
+			t.Fatalf("expected recovery hint tool %s to survive selected skill pressure, got %+v", toolID, event.ExposedToolIDs)
+		}
+	}
+	if filteredToolSet.IsAllowed("browser.screenshot") || filteredToolSet.IsAllowed("site.app.rollback") {
+		t.Fatalf("expected broad pinned skill tools to stay out of G4 recovery set, got %+v", event.ExposedToolIDs)
+	}
+}
+
+func TestDeterministicPinnedStepExposesOnlyPinnedTools(t *testing.T) {
+	toolSet := testToolSet([]string{"site.app.build", "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"})
+	request := AgentRequest{Prompt: "빌드해줘", PinnedToolNames: []string{"site.app.build"}}
+	selection, event := deterministicToolSelection([]string{"site.app.build"}, "pinned tools are required for the next step")
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
+
+	if !filteredToolSet.IsAllowed("site.app.build") {
+		t.Fatalf("expected pinned build tool to be exposed, got %+v", event.ExposedToolIDs)
+	}
+	for _, toolID := range []string{"skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"} {
+		if filteredToolSet.IsAllowed(toolID) {
+			t.Fatalf("expected deterministic pinned step to hide %s, got %+v", toolID, event.ExposedToolIDs)
+		}
+	}
+}
+
 func TestRecoveryWorkingSetDropsExhaustedTool(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
