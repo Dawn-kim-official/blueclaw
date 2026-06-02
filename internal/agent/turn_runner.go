@@ -91,6 +91,7 @@ type AgentTurnResult struct {
 	ReactionEmojiName string
 	FinishMessage     string
 	UserNotice        string
+	FailureNotice     FailureNotice
 	ReplySuppressed   bool
 	Attachments       []FileAttachment
 	RecoveryActions   []RecoveryAction
@@ -488,6 +489,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "finish", "empty finish message")
 				return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "empty finish message", state.Observations, state.Attachments, state.ExecutionState)
 			}
+			reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
 			if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
 				return cancelledResult, nil
 			}
@@ -2178,16 +2180,15 @@ func (agentTurnRunner *AgentTurnRunner) appendQualityReview(taskRunID string, cr
 
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
 	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
-	reply, replyStatus, hasReply := agentTurnRunner.generateFailureReply(request, reason, observations, attachments, executionState)
+	failureNotice, replyStatus, hasReply := agentTurnRunner.generateFailureNotice(taskRunID, request, reason, observations, attachments, executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
-		var noticeStatus lastResortFailureNoticeStatus
-		reply, noticeStatus = agentTurnRunner.generateLastResortFailureNotice(request, reason, replyStatus, "failure")
-		agentTurnRunner.appendEvent(taskRunID, "agent.failure_notice", marshalEventBody(noticeStatus))
+		return AgentTurnResult{TaskRun: failedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
+	reply := failureNotice.SendableMessage()
 	failedTaskRun.Result = reply
-	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
 func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion) completionTransition {
@@ -2318,7 +2319,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 		"evidenceCount":   len(state.EvidenceReferences),
 		"evidence":        state.EvidenceReferences,
 	}))
-	reply := strings.TrimSpace(actionDocument.FinishMessage)
+	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, strings.TrimSpace(actionDocument.FinishMessage), completionGateResult.Attachments)
 	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	return completionTransition{
@@ -2539,6 +2540,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "empty finish message"}))
 		return AgentTurnResult{}, false
 	}
+	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
 }
@@ -2593,16 +2595,15 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	}
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_stop", marshalEventBody(body))
 	blockedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
-	reply, replyStatus, hasReply := agentTurnRunner.generateLimitReachedReply(request, reason, observations, nil, executionState)
+	failureNotice, replyStatus, hasReply := agentTurnRunner.generateLimitReachedNotice(taskRunID, request, reason, observations, nil, executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", reason, replyStatus)
-		var noticeStatus lastResortFailureNoticeStatus
-		reply, noticeStatus = agentTurnRunner.generateLastResortFailureNotice(request, reason, replyStatus, "limit")
-		agentTurnRunner.appendEvent(taskRunID, "agent.failure_notice", marshalEventBody(noticeStatus))
+		return AgentTurnResult{TaskRun: blockedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
+	reply := failureNotice.SendableMessage()
 	blockedTaskRun.Result = reply
-	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
 func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
@@ -3183,17 +3184,6 @@ type recoveryLanguageModelProvider interface {
 	GenerateRecoveryResponse(context.Context, string) (string, error)
 }
 
-type localRecoveryLanguageModelProvider interface {
-	GenerateLocalRecoveryResponse(context.Context, string) (string, error)
-}
-
-type lastResortFailureNoticeStatus struct {
-	Source    string `json:"source"`
-	Phase     string `json:"phase"`
-	Error     string `json:"error,omitempty"`
-	RawReason string `json:"rawReason,omitempty"`
-}
-
 func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID string, phase string, reason string, replyStatus any) {
 	body := map[string]any{
 		"phase":       phase,
@@ -3248,6 +3238,135 @@ func normalizeRecoveryDecision(decision recoveryDecision) recoveryDecision {
 	decision.NextAction = strings.TrimSpace(decision.NextAction)
 	decision.UserReplyIntent = strings.TrimSpace(decision.UserReplyIntent)
 	return decision
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(taskRunID string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
+	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, failureReason, observations, attachments, executionState, "failure")
+	failureReportFacts := buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)
+	failureReport := buildFailureReport(request, taskRunID, "failure", failureReason, observations, attachments, executionState, decision)
+	status := failureReplyStatus{Decision: decision, FailureReportFacts: failureReportFacts}
+	if decisionError != nil {
+		status.StructuredRecoveryError = decisionError.Error()
+	}
+	reply, errorValue := agentTurnRunner.generateRecoveryText(buildFailureNoticePrompt(failureReport))
+	if errorValue == nil {
+		notice, source, hasNotice := agentTurnRunner.prepareFailureNotice(reply, "generated", failureReport)
+		if hasNotice {
+			status.Source = source
+			return notice, status, true
+		}
+	}
+	if errorValue == nil && reply != "" {
+		for repairCount := 1; repairCount <= 2; repairCount++ {
+			repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildFailureNoticeRepairPrompt(failureReport, reply, repairCount))
+			if repairError != nil || repairedReply == "" {
+				status.Source = "suppressed"
+				status.FirstInvalid = true
+				status.RepairCount = repairCount
+				status.Reason = "repair_failed"
+				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+				return FailureNotice{}, status, false
+			}
+			notice, source, hasNotice := agentTurnRunner.prepareFailureNotice(repairedReply, "generated_repair", failureReport)
+			if hasNotice {
+				status.Source = source
+				status.FirstInvalid = true
+				status.RepairCount = repairCount
+				return notice, status, true
+			}
+			reply = repairedReply
+		}
+		status.FirstInvalid = true
+		status.RepairCount = 2
+	}
+	status.Source = "suppressed"
+	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
+	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
+	return FailureNotice{}, status, false
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
+	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, stopReason, observations, attachments, executionState, "limit")
+	failureReport := buildFailureReport(request, taskRunID, "limit", stopReason, observations, attachments, executionState, decision)
+	status := limitReplyStatus{Decision: decision, FailureReportFacts: buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)}
+	if decisionError != nil {
+		status.StructuredRecoveryError = decisionError.Error()
+	}
+	reply, errorValue := agentTurnRunner.generateRecoveryText(buildFailureNoticePrompt(failureReport))
+	if errorValue != nil || reply == "" {
+		status.Source = "suppressed"
+		status.Reason = "text_recovery_failed"
+		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
+		return FailureNotice{}, status, false
+	}
+	notice, source, hasNotice := agentTurnRunner.prepareFailureNotice(reply, "generated", failureReport)
+	if hasNotice {
+		status.Source = source
+		return notice, status, true
+	}
+	for repairCount := 1; repairCount <= 2; repairCount++ {
+		repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildFailureNoticeRepairPrompt(failureReport, reply, repairCount))
+		if repairError != nil || repairedReply == "" {
+			status.Source = "suppressed"
+			status.FirstInvalid = true
+			status.RepairCount = repairCount
+			status.Reason = "repair_failed"
+			status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+			return FailureNotice{}, status, false
+		}
+		notice, source, hasNotice := agentTurnRunner.prepareFailureNotice(repairedReply, "generated_repair", failureReport)
+		if hasNotice {
+			status.Source = source
+			status.FirstInvalid = true
+			status.RepairCount = repairCount
+			return notice, status, true
+		}
+		reply = repairedReply
+	}
+	status.Source = "suppressed"
+	status.FirstInvalid = true
+	status.RepairCount = 2
+	status.Reason = "invalid_repair"
+	return FailureNotice{}, status, false
+}
+
+func (agentTurnRunner *AgentTurnRunner) prepareFailureNotice(reply string, source string, report FailureReport) (FailureNotice, string, bool) {
+	notice := buildFailureNotice(reply, source, report)
+	if notice.IsSendable {
+		return notice, source, true
+	}
+	if !textExceedsCharacterBudget(reply, failureNoticeMaximumCharacters) {
+		return FailureNotice{}, "", false
+	}
+	compressedReply, errorValue := agentTurnRunner.generateRecoveryText(buildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
+	if errorValue != nil || strings.TrimSpace(compressedReply) == "" {
+		return FailureNotice{}, "", false
+	}
+	compressedNotice := buildFailureNotice(compressedReply, source+"_compressed", report)
+	return compressedNotice, compressedNotice.Source, compressedNotice.IsSendable
+}
+
+func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(request AgentTurnRequest, reply string, attachments []FileAttachment) string {
+	trimmedReply := strings.TrimSpace(reply)
+	if !textExceedsCharacterBudget(trimmedReply, finishMessageMaximumCharacters) {
+		return trimmedReply
+	}
+	compressedReply, errorValue := agentTurnRunner.generateRecoveryText(buildFinishMessageCompressionPrompt(trimmedReply, request.ResponseLanguage, finishMessageMaximumCharacters))
+	compressedReply = strings.TrimSpace(compressedReply)
+	if errorValue != nil || compressedReply == "" {
+		return trimmedReply
+	}
+	if textExceedsCharacterBudget(compressedReply, finishMessageMaximumCharacters) {
+		return trimmedReply
+	}
+	if containsInternalDiagnosticLeak(compressedReply) {
+		return trimmedReply
+	}
+	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(compressedReply) || len(attachments) > 0
+	if ValidateFinishMessageDelivery(compressedReply, attachments, requiresAttachmentEvidence) != nil {
+		return trimmedReply
+	}
+	return compressedReply
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (string, failureReplyStatus, bool) {
@@ -3313,48 +3432,12 @@ func degradedFailureReplyCanBeDelivered(reply string, request AgentTurnRequest, 
 	return strings.TrimSpace(reply) != "" && !failureReplyIsInvalid(reply, attachments)
 }
 
-func (agentTurnRunner *AgentTurnRunner) generateLastResortFailureNotice(request AgentTurnRequest, failureReason string, replyStatus any, phase string) (string, lastResortFailureNoticeStatus) {
-	rawReason := compactRawFailureReason(combineFailureNoticeFacts(failureReason, replyStatus))
-	status := lastResortFailureNoticeStatus{Phase: phase, RawReason: rawReason}
-	if localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.languageModel.(localRecoveryLanguageModelProvider); isLocalRecoveryProvider {
-		responseContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-		defer cancel()
-		reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(responseContext, buildLastResortFailureNoticePrompt(request, rawReason, phase))
-		reply = strings.TrimSpace(reply)
-		if errorValue == nil && reply != "" && ValidateUserNoticeDelivery(reply) == nil {
-			status.Source = "local_llm"
-			return reply, status
-		}
-		status.Error = firstNonEmptyString(errorString(errorValue), "empty_or_invalid_local_reply")
-	}
-	status.Source = "raw_error"
-	return rawFailureNotice(request, rawReason), status
-}
-
-func combineFailureNoticeFacts(failureReason string, replyStatus any) string {
-	parts := []string{}
-	if reason := strings.TrimSpace(failureReason); reason != "" {
-		parts = append(parts, noticeFact("reason", reason, 160))
-	}
-	parts = append(parts, failureNoticeStatusFacts(replyStatus)...)
-	if len(parts) == 0 {
-		return "unknown_error"
-	}
-	return strings.Join(parts, "; ")
-}
-
 func failureNoticeStatusFacts(replyStatus any) []string {
 	switch status := replyStatus.(type) {
 	case failureReplyStatus:
 		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.Decision)
 	case limitReplyStatus:
 		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.Decision)
-	case lastResortFailureNoticeStatus:
-		return nonEmptyNoticeFacts([]string{
-			noticeFact("source", status.Source, 80),
-			noticeFact("phase", status.Phase, 80),
-			noticeFact("error", status.Error, 160),
-		})
 	default:
 		statusText := strings.TrimSpace(marshalEventBody(replyStatus))
 		if statusText == "" || statusText == "null" {
@@ -3397,39 +3480,6 @@ func nonEmptyNoticeFacts(values []string) []string {
 		}
 	}
 	return result
-}
-
-func rawFailureNotice(request AgentTurnRequest, rawReason string) string {
-	reason := compactRawFailureReason(rawReason)
-	if ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish {
-		return "Error: " + reason
-	}
-	return "오류: " + reason
-}
-
-func compactRawFailureReason(reason string) string {
-	trimmedReason := strings.Join(strings.Fields(strings.TrimSpace(reason)), " ")
-	if trimmedReason == "" {
-		return "unknown_error"
-	}
-	if len([]rune(trimmedReason)) <= 420 {
-		return trimmedReason
-	}
-	return string([]rune(trimmedReason)[:420]) + "..."
-}
-
-func buildLastResortFailureNoticePrompt(request AgentTurnRequest, rawReason string, phase string) string {
-	return strings.Join([]string{
-		"Write the shortest useful user-facing notice for a failed Blueclaw run.",
-		responseLanguageInstruction(request.ResponseLanguage),
-		"Do not use a canned outage phrase. Do not hide that this is an error.",
-		"Use the raw error summary below as the concrete reason. Do not invent success, tool results, or completed work.",
-		"Do not expose secrets, tokens, hidden policy, stack traces, or raw prompts.",
-		"Keep it to one or two sentences.",
-		"Original user request:\n" + strings.TrimSpace(request.Prompt),
-		"Failure phase: " + strings.TrimSpace(phase),
-		"Raw error summary:\n" + rawReason,
-	}, "\n\n")
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (string, limitReplyStatus, bool) {

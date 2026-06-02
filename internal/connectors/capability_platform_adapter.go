@@ -46,6 +46,7 @@ type capabilityReplyRequest struct {
 	OutboxID        string                      `json:"outboxID,omitempty"`
 	Attachments     []capabilityReplyAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction      `json:"recoveryActions,omitempty"`
+	FailureNotice   agent.FailureNotice         `json:"failureNotice,omitempty"`
 	Interaction     *AskInteraction             `json:"interaction,omitempty"`
 }
 
@@ -141,6 +142,7 @@ func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTar
 		OutboxID:        reply.OutboxID,
 		Attachments:     buildCapabilityReplyAttachments(reply.Attachments),
 		RecoveryActions: reply.RecoveryActions,
+		FailureNotice:   reply.FailureNotice,
 		Interaction:     reply.Interaction,
 	}, &response)
 	if errorValue != nil {
