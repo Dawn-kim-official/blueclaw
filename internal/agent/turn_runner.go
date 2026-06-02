@@ -1110,9 +1110,11 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan, observations []turnObservation) AgentTurnRequest {
 	normalizedPlan := normalizeNextStepPlan(plan)
 	expectedTools := filterCompletedInspectionPlanTools(normalizedPlan.ExpectedTools, observations)
+	expectedTools = filterLatestSuccessfulTerminalTool(expectedTools, observations)
 	expectedTools = filterExhaustedRecoveryToolNames(expectedTools, observations)
 	request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, expectedTools...)
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
 	if requestLooksLikeCalendarStep(request) {
 		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, "calendar.event.add", "calendar.event.delete")
 	}
@@ -1155,6 +1157,44 @@ func completedInspectionToolName(toolName string) bool {
 	default:
 		return false
 	}
+}
+
+func filterLatestSuccessfulTerminalTool(toolNames []string, observations []turnObservation) []string {
+	latestObservation, hasObservation := latestToolObservation(observations)
+	if !hasObservation || latestObservation.Failure != nil || strings.TrimSpace(latestObservation.Tool) != "terminal.run" {
+		return appendUniqueStrings(toolNames)
+	}
+	filteredToolNames := []string{}
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" || trimmedToolName == "terminal.run" {
+			continue
+		}
+		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
+	}
+	return filteredToolNames
+}
+
+func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnObservation) []string {
+	if !expectedResultRequiresFileAttachment(request.OutcomeContract) || hasSuccessfulToolObservation(observations, "file.attach") {
+		return nil
+	}
+	if hasSuccessfulToolObservation(observations, "file.promote") {
+		return []string{"file.attach"}
+	}
+	if hasSuccessfulToolObservation(observations, "terminal.run") {
+		return []string{"file.promote", "file.attach"}
+	}
+	return nil
+}
+
+func hasSuccessfulToolObservation(observations []turnObservation, toolName string) bool {
+	for _, observation := range observations {
+		if strings.TrimSpace(observation.Tool) == toolName && observation.Failure == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func requestLooksLikeCalendarStep(request AgentTurnRequest) bool {
@@ -1233,7 +1273,7 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	if len(request.RequiredAttachmentSuffixes) > 0 {
 		instruction += " This task requires attached artifacts with these filename suffixes before finish: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
 	}
-	instruction += " Artifact workflow: write source under tmp/<slug>, run builds with terminal.run workingDirectoryPath tmp/<slug>, create outputs under build/, promote final outputs with file.promote to artifacts/<slug> or an allowed circle/shared destination, then attach promoted files with file.attach. finish.message may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths. finish.message must not promise future work such as starting now, waiting, or sharing later unless schedule.create succeeded and is cited as evidence."
+	instruction += " Artifact workflow: write source under tmp/<slug>, run builds with terminal.run workingDirectoryPath tmp/<slug>, create outputs under build/, promote final outputs with file.promote to artifacts/<slug> or an allowed circle/shared destination, then attach all requested promoted files in one file.attach call with a files array. finish.message may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths. finish.message must not promise future work such as starting now, waiting, or sharing later unless schedule.create succeeded and is cited as evidence."
 	return instruction
 }
 
@@ -2182,9 +2222,13 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 }
 
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState) completionTransition {
+	files := []map[string]string{}
+	for _, path := range nextCompletionAttachmentPaths(state) {
+		files = append(files, map[string]string{"path": path})
+	}
 	return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, ToolInvocation{
 		ToolName: "file.attach",
-		Input:    MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(state)}),
+		Input:    MarshalToolInput(map[string]any{"files": files}),
 	})
 }
 

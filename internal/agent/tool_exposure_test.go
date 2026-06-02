@@ -351,6 +351,29 @@ func TestGenericFallbackKeepsExplicitCapabilityToolsBeforeBuiltIns(t *testing.T)
 	}
 }
 
+func TestFallbackKeepsSelectedSkillToolsBeforeCoreTools(t *testing.T) {
+	slideToolNames := []string{"terminal.run", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "artifact.review"}
+	toolSet := testToolSet(append(slideToolNames, "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "tool.describe"))
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:         "simple-slides",
+			AllowedTools: slideToolNames,
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{SelectionFailed: true})
+
+	for _, toolName := range slideToolNames {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected selected skill tool %s to survive fallback, got %+v", toolName, event.ExposedToolIDs)
+		}
+	}
+	if filteredToolSet.IsAllowed("tool.describe") {
+		t.Fatalf("expected low-priority core tool to yield to selected skill tools, got %+v", event.ExposedToolIDs)
+	}
+}
+
 func TestToolSelectionContextUsesCompactCards(t *testing.T) {
 	toolSet := testToolSet([]string{"site.app.status"})
 	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "G5 selected-skill candidates", ToolIDs: []string{"site.app.status"}}})
