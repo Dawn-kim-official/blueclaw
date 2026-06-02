@@ -81,6 +81,7 @@ type OutboundReply struct {
 	OutboxID        string                 `json:"outboxID,omitempty"`
 	Attachments     []agent.FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction `json:"recoveryActions,omitempty"`
+	FailureNotice   agent.FailureNotice    `json:"failureNotice,omitempty"`
 	Interaction     *AskInteraction        `json:"interaction,omitempty"`
 }
 
@@ -92,6 +93,7 @@ type outboundReplyDocument struct {
 	OutboxID        string                    `json:"outboxID,omitempty"`
 	Attachments     []outboundReplyAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction    `json:"recoveryActions,omitempty"`
+	FailureNotice   agent.FailureNotice       `json:"failureNotice,omitempty"`
 	Interaction     *AskInteraction           `json:"interaction,omitempty"`
 }
 
@@ -131,6 +133,7 @@ func (reply OutboundReply) MarshalJSON() ([]byte, error) {
 		OutboxID:        reply.OutboxID,
 		Attachments:     outboundReplyAttachments(reply.Attachments),
 		RecoveryActions: reply.RecoveryActions,
+		FailureNotice:   reply.FailureNotice,
 		Interaction:     reply.Interaction,
 	}
 	return json.Marshal(document)
@@ -148,6 +151,7 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 	reply.OutboxID = document.OutboxID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
 	reply.RecoveryActions = append([]agent.RecoveryAction{}, document.RecoveryActions...)
+	reply.FailureNotice = document.FailureNotice
 	reply.Interaction = document.Interaction
 	return nil
 }
@@ -1865,10 +1869,10 @@ func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Contex
 }
 
 func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Context, platform string, event PlatformInboundEvent, taskRunID string, replyTarget ReplyTarget, turnResult agent.AgentTurnResult, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {
-	notice := strings.TrimSpace(turnResult.UserNotice)
-	if notice == "" {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindUserNotice}, "", "", "missing_user_notice"))
-		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "missing_user_notice"))
+	notice, failureNotice, missingReason := userNoticeReplyMessage(turnResult)
+	if missingReason != "" {
+		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindUserNotice}, "", "", missingReason))
+		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", missingReason))
 		return "", false
 	}
 	if errorValue := agent.ValidateUserNoticeDelivery(notice); errorValue != nil {
@@ -1881,6 +1885,7 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 		TaskRunID:       taskRunID,
 		ReplyKind:       connectorReplyKindUserNotice,
 		RecoveryActions: recoveryActionsForEvent(turnResult.RecoveryActions, event),
+		FailureNotice:   failureNotice,
 	}
 	interaction, _ := latestAskInteraction(taskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRunID))
 	reply.Interaction = optionalAskInteraction(interaction)
@@ -1895,6 +1900,25 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 	}
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID), slog.String("reason", "task_not_completed"))
 	return dispatchID, true
+}
+
+func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.FailureNotice, string) {
+	if taskStatusRequiresFailureNotice(turnResult.TaskRun.Status) {
+		message := turnResult.FailureNotice.SendableMessage()
+		if message == "" {
+			return "", turnResult.FailureNotice, "missing_failure_notice"
+		}
+		return message, turnResult.FailureNotice, ""
+	}
+	message := strings.TrimSpace(turnResult.UserNotice)
+	if message == "" {
+		return "", agent.FailureNotice{}, "missing_user_notice"
+	}
+	return message, agent.FailureNotice{}, ""
+}
+
+func taskStatusRequiresFailureNotice(status task.TaskStatus) bool {
+	return status == task.TaskStatusFailed || status == task.TaskStatusBlocked
 }
 
 func optionalAskInteraction(interaction AskInteraction) *AskInteraction {

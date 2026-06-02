@@ -285,6 +285,34 @@ func TestOutboundReplyJSONPreservesAskInteraction(t *testing.T) {
 	}
 }
 
+func TestOutboundReplyJSONPreservesFailureNotice(t *testing.T) {
+	reply := OutboundReply{
+		Message:   "작업을 완료하지 못했습니다. 접근 권한을 확인한 뒤 다시 시도해 주세요.",
+		TaskRunID: "task-1",
+		ReplyKind: connectorReplyKindUserNotice,
+		FailureNotice: agent.FailureNotice{
+			Message:           "작업을 완료하지 못했습니다. 접근 권한을 확인한 뒤 다시 시도해 주세요.",
+			Source:            "generated",
+			Language:          "ko",
+			DiagnosticEventID: "task-1:failed",
+			IsSendable:        true,
+		},
+	}
+
+	document, errorValue := json.Marshal(reply)
+	if errorValue != nil {
+		t.Fatalf("expected reply to marshal: %v", errorValue)
+	}
+	var decodedReply OutboundReply
+	if errorValue := json.Unmarshal(document, &decodedReply); errorValue != nil {
+		t.Fatalf("expected reply to unmarshal: %v", errorValue)
+	}
+
+	if decodedReply.FailureNotice.DiagnosticEventID != "task-1:failed" || !decodedReply.FailureNotice.IsSendable {
+		t.Fatalf("expected failure notice to survive outbox json, got %+v", decodedReply.FailureNotice)
+	}
+}
+
 func TestConnectorRuntimeStopsProgressAfterRequestContextCancellation(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -691,7 +719,7 @@ func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSendsErrorNoticeWhenTaskDoesNotCompleteWithoutLLMReply(t *testing.T) {
+func TestConnectorRuntimeSuppressesReplyWhenTaskDoesNotCompleteWithoutFailureNotice(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
@@ -705,11 +733,14 @@ func TestConnectorRuntimeSendsErrorNoticeWhenTaskDoesNotCompleteWithoutLLMReply(
 	if result.Reason != "task_not_completed" {
 		t.Fatalf("expected task_not_completed result, got %+v", result)
 	}
-	if result.ReplyDispatchID == "" {
-		t.Fatal("expected failure notice dispatch id")
+	if result.ReplyDispatchID != "" {
+		t.Fatalf("expected no failure notice dispatch id, got %q", result.ReplyDispatchID)
 	}
-	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "model unavailable") {
-		t.Fatalf("expected raw error reply, got %+v", adapter.sentReplies)
+	if len(adapter.sentReplies) != 0 {
+		t.Fatalf("expected no raw error reply, got %+v", adapter.sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reply.suppressed", "missing_failure_notice") {
+		t.Fatal("expected missing failure notice suppression event")
 	}
 }
 
@@ -791,6 +822,78 @@ func TestConnectorRuntimeSendsSafeUserNoticeForBlockedTask(t *testing.T) {
 	}
 	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.sent", "user_notice") {
 		t.Fatal("expected sent event for user notice")
+	}
+}
+
+func TestConnectorRuntimeSendsFailureNoticeForBlockedTask(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+
+	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
+		context.Background(),
+		"test",
+		event,
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{
+			TaskRun:    task.TaskRun{Status: task.TaskStatusBlocked},
+			UserNotice: "replyStatus: raw internal diagnostic",
+			FailureNotice: agent.FailureNotice{
+				Message:           "작업을 완료하지 못했습니다. 접근 권한을 확인한 뒤 다시 시도해 주세요.",
+				Source:            "generated",
+				Language:          "ko",
+				DiagnosticEventID: "task-1:limit",
+				IsSendable:        true,
+			},
+		},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected failure notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
+	}
+	if len(sentReplies) != 1 || sentReplies[0].Message != "작업을 완료하지 못했습니다. 접근 권한을 확인한 뒤 다시 시도해 주세요." {
+		t.Fatalf("expected failure notice reply, got %+v", sentReplies)
+	}
+	if sentReplies[0].FailureNotice.DiagnosticEventID != "task-1:limit" {
+		t.Fatalf("expected diagnostic reference to be preserved, got %+v", sentReplies[0].FailureNotice)
+	}
+}
+
+func TestConnectorRuntimeSuppressesBlockedTaskWithoutSendableFailureNotice(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+
+	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
+		context.Background(),
+		"test",
+		event,
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{
+			TaskRun:       task.TaskRun{Status: task.TaskStatusFailed},
+			UserNotice:    "겉보기에는 안전한 fallback입니다.",
+			FailureNotice: agent.FailureNotice{},
+		},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if isSent || dispatchID != "" {
+		t.Fatalf("expected suppressed missing failure notice, got dispatchID=%q sent=%v", dispatchID, isSent)
+	}
+	if len(sentReplies) != 0 {
+		t.Fatalf("expected no reply, got %+v", sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.suppressed", "missing_failure_notice") {
+		t.Fatal("expected missing failure notice event")
 	}
 }
 
@@ -1795,6 +1898,7 @@ type testReply struct {
 	replyKind       string
 	attachments     []agent.FileAttachment
 	recoveryActions []agent.RecoveryAction
+	failureNotice   agent.FailureNotice
 }
 
 type testConnectorQueueRepository struct {
@@ -1932,7 +2036,7 @@ func (adapter *testAdapter) SendReply(_ context.Context, target ReplyTarget, rep
 	if adapter.sendReplyError != nil {
 		return "", adapter.sendReplyError
 	}
-	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, taskRunID: reply.TaskRunID, replyKind: reply.ReplyKind, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions})
+	adapter.sentReplies = append(adapter.sentReplies, testReply{target: target, message: reply.Message, taskRunID: reply.TaskRunID, replyKind: reply.ReplyKind, attachments: reply.Attachments, recoveryActions: reply.RecoveryActions, failureNotice: reply.FailureNotice})
 	return "dispatch-" + strconv.Itoa(len(adapter.sentReplies)), nil
 }
 
