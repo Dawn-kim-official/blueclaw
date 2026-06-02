@@ -6,7 +6,6 @@ import (
 	"errors"
 	"strconv"
 	"strings"
-	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -223,10 +222,14 @@ func (agentKernel *AgentKernel) ResolveChoiceReply(responseContext context.Conte
 }
 
 func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []llm.Message {
-	contextDescription := buildVisibleContextDescription(request.VisibleContext)
-	if contextDescription == "" {
-		contextDescription = "No recent visible context."
-	}
+	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
+		ResponseLanguage: request.ResponseLanguage,
+		UserPrompt:       request.Prompt,
+		TurnStartedAt:    request.TurnStartedAt,
+		VisibleContext:   request.VisibleContext,
+		ActiveGoal:       request.ActiveGoal,
+		ExtraSections:    []string{"Selected skill evidence hints, not requirements: " + strings.Join(evidenceHints, ", ")},
+	})
 	return []llm.Message{
 		{Role: "system", Content: strings.Join([]string{
 			"You create a structured execution plan before Blueclaw performs risky or recurring work.",
@@ -237,10 +240,7 @@ func confirmationPlanMessages(request AgentRequest, evidenceHints []string) []ll
 			"Do not ask the user here. Only return the structured plan.",
 		}, "\n")},
 		{Role: "system", Content: responseLanguageInstruction(request.ResponseLanguage)},
-		{Role: "system", Content: buildTemporalContextDescription(request.TurnStartedAt)},
-		{Role: "system", Content: "Selected skill evidence hints, not requirements: " + strings.Join(evidenceHints, ", ")},
-		{Role: "system", Content: contextDescription},
-		{Role: "system", Content: activeGoalDescription(request.ActiveGoal)},
+		{Role: "system", Content: contextText},
 		{Role: "user", Content: strings.TrimSpace(request.Prompt)},
 	}
 }
@@ -257,7 +257,7 @@ func choiceReplyMessages(request ChoiceReplyRequest) []llm.Message {
 			"Return ambiguous when the reply could refer to more than one valid option or violates single/multiple selection.",
 			"Return unrelated when the reply is a separate request, not an answer to the choice question.",
 		}, "\n")},
-		{Role: "system", Content: buildTemporalContextDescription(time.Time{})},
+		{Role: "system", Content: (LLMContextBuilder{}).Build(LLMContextInput{})},
 		{Role: "user", Content: strings.Join([]string{
 			"Question: " + strings.TrimSpace(request.Question),
 			"Selection mode: " + strings.TrimSpace(request.SelectionMode),
@@ -280,7 +280,7 @@ func confirmationReplyMessages(pendingPrompt string, confirmationQuestion string
 			"Return unrelated for a separate new request.",
 			"Short Korean affirmatives such as 응, 네, 좋아, 진행해, 해줘, 그래, 해 are approvals only when they answer this confirmation question.",
 		}, "\n")},
-		{Role: "system", Content: buildTemporalContextDescription(time.Time{})},
+		{Role: "system", Content: (LLMContextBuilder{}).Build(LLMContextInput{})},
 		{Role: "user", Content: strings.Join([]string{
 			"Pending task:",
 			strings.TrimSpace(pendingPrompt),

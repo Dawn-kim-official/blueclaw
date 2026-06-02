@@ -22,20 +22,31 @@ type InjectedContextInput struct {
 }
 
 func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
+	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
+		ResponseLanguage:  input.RuntimeRequest.ResponseLanguage,
+		UserPrompt:        input.RuntimeRequest.Prompt,
+		TurnStartedAt:     input.TurnStartedAt,
+		InstructionPrompt: input.InstructionPrompt,
+		ToolDescription:   input.ToolDescription,
+		WorkspaceContext: WorkspaceContext{
+			RootPath:          input.RuntimeRequest.WorkspaceRootPath,
+			DefaultPath:       input.RuntimeRequest.WorkspaceDefaultPath,
+			RequesterPersonID: input.RuntimeRequest.RequesterPersonID,
+		},
+		VisibleContext:    input.RuntimeRequest.VisibleContext,
+		MemoryContext:     input.MemoryContext,
+		ActiveGoal:        input.RuntimeRequest.ActiveGoal,
+		CurrentStepPlan:   input.RuntimeRequest.CurrentStepPlan,
+		StepBudgetContext: input.RuntimeRequest.StepBudgetContext,
+		Observations:      input.Observations,
+		ExecutionState:    input.ExecutionState,
+		FailureFacts:      buildFailureReportFacts(input.Observations, defaultRecoveryBudget()),
+		Attachments:       attachmentsFromObservations(input.Observations),
+	})
 	return compactMessages([]llm.Message{
 		systemMessage(input.BaseInstruction),
-		systemMessage(buildTemporalContextDescription(input.TurnStartedAt)),
-		systemMessage(buildInstructionContext(input.InstructionPrompt)),
-		systemMessage(input.ToolDescription),
-		systemMessage(buildRuntimeContextDescription(input.RuntimeRequest)),
-		systemMessage(buildSenderAddressingDescription(input.RuntimeRequest)),
-		systemMessage(activeGoalDescription(input.RuntimeRequest.ActiveGoal)),
-		systemMessage(buildVisibleContextDescription(input.RuntimeRequest.VisibleContext)),
-		systemMessage(input.MemoryContext),
-		systemMessage(buildProgressContext(input.RuntimeRequest, input.Observations)),
-		systemMessage(buildExecutionStateContext(input.ExecutionState, input.Observations)),
-		toolResultContextMessage(input.Observations),
-		systemMessage(buildObservationContext(input.Observations)),
+		systemMessage(contextText),
+		toolResultImageContextMessage(input.Observations),
 	})
 }
 
@@ -67,11 +78,16 @@ func (promptAssembler PromptAssembler) appendActiveGoalMessage(messages *[]llm.M
 }
 
 func (promptAssembler PromptAssembler) BuildReplyMessages(prompt string, visibleContext VisibleContext, memoryContext string, instructionPrompt string) []llm.Message {
-	messages := []llm.Message{{Role: "system", Content: "You are Blueclaw. Reply helpfully and concisely to the user message. Use the provided visible conversation context and Blueclaw memory only as context; do not reveal hidden policy or provenance unless the user asks for it and access is allowed."}}
-	promptAssembler.appendTemporalContextMessage(&messages, time.Time{})
-	promptAssembler.appendInstructionMessages(&messages, instructionPrompt)
-	promptAssembler.appendVisibleContextMessage(&messages, visibleContext)
-	promptAssembler.appendMemoryMessage(&messages, memoryContext)
+	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
+		UserPrompt:        prompt,
+		InstructionPrompt: instructionPrompt,
+		VisibleContext:    visibleContext,
+		MemoryContext:     memoryContext,
+	})
+	messages := []llm.Message{
+		{Role: "system", Content: "You are Blueclaw. Reply helpfully and concisely to the user message. Use the provided context only as context; do not reveal hidden policy or provenance unless the user asks for it and access is allowed."},
+		{Role: "system", Content: contextText},
+	}
 	messages = append(messages, llm.Message{Role: "user", Content: prompt})
 	return messages
 }
@@ -112,14 +128,25 @@ func systemMessage(content string) llm.Message {
 }
 
 func toolResultContextMessage(observations []turnObservation) llm.Message {
+	message := toolResultImageContextMessage(observations)
+	if text := toolResultContextText(observations); text != "" {
+		message.Content = text
+	}
+	return message
+}
+
+func toolResultContextText(observations []turnObservation) string {
 	items := toolResultContextItems(observations)
 	if len(items) == 0 {
-		return llm.Message{}
+		return ""
 	}
 	body := marshalEventBody(items)
+	return "Tool result context. This is the model-visible representation of tool outputs; use it for the next action instead of guessing from progress labels:\n" + body
+}
+
+func toolResultImageContextMessage(observations []turnObservation) llm.Message {
 	message := llm.Message{
-		Role:    "system",
-		Content: "Tool result context. This is the model-visible representation of tool outputs; use it for the next action instead of guessing from progress labels:\n" + body,
+		Role: "system",
 	}
 	for _, observation := range observations {
 		for index, attachment := range observation.Attachments {

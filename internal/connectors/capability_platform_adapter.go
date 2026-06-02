@@ -72,24 +72,6 @@ type normalizedEventEnvelope struct {
 	Event PlatformInboundEvent `json:"event"`
 }
 
-type capabilityMattermostInteractivePayload struct {
-	UserID         string                                       `json:"user_id"`
-	PostID         string                                       `json:"post_id"`
-	ChannelID      string                                       `json:"channel_id"`
-	SelectedOption string                                       `json:"selected_option"`
-	Context        capabilityMattermostInteractiveActionContext `json:"context"`
-}
-
-type capabilityMattermostInteractiveActionContext struct {
-	Action           string `json:"action"`
-	InteractionID    string `json:"interactionID"`
-	TaskRunID        string `json:"taskRunID"`
-	ConversationID   string `json:"conversationID"`
-	ReplyTargetID    string `json:"replyTargetID"`
-	ChoiceKey        string `json:"choiceKey,omitempty"`
-	ResponseLanguage string `json:"responseLanguage,omitempty"`
-}
-
 func NewCapabilityPlatformAdapter(platform string, capabilityClient capability.Client) CapabilityPlatformAdapter {
 	return CapabilityPlatformAdapter{
 		PlatformName:     strings.TrimSpace(platform),
@@ -107,70 +89,12 @@ func (adapter CapabilityPlatformAdapter) ParseHTTPEvent(_ context.Context, reque
 		return HTTPParseResult{}, errorValue
 	}
 
-	if adapter.Name() == "mattermost" {
-		event, hasEvent := parseCapabilityMattermostInteractiveEvent(payload)
-		if hasEvent {
-			return HTTPParseResult{Event: event, HasEvent: true}, nil
-		}
-	}
-
 	event, hasEvent, errorValue := adapter.parseNormalizedEvent(payload, "http")
 	if errorValue != nil || !hasEvent {
 		return HTTPParseResult{}, errorValue
 	}
 
 	return HTTPParseResult{Event: event, HasEvent: true}, nil
-}
-
-func parseCapabilityMattermostInteractiveEvent(payload []byte) (PlatformInboundEvent, bool) {
-	var actionPayload capabilityMattermostInteractivePayload
-	if errorValue := json.Unmarshal(payload, &actionPayload); errorValue != nil {
-		return PlatformInboundEvent{}, false
-	}
-	action := strings.TrimSpace(actionPayload.Context.Action)
-	if !strings.HasPrefix(action, "ask.") {
-		return PlatformInboundEvent{}, false
-	}
-	if strings.TrimSpace(actionPayload.UserID) == "" || strings.TrimSpace(actionPayload.Context.ConversationID) == "" {
-		return PlatformInboundEvent{}, false
-	}
-	choiceKey := firstNonEmptyString(actionPayload.Context.ChoiceKey, actionPayload.SelectedOption)
-	messageIDParts := []string{"ask", strings.TrimSpace(actionPayload.PostID), action, strings.TrimSpace(actionPayload.Context.InteractionID), strings.TrimSpace(choiceKey)}
-	return PlatformInboundEvent{
-		Platform:         "mattermost",
-		Source:           "http",
-		ConversationID:   strings.TrimSpace(actionPayload.Context.ConversationID),
-		MessageID:        strings.Join(messageIDParts, ":"),
-		SenderID:         strings.TrimSpace(actionPayload.UserID),
-		ReplyTargetID:    strings.TrimSpace(actionPayload.Context.ReplyTargetID),
-		Prompt:           capabilityMattermostInteractivePrompt(action, choiceKey),
-		ResponseLanguage: strings.TrimSpace(actionPayload.Context.ResponseLanguage),
-		Context: VisibleContext{
-			ChannelID:        strings.TrimSpace(actionPayload.ChannelID),
-			ConversationType: "direct",
-		},
-		RawReceivedAt: time.Now(),
-		LegacyFields: map[string]interface{}{
-			"askAction":     strings.TrimPrefix(action, "ask."),
-			"interactionID": strings.TrimSpace(actionPayload.Context.InteractionID),
-			"taskRunID":     strings.TrimSpace(actionPayload.Context.TaskRunID),
-			"choiceKey":     strings.TrimSpace(choiceKey),
-			"postID":        strings.TrimSpace(actionPayload.PostID),
-		},
-	}, true
-}
-
-func capabilityMattermostInteractivePrompt(action string, choiceKey string) string {
-	switch strings.TrimSpace(action) {
-	case "ask.confirm":
-		return "approved"
-	case "ask.cancel":
-		return "rejected"
-	case "ask.choice":
-		return "selected " + strings.TrimSpace(choiceKey)
-	default:
-		return strings.TrimSpace(action)
-	}
 }
 
 func (adapter CapabilityPlatformAdapter) ParseRealtimeEvent(_ context.Context, payload []byte, source string) (PlatformInboundEvent, bool, error) {

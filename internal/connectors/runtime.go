@@ -56,7 +56,7 @@ type PlatformInboundEvent struct {
 	ResponseLanguage string                 `json:"responseLanguage,omitempty"`
 	Context          VisibleContext         `json:"context"`
 	RawReceivedAt    time.Time              `json:"-"`
-	LegacyFields     map[string]interface{} `json:"-"`
+	LegacyFields     map[string]interface{} `json:"legacyFields,omitempty"`
 }
 
 type ReplyTarget struct {
@@ -893,37 +893,22 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	precomputedTurnDecision := precomputedTurnDecisionForLaunch(turnDecision, hasPendingConfirmation, askTurnDecision, hasAskTurnDecision)
 	taskStartedAt := time.Now()
-	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, agentruntime.TaskLaunchRequest{
-		Source:                    agentruntime.TaskLaunchSourceConnector,
-		SourceReference:           event.DedupeKey(),
-		RequesterPersonID:         personID,
-		RequesterName:             event.Context.Sender.Name,
-		RequesterCallingName:      event.Context.Sender.CallingName,
-		RequesterHandle:           event.Context.Sender.Handle,
-		RequesterEmail:            requesterEmail,
-		RequesterPlatformUserID:   event.SenderID,
-		IsApprovalContinuation:    isApprovalContinuation,
-		ExistingTaskRunID:         existingGoalTaskRunID(pendingApproval, isApprovalContinuation, activeGoal, hasActiveGoal),
-		ProfileName:               "default",
+	conversationTurn := ConversationTurn{
 		Platform:                  platform,
-		ConversationID:            event.ConversationID,
-		ConversationType:          event.Context.ConversationType,
-		ConversationChannelID:     event.Context.ChannelID,
-		ConversationChannelName:   event.Context.ChannelName,
-		ReplyTargetID:             event.ReplyTargetID,
-		Prompt:                    event.Prompt,
-		ResponseLanguage:          responseLanguageForEvent(event),
-		VisibleContext:            event.Context.ToAgentVisibleContext(),
-		ActiveGoal:                activeGoalForLaunch(activeGoal, hasActiveGoal),
-		PrecomputedTurnDecision:   precomputedTurnDecision,
-		HistoryProvider:           connectorHistoryProvider{adapter: adapter},
+		Adapter:                   adapter,
+		Event:                     event,
+		ReplyTarget:               replyTarget,
+		RequesterPersonID:         personID,
+		RequesterEmail:            requesterEmail,
 		PersonAccess:              personAccess,
-		MemoryNamespaces:          connectorRuntime.accessibleNamespaces(personID, personAccess, event),
+		IsApprovalContinuation:    isApprovalContinuation,
+		ActiveGoal:                activeGoal,
+		HasActiveGoal:             hasActiveGoal,
+		PrecomputedTurnDecision:   precomputedTurnDecision,
+		CheckpointSender:          connectorRuntime.checkpointSenderForTurn(platform, event, replyTarget, sendReply),
 		AccessibleConversationIDs: []string{event.ConversationID},
-		CheckpointSender: func(checkpointContext context.Context, checkpoint agent.AgentCheckpoint) error {
-			return connectorRuntime.sendCheckpointReply(checkpointContext, platform, event, replyTarget, checkpoint, sendReply)
-		},
-	})
+	}
+	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.buildTaskLaunchRequest(conversationTurn))
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
 		return ConnectorRuntimeResult{}, errorValue
@@ -933,60 +918,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	taskDuration := time.Since(taskStartedAt)
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int64("duration_ms", taskDuration.Milliseconds()))
 	connectorRuntime.appendTaskExecutionDuration(taskRunID, taskDuration)
-	if turnResult.TurnRoute == agent.TurnRouteConsume {
-		reason := connectorRuntime.addConsumeReaction(ctx, platform, adapter, event, taskRunID, turnResult.ReactionEmojiName)
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: reason}, nil
-	}
-	if turnResult.TaskRun.Status == task.TaskStatusCancelled {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
-			"messageID": event.MessageID,
-			"reason":    "task was cancelled",
-		}))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_cancelled"}, nil
-	}
-	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
-		dispatchID, isSent := connectorRuntime.sendUserNoticeReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
-		if isSent {
-			return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_not_completed", ReplyDispatchID: dispatchID}, nil
-		}
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_not_completed"}, nil
-	}
-	if agent.FinishMessageContainsNonDeliverableArtifactLocator(turnResult.FinishMessage) {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", "", "non_deliverable_artifact_locator"))
-		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "non_deliverable_artifact_locator"))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "non_deliverable_artifact_locator"}, nil
-	}
-	if agent.FinishMessageClaimsAttachmentDelivery(turnResult.FinishMessage) && len(turnResult.Attachments) == 0 {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", "", "missing_attachment_evidence"))
-		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "missing_attachment_evidence"))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "missing_attachment_evidence"}, nil
-	}
-	if connectorRuntime.taskRunWasCancelled(taskRunID) {
-		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
-			"messageID": event.MessageID,
-			"reason":    "task was cancelled before final reply send",
-		}))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "task_cancelled"}, nil
-	}
-
-	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{
-		Message:         turnResult.FinishMessage,
-		TaskRunID:       taskRunID,
-		ReplyKind:       connectorReplyKindSuccess,
-		Attachments:     turnResult.Attachments,
-		RecoveryActions: recoveryActionsForEvent(turnResult.RecoveryActions, event),
-	})
-	if errorValue != nil {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.failed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", "", errorValue.Error()))
-		connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: "reply_failed"}, nil
-	}
-	if connectorRuntime.outboxRepository() == nil {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.sent", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", dispatchID, ""))
-	}
-
-	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID))
-	return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, ReplyDispatchID: dispatchID}, nil
+	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, turnResult, sendReply)
 }
 
 func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, reactionEmojiName string) string {
@@ -2468,7 +2400,9 @@ func (event *PlatformInboundEvent) UnmarshalJSON(document []byte) error {
 
 	var rawFields map[string]interface{}
 	if errorValue := json.Unmarshal(document, &rawFields); errorValue == nil {
-		parsedEvent.LegacyFields = rawFields
+		if len(parsedEvent.LegacyFields) == 0 {
+			parsedEvent.LegacyFields = rawFields
+		}
 	}
 
 	if strings.TrimSpace(parsedEvent.Prompt) == "" {

@@ -3498,28 +3498,38 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (str
 func buildRecoveryDecisionPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) string {
 	sections := []string{
 		"Phase: " + strings.TrimSpace(phase),
-		"Original user request:\n" + strings.TrimSpace(request.Prompt),
-	}
-	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
-		sections = append(sections, contextDescription)
-	}
-	if observationSummary := buildFailureObservationSummary(observations); observationSummary != "" {
-		sections = append(sections, "Current observations and limitations:\n"+observationSummary)
-	}
-	if executionContext := buildExecutionStateContext(executionState, observations); executionContext != "" {
-		sections = append(sections, executionContext)
-	}
-	if attachmentSummary := buildLimitAttachmentSummary(attachments); attachmentSummary != "" {
-		sections = append(sections, "Available attachments:\n"+attachmentSummary)
-	}
-	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
-		sections = append(sections, "FailureReportFacts:\n"+marshalEventBody(failureFacts))
 	}
 	if reason := strings.TrimSpace(failureReason); reason != "" {
 		sections = append(sections, "Private failure reason:\n"+reason)
 	}
 	sections = append(sections, "Return what failed, what is known, the next action or check, and the intent for a short user reply.")
-	return strings.Join(sections, "\n\n")
+	return strings.Join(nonEmptyStrings([]string{
+		failurePromptContext(request, observations, attachments, executionState),
+		strings.Join(sections, "\n\n"),
+	}), "\n\n")
+}
+
+func failurePromptContext(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) string {
+	return (LLMContextBuilder{}).Build(LLMContextInput{
+		ResponseLanguage:  request.ResponseLanguage,
+		UserPrompt:        request.Prompt,
+		TurnStartedAt:     request.TurnStartedAt,
+		InstructionPrompt: request.InstructionPrompt,
+		WorkspaceContext: WorkspaceContext{
+			RootPath:          request.WorkspaceRootPath,
+			DefaultPath:       request.WorkspaceDefaultPath,
+			RequesterPersonID: request.RequesterPersonID,
+		},
+		VisibleContext:    request.VisibleContext,
+		MemoryFacts:       request.MemoryFacts,
+		ActiveGoal:        request.ActiveGoal,
+		CurrentStepPlan:   request.CurrentStepPlan,
+		StepBudgetContext: request.StepBudgetContext,
+		Observations:      observations,
+		ExecutionState:    executionState,
+		FailureFacts:      buildFailureReportFacts(observations, defaultRecoveryBudget()),
+		Attachments:       attachments,
+	})
 }
 
 func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, decision recoveryDecision) string {
@@ -3533,31 +3543,18 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 		"Translate raw field names such as errorCode, failureStage, and budgetState into natural language unless the user explicitly asked for internal diagnostics.",
 		"Say what could not be completed and the best next step the user can take. Keep it to one or two natural sentences.",
 		"Do not claim a tool result or attachment exists unless it appears below.",
-		"Original user request:\n" + strings.TrimSpace(request.Prompt),
 	}
 	if requiredArtifactWithoutAttachment(request, attachments) {
 		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
-	}
-	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
-		sections = append(sections, contextDescription)
-	}
-	if observationSummary := buildFailureObservationSummary(observations); observationSummary != "" {
-		sections = append(sections, "Current observations and limitations:\n"+observationSummary)
-	}
-	if executionContext := buildExecutionStateContext(executionState, observations); executionContext != "" {
-		sections = append(sections, executionContext)
-	}
-	if attachmentSummary := buildLimitAttachmentSummary(attachments); attachmentSummary != "" {
-		sections = append(sections, "Available attachments:\n"+attachmentSummary)
-	}
-	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
-		sections = append(sections, "FailureReportFacts that must be reflected accurately:\n"+marshalEventBody(failureFacts))
 	}
 	if reason := strings.TrimSpace(failureReason); reason != "" {
 		sections = append(sections, "Failure reason for your private planning only. Paraphrase it safely for the user:\n"+reason)
 	}
 	sections = append(sections, "Structured recovery decision:\n"+marshalEventBody(decision))
-	return strings.Join(sections, "\n\n")
+	return strings.Join(nonEmptyStrings([]string{
+		strings.Join(sections, "\n\n"),
+		failurePromptContext(request, observations, attachments, executionState),
+	}), "\n\n")
 }
 
 func buildFailureReplyRepairPrompt(originalPrompt string, rejectedReply string, request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, repairCount int) string {
@@ -3572,9 +3569,7 @@ func buildFailureReplyRepairPrompt(originalPrompt string, rejectedReply string, 
 	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
 		sections = append(sections, "FailureReportFacts that must be reflected accurately:\n"+marshalEventBody(failureFacts))
 	}
-	if executionContext := buildExecutionStateContext(executionState, observations); executionContext != "" {
-		sections = append(sections, executionContext)
-	}
+	sections = append(sections, failurePromptContext(request, observations, attachments, executionState))
 	if reason := strings.TrimSpace(failureReason); reason != "" {
 		sections = append(sections, "Private failure reason:\n"+reason)
 	}
@@ -3762,25 +3757,12 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 		"When FailureReportFacts are provided, preserve those facts. Do not replace them with generic phrases such as system limitation, technical problem, or unexpected interruption.",
 		"Translate raw field names such as errorCode, failureStage, and budgetState into natural language unless the user explicitly asked for internal diagnostics.",
 		"Do not claim a tool result or attachment exists unless it appears below.",
-		"Original user request:\n" + strings.TrimSpace(request.Prompt),
 	}
 	if requiredArtifactWithoutAttachment(request, attachments) {
 		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
 	}
-	if contextDescription := buildVisibleContextDescription(request.VisibleContext); strings.TrimSpace(contextDescription) != "" {
-		sections = append(sections, contextDescription)
-	}
-	if memoryDescription := buildMemoryContext(request.MemoryFacts); strings.TrimSpace(memoryDescription) != "" {
-		sections = append(sections, "Relevant memory summaries:\n"+memoryDescription)
-	}
 	if observationSummary := buildLimitObservationSummary(observations); observationSummary != "" {
 		sections = append(sections, "Completed observations:\n"+observationSummary)
-	}
-	if executionContext := buildExecutionStateContext(executionState, observations); executionContext != "" {
-		sections = append(sections, executionContext)
-	}
-	if attachmentSummary := buildLimitAttachmentSummary(attachments); attachmentSummary != "" {
-		sections = append(sections, "Available attachments:\n"+attachmentSummary)
 	}
 	if requirementSummary := buildLimitRequirementSummary(request, observations); requirementSummary != "" {
 		sections = append(sections, "Remaining completion requirements:\n"+requirementSummary)
@@ -3792,7 +3774,21 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 		sections = append(sections, "Internal stop reason for your planning only: "+reason)
 	}
 	sections = append(sections, "Structured recovery decision:\n"+marshalEventBody(decision))
-	return strings.Join(sections, "\n\n")
+	return strings.Join(nonEmptyStrings([]string{
+		strings.Join(sections, "\n\n"),
+		failurePromptContext(request, observationsWithoutAttachments(observations), attachments, executionState),
+	}), "\n\n")
+}
+
+func observationsWithoutAttachments(observations []turnObservation) []turnObservation {
+	sanitizedObservations := make([]turnObservation, 0, len(observations))
+	for _, observation := range observations {
+		observation.Output = ToolOutput{}
+		observation.ImageRefs = nil
+		observation.Attachments = nil
+		sanitizedObservations = append(sanitizedObservations, observation)
+	}
+	return sanitizedObservations
 }
 
 func buildLimitReachedRepairPrompt(originalPrompt string, rejectedReply string, request AgentTurnRequest, attachments []FileAttachment, repairCount int) string {
