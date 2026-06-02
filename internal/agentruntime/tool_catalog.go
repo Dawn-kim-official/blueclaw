@@ -3272,7 +3272,7 @@ func siteWorkspaceMetadata(site siteCreateResult) string {
 		"collaborators":  site.Collaborators,
 		"stack":          "React + Vite + TypeScript + Tailwind + shadcn/ui scaffold with Stitch DESIGN.md",
 		"uiPrimitives":   siteUIPrimitiveImports(),
-		"designDefault":  "starter scaffold only; customize through DESIGN.md before publish",
+		"designDefault":  "starter scaffold only; customize through a black-on-white DESIGN.md before publish",
 		"sourceContract": "editable source is owned by the requester actor",
 	}, "", "  ")
 	if errorValue != nil {
@@ -3295,7 +3295,7 @@ func siteUIPrimitiveImports() []string {
 }
 
 func siteSourceGuidance() string {
-	return "Use local shadcn-style primitives from ./components/ui/* and customize App.tsx, prototype-data.ts, and index.css. Keep package.json, Vite, Tailwind, and scripts managed."
+	return "Use local shadcn-style primitives from ./components/ui/* and customize App.tsx, prototype-data.ts, and index.css. Default to black-on-white minimal styling unless the user asks for another direction. Keep package.json, Vite, Tailwind, and scripts managed."
 }
 
 func siteIdeaMarkdown(site siteCreateResult) string {
@@ -3307,7 +3307,7 @@ func siteIdeaMarkdown(site siteCreateResult) string {
 
 func siteDesignDocument(site siteCreateResult) string {
 	title := html.EscapeString(firstNonEmptyString(site.Title, site.Slug))
-	return "# " + title + " DESIGN.md\n\n## Product\n\nEditable scaffold for a website prototype. Replace this file with a request-specific design system before publishing user-facing work.\n\n## Audience\n\nDefine the primary user and what they are trying to accomplish.\n\n## Prototype Scope\n\nDescribe what works in the first publish and what is intentionally deferred.\n\n## Visual Direction\n\nChoose typography, color, spacing, layout density, interaction feel, and responsive behavior for this specific request.\n\n## Screens\n\nList the screens and states included in the prototype.\n\n## Workflows\n\nDescribe the main interaction paths the user can try.\n\n## Data Model\n\nDefine local state, fake data, PocketBase collections, files, or realtime behavior.\n\n## Implemented Now\n\nReplace this scaffold with the implemented feature set before publishing.\n\n## Next Iterations\n\nRecord follow-up work for longer projects.\n\n## Acceptance Criteria\n\nList the checks that must pass before publish.\n"
+	return "# " + title + " DESIGN.md\n\n## Product\n\nEditable scaffold for a website prototype. Replace this file with a request-specific design system before publishing user-facing work.\n\n## Audience\n\nDefine the primary user and what they are trying to accomplish.\n\n## Prototype Scope\n\nDescribe what works in the first publish and what is intentionally deferred.\n\n## Visual Direction\n\nDefault to black-on-white minimal styling: white background, near-black text, quiet gray borders, restrained monochrome controls, and color only when the domain clearly benefits from it. Choose typography, spacing, layout density, interaction feel, and responsive behavior for this specific request.\n\n## Screens\n\nList the screens and states included in the prototype.\n\n## Workflows\n\nDescribe the main interaction paths the user can try.\n\n## Data Model\n\nDefine local state, fake data, PocketBase collections, files, or realtime behavior.\n\n## Implemented Now\n\nReplace this scaffold with the implemented feature set before publishing.\n\n## Next Iterations\n\nRecord follow-up work for longer projects.\n\n## Acceptance Criteria\n\nList the checks that must pass before publish.\n"
 }
 
 func toolResultPointer(result agent.ToolResult) *agent.ToolResult {
