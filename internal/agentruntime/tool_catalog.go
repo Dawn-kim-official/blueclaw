@@ -2540,6 +2540,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 	}
 	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
 	if errorValue != nil {
+		if fallbackPath, fallbackFailure, isFound := toolCatalogBuilder.filePreviewFallbackPath(toolContext, resolvedPath.VirtualPath, handlerContext.request); isFound {
+			if fallbackFailure != nil {
+				return *fallbackFailure, nil
+			}
+			if strings.TrimSpace(fallbackPath) != "" && strings.TrimSpace(fallbackPath) != strings.TrimSpace(resolvedPath.VirtualPath) {
+				return toolCatalogBuilder.previewFileTool(toolContext, filePreviewToolInput{Path: fallbackPath}, handlerContext)
+			}
+		}
 		return actorToolFailure("stat", "file_preview", resolvedPath.VirtualPath, errorValue), nil
 	}
 	contentType := previewContentType(resolvedPath.VirtualPath)
@@ -2552,6 +2560,71 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 		}
 	}
 	return toolCatalogBuilder.previewTextFile(toolContext, workspaceActor, resolvedPath, contentType, fileInformation.SizeBytes), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContext context.Context, path string, request ToolCatalogRequest) (string, *agent.ToolResult, bool) {
+	material, isFound := visibleAttachmentMaterialForPath(request.VisibleContext, path)
+	if !isFound {
+		return "", nil, false
+	}
+	materialID := strings.TrimSpace(material.MaterialID)
+	if materialID == "" {
+		return "", nil, false
+	}
+	resolvedMaterial, errorValue := resolveReadableAttachmentMaterial(toolContext, request, materialID)
+	if errorValue != nil {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", errorValue.Error())
+		return "", &result, true
+	}
+	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
+		return "", &result, true
+	}
+	return resolvedMaterial.Path, nil, true
+}
+
+func visibleAttachmentMaterialForPath(visibleContext agent.VisibleContext, path string) (agent.VisibleContextMaterial, bool) {
+	candidates := visibleAttachmentMaterials(visibleContext)
+	if material, isFound := visibleAttachmentMaterialWithExactPath(candidates, path); isFound {
+		return material, true
+	}
+	return visibleAttachmentMaterialWithFilename(candidates, filepath.Base(strings.TrimSpace(path)))
+}
+
+func visibleAttachmentMaterials(visibleContext agent.VisibleContext) []agent.VisibleContextMaterial {
+	materials := append([]agent.VisibleContextMaterial{}, visibleContext.CurrentMaterials...)
+	materials = append(materials, visibleContext.Materials...)
+	for _, message := range visibleContext.Messages {
+		materials = append(materials, message.Materials...)
+	}
+	return materials
+}
+
+func visibleAttachmentMaterialWithExactPath(materials []agent.VisibleContextMaterial, path string) (agent.VisibleContextMaterial, bool) {
+	trimmedPath := strings.TrimSpace(path)
+	for _, material := range materials {
+		if strings.TrimSpace(material.Path) == trimmedPath {
+			return material, true
+		}
+	}
+	return agent.VisibleContextMaterial{}, false
+}
+
+func visibleAttachmentMaterialWithFilename(materials []agent.VisibleContextMaterial, filename string) (agent.VisibleContextMaterial, bool) {
+	trimmedFilename := strings.TrimSpace(filename)
+	if trimmedFilename == "" || trimmedFilename == "." {
+		return agent.VisibleContextMaterial{}, false
+	}
+	matches := []agent.VisibleContextMaterial{}
+	for _, material := range materials {
+		if strings.TrimSpace(material.Filename) == trimmedFilename || filepath.Base(strings.TrimSpace(material.Path)) == trimmedFilename {
+			matches = append(matches, material)
+		}
+	}
+	if len(matches) != 1 {
+		return agent.VisibleContextMaterial{}, false
+	}
+	return matches[0], true
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext context.Context, input filePreviewToolInput, request ToolCatalogRequest) (string, *agent.ToolResult) {

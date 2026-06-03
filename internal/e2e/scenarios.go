@@ -128,7 +128,7 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 			},
 			ExpectedModelContexts: []string{
 				"materialID=mattermost:file-1",
-				"Use materialID with image.read",
+				"Use the listed materialID or path",
 				"mascot.png",
 			},
 			ForbiddenModelContexts: []string{
@@ -136,6 +136,44 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 				"mattermost.channel.post",
 			},
 			ExpectedReplyFragments: []string{"이미지"},
+		}},
+	}
+}
+
+func AttachmentHTMLPreviewRecoveryScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	attachment := connectors.InputAttachment{
+		Platform:    "mattermost",
+		FileID:      "file-html",
+		MessageID:   "message-html",
+		Filename:    "kim-intern-automation.html",
+		ContentType: "text/html",
+		SizeBytes:   691000,
+	}
+	return VirtualSessionScenario{
+		Name:                  "attachment_html_preview_recovery",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.preview", "file.read", "image.read"},
+		Turns: []VirtualTurn{{
+			Prompt:           "이거 파일 내용 보고 어떻게 개선하면 좋을지 말해줘봐",
+			InputAttachments: []connectors.InputAttachment{attachment},
+			ActionResponses: []string{
+				actionCallTool("file.preview", `{"path":"home/inbox/mattermost/thread-1/message-html/kim-intern-automation.html"}`),
+				actionFinishMessage("첨부 HTML을 확인했습니다. 자동화 섹션의 정보 구조와 CTA를 더 선명하게 다듬으면 좋겠습니다.", "obs-001:file.preview:0"),
+			},
+			ExpectedToolCalls: []string{"file.preview"},
+			ExpectedToolCallCounts: map[string]int{
+				"terminal.run": 0,
+				"file.read":    0,
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.file.preview.requested", BodyFragment: `"path":"home/inbox/mattermost/thread-1/message-html/kim-intern-automation.html"`, Count: 1},
+				{Name: "tool.file.preview.result", BodyFragment: "Virtual HTML Title", Count: 1},
+			},
+			ExpectedModelContexts: []string{
+				"materialID=mattermost:file-html",
+				"availableTools=file.preview,file.read",
+			},
+			ExpectedReplyFragments: []string{"첨부 HTML", "정보 구조"},
 		}},
 	}
 }

@@ -1221,6 +1221,49 @@ func TestFilePreviewResolvesAttachmentMaterialID(t *testing.T) {
 	}
 }
 
+func TestFilePreviewFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "post-1", "report.html")
+	writeTestFile(t, filePath, "<h1>Recovered Preview</h1>")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		VisibleContext: agent.VisibleContext{
+			CurrentMaterials: []agent.VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "report.html",
+				ContentType: "text/html",
+				Path:        "home/inbox/mattermost/old/report.html",
+			}},
+		},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "report.html",
+				ContentType: "text/html",
+				Path:        "home/inbox/mattermost/post-1/report.html",
+			},
+		},
+	})
+
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.preview",
+		Input:    agent.MarshalToolInput(map[string]any{"path": "home/inbox/mattermost/thread-1/post-1/report.html"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if previewResult.Failed() {
+		t.Fatalf("expected stale path fallback success, got %s", previewResult.ContentText())
+	}
+	if !strings.Contains(previewResult.ContentText(), "Recovered Preview") {
+		t.Fatalf("expected recovered preview content, got %s", previewResult.ContentText())
+	}
+}
+
 func TestFileEditReplacesSingleExactMatch(t *testing.T) {
 	workspacePath := t.TempDir()
 	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "source.ts")

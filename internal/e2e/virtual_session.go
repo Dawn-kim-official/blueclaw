@@ -123,6 +123,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
 	case "attachment_material_read":
 		return AttachmentMaterialReadScenario(artifactDirectoryPath), nil
+	case "attachment_html_preview_recovery":
+		return AttachmentHTMLPreviewRecoveryScenario(artifactDirectoryPath), nil
 	case "attachment_current_image_input":
 		return AttachmentCurrentImageInputScenario(artifactDirectoryPath), nil
 	default:
@@ -882,7 +884,7 @@ func (adapter *virtualAdapter) importInputAttachment(targetDirectoryPath string,
 	filename := firstNonEmptyVirtualString(attachment.Filename, attachment.FileID, "attachment.bin")
 	virtualPath := strings.TrimRight(targetDirectoryPath, "/") + "/" + filename
 	hostPath := filepath.Join(adapter.workspacePath, strings.TrimPrefix(virtualPath, "/workspace/"))
-	content := []byte("virtual-image")
+	content := virtualAttachmentContent(attachment)
 	if errorValue := os.MkdirAll(filepath.Dir(hostPath), 0700); errorValue != nil {
 		return connectors.InputAttachment{}, errorValue
 	}
@@ -894,6 +896,17 @@ func (adapter *virtualAdapter) importInputAttachment(targetDirectoryPath string,
 	attachment.SizeBytes = int64(len(content))
 	attachment.ContentType = firstNonEmptyVirtualString(attachment.ContentType, "application/octet-stream")
 	return attachment, nil
+}
+
+func virtualAttachmentContent(attachment connectors.InputAttachment) []byte {
+	contentType := strings.ToLower(strings.TrimSpace(attachment.ContentType))
+	if strings.Contains(contentType, "html") || strings.HasSuffix(strings.ToLower(strings.TrimSpace(attachment.Filename)), ".html") {
+		return []byte("<!doctype html><html><body><h1>Virtual HTML Title</h1><p>Automation workflow content</p></body></html>")
+	}
+	if strings.HasPrefix(contentType, "image/") {
+		return []byte("virtual-image")
+	}
+	return []byte("virtual-file")
 }
 
 func virtualInputParts(attachments []connectors.InputAttachment) []agent.AgentPart {
