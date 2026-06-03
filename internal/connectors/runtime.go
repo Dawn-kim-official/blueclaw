@@ -2046,10 +2046,14 @@ func connectorInputAttachmentScope(personID string, event PlatformInboundEvent) 
 }
 
 func connectorInputAttachmentDirectory(scope agentruntime.ConversationResourceScope, event PlatformInboundEvent) string {
+	return connectorInputAttachmentDirectoryForMessage(scope, event, event.MessageID)
+}
+
+func connectorInputAttachmentDirectoryForMessage(scope agentruntime.ConversationResourceScope, event PlatformInboundEvent, messageID string) string {
 	platform := connectorSafePathSegment(firstNonEmptyString(event.Platform, "platform"))
 	conversationID := connectorSafePathSegment(firstNonEmptyString(event.ConversationID, "conversation"))
-	messageID := connectorSafePathSegment(firstNonEmptyString(event.MessageID, "message"))
-	return strings.TrimRight(scope.DefaultDirectoryPath, "/") + "/inbox/" + platform + "/" + conversationID + "/" + messageID
+	sourceMessageID := connectorSafePathSegment(firstNonEmptyString(messageID, event.MessageID, "message"))
+	return strings.TrimRight(scope.DefaultDirectoryPath, "/") + "/inbox/" + platform + "/" + conversationID + "/" + sourceMessageID
 }
 
 func connectorReadableInputAttachments(attachments []InputAttachment, personID string, scope agentruntime.ConversationResourceScope) []InputAttachment {
@@ -2098,6 +2102,96 @@ func connectorInputAttachmentKey(attachment InputAttachment) string {
 		return strings.TrimSpace(attachment.Platform) + ":" + strings.TrimSpace(attachment.Path)
 	}
 	return ""
+}
+
+type connectorAttachmentMaterialResolver struct {
+	adapter  PlatformAdapter
+	personID string
+	event    PlatformInboundEvent
+}
+
+func (resolver connectorAttachmentMaterialResolver) ResolveAttachmentMaterial(ctx context.Context, materialID string) (agent.VisibleContextMaterial, error) {
+	attachment, isFound, errorValue := resolver.findAttachmentMaterial(ctx, materialID)
+	if errorValue != nil {
+		return agent.VisibleContextMaterial{}, errorValue
+	}
+	if !isFound {
+		return agent.VisibleContextMaterial{}, errors.New("attachment material is not visible in this conversation")
+	}
+	return resolver.importAttachmentMaterial(ctx, attachment)
+}
+
+func (resolver connectorAttachmentMaterialResolver) findAttachmentMaterial(ctx context.Context, materialID string) (InputAttachment, bool, error) {
+	if attachment, isFound := findAttachmentMaterialInContext(resolver.event.Context, materialID); isFound {
+		return attachment, true, nil
+	}
+	if strings.TrimSpace(resolver.event.Context.HistoryCursor) == "" {
+		return InputAttachment{}, false, nil
+	}
+	visibleContext, errorValue := resolver.adapter.FetchHistory(ctx, resolver.event.Context.HistoryCursor, 50)
+	if errorValue != nil {
+		return InputAttachment{}, false, errors.New("attachment history lookup failed: " + errorValue.Error())
+	}
+	attachment, isFound := findAttachmentMaterialInContext(visibleContext, materialID)
+	return attachment, isFound, nil
+}
+
+func findAttachmentMaterialInContext(visibleContext VisibleContext, materialID string) (InputAttachment, bool) {
+	trimmedMaterialID := strings.TrimSpace(materialID)
+	for _, attachment := range visibleContextAttachmentMaterials(visibleContext) {
+		if attachmentMaterialID(attachment) == trimmedMaterialID {
+			return attachment, true
+		}
+	}
+	return InputAttachment{}, false
+}
+
+func visibleContextAttachmentMaterials(visibleContext VisibleContext) []InputAttachment {
+	attachments := []InputAttachment{}
+	attachments = append(attachments, visibleContext.Materials...)
+	attachments = append(attachments, visibleContext.InputAttachments...)
+	for _, message := range visibleContext.Messages {
+		attachments = append(attachments, message.InputAttachments...)
+	}
+	return connectorUniqueInputAttachments(attachments)
+}
+
+func (resolver connectorAttachmentMaterialResolver) importAttachmentMaterial(ctx context.Context, attachment InputAttachment) (agent.VisibleContextMaterial, error) {
+	if strings.TrimSpace(attachment.Path) != "" && strings.TrimSpace(attachment.ErrorCode) == "" {
+		return connectorAttachmentToAgentMaterial(resolver.personID, resolver.event, attachment), nil
+	}
+	importingAdapter, isSupported := resolver.adapter.(InputAttachmentImportingAdapter)
+	if !isSupported {
+		return agent.VisibleContextMaterial{}, errors.New("attachment import is unavailable for this platform")
+	}
+	scope := connectorInputAttachmentScope(resolver.personID, resolver.event)
+	messageID := firstNonEmptyString(attachment.MessageID, resolver.event.MessageID)
+	result, errorValue := importingAdapter.ImportInputAttachments(ctx, InputAttachmentImportRequest{
+		MessageID:           messageID,
+		TargetDirectoryPath: connectorInputAttachmentDirectoryForMessage(scope, resolver.event, messageID),
+		InputAttachments:    []InputAttachment{attachment},
+	})
+	if errorValue != nil {
+		return agent.VisibleContextMaterial{}, errorValue
+	}
+	if len(result.InputAttachments) == 0 {
+		return agent.VisibleContextMaterial{}, errors.New("attachment import returned no material")
+	}
+	importedAttachment := connectorReadableInputAttachments(result.InputAttachments, resolver.personID, scope)[0]
+	if strings.TrimSpace(importedAttachment.Path) == "" {
+		return agent.VisibleContextMaterial{}, errors.New("attachment import returned no readable path")
+	}
+	return agentVisibleContextMaterials([]InputAttachment{importedAttachment})[0], nil
+}
+
+func connectorAttachmentToAgentMaterial(personID string, event PlatformInboundEvent, attachment InputAttachment) agent.VisibleContextMaterial {
+	scope := connectorInputAttachmentScope(personID, event)
+	readableAttachments := connectorReadableInputAttachments([]InputAttachment{attachment}, personID, scope)
+	materials := agentVisibleContextMaterials(readableAttachments)
+	if len(materials) == 0 {
+		return agent.VisibleContextMaterial{}
+	}
+	return materials[0]
 }
 
 func connectorSafePathSegment(value string) string {
@@ -2218,23 +2312,24 @@ func latestTime(values []time.Time) time.Time {
 func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapter, event PlatformInboundEvent, personID string, personAccess policy.PersonAccess) *agent.ToolSet {
 	requesterEmail := connectorRuntime.requesterEmailForEvent(personID, event)
 	return connectorRuntime.toolCatalogBuilder.BuildToolSet(agentruntime.ToolCatalogRequest{
-		ProfileName:               "default",
-		Prompt:                    event.Prompt,
-		RequesterPersonID:         personID,
-		RequesterName:             event.Context.Sender.Name,
-		RequesterEmail:            requesterEmail,
-		RequesterPlatformUserID:   event.SenderID,
-		ConversationID:            event.ConversationID,
-		ConversationType:          event.Context.ConversationType,
-		ConversationChannelID:     event.Context.ChannelID,
-		ConversationChannelName:   event.Context.ChannelName,
-		ReplyTargetID:             event.ReplyTargetID,
-		Platform:                  adapter.Name(),
-		HistoryCursor:             event.Context.HistoryCursor,
-		HistoryProvider:           connectorHistoryProvider{adapter: adapter},
-		PersonAccess:              personAccess,
-		MemoryNamespaces:          connectorRuntime.accessibleNamespaces(personID, personAccess, event),
-		AccessibleConversationIDs: []string{event.ConversationID},
+		ProfileName:                "default",
+		Prompt:                     event.Prompt,
+		RequesterPersonID:          personID,
+		RequesterName:              event.Context.Sender.Name,
+		RequesterEmail:             requesterEmail,
+		RequesterPlatformUserID:    event.SenderID,
+		ConversationID:             event.ConversationID,
+		ConversationType:           event.Context.ConversationType,
+		ConversationChannelID:      event.Context.ChannelID,
+		ConversationChannelName:    event.Context.ChannelName,
+		ReplyTargetID:              event.ReplyTargetID,
+		Platform:                   adapter.Name(),
+		HistoryCursor:              event.Context.HistoryCursor,
+		HistoryProvider:            connectorHistoryProvider{adapter: adapter},
+		AttachmentMaterialResolver: connectorAttachmentMaterialResolver{adapter: adapter, personID: personID, event: event},
+		PersonAccess:               personAccess,
+		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(personID, personAccess, event),
+		AccessibleConversationIDs:  []string{event.ConversationID},
 	})
 }
 

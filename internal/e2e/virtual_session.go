@@ -48,6 +48,8 @@ type VirtualSessionScenario struct {
 
 type VirtualTurn struct {
 	Prompt                  string
+	ContextMessages         []connectors.VisibleContextMessage
+	ContextMaterials        []connectors.InputAttachment
 	ActionResponses         []string
 	ExpectedSelectedSkills  []string
 	ExpectedToolCalls       []string
@@ -115,6 +117,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return ScheduleCreateAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_prototype_acceptance":
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
+	case "attachment_material_read":
+		return AttachmentMaterialReadScenario(artifactDirectoryPath), nil
 	default:
 		return VirtualSessionScenario{}, fmt.Errorf("unknown virtual session scenario: %s", name)
 	}
@@ -169,7 +173,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 
 	identityService := identity.NewIdentityService(testPolicyProjection())
 	runtime := connectors.NewConnectorRuntime(identityService, agentKernel, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
-	adapter := &virtualAdapter{}
+	adapter := &virtualAdapter{workspacePath: workspacePath}
 	runtime.RegisterAdapter(adapter)
 	runtime.UseWorkspaceID("e2e")
 	runtime.UseWorkspaceRootPath(workspacePath)
@@ -346,6 +350,8 @@ func virtualCapabilityResponse(toolName string) string {
 		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"home/sites/site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app"}}`
 	case "site.app.logs":
 		return `{"status":"ok","result":{"logs":[]}}`
+	case "image.read":
+		return `{"status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	default:
 		return `{"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true}}`
 	}
@@ -390,6 +396,8 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	if harness.scriptedModel != nil {
 		modelRequestStartIndex = harness.scriptedModel.RequestCount()
 	}
+	messages := append([]connectors.VisibleContextMessage{}, harness.history...)
+	messages = append(messages, virtualTurn.ContextMessages...)
 	event := connectors.PlatformInboundEvent{
 		Platform:       "virtual",
 		Source:         "e2e",
@@ -399,7 +407,10 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		ReplyTargetID:  fmt.Sprintf("virtual-reply-%03d", index+1),
 		Prompt:         virtualTurn.Prompt,
 		Context: connectors.VisibleContext{
-			Messages: append([]connectors.VisibleContextMessage{}, harness.history...),
+			Messages: messages,
+			Materials: append([]connectors.InputAttachment{},
+				virtualTurn.ContextMaterials...,
+			),
 			Sender: connectors.VisibleContextSender{
 				Platform:    "virtual",
 				SenderID:    "user-1",
@@ -753,8 +764,9 @@ func testPolicyProjection() policy.PolicyProjection {
 }
 
 type virtualAdapter struct {
-	mutex   sync.Mutex
-	replies map[string]connectors.OutboundReply
+	mutex         sync.Mutex
+	workspacePath string
+	replies       map[string]connectors.OutboundReply
 }
 
 func (adapter *virtualAdapter) Name() string { return "virtual" }
@@ -804,6 +816,46 @@ func (adapter *virtualAdapter) FindReply(dispatchID string) (connectors.Outbound
 
 func (adapter *virtualAdapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {
 	return connectors.VisibleContext{}, nil
+}
+
+func (adapter *virtualAdapter) ImportInputAttachments(_ context.Context, request connectors.InputAttachmentImportRequest) (connectors.InputAttachmentImportResult, error) {
+	attachments := []connectors.InputAttachment{}
+	for _, attachment := range request.InputAttachments {
+		importedAttachment, errorValue := adapter.importInputAttachment(request.TargetDirectoryPath, attachment)
+		if errorValue != nil {
+			return connectors.InputAttachmentImportResult{}, errorValue
+		}
+		attachments = append(attachments, importedAttachment)
+	}
+	return connectors.InputAttachmentImportResult{InputAttachments: attachments}, nil
+}
+
+func (adapter *virtualAdapter) importInputAttachment(targetDirectoryPath string, attachment connectors.InputAttachment) (connectors.InputAttachment, error) {
+	filename := firstNonEmptyVirtualString(attachment.Filename, attachment.FileID, "attachment.bin")
+	virtualPath := strings.TrimRight(targetDirectoryPath, "/") + "/" + filename
+	hostPath := filepath.Join(adapter.workspacePath, strings.TrimPrefix(virtualPath, "/workspace/"))
+	content := []byte("virtual-image")
+	if errorValue := os.MkdirAll(filepath.Dir(hostPath), 0700); errorValue != nil {
+		return connectors.InputAttachment{}, errorValue
+	}
+	if errorValue := os.WriteFile(hostPath, content, 0600); errorValue != nil {
+		return connectors.InputAttachment{}, errorValue
+	}
+	attachment.Path = virtualPath
+	attachment.IsAvailable = true
+	attachment.SizeBytes = int64(len(content))
+	attachment.ContentType = firstNonEmptyVirtualString(attachment.ContentType, "application/octet-stream")
+	return attachment, nil
+}
+
+func firstNonEmptyVirtualString(values ...string) string {
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			return trimmedValue
+		}
+	}
+	return ""
 }
 
 func (adapter *virtualAdapter) NotInvitedReply() string {

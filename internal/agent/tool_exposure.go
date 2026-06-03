@@ -158,6 +158,10 @@ func deterministicToolSelectionDecision(request toolSelectionRequest) (ToolSelec
 		selection, event := deterministicToolSelection(recoveryTools, "pinned tools are required for the next step")
 		return selection, event, true
 	}
+	if materialTools := visibleContextMaterialReadToolNames(request.VisibleContext); len(materialTools) > 0 {
+		selection, event := deterministicToolSelection(materialTools, "visible attachment materials can be read by materialID")
+		return selection, event, true
+	}
 	return ToolSelectionDecision{}, ToolExposureEvent{}, false
 }
 
@@ -552,4 +556,49 @@ func outcomeContractSummary(contract OutcomeContract) string {
 func stableUniqueToolIDs(toolIDs []string) []string {
 	result := []string{}
 	return appendUniqueStrings(result, toolIDs...)
+}
+
+func visibleContextMaterialReadToolNames(visibleContext VisibleContext) []string {
+	toolNames := []string{}
+	for _, material := range allVisibleContextMaterials(visibleContext) {
+		if visibleContextMaterialLooksLikeImage(material) {
+			toolNames = appendUniqueStrings(toolNames, "image.read")
+			continue
+		}
+		if visibleContextMaterialLooksReadableDocument(material) {
+			toolNames = appendUniqueStrings(toolNames, "document.read")
+		}
+	}
+	return toolNames
+}
+
+func allVisibleContextMaterials(visibleContext VisibleContext) []VisibleContextMaterial {
+	materials := append([]VisibleContextMaterial{}, visibleContext.Materials...)
+	for _, message := range visibleContext.Messages {
+		materials = append(materials, message.Materials...)
+	}
+	return materials
+}
+
+func visibleContextMaterialLooksLikeImage(material VisibleContextMaterial) bool {
+	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
+	if strings.HasPrefix(contentType, "image/") {
+		return true
+	}
+	filename := strings.ToLower(strings.TrimSpace(material.Filename))
+	return strings.HasSuffix(filename, ".png") ||
+		strings.HasSuffix(filename, ".jpg") ||
+		strings.HasSuffix(filename, ".jpeg") ||
+		strings.HasSuffix(filename, ".gif") ||
+		strings.HasSuffix(filename, ".webp")
+}
+
+func visibleContextMaterialLooksReadableDocument(material VisibleContextMaterial) bool {
+	if visibleContextMaterialLooksLikeImage(material) {
+		return false
+	}
+	return strings.TrimSpace(material.Filename) != "" ||
+		strings.TrimSpace(material.ContentType) != "" ||
+		strings.TrimSpace(material.Path) != "" ||
+		strings.TrimSpace(material.MaterialID) != ""
 }

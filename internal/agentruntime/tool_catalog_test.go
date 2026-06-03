@@ -1340,6 +1340,88 @@ func TestFileToolsAllowCirclePathForMember(t *testing.T) {
 	}
 }
 
+func TestImageReadResolvesAttachmentMaterialID(t *testing.T) {
+	workspacePath := t.TempDir()
+	imagePath := filepath.Join(workspacePath, "circles", "staff", "inbox", "mattermost", "thread-1", "post-1", "mascot.png")
+	writeTestFile(t, imagePath, "image")
+	httpClient := &recordingHTTPClient{responseBody: `{"content":"image loaded","status":"ok","result":{"status":"ok"}}`}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "image.read",
+		PolicyResource: "tool:image.read",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"materialID":{"type":"string"},"path":{"type":"string"}}}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+				Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png",
+			},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "image.read",
+		Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected image.read success, got %s", result.ContentText())
+	}
+	if strings.Contains(httpClient.requestBody, "materialID") {
+		t.Fatalf("expected materialID to be resolved before capability call, got %s", httpClient.requestBody)
+	}
+	if !strings.Contains(httpClient.requestBody, `/workspace/circles/staff/inbox/mattermost/thread-1/post-1/mascot.png`) {
+		t.Fatalf("expected capability request to use material path, got %s", httpClient.requestBody)
+	}
+}
+
+func TestDocumentReadRejectsImageMaterialID(t *testing.T) {
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(t.TempDir())
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:           "document.read",
+		PolicyResource: "tool:document.read",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"materialID":{"type":"string"},"path":{"type":"string"}}}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+				Path:        "/workspace/circles/staff/mascot.png",
+			},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "document.read",
+		Input:    agent.MarshalToolInput(map[string]string{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "use image.read") {
+		t.Fatalf("expected document.read material type error, got %s", result.ContentText())
+	}
+}
+
 func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
@@ -3304,6 +3386,14 @@ func containsTestString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+type staticAttachmentMaterialResolver struct {
+	material agent.VisibleContextMaterial
+}
+
+func (resolver staticAttachmentMaterialResolver) ResolveAttachmentMaterial(context.Context, string) (agent.VisibleContextMaterial, error) {
+	return resolver.material, nil
 }
 
 type skillSearchTestRetriever struct{}
