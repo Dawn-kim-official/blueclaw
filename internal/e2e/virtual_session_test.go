@@ -154,6 +154,23 @@ func TestAttachmentMaterialRead(t *testing.T) {
 	}
 }
 
+func TestAttachmentCurrentImageInput(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), AttachmentCurrentImageInputScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected current image input scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if turnResult.ModelImagePartCount == 0 {
+		t.Fatalf("expected current image attachment to reach model input; context: %s", turnResult.ModelContext)
+	}
+	if eventsContain(turnResult.Events, "tool.image.read.requested", "image.read") {
+		t.Fatalf("expected current image input not to require image.read; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
+		t.Fatalf("expected current image input not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
 func firstNonEmptyTestString(values ...string) string {
 	for _, value := range values {
 		trimmedValue := strings.TrimSpace(value)
