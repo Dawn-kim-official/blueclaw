@@ -2360,6 +2360,7 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapt
 		PersonAccess:               personAccess,
 		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(personID, personAccess, event),
 		AccessibleConversationIDs:  []string{event.ConversationID},
+		InputParts:                 append([]agent.AgentPart{}, event.InputParts...),
 	})
 }
 

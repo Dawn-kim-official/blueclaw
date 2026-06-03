@@ -33,6 +33,7 @@ const siteSourceBundleMaximumBytes = 64 * 1024 * 1024
 const defaultFileReadMaximumBytes = 128 * 1024
 const maximumFileReadBytes = 1024 * 1024
 const maximumEditableTextFileBytes = 2 * 1024 * 1024
+const maximumFilePreviewBytes = 200 * 1024
 
 type HistoryProvider interface {
 	FetchHistory(context.Context, string, int) (agent.VisibleContext, error)
@@ -93,6 +94,7 @@ type ToolCatalogRequest struct {
 	PersonAccess               policy.PersonAccess
 	MemoryNamespaces           []memory.MemoryNamespace
 	AccessibleConversationIDs  []string
+	InputParts                 []agent.AgentPart
 }
 
 type CapabilityToolDescriptor struct {
@@ -176,6 +178,10 @@ type fileReadToolInput struct {
 	MaxOutputBytes int    `json:"maxOutputBytes"`
 	StartLine      int    `json:"startLine"`
 	LineCount      int    `json:"lineCount"`
+}
+
+type filePreviewToolInput struct {
+	Path string `json:"path"`
 }
 
 type fileWriteToolInput struct {
@@ -342,7 +348,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.DefaultAllowedToolNames([]string{"conversation.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "document.read", "image.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "tool.describe", "schedule.create", "schedule.cancel"})
+	return agent.DefaultAllowedToolNames([]string{"conversation.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.preview", "file.read", "document.read", "image.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "tool.describe", "schedule.create", "schedule.cancel"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -501,18 +507,36 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileReadToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "file.read",
-			Description: "Read UTF-8 workspace text with line metadata. Use startLine and lineCount to inspect source ranges before exact edits.",
+			Description: "Read exact UTF-8 workspace text or a real file line range with honest size and truncation metadata. Use file.preview first for attached HTML, PDF, DOCX, PPTX, XLSX, or other documents.",
 			RecoveryCard: agent.ToolRecoveryCard{
-				Does:       "Reads a text file or a requested line range from the workspace.",
-				Produces:   "Text content plus path, line range, total line count, size, and truncation metadata.",
+				Does:       "Reads a text file or requested line range from the actual workspace file.",
+				Produces:   "Text content plus path, line range, original size, returned size, line count if known, and truncation metadata.",
 				SideEffect: "read",
 				UseWhen:    "You need current file content before file.edit, file.patch, or file.write.",
-				AvoidWhen:  "The file is binary or you already have the exact current text needed for an edit.",
+				AvoidWhen:  "The file is binary, an attached document needing conversion, or you already have the exact current text needed for an edit.",
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"startLine":{"type":"integer","description":"Optional 1-based first line to return."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."}},"required":["path"]}`),
 		},
 		Handler: func(toolContext context.Context, input fileReadToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
+	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[filePreviewToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "file.preview",
+			Description: "Preview an attached or workspace file for LLM context using cached AgentPart markdownPreview when available, or the existing document.read MarkItDown provider for convertible documents.",
+			RecoveryCard: agent.ToolRecoveryCard{
+				Does:       "Returns a document preview or file metadata without inventing content.",
+				Produces:   "Path, filename, content type, size, markdown preview, conversion status, and conversion message.",
+				SideEffect: "read",
+				UseWhen:    "You need to understand an attached HTML, PDF, DOCX, PPTX, XLSX, text, or data file before answering or deciding whether to read exact ranges.",
+				AvoidWhen:  "You need exact source lines for an edit; use file.read after previewing.",
+			},
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview."}},"required":["path"]}`),
+		},
+		Handler: func(toolContext context.Context, input filePreviewToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.previewFileTool(toolContext, input, handlerContext)
 		},
 		Result: agent.IdentityToolResult,
 	})
@@ -2394,48 +2418,68 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
-	content, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, int64(maxOutputBytes+1))
+	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
 	if errorValue != nil {
+		return actorToolFailure("stat", "file_read", resolvedPath.VirtualPath, errorValue), nil
+	}
+	if !fileInformation.IsRegular {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path is not a regular file"), nil
+	}
+	readMaximumBytes := maximumFileReadBytes
+	if maxOutputBytes > readMaximumBytes {
+		readMaximumBytes = maxOutputBytes
+	}
+	content, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, int64(readMaximumBytes+1))
+	if errorValue != nil {
+		if fileInformation.SizeBytes > int64(readMaximumBytes) {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file is too large for exact text read; use file.preview for document or attachment understanding"), nil
+		}
 		return actorToolFailure("read_file", "file_read", resolvedPath.VirtualPath, errorValue), nil
 	}
-	isTruncated := len(content) > maxOutputBytes
-	if isTruncated {
-		content = content[:maxOutputBytes]
+	isFileTruncated := len(content) > readMaximumBytes
+	if isFileTruncated {
+		content = content[:readMaximumBytes]
 	}
 	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use a specialized document or artifact tool for binary files"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use file.preview or a specialized document tool for binary files"), nil
 	}
-	readResult := fileReadResult(string(content), input.StartLine, input.LineCount)
+	readResult := fileReadResult(string(content), input.StartLine, input.LineCount, maxOutputBytes)
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
-		"path":        resolvedPath.VirtualPath,
-		"content":     readResult.Content,
-		"startLine":   readResult.StartLine,
-		"endLine":     readResult.EndLine,
-		"totalLines":  readResult.TotalLines,
-		"sizeBytes":   len(content),
-		"isTruncated": isTruncated,
+		"path":              resolvedPath.VirtualPath,
+		"content":           readResult.Content,
+		"startLine":         readResult.StartLine,
+		"endLine":           readResult.EndLine,
+		"totalLines":        readResult.TotalLines,
+		"totalLinesKnown":   !isFileTruncated,
+		"originalSizeBytes": fileInformation.SizeBytes,
+		"returnedBytes":     len([]byte(readResult.Content)),
+		"sizeBytes":         fileInformation.SizeBytes,
+		"isTruncated":       isFileTruncated || readResult.IsTruncated,
 	})), nil
 }
 
 type fileReadOutput struct {
-	Content    string
-	StartLine  int
-	EndLine    int
-	TotalLines int
+	Content     string
+	StartLine   int
+	EndLine     int
+	TotalLines  int
+	IsTruncated bool
 }
 
-func fileReadResult(content string, startLine int, lineCount int) fileReadOutput {
+func fileReadResult(content string, startLine int, lineCount int, maxOutputBytes int) fileReadOutput {
 	lines := splitFileLines(content)
 	totalLines := len(lines)
 	if totalLines == 0 {
 		return fileReadOutput{}
 	}
 	if startLine <= 0 {
+		content, isTruncated := truncateTextByBytes(content, maxOutputBytes)
 		return fileReadOutput{
-			Content:    content,
-			StartLine:  1,
-			EndLine:    totalLines,
-			TotalLines: totalLines,
+			Content:     content,
+			StartLine:   1,
+			EndLine:     totalLines,
+			TotalLines:  totalLines,
+			IsTruncated: isTruncated,
 		}
 	}
 	if startLine > totalLines {
@@ -2452,11 +2496,13 @@ func fileReadResult(content string, startLine int, lineCount int) fileReadOutput
 	if endLine > totalLines {
 		endLine = totalLines
 	}
+	content, isTruncated := truncateTextByBytes(strings.Join(lines[startLine-1:endLine], "\n"), maxOutputBytes)
 	return fileReadOutput{
-		Content:    strings.Join(lines[startLine-1:endLine], "\n"),
-		StartLine:  startLine,
-		EndLine:    endLine,
-		TotalLines: totalLines,
+		Content:     content,
+		StartLine:   startLine,
+		EndLine:     endLine,
+		TotalLines:  totalLines,
+		IsTruncated: isTruncated,
 	}
 }
 
@@ -2469,6 +2515,178 @@ func splitFileLines(content string) []string {
 		return []string{""}
 	}
 	return strings.Split(normalizedContent, "\n")
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext context.Context, input filePreviewToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, strings.TrimSpace(input.Path)); isCached {
+		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+	}
+	resolvedPath, failureResult, errorValue := toolCatalogBuilder.resolveReadableWorkspacePath(input.Path, scope, handlerContext.request, "file_preview")
+	if failureResult != nil || errorValue != nil {
+		return firstToolFailureResult(failureResult, errorValue, "file_preview"), nil
+	}
+	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, resolvedPath.VirtualPath); isCached {
+		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+	}
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return *actorFailure, nil
+	}
+	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
+	if errorValue != nil {
+		return actorToolFailure("stat", "file_preview", resolvedPath.VirtualPath, errorValue), nil
+	}
+	contentType := previewContentType(resolvedPath.VirtualPath)
+	if strings.HasPrefix(contentType, "image/") {
+		return agent.ToolSuccess(marshalToolResult(filePreviewResult(resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes, "", "image", "use the image input part or image.read for visual inspection"))), nil
+	}
+	if toolCatalogBuilder.capabilityClient.HTTPClient != nil {
+		if result, isConverted := toolCatalogBuilder.convertFilePreviewWithCapability(toolContext, handlerContext.request, resolvedPath.VirtualPath, contentType, fileInformation.SizeBytes); isConverted {
+			return result, nil
+		}
+	}
+	return toolCatalogBuilder.previewTextFile(toolContext, workspaceActor, resolvedPath, contentType, fileInformation.SizeBytes), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableWorkspacePath(path string, scope WorkspaceScope, request ToolCatalogRequest, stage string) (workspacepath.Path, *agent.ToolResult, error) {
+	trimmedPath := strings.TrimSpace(path)
+	if trimmedPath == "" {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "path is required")
+		return workspacepath.Path{}, &result, nil
+	}
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(trimmedPath, scope)
+	if errorValue != nil {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, errorValue.Error())
+		return workspacepath.Path{}, &result, nil
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
+		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, stage, "current account cannot read this file")
+		return workspacepath.Path{}, &result, nil
+	}
+	return resolvedPath, nil, nil
+}
+
+func firstToolFailureResult(failureResult *agent.ToolResult, errorValue error, stage string) agent.ToolResult {
+	if failureResult != nil {
+		return *failureResult
+	}
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, errorValue.Error())
+	}
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "invalid file preview request")
+}
+
+func cachedFilePreviewResult(parts []agent.AgentPart, path string) (map[string]any, bool) {
+	for _, part := range parts {
+		if part.File == nil || strings.TrimSpace(part.File.Path) != strings.TrimSpace(path) {
+			continue
+		}
+		if strings.TrimSpace(part.File.MarkdownPreview) == "" && strings.TrimSpace(part.File.ConversionStatus) == "" {
+			continue
+		}
+		return filePreviewResult(
+			path,
+			part.File.ContentType,
+			part.File.SizeBytes,
+			part.File.MarkdownPreview,
+			firstNonEmptyString(part.File.ConversionStatus, "cached"),
+			part.File.ConversionMessage,
+		), true
+	}
+	return nil, false
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(toolContext context.Context, request ToolCatalogRequest, path string, contentType string, sizeBytes int64) (agent.ToolResult, bool) {
+	var response struct {
+		Content      string          `json:"content"`
+		IsError      bool            `json:"isError"`
+		Status       string          `json:"status"`
+		Message      string          `json:"message"`
+		ErrorCode    string          `json:"errorCode"`
+		FailureStage string          `json:"failureStage"`
+		Result       json.RawMessage `json:"result"`
+	}
+	input := agent.MarshalToolInput(map[string]any{"path": path, "maxOutputBytes": maximumFilePreviewBytes})
+	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/document.read/invoke", capabilityToolRequest("document.read", request, input), &response)
+	if errorValue != nil || response.IsError || response.Status == "error" || response.Status == "denied" {
+		return agent.ToolResult{}, false
+	}
+	var document struct {
+		Content   string `json:"content"`
+		Truncated bool   `json:"truncated"`
+		Format    string `json:"format"`
+	}
+	if json.Unmarshal(response.Result, &document) != nil {
+		document.Content = response.Content
+	}
+	conversionStatus := "converted"
+	if document.Truncated {
+		conversionStatus = "truncated"
+	}
+	result := filePreviewResult(path, contentType, sizeBytes, document.Content, conversionStatus, "")
+	if strings.TrimSpace(document.Format) != "" {
+		result["previewFormat"] = strings.TrimSpace(document.Format)
+	}
+	return agent.ToolSuccess(marshalToolResult(result)), true
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) previewTextFile(toolContext context.Context, workspaceActor security.WorkspaceActor, path workspacepath.Path, contentType string, sizeBytes int64) agent.ToolResult {
+	document, errorValue := workspaceActor.ReadFile(toolContext, path, maximumFilePreviewBytes+1)
+	if errorValue != nil {
+		if sizeBytes > maximumFilePreviewBytes {
+			return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is too large for local text preview; use document.read/MarkItDown provider when available")))
+		}
+		return actorToolFailure("read_file", "file_preview", path.VirtualPath, errorValue)
+	}
+	isTruncated := len(document) > maximumFilePreviewBytes
+	if isTruncated {
+		document = document[:maximumFilePreviewBytes]
+	}
+	if !utf8.Valid(document) || bytes.IndexByte(document, 0) >= 0 {
+		return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, "", "unsupported", "file is not UTF-8 text and no MarkItDown preview is available")))
+	}
+	content, isContentTruncated := truncateTextByBytes(string(document), maximumFilePreviewBytes)
+	conversionStatus := "converted"
+	if isTruncated || isContentTruncated {
+		conversionStatus = "truncated"
+	}
+	return agent.ToolSuccess(marshalToolResult(filePreviewResult(path.VirtualPath, contentType, sizeBytes, content, conversionStatus, "")))
+}
+
+func filePreviewResult(path string, contentType string, sizeBytes int64, markdownPreview string, conversionStatus string, conversionMessage string) map[string]any {
+	return map[string]any{
+		"path":              strings.TrimSpace(path),
+		"filename":          filepath.Base(strings.TrimSpace(path)),
+		"contentType":       strings.TrimSpace(contentType),
+		"sizeBytes":         sizeBytes,
+		"previewFormat":     "markdown",
+		"markdownPreview":   strings.TrimSpace(markdownPreview),
+		"conversionStatus":  strings.TrimSpace(conversionStatus),
+		"conversionMessage": strings.TrimSpace(conversionMessage),
+	}
+}
+
+func previewContentType(path string) string {
+	if contentType := mime.TypeByExtension(filepath.Ext(strings.TrimSpace(path))); strings.TrimSpace(contentType) != "" {
+		return strings.TrimSpace(contentType)
+	}
+	return "application/octet-stream"
+}
+
+func truncateTextByBytes(content string, maxBytes int) (string, bool) {
+	if maxBytes <= 0 || len([]byte(content)) <= maxBytes {
+		return content, false
+	}
+	document := []byte(content)
+	if maxBytes > len(document) {
+		maxBytes = len(document)
+	}
+	truncatedDocument := document[:maxBytes]
+	for len(truncatedDocument) > 0 && !utf8.Valid(truncatedDocument) {
+		truncatedDocument = truncatedDocument[:len(truncatedDocument)-1]
+	}
+	return string(truncatedDocument), true
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) editFileTool(toolContext context.Context, input fileEditToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {

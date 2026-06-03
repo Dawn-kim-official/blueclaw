@@ -125,6 +125,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		PersonAccess:               request.PersonAccess,
 		MemoryNamespaces:           request.MemoryNamespaces,
 		AccessibleConversationIDs:  request.AccessibleConversationIDs,
+		InputParts:                 append([]agent.AgentPart{}, request.InputParts...),
 	})
 	toolNames := toolSet.ListToolNames()
 	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{

@@ -1083,6 +1083,107 @@ func TestFileReadReturnsLineRangeMetadata(t *testing.T) {
 	if resultData["content"] != "two\nthree" || resultData["startLine"] != float64(2) || resultData["endLine"] != float64(3) || resultData["totalLines"] != float64(4) {
 		t.Fatalf("expected line range metadata, got %+v", resultData)
 	}
+	if resultData["originalSizeBytes"] == nil || resultData["returnedBytes"] == nil || resultData["totalLinesKnown"] != true {
+		t.Fatalf("expected honest size metadata, got %+v", resultData)
+	}
+}
+
+func TestFileReadReturnsRangeAfterOldPrefixLimit(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "large-source.txt")
+	lines := []string{}
+	for index := 0; index < 3000; index++ {
+		lines = append(lines, strings.Repeat("x", 80))
+	}
+	lines[2500] = "target-after-prefix"
+	writeTestFile(t, filePath, strings.Join(lines, "\n"))
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":      "tmp/large-source.txt",
+			"startLine": 2501,
+			"lineCount": 1,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() {
+		t.Fatalf("expected file.read success, got %s", readResult.ContentText())
+	}
+	if !strings.Contains(readResult.ContentText(), "target-after-prefix") {
+		t.Fatalf("expected line beyond former prefix limit, got %s", readResult.ContentText())
+	}
+}
+
+func TestFilePreviewReturnsTextPreview(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "source.html")
+	writeTestFile(t, filePath, "<h1>Preview Title</h1>\n<p>Preview body</p>")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.preview",
+		Input:    agent.MarshalToolInput(map[string]any{"path": "tmp/source.html"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if previewResult.Failed() {
+		t.Fatalf("expected file.preview success, got %s", previewResult.ContentText())
+	}
+	if !strings.Contains(previewResult.ContentText(), "Preview Title") || !strings.Contains(previewResult.ContentText(), `"conversionStatus":"converted"`) {
+		t.Fatalf("expected text preview, got %s", previewResult.ContentText())
+	}
+}
+
+func TestFilePreviewUsesCachedAttachmentPreview(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "post-1", "report.pdf")
+	writeTestFile(t, filePath, "%PDF")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		InputParts: []agent.AgentPart{{
+			Type: agent.AgentPartTypeFile,
+			File: &agent.AgentFilePart{
+				Path:             "/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf",
+				Filename:         "report.pdf",
+				ContentType:      "application/pdf",
+				SizeBytes:        4,
+				MarkdownPreview:  "# Cached report",
+				ConversionStatus: "converted",
+			},
+		}},
+	})
+
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.preview",
+		Input:    agent.MarshalToolInput(map[string]any{"path": "/workspace/private/people/person-1/inbox/mattermost/post-1/report.pdf"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if previewResult.Failed() {
+		t.Fatalf("expected cached file.preview success, got %s", previewResult.ContentText())
+	}
+	if !strings.Contains(previewResult.ContentText(), "# Cached report") {
+		t.Fatalf("expected cached preview, got %s", previewResult.ContentText())
+	}
 }
 
 func TestFileEditReplacesSingleExactMatch(t *testing.T) {

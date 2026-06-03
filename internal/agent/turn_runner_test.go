@@ -2714,7 +2714,7 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	}
 }
 
-func TestRepeatedFileReadObservationRejectsCoveredRange(t *testing.T) {
+func TestRepeatedFileReadObservationReturnsCachedCoveredRange(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
@@ -2729,17 +2729,17 @@ func TestRepeatedFileReadObservationRejectsCoveredRange(t *testing.T) {
 	observation, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-002")
 
 	if !isRepeated {
-		t.Fatal("expected covered file.read range to be rejected")
+		t.Fatal("expected covered file.read range to use cached context")
 	}
-	if observation.Failure == nil || observation.Failure.Stage != "file_read_repeat" {
-		t.Fatalf("expected file_read_repeat failure, got %+v", observation)
+	if observation.Failure != nil {
+		t.Fatalf("expected cached read not to fail, got %+v", observation)
 	}
-	if !strings.Contains(observation.ContentText(), "Recent file context") {
-		t.Fatalf("expected guidance to reuse recent file context, got %s", observation.ContentText())
+	if !strings.Contains(observation.ContentText(), `"cacheStatus":"hit"`) || !strings.Contains(observation.ContentText(), "export const PROFILE") {
+		t.Fatalf("expected cached content, got %s", observation.ContentText())
 	}
 }
 
-func TestRepeatedFileReadObservationRejectsOverlappingRange(t *testing.T) {
+func TestRepeatedFileReadObservationReturnsCachedOverlappingRange(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
@@ -2754,9 +2754,12 @@ func TestRepeatedFileReadObservationRejectsOverlappingRange(t *testing.T) {
 	observation, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-002")
 
 	if !isRepeated {
-		t.Fatal("expected overlapping file.read range to be rejected")
+		t.Fatal("expected overlapping file.read range to use cached context")
 	}
-	if !strings.Contains(observation.ContentText(), "121-150") {
+	if observation.Failure != nil {
+		t.Fatalf("expected cached read not to fail, got %+v", observation)
+	}
+	if !strings.Contains(observation.ContentText(), "121-150") || !strings.Contains(observation.ContentText(), `"cacheStatus":"hit"`) {
 		t.Fatalf("expected guidance to request uncovered range, got %s", observation.ContentText())
 	}
 }

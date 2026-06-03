@@ -718,6 +718,7 @@ func genericBuiltInToolNames() []string {
 		"terminal.run",
 		"terminal.session",
 		"browser_handoff.openURL",
+		"file.preview",
 		"file.read",
 		"file.write",
 		"file.edit",

@@ -102,6 +102,26 @@ func TestPromptAssemblerIncludesInputFileMarkdownPreview(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblerIncludesKnownFileContextSnippet(t *testing.T) {
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "file.read",
+		Output:        ToolOutput{Content: `{"path":"tmp/source.ts","content":"export const title = \"Known\"","startLine":1,"endLine":1,"totalLines":1,"totalLinesKnown":true,"originalSizeBytes":28,"returnedBytes":28,"isTruncated":false}`},
+	}}
+
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt: "continue",
+	}, observations, "base", "")
+	body := joinMessageContent(messages)
+
+	for _, expected := range []string{"Known file context", "tmp/source.ts", "export const title"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected known file context %q, got %s", expected, body)
+		}
+	}
+}
+
 func TestPromptAssemblerOmitsRawBrowserSnapshotOutput(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
