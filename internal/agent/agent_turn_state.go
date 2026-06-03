@@ -139,7 +139,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			Effect: agentEffect{
 				Kind: agentEffectFinish,
 				Finish: &agentFinish{
-					Reply:       strings.TrimSpace(actionDocument.FinishMessage),
+					Reply:       finishActionMessage(actionDocument),
 					Attachments: attachmentsFromAttachedEvidence(completionState.AttachedEvidence),
 				},
 			},
@@ -253,9 +253,6 @@ func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument
 		actionDocument.Action = "finish"
 	default:
 		actionDocument.Action = action
-	}
-	if actionDocument.Action == "finish" && strings.TrimSpace(actionDocument.FinishMessage) == "" {
-		actionDocument.FinishMessage = strings.TrimSpace(actionDocument.Message)
 	}
 	return actionDocument
 }

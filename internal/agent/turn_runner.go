@@ -109,9 +109,9 @@ type AgentCheckpoint struct {
 
 type turnActionDocument struct {
 	Action               string                        `json:"action"`
-	FinishMessage        string                        `json:"finishMessage"`
 	Message              string                        `json:"message"`
 	ReplyParts           []AgentPart                   `json:"replyParts,omitempty"`
+	CompletionSummary    string                        `json:"completionSummary,omitempty"`
 	ToolName             string                        `json:"toolName"`
 	ToolInput            json.RawMessage               `json:"toolInput"`
 	ToolNames            []string                      `json:"toolNames"`
@@ -1022,7 +1022,7 @@ func toolObservationMessage(observation turnObservation) string {
 }
 
 func finishActionMessage(actionDocument turnActionDocument) string {
-	return firstNonEmptyString(replyPartsText(actionDocument.ReplyParts), actionDocument.FinishMessage, actionDocument.Message, actionDocument.Reply)
+	return firstNonEmptyString(replyPartsText(actionDocument.ReplyParts), actionDocument.Message, actionDocument.Reply)
 }
 
 func replyPartsText(parts []AgentPart) string {
@@ -2332,7 +2332,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 		"evidenceCount":   len(state.EvidenceReferences),
 		"evidence":        state.EvidenceReferences,
 	}))
-	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, strings.TrimSpace(actionDocument.FinishMessage), completionGateResult.Attachments)
+	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, finishActionMessage(actionDocument), completionGateResult.Attachments)
 	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
 	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	return completionTransition{
@@ -2350,8 +2350,9 @@ func completionStateFinishDocument(state CompletionState) turnActionDocument {
 	message := completionStateFinishMessage(state)
 	return turnActionDocument{
 		Action:             "finish",
-		FinishMessage:      message,
 		Message:            message,
+		ReplyParts:         []AgentPart{{Type: AgentPartTypeText, Text: message}},
+		CompletionSummary:  message,
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      &goalSatisfied,
 		CompletionEvidence: state.EvidenceReferences,
@@ -2545,10 +2546,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 	}
 	agentTurnRunner.appendValidityReview(taskRunID, "limit_finalizer", completionGateResult.ValidityState)
 	agentTurnRunner.appendQualityReview(taskRunID, criteria, actionDocument.QualityReview, observations)
-	reply := strings.TrimSpace(actionDocument.FinishMessage)
-	if reply == "" {
-		reply = strings.TrimSpace(actionDocument.Reply)
-	}
+	reply := finishActionMessage(actionDocument)
 	if reply == "" {
 		agentTurnRunner.appendEvent(taskRunID, "agent.finalizer_rejected", marshalEventBody(map[string]string{"reason": "empty finish message"}))
 		return AgentTurnResult{}, false
@@ -2749,11 +2747,12 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 			Message: "required file expected result must include attachment suffix " + missingSuffix,
 		}
 	}
-	if FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) && len(attachments) == 0 {
+	finishMessage := finishActionMessage(actionDocument)
+	if FinishMessageClaimsAttachmentDelivery(finishMessage) && len(attachments) == 0 {
 		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
 	}
-	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(actionDocument.FinishMessage) || len(attachments) > 0
-	if errorValue := ValidateFinishMessageDelivery(actionDocument.FinishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
+	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(finishMessage) || len(attachments) > 0
+	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
 	result := completionGateResult{IsSatisfied: true, Attachments: attachments}
