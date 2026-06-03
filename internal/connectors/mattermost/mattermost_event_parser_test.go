@@ -7,7 +7,7 @@ func TestEventParserParsesWebSocketPostedEvent(t *testing.T) {
 		"event":"posted",
 		"data":{
 			"channel_type":"D",
-			"post":"{\"id\":\"post-1\",\"user_id\":\"user-1\",\"channel_id\":\"direct-1\",\"message\":\"hello\",\"root_id\":\"\"}"
+			"post":"{\"id\":\"post-1\",\"user_id\":\"user-1\",\"channel_id\":\"direct-1\",\"message\":\"hello\",\"root_id\":\"\",\"file_ids\":[\"file-1\"]}"
 		}
 	}`)
 
@@ -20,6 +20,9 @@ func TestEventParserParsesWebSocketPostedEvent(t *testing.T) {
 	}
 	if event.PostID != "post-1" {
 		t.Fatalf("expected post id, got %q", event.PostID)
+	}
+	if len(event.FileIDs) != 1 || event.FileIDs[0] != "file-1" {
+		t.Fatalf("expected file ids, got %+v", event.FileIDs)
 	}
 	if !event.IsDirectMessage() {
 		t.Fatal("expected direct message channel type")

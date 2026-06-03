@@ -1028,6 +1028,40 @@ func TestConnectorRuntimeInjectsVisibleContextBeforeMemory(t *testing.T) {
 	}
 }
 
+func TestVisibleContextSeparatesCurrentAndPreviousAttachments(t *testing.T) {
+	visibleContext := VisibleContext{
+		InputAttachments: []InputAttachment{{
+			Platform:    "mattermost",
+			FileID:      "current-file",
+			MessageID:   "current-post",
+			Path:        "home/inbox/mattermost/current.html",
+			IsAvailable: true,
+		}},
+		Materials: []InputAttachment{{
+			Platform:    "mattermost",
+			FileID:      "current-file",
+			MessageID:   "current-post",
+			Path:        "home/inbox/mattermost/current.html",
+			IsAvailable: true,
+		}, {
+			Platform:    "mattermost",
+			FileID:      "previous-file",
+			MessageID:   "previous-post",
+			Path:        "home/inbox/mattermost/previous.html",
+			IsAvailable: true,
+		}},
+	}
+
+	agentContext := visibleContext.ToAgentVisibleContext()
+
+	if len(agentContext.CurrentMaterials) != 1 || agentContext.CurrentMaterials[0].MaterialID != "mattermost:current-file" {
+		t.Fatalf("expected current attachment to stay current, got %+v", agentContext.CurrentMaterials)
+	}
+	if len(agentContext.Materials) != 1 || agentContext.Materials[0].MaterialID != "mattermost:previous-file" {
+		t.Fatalf("expected previous attachments to exclude current, got %+v", agentContext.Materials)
+	}
+}
+
 func TestConnectorRuntimeAddsImportedImageAttachmentCatalog(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "이미지 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1067,9 +1101,14 @@ func TestConnectorRuntimeAddsImportedImageAttachmentCatalog(t *testing.T) {
 		t.Fatalf("expected one attachment import request, got %+v", adapter.inputAttachmentImportRequests)
 	}
 	body := joinConnectorMessageContent(languageModel.request.Messages)
-	for _, expected := range []string{"Available conversation attachments", "filename=mascot.png", "contentType=image/png", "path=home/inbox/mattermost/direct-1/message-1/mascot.png"} {
+	for _, expected := range []string{"Current attachments", "materialID=mattermost:file-1", "path=home/inbox/mattermost/direct-1/message-1/mascot.png", "availableTools=image.read"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected attachment catalog %q in model request, got %s", expected, body)
+		}
+	}
+	for _, unexpected := range []string{"filename=mascot.png", "contentType=image/png"} {
+		if strings.Contains(body, unexpected) {
+			t.Fatalf("expected normal attachment catalog to omit %q, got %s", unexpected, body)
 		}
 	}
 	if !connectorMessagesContainImagePart(languageModel.request.Messages, "image/png", "aW1hZ2U=") {
@@ -1142,9 +1181,14 @@ func TestConnectorRuntimeAddsDocumentAttachmentCatalog(t *testing.T) {
 		t.Fatalf("expected event to process: %v", errorValue)
 	}
 	body := joinConnectorMessageContent(languageModel.request.Messages)
-	for _, expected := range []string{"Available conversation attachments", "filename=report.pdf", "contentType=application/pdf", "path=/workspace/circles/staff/inbox/mattermost/direct-1/message-1/report.pdf"} {
+	for _, expected := range []string{"Current attachments", "materialID=mattermost:file-1", "path=/workspace/circles/staff/inbox/mattermost/direct-1/message-1/report.pdf", "availableTools=file.preview,file.read"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected attachment catalog %q in model request, got %s", expected, body)
+		}
+	}
+	for _, unexpected := range []string{"filename=report.pdf", "contentType=application/pdf"} {
+		if strings.Contains(body, unexpected) {
+			t.Fatalf("expected normal attachment catalog to omit %q, got %s", unexpected, body)
 		}
 	}
 	if strings.Contains(body, "Markdown preview:") || strings.Contains(body, "Converted content") {
