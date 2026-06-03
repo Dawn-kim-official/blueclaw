@@ -38,6 +38,10 @@ type HistoryProvider interface {
 	FetchHistory(context.Context, string, int) (agent.VisibleContext, error)
 }
 
+type AttachmentMaterialResolver interface {
+	ResolveAttachmentMaterial(context.Context, string) (agent.VisibleContextMaterial, error)
+}
+
 type ToolCatalogBuilder struct {
 	allowedToolNamesByProfile map[string][]string
 	fallbackAllowedToolNames  []string
@@ -65,29 +69,30 @@ type toolHandlerContext struct {
 }
 
 type ToolCatalogRequest struct {
-	ProfileName               string
-	Prompt                    string
-	VisibleContext            agent.VisibleContext
-	RequesterPersonID         string
-	RequesterName             string
-	RequesterEmail            string
-	RequesterPlatformUserID   string
-	TaskSource                TaskLaunchSource
-	IsScheduledRun            bool
-	IsApprovalContinuation    bool
-	ConversationID            string
-	ConversationType          string
-	ConversationChannelID     string
-	ConversationChannelName   string
-	ActiveCircleID            string
-	ActiveCircleConflict      bool
-	ReplyTargetID             string
-	Platform                  string
-	HistoryCursor             string
-	HistoryProvider           HistoryProvider
-	PersonAccess              policy.PersonAccess
-	MemoryNamespaces          []memory.MemoryNamespace
-	AccessibleConversationIDs []string
+	ProfileName                string
+	Prompt                     string
+	VisibleContext             agent.VisibleContext
+	RequesterPersonID          string
+	RequesterName              string
+	RequesterEmail             string
+	RequesterPlatformUserID    string
+	TaskSource                 TaskLaunchSource
+	IsScheduledRun             bool
+	IsApprovalContinuation     bool
+	ConversationID             string
+	ConversationType           string
+	ConversationChannelID      string
+	ConversationChannelName    string
+	ActiveCircleID             string
+	ActiveCircleConflict       bool
+	ReplyTargetID              string
+	Platform                   string
+	HistoryCursor              string
+	HistoryProvider            HistoryProvider
+	AttachmentMaterialResolver AttachmentMaterialResolver
+	PersonAccess               policy.PersonAccess
+	MemoryNamespaces           []memory.MemoryNamespace
+	AccessibleConversationIDs  []string
 }
 
 type CapabilityToolDescriptor struct {
@@ -2945,7 +2950,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolCon
 		return toolInput, toolFailure, errorValue
 	}
 	if capabilityToolNeedsWorkspacePath(toolName) {
-		input, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePathInput(toolName, request, toolInput)
+		input, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePathInput(toolContext, toolName, request, toolInput)
 		return input, nil, errorValue
 	}
 	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput(toolName, request, toolInput)
@@ -2961,7 +2966,7 @@ func capabilityToolNeedsWorkspacePath(toolName string) bool {
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInput(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
 	inputDocument := map[string]any{}
 	if len(toolInput) > 0 {
 		if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
@@ -2969,12 +2974,52 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInpu
 		}
 	}
 	path, _ := inputDocument["path"].(string)
+	if materialID, _ := inputDocument["materialID"].(string); strings.TrimSpace(materialID) != "" {
+		material, errorValue := resolveReadableAttachmentMaterial(toolContext, request, materialID)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		if errorValue := validateAttachmentMaterialTool(toolName, material); errorValue != nil {
+			return nil, errorValue
+		}
+		path = material.Path
+		delete(inputDocument, "materialID")
+	}
 	resolvedPath, errorValue := toolCatalogBuilder.resolveReadableCapabilityPath(request, path)
 	if errorValue != nil {
 		return nil, errorValue
 	}
 	inputDocument["path"] = toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath)
 	return json.Marshal(inputDocument)
+}
+
+func resolveReadableAttachmentMaterial(toolContext context.Context, request ToolCatalogRequest, materialID string) (agent.VisibleContextMaterial, error) {
+	if request.AttachmentMaterialResolver == nil {
+		return agent.VisibleContextMaterial{}, errors.New("attachment material resolver is unavailable")
+	}
+	material, errorValue := request.AttachmentMaterialResolver.ResolveAttachmentMaterial(toolContext, materialID)
+	if errorValue != nil {
+		return agent.VisibleContextMaterial{}, errorValue
+	}
+	if strings.TrimSpace(material.Path) == "" {
+		return agent.VisibleContextMaterial{}, errors.New("attachment material has no readable workspace path")
+	}
+	return material, nil
+}
+
+func validateAttachmentMaterialTool(toolName string, material agent.VisibleContextMaterial) error {
+	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
+	switch strings.TrimSpace(toolName) {
+	case "image.read":
+		if contentType != "" && !strings.HasPrefix(contentType, "image/") {
+			return errors.New("attachment material is not an image; use document.read")
+		}
+	case "document.read":
+		if strings.HasPrefix(contentType, "image/") {
+			return errors.New("attachment material is an image; use image.read")
+		}
+	}
+	return nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableCapabilityPath(request ToolCatalogRequest, path string) (ResolvedWorkspacePath, error) {

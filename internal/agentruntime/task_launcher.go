@@ -23,38 +23,39 @@ type TaskLauncher struct {
 }
 
 type TaskLaunchRequest struct {
-	Source                    TaskLaunchSource
-	SourceReference           string
-	RequesterPersonID         string
-	RequesterName             string
-	RequesterCallingName      string
-	RequesterHandle           string
-	RequesterEmail            string
-	RequesterPlatformUserID   string
-	IsApprovalContinuation    bool
-	ExistingTaskRunID         string
-	ProfileName               string
-	Platform                  string
-	ConversationID            string
-	ConversationType          string
-	ConversationChannelID     string
-	ConversationChannelName   string
-	ActiveCircleID            string
-	ActiveCircleConflict      bool
-	ReplyTargetID             string
-	Prompt                    string
-	InputParts                []agent.AgentPart
-	ResponseLanguage          string
-	VisibleContext            agent.VisibleContext
-	ActiveGoal                agent.ActiveGoal
-	PrecomputedTurnDecision   *agent.TurnDecision
-	PinnedToolNames           []string
-	PinnedSkillNames          []string
-	HistoryProvider           HistoryProvider
-	PersonAccess              policy.PersonAccess
-	MemoryNamespaces          []memory.MemoryNamespace
-	AccessibleConversationIDs []string
-	CheckpointSender          agent.AgentCheckpointSender
+	Source                     TaskLaunchSource
+	SourceReference            string
+	RequesterPersonID          string
+	RequesterName              string
+	RequesterCallingName       string
+	RequesterHandle            string
+	RequesterEmail             string
+	RequesterPlatformUserID    string
+	IsApprovalContinuation     bool
+	ExistingTaskRunID          string
+	ProfileName                string
+	Platform                   string
+	ConversationID             string
+	ConversationType           string
+	ConversationChannelID      string
+	ConversationChannelName    string
+	ActiveCircleID             string
+	ActiveCircleConflict       bool
+	ReplyTargetID              string
+	Prompt                     string
+	InputParts                 []agent.AgentPart
+	ResponseLanguage           string
+	VisibleContext             agent.VisibleContext
+	ActiveGoal                 agent.ActiveGoal
+	PrecomputedTurnDecision    *agent.TurnDecision
+	PinnedToolNames            []string
+	PinnedSkillNames           []string
+	HistoryProvider            HistoryProvider
+	AttachmentMaterialResolver AttachmentMaterialResolver
+	PersonAccess               policy.PersonAccess
+	MemoryNamespaces           []memory.MemoryNamespace
+	AccessibleConversationIDs  []string
+	CheckpointSender           agent.AgentCheckpointSender
 }
 
 type TaskLaunchResult struct {
@@ -100,29 +101,30 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	request.ActiveCircleID = activeCircleRequest.ActiveCircleID
 	request.ActiveCircleConflict = activeCircleRequest.ActiveCircleConflict
 	toolSet := taskLauncher.toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:               normalizedProfileName,
-		Prompt:                    request.Prompt,
-		VisibleContext:            request.VisibleContext,
-		RequesterPersonID:         request.RequesterPersonID,
-		RequesterName:             request.RequesterName,
-		RequesterEmail:            request.RequesterEmail,
-		RequesterPlatformUserID:   request.RequesterPlatformUserID,
-		TaskSource:                request.Source,
-		IsScheduledRun:            request.Source == TaskLaunchSourceScheduled,
-		IsApprovalContinuation:    request.IsApprovalContinuation,
-		ConversationID:            request.ConversationID,
-		ConversationType:          request.ConversationType,
-		ConversationChannelID:     request.ConversationChannelID,
-		ConversationChannelName:   request.ConversationChannelName,
-		ActiveCircleID:            request.ActiveCircleID,
-		ActiveCircleConflict:      request.ActiveCircleConflict,
-		ReplyTargetID:             request.ReplyTargetID,
-		Platform:                  request.Platform,
-		HistoryCursor:             request.VisibleContext.HistoryCursor,
-		HistoryProvider:           request.HistoryProvider,
-		PersonAccess:              request.PersonAccess,
-		MemoryNamespaces:          request.MemoryNamespaces,
-		AccessibleConversationIDs: request.AccessibleConversationIDs,
+		ProfileName:                normalizedProfileName,
+		Prompt:                     request.Prompt,
+		VisibleContext:             request.VisibleContext,
+		RequesterPersonID:          request.RequesterPersonID,
+		RequesterName:              request.RequesterName,
+		RequesterEmail:             request.RequesterEmail,
+		RequesterPlatformUserID:    request.RequesterPlatformUserID,
+		TaskSource:                 request.Source,
+		IsScheduledRun:             request.Source == TaskLaunchSourceScheduled,
+		IsApprovalContinuation:     request.IsApprovalContinuation,
+		ConversationID:             request.ConversationID,
+		ConversationType:           request.ConversationType,
+		ConversationChannelID:      request.ConversationChannelID,
+		ConversationChannelName:    request.ConversationChannelName,
+		ActiveCircleID:             request.ActiveCircleID,
+		ActiveCircleConflict:       request.ActiveCircleConflict,
+		ReplyTargetID:              request.ReplyTargetID,
+		Platform:                   request.Platform,
+		HistoryCursor:              request.VisibleContext.HistoryCursor,
+		HistoryProvider:            request.HistoryProvider,
+		AttachmentMaterialResolver: request.AttachmentMaterialResolver,
+		PersonAccess:               request.PersonAccess,
+		MemoryNamespaces:           request.MemoryNamespaces,
+		AccessibleConversationIDs:  request.AccessibleConversationIDs,
 	})
 	toolNames := toolSet.ListToolNames()
 	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{

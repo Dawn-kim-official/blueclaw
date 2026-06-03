@@ -140,6 +140,20 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	}
 }
 
+func TestAttachmentMaterialRead(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), AttachmentMaterialReadScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected attachment material read scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if !eventsContain(turnResult.Events, "tool.image.read.requested", `"materialID":"mattermost:file-1"`) {
+		t.Fatalf("expected image.read to use materialID; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
+		t.Fatalf("expected attachment read not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
 func firstNonEmptyTestString(values ...string) string {
 	for _, value := range values {
 		trimmedValue := strings.TrimSpace(value)

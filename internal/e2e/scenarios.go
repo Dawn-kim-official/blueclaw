@@ -1,6 +1,9 @@
 package e2e
 
-import "blueclaw/internal/agent"
+import (
+	"blueclaw/internal/agent"
+	"blueclaw/internal/connectors"
+)
 
 func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
@@ -85,6 +88,46 @@ func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessi
 				actionFinishMessage("현재 profile에서는 필요한 도구가 없어 슬라이드 생성 skill을 실행하지 않았습니다."),
 			},
 			ExpectedReplyFragments: []string{"필요한 도구"},
+		}},
+	}
+}
+
+func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	attachment := connectors.InputAttachment{
+		Platform:    "mattermost",
+		FileID:      "file-1",
+		MessageID:   "root-message",
+		Filename:    "mascot.png",
+		ContentType: "image/png",
+		SizeBytes:   13,
+	}
+	return VirtualSessionScenario{
+		Name:                  "attachment_material_read",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "image.read", "document.read"},
+		CapabilityToolNames:   []string{"image.read", "document.read"},
+		Turns: []VirtualTurn{{
+			Prompt: "다시 이미지 내가 첨부한 거 봐봐",
+			ContextMessages: []connectors.VisibleContextMessage{{
+				Speaker:            "동하",
+				SpeakerCallingName: "동하 님",
+				SpeakerHandle:      "dongha",
+				Text:               "이거 뭔지 알아?",
+				InputAttachments:   []connectors.InputAttachment{attachment},
+			}},
+			ContextMaterials: []connectors.InputAttachment{attachment},
+			ActionResponses: []string{
+				actionCallTool("image.read", `{"materialID":"mattermost:file-1"}`),
+				actionFinishMessage("이미지를 확인했습니다.", "obs-001:image.read:0"),
+			},
+			ExpectedToolCalls:      []string{"image.read"},
+			ExpectedToolCallCounts: map[string]int{"terminal.run": 0},
+			ExpectedModelContexts: []string{
+				"materialID=mattermost:file-1",
+				"Use materialID with image.read",
+				"mascot.png",
+			},
+			ExpectedReplyFragments: []string{"이미지"},
 		}},
 	}
 }

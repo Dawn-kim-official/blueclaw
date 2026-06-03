@@ -63,6 +63,34 @@ func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
 	}
 }
 
+func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
+	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "document.read"})
+	request := AgentRequest{
+		Prompt: "다시 이미지 봐봐",
+		VisibleContext: VisibleContext{
+			Materials: []VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+			}},
+		},
+	}
+	selectionRequest := buildToolSelectionRequest(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{})
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic || !containsString(selection.SelectedToolIDs, "image.read") {
+		t.Fatalf("expected deterministic image.read selection, selection=%+v event=%+v", selection, event)
+	}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
+
+	if !filteredToolSet.IsAllowed("image.read") {
+		t.Fatalf("expected image.read to be exposed, got %+v", filteredToolSet.ListToolNames())
+	}
+	if filteredToolSet.IsAllowed("terminal.run") {
+		t.Fatalf("expected terminal.run to stay hidden for attachment read selection, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
 func TestToolExposureCapTruncatesByGroupOrder(t *testing.T) {
 	toolIDs := []string{}
 	for index := 0; index < 25; index++ {
@@ -342,7 +370,7 @@ func TestRecoveryWorkingSetDoesNotLetPinnedSkillToolsCrowdOutRecoveryHints(t *te
 		AttemptFingerprint: "site.app.build\x00{\"siteID\":\"site-1\"}\x00invalid_input",
 	}
 	request := AgentRequest{
-		Prompt:          "개인 홈페이지 배포해줘",
+		Prompt:           "개인 홈페이지 배포해줘",
 		PinnedSkillNames: []string{"site-prototype"},
 	}
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, []turnObservation{observation})

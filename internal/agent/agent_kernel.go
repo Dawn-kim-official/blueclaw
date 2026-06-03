@@ -1831,7 +1831,7 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 		sections = append(sections, strings.Join(contextLines, "\n"))
 	}
 	if len(materialLines) > 0 {
-		sections = append(sections, "Available conversation attachments:\n"+strings.Join(materialLines, "\n"))
+		sections = append(sections, "Available conversation attachments:\nUse materialID with image.read for images and document.read for documents when the user asks about an attachment. Do not search the workspace by filename for these platform attachments.\n"+strings.Join(materialLines, "\n"))
 	}
 	sections = append(sections, historyLine)
 	return "Recent visible conversation context:\n" + strings.Join(sections, "\n")

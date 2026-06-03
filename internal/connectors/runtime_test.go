@@ -1127,6 +1127,59 @@ func TestConnectorRuntimeAddsUnavailableAttachmentCatalog(t *testing.T) {
 	}
 }
 
+func TestConnectorAttachmentMaterialResolverImportsHistoryMaterial(t *testing.T) {
+	adapter := &testAdapter{
+		historyContext: VisibleContext{
+			Materials: []InputAttachment{{
+				Platform:    "mattermost",
+				FileID:      "file-1",
+				MessageID:   "root-message",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+				SizeBytes:   5,
+			}},
+		},
+		inputAttachmentImportResult: InputAttachmentImportResult{
+			InputAttachments: []InputAttachment{{
+				Platform:    "mattermost",
+				FileID:      "file-1",
+				MessageID:   "root-message",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+				SizeBytes:   5,
+				Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/root-message/mascot.png",
+				IsAvailable: true,
+			}},
+		},
+	}
+	event := testInboundEvent("reply-message")
+	event.Platform = "mattermost"
+	event.ConversationID = "thread-1"
+	event.Context.HistoryCursor = "history-cursor"
+	event.Context.ConversationType = "O"
+	event.Context.ChannelID = "town-square"
+	resolver := connectorAttachmentMaterialResolver{adapter: adapter, personID: "person-1", event: event}
+
+	material, errorValue := resolver.ResolveAttachmentMaterial(context.Background(), "mattermost:file-1")
+
+	if errorValue != nil {
+		t.Fatalf("expected history material to resolve: %v", errorValue)
+	}
+	if material.MaterialID != "mattermost:file-1" || material.Path != "/workspace/circles/staff/inbox/mattermost/thread-1/root-message/mascot.png" {
+		t.Fatalf("expected imported history material, got %+v", material)
+	}
+	if len(adapter.historyCursors) != 1 || adapter.historyCursors[0] != "history-cursor" {
+		t.Fatalf("expected resolver to fetch history, got %+v", adapter.historyCursors)
+	}
+	if len(adapter.inputAttachmentImportRequests) != 1 {
+		t.Fatalf("expected one import request, got %+v", adapter.inputAttachmentImportRequests)
+	}
+	importRequest := adapter.inputAttachmentImportRequests[0]
+	if importRequest.MessageID != "root-message" || !strings.Contains(importRequest.TargetDirectoryPath, "/root-message") {
+		t.Fatalf("expected import to use source message directory, got %+v", importRequest)
+	}
+}
+
 func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "맥락 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1983,6 +2036,7 @@ type testAdapter struct {
 	inputAttachmentImportResult   InputAttachmentImportResult
 	inputAttachmentImportError    error
 	inputAttachmentImportRequests []InputAttachmentImportRequest
+	historyContext                VisibleContext
 	sentReplies                   []testReply
 	reactions                     []ReactionTarget
 	progressStarts                []ReplyTarget
@@ -2166,6 +2220,9 @@ func (adapter *testAdapter) ResolveInteraction(_ context.Context, resolution Int
 func (adapter *testAdapter) FetchHistory(_ context.Context, historyCursor string, _ int) (VisibleContext, error) {
 	adapter.operationNames = append(adapter.operationNames, "history.fetch")
 	adapter.historyCursors = append(adapter.historyCursors, historyCursor)
+	if len(adapter.historyContext.Messages) > 0 || len(adapter.historyContext.Materials) > 0 || len(adapter.historyContext.InputAttachments) > 0 {
+		return adapter.historyContext, nil
+	}
 	return VisibleContext{
 		Messages: []VisibleContextMessage{{Speaker: "admin", Text: "older message"}},
 	}, nil
