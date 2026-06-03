@@ -1022,7 +1022,7 @@ func toolObservationMessage(observation turnObservation) string {
 }
 
 func finishActionMessage(actionDocument turnActionDocument) string {
-	return firstNonEmptyString(actionDocument.FinishMessage, actionDocument.Message, actionDocument.Reply, replyPartsText(actionDocument.ReplyParts))
+	return firstNonEmptyString(replyPartsText(actionDocument.ReplyParts), actionDocument.FinishMessage, actionDocument.Message, actionDocument.Reply)
 }
 
 func replyPartsText(parts []AgentPart) string {

@@ -30,6 +30,20 @@ func structuredFailureToolResult(content string, message string, code string, st
 	}
 }
 
+func TestFinishActionMessagePrefersReplyPartBody(t *testing.T) {
+	reply := finishActionMessage(turnActionDocument{
+		FinishMessage: "요약만 있습니다.",
+		ReplyParts: []AgentPart{{
+			Type: AgentPartTypeText,
+			Text: "사용자에게 전달할 상세 본문입니다.",
+		}},
+	})
+
+	if reply != "사용자에게 전달할 상세 본문입니다." {
+		t.Fatalf("expected reply part body, got %q", reply)
+	}
+}
+
 func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"alpha","toolInput":{"value":"one"}}`,

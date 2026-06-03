@@ -127,6 +127,10 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 				"Use materialID with image.read",
 				"mascot.png",
 			},
+			ForbiddenModelContexts: []string{
+				"mail.message.search",
+				"mattermost.channel.post",
+			},
 			ExpectedReplyFragments: []string{"이미지"},
 		}},
 	}
@@ -150,7 +154,10 @@ func AttachmentCurrentImageInputScenario(artifactDirectoryPath string) VirtualSe
 			Prompt:           "이거 보여? 묘사 좀 자세히 해봐.",
 			InputAttachments: []connectors.InputAttachment{attachment},
 			ActionResponses: []string{
-				actionFinishMessage("이미지에는 김인턴 마스코트가 보입니다."),
+				actionFinishWithReplyPart(
+					"이미지를 상세하게 설명드렸습니다.",
+					"이미지에는 흰색 고양이 형태의 김인턴 마스코트 인형이 서 있습니다. 얼굴에는 검은색으로 윙크하는 눈과 동그란 눈, 작은 입 모양이 붙어 있고, 목에는 '김인턴'이라고 적힌 이름표가 걸려 있습니다. 흰 셔츠와 청바지, 운동화를 착용했고 검은 가방끈과 꼬리가 보여 캐릭터 상품처럼 연출된 사진입니다.",
+				),
 			},
 			ExpectedToolCallCounts: map[string]int{
 				"image.read":    0,
@@ -161,7 +168,11 @@ func AttachmentCurrentImageInputScenario(artifactDirectoryPath string) VirtualSe
 				"materialID=mattermost:file-current",
 				"mascot.png",
 			},
-			ExpectedReplyFragments: []string{"이미지"},
+			ExpectedReplyFragments: []string{"흰색 고양이", "김인턴", "이름표"},
+			ForbiddenReplyFragments: []string{
+				"상세하게 설명드렸습니다",
+			},
+			MinimumReplyLength: 80,
 		}},
 	}
 }

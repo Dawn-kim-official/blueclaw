@@ -64,7 +64,17 @@ func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
 }
 
 func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
-	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "document.read"})
+	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "document.read", "mail.message.search", "mattermost.channel.post"})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{Name: "mail", AllowedTools: []string{"mail.message.search"}},
+			{Name: "mattermost", AllowedTools: []string{"mattermost.channel.post"}},
+		},
+		SkillDecisions: []SkillSelectionDecision{
+			{Name: "mail", Status: "selected"},
+			{Name: "mattermost", Status: "selected"},
+		},
+	}
 	request := AgentRequest{
 		Prompt: "다시 이미지 봐봐",
 		VisibleContext: VisibleContext{
@@ -75,19 +85,24 @@ func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
 			}},
 		},
 	}
-	selectionRequest := buildToolSelectionRequest(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{})
+	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{})
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
 	if !isDeterministic || !containsString(selection.SelectedToolIDs, "image.read") {
 		t.Fatalf("expected deterministic image.read selection, selection=%+v event=%+v", selection, event)
 	}
 
-	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
 
 	if !filteredToolSet.IsAllowed("image.read") {
 		t.Fatalf("expected image.read to be exposed, got %+v", filteredToolSet.ListToolNames())
 	}
 	if filteredToolSet.IsAllowed("terminal.run") {
 		t.Fatalf("expected terminal.run to stay hidden for attachment read selection, got %+v", filteredToolSet.ListToolNames())
+	}
+	for _, toolName := range []string{"mail.message.search", "mattermost.channel.post"} {
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected selected skill tool %s to stay hidden for attachment read selection, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
 	}
 }
 
