@@ -1032,6 +1032,19 @@ func TestConnectorRuntimeAddsImportedImageAttachmentCatalog(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "이미지 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
+		InputParts: []agent.AgentPart{{
+			Type: agent.AgentPartTypeImage,
+			Image: &agent.AgentImagePart{
+				MimeType:   "image/png",
+				DataBase64: "aW1hZ2U=",
+				Filename:   "mascot.png",
+			},
+			Source: agent.AgentPartSource{
+				Platform:  "mattermost",
+				FileID:    "file-1",
+				MessageID: "message-1",
+			},
+		}},
 		InputAttachments: []InputAttachment{{
 			Platform:    "mattermost",
 			FileID:      "file-1",
@@ -1059,8 +1072,51 @@ func TestConnectorRuntimeAddsImportedImageAttachmentCatalog(t *testing.T) {
 			t.Fatalf("expected attachment catalog %q in model request, got %s", expected, body)
 		}
 	}
+	if !connectorMessagesContainImagePart(languageModel.request.Messages, "image/png", "aW1hZ2U=") {
+		t.Fatalf("expected current input image part, got %+v", languageModel.request.Messages)
+	}
+}
+
+func TestConnectorRuntimeKeepsHistoryImageAttachmentCatalogOnly(t *testing.T) {
+	languageModel := &recordingLanguageModel{reply: "이미지 확인"}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	adapter.inputAttachmentImportResult = InputAttachmentImportResult{
+		InputParts: []agent.AgentPart{{
+			Type: agent.AgentPartTypeImage,
+			Image: &agent.AgentImagePart{
+				MimeType:   "image/png",
+				DataBase64: "aW1hZ2U=",
+				Filename:   "mascot.png",
+			},
+			Source: agent.AgentPartSource{
+				Platform:  "mattermost",
+				FileID:    "file-1",
+				MessageID: "message-1",
+			},
+		}},
+	}
+	event := testInboundEvent("message-2")
+	event.Context.ConversationType = "D"
+	event.Context.Materials = []InputAttachment{{
+		Platform:    "mattermost",
+		FileID:      "file-1",
+		MessageID:   "message-1",
+		Filename:    "mascot.png",
+		ContentType: "image/png",
+		Path:        "/workspace/private/people/person-1/inbox/mattermost/direct-1/message-1/mascot.png",
+		IsAvailable: true,
+	}}
+
+	_, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected event to process: %v", errorValue)
+	}
+	body := joinConnectorMessageContent(languageModel.request.Messages)
+	if !strings.Contains(body, "materialID=mattermost:file-1") {
+		t.Fatalf("expected history attachment material id in model request, got %s", body)
+	}
 	if connectorMessagesContainImagePart(languageModel.request.Messages, "image/png", "aW1hZ2U=") {
-		t.Fatalf("expected no automatic image rehydrate, got %+v", languageModel.request.Messages)
+		t.Fatalf("expected history attachment catalog only, got %+v", languageModel.request.Messages)
 	}
 }
 

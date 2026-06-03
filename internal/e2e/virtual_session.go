@@ -48,6 +48,7 @@ type VirtualSessionScenario struct {
 
 type VirtualTurn struct {
 	Prompt                  string
+	InputAttachments        []connectors.InputAttachment
 	ContextMessages         []connectors.VisibleContextMessage
 	ContextMaterials        []connectors.InputAttachment
 	ActionResponses         []string
@@ -83,11 +84,12 @@ type VirtualSessionResult struct {
 }
 
 type VirtualTurnResult struct {
-	TaskRunID     string
-	FinishMessage string
-	Attachments   []agent.FileAttachment
-	Events        []task.TaskEvent
-	ModelContext  string
+	TaskRunID           string
+	FinishMessage       string
+	Attachments         []agent.FileAttachment
+	Events              []task.TaskEvent
+	ModelContext        string
+	ModelImagePartCount int
 }
 
 type VirtualSessionHarness struct {
@@ -119,6 +121,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
 	case "attachment_material_read":
 		return AttachmentMaterialReadScenario(artifactDirectoryPath), nil
+	case "attachment_current_image_input":
+		return AttachmentCurrentImageInputScenario(artifactDirectoryPath), nil
 	default:
 		return VirtualSessionScenario{}, fmt.Errorf("unknown virtual session scenario: %s", name)
 	}
@@ -408,6 +412,9 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		Prompt:         virtualTurn.Prompt,
 		Context: connectors.VisibleContext{
 			Messages: messages,
+			InputAttachments: append([]connectors.InputAttachment{},
+				virtualTurn.InputAttachments...,
+			),
 			Materials: append([]connectors.InputAttachment{},
 				virtualTurn.ContextMaterials...,
 			),
@@ -435,11 +442,12 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		return VirtualTurnResult{}, fmt.Errorf("virtual turn did not dispatch a reply; events: %s", summarizeEvents(events))
 	}
 	return VirtualTurnResult{
-		TaskRunID:     runtimeResult.TaskRunID,
-		FinishMessage: outboundReply.Message,
-		Attachments:   outboundReply.Attachments,
-		Events:        harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
-		ModelContext:  harness.modelContextSince(modelRequestStartIndex),
+		TaskRunID:           runtimeResult.TaskRunID,
+		FinishMessage:       outboundReply.Message,
+		Attachments:         outboundReply.Attachments,
+		Events:              harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
+		ModelContext:        harness.modelContextSince(modelRequestStartIndex),
+		ModelImagePartCount: harness.modelImagePartCountSince(modelRequestStartIndex),
 	}, nil
 }
 
@@ -458,6 +466,26 @@ func (harness *VirtualSessionHarness) modelContextSince(startIndex int) string {
 		parts = append(parts, request.StructuredOutputSchema.Document)
 	}
 	return strings.Join(parts, "\n")
+}
+
+func (harness *VirtualSessionHarness) modelImagePartCountSince(startIndex int) int {
+	if harness.scriptedModel == nil {
+		return 0
+	}
+	count := 0
+	for _, request := range harness.scriptedModel.RequestsSince(startIndex) {
+		if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
+			continue
+		}
+		for _, message := range request.Messages {
+			for _, part := range message.Parts {
+				if part.Type == "image" {
+					count++
+				}
+			}
+		}
+	}
+	return count
 }
 
 func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turnResult VirtualTurnResult) {
@@ -827,7 +855,10 @@ func (adapter *virtualAdapter) ImportInputAttachments(_ context.Context, request
 		}
 		attachments = append(attachments, importedAttachment)
 	}
-	return connectors.InputAttachmentImportResult{InputAttachments: attachments}, nil
+	return connectors.InputAttachmentImportResult{
+		InputAttachments: attachments,
+		InputParts:       virtualInputParts(attachments),
+	}, nil
 }
 
 func (adapter *virtualAdapter) importInputAttachment(targetDirectoryPath string, attachment connectors.InputAttachment) (connectors.InputAttachment, error) {
@@ -846,6 +877,30 @@ func (adapter *virtualAdapter) importInputAttachment(targetDirectoryPath string,
 	attachment.SizeBytes = int64(len(content))
 	attachment.ContentType = firstNonEmptyVirtualString(attachment.ContentType, "application/octet-stream")
 	return attachment, nil
+}
+
+func virtualInputParts(attachments []connectors.InputAttachment) []agent.AgentPart {
+	parts := []agent.AgentPart{}
+	for _, attachment := range attachments {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(attachment.ContentType)), "image/") {
+			continue
+		}
+		parts = append(parts, agent.AgentPart{
+			Type: agent.AgentPartTypeImage,
+			Image: &agent.AgentImagePart{
+				MimeType:   attachment.ContentType,
+				DataBase64: "dmlydHVhbC1pbWFnZQ==",
+				Path:       attachment.Path,
+				Filename:   attachment.Filename,
+			},
+			Source: agent.AgentPartSource{
+				Platform:  attachment.Platform,
+				MessageID: attachment.MessageID,
+				FileID:    attachment.FileID,
+			},
+		})
+	}
+	return parts
 }
 
 func firstNonEmptyVirtualString(values ...string) string {

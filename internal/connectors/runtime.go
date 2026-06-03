@@ -2032,7 +2032,37 @@ func (connectorRuntime *ConnectorRuntime) withAttachmentMaterials(ctx context.Co
 		event.Context.InputAttachments = connectorReadableInputAttachments(event.Context.InputAttachments, personID, scope)
 		event.Context.Materials = connectorUniqueInputAttachments(importedAttachments)
 	}
+	if len(result.InputParts) > 0 {
+		event.InputParts = append(event.InputParts, connectorCurrentInputParts(result.InputParts, event)...)
+	}
 	return event
+}
+
+func connectorCurrentInputParts(parts []agent.AgentPart, event PlatformInboundEvent) []agent.AgentPart {
+	currentFileIDs := map[string]bool{}
+	for _, attachment := range event.Context.InputAttachments {
+		fileID := strings.TrimSpace(attachment.FileID)
+		if fileID != "" {
+			currentFileIDs[fileID] = true
+		}
+	}
+	currentParts := []agent.AgentPart{}
+	for _, part := range parts {
+		if connectorIsCurrentInputPart(part, event, currentFileIDs) {
+			currentParts = append(currentParts, part)
+		}
+	}
+	return currentParts
+}
+
+func connectorIsCurrentInputPart(part agent.AgentPart, event PlatformInboundEvent, currentFileIDs map[string]bool) bool {
+	if strings.TrimSpace(part.Source.MessageID) != "" && strings.TrimSpace(part.Source.MessageID) == strings.TrimSpace(event.MessageID) {
+		return true
+	}
+	if strings.TrimSpace(part.Source.FileID) != "" && currentFileIDs[strings.TrimSpace(part.Source.FileID)] {
+		return true
+	}
+	return false
 }
 
 func connectorInputAttachmentScope(personID string, event PlatformInboundEvent) agentruntime.ConversationResourceScope {

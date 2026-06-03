@@ -132,6 +132,40 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 	}
 }
 
+func AttachmentCurrentImageInputScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	attachment := connectors.InputAttachment{
+		Platform:    "mattermost",
+		FileID:      "file-current",
+		MessageID:   "virtual-message-001",
+		Filename:    "mascot.png",
+		ContentType: "image/png",
+		SizeBytes:   13,
+	}
+	return VirtualSessionScenario{
+		Name:                  "attachment_current_image_input",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "image.read", "document.read"},
+		CapabilityToolNames:   []string{"image.read", "document.read"},
+		Turns: []VirtualTurn{{
+			Prompt:           "이거 보여? 묘사 좀 자세히 해봐.",
+			InputAttachments: []connectors.InputAttachment{attachment},
+			ActionResponses: []string{
+				actionFinishMessage("이미지에는 김인턴 마스코트가 보입니다."),
+			},
+			ExpectedToolCallCounts: map[string]int{
+				"image.read":    0,
+				"terminal.run":  0,
+				"document.read": 0,
+			},
+			ExpectedModelContexts: []string{
+				"materialID=mattermost:file-current",
+				"mascot.png",
+			},
+			ExpectedReplyFragments: []string{"이미지"},
+		}},
+	}
+}
+
 func GWSDisabledScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "gws_disabled",
