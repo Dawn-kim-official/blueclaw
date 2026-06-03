@@ -181,7 +181,8 @@ type fileReadToolInput struct {
 }
 
 type filePreviewToolInput struct {
-	Path string `json:"path"`
+	Path       string `json:"path"`
+	MaterialID string `json:"materialID"`
 }
 
 type fileWriteToolInput struct {
@@ -530,10 +531,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 				Does:       "Returns a document preview or file metadata without inventing content.",
 				Produces:   "Path, filename, content type, size, markdown preview, conversion status, and conversion message.",
 				SideEffect: "read",
-				UseWhen:    "The attachment catalog lists a path for an HTML, PDF, DOCX, PPTX, XLSX, text, or data file and you need to understand it.",
+				UseWhen:    "The attachment catalog lists a materialID or path for an HTML, PDF, DOCX, PPTX, XLSX, text, or data file and you need to understand it.",
 				AvoidWhen:  "You need exact source lines for an edit; use file.read after previewing.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview."}},"required":["path"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview. Use this when the attachment catalog has a readable path."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use this when the catalog lists a materialID, especially if no readable path is available."}}}`),
 		},
 		Handler: func(toolContext context.Context, input filePreviewToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.previewFileTool(toolContext, input, handlerContext)
@@ -2519,10 +2520,14 @@ func splitFileLines(content string) []string {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext context.Context, input filePreviewToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
-	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, strings.TrimSpace(input.Path)); isCached {
+	previewPath, materialFailure := toolCatalogBuilder.filePreviewPath(toolContext, input, handlerContext.request)
+	if materialFailure != nil {
+		return *materialFailure, nil
+	}
+	if cachedPreview, isCached := cachedFilePreviewResult(handlerContext.request.InputParts, previewPath); isCached {
 		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
 	}
-	resolvedPath, failureResult, errorValue := toolCatalogBuilder.resolveReadableWorkspacePath(input.Path, scope, handlerContext.request, "file_preview")
+	resolvedPath, failureResult, errorValue := toolCatalogBuilder.resolveReadableWorkspacePath(previewPath, scope, handlerContext.request, "file_preview")
 	if failureResult != nil || errorValue != nil {
 		return firstToolFailureResult(failureResult, errorValue, "file_preview"), nil
 	}
@@ -2547,6 +2552,41 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 		}
 	}
 	return toolCatalogBuilder.previewTextFile(toolContext, workspaceActor, resolvedPath, contentType, fileInformation.SizeBytes), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext context.Context, input filePreviewToolInput, request ToolCatalogRequest) (string, *agent.ToolResult) {
+	path := strings.TrimSpace(input.Path)
+	materialID := strings.TrimSpace(input.MaterialID)
+	if path != "" {
+		return path, nil
+	}
+	if materialID == "" {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "path or materialID is required")
+		return "", &result
+	}
+	material, errorValue := resolveReadableAttachmentMaterial(toolContext, request, materialID)
+	if errorValue != nil {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", errorValue.Error())
+		return "", &result
+	}
+	if attachmentMaterialLooksLikeImage(material) {
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read")
+		return "", &result
+	}
+	return material.Path, nil
+}
+
+func attachmentMaterialLooksLikeImage(material agent.VisibleContextMaterial) bool {
+	contentType := strings.ToLower(strings.TrimSpace(material.ContentType))
+	if strings.HasPrefix(contentType, "image/") {
+		return true
+	}
+	filename := strings.ToLower(strings.TrimSpace(material.Filename))
+	return strings.HasSuffix(filename, ".png") ||
+		strings.HasSuffix(filename, ".jpg") ||
+		strings.HasSuffix(filename, ".jpeg") ||
+		strings.HasSuffix(filename, ".gif") ||
+		strings.HasSuffix(filename, ".webp")
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableWorkspacePath(path string, scope WorkspaceScope, request ToolCatalogRequest, stage string) (workspacepath.Path, *agent.ToolResult, error) {

@@ -64,7 +64,7 @@ func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
 }
 
 func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
-	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "document.read", "mail.message.search", "mattermost.channel.post"})
+	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "file.preview", "document.read", "mail.message.search", "mattermost.channel.post"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{Name: "mail", AllowedTools: []string{"mail.message.search"}},
@@ -103,6 +103,29 @@ func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected selected skill tool %s to stay hidden for attachment read selection, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
+	}
+}
+
+func TestToolExposureSelectsFilePreviewForVisibleDocumentMaterial(t *testing.T) {
+	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "file.preview", "document.read", "terminal.run"})
+	request := AgentRequest{
+		Prompt: "첨부 파일 다시 봐봐",
+		VisibleContext: VisibleContext{
+			CurrentMaterials: []VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "deck.html",
+				ContentType: "text/html",
+			}},
+		},
+	}
+
+	selectionRequest := buildToolSelectionRequest(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{})
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic || !containsString(selection.SelectedToolIDs, "file.preview") {
+		t.Fatalf("expected deterministic file.preview selection, selection=%+v event=%+v", selection, event)
+	}
+	if containsString(selection.SelectedToolIDs, "document.read") {
+		t.Fatalf("expected document.read not to be selected for attachment catalog, selection=%+v", selection)
 	}
 }
 

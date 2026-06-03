@@ -481,7 +481,7 @@ func visibleContextMaterialReadToolNames(visibleContext VisibleContext) []string
 			continue
 		}
 		if visibleContextMaterialLooksReadableDocument(material) {
-			toolNames = appendUniqueStrings(toolNames, "document.read")
+			toolNames = appendUniqueStrings(toolNames, "file.preview")
 		}
 	}
 	return toolNames

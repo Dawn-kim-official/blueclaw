@@ -1836,13 +1836,13 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 
 	sections := []string{}
 	if len(currentMaterialLines) > 0 {
-		sections = append(sections, "Current attachments:\nUse the listed path directly with file.preview, file.read, or image.read when the user asks about the current attachment.\n"+strings.Join(currentMaterialLines, "\n"))
+		sections = append(sections, "Current attachments:\nUse the listed materialID or path directly with file.preview, file.read, or image.read when the user asks about the current attachment.\n"+strings.Join(currentMaterialLines, "\n"))
 	}
 	if len(contextLines) > 0 {
 		sections = append(sections, strings.Join(contextLines, "\n"))
 	}
 	if len(materialLines) > 0 {
-		sections = append(sections, "Previous attachments:\nUse the listed path directly with file.preview, file.read, or image.read when older conversation context is relevant.\n"+strings.Join(materialLines, "\n"))
+		sections = append(sections, "Previous attachments:\nUse the listed materialID or path directly with file.preview, file.read, or image.read when older conversation context is relevant.\n"+strings.Join(materialLines, "\n"))
 	}
 	sections = append(sections, historyLine)
 	return "Recent visible conversation context:\n" + strings.Join(sections, "\n")
@@ -1884,7 +1884,7 @@ func formatVisibleContextMaterial(material VisibleContextMaterial) string {
 	if material.Message != "" {
 		values = append(values, "message="+material.Message)
 	}
-	if path != "" {
+	if path != "" || materialID != "" {
 		values = append(values, "availableTools="+strings.Join(visibleContextMaterialToolNames(material), ","))
 	}
 	return strings.Join(values, " ")
