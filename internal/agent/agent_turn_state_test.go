@@ -142,13 +142,13 @@ func TestBuildAgentActionRequestIncludesApprovalUserFacingContract(t *testing.T)
 	}
 }
 
-func TestParseAgentActionResponseNormalizesFinishMessage(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`})
+func TestParseAgentActionResponseUsesReplyPartsForFinishMessage(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"summary","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
-	if action.Action != "finish" || action.FinishMessage != "done" || action.Message != "done" {
-		t.Fatalf("expected finish message to normalize, got %+v", action)
+	if action.Action != "finish" || finishActionMessage(action) != "done" {
+		t.Fatalf("expected replyParts to provide finish message, got %+v", action)
 	}
 }
 

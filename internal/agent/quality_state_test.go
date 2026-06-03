@@ -93,7 +93,7 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 			Passed:   false,
 			Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.app.create"}},
 		}},
-		FinishMessage: "완료했습니다.",
+		Message: "완료했습니다.",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
@@ -125,7 +125,7 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 			Passed:   true,
 			Evidence: evidence,
 		}},
-		FinishMessage: "HTML 파일을 만들었습니다: sandbox:/mnt/data/Hermes_Agent_Analysis.html",
+		Message: "HTML 파일을 만들었습니다: sandbox:/mnt/data/Hermes_Agent_Analysis.html",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
@@ -160,7 +160,7 @@ func TestCompletionGateRejectsUnattachedArtifactFilename(t *testing.T) {
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
 		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach", AttachmentIndex: intPointer(0)}},
-		FinishMessage:      "요청하신 파일을 생성해 첨부했습니다: Hermes_Agent_Analysis.html",
+		Message:            "요청하신 파일을 생성해 첨부했습니다: Hermes_Agent_Analysis.html",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
