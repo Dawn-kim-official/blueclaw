@@ -1,11 +1,8 @@
 package agent
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
-
-	"blueclaw/internal/llm"
 )
 
 const maxSchemaCallableToolCount = 8
@@ -26,8 +23,6 @@ type ToolExposureEvent struct {
 	ValidSelectedToolIDs   []string           `json:"validSelectedToolIDs,omitempty"`
 	SelectionReason        string             `json:"selectionReason,omitempty"`
 	SelectionSource        string             `json:"selectionSource,omitempty"`
-	SelectionAttempted     bool               `json:"selectionAttempted,omitempty"`
-	SelectionFailed        bool               `json:"selectionFailed,omitempty"`
 	SelectionFailureReason string             `json:"selectionFailureReason,omitempty"`
 	UsedFallbackGroups     bool               `json:"usedFallbackGroups"`
 	ExposedToolIDs         []string           `json:"exposedToolIDs"`
@@ -37,78 +32,6 @@ type ToolExposureEvent struct {
 type ToolSelectionDecision struct {
 	SelectedToolIDs []string `json:"selectedToolIDs"`
 	Reason          string   `json:"reason"`
-}
-
-type ToolSelectionRouter struct {
-	languageModel llm.LanguageModelProvider
-}
-
-func NewToolSelectionRouter(languageModel llm.LanguageModelProvider) ToolSelectionRouter {
-	return ToolSelectionRouter{languageModel: languageModel}
-}
-
-func (router ToolSelectionRouter) Select(ctx context.Context, request toolSelectionRequest) (ToolSelectionDecision, ToolExposureEvent) {
-	event := ToolExposureEvent{}
-	if router.languageModel == nil || len(request.CandidateGroups) == 0 {
-		return ToolSelectionDecision{}, event
-	}
-	event.SelectionAttempted = true
-	response, errorValue := router.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: router.buildMessages(request),
-		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:               "blueclaw_tool_selection",
-			Document:           `{"type":"object","properties":{"selectedToolIDs":{"type":"array","minItems":0,"maxItems":8,"items":{"type":"string"}},"reason":{"type":"string"}},"required":["selectedToolIDs","reason"],"additionalProperties":false}`,
-			IsStrictlyEnforced: true,
-		},
-	})
-	if errorValue != nil {
-		event.SelectionFailed = true
-		event.SelectionFailureReason = errorValue.Error()
-		return ToolSelectionDecision{}, event
-	}
-	var decision ToolSelectionDecision
-	if errorValue := json.Unmarshal([]byte(response.Content), &decision); errorValue != nil {
-		event.SelectionFailed = true
-		event.SelectionFailureReason = errorValue.Error()
-		return ToolSelectionDecision{}, event
-	}
-	decision.SelectedToolIDs = stableUniqueToolIDs(decision.SelectedToolIDs)
-	decision.Reason = strings.TrimSpace(decision.Reason)
-	event.SelectedToolIDs = append([]string{}, decision.SelectedToolIDs...)
-	event.SelectionReason = decision.Reason
-	event.SelectionSource = "model"
-	return decision, event
-}
-
-func (router ToolSelectionRouter) buildMessages(request toolSelectionRequest) []llm.Message {
-	messages := []llm.Message{
-		{
-			Role:    "system",
-			Content: "Select optional tool IDs needed for the next Blueclaw action. Core groups are normally available and should not be selected. Return [] when unsure. Use only exact IDs from candidate optional tools. Do not answer the user.",
-		},
-		{
-			Role:    "system",
-			Content: renderCoreGroupSummary(request.CoreGroups),
-		},
-		{
-			Role:    "system",
-			Content: "Candidate optional tools:\n" + renderCompactToolCards(request.ToolSet, request.CandidateGroups),
-		},
-	}
-	if description := activeGoalDescription(request.ActiveGoal); description != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: description})
-	}
-	if strings.TrimSpace(request.OutcomeSummary) != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: request.OutcomeSummary})
-	}
-	if strings.TrimSpace(request.RecentProgress) != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: request.RecentProgress})
-	}
-	if contextDescription := buildVisibleContextDescription(request.VisibleContext); contextDescription != "" {
-		messages = append(messages, llm.Message{Role: "system", Content: contextDescription})
-	}
-	messages = append(messages, llm.Message{Role: "user", Content: request.Prompt})
-	return messages
 }
 
 type toolSelectionRequest struct {
@@ -141,21 +64,10 @@ func buildToolSelectionRequest(toolSet *ToolSet, instructionBundle InstructionBu
 	}
 }
 
-func shouldSelectOptionalToolsWithModel(request toolSelectionRequest) bool {
-	for _, group := range request.CandidateGroups {
-		if group.Name == "G7 generic candidates" {
-			continue
-		}
-		if len(group.ToolIDs) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 func deterministicToolSelectionDecision(request toolSelectionRequest) (ToolSelectionDecision, ToolExposureEvent, bool) {
 	if recoveryTools := firstGroupToolIDs(request.CandidateGroups, "G4 recovery/pinned candidates"); len(recoveryTools) > 0 {
-		selection, event := deterministicToolSelection(recoveryTools, "pinned tools are required for the next step")
+		recoveryTools = appendUniqueStrings(recoveryTools, firstGroupToolIDs(request.CandidateGroups, "G6 active-goal candidates")...)
+		selection, event := deterministicToolSelection(recoveryTools, "recovery and required outcome tools are needed for the next step")
 		return selection, event, true
 	}
 	if materialTools := visibleContextMaterialReadToolNames(request.VisibleContext); len(materialTools) > 0 {
@@ -171,18 +83,11 @@ func deterministicToolSelection(toolIDs []string, reason string) (ToolSelectionD
 		Reason:          reason,
 	}
 	event := ToolExposureEvent{
-		SelectedToolIDs:    append([]string{}, selection.SelectedToolIDs...),
-		SelectionReason:    reason,
-		SelectionSource:    "deterministic",
-		SelectionAttempted: false,
+		SelectedToolIDs: append([]string{}, selection.SelectedToolIDs...),
+		SelectionReason: reason,
+		SelectionSource: "deterministic",
 	}
 	return selection, event
-}
-
-func toolSelectionFallbackFitsCap(request toolSelectionRequest) bool {
-	groups := fallbackToolExposureGroups(request.CoreGroups, request.CandidateGroups)
-	_, droppedGroups := applyGroupCap(groups, maxSchemaCallableToolCount)
-	return len(droppedGroups) == 0
 }
 
 func firstGroupToolIDs(groups []toolExposureGroup, groupName string) []string {

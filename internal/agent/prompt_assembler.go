@@ -163,7 +163,8 @@ func toolResultContextText(observations []turnObservation) string {
 
 func toolResultImageContextMessage(observations []turnObservation) llm.Message {
 	message := llm.Message{
-		Role: "system",
+		Role:    "user",
+		Content: "Tool result images for the next answer. Inspect these image parts directly; do not infer visual details from filenames or progress text.",
 	}
 	for _, observation := range observations {
 		for index, attachment := range observation.Attachments {

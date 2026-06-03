@@ -598,7 +598,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerToolDescribeTool(toolRegis
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[toolDescribeToolInput, map[string]any]{
 		Definition: agent.ToolDefinition{
 			Name:        "tool.describe",
-			Description: "Search or inspect available Blueclaw tools by exact name, prefix, or text query before requiring or calling them.",
+			Description: "Search or inspect available Blueclaw tools by exact name, prefix, or text query before selecting or calling them.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"toolName":{"type":"string"},"prefix":{"type":"string"},"limit":{"type":"number"}}}`),
 		},
 		Handler: func(_ context.Context, input toolDescribeToolInput) (map[string]any, error) {
@@ -618,7 +618,8 @@ func describeTools(input toolDescribeToolInput, toolSet *agent.ToolSet) map[stri
 	items := []map[string]any{}
 	for _, toolDefinition := range toolSet.ListRegisteredToolDefinitions() {
 		toolName := strings.TrimSpace(toolDefinition.Name)
-		if !toolDescriptionMatches(input, toolDefinition) {
+		matchReason := toolDescriptionMatchReason(input, toolDefinition)
+		if matchReason == "" {
 			continue
 		}
 		availability, _ := toolSet.ToolAvailability(toolName)
@@ -630,6 +631,7 @@ func describeTools(input toolDescribeToolInput, toolSet *agent.ToolSet) map[stri
 			"description":  firstNonEmptyString(toolDefinition.Description, agentSpecificToolDescription(toolName)),
 			"inputSchema":  toolDefinition.InputSchema,
 			"availability": availability,
+			"matchReason":  matchReason,
 		})
 		if len(items) >= limit {
 			break
@@ -639,19 +641,61 @@ func describeTools(input toolDescribeToolInput, toolSet *agent.ToolSet) map[stri
 }
 
 func toolDescriptionMatches(input toolDescribeToolInput, toolDefinition agent.ToolDefinition) bool {
+	return toolDescriptionMatchReason(input, toolDefinition) != ""
+}
+
+func toolDescriptionMatchReason(input toolDescribeToolInput, toolDefinition agent.ToolDefinition) string {
 	toolName := strings.TrimSpace(toolDefinition.Name)
 	if expectedToolName := strings.TrimSpace(input.ToolName); expectedToolName != "" {
-		return toolName == expectedToolName
+		if toolName == expectedToolName {
+			return "exact_name"
+		}
+		return ""
 	}
 	if prefix := strings.TrimSpace(input.Prefix); prefix != "" && !strings.HasPrefix(toolName, prefix) {
-		return false
+		return ""
+	} else if prefix != "" {
+		return "prefix"
 	}
 	query := strings.ToLower(strings.TrimSpace(input.Query))
 	if query == "" {
+		return "all"
+	}
+	searchText := toolDescriptionSearchText(toolDefinition)
+	if strings.Contains(searchText, query) {
+		return "query"
+	}
+	if toolDescriptionContainsQueryTokens(searchText, query) {
+		return "query_tokens"
+	}
+	return ""
+}
+
+func toolDescriptionSearchText(toolDefinition agent.ToolDefinition) string {
+	values := []string{
+		toolDefinition.Name,
+		toolDefinition.Description,
+		agentSpecificToolDescription(toolDefinition.Name),
+		toolDefinition.RecoveryCard.Does,
+		toolDefinition.RecoveryCard.Produces,
+		toolDefinition.RecoveryCard.SideEffect,
+		toolDefinition.RecoveryCard.UseWhen,
+		toolDefinition.RecoveryCard.AvoidWhen,
+	}
+	return strings.ToLower(strings.Join(values, " "))
+}
+
+func toolDescriptionContainsQueryTokens(searchText string, query string) bool {
+	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(query)))
+	if len(tokens) == 0 {
 		return true
 	}
-	searchText := strings.ToLower(toolName + " " + toolDefinition.Description)
-	return strings.Contains(searchText, query)
+	for _, token := range tokens {
+		if !strings.Contains(searchText, token) {
+			return false
+		}
+	}
+	return true
 }
 
 func agentSpecificToolDescription(toolName string) string {

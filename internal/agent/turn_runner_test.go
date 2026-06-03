@@ -568,9 +568,9 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRequireCapabilitiesPinsHiddenTool(t *testing.T) {
+func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"require_capabilities","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
 		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
 		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
@@ -603,14 +603,57 @@ func TestAgentTurnRunnerRequireCapabilitiesPinsHiddenTool(t *testing.T) {
 	if result.FinishMessage != "created" {
 		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capabilities_required", "site.app.create") {
-		t.Fatal("expected capability require event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_palette.applied", "site.app.create") {
+		t.Fatal("expected tool palette apply event")
 	}
 }
 
-func TestAgentTurnRunnerRequireCapabilitiesPinsSkillInstructionsAndTools(t *testing.T) {
+func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"require_capabilities","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
+		`{"action":"select_tools","toolNames":["image.analyze"],"skillNames":[],"reason":"need image analysis"}`,
+		`{"action":"select_tools","toolNames":["image.read"],"skillNames":[],"reason":"use the matching registered image tool"}`,
+		`{"action":"continue","toolName":"image.read","toolInput":{"materialID":"mattermost:file-1"}}`,
+		finishMessageWithEvidence("image described", "obs-003", "image.read", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
+	toolRegistry := NewToolSet([]string{"skill.search"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"skills":[]}`), nil
+	})
+	imageReadCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:        "image.read",
+		Description: "Read and analyze an image attachment by materialID.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"materialID":{"type":"string"}},"required":["materialID"]}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		imageReadCallCount++
+		return ToolSuccess(`{"description":"mascot image"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "다시 이미지 봐봐",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if imageReadCallCount != 1 {
+		t.Fatalf("expected image.read to be invoked once, got %d", imageReadCallCount)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "agent.tool_palette.failed", "image.analyze") || !taskEventsContain(events, "agent.tool_palette.failed", "image.read") {
+		t.Fatal("expected failed palette request to include image.read candidate")
+	}
+	if !taskEventsContain(events, "agent.tool_palette.applied", "image.read") {
+		t.Fatal("expected exact image.read request to apply")
+	}
+}
+
+func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"select_tools","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
 		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
 		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
@@ -2339,9 +2382,7 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 }
 
 func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *testing.T) {
-	languageModel := &sequenceLanguageModel{toolSelections: []string{
-		`{"selectedToolIDs":["site.app.status","site.app.create","file.write","site.app.build","artifact.review","site.app.publish"],"reason":"model chooses the tools that satisfy the site link expected result"}`,
-	}}
+	languageModel := &sequenceLanguageModel{}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{
 		"site.app.status",
@@ -2590,11 +2631,6 @@ func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 
 func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
-		toolSelections: []string{
-			`{"selectedToolIDs":["site.app.create"],"reason":"create draft first"}`,
-			`{"selectedToolIDs":["site.app.build"],"reason":"build is still required"}`,
-			`{"selectedToolIDs":["site.app.build"],"reason":"run required build after rejected finish"}`,
-		},
 		contents: []string{
 			`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the draft before finishing","expectedTools":["site.app.build"],"doneCriteria":["build evidence exists"],"risk":"draft creation alone is not completion","workingSetReason":"site.app.build is required evidence"}}`,
 			`{"action":"finish","message":"초안이 만들어졌습니다.","replyParts":[{"type":"text","text":"초안이 만들어졌습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.app.create"}]}`,
@@ -2639,10 +2675,10 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	if !taskEventsContain(events, "agent.completion_required", "site.app.build") {
 		t.Fatal("expected early finish to be rejected by completion gate")
 	}
-	if !taskEventsContain(events, "agent.tool_exposure", "site.app.build") {
+	if !taskEventsContain(events, "agent.tool_palette.built", "site.app.build") {
 		t.Fatal("expected build tool to be exposed after rejected finish")
 	}
-	if !taskEventsContain(events, "agent.tool_exposure", "deterministic") {
+	if !taskEventsContain(events, "agent.tool_palette.built", "deterministic") {
 		t.Fatal("expected deterministic per-iteration tool exposure without selector LLM calls")
 	}
 	if !taskEventsContain(events, "agent.next_step_plan", "site.app.build") {
@@ -3665,11 +3701,9 @@ func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options 
 
 type sequenceLanguageModel struct {
 	contents             []string
-	toolSelections       []string
 	resultVerifications  []string
 	textResponses        []string
 	requests             []llm.StructuredResponseRequest
-	selectionRequests    []llm.StructuredResponseRequest
 	verificationRequests []llm.StructuredResponseRequest
 	textPrompts          []string
 }
@@ -3697,14 +3731,6 @@ func (languageModel *sequenceLanguageModel) GenerateResponse(_ context.Context, 
 }
 
 func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
-	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_tool_selection" {
-		languageModel.selectionRequests = append(languageModel.selectionRequests, request)
-		index := len(languageModel.selectionRequests) - 1
-		if index < len(languageModel.toolSelections) {
-			return llm.StructuredResponse{Content: languageModel.toolSelections[index]}, nil
-		}
-		return llm.StructuredResponse{Content: `{"selectedToolIDs":[],"reason":"test default"}`}, nil
-	}
 	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_result_verifier" {
 		languageModel.verificationRequests = append(languageModel.verificationRequests, request)
 		index := len(languageModel.verificationRequests) - 1

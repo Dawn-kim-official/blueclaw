@@ -274,7 +274,6 @@ func mergeDefaultResponses(defaultResponses map[string]string) map[string]string
 		"blueclaw_turn_router":                 `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
 		"blueclaw_task_intake_effort":          `{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
 		"blueclaw_execution_plan":              `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
-		"blueclaw_tool_selection":              `{"selectedToolIDs":[],"reason":"scripted test default"}`,
 		"blueclaw_confirmation_message":        `{"reply":"확인했습니다. 승인하면 진행하겠습니다."}`,
 		"blueclaw_confirmation_reply_decision": `{"decision":"approved","reason":"scripted test default approval"}`,
 	}
