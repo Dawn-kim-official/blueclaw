@@ -1280,6 +1280,47 @@ func TestConnectorAttachmentMaterialResolverImportsHistoryMaterial(t *testing.T)
 	}
 }
 
+func TestConnectorAttachmentMaterialResolverRefreshesStaleMaterialPath(t *testing.T) {
+	adapter := &testAdapter{
+		inputAttachmentImportResult: InputAttachmentImportResult{
+			InputAttachments: []InputAttachment{{
+				Platform:    "mattermost",
+				FileID:      "file-1",
+				MessageID:   "message-1",
+				Filename:    "report.html",
+				ContentType: "text/html",
+				Path:        "/workspace/private/people/person-1/inbox/mattermost/direct-1/message-1/report.html",
+				IsAvailable: true,
+			}},
+		},
+	}
+	event := testInboundEvent("message-1")
+	event.Platform = "mattermost"
+	event.ConversationID = "direct-1"
+	event.Context.InputAttachments = []InputAttachment{{
+		Platform:    "mattermost",
+		FileID:      "file-1",
+		MessageID:   "message-1",
+		Filename:    "report.html",
+		ContentType: "text/html",
+		Path:        "/workspace/private/people/person-1/inbox/mattermost/direct-1/old/report.html",
+		IsAvailable: true,
+	}}
+	resolver := connectorAttachmentMaterialResolver{adapter: adapter, personID: "person-1", event: event}
+
+	material, errorValue := resolver.ResolveAttachmentMaterial(context.Background(), "mattermost:file-1")
+
+	if errorValue != nil {
+		t.Fatalf("expected stale material to refresh: %v", errorValue)
+	}
+	if material.Path != "/workspace/private/people/person-1/inbox/mattermost/direct-1/message-1/report.html" {
+		t.Fatalf("expected refreshed material path, got %+v", material)
+	}
+	if len(adapter.inputAttachmentImportRequests) != 1 {
+		t.Fatalf("expected one refresh import request, got %+v", adapter.inputAttachmentImportRequests)
+	}
+}
+
 func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "맥락 확인"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)

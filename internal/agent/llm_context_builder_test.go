@@ -171,6 +171,7 @@ func TestLLMContextBuilderIncludesUnavailableAttachmentMetadata(t *testing.T) {
 		"sourceMessageID=post-1",
 		"available=false",
 		"errorCode=mattermost_download_failed",
+		"availableTools=file.preview,file.read",
 		"materialID=mattermost:file-2",
 		"sourceMessageID=post-2",
 	} {

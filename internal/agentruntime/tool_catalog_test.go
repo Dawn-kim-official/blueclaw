@@ -1186,6 +1186,41 @@ func TestFilePreviewUsesCachedAttachmentPreview(t *testing.T) {
 	}
 }
 
+func TestFilePreviewResolvesAttachmentMaterialID(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "post-1", "report.html")
+	writeTestFile(t, filePath, "<h1>Material Preview</h1>")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "report.html",
+				ContentType: "text/html",
+				Path:        "home/inbox/mattermost/post-1/report.html",
+			},
+		},
+	})
+
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.preview",
+		Input:    agent.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if previewResult.Failed() {
+		t.Fatalf("expected material file.preview success, got %s", previewResult.ContentText())
+	}
+	if !strings.Contains(previewResult.ContentText(), "Material Preview") {
+		t.Fatalf("expected material preview content, got %s", previewResult.ContentText())
+	}
+}
+
 func TestFileEditReplacesSingleExactMatch(t *testing.T) {
 	workspacePath := t.TempDir()
 	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "source.ts")

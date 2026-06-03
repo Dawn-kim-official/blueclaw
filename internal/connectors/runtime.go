@@ -2204,13 +2204,26 @@ func visibleContextAttachmentMaterials(visibleContext VisibleContext) []InputAtt
 }
 
 func (resolver connectorAttachmentMaterialResolver) importAttachmentMaterial(ctx context.Context, attachment InputAttachment) (agent.VisibleContextMaterial, error) {
+	importingAdapter, isSupported := resolver.adapter.(InputAttachmentImportingAdapter)
+	if isSupported && strings.TrimSpace(attachment.FileID) != "" {
+		material, errorValue := resolver.importAttachmentWithAdapter(ctx, importingAdapter, attachment)
+		if errorValue == nil {
+			return material, nil
+		}
+		if strings.TrimSpace(attachment.Path) == "" || strings.TrimSpace(attachment.ErrorCode) != "" {
+			return agent.VisibleContextMaterial{}, errorValue
+		}
+	}
 	if strings.TrimSpace(attachment.Path) != "" && strings.TrimSpace(attachment.ErrorCode) == "" {
 		return connectorAttachmentToAgentMaterial(resolver.personID, resolver.event, attachment), nil
 	}
-	importingAdapter, isSupported := resolver.adapter.(InputAttachmentImportingAdapter)
 	if !isSupported {
 		return agent.VisibleContextMaterial{}, errors.New("attachment import is unavailable for this platform")
 	}
+	return resolver.importAttachmentWithAdapter(ctx, importingAdapter, attachment)
+}
+
+func (resolver connectorAttachmentMaterialResolver) importAttachmentWithAdapter(ctx context.Context, importingAdapter InputAttachmentImportingAdapter, attachment InputAttachment) (agent.VisibleContextMaterial, error) {
 	scope := connectorInputAttachmentScope(resolver.personID, resolver.event)
 	messageID := firstNonEmptyString(attachment.MessageID, resolver.event.MessageID)
 	result, errorValue := importingAdapter.ImportInputAttachments(ctx, InputAttachmentImportRequest{
