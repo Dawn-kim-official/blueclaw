@@ -122,6 +122,10 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 			},
 			ExpectedToolCalls:      []string{"image.read"},
 			ExpectedToolCallCounts: map[string]int{"terminal.run": 0},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "agent.instructions_loaded", BodyFragment: "image.read", Count: 1},
+				{Name: "agent.instructions_loaded", BodyFragment: "document.read", Count: 1},
+			},
 			ExpectedModelContexts: []string{
 				"materialID=mattermost:file-1",
 				"Use materialID with image.read",
