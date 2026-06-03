@@ -253,6 +253,9 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	coreGroups := collectCoreGroups(toolSet)
 	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, recentObservations)
 	selectedGroup := selectedOptionalGroup(selection.SelectedToolIDs, candidateGroups)
+	if len(selectedGroup.ToolIDs) == 0 {
+		selectedGroup = selectedRegisteredToolGroup(toolSet, selection.SelectedToolIDs)
+	}
 	selectionEvent.ValidSelectedToolIDs = append([]string{}, selectedGroup.ToolIDs...)
 
 	groups := []toolExposureGroup{}
@@ -270,6 +273,13 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
 	selectionEvent.DroppedGroups = droppedGroups
 	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
+}
+
+func selectedRegisteredToolGroup(toolSet *ToolSet, selectedToolIDs []string) toolExposureGroup {
+	if toolSet == nil || len(selectedToolIDs) == 0 {
+		return toolExposureGroup{}
+	}
+	return filterGroupTools(toolSet, toolExposureGroup{Name: "G0 selected tools", ToolIDs: stableUniqueToolIDs(selectedToolIDs)})
 }
 
 func exposedToolIDsForFiltering(exposedToolIDs []string) []string {

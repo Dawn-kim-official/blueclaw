@@ -63,6 +63,7 @@ type VirtualTurn struct {
 	ForbiddenModelContexts  []string
 	ExpectedReplyFragments  []string
 	ForbiddenReplyFragments []string
+	MinimumReplyLength      int
 }
 
 type VirtualEventCount struct {
@@ -557,6 +558,9 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 			return fmt.Errorf("forbidden reply fragment %q found in %q", fragment, turnResult.FinishMessage)
 		}
 	}
+	if virtualTurn.MinimumReplyLength > 0 && len([]rune(turnResult.FinishMessage)) < virtualTurn.MinimumReplyLength {
+		return fmt.Errorf("expected reply length >= %d, got %d: %q", virtualTurn.MinimumReplyLength, len([]rune(turnResult.FinishMessage)), turnResult.FinishMessage)
+	}
 	return nil
 }
 
@@ -1038,6 +1042,18 @@ func actionFinishMessage(reply string, evidence ...string) string {
 		evidenceDocuments = append(evidenceDocuments, `{"observationID":`+quote(parts[0])+`,"toolName":`+quote(parts[1])+`,"attachmentIndex":`+parts[2]+`}`)
 	}
 	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[` + strings.Join(evidenceDocuments, ",") + `],"finishMessage":` + quote(reply) + `}`
+}
+
+func actionFinishWithReplyPart(summary string, replyPart string, evidence ...string) string {
+	evidenceDocuments := []string{}
+	for _, value := range evidence {
+		parts := strings.Split(value, ":")
+		if len(parts) != 3 {
+			continue
+		}
+		evidenceDocuments = append(evidenceDocuments, `{"observationID":`+quote(parts[0])+`,"toolName":`+quote(parts[1])+`,"attachmentIndex":`+parts[2]+`}`)
+	}
+	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[` + strings.Join(evidenceDocuments, ",") + `],"finishMessage":` + quote(summary) + `,"replyParts":[{"type":"text","text":` + quote(replyPart) + `}]}`
 }
 
 func actionNoToolFallbackFinishMessage(reply string) string {
