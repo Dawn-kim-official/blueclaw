@@ -66,9 +66,16 @@ type ProgressFileContext struct {
 	LastObservationID    string   `json:"lastObservationID"`
 	ReadRanges           []string `json:"readRanges,omitempty"`
 	TotalLines           int      `json:"totalLines,omitempty"`
+	TotalLinesKnown      bool     `json:"totalLinesKnown,omitempty"`
 	SizeBytes            int      `json:"sizeBytes,omitempty"`
+	OriginalSizeBytes    int      `json:"originalSizeBytes,omitempty"`
+	ReturnedBytes        int      `json:"returnedBytes,omitempty"`
 	IsTruncated          bool     `json:"isTruncated,omitempty"`
 	Summary              string   `json:"summary,omitempty"`
+	Snippet              string   `json:"snippet,omitempty"`
+	MarkdownPreview      string   `json:"markdownPreview,omitempty"`
+	ConversionStatus     string   `json:"conversionStatus,omitempty"`
+	ConversionMessage    string   `json:"conversionMessage,omitempty"`
 	RepeatedReadGuidance string   `json:"repeatedReadGuidance,omitempty"`
 }
 
@@ -329,6 +336,21 @@ func recentFileContexts(observations []turnObservation) []ProgressFileContext {
 		if existingContext.Summary != "" && context.Summary == "" {
 			context.Summary = existingContext.Summary
 		}
+		if existingContext.Snippet != "" && context.Snippet == "" {
+			context.Snippet = existingContext.Snippet
+		}
+		if existingContext.MarkdownPreview != "" && context.MarkdownPreview == "" {
+			context.MarkdownPreview = existingContext.MarkdownPreview
+		}
+		if existingContext.ConversionStatus != "" && context.ConversionStatus == "" {
+			context.ConversionStatus = existingContext.ConversionStatus
+		}
+		if existingContext.ConversionMessage != "" && context.ConversionMessage == "" {
+			context.ConversionMessage = existingContext.ConversionMessage
+		}
+		if existingContext.OriginalSizeBytes > context.OriginalSizeBytes {
+			context.OriginalSizeBytes = existingContext.OriginalSizeBytes
+		}
 		context.RepeatedReadGuidance = repeatedReadGuidance(context.Path, context.ReadRanges)
 		if context.RepeatedReadGuidance == "" {
 			context.RepeatedReadGuidance = "Already read " + strings.TrimSpace(context.Path) + "; use this context, read a different range, or edit/build instead of rereading the same content."
@@ -346,7 +368,8 @@ func recentFileContexts(observations []turnObservation) []ProgressFileContext {
 }
 
 func progressFileContextFromObservation(observation turnObservation) (ProgressFileContext, bool) {
-	if strings.TrimSpace(observation.Tool) != "file.read" || observation.Failed() {
+	toolName := strings.TrimSpace(observation.Tool)
+	if (toolName != "file.read" && toolName != "file.preview") || observation.Failed() {
 		return ProgressFileContext{}, false
 	}
 	payload := map[string]any{}
@@ -358,19 +381,39 @@ func progressFileContextFromObservation(observation turnObservation) (ProgressFi
 	if path == "" {
 		return ProgressFileContext{}, false
 	}
+	if toolName == "file.preview" {
+		return ProgressFileContext{
+			Path:              path,
+			LastObservationID: observation.ObservationID,
+			SizeBytes:         intField(payload, "sizeBytes"),
+			OriginalSizeBytes: intField(payload, "sizeBytes"),
+			Summary:           summarizeFilePreviewContent(path, stringField(payload, "markdownPreview")),
+			MarkdownPreview:   truncateText(compactWhitespace(stringField(payload, "markdownPreview")), 1000),
+			ConversionStatus:  stringField(payload, "conversionStatus"),
+			ConversionMessage: stringField(payload, "conversionMessage"),
+		}, true
+	}
 	startLine := intField(payload, "startLine")
 	endLine := intField(payload, "endLine")
 	totalLines := intField(payload, "totalLines")
 	sizeBytes := intField(payload, "sizeBytes")
+	originalSizeBytes := intField(payload, "originalSizeBytes")
+	if originalSizeBytes <= 0 {
+		originalSizeBytes = sizeBytes
+	}
 	readRange := formatLineRange(startLine, endLine)
 	return ProgressFileContext{
 		Path:              path,
 		LastObservationID: observation.ObservationID,
 		ReadRanges:        appendUniqueStrings([]string{readRange}),
 		TotalLines:        totalLines,
+		TotalLinesKnown:   booleanField(payload, "totalLinesKnown"),
 		SizeBytes:         sizeBytes,
+		OriginalSizeBytes: originalSizeBytes,
+		ReturnedBytes:     intField(payload, "returnedBytes"),
 		IsTruncated:       booleanField(payload, "isTruncated"),
 		Summary:           summarizeFileReadContent(path, content),
+		Snippet:           truncateText(content, 1200),
 	}, true
 }
 
@@ -422,6 +465,13 @@ func summarizeFileReadContent(path string, content string) string {
 		values = values[:12]
 	}
 	return strings.TrimSpace(filepathBase(path) + " symbols/headings: " + strings.Join(values, ", "))
+}
+
+func summarizeFilePreviewContent(path string, content string) string {
+	if strings.TrimSpace(content) == "" {
+		return filepathBase(path) + " preview: no markdown preview available"
+	}
+	return filepathBase(path) + " preview: " + truncateText(compactWhitespace(content), 240)
 }
 
 func fileContentExportNames(content string) []string {

@@ -687,8 +687,8 @@ func (agentTurnRunner *AgentTurnRunner) rejectMalformedToolCall(taskRunID string
 func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string, stepID string, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
 	if observation, isRepeatedRead := repeatedFileReadObservation(state.Observations, actionDocument, nextObservationID(len(state.Observations)+1)); isRepeatedRead {
 		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.file_read_repeat_rejected", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "file_read_repeat_rejected", observation.ContentText())
+		agentTurnRunner.appendEvent(taskRunID, "agent.file_read_cache_hit", marshalEventBody(observation))
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "file_read_cache_hit", observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
@@ -758,16 +758,28 @@ func repeatedFileReadObservation(observations []turnObservation, actionDocument 
 				continue
 			}
 			if coveredRange.StartLine <= requestedRange.StartLine && coveredRange.EndLine >= requestedRange.EndLine {
-				message := "Already read " + requestedRange.Path + " lines " + readRange + " as " + observation.ObservationID + ". Use Recent file context, read a different uncovered range, or edit/build instead of spending another file.read call."
-				return newFailureObservation(observationID, "policy", "file.read", message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "file_read_repeat"), true
+				return cachedFileReadObservation(observationID, observation, "Already read "+requestedRange.Path+" lines "+readRange+" as "+observation.ObservationID+". Reuse the cached content below instead of spending another file.read call."), true
 			}
 			if fileReadRangesOverlap(coveredRange, requestedRange) {
-				message := "Already read overlapping lines " + readRange + " from " + requestedRange.Path + " as " + observation.ObservationID + ". Use Recent file context or request only an uncovered range such as " + uncoveredFileReadHint(coveredRange, requestedRange) + "."
-				return newFailureObservation(observationID, "policy", "file.read", message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "file_read_repeat"), true
+				return cachedFileReadObservation(observationID, observation, "Already read overlapping lines "+readRange+" from "+requestedRange.Path+" as "+observation.ObservationID+". Reuse cached content and request only an uncovered range such as "+uncoveredFileReadHint(coveredRange, requestedRange)+" if more text is needed."), true
 			}
 		}
 	}
 	return turnObservation{}, false
+}
+
+func cachedFileReadObservation(observationID string, previousObservation turnObservation, message string) turnObservation {
+	payload := map[string]any{}
+	if json.Unmarshal([]byte(previousObservation.ContentText()), &payload) != nil {
+		payload = map[string]any{}
+	}
+	payload["cacheStatus"] = "hit"
+	payload["cachedObservationID"] = previousObservation.ObservationID
+	payload["message"] = strings.TrimSpace(message)
+	content := marshalEventBody(payload)
+	observation := newContentObservation(observationID, "policy", "file.read", content)
+	observation.Summary = "file.read cache hit for " + firstNonEmptyString(stringField(payload, "path"), "previous range")
+	return observation
 }
 
 func fileReadRangesOverlap(firstRange fileReadRange, secondRange fileReadRange) bool {

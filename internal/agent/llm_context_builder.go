@@ -50,6 +50,7 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 		builder.memoryContext(input),
 		strings.TrimSpace(input.StepBudgetContext),
 		builder.progressContext(input),
+		builder.knownFileContext(input),
 		buildExecutionStateContext(input.ExecutionState, input.Observations),
 		toolResultContextText(input.Observations),
 		buildObservationContext(input.Observations),
@@ -171,6 +172,18 @@ func (builder LLMContextBuilder) progressContext(input LLMContextInput) string {
 		return ""
 	}
 	return buildProgressContext(agentTurnRequestForContext(input), input.Observations)
+}
+
+func (builder LLMContextBuilder) knownFileContext(input LLMContextInput) string {
+	fileContexts := recentFileContexts(input.Observations)
+	if len(fileContexts) == 0 {
+		return ""
+	}
+	body := marshalEventBody(fileContexts)
+	if len(body) > progressMessageLimit {
+		body = body[:progressMessageLimit] + "\n[trimmed]"
+	}
+	return "Known file context. Reuse these exact snippets and previews instead of rereading the same ranges:\n" + body
 }
 
 func (builder LLMContextBuilder) failureObservationContext(observations []turnObservation) string {

@@ -35,6 +35,9 @@ func TestBuildTurnProgressKeepsRecentFileContext(t *testing.T) {
 			t.Fatalf("expected recent file context to include %q, got %+v", expected, fileContext)
 		}
 	}
+	if !strings.Contains(fileContext.Snippet, "export const profile") {
+		t.Fatalf("expected exact snippet to remain available, got %+v", fileContext)
+	}
 	if !strings.Contains(fileContext.RepeatedReadGuidance, "edit/build") {
 		t.Fatalf("expected repeated read guidance, got %+v", fileContext)
 	}
