@@ -23,7 +23,7 @@ func TestAdapterNormalizesHTTPAndWebSocketPostedEvents(t *testing.T) {
 		"data":{
 			"channel_type":"D",
 			"channel_name":"circle-hr-compensation",
-			"post":"{\"id\":\"post-1\",\"user_id\":\"user-1\",\"channel_id\":\"direct-1\",\"channel_name\":\"circle-hr-compensation\",\"message\":\"hello\",\"root_id\":\"\"}"
+			"post":"{\"id\":\"post-1\",\"user_id\":\"user-1\",\"channel_id\":\"direct-1\",\"channel_name\":\"circle-hr-compensation\",\"message\":\"hello\",\"root_id\":\"root-1\",\"file_ids\":[\"file-1\"]}"
 		}
 	}`), "websocket")
 	if errorValue != nil {
@@ -44,6 +44,13 @@ func TestAdapterNormalizesHTTPAndWebSocketPostedEvents(t *testing.T) {
 	}
 	if httpResult.Event.Context.ChannelName != "circle-hr-compensation" || websocketEvent.Context.ChannelName != "circle-hr-compensation" {
 		t.Fatalf("expected channel name to be normalized")
+	}
+	if len(websocketEvent.Context.InputAttachments) != 1 {
+		t.Fatalf("expected websocket current input attachment, got %+v", websocketEvent.Context.InputAttachments)
+	}
+	attachment := websocketEvent.Context.InputAttachments[0]
+	if attachment.FileID != "file-1" || attachment.MessageID != "post-1" {
+		t.Fatalf("expected reply post attachment metadata, got %+v", attachment)
 	}
 }
 

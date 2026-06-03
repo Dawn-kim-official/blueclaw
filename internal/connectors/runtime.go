@@ -2029,13 +2029,30 @@ func (connectorRuntime *ConnectorRuntime) withAttachmentMaterials(ctx context.Co
 	}
 	if len(result.InputAttachments) > 0 {
 		importedAttachments := connectorReadableInputAttachments(result.InputAttachments, personID, scope)
-		event.Context.InputAttachments = connectorReadableInputAttachments(event.Context.InputAttachments, personID, scope)
+		event.Context.InputAttachments = connectorCurrentImportedInputAttachments(event.Context.InputAttachments, importedAttachments)
 		event.Context.Materials = connectorUniqueInputAttachments(importedAttachments)
 	}
 	if len(result.InputParts) > 0 {
 		event.InputParts = append(event.InputParts, connectorCurrentInputParts(result.InputParts, event)...)
 	}
 	return event
+}
+
+func connectorCurrentImportedInputAttachments(currentAttachments []InputAttachment, importedAttachments []InputAttachment) []InputAttachment {
+	currentKeys := map[string]bool{}
+	for _, attachment := range currentAttachments {
+		key := connectorInputAttachmentKey(attachment)
+		if key != "" {
+			currentKeys[key] = true
+		}
+	}
+	currentImportedAttachments := []InputAttachment{}
+	for _, attachment := range importedAttachments {
+		if currentKeys[connectorInputAttachmentKey(attachment)] {
+			currentImportedAttachments = append(currentImportedAttachments, attachment)
+		}
+	}
+	return connectorUniqueInputAttachments(currentImportedAttachments)
 }
 
 func connectorCurrentInputParts(parts []agent.AgentPart, event PlatformInboundEvent) []agent.AgentPart {
@@ -2724,13 +2741,33 @@ func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContex
 		})
 	}
 
+	currentMaterials := agentVisibleContextMaterials(visibleContext.InputAttachments)
 	return agent.VisibleContext{
 		Messages:         messages,
-		Materials:        agentVisibleContextMaterials(visibleContext.Materials),
+		CurrentMaterials: currentMaterials,
+		Materials:        agentPreviousVisibleContextMaterials(visibleContext.Materials, currentMaterials),
 		HasMoreBefore:    visibleContext.HasMoreBefore,
 		HistoryCursor:    visibleContext.HistoryCursor,
 		ResponseLanguage: visibleContext.ResponseLanguage,
 	}
+}
+
+func agentPreviousVisibleContextMaterials(attachments []InputAttachment, currentMaterials []agent.VisibleContextMaterial) []agent.VisibleContextMaterial {
+	currentMaterialIDs := map[string]bool{}
+	for _, material := range currentMaterials {
+		currentMaterialID := strings.TrimSpace(material.MaterialID)
+		if currentMaterialID != "" {
+			currentMaterialIDs[currentMaterialID] = true
+		}
+	}
+	materials := []agent.VisibleContextMaterial{}
+	for _, material := range agentVisibleContextMaterials(attachments) {
+		if currentMaterialIDs[strings.TrimSpace(material.MaterialID)] {
+			continue
+		}
+		materials = append(materials, material)
+	}
+	return materials
 }
 
 func agentVisibleContextMaterials(attachments []InputAttachment) []agent.VisibleContextMaterial {

@@ -6,15 +6,16 @@ import (
 )
 
 type Event struct {
-	EventName      string `json:"event"`
-	UserID         string `json:"user_id"`
-	ConversationID string `json:"channel_id"`
-	ChannelName    string `json:"channel_name"`
-	ChannelType    string `json:"channel_type"`
-	PostID         string `json:"post_id"`
-	Message        string `json:"message"`
-	RootID         string `json:"root_id"`
-	Type           string `json:"type"`
+	EventName      string   `json:"event"`
+	UserID         string   `json:"user_id"`
+	ConversationID string   `json:"channel_id"`
+	ChannelName    string   `json:"channel_name"`
+	ChannelType    string   `json:"channel_type"`
+	PostID         string   `json:"post_id"`
+	Message        string   `json:"message"`
+	RootID         string   `json:"root_id"`
+	Type           string   `json:"type"`
+	FileIDs        []string `json:"file_ids"`
 }
 
 type EventParser struct{}
@@ -54,13 +55,14 @@ func (eventParser EventParser) ParseWebSocketMessage(payload []byte) (Event, boo
 	}
 
 	var post struct {
-		ID          string `json:"id"`
-		UserID      string `json:"user_id"`
-		ChannelID   string `json:"channel_id"`
-		ChannelName string `json:"channel_name"`
-		Message     string `json:"message"`
-		RootID      string `json:"root_id"`
-		Type        string `json:"type"`
+		ID          string   `json:"id"`
+		UserID      string   `json:"user_id"`
+		ChannelID   string   `json:"channel_id"`
+		ChannelName string   `json:"channel_name"`
+		Message     string   `json:"message"`
+		RootID      string   `json:"root_id"`
+		Type        string   `json:"type"`
+		FileIDs     []string `json:"file_ids"`
 	}
 	errorValue = json.Unmarshal([]byte(postDocument), &post)
 	if errorValue != nil {
@@ -79,6 +81,7 @@ func (eventParser EventParser) ParseWebSocketMessage(payload []byte) (Event, boo
 		Message:        post.Message,
 		RootID:         post.RootID,
 		Type:           post.Type,
+		FileIDs:        post.FileIDs,
 	}, true, nil
 }
 

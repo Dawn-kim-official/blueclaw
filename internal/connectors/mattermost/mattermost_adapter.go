@@ -142,6 +142,7 @@ func (adapter Adapter) NotInvitedReply() string {
 }
 
 func (adapter Adapter) convertEvent(event Event, source string) connectors.PlatformInboundEvent {
+	inputAttachments := mattermostInputAttachments(event.PostID, event.FileIDs)
 	return connectors.PlatformInboundEvent{
 		Platform:       adapter.Name(),
 		Source:         source,
@@ -157,6 +158,8 @@ func (adapter Adapter) convertEvent(event Event, source string) connectors.Platf
 			ConversationType: event.ChannelType,
 			ChannelID:        event.ConversationID,
 			ChannelName:      event.ChannelName,
+			InputAttachments: inputAttachments,
+			Materials:        inputAttachments,
 		},
 	}
 }
@@ -185,6 +188,22 @@ func historyCursor(conversationID string, beforePostID string) string {
 		return conversationID
 	}
 	return conversationID + ":" + beforePostID
+}
+
+func mattermostInputAttachments(messageID string, fileIDs []string) []connectors.InputAttachment {
+	attachments := []connectors.InputAttachment{}
+	for _, fileID := range fileIDs {
+		fileID = strings.TrimSpace(fileID)
+		if fileID == "" {
+			continue
+		}
+		attachments = append(attachments, connectors.InputAttachment{
+			Platform:  "mattermost",
+			FileID:    fileID,
+			MessageID: messageID,
+		})
+	}
+	return attachments
 }
 
 func parseHistoryCursor(historyCursor string) (string, string) {

@@ -488,7 +488,8 @@ func visibleContextMaterialReadToolNames(visibleContext VisibleContext) []string
 }
 
 func allVisibleContextMaterials(visibleContext VisibleContext) []VisibleContextMaterial {
-	materials := append([]VisibleContextMaterial{}, visibleContext.Materials...)
+	materials := append([]VisibleContextMaterial{}, visibleContext.CurrentMaterials...)
+	materials = append(materials, visibleContext.Materials...)
 	for _, message := range visibleContext.Messages {
 		materials = append(materials, message.Materials...)
 	}

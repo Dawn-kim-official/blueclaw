@@ -1365,6 +1365,7 @@ func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, a
 
 type VisibleContext struct {
 	Messages         []VisibleContextMessage
+	CurrentMaterials []VisibleContextMaterial
 	Materials        []VisibleContextMaterial
 	HasMoreBefore    bool
 	HistoryCursor    string
@@ -1807,6 +1808,12 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 			}
 		}
 	}
+	currentMaterialLines := []string{}
+	for _, material := range visibleContext.CurrentMaterials {
+		if line := formatVisibleContextMaterial(material); line != "" {
+			currentMaterialLines = append(currentMaterialLines, "- "+line)
+		}
+	}
 	materialLines := []string{}
 	for _, material := range visibleContext.Materials {
 		if line := formatVisibleContextMaterial(material); line != "" {
@@ -1814,7 +1821,7 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 		}
 	}
 
-	if len(contextLines) == 0 && len(materialLines) == 0 && !visibleContext.HasMoreBefore {
+	if len(contextLines) == 0 && len(currentMaterialLines) == 0 && len(materialLines) == 0 && !visibleContext.HasMoreBefore {
 		return ""
 	}
 
@@ -1823,16 +1830,19 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 		historyLine = "There are earlier visible messages not included here. Ask for conversation.history if older context is needed."
 	}
 
-	if len(contextLines) == 0 && len(materialLines) == 0 {
+	if len(contextLines) == 0 && len(currentMaterialLines) == 0 && len(materialLines) == 0 {
 		return "Recent visible conversation context:\n" + historyLine
 	}
 
 	sections := []string{}
+	if len(currentMaterialLines) > 0 {
+		sections = append(sections, "Current attachments:\nUse the listed path directly with file.preview, file.read, or image.read when the user asks about the current attachment.\n"+strings.Join(currentMaterialLines, "\n"))
+	}
 	if len(contextLines) > 0 {
 		sections = append(sections, strings.Join(contextLines, "\n"))
 	}
 	if len(materialLines) > 0 {
-		sections = append(sections, "Available conversation attachments:\nUse materialID with image.read for images and document.read for documents when the user asks about an attachment. Do not search the workspace by filename for these platform attachments.\n"+strings.Join(materialLines, "\n"))
+		sections = append(sections, "Previous attachments:\nUse the listed path directly with file.preview, file.read, or image.read when older conversation context is relevant.\n"+strings.Join(materialLines, "\n"))
 	}
 	sections = append(sections, historyLine)
 	return "Recent visible conversation context:\n" + strings.Join(sections, "\n")
@@ -1841,24 +1851,26 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 func formatVisibleContextMaterial(material VisibleContextMaterial) string {
 	filename := strings.TrimSpace(material.Filename)
 	path := strings.TrimSpace(material.Path)
-	if filename == "" && path == "" {
+	materialID := strings.TrimSpace(material.MaterialID)
+	if materialID == "" && filename == "" && path == "" {
 		return ""
 	}
+	includeDiagnosticMetadata := path == "" || !material.IsAvailable
 	values := []string{}
-	if material.MaterialID != "" {
-		values = append(values, "materialID="+material.MaterialID)
-	}
-	if filename != "" {
-		values = append(values, "filename="+filename)
-	}
-	if material.ContentType != "" {
-		values = append(values, "contentType="+material.ContentType)
-	}
-	if material.SizeBytes > 0 {
-		values = append(values, fmt.Sprintf("sizeBytes=%d", material.SizeBytes))
+	if materialID != "" {
+		values = append(values, "materialID="+materialID)
 	}
 	if path != "" {
 		values = append(values, "path="+path)
+	}
+	if includeDiagnosticMetadata && filename != "" {
+		values = append(values, "filename="+filename)
+	}
+	if shouldIncludeVisibleContextContentType(material, path) {
+		values = append(values, "contentType="+material.ContentType)
+	}
+	if includeDiagnosticMetadata && material.SizeBytes > 0 {
+		values = append(values, fmt.Sprintf("sizeBytes=%d", material.SizeBytes))
 	}
 	if material.MessageID != "" {
 		values = append(values, "sourceMessageID="+material.MessageID)
@@ -1872,7 +1884,28 @@ func formatVisibleContextMaterial(material VisibleContextMaterial) string {
 	if material.Message != "" {
 		values = append(values, "message="+material.Message)
 	}
+	if path != "" {
+		values = append(values, "availableTools="+strings.Join(visibleContextMaterialToolNames(material), ","))
+	}
 	return strings.Join(values, " ")
+}
+
+func shouldIncludeVisibleContextContentType(material VisibleContextMaterial, path string) bool {
+	contentType := strings.TrimSpace(material.ContentType)
+	if contentType == "" {
+		return false
+	}
+	if strings.TrimSpace(path) == "" || !material.IsAvailable {
+		return true
+	}
+	return !strings.Contains(strings.TrimSpace(path), ".")
+}
+
+func visibleContextMaterialToolNames(material VisibleContextMaterial) []string {
+	if visibleContextMaterialLooksLikeImage(material) {
+		return []string{"image.read"}
+	}
+	return []string{"file.preview", "file.read"}
 }
 
 func formatSpeakerLabel(callingName string, handle string, fullName string) string {

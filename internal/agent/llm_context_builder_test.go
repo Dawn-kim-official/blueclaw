@@ -86,6 +86,15 @@ func TestLLMContextBuilderIncludesAttachmentCatalog(t *testing.T) {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
 		VisibleContext: VisibleContext{
+			CurrentMaterials: []VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-0",
+				Filename:    "current.html",
+				ContentType: "text/html",
+				SizeBytes:   691000,
+				Path:        "home/inbox/mattermost/thread-1/post-0/current.html",
+				MessageID:   "post-0",
+				IsAvailable: true,
+			}},
 			Messages: []VisibleContextMessage{{
 				Speaker: "admin",
 				Text:    "이 파일 봐줘",
@@ -95,6 +104,7 @@ func TestLLMContextBuilderIncludesAttachmentCatalog(t *testing.T) {
 					ContentType: "application/pdf",
 					Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/post-1/report.pdf",
 					MessageID:   "post-1",
+					IsAvailable: true,
 				}},
 			}},
 			Materials: []VisibleContextMaterial{{
@@ -103,20 +113,69 @@ func TestLLMContextBuilderIncludesAttachmentCatalog(t *testing.T) {
 				ContentType: "image/png",
 				Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/post-2/screen.png",
 				MessageID:   "post-2",
+				IsAvailable: true,
 			}},
 		},
 	})
 
 	for _, expected := range []string{
+		"Current attachments:",
+		"materialID=mattermost:file-0",
+		"path=home/inbox/mattermost/thread-1/post-0/current.html",
+		"availableTools=file.preview,file.read",
 		"admin attached materialID=mattermost:file-1",
-		"filename=report.pdf",
-		"Available conversation attachments:",
+		"Previous attachments:",
 		"materialID=mattermost:file-2",
-		"filename=screen.png",
 		"path=/workspace/circles/staff/inbox/mattermost/thread-1/post-2/screen.png",
 	} {
 		if !strings.Contains(contextText, expected) {
 			t.Fatalf("expected attachment catalog %q, got %s", expected, contextText)
+		}
+	}
+	for _, unexpected := range []string{
+		"filename=current.html",
+		"contentType=text/html",
+		"sizeBytes=691000",
+		"filename=screen.png",
+		"contentType=image/png",
+	} {
+		if strings.Contains(contextText, unexpected) {
+			t.Fatalf("expected normal attachment catalog to omit %q, got %s", unexpected, contextText)
+		}
+	}
+}
+
+func TestLLMContextBuilderIncludesUnavailableAttachmentMetadata(t *testing.T) {
+	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
+		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
+		VisibleContext: VisibleContext{
+			CurrentMaterials: []VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "archive.bin",
+				ContentType: "application/octet-stream",
+				SizeBytes:   512,
+				MessageID:   "post-1",
+				ErrorCode:   "mattermost_download_failed",
+			}, {
+				MaterialID: "mattermost:file-2",
+				MessageID:  "post-2",
+			}},
+		},
+	})
+
+	for _, expected := range []string{
+		"Current attachments:",
+		"filename=archive.bin",
+		"contentType=application/octet-stream",
+		"sizeBytes=512",
+		"sourceMessageID=post-1",
+		"available=false",
+		"errorCode=mattermost_download_failed",
+		"materialID=mattermost:file-2",
+		"sourceMessageID=post-2",
+	} {
+		if !strings.Contains(contextText, expected) {
+			t.Fatalf("expected unavailable attachment metadata %q, got %s", expected, contextText)
 		}
 	}
 }

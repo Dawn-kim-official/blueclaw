@@ -525,12 +525,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[filePreviewToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "file.preview",
-			Description: "Preview an attached or workspace file for LLM context using cached AgentPart markdownPreview when available, or the existing document.read MarkItDown provider for convertible documents.",
+			Description: "Preview an attached or workspace file path from the conversation attachment catalog using cached AgentPart markdownPreview when available, or the existing document.read MarkItDown provider for convertible documents.",
 			RecoveryCard: agent.ToolRecoveryCard{
 				Does:       "Returns a document preview or file metadata without inventing content.",
 				Produces:   "Path, filename, content type, size, markdown preview, conversion status, and conversion message.",
 				SideEffect: "read",
-				UseWhen:    "You need to understand an attached HTML, PDF, DOCX, PPTX, XLSX, text, or data file before answering or deciding whether to read exact ranges.",
+				UseWhen:    "The attachment catalog lists a path for an HTML, PDF, DOCX, PPTX, XLSX, text, or data file and you need to understand it.",
 				AvoidWhen:  "You need exact source lines for an edit; use file.read after previewing.",
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to preview."}},"required":["path"]}`),
@@ -904,9 +904,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 func defaultCapabilityToolDescription(toolName string) string {
 	switch strings.TrimSpace(toolName) {
 	case "document.read":
-		return "Read a workspace document or Mattermost attachment path as Markdown using the shared document conversion pipeline. Use for PDFs, office documents, and other non-image files listed in the conversation attachment catalog."
+		return "Read a workspace document path as Markdown using the shared document conversion pipeline. Prefer file.preview for paths listed in the conversation attachment catalog."
 	case "image.read":
-		return "Load a workspace image or Mattermost image attachment path into the model as an image input. Use only when visual inspection is needed; do not call for PDFs or text documents."
+		return "Load an image path from the conversation attachment catalog or workspace into the model as an image input. Use only when visual inspection is needed; do not call for PDFs or text documents."
 	default:
 		return "InternKim capability tool"
 	}
