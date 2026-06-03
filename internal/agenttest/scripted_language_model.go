@@ -88,6 +88,9 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 	}
 	response := strings.TrimSpace(languageModel.defaultResponsesBySchema[schemaName])
 	if response == "" {
+		if schemaName == "blueclaw_result_verifier" {
+			return languageModel.structuredResponse(defaultResultVerificationResponse(request)), nil
+		}
 		return llm.StructuredResponse{}, fmt.Errorf("scripted language model has no %s response", schemaName)
 	}
 	return languageModel.structuredResponse(response), nil
@@ -279,6 +282,60 @@ func mergeDefaultResponses(defaultResponses map[string]string) map[string]string
 		mergedResponses[strings.TrimSpace(schemaName)] = response
 	}
 	return mergedResponses
+}
+
+func defaultResultVerificationResponse(request llm.StructuredResponseRequest) string {
+	results := []map[string]any{}
+	for _, expectedResultID := range expectedResultIDsFromRequest(request) {
+		results = append(results, map[string]any{
+			"id":                  expectedResultID,
+			"status":              "satisfied",
+			"reason":              "scripted test default",
+			"citedObservationIDs": []string{},
+			"missingDescription":  "",
+			"suggestedNextTools":  []string{},
+		})
+	}
+	document, errorValue := json.Marshal(map[string]any{
+		"overallStatus": "satisfied",
+		"summary":       "scripted test default",
+		"results":       results,
+	})
+	if errorValue != nil {
+		return `{"overallStatus":"satisfied","summary":"scripted test default","results":[]}`
+	}
+	return string(document)
+}
+
+func expectedResultIDsFromRequest(request llm.StructuredResponseRequest) []string {
+	expectedResultDocument := expectedResultDocumentFromRequest(request)
+	if expectedResultDocument == "" {
+		return nil
+	}
+	var expectedResults []struct {
+		ID string `json:"id"`
+	}
+	if errorValue := json.Unmarshal([]byte(expectedResultDocument), &expectedResults); errorValue != nil {
+		return nil
+	}
+	ids := []string{}
+	for _, expectedResult := range expectedResults {
+		id := strings.TrimSpace(expectedResult.ID)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func expectedResultDocumentFromRequest(request llm.StructuredResponseRequest) string {
+	for _, message := range request.Messages {
+		content := strings.TrimSpace(message.Content)
+		if strings.HasPrefix(content, "Expected results:\n") {
+			return strings.TrimSpace(strings.TrimPrefix(content, "Expected results:\n"))
+		}
+	}
+	return ""
 }
 
 func stringMapValue(document map[string]any, key string) string {
