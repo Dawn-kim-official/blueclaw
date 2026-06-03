@@ -1273,7 +1273,7 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 }
 
 func buildAgentSystemInstruction(request AgentTurnRequest) string {
-	instruction := "You are Blueclaw. Work as a careful task agent. A Task is the full lifecycle for one user request; a Step is one internal progress unit that either runs one tool or closes the Task. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName, toolInput, and nextStepPlan; optional continue.message is a short checkpoint and the tool still runs in the same Step. If Progress ledger already contains checkpointMessages, any new continue.message must read as a continuation or standalone status, not as a fresh reply to the user's original request; avoid repeated greetings, repeated user names, and promises to start later. nextStepPlan must name the next Step objective, expectedTools, expectedNextResults, doneCriteria, risk, and workingSetReason so the runtime can expose the right working set without forcing one hard route. expectedNextResults describes the natural-language intermediate results the next Step is trying to produce; expectedTools are only likely ways to get them. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
+	instruction := "You are Blueclaw. Work as a careful task agent. A Task is the full lifecycle for one user request; a Step is one internal progress unit that either runs one tool or closes the Task. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName, toolInput, and nextStepPlan. Optional continue.message is a user-facing checkpoint and the tool still runs in the same Step. For the first non-quick tool step, usually include a short repeat-back plan that says what you will do and how, such as checking the attached image against the actual visible content. For later tool steps, leave message empty unless there is a meaningful state change, a recovery route change, a user-visible finding, or the work is getting long enough that the user may need reassurance. Do not send empty progress phrases such as checking tools, analyzing, starting now, or please wait. If Progress ledger already contains checkpointMessages, any new continue.message must read as a continuation or standalone status, not as a fresh reply to the user's original request; avoid repeated greetings, repeated user names, and promises to start later. nextStepPlan must name the next Step objective, expectedTools, expectedNextResults, doneCriteria, risk, and workingSetReason so the runtime can expose the right working set without forcing one hard route. expectedNextResults describes the natural-language intermediate results the next Step is trying to produce; expectedTools are only likely ways to get them. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
 	instruction += " If a steer observation appears, treat it as the latest user correction for the current task and update the plan before continuing."
@@ -2946,9 +2946,12 @@ func evidenceMissingGuidance(evidenceKind string, message string) string {
 
 func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
 	if len(requirements) == 0 {
-		return collectReferencedAttachments(observations, references)
+		if errorValue := validateCompletionEvidenceReferences(observations, references); errorValue != nil {
+			return nil, errorValue
+		}
+		return collectReferenceDeliveryAttachments(observations, references), nil
 	}
-	attachments := collectReferenceAttachments(observations, references)
+	attachments := collectReferenceDeliveryAttachments(observations, references)
 	for _, requirement := range requirements {
 		if !requirement.RequiresAttachment {
 			continue
@@ -3012,16 +3015,13 @@ func attachmentMatchesSuffix(attachment FileAttachment, suffix string) bool {
 	return strings.HasSuffix(attachment.Filename, suffix) || strings.HasSuffix(attachment.DevicePath, suffix)
 }
 
-func collectReferencedAttachments(observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
-	attachments := []FileAttachment{}
+func validateCompletionEvidenceReferences(observations []turnObservation, references []completionEvidenceReference) error {
 	for _, reference := range references {
-		observation, isFound := findSuccessfulObservation(observations, reference)
-		if !isFound {
-			return nil, errors.New("completionEvidence references an unknown or failed observation")
+		if _, isFound := findSuccessfulObservation(observations, reference); !isFound {
+			return errors.New("completionEvidence references an unknown or failed observation")
 		}
-		attachments = appendUniqueAttachments(attachments, attachmentsForReference(observation, reference))
 	}
-	return attachments, nil
+	return nil
 }
 
 func completionReferencesForRequirement(requirement toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) []completionEvidenceReference {
@@ -3089,6 +3089,27 @@ func collectReferenceAttachments(observations []turnObservation, references []co
 		attachments = appendUniqueAttachments(attachments, attachmentsForReference(observation, reference))
 	}
 	return attachments
+}
+
+func collectReferenceDeliveryAttachments(observations []turnObservation, references []completionEvidenceReference) []FileAttachment {
+	attachments := []FileAttachment{}
+	for _, reference := range references {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if !isFound || !toolProducesDeliveryAttachments(observation.Tool) {
+			continue
+		}
+		attachments = appendUniqueAttachments(attachments, attachmentsForReference(observation, reference))
+	}
+	return attachments
+}
+
+func toolProducesDeliveryAttachments(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "file.attach", "browser.screenshot":
+		return true
+	default:
+		return false
+	}
 }
 
 func attachmentsForReference(observation turnObservation, reference completionEvidenceReference) []FileAttachment {
