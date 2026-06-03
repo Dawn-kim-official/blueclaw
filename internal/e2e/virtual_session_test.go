@@ -155,6 +155,9 @@ func TestAttachmentMaterialRead(t *testing.T) {
 	if turnResult.UserModelImagePartCount == 0 {
 		t.Fatalf("expected image.read result to reach the model as a user image part; context: %s", turnResult.ModelContext)
 	}
+	if len(turnResult.Attachments) != 0 {
+		t.Fatalf("expected image.read result not to be reattached, got %+v", turnResult.Attachments)
+	}
 }
 
 func TestAttachmentCurrentImageInput(t *testing.T) {
@@ -174,6 +177,9 @@ func TestAttachmentCurrentImageInput(t *testing.T) {
 	}
 	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
 		t.Fatalf("expected current image input not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if len(turnResult.Attachments) != 0 {
+		t.Fatalf("expected current image input not to be reattached, got %+v", turnResult.Attachments)
 	}
 }
 

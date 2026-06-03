@@ -651,6 +651,31 @@ func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T)
 	}
 }
 
+func TestValidateCompletionEvidenceDoesNotDeliverImageReadAttachment(t *testing.T) {
+	attachmentIndex := 0
+	attachments, errorValue := validateCompletionEvidence(nil, []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "image.read",
+		Attachments: []FileAttachment{{
+			DevicePath:    "/workspace/inbox/mascot.png",
+			Filename:      "mascot.png",
+			ContentType:   "image/png",
+			ContentBase64: "aW1hZ2U=",
+		}},
+	}}, []completionEvidenceReference{{
+		ObservationID:   "obs-001",
+		ToolName:        "image.read",
+		AttachmentIndex: &attachmentIndex,
+	}})
+	if errorValue != nil {
+		t.Fatalf("expected image.read evidence to validate: %v", errorValue)
+	}
+	if len(attachments) != 0 {
+		t.Fatalf("expected image.read evidence to produce no delivery attachments, got %+v", attachments)
+	}
+}
+
 func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"select_tools","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,

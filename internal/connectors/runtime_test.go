@@ -1743,8 +1743,8 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	if adapter.sentReplies[0].message != "브라우저를 확인했습니다" {
 		t.Fatalf("expected final reply, got %q", adapter.sentReplies[0].message)
 	}
-	if len(adapter.sentReplies[0].attachments) != 1 || adapter.sentReplies[0].attachments[0].DevicePath != "/tmp/internkim-companion-files/screen.png" {
-		t.Fatalf("expected final reply attachment, got %+v", adapter.sentReplies[0].attachments)
+	if len(adapter.sentReplies[0].attachments) != 0 {
+		t.Fatalf("expected observation attachment not to be delivered, got %+v", adapter.sentReplies[0].attachments)
 	}
 }
 
