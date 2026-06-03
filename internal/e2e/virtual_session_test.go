@@ -152,6 +152,9 @@ func TestAttachmentMaterialRead(t *testing.T) {
 	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
 		t.Fatalf("expected attachment read not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
 	}
+	if turnResult.UserModelImagePartCount == 0 {
+		t.Fatalf("expected image.read result to reach the model as a user image part; context: %s", turnResult.ModelContext)
+	}
 }
 
 func TestAttachmentCurrentImageInput(t *testing.T) {
@@ -162,6 +165,9 @@ func TestAttachmentCurrentImageInput(t *testing.T) {
 	turnResult := result.TurnResults[0]
 	if turnResult.ModelImagePartCount == 0 {
 		t.Fatalf("expected current image attachment to reach model input; context: %s", turnResult.ModelContext)
+	}
+	if turnResult.UserModelImagePartCount == 0 {
+		t.Fatalf("expected current image attachment to reach the model as a user image part; context: %s", turnResult.ModelContext)
 	}
 	if eventsContain(turnResult.Events, "tool.image.read.requested", "image.read") {
 		t.Fatalf("expected current image input not to require image.read; events: %s", summarizeEvents(turnResult.Events))

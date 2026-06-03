@@ -18,6 +18,9 @@ type Service struct {
 }
 
 func NewService(configuration Configuration, commandRunner CommandRunner, repositoryRootPath string) Service {
+	if strings.TrimSpace(configuration.VirtualMachine.SharedWorkspacePath) == "" {
+		configuration.VirtualMachine.SharedWorkspacePath = repositoryRootPath
+	}
 	return Service{
 		configuration:      configuration,
 		commandRunner:      commandRunner,

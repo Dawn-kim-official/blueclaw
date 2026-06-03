@@ -74,6 +74,23 @@ func TestVirtualMachineUpUsesNestedRunWithSharedDirectory(t *testing.T) {
 	}
 }
 
+func TestVirtualMachineUpDefaultsSharedDirectoryToRepositoryRoot(t *testing.T) {
+	commandRunner := &fakeCommandRunner{outputValue: "10.0.0.5\n"}
+	configuration := buildTestConfiguration()
+	configuration.VirtualMachine.SharedWorkspacePath = ""
+	service := NewService(configuration, commandRunner, "/repo")
+
+	errorValue := service.VirtualMachineUp(context.Background())
+	if errorValue != nil {
+		t.Fatalf("expected vm up to succeed: %v", errorValue)
+	}
+
+	commandArguments := strings.Join(commandRunner.startCommands[0].Arguments, " ")
+	if !strings.Contains(commandArguments, "--dir=workspace:/repo") {
+		t.Fatalf("expected repository root shared mount, got %q", commandArguments)
+	}
+}
+
 func TestSmokeFirecrackerUsesRemoteScriptExecution(t *testing.T) {
 	commandRunner := &fakeCommandRunner{outputValue: "10.0.0.5\n"}
 	service := NewService(buildTestConfiguration(), commandRunner, "/repo")

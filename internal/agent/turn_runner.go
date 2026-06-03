@@ -338,7 +338,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage)
-	request, _ = applyManualCapabilityRequirement(request, manualCapabilityRequirement{
+	request, _ = applyToolSelectionRequest(request, selectToolsRequest{
 		ToolNames:  request.PinnedToolNames,
 		SkillNames: request.PinnedSkillNames,
 	})
@@ -411,7 +411,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			"nextStepPlan": state.NextStepPlan,
 			"exposure":     iterationRequest.ToolExposure,
 		}))
-		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_exposure", marshalEventBody(map[string]any{
+		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_palette.built", marshalEventBody(map[string]any{
 			"step":     iteration,
 			"exposure": iterationRequest.ToolExposure,
 		}))
@@ -437,23 +437,27 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
-		case "require_capabilities":
-			requirement := manualCapabilityRequirement{
+		case "select_tools":
+			selectionRequest := selectToolsRequest{
 				ToolNames:  append([]string{}, actionDocument.ToolNames...),
 				SkillNames: append([]string{}, actionDocument.SkillNames...),
 				Reason:     actionDocument.Reason,
 			}
-			nextRequest, requirementResult := applyManualCapabilityRequirement(request, requirement)
+			nextRequest, selectionResult := applyToolSelectionRequest(request, selectionRequest)
 			request = nextRequest
 			state.Request = nextRequest
-			observation := manualCapabilityObservation(len(state.Observations)+1, requirement, requirementResult)
+			observation := toolSelectionObservation(len(state.Observations)+1, selectionRequest, selectionResult)
 			state.Observations = append(state.Observations, observation)
-			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.capabilities_required", marshalEventBody(map[string]any{
-				"requirement": requirement,
-				"result":      requirementResult,
-				"source":      "manual_require",
+			eventName := "agent.tool_palette.applied"
+			if toolSelectionResultFailed(selectionResult) {
+				eventName = "agent.tool_palette.failed"
+			}
+			agentTurnRunner.appendEvent(taskRun.TaskRunID, eventName, marshalEventBody(map[string]any{
+				"request": selectionRequest,
+				"result":  selectionResult,
+				"source":  "model_action",
 			}))
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "require_capabilities", observation.ContentText())
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "select_tools", observation.ContentText())
 			continue
 		case "set_quality_criteria":
 			state.QualityCriteria = normalizeQualityCriteria(actionDocument.QualityCriteria)
@@ -554,9 +558,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 }
 
 func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context, taskRunID string, stepID string, iteration int, request AgentTurnRequest, requirements []toolUseRequirement, state *agentTaskState, actionDocument turnActionDocument, successfulToolCalls map[string]turnObservation, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
-	if outcome := agentTurnRunner.rejectUnavailableToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
-		return outcome
-	}
 	if outcome := agentTurnRunner.rejectMalformedToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
@@ -565,6 +566,9 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	}
 	recoveryStep, outcome := agentTurnRunner.prepareRecoveryAttempt(taskRunID, stepID, state, actionDocument, stopForNoProgress)
 	if outcome.WasHandled {
+		return outcome
+	}
+	if outcome := agentTurnRunner.rejectUnavailableToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
 	state.ToolCallCount++
@@ -1063,7 +1067,7 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request 
 	return actionDocument, nil
 }
 
-func (agentTurnRunner *AgentTurnRunner) requestForStep(ctx context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
+func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
 	plannedRequest := requestWithStepWorkingSetTools(request, state.NextStepPlan, state.Observations)
 	selectionRequest := buildToolSelectionRequest(
 		plannedRequest.ToolSet,
@@ -1075,13 +1079,11 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(ctx context.Context, requ
 		state.Observations,
 	)
 	selectionDecision, exposureEvent := ToolSelectionDecision{}, ToolExposureEvent{}
-	if toolSelectionFallbackFitsCap(selectionRequest) {
-		exposureEvent.SelectionSource = "deterministic_fallback"
-	} else if deterministicDecision, deterministicEvent, isDeterministic := deterministicToolSelectionDecision(selectionRequest); isDeterministic {
+	if deterministicDecision, deterministicEvent, isDeterministic := deterministicToolSelectionDecision(selectionRequest); isDeterministic {
 		selectionDecision = deterministicDecision
 		exposureEvent = deterministicEvent
-	} else if shouldSelectOptionalToolsWithModel(selectionRequest) {
-		selectionDecision, exposureEvent = NewToolSelectionRouter(agentTurnRunner.languageModel).Select(ctx, selectionRequest)
+	} else {
+		exposureEvent.SelectionSource = "deterministic_palette"
 	}
 	filteredToolSet, exposureEvent := toolSetForAgentTurnWithExposure(
 		plannedRequest.ToolSet,
@@ -1276,7 +1278,7 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
 	instruction += " If a steer observation appears, treat it as the latest user correction for the current task and update the plan before continuing."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
-	instruction += " If you know a needed tool or skill by name but it is missing from the current action schema, use require_capabilities with exact toolNames or skillNames; use tool.describe to inspect available tool schemas and skill.search to find skill names. Never run a Blueclaw tool name as a shell command in terminal.run."
+	instruction += " If you know a needed hidden tool or skill by name but it is missing from the current action schema, use select_tools with exact toolNames or skillNames; use tool.describe to inspect available tool schemas and skill.search to find skill names. Never run a Blueclaw tool name as a shell command in terminal.run."
 	instruction += " Ask the user only when their confirmation, choice, or free-form input is required. Use ask.confirm before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Do not ask for confirmation before ordinary non-destructive writes."
 	instruction += " When calling ask.confirm, set userFacingMessage to the exact confirmation question shown to the user, written in the same language as the original user request. reasonCode and reasonDetail are internal only and must not contain user-facing prose. When calling ask.choice, include a recommendedOptionKey except for ask.confirm, and provide explicit options."
 	instruction += " If a tool call fails, it creates FailureDebt. Do not finish until a later different recovery succeeds, or you can answer from current context without tools and set failureResolution=no_tool_fallback, or recovery budget is exhausted and you use fail. Never repeat the same failed tool input fingerprint; recovery must change the input, route/provider, tool, or fall back without tools."
@@ -1446,7 +1448,7 @@ type terminalToolNameError struct {
 }
 
 func (errorValue terminalToolNameError) Error() string {
-	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use require_capabilities if the tool is hidden, then call " + errorValue.toolName + " directly with its tool schema."
+	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use select_tools if the tool is hidden, then call " + errorValue.toolName + " directly with its tool schema."
 }
 
 func isTerminalToolNameError(errorValue error) bool {

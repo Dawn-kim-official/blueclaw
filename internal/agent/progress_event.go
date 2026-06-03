@@ -14,8 +14,8 @@ func progressEvents(observations []turnObservation) []progressEvent {
 		if observation.Action == "set_quality_criteria" {
 			events = append(events, progressEvent{Kind: "quality_criteria", Key: observation.ObservationID})
 		}
-		if observation.Action == "require_capabilities" && !observation.Failed() {
-			events = append(events, progressEvent{Kind: "capability_required", Key: observation.ObservationID + ":" + observation.ContentText()})
+		if observation.Action == "select_tools" && !observation.Failed() {
+			events = append(events, progressEvent{Kind: "tool_palette_selected", Key: observation.ObservationID + ":" + observation.ContentText()})
 		}
 		if observation.Action == "continue" && !observation.Failed() {
 			events = append(events, progressEvent{Kind: "tool_success", Key: observation.ObservationID + ":" + observation.Tool})

@@ -246,6 +246,9 @@ func TestPromptAssemblerDoesNotExposeAttachmentDevicePath(t *testing.T) {
 	if len(messages) == 0 || !messagesContainImagePart(messages) {
 		t.Fatalf("expected image part to be attached to LLM messages, got %+v", messages)
 	}
+	if !messagesContainUserImagePart(messages) {
+		t.Fatalf("expected tool result image part to be sent as a user message, got %+v", messages)
+	}
 }
 
 func TestPromptAssemblerCompressesLongObservationHistory(t *testing.T) {
@@ -296,6 +299,20 @@ func joinMessageContent(messages []llm.Message) string {
 
 func messagesContainImagePart(messages []llm.Message) bool {
 	for _, message := range messages {
+		for _, part := range message.Parts {
+			if part.Type == "image" && part.MimeType == "image/png" && part.DataBase64 == "aW1hZ2U=" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func messagesContainUserImagePart(messages []llm.Message) bool {
+	for _, message := range messages {
+		if message.Role != "user" {
+			continue
+		}
 		for _, part := range message.Parts {
 			if part.Type == "image" && part.MimeType == "image/png" && part.DataBase64 == "aW1hZ2U=" {
 				return true

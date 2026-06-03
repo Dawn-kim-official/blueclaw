@@ -77,8 +77,11 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if strings.Contains(request.StructuredOutputSchema.Document, `"finishMessage"`) {
 		t.Fatalf("expected model-facing schema to omit legacy finishMessage, got %s", request.StructuredOutputSchema.Document)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["require_capabilities"]`) {
-		t.Fatalf("expected require_capabilities escape hatch in schema, got %s", request.StructuredOutputSchema.Document)
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["select_tools"]`) {
+		t.Fatalf("expected select_tools action in schema, got %s", request.StructuredOutputSchema.Document)
+	}
+	if strings.Contains(request.StructuredOutputSchema.Document, "require_capabilities") {
+		t.Fatalf("expected model-facing schema to omit require_capabilities, got %s", request.StructuredOutputSchema.Document)
 	}
 	if !messagesContain(request.Messages, "Recent visible conversation context") {
 		t.Fatalf("expected visible context in model messages, got %+v", request.Messages)

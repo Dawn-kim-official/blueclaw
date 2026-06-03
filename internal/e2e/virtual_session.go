@@ -85,12 +85,13 @@ type VirtualSessionResult struct {
 }
 
 type VirtualTurnResult struct {
-	TaskRunID           string
-	FinishMessage       string
-	Attachments         []agent.FileAttachment
-	Events              []task.TaskEvent
-	ModelContext        string
-	ModelImagePartCount int
+	TaskRunID               string
+	FinishMessage           string
+	Attachments             []agent.FileAttachment
+	Events                  []task.TaskEvent
+	ModelContext            string
+	ModelImagePartCount     int
+	UserModelImagePartCount int
 }
 
 type VirtualSessionHarness struct {
@@ -443,12 +444,13 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		return VirtualTurnResult{}, fmt.Errorf("virtual turn did not dispatch a reply; events: %s", summarizeEvents(events))
 	}
 	return VirtualTurnResult{
-		TaskRunID:           runtimeResult.TaskRunID,
-		FinishMessage:       outboundReply.Message,
-		Attachments:         outboundReply.Attachments,
-		Events:              harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
-		ModelContext:        harness.modelContextSince(modelRequestStartIndex),
-		ModelImagePartCount: harness.modelImagePartCountSince(modelRequestStartIndex),
+		TaskRunID:               runtimeResult.TaskRunID,
+		FinishMessage:           outboundReply.Message,
+		Attachments:             outboundReply.Attachments,
+		Events:                  harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
+		ModelContext:            harness.modelContextSince(modelRequestStartIndex),
+		ModelImagePartCount:     harness.modelImagePartCountSince(modelRequestStartIndex),
+		UserModelImagePartCount: harness.userModelImagePartCountSince(modelRequestStartIndex),
 	}, nil
 }
 
@@ -470,6 +472,14 @@ func (harness *VirtualSessionHarness) modelContextSince(startIndex int) string {
 }
 
 func (harness *VirtualSessionHarness) modelImagePartCountSince(startIndex int) int {
+	return harness.modelImagePartCountByRoleSince(startIndex, "")
+}
+
+func (harness *VirtualSessionHarness) userModelImagePartCountSince(startIndex int) int {
+	return harness.modelImagePartCountByRoleSince(startIndex, "user")
+}
+
+func (harness *VirtualSessionHarness) modelImagePartCountByRoleSince(startIndex int, role string) int {
 	if harness.scriptedModel == nil {
 		return 0
 	}
@@ -479,6 +489,9 @@ func (harness *VirtualSessionHarness) modelImagePartCountSince(startIndex int) i
 			continue
 		}
 		for _, message := range request.Messages {
+			if role != "" && message.Role != role {
+				continue
+			}
 			for _, part := range message.Parts {
 				if part.Type == "image" {
 					count++

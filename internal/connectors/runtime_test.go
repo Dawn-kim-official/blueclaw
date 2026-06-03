@@ -1287,7 +1287,7 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing
 
 func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"require_capabilities","toolNames":["schedule.create"],"skillNames":["scheduled-task"],"executionStateUpdate":{}}`,
+		`{"action":"select_tools","toolNames":["schedule.create"],"skillNames":["scheduled-task"],"executionStateUpdate":{}}`,
 		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","prompt":"매일 업계 뉴스를 조사해서 핵심만 보고해줘.","executionMode":"agent","kind":"cron","cronExpression":"0 7 * * *","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
 		connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
 	)
@@ -1708,7 +1708,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 
 func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"require_capabilities","toolNames":["browser.snapshot"],"skillNames":["browser-snapshot"],"executionStateUpdate":{"goal":"open browser and observe","workspace":"","knownFacts":[],"triedAndFailed":[],"currentBlocker":"","nextPlan":"observe the current browser"}}`,
+		`{"action":"select_tools","toolNames":["browser.snapshot"],"skillNames":["browser-snapshot"],"executionStateUpdate":{"goal":"open browser and observe","workspace":"","knownFacts":[],"triedAndFailed":[],"currentBlocker":"","nextPlan":"observe the current browser"}}`,
 		`{"action":"continue","toolName":"browser.snapshot","toolInput":{},"nextStepPlan":{"objective":"observe the current browser","expectedTools":[],"expectedNextResults":["browser snapshot is available"],"doneCriteria":["snapshot result is available"],"risk":"browser may be unavailable","workingSetReason":"browser.snapshot was explicitly required"}}`,
 		connectorFinishMessageWithEvidence("브라우저를 확인했습니다", "obs-002", "browser.snapshot", 0),
 	)

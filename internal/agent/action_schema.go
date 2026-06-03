@@ -32,7 +32,7 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	if allowQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
 	}
-	variants = append(variants, requireCapabilitiesActionSchema())
+	variants = append(variants, selectToolsActionSchema())
 	for _, toolDefinition := range toolDefinitions {
 		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
 			continue
@@ -47,11 +47,11 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	return string(document)
 }
 
-func requireCapabilitiesActionSchema() map[string]any {
+func selectToolsActionSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":               enumStringSchema("require_capabilities"),
+			"action":               enumStringSchema("select_tools"),
 			"toolNames":            stringArraySchema(0),
 			"skillNames":           stringArraySchema(0),
 			"reason":               stringSchema(),

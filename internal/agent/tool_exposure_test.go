@@ -139,7 +139,7 @@ func TestToolExposureCapTruncatesByGroupOrder(t *testing.T) {
 	}
 }
 
-func TestToolSelectionModelChoosesSiteWorkingSetFromCards(t *testing.T) {
+func TestDeterministicPaletteTruncatesSelectedSkillToolsByOrder(t *testing.T) {
 	siteToolIDs := []string{
 		"site.app.status",
 		"site.app.create",
@@ -165,36 +165,24 @@ func TestToolSelectionModelChoosesSiteWorkingSetFromCards(t *testing.T) {
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
-	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 만들고 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{})
-	if toolSelectionFallbackFitsCap(selectionRequest) {
-		t.Fatal("expected oversized site candidates to require model selection")
-	}
-	languageModel := &sequenceLanguageModel{toolSelections: []string{
-		`{"selectedToolIDs":["site.app.status","site.app.create","file.write","site.app.build","artifact.review","site.app.publish"],"reason":"create, build, review, and publish satisfy the link result"}`,
-	}}
-	selection, event := NewToolSelectionRouter(languageModel).Select(context.Background(), selectionRequest)
-	if len(languageModel.selectionRequests) != 1 {
-		t.Fatalf("expected one tool selection request, got %d", len(languageModel.selectionRequests))
-	}
-
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 만들고 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 만들고 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	if len(event.ExposedToolIDs) > maxSchemaCallableToolCount {
 		t.Fatalf("expected exposed tools to stay within cap, got %+v", event.ExposedToolIDs)
 	}
-	for _, toolID := range []string{"site.app.status", "site.app.create", "file.write", "site.app.build", "artifact.review", "site.app.publish"} {
+	for _, toolID := range []string{"site.app.status", "site.app.create", "file.read", "file.write", "terminal.run", "site.app.build", "browser.open", "browser.snapshot"} {
 		if !filteredToolSet.IsAllowed(toolID) {
-			t.Fatalf("expected model-selected site tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
+			t.Fatalf("expected deterministic skill tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
 		}
 	}
-	for _, toolID := range []string{"browser.open", "browser.snapshot", "browser.screenshot", "site.app.repair"} {
+	for _, toolID := range []string{"browser.screenshot", "artifact.review", "site.app.publish", "site.app.repair"} {
 		if filteredToolSet.IsAllowed(toolID) {
-			t.Fatalf("expected unselected site tool %s to stay out of the working set, got %+v", toolID, event.ExposedToolIDs)
+			t.Fatalf("expected lower-priority site tool %s to stay out of the capped palette, got %+v", toolID, event.ExposedToolIDs)
 		}
 	}
 }
 
-func TestToolSelectionModelChoosesFileWorkingSetFromCards(t *testing.T) {
+func TestDeterministicPaletteKeepsSelectedFileWorkflowAheadOfOtherSkills(t *testing.T) {
 	toolIDs := []string{
 		"terminal.run",
 		"file.write",
@@ -222,21 +210,15 @@ func TestToolSelectionModelChoosesFileWorkingSetFromCards(t *testing.T) {
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		RequiredEvidenceTools:      []string{"file.attach"},
 	}
-	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, AgentRequest{Prompt: "PPTX 발표자료 만들어 첨부해줘"}, ExecutionPlan{}, false, contract)
-	languageModel := &sequenceLanguageModel{toolSelections: []string{
-		`{"selectedToolIDs":["terminal.run","file.write","file.promote","file.attach","artifact.review"],"reason":"create, inspect, promote, and attach the requested PPTX file"}`,
-	}}
-	selection, event := NewToolSelectionRouter(languageModel).Select(context.Background(), selectionRequest)
-
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "PPTX 발표자료 만들어 첨부해줘"}, ExecutionPlan{}, false, contract, selection, event)
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "PPTX 발표자료 만들어 첨부해줘"}, ExecutionPlan{}, false, contract, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	for _, toolID := range []string{"terminal.run", "file.write", "file.promote", "file.attach", "artifact.review"} {
 		if !filteredToolSet.IsAllowed(toolID) {
-			t.Fatalf("expected model-selected file tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
+			t.Fatalf("expected selected file workflow tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
 		}
 	}
-	if filteredToolSet.IsAllowed("site.app.create") || filteredToolSet.IsAllowed("site.app.publish") {
-		t.Fatalf("expected unselected site tools to stay out of PPTX working set, got %+v", event.ExposedToolIDs)
+	if filteredToolSet.IsAllowed("site.app.publish") {
+		t.Fatalf("expected lower-priority site publish tool to stay out of PPTX palette, got %+v", event.ExposedToolIDs)
 	}
 }
 
@@ -255,6 +237,7 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 	contract := OutcomeContract{
 		ArtifactRequirement:        ArtifactRequirementRequired,
 		RequiredAttachmentSuffixes: []string{".pptx"},
+		SelectedEvidenceHints:      []string{"file.promote", "file.attach"},
 		ExpectedResults: []ExpectedResult{{
 			ID:          "attached-file",
 			Type:        ExpectedResultTypeFile,
@@ -264,17 +247,24 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 	}
 	observation := turnObservation{
 		ObservationID: "obs-001",
-		Action:        "recovery_guidance",
+		Action:        "continue",
 		Tool:          "artifact.review",
+		Failure: &ToolFailure{
+			Kind:            FailureInvalidInput,
+			Code:            FailureCodes.InvalidInput.String(),
+			Stage:           "artifact_review",
+			UserSafeSummary: "artifact still needs delivery",
+		},
+		ToolInputKey: "artifact.review\x00{\"path\":\"tmp/deck\"}",
 		RecoveryPacket: &RecoveryPacket{
 			AllowedTools: []string{"site.app.status", "site.app.repair", "terminal.run", "artifact.review"},
 		},
 	}
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, AgentRequest{Prompt: "PPTX 파일 첨부해줘"}, ExecutionPlan{}, false, contract, []turnObservation{observation})
-	languageModel := &sequenceLanguageModel{toolSelections: []string{
-		`{"selectedToolIDs":["terminal.run","artifact.review","file.promote","file.attach"],"reason":"recover by creating, reviewing, promoting, and attaching the requested file"}`,
-	}}
-	selection, event := NewToolSelectionRouter(languageModel).Select(context.Background(), selectionRequest)
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic {
+		t.Fatal("expected recovery and outcome tools to select deterministically")
+	}
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "PPTX 파일 첨부해줘"}, ExecutionPlan{}, false, contract, selection, event)
 
@@ -497,7 +487,7 @@ func TestFallbackKeepsSelectedSkillToolsBeforeCoreTools(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
 	}
 
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{SelectionFailed: true})
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	for _, toolName := range slideToolNames {
 		if !filteredToolSet.IsAllowed(toolName) {
@@ -561,21 +551,5 @@ func TestFileToolCardsSeparateWriteEditAndPatchRoles(t *testing.T) {
 		if !strings.Contains(cards, expectedText) {
 			t.Fatalf("expected file tool card text %q in %s", expectedText, cards)
 		}
-	}
-}
-
-func TestToolSelectionRouterReturnsEmptyOnModelFailure(t *testing.T) {
-	router := NewToolSelectionRouter(failingRecoveryLanguageModel{})
-	decision, event := router.Select(context.Background(), toolSelectionRequest{
-		Prompt:          "사이트 고쳐줘",
-		ToolSet:         testToolSet([]string{"site.app.status"}),
-		CandidateGroups: []toolExposureGroup{{Name: "G5 selected-skill candidates", ToolIDs: []string{"site.app.status"}}},
-	})
-
-	if len(decision.SelectedToolIDs) != 0 {
-		t.Fatalf("expected failed selection to return empty decision, got %+v", decision)
-	}
-	if !event.SelectionFailed {
-		t.Fatalf("expected failed selection event, got %+v", event)
 	}
 }
