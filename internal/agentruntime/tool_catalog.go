@@ -2431,6 +2431,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		if result, isCached := cachedFileReadResult(handlerContext.request.InputParts, path, input); isCached {
 			return result, nil
 		}
+		if result, fallbackError, isFound := toolCatalogBuilder.fileReadFallbackFromAttachmentMaterial(toolContext, resolvedPath.VirtualPath, input, handlerContext); isFound {
+			return result, fallbackError
+		}
 		return actorToolFailure("stat", "file_read", resolvedPath.VirtualPath, errorValue), nil
 	}
 	if !fileInformation.IsRegular {
@@ -2502,6 +2505,36 @@ func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolI
 		"source":            "attachmentPreview",
 		"isExactFileRead":   false,
 	}))
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMaterial(toolContext context.Context, path string, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error, bool) {
+	material, isFound := visibleAttachmentMaterialForPath(handlerContext.request.VisibleContext, path)
+	if !isFound {
+		return agent.ToolResult{}, nil, false
+	}
+	materialID := strings.TrimSpace(material.MaterialID)
+	if materialID == "" {
+		return agent.ToolResult{}, nil, false
+	}
+	resolvedMaterial, errorValue := resolveReadableAttachmentMaterial(toolContext, handlerContext.request, materialID)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", errorValue.Error()), nil, true
+	}
+	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "attachment material is an image; use image.read"), nil, true
+	}
+	if preview, hasPreview := filePreviewResultFromVisibleMaterial(resolvedMaterial); hasPreview {
+		return cachedFileReadResultFromPreview(preview, input), nil, true
+	}
+	fallbackPath := strings.TrimSpace(resolvedMaterial.Path)
+	if fallbackPath == "" || fallbackPath == strings.TrimSpace(path) {
+		return agent.ToolResult{}, nil, false
+	}
+	fallbackInput := input
+	fallbackInput.Path = fallbackPath
+	fallbackInput.MaterialID = ""
+	result, readError := toolCatalogBuilder.readFileTool(toolContext, fallbackInput, handlerContext)
+	return result, readError, true
 }
 
 func stringMapValue(document map[string]any, key string) string {
