@@ -1141,6 +1141,7 @@ func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan,
 	expectedTools := filterCompletedInspectionPlanTools(normalizedPlan.ExpectedTools, observations)
 	expectedTools = filterLatestSuccessfulTerminalTool(expectedTools, observations)
 	expectedTools = filterExhaustedRecoveryToolNames(expectedTools, observations)
+	expectedTools = filterStepPlanToolsForRequest(expectedTools, request)
 	request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
@@ -1148,6 +1149,25 @@ func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan,
 		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, "calendar.event.add", "calendar.event.delete")
 	}
 	return request
+}
+
+func filterStepPlanToolsForRequest(toolNames []string, request AgentTurnRequest) []string {
+	filteredToolNames := []string{}
+	agentRequest := AgentRequest{
+		Prompt:     request.Prompt,
+		ActiveGoal: request.ActiveGoal,
+	}
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" {
+			continue
+		}
+		if isSendEvidenceTool(trimmedToolName) && !requestLooksLikeExternalSendContinuation(agentRequest, request.OutcomeContract) {
+			continue
+		}
+		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
+	}
+	return filteredToolNames
 }
 
 func filterCompletedInspectionPlanTools(toolNames []string, observations []turnObservation) []string {

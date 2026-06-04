@@ -209,6 +209,37 @@ func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T)
 	}
 }
 
+func TestOutcomeContractDoesNotPromoteDirectMessageHintForAttachmentFollowUp(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "direct-message",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"platform.dm.send"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	}
+	request := AgentRequest{
+		Prompt: "다시 시도해보자",
+		VisibleContext: VisibleContext{
+			Materials: []VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-1",
+				Path:        "home/inbox/mattermost/direct/post/kim-intern-automation.html",
+				ContentType: "text/html",
+			}},
+		},
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			SelectedEvidenceHints: []string{"platform.dm.send"},
+		}},
+	}
+
+	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
+
+	if stringSliceContains(contract.RequiredEvidenceTools, "platform.dm.send") {
+		t.Fatalf("expected attachment follow-up not to require DM send evidence, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
 func TestOutcomeContractIgnoresMailKeywordForArtifactAttachmentGoal(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -426,6 +457,7 @@ func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing
 			SelectedEvidenceHints: []string{"platform.dm.send"},
 		}},
 	}
+	request.ActiveGoal.OriginalInstruction = "샘플에게 테스트라고 DM 보내줘"
 
 	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
 
@@ -445,6 +477,40 @@ func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *tes
 	}
 	request := AgentRequest{
 		Prompt: "다시 해줘",
+		ActiveGoal: ActiveGoal{
+			OriginalInstruction: "샘플에게 테스트라고 DM 보내줘",
+			OutcomeContract: OutcomeContract{
+				SelectedEvidenceHints: []string{"platform.dm.send"},
+			},
+		},
+	}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.dm.send"}}
+
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
+
+	if !filteredToolSet.IsAllowed("platform.dm.send") {
+		t.Fatalf("expected active send tool to remain available for continuation, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestSelectedSkillToolSetHidesSendToolForAttachmentFollowUp(t *testing.T) {
+	toolSet := testToolSet([]string{"ask.confirm", "platform.dm.send", "file.preview", "file.read"})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:         "direct-message",
+			AllowedTools: []string{"ask.confirm", "platform.dm.send"},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+	}
+	request := AgentRequest{
+		Prompt: "다시 시도해보자",
+		VisibleContext: VisibleContext{
+			Materials: []VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-1",
+				Path:        "home/inbox/mattermost/direct/post/kim-intern-automation.html",
+				ContentType: "text/html",
+			}},
+		},
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"platform.dm.send"},
 		}},
@@ -453,8 +519,11 @@ func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *tes
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	if !filteredToolSet.IsAllowed("platform.dm.send") {
-		t.Fatalf("expected active send tool to remain available for continuation, got %+v", filteredToolSet.ListToolNames())
+	if filteredToolSet.IsAllowed("platform.dm.send") {
+		t.Fatalf("expected send tool to stay hidden for attachment follow-up, got %+v", filteredToolSet.ListToolNames())
+	}
+	if !filteredToolSet.IsAllowed("file.preview") {
+		t.Fatalf("expected attachment preview to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 

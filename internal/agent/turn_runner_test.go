@@ -2827,6 +2827,33 @@ func TestCompletedInspectionToolDoesNotPinSameNextStepTool(t *testing.T) {
 	}
 }
 
+func TestStepPlanDoesNotPinSendToolForAttachmentFollowUp(t *testing.T) {
+	request := AgentTurnRequest{
+		Prompt: "다시 시도해보자",
+		VisibleContext: VisibleContext{
+			Materials: []VisibleContextMaterial{{
+				MaterialID: "mattermost:file-1",
+				Path:       "home/inbox/mattermost/direct/post/kim-intern-automation.html",
+			}},
+		},
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			SelectedEvidenceHints: []string{"platform.dm.send"},
+		}},
+		OutcomeContract: OutcomeContract{SelectedEvidenceHints: []string{"platform.dm.send"}},
+	}
+
+	updatedRequest := requestWithStepWorkingSetTools(request, NextStepPlan{
+		ExpectedTools: []string{"platform.dm.send", "file.preview"},
+	}, nil)
+
+	if stringSliceContains(updatedRequest.PinnedToolNames, "platform.dm.send") {
+		t.Fatalf("did not expect send tool pinned for attachment follow-up, got %+v", updatedRequest.PinnedToolNames)
+	}
+	if !stringSliceContains(updatedRequest.PinnedToolNames, "file.preview") {
+		t.Fatalf("expected file.preview to remain pinned, got %+v", updatedRequest.PinnedToolNames)
+	}
+}
+
 func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,

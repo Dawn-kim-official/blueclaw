@@ -609,7 +609,7 @@ func selectedSkillToolShouldExpose(toolName string, selectedSkillToolNames map[s
 		return false
 	}
 	if isSendEvidenceTool(trimmedToolName) {
-		if activeGoalMentionsTool(request.ActiveGoal, trimmedToolName) {
+		if activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) {
 			return true
 		}
 		return outcomeAllowsExternalSendTools(request, executionPlan, hasExecutionPlan, outcomeContract)
@@ -618,7 +618,10 @@ func selectedSkillToolShouldExpose(toolName string, selectedSkillToolNames map[s
 }
 
 func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
-	return contractRequiresSendTool(outcomeContract) || (hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) || promptLooksLikeExternalSend(request.Prompt)
+	return contractRequiresSendTool(outcomeContract) ||
+		(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) ||
+		promptLooksLikeExternalSend(request.Prompt) ||
+		activeGoalLooksLikeExternalSend(request.ActiveGoal)
 }
 
 func toolNamesForAgentTurn(instructionBundle InstructionBundle, outcomeContract OutcomeContract, request AgentRequest) []string {
@@ -782,13 +785,29 @@ func selectedEvidenceToolsForContinuation(contract OutcomeContract, selectedEvid
 	return toolNames
 }
 
+func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract OutcomeContract, selectedEvidenceHints []string) []string {
+	activeGoalHintByName := stringSet(contract.SelectedEvidenceHints)
+	toolNames := []string{}
+	for _, toolName := range selectedEvidenceHints {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if !activeGoalHintByName[trimmedToolName] {
+			continue
+		}
+		if isSendEvidenceTool(trimmedToolName) && !requestLooksLikeExternalSendContinuation(request, contract) {
+			continue
+		}
+		toolNames = appendUniqueStrings(toolNames, trimmedToolName)
+	}
+	return toolNames
+}
+
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
 	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	if activeGoalOutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
 		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
 		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHints...)
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForContinuation(contract, selectedEvidenceHints)...)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForRequestContinuation(request, contract, selectedEvidenceHints)...)
 		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
@@ -1040,11 +1059,14 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if trimmedToolName == "" {
 		return false
 	}
+	if isSendEvidenceTool(trimmedToolName) {
+		return activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) ||
+			(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) ||
+			promptLooksLikeExternalSend(request.Prompt) ||
+			activeGoalLooksLikeExternalSend(request.ActiveGoal)
+	}
 	if activeGoalMentionsTool(request.ActiveGoal, trimmedToolName) {
 		return true
-	}
-	if isSendEvidenceTool(trimmedToolName) {
-		return (hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) || promptLooksLikeExternalSend(request.Prompt)
 	}
 	if trimmedToolName == "file.attach" {
 		return len(requiredAttachmentSuffixes) > 0
@@ -1103,6 +1125,33 @@ func activeGoalMentionsTool(activeGoal ActiveGoal, toolName string) bool {
 		}
 	}
 	return false
+}
+
+func activeGoalRequiresTool(activeGoal ActiveGoal, toolName string) bool {
+	normalizedToolName := strings.TrimSpace(toolName)
+	if normalizedToolName == "" {
+		return false
+	}
+	for _, activeToolName := range outcomeContractRequiredToolNames(activeGoal.OutcomeContract) {
+		if strings.TrimSpace(activeToolName) == normalizedToolName {
+			return true
+		}
+	}
+	return false
+}
+
+func activeGoalLooksLikeExternalSend(activeGoal ActiveGoal) bool {
+	return promptLooksLikeExternalSend(strings.Join(nonEmptyStrings([]string{
+		activeGoal.OriginalInstruction,
+		activeGoal.CurrentObjective,
+		strings.Join(activeGoal.KnownContext, "\n"),
+	}), "\n"))
+}
+
+func requestLooksLikeExternalSendContinuation(request AgentRequest, contract OutcomeContract) bool {
+	return contractRequiresSendTool(contract) ||
+		promptLooksLikeExternalSend(request.Prompt) ||
+		activeGoalLooksLikeExternalSend(request.ActiveGoal)
 }
 
 func contractMentionsToolPrefix(contract OutcomeContract, prefix string) bool {
@@ -1381,16 +1430,19 @@ type VisibleContextMessage struct {
 }
 
 type VisibleContextMaterial struct {
-	MaterialID  string
-	Platform    string
-	MessageID   string
-	Filename    string
-	ContentType string
-	SizeBytes   int64
-	Path        string
-	IsAvailable bool
-	ErrorCode   string
-	Message     string
+	MaterialID        string
+	Platform          string
+	MessageID         string
+	Filename          string
+	ContentType       string
+	SizeBytes         int64
+	Path              string
+	IsAvailable       bool
+	ErrorCode         string
+	Message           string
+	MarkdownPreview   string
+	ConversionStatus  string
+	ConversionMessage string
 }
 
 func (agentKernel *AgentKernel) buildReplyMessages(prompt string, visibleContext VisibleContext, memoryFacts []memory.MemoryFact) []llm.Message {

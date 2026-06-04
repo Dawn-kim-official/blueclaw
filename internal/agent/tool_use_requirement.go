@@ -80,7 +80,7 @@ func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
 	}
 	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
 	if looksLikeBrowserFollowUp(prompt) && visibleContextMentionsBrowserWork(request.VisibleContext) {
-		return true
+		return !visibleContextHasAttachmentAnchor(request.VisibleContext) || promptExplicitlyMentionsBrowser(prompt)
 	}
 	if looksLikeBrowserControlSequence(prompt) {
 		return true
@@ -127,6 +127,26 @@ func visibleContextMentionsBrowserWork(visibleContext VisibleContext) bool {
 		}
 	}
 	return false
+}
+
+func visibleContextHasAttachmentAnchor(visibleContext VisibleContext) bool {
+	if len(visibleContext.CurrentMaterials) > 0 || len(visibleContext.Materials) > 0 {
+		return true
+	}
+	for _, message := range visibleContext.Messages {
+		if len(message.Materials) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func promptExplicitlyMentionsBrowser(prompt string) bool {
+	return containsAny(prompt, []string{
+		"browser", "브라우저", "companion", "컴패니언", "login", "로그인",
+		"page", "페이지", "site", "사이트", "open browser", "브라우저 열",
+		"브라우저 켜", "screenshot", "스크린샷", "click", "클릭",
+	})
 }
 
 func mentionsGoogleWorkspaceAvoidance(prompt string) bool {

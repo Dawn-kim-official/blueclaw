@@ -1186,6 +1186,91 @@ func TestFilePreviewUsesCachedAttachmentPreview(t *testing.T) {
 	}
 }
 
+func TestFilePreviewUsesCachedAttachmentPreviewByMaterialID(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		InputParts: []agent.AgentPart{{
+			Type: agent.AgentPartTypeFile,
+			File: &agent.AgentFilePart{
+				Path:             "home/inbox/mattermost/post-1/report.html",
+				Filename:         "report.html",
+				ContentType:      "text/html",
+				SizeBytes:        42,
+				MarkdownPreview:  "# Cached material report",
+				ConversionStatus: "converted",
+			},
+			Source: agent.AgentPartSource{
+				Platform:  "mattermost",
+				MessageID: "post-1",
+				FileID:    "file-1",
+			},
+		}},
+	})
+
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.preview",
+		Input:    agent.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if previewResult.Failed() {
+		t.Fatalf("expected cached material preview success, got %s", previewResult.ContentText())
+	}
+	if !strings.Contains(previewResult.ContentText(), "# Cached material report") {
+		t.Fatalf("expected cached material preview, got %s", previewResult.ContentText())
+	}
+}
+
+func TestFileReadUsesCachedAttachmentPreviewWhenMaterialFileIsNotMounted(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		InputParts: []agent.AgentPart{{
+			Type: agent.AgentPartTypeFile,
+			File: &agent.AgentFilePart{
+				Path:             "home/inbox/mattermost/post-1/report.html",
+				Filename:         "report.html",
+				ContentType:      "text/html",
+				SizeBytes:        42,
+				MarkdownPreview:  "# Cached read report\n\nBody",
+				ConversionStatus: "converted",
+			},
+			Source: agent.AgentPartSource{
+				Platform:  "mattermost",
+				MessageID: "post-1",
+				FileID:    "file-1",
+			},
+		}},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":      "home/inbox/mattermost/post-1/report.html",
+			"startLine": 3,
+			"lineCount": 1,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() {
+		t.Fatalf("expected cached file.read success, got %s", readResult.ContentText())
+	}
+	if !strings.Contains(readResult.ContentText(), `"source":"attachmentPreview"`) || !strings.Contains(readResult.ContentText(), "Body") {
+		t.Fatalf("expected cached attachment read, got %s", readResult.ContentText())
+	}
+}
+
 func TestFilePreviewResolvesAttachmentMaterialID(t *testing.T) {
 	workspacePath := t.TempDir()
 	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "post-1", "report.html")
@@ -1261,6 +1346,42 @@ func TestFilePreviewFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 	}
 	if !strings.Contains(previewResult.ContentText(), "Recovered Preview") {
 		t.Fatalf("expected recovered preview content, got %s", previewResult.ContentText())
+	}
+}
+
+func TestFilePreviewUsesResolvedAttachmentPreviewWithoutWorkspaceStat(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:        "mattermost:file-1",
+				Filename:          "report.html",
+				ContentType:       "text/html",
+				Path:              "home/inbox/mattermost/post-1/report.html",
+				MarkdownPreview:   "<h1>Resolved Preview</h1>",
+				ConversionStatus:  "converted",
+				ConversionMessage: "raw text preview",
+			},
+		},
+	})
+
+	previewResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.preview",
+		Input:    agent.MarshalToolInput(map[string]any{"materialID": "mattermost:file-1"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if previewResult.Failed() {
+		t.Fatalf("expected resolved attachment preview success, got %s", previewResult.ContentText())
+	}
+	if !strings.Contains(previewResult.ContentText(), "Resolved Preview") {
+		t.Fatalf("expected resolved preview content, got %s", previewResult.ContentText())
 	}
 }
 

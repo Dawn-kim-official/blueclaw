@@ -2034,7 +2034,8 @@ func (connectorRuntime *ConnectorRuntime) withAttachmentMaterials(ctx context.Co
 		event.Context.Messages = connectorReplaceImportedMessageAttachments(event.Context.Messages, importedAttachments)
 	}
 	if len(result.InputParts) > 0 {
-		event.InputParts = append(event.InputParts, connectorCurrentInputParts(result.InputParts, event)...)
+		readableInputParts := connectorReadableAgentParts(result.InputParts, personID, scope)
+		event.InputParts = append(event.InputParts, connectorCurrentInputParts(readableInputParts, event)...)
 	}
 	return event
 }
@@ -2136,6 +2137,24 @@ func connectorReadableInputAttachments(attachments []InputAttachment, personID s
 	for _, attachment := range attachments {
 		attachment.Path = connectorReadableAttachmentPath(attachment.Path, personID, scope)
 		result = append(result, attachment)
+	}
+	return result
+}
+
+func connectorReadableAgentParts(parts []agent.AgentPart, personID string, scope agentruntime.ConversationResourceScope) []agent.AgentPart {
+	result := make([]agent.AgentPart, 0, len(parts))
+	for _, part := range parts {
+		if part.File != nil {
+			file := *part.File
+			file.Path = connectorReadableAttachmentPath(file.Path, personID, scope)
+			part.File = &file
+		}
+		if part.Image != nil {
+			image := *part.Image
+			image.Path = connectorReadableAttachmentPath(image.Path, personID, scope)
+			part.Image = &image
+		}
+		result = append(result, part)
 	}
 	return result
 }
@@ -2269,7 +2288,41 @@ func (resolver connectorAttachmentMaterialResolver) importAttachmentWithAdapter(
 	if strings.TrimSpace(importedAttachment.Path) == "" {
 		return agent.VisibleContextMaterial{}, errors.New("attachment import returned no readable path")
 	}
-	return agentVisibleContextMaterials([]InputAttachment{importedAttachment})[0], nil
+	material := agentVisibleContextMaterials([]InputAttachment{importedAttachment})[0]
+	return connectorMaterialWithPreview(material, result.InputParts), nil
+}
+
+func connectorMaterialWithPreview(material agent.VisibleContextMaterial, parts []agent.AgentPart) agent.VisibleContextMaterial {
+	materialID := strings.TrimSpace(material.MaterialID)
+	path := strings.TrimSpace(material.Path)
+	for _, part := range parts {
+		if part.File == nil {
+			continue
+		}
+		if materialID != "" && connectorAgentPartMaterialID(part) != materialID {
+			continue
+		}
+		if materialID == "" && path != "" && strings.TrimSpace(part.File.Path) != path {
+			continue
+		}
+		material.MarkdownPreview = strings.TrimSpace(part.File.MarkdownPreview)
+		material.ConversionStatus = strings.TrimSpace(part.File.ConversionStatus)
+		material.ConversionMessage = strings.TrimSpace(part.File.ConversionMessage)
+		return material
+	}
+	return material
+}
+
+func connectorAgentPartMaterialID(part agent.AgentPart) string {
+	fileID := strings.TrimSpace(part.Source.FileID)
+	platform := firstNonEmptyString(strings.TrimSpace(part.Source.Platform), "attachment")
+	if fileID != "" {
+		return platform + ":" + fileID
+	}
+	if part.File != nil && strings.TrimSpace(part.File.Path) != "" {
+		return platform + ":" + connectorSafePathSegment(part.File.Path)
+	}
+	return ""
 }
 
 func connectorAttachmentToAgentMaterial(personID string, event PlatformInboundEvent, attachment InputAttachment) agent.VisibleContextMaterial {
