@@ -2597,7 +2597,34 @@ func visibleAttachmentMaterials(visibleContext agent.VisibleContext) []agent.Vis
 	for _, message := range visibleContext.Messages {
 		materials = append(materials, message.Materials...)
 	}
-	return materials
+	return uniqueVisibleAttachmentMaterials(materials)
+}
+
+func uniqueVisibleAttachmentMaterials(materials []agent.VisibleContextMaterial) []agent.VisibleContextMaterial {
+	seen := map[string]bool{}
+	result := make([]agent.VisibleContextMaterial, 0, len(materials))
+	for _, material := range materials {
+		key := visibleAttachmentMaterialKey(material)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, material)
+	}
+	return result
+}
+
+func visibleAttachmentMaterialKey(material agent.VisibleContextMaterial) string {
+	if materialID := strings.TrimSpace(material.MaterialID); materialID != "" {
+		return "material:" + materialID
+	}
+	if path := strings.TrimSpace(material.Path); path != "" {
+		return "path:" + path
+	}
+	if filename := strings.TrimSpace(material.Filename); filename != "" {
+		return "filename:" + filename
+	}
+	return ""
 }
 
 func visibleAttachmentMaterialWithExactPath(materials []agent.VisibleContextMaterial, path string) (agent.VisibleContextMaterial, bool) {

@@ -125,6 +125,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return AttachmentMaterialReadScenario(artifactDirectoryPath), nil
 	case "attachment_html_preview_recovery":
 		return AttachmentHTMLPreviewRecoveryScenario(artifactDirectoryPath), nil
+	case "attachment_html_previous_preview_recovery":
+		return AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath), nil
 	case "attachment_current_image_input":
 		return AttachmentCurrentImageInputScenario(artifactDirectoryPath), nil
 	default:

@@ -174,6 +174,20 @@ func TestAttachmentHTMLPreviewRecovery(t *testing.T) {
 	}
 }
 
+func TestAttachmentHTMLPreviousPreviewRecovery(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), AttachmentHTMLPreviousPreviewRecoveryScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected previous attachment html preview recovery scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "terminal.run") {
+		t.Fatalf("expected previous html attachment preview not to search the workspace; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "tool.file.preview.result", "Virtual HTML Title") {
+		t.Fatalf("expected previous html preview content in tool result; events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
 func TestAttachmentCurrentImageInput(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), AttachmentCurrentImageInputScenario(t.TempDir()))
 	if errorValue != nil {
