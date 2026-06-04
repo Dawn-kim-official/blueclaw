@@ -1349,6 +1349,87 @@ func TestFilePreviewFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 	}
 }
 
+func TestFileReadFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "inbox", "mattermost", "post-1", "kim-intern-automation.html")
+	writeTestFile(t, filePath, "<h1>Recovered Read</h1>\n<p>Body</p>")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		VisibleContext: agent.VisibleContext{
+			CurrentMaterials: []agent.VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "kim-intern-automation.html",
+				ContentType: "text/html",
+				Path:        "home/inbox/mattermost/old/kim-intern-automation.html",
+			}},
+		},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "kim-intern-automation.html",
+				ContentType: "text/html",
+				Path:        "home/inbox/mattermost/post-1/kim-intern-automation.html",
+			},
+		},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input:    agent.MarshalToolInput(map[string]any{"path": "home/inbox/mattermost/thread-1/post-1/kim-intern-automation.html"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if readResult.Failed() {
+		t.Fatalf("expected stale path file.read fallback success, got %s", readResult.ContentText())
+	}
+	if !strings.Contains(readResult.ContentText(), "Recovered Read") || strings.Contains(readResult.ContentText(), `"source":"attachmentPreview"`) {
+		t.Fatalf("expected exact recovered file read, got %s", readResult.ContentText())
+	}
+}
+
+func TestFileReadRejectsImageAttachmentMaterialFallback(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+		VisibleContext: agent.VisibleContext{
+			CurrentMaterials: []agent.VisibleContextMaterial{{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+				Path:        "home/inbox/mattermost/old/mascot.png",
+			}},
+		},
+		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
+			material: agent.VisibleContextMaterial{
+				MaterialID:  "mattermost:file-1",
+				Filename:    "mascot.png",
+				ContentType: "image/png",
+				Path:        "home/inbox/mattermost/post-1/mascot.png",
+			},
+		},
+	})
+
+	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input:    agent.MarshalToolInput(map[string]any{"path": "home/inbox/mattermost/thread-1/post-1/mascot.png"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !readResult.Failed() || !strings.Contains(readResult.ContentText(), "use image.read") {
+		t.Fatalf("expected image attachment file.read fallback to point at image.read, got %s", readResult.ContentText())
+	}
+}
+
 func TestFilePreviewUsesResolvedAttachmentPreviewWithoutWorkspaceStat(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)

@@ -719,7 +719,7 @@ func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSuppressesReplyWhenTaskDoesNotCompleteWithoutFailureNotice(t *testing.T) {
+func TestConnectorRuntimeSendsFallbackReplyWhenTaskDoesNotCompleteWithoutFailureNotice(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
@@ -733,14 +733,14 @@ func TestConnectorRuntimeSuppressesReplyWhenTaskDoesNotCompleteWithoutFailureNot
 	if result.Reason != "task_not_completed" {
 		t.Fatalf("expected task_not_completed result, got %+v", result)
 	}
-	if result.ReplyDispatchID != "" {
-		t.Fatalf("expected no failure notice dispatch id, got %q", result.ReplyDispatchID)
+	if result.ReplyDispatchID != "dispatch-1" {
+		t.Fatalf("expected fallback failure notice dispatch id, got %q", result.ReplyDispatchID)
 	}
-	if len(adapter.sentReplies) != 0 {
-		t.Fatalf("expected no raw error reply, got %+v", adapter.sentReplies)
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != fallbackFailureNoticeMessage {
+		t.Fatalf("expected fallback failure notice reply, got %+v", adapter.sentReplies)
 	}
-	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reply.suppressed", "missing_failure_notice") {
-		t.Fatal("expected missing failure notice suppression event")
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reply.sent", "user_notice") {
+		t.Fatal("expected fallback failure notice sent event")
 	}
 }
 
@@ -864,7 +864,7 @@ func TestConnectorRuntimeSendsFailureNoticeForBlockedTask(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSuppressesBlockedTaskWithoutSendableFailureNotice(t *testing.T) {
+func TestConnectorRuntimeSendsFallbackForBlockedTaskWithoutSendableFailureNotice(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -886,14 +886,14 @@ func TestConnectorRuntimeSuppressesBlockedTaskWithoutSendableFailureNotice(t *te
 		},
 	)
 
-	if isSent || dispatchID != "" {
-		t.Fatalf("expected suppressed missing failure notice, got dispatchID=%q sent=%v", dispatchID, isSent)
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected fallback failure notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
-	if len(sentReplies) != 0 {
-		t.Fatalf("expected no reply, got %+v", sentReplies)
+	if len(sentReplies) != 1 || sentReplies[0].Message != fallbackFailureNoticeMessage {
+		t.Fatalf("expected fallback failure notice reply, got %+v", sentReplies)
 	}
-	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.suppressed", "missing_failure_notice") {
-		t.Fatal("expected missing failure notice event")
+	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.sent", "user_notice") {
+		t.Fatal("expected fallback failure notice sent event")
 	}
 }
 
