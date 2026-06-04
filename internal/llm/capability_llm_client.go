@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"blueclaw/internal/capability"
 )
@@ -51,18 +52,33 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateResponse(responseContext 
 }
 
 func (capabilityLLMClient CapabilityLLMClient) GenerateRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
-	response, errorValue := capabilityLLMClient.generateResponse(responseContext, prompt, "auto")
+	autoContext, cancelAuto := recoveryAttemptContext(responseContext)
+	response, errorValue := capabilityLLMClient.generateResponse(autoContext, prompt, "auto")
+	cancelAuto()
 	if errorValue == nil && strings.TrimSpace(response) != "" {
 		return response, nil
 	}
 	if capabilityLLMClient.executionMode() == "device" {
 		return response, errorValue
 	}
-	return capabilityLLMClient.generateResponse(responseContext, prompt, "device")
+	deviceContext, cancelDevice := recoveryAttemptContext(responseContext)
+	defer cancelDevice()
+	return capabilityLLMClient.generateResponse(deviceContext, prompt, "device")
 }
 
 func (capabilityLLMClient CapabilityLLMClient) GenerateLocalRecoveryResponse(responseContext context.Context, prompt string) (string, error) {
-	return capabilityLLMClient.generateResponse(responseContext, prompt, "device")
+	deviceContext, cancelDevice := recoveryAttemptContext(responseContext)
+	defer cancelDevice()
+	return capabilityLLMClient.generateResponse(deviceContext, prompt, "device")
+}
+
+func recoveryAttemptContext(responseContext context.Context) (context.Context, context.CancelFunc) {
+	baseContext := context.Background()
+	requestContext := RequestContextFromContext(responseContext)
+	if requestContext != (RequestContext{}) {
+		baseContext = ContextWithRequestContext(baseContext, requestContext)
+	}
+	return context.WithTimeout(baseContext, 8*time.Second)
 }
 
 func (capabilityLLMClient CapabilityLLMClient) generateResponse(responseContext context.Context, prompt string, executionMode string) (string, error) {

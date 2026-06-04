@@ -3226,6 +3226,7 @@ type limitReplyStatus struct {
 	Reason                  string             `json:"reason,omitempty"`
 	StructuredRecoveryError string             `json:"structuredRecoveryError,omitempty"`
 	TextRecoveryError       string             `json:"textRecoveryError,omitempty"`
+	LocalRecoveryError      string             `json:"localRecoveryError,omitempty"`
 	Decision                recoveryDecision   `json:"decision,omitempty"`
 	FailureReportFacts      failureReportFacts `json:"failureReportFacts,omitempty"`
 }
@@ -3237,6 +3238,7 @@ type failureReplyStatus struct {
 	Reason                  string             `json:"reason,omitempty"`
 	StructuredRecoveryError string             `json:"structuredRecoveryError,omitempty"`
 	TextRecoveryError       string             `json:"textRecoveryError,omitempty"`
+	LocalRecoveryError      string             `json:"localRecoveryError,omitempty"`
 	Decision                recoveryDecision   `json:"decision,omitempty"`
 	FailureReportFacts      failureReportFacts `json:"failureReportFacts,omitempty"`
 }
@@ -3250,6 +3252,10 @@ type recoveryDecision struct {
 
 type recoveryLanguageModelProvider interface {
 	GenerateRecoveryResponse(context.Context, string) (string, error)
+}
+
+type localRecoveryLanguageModelProvider interface {
+	GenerateLocalRecoveryResponse(context.Context, string) (string, error)
 }
 
 func (agentTurnRunner *AgentTurnRunner) appendUnavailableReplyEvents(taskRunID string, phase string, reason string, replyStatus any) {
@@ -3328,6 +3334,16 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(taskRunID string, 
 		for repairCount := 1; repairCount <= 2; repairCount++ {
 			repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildFailureNoticeRepairPrompt(failureReport, reply, repairCount))
 			if repairError != nil || repairedReply == "" {
+				if notice, source, localError, hasNotice := agentTurnRunner.generateLocalFailureNotice(failureReport, reply); hasNotice {
+					status.Source = source
+					status.FirstInvalid = true
+					status.RepairCount = repairCount
+					status.Reason = "local_recovery_after_repair_failed"
+					status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+					return notice, status, true
+				} else if localError != "" {
+					status.LocalRecoveryError = localError
+				}
 				status.Source = "suppressed"
 				status.FirstInvalid = true
 				status.RepairCount = repairCount
@@ -3347,6 +3363,14 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(taskRunID string, 
 		status.FirstInvalid = true
 		status.RepairCount = 2
 	}
+	if notice, source, localError, hasNotice := agentTurnRunner.generateLocalFailureNotice(failureReport, reply); hasNotice {
+		status.Source = source
+		status.Reason = firstNonEmptyString(status.Reason, "local_recovery_after_text_failure")
+		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
+		return notice, status, true
+	} else if localError != "" {
+		status.LocalRecoveryError = localError
+	}
 	status.Source = "suppressed"
 	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
 	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
@@ -3362,6 +3386,14 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID str
 	}
 	reply, errorValue := agentTurnRunner.generateRecoveryText(buildFailureNoticePrompt(failureReport))
 	if errorValue != nil || reply == "" {
+		if notice, source, localError, hasNotice := agentTurnRunner.generateLocalFailureNotice(failureReport, reply); hasNotice {
+			status.Source = source
+			status.Reason = "local_recovery_after_text_failure"
+			status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
+			return notice, status, true
+		} else if localError != "" {
+			status.LocalRecoveryError = localError
+		}
 		status.Source = "suppressed"
 		status.Reason = "text_recovery_failed"
 		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "empty_reply")
@@ -3375,6 +3407,16 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID str
 	for repairCount := 1; repairCount <= 2; repairCount++ {
 		repairedReply, repairError := agentTurnRunner.generateRecoveryText(buildFailureNoticeRepairPrompt(failureReport, reply, repairCount))
 		if repairError != nil || repairedReply == "" {
+			if notice, source, localError, hasNotice := agentTurnRunner.generateLocalFailureNotice(failureReport, reply); hasNotice {
+				status.Source = source
+				status.FirstInvalid = true
+				status.RepairCount = repairCount
+				status.Reason = "local_recovery_after_repair_failed"
+				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+				return notice, status, true
+			} else if localError != "" {
+				status.LocalRecoveryError = localError
+			}
 			status.Source = "suppressed"
 			status.FirstInvalid = true
 			status.RepairCount = repairCount
@@ -3395,7 +3437,41 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID str
 	status.FirstInvalid = true
 	status.RepairCount = 2
 	status.Reason = "invalid_repair"
+	if notice, source, localError, hasNotice := agentTurnRunner.generateLocalFailureNotice(failureReport, reply); hasNotice {
+		status.Source = source
+		status.Reason = "local_recovery_after_invalid_repair"
+		return notice, status, true
+	} else if localError != "" {
+		status.LocalRecoveryError = localError
+	}
 	return FailureNotice{}, status, false
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateLocalFailureNotice(report FailureReport, rejectedReply string) (FailureNotice, string, string, bool) {
+	prompt := buildFailureNoticePrompt(report)
+	if strings.TrimSpace(rejectedReply) != "" {
+		prompt = buildFailureNoticeRepairPrompt(report, rejectedReply, 3)
+	}
+	reply, errorValue := agentTurnRunner.generateLocalRecoveryText(prompt)
+	if errorValue != nil || strings.TrimSpace(reply) == "" {
+		return FailureNotice{}, "", firstNonEmptyString(errorString(errorValue), "empty_local_reply"), false
+	}
+	notice, source, hasNotice := agentTurnRunner.prepareFailureNotice(reply, "local_generated", report)
+	if hasNotice {
+		return notice, source, "", true
+	}
+	for repairCount := 1; repairCount <= 2; repairCount++ {
+		repairedReply, repairError := agentTurnRunner.generateLocalRecoveryText(buildFailureNoticeRepairPrompt(report, reply, repairCount))
+		if repairError != nil || strings.TrimSpace(repairedReply) == "" {
+			return FailureNotice{}, "", firstNonEmptyString(errorString(repairError), "empty_local_repair"), false
+		}
+		notice, source, hasNotice := agentTurnRunner.prepareFailureNotice(repairedReply, "local_generated_repair", report)
+		if hasNotice {
+			return notice, source, "", true
+		}
+		reply = repairedReply
+	}
+	return FailureNotice{}, "", "invalid_local_generated_reply", false
 }
 
 func (agentTurnRunner *AgentTurnRunner) prepareFailureNotice(reply string, source string, report FailureReport) (FailureNotice, string, bool) {
@@ -3503,9 +3579,9 @@ func degradedFailureReplyCanBeDelivered(reply string, request AgentTurnRequest, 
 func failureNoticeStatusFacts(replyStatus any) []string {
 	switch status := replyStatus.(type) {
 	case failureReplyStatus:
-		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.Decision)
+		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.LocalRecoveryError, status.Decision)
 	case limitReplyStatus:
-		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.Decision)
+		return recoveryReplyStatusFacts(status.Source, status.Reason, status.TextRecoveryError, status.StructuredRecoveryError, status.LocalRecoveryError, status.Decision)
 	default:
 		statusText := strings.TrimSpace(marshalEventBody(replyStatus))
 		if statusText == "" || statusText == "null" {
@@ -3515,12 +3591,13 @@ func failureNoticeStatusFacts(replyStatus any) []string {
 	}
 }
 
-func recoveryReplyStatusFacts(source string, reason string, textRecoveryError string, structuredRecoveryError string, decision recoveryDecision) []string {
+func recoveryReplyStatusFacts(source string, reason string, textRecoveryError string, structuredRecoveryError string, localRecoveryError string, decision recoveryDecision) []string {
 	return nonEmptyNoticeFacts([]string{
 		noticeFact("source", source, 80),
 		noticeFact("reply_reason", reason, 140),
 		noticeFact("text_recovery_error", textRecoveryError, 180),
 		noticeFact("structured_recovery_error", structuredRecoveryError, 180),
+		noticeFact("local_recovery_error", localRecoveryError, 180),
 		noticeFact("what_failed", decision.WhatFailed, 220),
 		noticeFact("known", decision.WhatWasKnown, 180),
 		noticeFact("next", decision.NextAction, 180),
@@ -3596,21 +3673,28 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (string, error) {
 	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, prompt)
-	reply = strings.TrimSpace(reply)
-	if errorValue == nil && reply != "" {
-		return reply, nil
-	}
 	recoveryProvider, isRecoveryProvider := agentTurnRunner.languageModel.(recoveryLanguageModelProvider)
-	if !isRecoveryProvider {
-		return reply, errorValue
-	}
-	recoveryReply, recoveryError := recoveryProvider.GenerateRecoveryResponse(finalizationContext, prompt)
-	recoveryReply = strings.TrimSpace(recoveryReply)
-	if recoveryError != nil || recoveryReply == "" {
+	if isRecoveryProvider {
+		recoveryReply, recoveryError := recoveryProvider.GenerateRecoveryResponse(finalizationContext, prompt)
+		recoveryReply = strings.TrimSpace(recoveryReply)
+		if recoveryError == nil && recoveryReply != "" {
+			return recoveryReply, nil
+		}
 		return recoveryReply, recoveryError
 	}
-	return recoveryReply, nil
+	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, prompt)
+	return strings.TrimSpace(reply), errorValue
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateLocalRecoveryText(prompt string) (string, error) {
+	localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.languageModel.(localRecoveryLanguageModelProvider)
+	if !isLocalRecoveryProvider {
+		return "", errors.New("local recovery provider unavailable")
+	}
+	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(finalizationContext, prompt)
+	return strings.TrimSpace(reply), errorValue
 }
 
 func buildRecoveryDecisionPrompt(request AgentTurnRequest, failureReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, phase string) string {

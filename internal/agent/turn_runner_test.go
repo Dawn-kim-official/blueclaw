@@ -360,9 +360,10 @@ func TestAgentTurnRunnerSuppressesReplyWhenAllModelCallsFail(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerSuppressesReplyWhenRemoteAndRecoveryModelsFail(t *testing.T) {
-	languageModel := localRecoveryFallbackLanguageModel{
+func TestAgentTurnRunnerUsesLocalRecoveryWhenRemoteAndRecoveryModelsFail(t *testing.T) {
+	languageModel := &localRecoveryFallbackLanguageModel{
 		errorValue: errors.New("model unavailable"),
+		localReply: "I could not complete that request, but I can try again if you send it once more.",
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 
@@ -373,13 +374,16 @@ func TestAgentTurnRunnerSuppressesReplyWhenRemoteAndRecoveryModelsFail(t *testin
 		ResponseLanguage:  ResponseLanguageEnglish,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected suppressed recovery result: %v", errorValue)
+		t.Fatalf("expected local recovery result: %v", errorValue)
 	}
-	if !result.ReplySuppressed || result.UserNotice != "" {
-		t.Fatalf("expected suppressed reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
+	if result.ReplySuppressed || result.UserNotice != languageModel.localReply {
+		t.Fatalf("expected local recovery reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.llm_unavailable", "model unavailable") {
-		t.Fatal("expected unavailable diagnostic event")
+	if len(languageModel.localPrompts) == 0 {
+		t.Fatal("expected local recovery prompt")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "local_generated") {
+		t.Fatal("expected local generated failure reply event")
 	}
 }
 
@@ -3868,7 +3872,10 @@ func (languageModel failingRecoveryLanguageModel) GenerateStructuredResponse(con
 }
 
 type localRecoveryFallbackLanguageModel struct {
-	errorValue error
+	errorValue   error
+	localReply   string
+	localError   error
+	localPrompts []string
 }
 
 func (languageModel localRecoveryFallbackLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -3877,6 +3884,18 @@ func (languageModel localRecoveryFallbackLanguageModel) GenerateResponse(context
 
 func (languageModel localRecoveryFallbackLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	return llm.StructuredResponse{}, languageModel.errorValue
+}
+
+func (languageModel *localRecoveryFallbackLanguageModel) GenerateRecoveryResponse(context.Context, string) (string, error) {
+	return "", languageModel.errorValue
+}
+
+func (languageModel *localRecoveryFallbackLanguageModel) GenerateLocalRecoveryResponse(_ context.Context, prompt string) (string, error) {
+	languageModel.localPrompts = append(languageModel.localPrompts, prompt)
+	if languageModel.localError != nil {
+		return "", languageModel.localError
+	}
+	return languageModel.localReply, nil
 }
 
 func taskEventsContain(taskEvents []task.TaskEvent, name string, bodyFragment string) bool {
