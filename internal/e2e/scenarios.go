@@ -178,6 +178,53 @@ func AttachmentHTMLPreviewRecoveryScenario(artifactDirectoryPath string) Virtual
 	}
 }
 
+func AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	attachment := connectors.InputAttachment{
+		Platform:    "mattermost",
+		FileID:      "file-html",
+		MessageID:   "root-message",
+		Filename:    "kim-intern-automation.html",
+		ContentType: "text/html",
+		SizeBytes:   691000,
+	}
+	return VirtualSessionScenario{
+		Name:                  "attachment_html_previous_preview_recovery",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.preview", "file.read", "image.read"},
+		Turns: []VirtualTurn{{
+			Prompt: "다시",
+			ContextMessages: []connectors.VisibleContextMessage{{
+				Speaker:            "샘플",
+				SpeakerCallingName: "샘플 님",
+				SpeakerHandle:      "dongha",
+				Text:               "이거 파일 내용 보고 어떻게 개선하면 좋을지 말해줘봐",
+				InputAttachments:   []connectors.InputAttachment{attachment},
+			}},
+			ContextMaterials: []connectors.InputAttachment{attachment},
+			ActionResponses: []string{
+				actionCallTool("file.preview", `{"path":"home/inbox/mattermost/thread-1/root-message/kim-intern-automation.html"}`),
+				actionFinishMessage("이전 첨부 HTML을 확인했습니다. 자동화 흐름의 핵심 CTA와 섹션 우선순위를 더 명확히 잡으면 좋겠습니다.", "obs-001:file.preview:0"),
+			},
+			ExpectedToolCalls: []string{"file.preview"},
+			ExpectedToolCallCounts: map[string]int{
+				"terminal.run": 0,
+				"file.read":    0,
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.file.preview.requested", BodyFragment: `"path":"home/inbox/mattermost/thread-1/root-message/kim-intern-automation.html"`, Count: 1},
+				{Name: "tool.file.preview.result", BodyFragment: "Virtual HTML Title", Count: 1},
+			},
+			ExpectedModelContexts: []string{
+				"Previous attachments:",
+				"materialID=mattermost:file-html",
+				"availableTools=file.preview,file.read",
+			},
+			ForbiddenReplyFragments: []string{"파일을 찾을 수", "다시 확인", "직접 공유"},
+			ExpectedReplyFragments:  []string{"이전 첨부 HTML", "CTA"},
+		}},
+	}
+}
+
 func AttachmentCurrentImageInputScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	attachment := connectors.InputAttachment{
 		Platform:    "mattermost",

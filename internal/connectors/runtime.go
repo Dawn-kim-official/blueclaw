@@ -2006,7 +2006,7 @@ func (connectorRuntime *ConnectorRuntime) withInitialVisibleContext(ctx context.
 }
 
 func (connectorRuntime *ConnectorRuntime) withAttachmentMaterials(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, personID string) PlatformInboundEvent {
-	attachments := connectorUniqueInputAttachments(append(event.Context.Materials, event.Context.InputAttachments...))
+	attachments := connectorVisibleInputAttachments(event.Context)
 	if len(attachments) == 0 {
 		return event
 	}
@@ -2029,8 +2029,9 @@ func (connectorRuntime *ConnectorRuntime) withAttachmentMaterials(ctx context.Co
 	}
 	if len(result.InputAttachments) > 0 {
 		importedAttachments := connectorReadableInputAttachments(result.InputAttachments, personID, scope)
-		event.Context.InputAttachments = connectorCurrentImportedInputAttachments(event.Context.InputAttachments, importedAttachments)
-		event.Context.Materials = connectorUniqueInputAttachments(importedAttachments)
+		event.Context.InputAttachments = connectorReplaceImportedInputAttachments(event.Context.InputAttachments, importedAttachments)
+		event.Context.Materials = connectorReplaceImportedInputAttachments(event.Context.Materials, importedAttachments)
+		event.Context.Messages = connectorReplaceImportedMessageAttachments(event.Context.Messages, importedAttachments)
 	}
 	if len(result.InputParts) > 0 {
 		event.InputParts = append(event.InputParts, connectorCurrentInputParts(result.InputParts, event)...)
@@ -2038,21 +2039,48 @@ func (connectorRuntime *ConnectorRuntime) withAttachmentMaterials(ctx context.Co
 	return event
 }
 
-func connectorCurrentImportedInputAttachments(currentAttachments []InputAttachment, importedAttachments []InputAttachment) []InputAttachment {
-	currentKeys := map[string]bool{}
-	for _, attachment := range currentAttachments {
+func connectorVisibleInputAttachments(visibleContext VisibleContext) []InputAttachment {
+	attachments := []InputAttachment{}
+	attachments = append(attachments, visibleContext.Materials...)
+	attachments = append(attachments, visibleContext.InputAttachments...)
+	for _, message := range visibleContext.Messages {
+		attachments = append(attachments, message.InputAttachments...)
+	}
+	return connectorUniqueInputAttachments(attachments)
+}
+
+func connectorReplaceImportedMessageAttachments(messages []VisibleContextMessage, importedAttachments []InputAttachment) []VisibleContextMessage {
+	result := make([]VisibleContextMessage, 0, len(messages))
+	for _, message := range messages {
+		message.InputAttachments = connectorReplaceImportedInputAttachments(message.InputAttachments, importedAttachments)
+		result = append(result, message)
+	}
+	return result
+}
+
+func connectorReplaceImportedInputAttachments(attachments []InputAttachment, importedAttachments []InputAttachment) []InputAttachment {
+	importedByKey := connectorImportedAttachmentByKey(importedAttachments)
+	replacedAttachments := make([]InputAttachment, 0, len(attachments))
+	for _, attachment := range attachments {
+		key := connectorInputAttachmentKey(attachment)
+		if importedAttachment, isFound := importedByKey[key]; isFound {
+			replacedAttachments = append(replacedAttachments, importedAttachment)
+			continue
+		}
+		replacedAttachments = append(replacedAttachments, attachment)
+	}
+	return connectorUniqueInputAttachments(replacedAttachments)
+}
+
+func connectorImportedAttachmentByKey(importedAttachments []InputAttachment) map[string]InputAttachment {
+	importedByKey := map[string]InputAttachment{}
+	for _, attachment := range importedAttachments {
 		key := connectorInputAttachmentKey(attachment)
 		if key != "" {
-			currentKeys[key] = true
+			importedByKey[key] = attachment
 		}
 	}
-	currentImportedAttachments := []InputAttachment{}
-	for _, attachment := range importedAttachments {
-		if currentKeys[connectorInputAttachmentKey(attachment)] {
-			currentImportedAttachments = append(currentImportedAttachments, attachment)
-		}
-	}
-	return connectorUniqueInputAttachments(currentImportedAttachments)
+	return importedByKey
 }
 
 func connectorCurrentInputParts(parts []agent.AgentPart, event PlatformInboundEvent) []agent.AgentPart {
