@@ -376,6 +376,11 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		decision.Reason = firstNonEmptyString(decision.Reason, "request resumes previous visible tool work")
 		decision.UserFacingReply = ""
 	}
+	if requestRequiresAttachmentFollowUpToolWork(request) && decision.Classification == IntakeClassificationQuickReply {
+		decision.Classification = IntakeClassificationBoundedTask
+		decision.Reason = firstNonEmptyString(decision.Reason, "request resumes previous visible attachment work")
+		decision.UserFacingReply = ""
+	}
 	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision.IntakeDecision()) {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
@@ -392,6 +397,9 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	}
 	if requestRequiresFollowUpToolWork(request) {
 		normalizedTaskShape = TaskShapeBrowserHandoffTask
+	}
+	if shouldPreferAttachmentContinuationOverBrowser(request, normalizedTaskShape) {
+		normalizedTaskShape = deterministicTaskShapeForAttachmentContinuation(decision.Classification)
 	}
 	if decision.Classification == IntakeClassificationBoundedTask && normalizedTaskShape == TaskShapeApprovalGatedTask {
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
@@ -881,7 +889,40 @@ func requestRequiresFollowUpToolWork(request AgentRequest) bool {
 	if !hasToolPrefix(request.ToolSet, "browser.") {
 		return false
 	}
-	return looksLikeBrowserFollowUp(strings.ToLower(strings.TrimSpace(request.Prompt))) && visibleContextMentionsBrowserWork(request.VisibleContext)
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if !looksLikeBrowserFollowUp(prompt) || !visibleContextMentionsBrowserWork(request.VisibleContext) {
+		return false
+	}
+	if visibleContextHasAttachmentAnchor(request.VisibleContext) && !promptExplicitlyMentionsBrowser(prompt) {
+		return false
+	}
+	return true
+}
+
+func requestRequiresAttachmentFollowUpToolWork(request AgentRequest) bool {
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	return looksLikeBrowserFollowUp(prompt) && visibleContextHasAttachmentAnchor(request.VisibleContext) && !promptExplicitlyMentionsBrowser(prompt)
+}
+
+func shouldPreferAttachmentContinuationOverBrowser(request AgentRequest, taskShape TaskShape) bool {
+	if taskShape != TaskShapeBrowserHandoffTask {
+		return false
+	}
+	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
+	if !looksLikeBrowserFollowUp(prompt) {
+		return false
+	}
+	return visibleContextHasAttachmentAnchor(request.VisibleContext) && !promptExplicitlyMentionsBrowser(prompt)
+}
+
+func deterministicTaskShapeForAttachmentContinuation(classification IntakeClassification) TaskShape {
+	if classification == IntakeClassificationQuickReply {
+		return TaskShapeImmediateReply
+	}
+	if classification == IntakeClassificationNeedsConfirmation {
+		return TaskShapeApprovalGatedTask
+	}
+	return TaskShapeResearchTask
 }
 
 func looksLikeLargeRequest(prompt string) bool {

@@ -175,6 +175,7 @@ type mathCalculateToolInput struct {
 
 type fileReadToolInput struct {
 	Path           string `json:"path"`
+	MaterialID     string `json:"materialID"`
 	MaxOutputBytes int    `json:"maxOutputBytes"`
 	StartLine      int    `json:"startLine"`
 	LineCount      int    `json:"lineCount"`
@@ -510,13 +511,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 			Name:        "file.read",
 			Description: "Read exact UTF-8 workspace text or a real file line range with honest size and truncation metadata. Use file.preview first for attached HTML, PDF, DOCX, PPTX, XLSX, or other documents.",
 			RecoveryCard: agent.ToolRecoveryCard{
-				Does:       "Reads a text file or requested line range from the actual workspace file.",
+				Does:       "Reads a text file or requested line range from the actual workspace file; attachment materialID falls back to cached preview text.",
 				Produces:   "Text content plus path, line range, original size, returned size, line count if known, and truncation metadata.",
 				SideEffect: "read",
 				UseWhen:    "You need current file content before file.edit, file.patch, or file.write.",
 				AvoidWhen:  "The file is binary, an attached document needing conversion, or you already have the exact current text needed for an edit.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"startLine":{"type":"integer","description":"Optional 1-based first line to return."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."}},"required":["path"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."}}}`),
 		},
 		Handler: func(toolContext context.Context, input fileReadToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
@@ -2401,8 +2402,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.Context, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	path := strings.TrimSpace(input.Path)
+	materialID := strings.TrimSpace(input.MaterialID)
+	if materialID != "" {
+		if result, isCached := cachedFileReadResultByMaterialID(handlerContext.request.InputParts, materialID, input); isCached {
+			return result, nil
+		}
+	}
 	if path == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path is required"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path or materialID is required"), nil
 	}
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
@@ -2421,6 +2428,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	}
 	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
 	if errorValue != nil {
+		if result, isCached := cachedFileReadResult(handlerContext.request.InputParts, path, input); isCached {
+			return result, nil
+		}
 		return actorToolFailure("stat", "file_read", resolvedPath.VirtualPath, errorValue), nil
 	}
 	if !fileInformation.IsRegular {
@@ -2457,6 +2467,59 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		"sizeBytes":         fileInformation.SizeBytes,
 		"isTruncated":       isFileTruncated || readResult.IsTruncated,
 	})), nil
+}
+
+func cachedFileReadResultByMaterialID(parts []agent.AgentPart, materialID string, input fileReadToolInput) (agent.ToolResult, bool) {
+	preview, isCached := cachedFilePreviewResultByMaterialID(parts, materialID)
+	if !isCached {
+		return agent.ToolResult{}, false
+	}
+	return cachedFileReadResultFromPreview(preview, input), true
+}
+
+func cachedFileReadResult(parts []agent.AgentPart, path string, input fileReadToolInput) (agent.ToolResult, bool) {
+	preview, isCached := cachedFilePreviewResult(parts, path)
+	if !isCached {
+		return agent.ToolResult{}, false
+	}
+	return cachedFileReadResultFromPreview(preview, input), true
+}
+
+func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolInput) agent.ToolResult {
+	content := stringMapValue(preview, "markdownPreview")
+	readResult := fileReadResult(content, input.StartLine, input.LineCount, defaultFileReadMaximumBytes)
+	return agent.ToolSuccess(marshalToolResult(map[string]any{
+		"path":              stringMapValue(preview, "path"),
+		"content":           readResult.Content,
+		"startLine":         readResult.StartLine,
+		"endLine":           readResult.EndLine,
+		"totalLines":        readResult.TotalLines,
+		"totalLinesKnown":   true,
+		"originalSizeBytes": int64MapValue(preview, "sizeBytes"),
+		"returnedBytes":     len([]byte(readResult.Content)),
+		"sizeBytes":         int64MapValue(preview, "sizeBytes"),
+		"isTruncated":       readResult.IsTruncated,
+		"source":            "attachmentPreview",
+		"isExactFileRead":   false,
+	}))
+}
+
+func stringMapValue(document map[string]any, key string) string {
+	value, _ := document[key].(string)
+	return strings.TrimSpace(value)
+}
+
+func int64MapValue(document map[string]any, key string) int64 {
+	switch value := document[key].(type) {
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	case float64:
+		return int64(value)
+	default:
+		return 0
+	}
 }
 
 type fileReadOutput struct {
@@ -2520,6 +2583,12 @@ func splitFileLines(content string) []string {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext context.Context, input filePreviewToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	if cachedPreview, isCached := cachedFilePreviewResultForInput(handlerContext.request.InputParts, input); isCached {
+		return agent.ToolSuccess(marshalToolResult(cachedPreview)), nil
+	}
+	if materialPreview, isResolved := toolCatalogBuilder.filePreviewResolvedMaterial(toolContext, input, handlerContext.request); isResolved {
+		return materialPreview, nil
+	}
 	previewPath, materialFailure := toolCatalogBuilder.filePreviewPath(toolContext, input, handlerContext.request)
 	if materialFailure != nil {
 		return *materialFailure, nil
@@ -2560,6 +2629,34 @@ func (toolCatalogBuilder *ToolCatalogBuilder) previewFileTool(toolContext contex
 		}
 	}
 	return toolCatalogBuilder.previewTextFile(toolContext, workspaceActor, resolvedPath, contentType, fileInformation.SizeBytes), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolContext context.Context, input filePreviewToolInput, request ToolCatalogRequest) (agent.ToolResult, bool) {
+	if strings.TrimSpace(input.Path) != "" || strings.TrimSpace(input.MaterialID) == "" {
+		return agent.ToolResult{}, false
+	}
+	material, errorValue := resolveReadableAttachmentMaterial(toolContext, request, input.MaterialID)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", errorValue.Error()), true
+	}
+	if attachmentMaterialLooksLikeImage(material) {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read"), true
+	}
+	if result, hasPreview := filePreviewResultFromVisibleMaterial(material); hasPreview {
+		return agent.ToolSuccess(marshalToolResult(result)), true
+	}
+	return agent.ToolResult{}, false
+}
+
+func filePreviewResultFromVisibleMaterial(material agent.VisibleContextMaterial) (map[string]any, bool) {
+	preview := strings.TrimSpace(material.MarkdownPreview)
+	status := strings.TrimSpace(material.ConversionStatus)
+	message := strings.TrimSpace(material.ConversionMessage)
+	if preview == "" && status == "" && message == "" {
+		return nil, false
+	}
+	contentType := firstNonEmptyString(strings.TrimSpace(material.ContentType), previewContentType(material.Path))
+	return filePreviewResult(material.Path, contentType, material.SizeBytes, preview, status, message), true
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContext context.Context, path string, request ToolCatalogRequest) (string, *agent.ToolResult, bool) {
@@ -2717,24 +2814,57 @@ func firstToolFailureResult(failureResult *agent.ToolResult, errorValue error, s
 	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "invalid file preview request")
 }
 
+func cachedFilePreviewResultForInput(parts []agent.AgentPart, input filePreviewToolInput) (map[string]any, bool) {
+	if materialID := strings.TrimSpace(input.MaterialID); materialID != "" {
+		return cachedFilePreviewResultByMaterialID(parts, materialID)
+	}
+	return cachedFilePreviewResult(parts, strings.TrimSpace(input.Path))
+}
+
+func cachedFilePreviewResultByMaterialID(parts []agent.AgentPart, materialID string) (map[string]any, bool) {
+	trimmedMaterialID := strings.TrimSpace(materialID)
+	for _, part := range parts {
+		if agentPartMaterialID(part) != trimmedMaterialID {
+			continue
+		}
+		return cachedFilePreviewResultFromPart(part)
+	}
+	return nil, false
+}
+
 func cachedFilePreviewResult(parts []agent.AgentPart, path string) (map[string]any, bool) {
 	for _, part := range parts {
 		if part.File == nil || strings.TrimSpace(part.File.Path) != strings.TrimSpace(path) {
 			continue
 		}
-		if strings.TrimSpace(part.File.MarkdownPreview) == "" && strings.TrimSpace(part.File.ConversionStatus) == "" {
-			continue
-		}
-		return filePreviewResult(
-			path,
-			part.File.ContentType,
-			part.File.SizeBytes,
-			part.File.MarkdownPreview,
-			firstNonEmptyString(part.File.ConversionStatus, "cached"),
-			part.File.ConversionMessage,
-		), true
+		return cachedFilePreviewResultFromPart(part)
 	}
 	return nil, false
+}
+
+func cachedFilePreviewResultFromPart(part agent.AgentPart) (map[string]any, bool) {
+	if part.File == nil {
+		return nil, false
+	}
+	if strings.TrimSpace(part.File.MarkdownPreview) == "" && strings.TrimSpace(part.File.ConversionStatus) == "" {
+		return nil, false
+	}
+	return filePreviewResult(
+		part.File.Path,
+		part.File.ContentType,
+		part.File.SizeBytes,
+		part.File.MarkdownPreview,
+		firstNonEmptyString(part.File.ConversionStatus, "cached"),
+		part.File.ConversionMessage,
+	), true
+}
+
+func agentPartMaterialID(part agent.AgentPart) string {
+	fileID := strings.TrimSpace(part.Source.FileID)
+	if fileID == "" {
+		return ""
+	}
+	return firstNonEmptyString(strings.TrimSpace(part.Source.Platform), "attachment") + ":" + fileID
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(toolContext context.Context, request ToolCatalogRequest, path string, contentType string, sizeBytes int64) (agent.ToolResult, bool) {

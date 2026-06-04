@@ -29,6 +29,7 @@ type ConversationPost struct {
 	ID       string
 	UserID   string
 	Message  string
+	FileIDs  []string
 	CreateAt int64
 }
 
@@ -121,13 +122,15 @@ func (adapter Adapter) FetchHistory(_ context.Context, historyCursor string, lim
 	messages := make([]connectors.VisibleContextMessage, 0, len(posts))
 	for _, post := range posts {
 		message := strings.TrimSpace(post.Message)
-		if message == "" || strings.TrimSpace(post.ID) == beforePostID {
+		inputAttachments := mattermostInputAttachments(post.ID, post.FileIDs)
+		if strings.TrimSpace(post.ID) == beforePostID || (message == "" && len(inputAttachments) == 0) {
 			continue
 		}
 		messages = append(messages, connectors.VisibleContextMessage{
-			Speaker:       firstNonEmpty(strings.TrimSpace(post.UserID), "mattermost"),
-			SpeakerHandle: strings.TrimSpace(post.UserID),
-			Text:          message,
+			Speaker:          firstNonEmpty(strings.TrimSpace(post.UserID), "mattermost"),
+			SpeakerHandle:    strings.TrimSpace(post.UserID),
+			Text:             message,
+			InputAttachments: inputAttachments,
 		})
 	}
 	return connectors.VisibleContext{

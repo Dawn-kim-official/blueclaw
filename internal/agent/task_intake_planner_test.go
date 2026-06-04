@@ -328,6 +328,35 @@ func TestTaskIntakePlannerPromotesBrowserFollowUpDespiteQuickModelDecision(t *te
 	}
 }
 
+func TestTaskIntakePlannerPrefersAttachmentContinuationOverBrowserFailure(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"browser_handoff_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"previous browser failure","userFacingReply":""}`,
+	}}
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "file.preview", "file.read"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "다시 시도해보자",
+		ToolSet: toolRegistry,
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
+			{
+				Speaker: "사용자",
+				Text:    "이 파일 내용 보고 개선점 말해줘",
+				Materials: []VisibleContextMaterial{{
+					MaterialID:  "mattermost:file-1",
+					Path:        "home/inbox/mattermost/direct-1/post-1/page.html",
+					IsAvailable: true,
+				}},
+			},
+			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
+		}},
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask || decision.TaskShape == TaskShapeBrowserHandoffTask {
+		t.Fatalf("expected attachment follow-up not to become browser handoff, got %+v", decision)
+	}
+}
+
 func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,

@@ -75,3 +75,28 @@ func TestBrowserRetryWithVisibleContextRequiresBrowserEvidence(t *testing.T) {
 		t.Fatalf("expected browser follow-up requirement, got %+v", requirements)
 	}
 }
+
+func TestAttachmentRetryWithBrowserFailureContextDoesNotRequireBrowserEvidence(t *testing.T) {
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "file.preview", "file.read"})
+
+	requirements := deriveToolUseRequirements(AgentTurnRequest{
+		Prompt:  "다시 시도해보자",
+		ToolSet: toolRegistry,
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
+			{
+				Speaker: "사용자",
+				Text:    "이 파일 내용 보고 개선점 말해줘",
+				Materials: []VisibleContextMaterial{{
+					MaterialID:  "mattermost:file-1",
+					Path:        "home/inbox/mattermost/direct-1/post-1/page.html",
+					IsAvailable: true,
+				}},
+			},
+			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
+		}},
+	})
+
+	if len(requirements) != 0 {
+		t.Fatalf("expected no browser evidence requirement for attachment follow-up, got %+v", requirements)
+	}
+}

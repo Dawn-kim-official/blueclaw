@@ -122,6 +122,35 @@ func TestAdapterFetchesVisibleHistoryBeforeCurrentPost(t *testing.T) {
 	}
 }
 
+func TestAdapterFetchesVisibleHistoryAttachments(t *testing.T) {
+	conversationClient := &testMattermostConversationClient{
+		historyPosts: []ConversationPost{
+			{ID: "post-current", UserID: "user-1", Message: "다시", CreateAt: 20},
+			{ID: "post-1", UserID: "user-1", Message: "파일 봐줘", FileIDs: []string{"file-1"}, CreateAt: 10},
+			{ID: "post-0", UserID: "user-1", FileIDs: []string{"file-0"}, CreateAt: 5},
+		},
+	}
+	adapter := NewAdapter(testMattermostIdentityClient{}, conversationClient)
+
+	visibleContext, errorValue := adapter.FetchHistory(context.Background(), "channel-1:post-current", 20)
+	if errorValue != nil {
+		t.Fatalf("expected history fetch: %v", errorValue)
+	}
+
+	if len(visibleContext.Messages) != 2 {
+		t.Fatalf("expected previous attachment messages, got %+v", visibleContext.Messages)
+	}
+	for index, expectedFileID := range []string{"file-0", "file-1"} {
+		attachments := visibleContext.Messages[index].InputAttachments
+		if len(attachments) != 1 || attachments[0].FileID != expectedFileID {
+			t.Fatalf("expected attachment %s in message %d, got %+v", expectedFileID, index, attachments)
+		}
+	}
+	if visibleContext.Messages[0].InputAttachments[0].MessageID != "post-0" || visibleContext.Messages[1].InputAttachments[0].MessageID != "post-1" {
+		t.Fatalf("expected source post ids to be preserved, got %+v", visibleContext.Messages)
+	}
+}
+
 type testMattermostIdentityClient struct{}
 
 func (client testMattermostIdentityClient) ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error) {
