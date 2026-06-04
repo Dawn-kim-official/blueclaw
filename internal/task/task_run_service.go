@@ -33,6 +33,12 @@ type TaskRunCancelRequest struct {
 	Reason                     string
 }
 
+type TaskRunOrigin struct {
+	ConversationID string
+	ReplyTargetID  string
+	IsThread       bool
+}
+
 func NewTaskRunService(taskEventService *TaskEventService) *TaskRunService {
 	return &TaskRunService{
 		taskRuns:            map[string]TaskRun{},
@@ -46,10 +52,16 @@ func (taskRunService *TaskRunService) UseRepository(repository TaskRunRepository
 }
 
 func (taskRunService *TaskRunService) CreateTaskRun(requesterPersonID string, originConversationID string, prompt string) TaskRun {
+	return taskRunService.CreateTaskRunWithOrigin(requesterPersonID, TaskRunOrigin{ConversationID: originConversationID}, prompt)
+}
+
+func (taskRunService *TaskRunService) CreateTaskRunWithOrigin(requesterPersonID string, origin TaskRunOrigin, prompt string) TaskRun {
 	taskRun := TaskRun{
 		TaskRunID:            newIdentifier(),
 		RequesterPersonID:    requesterPersonID,
-		OriginConversationID: originConversationID,
+		OriginConversationID: strings.TrimSpace(origin.ConversationID),
+		OriginReplyTargetID:  strings.TrimSpace(origin.ReplyTargetID),
+		OriginIsThread:       origin.IsThread,
 		Status:               TaskStatusPlanned,
 		Prompt:               prompt,
 		CreatedAt:            time.Now(),

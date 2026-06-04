@@ -38,6 +38,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if decision.EffortLevel != EffortLevelStandard {
 		t.Fatalf("expected selected effort level, got %+v", decision)
 	}
+	if decision.TaskComplexity != TaskComplexityNormal {
+		t.Fatalf("expected default task complexity, got %+v", decision)
+	}
 	if len(languageModel.requests) != 1 {
 		t.Fatalf("expected one intake model call, got %d", len(languageModel.requests))
 	}
@@ -46,6 +49,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"taskShape"`) {
 		t.Fatalf("expected task shape in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"taskComplexity"`) {
+		t.Fatalf("expected task complexity in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requestedOutputFormats"`) {
 		t.Fatalf("expected requested output formats in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)

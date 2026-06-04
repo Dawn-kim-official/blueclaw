@@ -8,6 +8,8 @@ type taskLaunchEvent struct {
 	ProfileName       string           `json:"profileName"`
 	RequesterPersonID string           `json:"requesterPersonID"`
 	ConversationID    string           `json:"conversationID"`
+	ReplyTargetID     string           `json:"replyTargetID,omitempty"`
+	IsThread          bool             `json:"isThread,omitempty"`
 	ConversationType  string           `json:"conversationType,omitempty"`
 	ChannelID         string           `json:"channelID,omitempty"`
 	ChannelName       string           `json:"channelName,omitempty"`
@@ -22,6 +24,8 @@ func marshalTaskLaunchEvent(request TaskLaunchRequest, profileName string, toolN
 		ProfileName:       profileName,
 		RequesterPersonID: request.RequesterPersonID,
 		ConversationID:    request.ConversationID,
+		ReplyTargetID:     request.OriginReplyTargetID,
+		IsThread:          request.OriginIsThread,
 		ConversationType:  request.ConversationType,
 		ChannelID:         request.ConversationChannelID,
 		ChannelName:       request.ConversationChannelName,

@@ -190,6 +190,8 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		RequesterCircles:        append([]string{}, request.RequesterCircles...),
 		IsApprovalContinuation:  request.IsApprovalContinuation,
 		ExistingTaskRunID:       request.ExistingTaskRunID,
+		OriginReplyTargetID:     request.OriginReplyTargetID,
+		OriginIsThread:          request.OriginIsThread,
 		ProfileName:             request.ProfileName,
 		ConversationID:          request.ConversationID,
 		Prompt:                  request.Prompt,
@@ -204,6 +206,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		ActivePaths:             request.ActivePaths,
 		ActiveGoal:              request.ActiveGoal,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
+		TaskComplexity:          request.TaskComplexity,
 		TurnStartedAt:           request.TurnStartedAt,
 		CheckpointSender:        request.CheckpointSender,
 	})
@@ -270,6 +273,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequesterCircles:           append([]string{}, request.RequesterCircles...),
 		IsApprovalContinuation:     request.IsApprovalContinuation,
 		ExistingTaskRunID:          request.ExistingTaskRunID,
+		OriginReplyTargetID:        request.OriginReplyTargetID,
+		OriginIsThread:             request.OriginIsThread,
 		ProfileName:                normalizedAgentProfileName(request.ProfileName),
 		ConversationID:             request.ConversationID,
 		Prompt:                     request.Prompt,
@@ -294,6 +299,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		OutcomeContract:            outcomeContract,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
+		TaskComplexity:             intakeDecision.TaskComplexity,
 		TurnStartedAt:              request.TurnStartedAt,
 		CheckpointSender:           request.CheckpointSender,
 	}
@@ -317,7 +323,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 }
 
 func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, decision TurnDecision) (AgentTurnResult, error) {
-	taskRun := agentKernel.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
+	taskRun := agentKernel.createTaskRunForRequest(request)
 	reactionEmojiName := NormalizeReactionEmojiName(decision.ReactionEmojiName)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(decision.IntakeDecision()))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.consumed", marshalEventBody(map[string]string{
@@ -348,7 +354,7 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		return AgentTurnResult{}, false, executionPlan, true, nil
 	}
 
-	taskRun := agentKernel.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
+	taskRun := agentKernel.createTaskRunForRequest(request)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.plan_created", marshalEventBody(executionPlan))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.policy_decision", marshalEventBody(decision))
 
@@ -2005,7 +2011,11 @@ func buildSenderAddressingDescription(request AgentTurnRequest) string {
 }
 
 func (agentKernel *AgentKernel) RunTask(requesterPersonID string, originConversationID string, prompt string) (task.TaskRun, error) {
-	taskRun := agentKernel.taskRunService.CreateTaskRun(requesterPersonID, originConversationID, prompt)
+	return agentKernel.RunTaskWithOrigin(requesterPersonID, task.TaskRunOrigin{ConversationID: originConversationID}, prompt)
+}
+
+func (agentKernel *AgentKernel) RunTaskWithOrigin(requesterPersonID string, origin task.TaskRunOrigin, prompt string) (task.TaskRun, error) {
+	taskRun := agentKernel.taskRunService.CreateTaskRunWithOrigin(requesterPersonID, origin, prompt)
 	taskPlan, errorValue := agentKernel.planCompiler.CompilePlan(prompt)
 	if errorValue != nil {
 		return task.TaskRun{}, errorValue
@@ -2029,7 +2039,7 @@ func (agentKernel *AgentKernel) ResumeTask(taskRunID string) (task.TaskRun, erro
 }
 
 func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus) (AgentTurnResult, error) {
-	taskRun := agentKernel.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
+	taskRun := agentKernel.createTaskRunForRequest(request)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	finishMessage := strings.TrimSpace(intakeDecision.UserFacingReply)
 	if finishMessage == "" {
@@ -2059,6 +2069,14 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, 
 	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, status))
 	blockedTaskRun.Result = finishMessage
 	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: finishMessage, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
+}
+
+func (agentKernel *AgentKernel) createTaskRunForRequest(request AgentRequest) task.TaskRun {
+	return agentKernel.taskRunService.CreateTaskRunWithOrigin(request.RequesterPersonID, task.TaskRunOrigin{
+		ConversationID: request.ConversationID,
+		ReplyTargetID:  request.OriginReplyTargetID,
+		IsThread:       request.OriginIsThread,
+	}, request.Prompt)
 }
 
 func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, activeGoal ActiveGoal) {

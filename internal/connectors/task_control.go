@@ -32,7 +32,7 @@ func (connectorRuntime *ConnectorRuntime) handleTaskControlIfRequested(
 		return ConnectorRuntimeResult{}, false
 	}
 
-	selection := connectorRuntime.applyTaskControlIntent(decision, personID, event.ConversationID)
+	selection := connectorRuntime.applyTaskControlIntent(decision, personID, event)
 	for _, taskRun := range selection.cancelledTaskRuns {
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "task.stop.requested", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
@@ -67,7 +67,7 @@ func taskControlIntent(event PlatformInboundEvent) (agent.TaskControlIntentDecis
 	return agent.TaskControlIntentDecision{}, false
 }
 
-func (connectorRuntime *ConnectorRuntime) applyTaskControlIntent(decision agent.TaskControlIntentDecision, personID string, conversationID string) taskControlSelection {
+func (connectorRuntime *ConnectorRuntime) applyTaskControlIntent(decision agent.TaskControlIntentDecision, personID string, event PlatformInboundEvent) taskControlSelection {
 	selection := taskControlSelection{
 		intent: decision.Intent,
 		reason: firstNonEmptyString(decision.Reason, "user requested task stop"),
@@ -79,37 +79,48 @@ func (connectorRuntime *ConnectorRuntime) applyTaskControlIntent(decision agent.
 			Reason:            selection.reason,
 		})
 	case agent.TaskControlIntentStop:
-		selection.cancelledTaskRuns = connectorRuntime.cancelCurrentConversationTasks(personID, conversationID, selection.reason)
-		if len(selection.cancelledTaskRuns) == 0 {
-			selection.cancelledTaskRuns, selection.hasMultipleTargets = connectorRuntime.cancelSingleActiveTask(personID, selection.reason)
-		}
+		selection.cancelledTaskRuns = connectorRuntime.cancelLatestStopScopedTask(personID, event, selection.reason)
 	}
 	selection.hasNoTarget = len(selection.cancelledTaskRuns) == 0 && !selection.hasMultipleTargets
 	return selection
 }
 
-func (connectorRuntime *ConnectorRuntime) cancelCurrentConversationTasks(personID string, conversationID string, reason string) []task.TaskRun {
+func (connectorRuntime *ConnectorRuntime) cancelLatestStopScopedTask(personID string, event PlatformInboundEvent, reason string) []task.TaskRun {
+	taskRun, isFound := connectorRuntime.latestStopScopedTask(personID, event)
+	if !isFound {
+		return nil
+	}
 	return connectorRuntime.agentKernel.CancelActiveTasks(task.TaskRunCancelRequest{
-		RequesterPersonID:     personID,
-		OriginConversationIDs: []string{conversationID},
-		Reason:                reason,
-	})
-}
-
-func (connectorRuntime *ConnectorRuntime) cancelSingleActiveTask(personID string, reason string) ([]task.TaskRun, bool) {
-	activeTaskRuns := connectorRuntime.activeTaskRunsForPerson(personID)
-	if len(activeTaskRuns) == 0 {
-		return nil, false
-	}
-	if len(activeTaskRuns) > 1 {
-		return nil, true
-	}
-	cancelledTaskRuns := connectorRuntime.agentKernel.CancelActiveTasks(task.TaskRunCancelRequest{
-		TaskRunIDs:        []string{activeTaskRuns[0].TaskRunID},
+		TaskRunIDs:        []string{taskRun.TaskRunID},
 		RequesterPersonID: personID,
 		Reason:            reason,
 	})
-	return cancelledTaskRuns, false
+}
+
+func (connectorRuntime *ConnectorRuntime) latestStopScopedTask(personID string, event PlatformInboundEvent) (task.TaskRun, bool) {
+	var selectedTaskRun task.TaskRun
+	isSelected := false
+	for _, taskRun := range connectorRuntime.activeTaskRunsForPerson(personID) {
+		if !taskRunMatchesStopScope(taskRun, event) {
+			continue
+		}
+		if isSelected && !taskRun.UpdatedAt.After(selectedTaskRun.UpdatedAt) {
+			continue
+		}
+		selectedTaskRun = taskRun
+		isSelected = true
+	}
+	return selectedTaskRun, isSelected
+}
+
+func taskRunMatchesStopScope(taskRun task.TaskRun, event PlatformInboundEvent) bool {
+	if taskRun.OriginConversationID != event.ConversationID {
+		return false
+	}
+	if eventIsThreadReply(event) {
+		return taskRun.OriginReplyTargetID == event.ReplyTargetID
+	}
+	return !taskRun.OriginIsThread
 }
 
 func (connectorRuntime *ConnectorRuntime) activeTaskRunsForPerson(personID string) []task.TaskRun {
@@ -138,9 +149,9 @@ func shouldProcessBeforeConversationLock(event PlatformInboundEvent) bool {
 func exactTaskControlIntent(prompt string) agent.TaskControlIntent {
 	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
 	switch normalizedPrompt {
-	case "/stop", "/중단":
+	case "/stop":
 		return agent.TaskControlIntentStop
-	case "/stop-all", "/stop_all", "/중단-전부":
+	case "/stop-all":
 		return agent.TaskControlIntentStopAll
 	default:
 		return agent.TaskControlIntentNone

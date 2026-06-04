@@ -158,6 +158,48 @@ func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerSuppressesCheckpointForSimpleTask(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","message":"일정을 확인하겠습니다.","toolName":"alpha","toolInput":{"value":"one"}}`,
+		finishMessageDocument("등록했습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"alpha"})
+	wasToolCalled := false
+	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		wasToolCalled = true
+		return ToolSuccess("alpha result"), nil
+	})
+	checkpoints := []AgentCheckpoint{}
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "일정 등록해줘",
+		ToolSet:           toolRegistry,
+		TaskComplexity:    TaskComplexitySimple,
+		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
+			checkpoints = append(checkpoints, checkpoint)
+			return nil
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if !wasToolCalled {
+		t.Fatal("expected tool to run after skipped checkpoint")
+	}
+	if result.FinishMessage != "등록했습니다." {
+		t.Fatalf("expected final reply, got %q", result.FinishMessage)
+	}
+	if len(checkpoints) != 0 {
+		t.Fatalf("expected no checkpoint for simple task, got %+v", checkpoints)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.skipped", "task_complexity_simple") {
+		t.Fatal("expected simple task checkpoint skip event")
+	}
+}
+
 func TestAgentTurnRunnerRunsToolWhenCheckpointFails(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","message":"작업 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,

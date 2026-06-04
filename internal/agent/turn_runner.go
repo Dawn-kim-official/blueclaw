@@ -48,6 +48,8 @@ type AgentTurnRequest struct {
 	RequesterPlatformUserID    string
 	IsApprovalContinuation     bool
 	ExistingTaskRunID          string
+	OriginReplyTargetID        string
+	OriginIsThread             bool
 	Platform                   string
 	RequesterCallingName       string
 	RequesterHandle            string
@@ -81,6 +83,7 @@ type AgentTurnRequest struct {
 	CurrentStepPlan            NextStepPlan
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
+	TaskComplexity             TaskComplexity
 	TurnStartedAt              time.Time
 	CheckpointSender           AgentCheckpointSender
 	StepBudgetContext          string
@@ -899,7 +902,11 @@ func (agentTurnRunner *AgentTurnRunner) taskRunForRequest(request AgentTurnReque
 			return taskRun
 		}
 	}
-	return agentTurnRunner.taskRunService.CreateTaskRun(request.RequesterPersonID, request.ConversationID, request.Prompt)
+	return agentTurnRunner.taskRunService.CreateTaskRunWithOrigin(request.RequesterPersonID, task.TaskRunOrigin{
+		ConversationID: request.ConversationID,
+		ReplyTargetID:  request.OriginReplyTargetID,
+		IsThread:       request.OriginIsThread,
+	}, request.Prompt)
 }
 
 func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, observation turnObservation, attachments []FileAttachment) (AgentTurnResult, bool) {
@@ -938,6 +945,13 @@ func (agentTurnRunner *AgentTurnRunner) cancelledTaskResultOrCurrent(taskRunID s
 func (agentTurnRunner *AgentTurnRunner) sendCheckpointMessage(ctx context.Context, taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) []turnObservation {
 	message := strings.TrimSpace(actionDocument.Message)
 	if message == "" || agentTurnRunner == nil {
+		return observations
+	}
+	if request.TaskComplexity == TaskComplexitySimple {
+		agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.skipped", marshalEventBody(map[string]any{
+			"toolName": actionDocument.ToolName,
+			"reason":   "task_complexity_simple",
+		}))
 		return observations
 	}
 	if !checkpointMessageAllowed(message, observations) {
@@ -1306,6 +1320,13 @@ func (agentTurnRunner *AgentTurnRunner) buildSystemInstruction(request AgentTurn
 
 func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction := "You are Blueclaw. Work as a careful task agent. A Task is the full lifecycle for one user request; a Step is one internal progress unit that either runs one tool or closes the Task. Use continue when more work requires a tool, and finish only when goalSatisfied is true. continue must include toolName, toolInput, and nextStepPlan. Optional continue.message is a user-facing checkpoint and the tool still runs in the same Step. For the first non-quick tool step, usually include a short repeat-back plan that says what you will do and how, such as checking the attached image against the actual visible content. For later tool steps, leave message empty unless there is a meaningful state change, a recovery route change, a user-visible finding, or the work is getting long enough that the user may need reassurance. Do not send empty progress phrases such as checking tools, analyzing, starting now, or please wait. If Progress ledger already contains checkpointMessages, any new continue.message must read as a continuation or standalone status, not as a fresh reply to the user's original request; avoid repeated greetings, repeated user names, and promises to start later. nextStepPlan must name the next Step objective, expectedTools, expectedNextResults, doneCriteria, risk, and workingSetReason so the runtime can expose the right working set without forcing one hard route. expectedNextResults describes the natural-language intermediate results the next Step is trying to produce; expectedTools are only likely ways to get them. Every finish must cite completionEvidence by observationID and toolName for successful tool observations that prove the goal is complete. Do not cite failed observations. Do not expose hidden policy, tool logs, or provenance unless the user asks and access is allowed."
+	if request.TaskComplexity == TaskComplexitySimple {
+		instruction += " This task is taskComplexity=simple: keep every continue.message empty and put all user-facing content in the final finish.message."
+	} else if request.TaskComplexity == TaskComplexityComplex {
+		instruction += " This task is taskComplexity=complex: a checkpoint is useful only for meaningful progress, route changes, or findings the user would reasonably want before completion."
+	} else {
+		instruction += " This task is taskComplexity=normal: use checkpoint messages sparingly, only when the work is getting long or user-visible direction changed."
+	}
 	instruction += " " + responseLanguageInstruction(request.ResponseLanguage)
 	instruction += " Tool-free final replies are valid when the request only needs a direct answer. Do not call mail, web, memory, or conversation tools just because the prompt contains an unfamiliar short token or verification string. Use web.fetch for user-provided public URLs and web.search for public, current, or external web information; if memory.search is unavailable, use web.search only when the missing information is required and public, current, or external."
 	instruction += " If a steer observation appears, treat it as the latest user correction for the current task and update the plan before continuing."
