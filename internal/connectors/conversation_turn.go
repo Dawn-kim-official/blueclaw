@@ -42,6 +42,8 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		RequesterPlatformUserID:    event.SenderID,
 		IsApprovalContinuation:     turn.IsApprovalContinuation,
 		ExistingTaskRunID:          existingGoalTaskRunIDFromTurn(turn),
+		OriginReplyTargetID:        event.ReplyTargetID,
+		OriginIsThread:             eventIsThreadReply(event),
 		ProfileName:                "default",
 		Platform:                   turn.Platform,
 		ConversationID:             event.ConversationID,
@@ -62,6 +64,10 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		AccessibleConversationIDs:  turn.AccessibleConversationIDs,
 		CheckpointSender:           turn.CheckpointSender,
 	}
+}
+
+func eventIsThreadReply(event PlatformInboundEvent) bool {
+	return event.ReplyTargetID != "" && event.MessageID != "" && event.ReplyTargetID != event.MessageID
 }
 
 func existingGoalTaskRunIDFromTurn(turn ConversationTurn) string {

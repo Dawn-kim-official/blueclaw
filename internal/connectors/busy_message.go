@@ -50,6 +50,8 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	case agent.BusyRouteReplace:
 		connectorRuntime.replaceBusyTask(event, activeTaskRun, decision)
 		return busyMessageResult{clearActiveGoal: true}, nil
+	case agent.BusyRouteCancel:
+		return connectorRuntime.handleBusyCancelMessage(ctx, platform, event, replyTarget, activeTaskRun, decision, sendReply)
 	case agent.BusyRouteNewTask:
 		return busyMessageResult{clearActiveGoal: true}, nil
 	case agent.BusyRouteUnrelated:
@@ -57,6 +59,32 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	default:
 		return busyMessageResult{clearActiveGoal: true}, nil
 	}
+}
+
+func (connectorRuntime *ConnectorRuntime) handleBusyCancelMessage(
+	ctx context.Context,
+	platform string,
+	event PlatformInboundEvent,
+	replyTarget ReplyTarget,
+	activeTaskRun task.TaskRun,
+	decision agent.TurnDecision,
+	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
+) (busyMessageResult, error) {
+	_, _ = connectorRuntime.agentKernel.CancelTask(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "task cancelled by newer user instruction")
+	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.cancel.requested", marshalConnectorEventBody(map[string]string{
+		"messageID":       event.MessageID,
+		"reason":          strings.TrimSpace(decision.Reason),
+		"latestUserInput": strings.TrimSpace(event.Prompt),
+	}))
+	reply, errorValue := connectorRuntime.generateBusyReply(ctx, event, activeTaskRun, "cancel", decision)
+	if errorValue != nil {
+		return busyMessageResult{}, errorValue
+	}
+	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{Message: reply, TaskRunID: activeTaskRun.TaskRunID, ReplyKind: connectorReplyKindUserNotice})
+	if errorValue != nil {
+		return busyMessageResult{}, errorValue
+	}
+	return busyMessageResult{connectorResult: ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: activeTaskRun.TaskRunID, Reason: "busy_cancel", ReplyDispatchID: dispatchID}, isHandled: true, clearActiveGoal: true}, nil
 }
 
 func (connectorRuntime *ConnectorRuntime) handleBusyStatusMessage(
@@ -129,7 +157,8 @@ func (connectorRuntime *ConnectorRuntime) generateBusyReply(ctx context.Context,
 		"Latest user message: " + strings.TrimSpace(event.Prompt),
 		"Routing reason: " + strings.TrimSpace(decision.Reason),
 		"Steering instruction: " + strings.TrimSpace(decision.BusyInstruction),
-		"Do not claim the task is complete. Do not expose internal event names or task IDs.",
+		"Do not expose internal event names or task IDs.",
+		"Status and steer replies must not claim the task is complete. Cancel replies may say the active task has been stopped.",
 	}, "\n")
 	return connectorRuntime.agentKernel.GenerateReplyWithContext(ctx, prompt, event.Context.ToAgentVisibleContext(), nil)
 }

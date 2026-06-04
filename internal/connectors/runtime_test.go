@@ -62,13 +62,23 @@ func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
 
 func TestOnlyExactStopCommandsBypassConversationLock(t *testing.T) {
 	stopEvent := testInboundEvent("message-stop")
-	stopEvent.Prompt = "/중단"
+	stopEvent.Prompt = "/stop"
+	koreanStopEvent := testInboundEvent("message-stop-ko")
+	koreanStopEvent.Prompt = "/중단"
+	stopUnderscoreEvent := testInboundEvent("message-stop-underscore")
+	stopUnderscoreEvent.Prompt = "/stop_all"
 	askEvent := testInboundEvent("message-ask")
 	askEvent.LegacyFields = map[string]interface{}{"askAction": "confirm"}
 	askEvent.Prompt = "approved"
 
 	if !shouldProcessBeforeConversationLock(stopEvent) {
 		t.Fatal("expected exact stop command to bypass conversation lock")
+	}
+	if shouldProcessBeforeConversationLock(koreanStopEvent) {
+		t.Fatal("korean stop alias should not bypass conversation lock")
+	}
+	if shouldProcessBeforeConversationLock(stopUnderscoreEvent) {
+		t.Fatal("underscore stop alias should not bypass conversation lock")
 	}
 	if shouldProcessBeforeConversationLock(askEvent) {
 		t.Fatal("ask interaction should keep conversation lock ordering")
@@ -83,6 +93,7 @@ func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T)
 	}
 	event := testInboundEvent("message-stop")
 	event.Prompt = "/stop"
+	event.ReplyTargetID = event.MessageID
 
 	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
 
@@ -98,6 +109,108 @@ func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T)
 	}
 	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "1") {
 		t.Fatalf("expected stop reply, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeStopCommandCancelsLatestThreadScopedTask(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
+	topLevelTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+		ConversationID: "channel-1",
+		ReplyTargetID:  "root-1",
+		IsThread:       false,
+	}, "top level task")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	time.Sleep(time.Millisecond)
+	threadTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+		ConversationID: "channel-1",
+		ReplyTargetID:  "root-1",
+		IsThread:       true,
+	}, "thread task")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	time.Sleep(time.Millisecond)
+	otherThreadTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+		ConversationID: "channel-1",
+		ReplyTargetID:  "root-2",
+		IsThread:       true,
+	}, "other thread task")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testChannelInboundEvent("message-stop")
+	event.Prompt = "/stop"
+	event.ReplyTargetID = "root-1"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected stop event to process: %v", errorValue)
+	}
+	if result.Reason != "task_control" {
+		t.Fatalf("reason = %q, want task_control", result.Reason)
+	}
+	cancelledTaskRun, _ := connectorRuntime.agentKernel.FindTaskRun(threadTaskRun.TaskRunID)
+	topLevelTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(topLevelTaskRun.TaskRunID)
+	otherThreadTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(otherThreadTaskRun.TaskRunID)
+	if cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected thread task cancelled, got %+v", cancelledTaskRun)
+	}
+	if topLevelTaskRun.Status == task.TaskStatusCancelled || otherThreadTaskRun.Status == task.TaskStatusCancelled {
+		t.Fatalf("expected only matching thread task cancelled, top=%s other=%s", topLevelTaskRun.Status, otherThreadTaskRun.Status)
+	}
+}
+
+func TestConnectorRuntimeStopCommandAtChannelRootCancelsLatestRootScopedTask(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
+	oldRootTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+		ConversationID: "channel-1",
+		ReplyTargetID:  "root-old",
+		IsThread:       false,
+	}, "old root task")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	time.Sleep(time.Millisecond)
+	latestRootTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+		ConversationID: "channel-1",
+		ReplyTargetID:  "root-latest",
+		IsThread:       false,
+	}, "latest root task")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	time.Sleep(time.Millisecond)
+	threadTaskRun, errorValue := connectorRuntime.agentKernel.RunTaskWithOrigin("person-1", task.TaskRunOrigin{
+		ConversationID: "channel-1",
+		ReplyTargetID:  "thread-root",
+		IsThread:       true,
+	}, "thread task")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testChannelInboundEvent("message-stop")
+	event.Prompt = "/stop"
+	event.ReplyTargetID = event.MessageID
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected stop event to process: %v", errorValue)
+	}
+	if result.Reason != "task_control" {
+		t.Fatalf("reason = %q, want task_control", result.Reason)
+	}
+	oldRootTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(oldRootTaskRun.TaskRunID)
+	latestRootTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(latestRootTaskRun.TaskRunID)
+	threadTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(threadTaskRun.TaskRunID)
+	if latestRootTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected latest root task cancelled, got %+v", latestRootTaskRun)
+	}
+	if oldRootTaskRun.Status == task.TaskStatusCancelled || threadTaskRun.Status == task.TaskStatusCancelled {
+		t.Fatalf("expected only latest root task cancelled, old=%s thread=%s", oldRootTaskRun.Status, threadTaskRun.Status)
 	}
 }
 
@@ -184,6 +297,50 @@ func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T)
 	}
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "방향 수정 내용을 현재 작업에 반영하겠습니다." {
 		t.Fatalf("expected steer acknowledgement, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked to cancel active task","userFacingReply":"","busyRoute":"cancel","busyInstruction":""}`,
+			},
+			"blueclaw_reply": {
+				`{"reply":"진행 중인 작업을 중단했습니다."}`,
+			},
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "긴 작업")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-busy-cancel")
+	event.Prompt = "중단해"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected busy cancel event to process: %v", errorValue)
+	}
+	cancelledTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(activeTaskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected active task cancelled, got found=%v task=%+v", isFound, cancelledTaskRun)
+	}
+	if result.Reason != "busy_cancel" || result.TaskRunID != activeTaskRun.TaskRunID {
+		t.Fatalf("expected busy cancel result, got %+v", result)
+	}
+	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected no new task run, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "진행 중인 작업을 중단했습니다." {
+		t.Fatalf("expected cancel reply, got %+v", adapter.sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, activeTaskRun.TaskRunID, "task.cancel.requested", "message-busy-cancel") {
+		t.Fatal("expected cancel request event")
 	}
 }
 

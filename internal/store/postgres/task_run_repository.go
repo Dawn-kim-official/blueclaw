@@ -23,9 +23,9 @@ func (taskRunRepository TaskRunRepository) InsertTaskRun(taskRun task.TaskRun) e
 func (taskRunRepository TaskRunRepository) SaveTaskRun(taskRun task.TaskRun) error {
 	_, errorValue := taskRunRepository.database.SQL.ExecContext(context.Background(), `
 INSERT INTO task_run (
-  task_run_id, requester_person_id, origin_conversation_id, current_agent_profile_name,
-  status, prompt, result, failure_reason, created_at, updated_at
-) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+  task_run_id, requester_person_id, origin_conversation_id, origin_reply_target_id, origin_is_thread,
+  current_agent_profile_name, status, prompt, result, failure_reason, created_at, updated_at
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 ON CONFLICT (task_run_id) DO UPDATE SET
   current_agent_profile_name = EXCLUDED.current_agent_profile_name,
   status = EXCLUDED.status,
@@ -35,6 +35,8 @@ ON CONFLICT (task_run_id) DO UPDATE SET
 		taskRun.TaskRunID,
 		emptyStringAsNil(taskRun.RequesterPersonID),
 		emptyStringAsNil(taskRun.OriginConversationID),
+		emptyStringAsNil(taskRun.OriginReplyTargetID),
+		taskRun.OriginIsThread,
 		taskRun.CurrentAgentProfileName,
 		string(taskRun.Status),
 		taskRun.Prompt,
@@ -49,6 +51,7 @@ ON CONFLICT (task_run_id) DO UPDATE SET
 func (taskRunRepository TaskRunRepository) FindTaskRun(taskRunID string) (task.TaskRun, bool, error) {
 	row := taskRunRepository.database.SQL.QueryRowContext(context.Background(), `
 SELECT task_run_id, COALESCE(requester_person_id, ''), COALESCE(origin_conversation_id, ''),
+  COALESCE(origin_reply_target_id, ''), COALESCE(origin_is_thread, false),
   current_agent_profile_name, status, prompt, COALESCE(result, ''), COALESCE(failure_reason, ''),
   created_at, updated_at
 FROM task_run WHERE task_run_id = $1`, taskRunID)
@@ -62,6 +65,7 @@ FROM task_run WHERE task_run_id = $1`, taskRunID)
 func (taskRunRepository TaskRunRepository) ListTaskRun() ([]task.TaskRun, error) {
 	rows, errorValue := taskRunRepository.database.SQL.QueryContext(context.Background(), `
 SELECT task_run_id, COALESCE(requester_person_id, ''), COALESCE(origin_conversation_id, ''),
+  COALESCE(origin_reply_target_id, ''), COALESCE(origin_is_thread, false),
   current_agent_profile_name, status, prompt, COALESCE(result, ''), COALESCE(failure_reason, ''),
   created_at, updated_at
 FROM task_run ORDER BY created_at DESC`)
@@ -75,6 +79,7 @@ FROM task_run ORDER BY created_at DESC`)
 func (taskRunRepository TaskRunRepository) ListTaskRunByPersonID(personID string) ([]task.TaskRun, error) {
 	rows, errorValue := taskRunRepository.database.SQL.QueryContext(context.Background(), `
 SELECT task_run_id, COALESCE(requester_person_id, ''), COALESCE(origin_conversation_id, ''),
+  COALESCE(origin_reply_target_id, ''), COALESCE(origin_is_thread, false),
   current_agent_profile_name, status, prompt, COALESCE(result, ''), COALESCE(failure_reason, ''),
   created_at, updated_at
 FROM task_run WHERE requester_person_id = $1 ORDER BY created_at DESC`, personID)
@@ -96,6 +101,8 @@ func scanTaskRun(scanner taskRunScanner) (task.TaskRun, error) {
 		&taskRun.TaskRunID,
 		&taskRun.RequesterPersonID,
 		&taskRun.OriginConversationID,
+		&taskRun.OriginReplyTargetID,
+		&taskRun.OriginIsThread,
 		&taskRun.CurrentAgentProfileName,
 		&status,
 		&taskRun.Prompt,

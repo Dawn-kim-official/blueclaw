@@ -34,6 +34,8 @@ type TaskRun struct {
 	TaskRunID               string     `json:"taskRunID"`
 	RequesterPersonID       string     `json:"requesterPersonID"`
 	OriginConversationID    string     `json:"originConversationID"`
+	OriginReplyTargetID     string     `json:"originReplyTargetID,omitempty"`
+	OriginIsThread          bool       `json:"originIsThread,omitempty"`
 	CurrentAgentProfileName string     `json:"currentAgentProfileName"`
 	Status                  TaskStatus `json:"status"`
 	Prompt                  string     `json:"prompt"`
