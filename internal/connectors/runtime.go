@@ -332,7 +332,6 @@ const connectorReplyKindSuccess = "success"
 const connectorReplyKindCheckpoint = "checkpoint"
 const connectorReplyKindUserNotice = "user_notice"
 const connectorReplyKindPermissionNotice = "permission_notice"
-const fallbackFailureNoticeMessage = "작업을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요."
 
 type ConnectorRuntime struct {
 	identityService    *identity.IdentityService
@@ -1940,7 +1939,7 @@ func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.Fai
 	if taskStatusRequiresFailureNotice(turnResult.TaskRun.Status) {
 		message := turnResult.FailureNotice.SendableMessage()
 		if message == "" {
-			return fallbackFailureNoticeMessage, turnResult.FailureNotice, ""
+			return "", turnResult.FailureNotice, "missing_failure_notice"
 		}
 		return message, turnResult.FailureNotice, ""
 	}

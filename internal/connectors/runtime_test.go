@@ -719,31 +719,6 @@ func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSendsFallbackReplyWhenTaskDoesNotCompleteWithoutFailureNotice(t *testing.T) {
-	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
-
-	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
-	if errorValue != nil {
-		t.Fatalf("expected incomplete task to be recorded: %v", errorValue)
-	}
-
-	if result.TaskRunID == "" {
-		t.Fatal("expected task run id")
-	}
-	if result.Reason != "task_not_completed" {
-		t.Fatalf("expected task_not_completed result, got %+v", result)
-	}
-	if result.ReplyDispatchID != "dispatch-1" {
-		t.Fatalf("expected fallback failure notice dispatch id, got %q", result.ReplyDispatchID)
-	}
-	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != fallbackFailureNoticeMessage {
-		t.Fatalf("expected fallback failure notice reply, got %+v", adapter.sentReplies)
-	}
-	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "connector.reply.sent", "user_notice") {
-		t.Fatal("expected fallback failure notice sent event")
-	}
-}
-
 func TestConnectorRuntimeSkipsUnsafeUserNoticeAttachmentClaims(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
@@ -861,39 +836,6 @@ func TestConnectorRuntimeSendsFailureNoticeForBlockedTask(t *testing.T) {
 	}
 	if sentReplies[0].FailureNotice.DiagnosticEventID != "task-1:limit" {
 		t.Fatalf("expected diagnostic reference to be preserved, got %+v", sentReplies[0].FailureNotice)
-	}
-}
-
-func TestConnectorRuntimeSendsFallbackForBlockedTaskWithoutSendableFailureNotice(t *testing.T) {
-	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
-	sentReplies := []OutboundReply{}
-	event := testInboundEvent("message-1")
-
-	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
-		context.Background(),
-		"test",
-		event,
-		"task-1",
-		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{
-			TaskRun:       task.TaskRun{Status: task.TaskStatusFailed},
-			UserNotice:    "겉보기에는 안전한 fallback입니다.",
-			FailureNotice: agent.FailureNotice{},
-		},
-		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
-			sentReplies = append(sentReplies, reply)
-			return "dispatch-1", nil
-		},
-	)
-
-	if !isSent || dispatchID != "dispatch-1" {
-		t.Fatalf("expected fallback failure notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
-	}
-	if len(sentReplies) != 1 || sentReplies[0].Message != fallbackFailureNoticeMessage {
-		t.Fatalf("expected fallback failure notice reply, got %+v", sentReplies)
-	}
-	if !connectorTaskEventsContain(connectorRuntime, "task-1", "connector.reply.sent", "user_notice") {
-		t.Fatal("expected fallback failure notice sent event")
 	}
 }
 
