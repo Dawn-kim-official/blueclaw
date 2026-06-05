@@ -2816,6 +2816,12 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 			Message: "required file expected result must include attachment suffix " + missingSuffix,
 		}
 	}
+	if expectedResultRequiresTool(request.OutcomeContract, "ask.choice") && !hasSuccessfulToolObservationForTurn(observations, "ask.choice") {
+		return completionGateResult{
+			Message:            "required interactive choice expected result must use ask.choice",
+			SuggestedNextTools: []string{"ask.choice"},
+		}
+	}
 	finishMessage := finishActionMessage(actionDocument)
 	if FinishMessageClaimsAttachmentDelivery(finishMessage) && len(attachments) == 0 {
 		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
@@ -2843,6 +2849,37 @@ func expectedResultRequiresFileAttachment(contract OutcomeContract) bool {
 	}
 	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
 		if result.Required && result.Type == ExpectedResultTypeFile {
+			return true
+		}
+	}
+	return false
+}
+
+func expectedResultRequiresTool(contract OutcomeContract, toolName string) bool {
+	normalizedToolName := strings.TrimSpace(toolName)
+	if normalizedToolName == "" {
+		return false
+	}
+	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
+		if !result.Required {
+			continue
+		}
+		for _, hint := range result.AcceptanceHints {
+			if strings.TrimSpace(hint) == normalizedToolName {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasSuccessfulToolObservationForTurn(observations []turnObservation, toolName string) bool {
+	normalizedToolName := strings.TrimSpace(toolName)
+	if normalizedToolName == "" {
+		return false
+	}
+	for _, observation := range observations {
+		if strings.TrimSpace(observation.Tool) == normalizedToolName && !observation.Failed() {
 			return true
 		}
 	}

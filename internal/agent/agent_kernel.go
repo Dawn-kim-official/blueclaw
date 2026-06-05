@@ -938,7 +938,7 @@ func activeGoalOutcomeContractHasRequirements(contract OutcomeContract) bool {
 }
 
 func expectedResultsForRequest(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredEvidenceTools []string, requiredAttachmentSuffixes []string) []ExpectedResult {
-	results := []ExpectedResult{}
+	results := append([]ExpectedResult{}, intakeDecision.ExpectedResults...)
 	if requestExpectsPublicSiteResult(request, executionPlan, hasExecutionPlan, requiredEvidenceTools) {
 		results = append(results, ExpectedResult{
 			ID:          "site-public-link",

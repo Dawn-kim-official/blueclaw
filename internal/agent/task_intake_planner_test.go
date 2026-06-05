@@ -913,6 +913,53 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	}
 }
 
+func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"expectedResults":[{"id":"interactive-choice","type":"message","description":"사용자가 직접 고를 수 있는 선택지 UI가 표시됨","required":true,"acceptanceHints":["ask.choice"]}],"responseLanguage":"ko","reason":"choice probe","userFacingReply":""}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finishMessageDocument("아래 세 가지 중 하나를 선택해 주세요.\n\n1. 선택지 1\n2. 선택지 2\n3. 선택지 3"),
+		`{"action":"continue","toolName":"ask.choice","toolInput":{"question":"아래 세 가지 중 하나를 선택해 주세요.","options":[{"key":"1","label":"선택지 1","value":"1"},{"key":"2","label":"선택지 2","value":"2"},{"key":"3","label":"선택지 3","value":"3"}],"recommendedOptionKey":"1","selectionMode":"single"},"nextStepPlan":{"objective":"wait for the user choice","expectedTools":[],"expectedNextResults":["사용자가 선택지를 고름"],"doneCriteria":["ask.choice is displayed"],"risk":"none","workingSetReason":"ask.choice provides the requested options"}}`,
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	toolRegistry := newTestToolSet([]string{"ask.choice"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.choice"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
+		taskRunID := TaskRunIDFromContext(toolContext)
+		if taskRunID == "" {
+			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "ask_choice", "missing task run"), nil
+		}
+		_, errorValue := services.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, "아래 세 가지 중 하나를 선택해 주세요.")
+		if errorValue != nil {
+			return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "ask_choice", errorValue.Error()), nil
+		}
+		services.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", string(invocation.Input))
+		return ToolSuccess(`{"kind":"choice_single","question":"아래 세 가지 중 하나를 선택해 주세요."}`), nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "나한테 1 2 3 선택지 줘봐. 잘 동작하는지 테스트해보게",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected choice request: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
+		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "agent.completion_required", "ask.choice") {
+		t.Fatalf("expected text-only finish to be rejected, got %+v", events)
+	}
+	if !taskEventsContain(events, "ask.requested", `"selectionMode":"single"`) {
+		t.Fatalf("expected ask.choice request event, got %+v", events)
+	}
+	if len(replyLanguageModel.requests) != 2 {
+		t.Fatalf("expected finish rejection then ask.choice action, got %d requests", len(replyLanguageModel.requests))
+	}
+}
+
 func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceHint(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
@@ -1038,6 +1085,7 @@ func joinedMessageContent(messages []llm.Message) string {
 
 type kernelIntakeTestServices struct {
 	kernel           *AgentKernel
+	taskRunService   *task.TaskRunService
 	taskEventService *task.TaskEventService
 }
 
@@ -1052,7 +1100,7 @@ func newKernelIntakeTestServices(replyLanguageModel llm.LanguageModelProvider, i
 		IsEnabled:          true,
 		DefaultEffortLevel: EffortLevelStandard,
 	})
-	return kernelIntakeTestServices{kernel: kernel, taskEventService: taskEventService}
+	return kernelIntakeTestServices{kernel: kernel, taskRunService: taskRunService, taskEventService: taskEventService}
 }
 
 type failingLanguageModel struct{}
