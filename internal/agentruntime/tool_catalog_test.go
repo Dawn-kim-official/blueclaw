@@ -784,6 +784,99 @@ func TestScheduleCancelToolCancelsRequesterSchedules(t *testing.T) {
 	}
 }
 
+func TestScheduleCancelToolCancelsCurrentConversationDeliverySchedules(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Minute)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:   "schedule-delivered",
+		CreatorPersonID:  "person-creator",
+		ConversationID:   "dm-recipient",
+		Prompt:           "spam",
+		Kind:             task.TaskScheduleKindInterval,
+		IntervalSecond:   60,
+		NextRunAt:        &nextRunAt,
+		ExpiresAt:        timePointer(nextRunAt.Add(time.Hour)),
+		AgentProfileName: "default",
+	}, {
+		TaskScheduleID:   "schedule-other-conversation",
+		CreatorPersonID:  "person-creator",
+		ConversationID:   "dm-other",
+		Prompt:           "other",
+		Kind:             task.TaskScheduleKindInterval,
+		IntervalSecond:   60,
+		NextRunAt:        &nextRunAt,
+		ExpiresAt:        timePointer(nextRunAt.Add(time.Hour)),
+		AgentProfileName: "default",
+	}}}
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-creator", "schedule:schedule-delivered", "spam")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-recipient",
+		ConversationID:    "dm-recipient",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.cancel",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scope": "currentConversation",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected schedule.cancel success, got %s", result.ContentText())
+	}
+	if !strings.Contains(result.ContentText(), `"cancelledScheduleCount":1`) || !strings.Contains(result.ContentText(), `"cancelledTaskRunCount":1`) {
+		t.Fatalf("expected delivered schedule and active run cancelled, got %s", result.ContentText())
+	}
+	deliveredSchedule := repository.taskSchedules[1]
+	if deliveredSchedule.TaskScheduleID != "schedule-delivered" || deliveredSchedule.NextRunAt != nil {
+		t.Fatalf("expected delivered schedule to expire, got %+v", deliveredSchedule)
+	}
+	otherSchedule := repository.taskSchedules[0]
+	if otherSchedule.TaskScheduleID != "schedule-other-conversation" || otherSchedule.NextRunAt == nil {
+		t.Fatalf("expected other conversation schedule to remain active, got %+v", otherSchedule)
+	}
+	cancelledTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled {
+		t.Fatalf("expected active scheduled task run to be cancelled, got found=%v task=%+v", isFound, cancelledTaskRun)
+	}
+}
+
+func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.cancel",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scope": "currentConversation",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+		t.Fatalf("expected not found failure, got %s", result.ContentText())
+	}
+}
+
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
@@ -1034,16 +1127,19 @@ func (repository *memoryTaskScheduleRepository) CancelTaskSchedules(request task
 }
 
 func memoryTaskScheduleMatchesCancelRequest(taskSchedule task.TaskSchedule, request task.TaskScheduleCancelRequest) bool {
-	if taskSchedule.CreatorPersonID != request.RequesterPersonID || taskSchedule.NextRunAt == nil {
+	if taskSchedule.NextRunAt == nil {
 		return false
 	}
 	switch request.Scope {
 	case task.TaskScheduleCancelScopeCurrentConversation:
 		return taskSchedule.ConversationID == request.ConversationID
 	case task.TaskScheduleCancelScopeScheduleIDs:
-		return containsString(request.TaskScheduleIDs, taskSchedule.TaskScheduleID)
+		if !containsString(request.TaskScheduleIDs, taskSchedule.TaskScheduleID) {
+			return false
+		}
+		return taskSchedule.CreatorPersonID == request.RequesterPersonID || taskSchedule.ConversationID == request.ConversationID
 	default:
-		return true
+		return taskSchedule.CreatorPersonID == request.RequesterPersonID
 	}
 }
 
