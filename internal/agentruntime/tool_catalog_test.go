@@ -835,7 +835,7 @@ func TestScheduleCancelToolCancelsCurrentConversationDeliverySchedules(t *testin
 	if result.Failed() {
 		t.Fatalf("expected schedule.cancel success, got %s", result.ContentText())
 	}
-	if !strings.Contains(result.ContentText(), `"cancelledScheduleCount":1`) || !strings.Contains(result.ContentText(), `"cancelledTaskRunCount":1`) {
+	if !strings.Contains(result.ContentText(), `"cancelledScheduleCount":1`) || !strings.Contains(result.ContentText(), `"cancelledTaskRunCount":1`) || !strings.Contains(result.ContentText(), `"effectiveCancellationCount":2`) {
 		t.Fatalf("expected delivered schedule and active run cancelled, got %s", result.ContentText())
 	}
 	deliveredSchedule := repository.taskSchedules[1]
@@ -853,8 +853,11 @@ func TestScheduleCancelToolCancelsCurrentConversationDeliverySchedules(t *testin
 }
 
 func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "dm-1", "cancel request")
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.cancel"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
@@ -862,7 +865,7 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 		ConversationID:    "dm-1",
 	})
 
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	result, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
 		ToolName: "schedule.cancel",
 		Input: agent.MarshalToolInput(map[string]any{
 			"scope": "currentConversation",
@@ -874,6 +877,12 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 	}
 	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
 		t.Fatalf("expected not found failure, got %s", result.ContentText())
+	}
+	if !strings.Contains(string(result.Output.Data), `"effectiveCancellationCount":0`) {
+		t.Fatalf("expected failed result to expose zero effective cancellation count, got %s", string(result.Output.Data))
+	}
+	if containsTaskEvent(taskRunService.ListTaskEvent(taskRun.TaskRunID), "schedule.cancelled") {
+		t.Fatalf("expected not found cancellation to avoid schedule.cancelled event")
 	}
 }
 
@@ -3607,7 +3616,7 @@ func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
 	}
 }
 
-func TestSkillRemoveMissingSkillIsNonFatal(t *testing.T) {
+func TestSkillRemoveMissingSkillFails(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -3621,8 +3630,8 @@ func TestSkillRemoveMissingSkillIsNonFatal(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.Failed() || !strings.Contains(result.ContentText(), `"status":"missing"`) {
-		t.Fatalf("expected non-fatal missing result, got %+v", result)
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() || !strings.Contains(string(result.Output.Data), `"status":"missing"`) {
+		t.Fatalf("expected not found missing result, got %+v", result)
 	}
 }
 
