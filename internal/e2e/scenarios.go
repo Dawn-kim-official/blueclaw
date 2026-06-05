@@ -292,7 +292,7 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		Turns: []VirtualTurn{{
 			Prompt: "1분마다 \"1분 지났습니다\"라고 보내줘",
 			ActionResponses: []string{
-				actionCallTool("schedule.create", `{"name":"1분 알림","prompt":"1분 지났습니다","executionMode":"message","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}`),
+				actionCallTool("schedule.create", `{"name":"1분 알림","prompt":"1분 지났습니다","executionMode":"message","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}`),
 				actionFinishMessage("1분마다 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
 			},
 			ExpectedSelectedSkills: []string{"scheduled-task"},
@@ -316,7 +316,7 @@ func scheduledTaskSkill() agent.SkillInstruction {
 		WhenToUse:   "Use when the user asks to schedule, remind, repeat, cancel schedules, stop reminders, send something every minute/hour/day/week/month, repeat N times, send a finite repeated message, or says 예약, 알림, 리마인드, 취소, 중지, 마다, 분마다, 시간마다, 한 번씩, 1분에 한 번씩, 10번, 매일, 매주, or 매월.",
 		Category:    "automation",
 		Tags:        []string{"schedule", "reminder", "cron"},
-		Prompt:      "Use schedule.create to create schedules. Use executionMode message when the scheduled run should send the prompt verbatim, such as reminders, repeated messages, or say/send this exact text requests. Use executionMode agent only for schedules that need reasoning, research, checks, summaries, or tool work at run time. For repeated reminders like every minute, use kind interval with intervalSecond. Set maxRunCount for finite repeats like 10번 or repeat N times. Do not claim background loops are unsupported when schedule.create is available.",
+		Prompt:      "Use schedule.create to create schedules. Use executionMode message when the scheduled run should send the prompt verbatim, such as reminders, repeated messages, or say/send this exact text requests. Use executionMode agent only for schedules that need reasoning, research, checks, summaries, or tool work at run time. For repeated reminders like every minute, use kind interval with intervalSecond. Set repeatPolicy finite with expiresAt or maxRunCount for finite repeats; set repeatPolicy unbounded only when the user explicitly asks for no end. Do not claim background loops are unsupported when schedule.create is available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
 		},

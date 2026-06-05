@@ -461,33 +461,35 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 		},
 		Result: agent.IdentityToolResult,
 	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askConfirmToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        "ask.confirm",
-			Description: "Pause the current task while waiting for explicit user confirmation. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. userFacingMessage is shown directly to the user and must use the same language as the original user request. reasonCode and reasonDetail are internal only.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."}},"required":["userFacingMessage","reasonCode"]}`),
-		},
-		Handler: toolCatalogBuilder.askConfirmTool,
-		Result:  agent.IdentityToolResult,
-	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askChoiceToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        "ask.choice",
-			Description: "Pause the current task and ask the user to choose from explicit options. Always include exactly one recommendedOptionKey. Use selectionMode single or multiple.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"value":{"type":"string"}},"required":["label"]}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"]}`),
-		},
-		Handler: toolCatalogBuilder.askChoiceTool,
-		Result:  agent.IdentityToolResult,
-	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askInputToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        "ask.input",
-			Description: "Pause the current task and ask the user for free-form input needed to continue.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`),
-		},
-		Handler: toolCatalogBuilder.askInputTool,
-		Result:  agent.IdentityToolResult,
-	})
+	if !handlerContext.request.IsScheduledRun {
+		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askConfirmToolInput, agent.ToolResult]{
+			Definition: agent.ToolDefinition{
+				Name:        "ask.confirm",
+				Description: "Pause the current task while waiting for explicit user confirmation. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. userFacingMessage is shown directly to the user and must use the same language as the original user request. reasonCode and reasonDetail are internal only.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."}},"required":["userFacingMessage","reasonCode"]}`),
+			},
+			Handler: toolCatalogBuilder.askConfirmTool,
+			Result:  agent.IdentityToolResult,
+		})
+		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askChoiceToolInput, agent.ToolResult]{
+			Definition: agent.ToolDefinition{
+				Name:        "ask.choice",
+				Description: "Pause the current task and ask the user to choose from explicit options. Always include exactly one recommendedOptionKey. Use selectionMode single or multiple.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"value":{"type":"string"}},"required":["label"]}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"]}`),
+			},
+			Handler: toolCatalogBuilder.askChoiceTool,
+			Result:  agent.IdentityToolResult,
+		})
+		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askInputToolInput, agent.ToolResult]{
+			Definition: agent.ToolDefinition{
+				Name:        "ask.input",
+				Description: "Pause the current task and ask the user for free-form input needed to continue.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`),
+			},
+			Handler: toolCatalogBuilder.askInputTool,
+			Result:  agent.IdentityToolResult,
+		})
+	}
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileWriteToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "file.write",
@@ -842,6 +844,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 		if toolName == "file.read" {
 			continue
 		}
+		if request.IsScheduledRun && isInteractiveCapabilityTool(toolName) {
+			continue
+		}
 		toolDescription := firstNonEmptyString(toolDescriptor.Description, defaultCapabilityToolDescription(toolName))
 		toolRegistry.RegisterBoundTool(agent.BoundTool{
 			Definition: agent.ToolDefinition{
@@ -900,6 +905,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				return capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
 			},
 		})
+	}
+}
+
+func isInteractiveCapabilityTool(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "user.confirm", "user.input", "ask.confirm", "ask.choice", "ask.input":
+		return true
+	default:
+		return false
 	}
 }
 

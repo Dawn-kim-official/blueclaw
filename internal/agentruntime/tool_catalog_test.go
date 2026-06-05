@@ -531,6 +531,7 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 			"prompt":         "매일 중요한 업계 뉴스를 조사해서 아침 7시에 알려줘.",
 			"kind":           "cron",
 			"cronExpression": "0 7 * * *",
+			"repeatPolicy":   "unbounded",
 		}),
 	})
 
@@ -598,6 +599,7 @@ func TestScheduleCreateToolStoresMessageExecutionMode(t *testing.T) {
 			"kind":           "interval",
 			"intervalSecond": 60,
 			"maxRunCount":    10,
+			"repeatPolicy":   "finite",
 		}),
 	})
 
@@ -615,6 +617,102 @@ func TestScheduleCreateToolStoresMessageExecutionMode(t *testing.T) {
 	}
 	if repository.taskSchedules[0].ExpiresAt != nil {
 		t.Fatalf("expected schedule expiration to default to nil, got %+v", repository.taskSchedules[0])
+	}
+}
+
+func TestScheduleCreateToolRejectsBoundedRepeatWithoutFiniteBound(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		Prompt:            "한 시간마다 노래 가사 한 줄을 오늘 18시까지만 보내줘",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"prompt":         "노래 가사 한 줄을 지어서 DM으로 보내세요.",
+			"executionMode":  "agent",
+			"kind":           "interval",
+			"intervalSecond": 3600,
+			"repeatPolicy":   "finite",
+			"timeZone":       "Asia/Seoul",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "expiresAt or maxRunCount") {
+		t.Fatalf("expected finite bound failure, got %s", result.ContentText())
+	}
+	if len(repository.taskSchedules) != 0 {
+		t.Fatalf("expected no schedule to be created, got %+v", repository.taskSchedules)
+	}
+}
+
+func TestScheduleCreateToolStoresExpiresAtForBoundedRepeat(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	expiresAt := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.create"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		Prompt:            "한 시간마다 노래 가사 한 줄을 오늘 18시까지만 보내줘",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.create",
+		Input: agent.MarshalToolInput(map[string]any{
+			"prompt":         "노래 가사 한 줄을 지어서 DM으로 보내세요.",
+			"executionMode":  "agent",
+			"kind":           "interval",
+			"intervalSecond": 3600,
+			"expiresAt":      expiresAt,
+			"repeatPolicy":   "finite",
+			"timeZone":       "Asia/Seoul",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
+	}
+	if len(repository.taskSchedules) != 1 || repository.taskSchedules[0].ExpiresAt == nil {
+		t.Fatalf("expected one expiring schedule, got %+v", repository.taskSchedules)
+	}
+	if !strings.Contains(result.ContentText(), `"expiresAt"`) || !strings.Contains(result.ContentText(), `"nextRunAt"`) {
+		t.Fatalf("expected schedule result to include timing fields, got %s", result.ContentText())
+	}
+}
+
+func TestScheduledToolSetDoesNotExposeInteractiveTools(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
+		Name:        "user.confirm",
+		Description: "Ask the user to confirm",
+	}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm", "ask.choice", "ask.input", "user.confirm"})
+
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsScheduledRun: true})
+
+	for _, toolName := range []string{"ask.confirm", "ask.choice", "ask.input", "user.confirm"} {
+		if toolRegistry.IsRegistered(toolName) || toolRegistry.IsAllowed(toolName) {
+			t.Fatalf("expected scheduled run not to register interactive tool %s", toolName)
+		}
 	}
 }
 
@@ -733,7 +831,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 	}
 }
 
-func TestScheduleCreateToolInfersIntervalFromPrompt(t *testing.T) {
+func TestScheduleCreateToolRejectsIntervalWithoutExplicitCadence(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskScheduleRepository(repository)
@@ -750,24 +848,22 @@ func TestScheduleCreateToolInfersIntervalFromPrompt(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "schedule.create",
 		Input: agent.MarshalToolInput(map[string]any{
-			"prompt":      "1분 지났습니다",
-			"kind":        "interval",
-			"timeZone":    "Asia/Seoul",
-			"maxRunCount": 10,
+			"prompt":       "1분 지났습니다",
+			"kind":         "interval",
+			"timeZone":     "Asia/Seoul",
+			"maxRunCount":  10,
+			"repeatPolicy": "finite",
 		}),
 	})
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if result.Failed() {
-		t.Fatalf("expected schedule.create success, got %s", result.ContentText())
+	if !result.Failed() {
+		t.Fatalf("expected schedule.create to reject missing intervalSecond, got %s", result.ContentText())
 	}
-	if len(repository.taskSchedules) != 1 {
-		t.Fatalf("expected one schedule, got %+v", repository.taskSchedules)
-	}
-	if repository.taskSchedules[0].IntervalSecond != 60 {
-		t.Fatalf("expected inferred one minute interval, got %+v", repository.taskSchedules[0])
+	if len(repository.taskSchedules) != 0 {
+		t.Fatalf("expected no schedule to be created, got %+v", repository.taskSchedules)
 	}
 }
 
@@ -792,6 +888,7 @@ func TestScheduleCreateToolStoresMaxRunCount(t *testing.T) {
 			"kind":           "interval",
 			"intervalSecond": 60,
 			"maxRunCount":    10,
+			"repeatPolicy":   "finite",
 			"timeZone":       "Asia/Seoul",
 		}),
 	})

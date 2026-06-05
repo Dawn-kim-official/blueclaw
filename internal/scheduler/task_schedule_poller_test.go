@@ -54,6 +54,9 @@ func TestTaskSchedulePollerRunsDueScheduleAndEnqueuesReply(t *testing.T) {
 	if len(deliveryRepository.replies) != 1 || deliveryRepository.replies[0].Message != "오늘의 조사 결과입니다." {
 		t.Fatalf("expected scheduled reply delivery, got %+v", deliveryRepository.replies)
 	}
+	if deliveryRepository.replies[0].TaskRunID == "" || deliveryRepository.replies[0].ReplyKind != "success" {
+		t.Fatalf("expected scheduled reply metadata, got %+v", deliveryRepository.replies[0])
+	}
 	if repository.succeeded == nil || repository.succeeded.LastTaskRunID == "" {
 		t.Fatalf("expected schedule success with task run id, got %+v", repository.succeeded)
 	}
@@ -97,6 +100,9 @@ func TestTaskSchedulePollerDeliversMessageScheduleWithoutAgentRun(t *testing.T) 
 	}
 	if len(deliveryRepository.replies) != 1 || deliveryRepository.replies[0].Message != "죄송합니다." {
 		t.Fatalf("expected direct scheduled message delivery, got %+v", deliveryRepository.replies)
+	}
+	if deliveryRepository.replies[0].TaskRunID == "" || deliveryRepository.replies[0].ReplyKind != "success" {
+		t.Fatalf("expected direct scheduled reply metadata, got %+v", deliveryRepository.replies[0])
 	}
 	if repository.succeeded == nil || repository.succeeded.LastTaskRunID == "" {
 		t.Fatalf("expected audited schedule success, got %+v", repository.succeeded)
@@ -235,7 +241,7 @@ func TestTaskSchedulePollerLogsRunFailures(t *testing.T) {
 	}
 }
 
-func TestTaskSchedulePollerDoesNotDeliverWaitingTaskReply(t *testing.T) {
+func TestTaskSchedulePollerRejectsScheduledInteractionWithoutWaiting(t *testing.T) {
 	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{waitingTaskSchedule(time.Now().UTC())}}
 	deliveryRepository := &pollerDeliveryRepository{}
 	poller := TaskSchedulePoller{
@@ -254,10 +260,39 @@ func TestTaskSchedulePollerDoesNotDeliverWaitingTaskReply(t *testing.T) {
 		t.Fatalf("expected no waiting task reply, got %+v", deliveryRepository.replies)
 	}
 	if repository.succeeded != nil {
-		t.Fatalf("expected waiting scheduled task not to advance, got %+v", repository.succeeded)
+		t.Fatalf("expected interactive scheduled task not to advance, got %+v", repository.succeeded)
 	}
-	if len(repository.failed) != 1 || !strings.Contains(repository.failed[0], "waiting_approval") {
-		t.Fatalf("expected waiting task failure to be recorded, got %+v", repository.failed)
+	if len(repository.failed) != 1 || strings.Contains(repository.failed[0], "waiting_approval") {
+		t.Fatalf("expected scheduled interaction not to wait for approval, got %+v", repository.failed)
+	}
+}
+
+func TestTaskSchedulePollerSkipsActiveRunForSameSchedule(t *testing.T) {
+	runAt := time.Now().UTC()
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "schedule:schedule-waiting", "already running")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{waitingTaskSchedule(runAt)}}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		DeliveryRepository:     &pollerDeliveryRepository{},
+		TaskScheduleRunner:     testTaskScheduleRunner("should not run"),
+		TaskRunService:         taskRunService,
+		PersonAccessResolver:   staticPersonAccessResolver{},
+	}
+
+	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runCount != 0 {
+		t.Fatalf("expected active schedule run to be skipped, got %d", runCount)
+	}
+	if repository.succeeded != nil || len(repository.failed) != 0 {
+		t.Fatalf("expected no schedule state change, succeeded=%+v failed=%+v", repository.succeeded, repository.failed)
 	}
 }
 
@@ -412,5 +447,5 @@ func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(contex
 	if strings.HasPrefix(languageModel.content, "{") {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}
-	return llm.StructuredResponse{Content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finishMessage":"` + languageModel.content + `"}`}, nil
+	return llm.StructuredResponse{Content: `{"action":"finish","message":"` + languageModel.content + `","replyParts":[{"type":"text","text":"` + languageModel.content + `"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`}, nil
 }

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -78,6 +79,10 @@ func (taskSchedulePoller TaskSchedulePoller) RunDue(ctx context.Context, referen
 	for _, taskSchedule := range taskSchedules {
 		if ctx.Err() != nil {
 			return runCount, ctx.Err()
+		}
+		if taskSchedulePoller.hasActiveTaskScheduleRun(taskSchedule) {
+			taskSchedulePoller.logger().Warn("task_schedule.run.skipped_active", "taskScheduleID", taskSchedule.TaskScheduleID)
+			continue
 		}
 		if errorValue := taskSchedulePoller.runTaskSchedule(ctx, taskSchedule, referenceTime); errorValue != nil {
 			taskSchedulePoller.logger().Error(
@@ -181,7 +186,7 @@ func (taskSchedulePoller TaskSchedulePoller) executeMessageTaskSchedule(taskSche
 	return taskScheduleExecutionResult{
 		TaskSchedule: advancedTaskSchedule,
 		TaskRunID:    completedTaskRun.TaskRunID,
-		Reply:        connectors.OutboundReply{Message: taskSchedule.Prompt},
+		Reply:        connectors.OutboundReply{Message: taskSchedule.Prompt, TaskRunID: completedTaskRun.TaskRunID, ReplyKind: "success"},
 		DidRun:       true,
 	}, nil
 }
@@ -190,7 +195,24 @@ func (taskSchedulePoller TaskSchedulePoller) enqueueTaskScheduleReply(result tas
 	if taskSchedulePoller.DeliveryRepository == nil {
 		return errors.New("task schedule delivery repository is unavailable")
 	}
-	_, errorValue := taskSchedulePoller.DeliveryRepository.EnqueueScheduledConnectorReply(result.TaskSchedule, result.TaskRunID, result.Reply)
+	reply := result.Reply
+	reply.TaskRunID = firstNonEmptyString(reply.TaskRunID, result.TaskRunID)
+	reply.ReplyKind = firstNonEmptyString(reply.ReplyKind, "success")
+	outboxID, errorValue := taskSchedulePoller.DeliveryRepository.EnqueueScheduledConnectorReply(result.TaskSchedule, result.TaskRunID, reply)
+	if taskSchedulePoller.TaskRunService != nil && strings.TrimSpace(result.TaskRunID) != "" {
+		eventName := "task_schedule.delivery.enqueued"
+		eventBody := map[string]string{
+			"taskScheduleID": result.TaskSchedule.TaskScheduleID,
+			"taskRunID":      result.TaskRunID,
+			"replyKind":      reply.ReplyKind,
+			"outboxID":       outboxID,
+		}
+		if errorValue != nil {
+			eventName = "task_schedule.delivery.failed"
+			eventBody["error"] = errorValue.Error()
+		}
+		taskSchedulePoller.TaskRunService.AppendTaskEvent(result.TaskRunID, eventName, marshalScheduleEventBody(eventBody))
+	}
 	return errorValue
 }
 
@@ -198,7 +220,11 @@ func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.O
 	turnResult := result.LaunchResult.TurnResult
 	reply := strings.TrimSpace(turnResult.FinishMessage)
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
-		return connectors.OutboundReply{}, errors.New("scheduled task did not complete: taskRunID=" + turnResult.TaskRun.TaskRunID + " status=" + string(turnResult.TaskRun.Status))
+		reason := strings.TrimSpace(turnResult.TaskRun.FailureReason)
+		if reason != "" {
+			reason = " reason=" + reason
+		}
+		return connectors.OutboundReply{}, errors.New("scheduled task did not complete: taskRunID=" + turnResult.TaskRun.TaskRunID + " status=" + string(turnResult.TaskRun.Status) + reason)
 	}
 	if reply == "" {
 		return connectors.OutboundReply{}, errors.New("scheduled task completed without a reply")
@@ -209,7 +235,32 @@ func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.O
 	if agent.FinishMessageClaimsAttachmentDelivery(reply) && len(turnResult.Attachments) == 0 {
 		return connectors.OutboundReply{}, errors.New("scheduled task reply claims attachments without evidence")
 	}
-	return connectors.OutboundReply{Message: reply, Attachments: turnResult.Attachments}, nil
+	return connectors.OutboundReply{Message: reply, TaskRunID: turnResult.TaskRun.TaskRunID, ReplyKind: "success", Attachments: turnResult.Attachments}, nil
+}
+
+func (taskSchedulePoller TaskSchedulePoller) hasActiveTaskScheduleRun(taskSchedule task.TaskSchedule) bool {
+	if taskSchedulePoller.TaskRunService == nil {
+		return false
+	}
+	originConversationID := "schedule:" + strings.TrimSpace(taskSchedule.TaskScheduleID)
+	for _, taskRun := range taskSchedulePoller.TaskRunService.ListTaskRun() {
+		if taskRun.OriginConversationID != originConversationID {
+			continue
+		}
+		switch taskRun.Status {
+		case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusWaitingApproval, task.TaskStatusWaitingUserInput, task.TaskStatusBlocked:
+			return true
+		}
+	}
+	return false
+}
+
+func marshalScheduleEventBody(value any) string {
+	document, errorValue := json.Marshal(value)
+	if errorValue != nil {
+		return "{}"
+	}
+	return string(document)
 }
 
 func (taskSchedulePoller TaskSchedulePoller) cancelStaleScheduledTaskRuns(referenceTime time.Time) {
