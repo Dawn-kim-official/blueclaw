@@ -45,7 +45,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCancelToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.cancel",
-			Description: "Cancel active scheduled tasks and pending approval or user-input waits created by the current requester. Use scope mine for all requester schedules, currentConversation for this conversation, and scheduleIDs for explicit schedule IDs. Cancellation expires records instead of deleting audit history.",
+			Description: "Cancel active scheduled tasks and pending approval or user-input waits. Use scope mine for schedules created by the current requester. Use scope currentConversation when the user wants messages or reminders delivered to this conversation to stop, even if another person created that delivery schedule. Use scope scheduleIDs for explicit schedule IDs visible from prior tool results. Cancellation expires records instead of deleting audit history.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","enum":["currentConversation","mine","scheduleIDs"]},"scheduleIDs":{"type":"array","items":{"type":"string"}}},"required":["scope"]}`),
 		},
 		Handler: func(toolContext context.Context, input scheduleCancelToolInput) (agent.ToolResult, error) {
@@ -103,6 +103,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext con
 		"cancelledWaitCount":     cancelledWaitCount,
 		"taskSchedules":          result.TaskSchedules,
 	}
+	if len(result.TaskSchedules)+cancelledTaskRunCount+cancelledWaitCount == 0 {
+		return agent.ToolFailureWithOutput(agent.FailureNotFound, agent.FailureCodes.NotFound, "schedule_cancel", "no active schedules or pending scheduled work matched the cancellation request", json.RawMessage(marshalToolResult(response))), nil
+	}
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.cancelled", marshalToolResult(response))
 	}
@@ -114,11 +117,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduledTaskRuns(cancelRequ
 		return 0
 	}
 	taskRunCancelRequest := task.TaskRunCancelRequest{
-		RequesterPersonID: strings.TrimSpace(cancelRequest.RequesterPersonID),
-		ScheduleOnly:      true,
-		Reason:            "schedule.cancel",
+		ScheduleOnly: true,
+		Reason:       "schedule.cancel",
 	}
 	if cancelRequest.Scope == task.TaskScheduleCancelScopeMine {
+		taskRunCancelRequest.RequesterPersonID = strings.TrimSpace(cancelRequest.RequesterPersonID)
 		taskRunCancelRequest.OriginConversationIDPrefix = "schedule:"
 	} else {
 		taskRunCancelRequest.OriginConversationIDs = scheduleOriginConversationIDs(result.TaskSchedules)

@@ -189,19 +189,18 @@ func (taskScheduleRepository TaskScheduleRepository) CancelTaskSchedules(request
 		return task.TaskScheduleCancelResult{}, nil
 	}
 	conditions := []string{
-		"creator_person_id = $2",
 		"next_run_at IS NOT NULL",
 		"(expires_at IS NULL OR expires_at > $1)",
 	}
-	arguments := []any{cancelledAt, requesterPersonID}
+	arguments := []any{cancelledAt}
 	switch request.Scope {
 	case task.TaskScheduleCancelScopeCurrentConversation:
 		conversationID := strings.TrimSpace(request.ConversationID)
 		if conversationID == "" {
 			return task.TaskScheduleCancelResult{}, nil
 		}
+		conditions = append(conditions, "delivery_conversation_id = $"+strconv.Itoa(len(arguments)+1))
 		arguments = append(arguments, conversationID)
-		conditions = append(conditions, "delivery_conversation_id = $3")
 	case task.TaskScheduleCancelScopeScheduleIDs:
 		condition, values := taskScheduleIDCondition(request.TaskScheduleIDs, len(arguments)+1)
 		if condition == "" {
@@ -209,7 +208,15 @@ func (taskScheduleRepository TaskScheduleRepository) CancelTaskSchedules(request
 		}
 		conditions = append(conditions, condition)
 		arguments = append(arguments, values...)
+		conditions = append(conditions, taskScheduleCancelAccessCondition(request, len(arguments)+1))
+		if strings.TrimSpace(request.ConversationID) != "" {
+			arguments = append(arguments, requesterPersonID, strings.TrimSpace(request.ConversationID))
+		} else {
+			arguments = append(arguments, requesterPersonID)
+		}
 	default:
+		conditions = append(conditions, "creator_person_id = $"+strconv.Itoa(len(arguments)+1))
+		arguments = append(arguments, requesterPersonID)
 	}
 	query := `UPDATE task_schedule
 SET expires_at = $1,
@@ -229,6 +236,13 @@ RETURNING ` + taskScheduleReturningColumns()
 		return task.TaskScheduleCancelResult{}, errorValue
 	}
 	return task.TaskScheduleCancelResult{TaskSchedules: taskSchedules}, nil
+}
+
+func taskScheduleCancelAccessCondition(request task.TaskScheduleCancelRequest, firstPlaceholderIndex int) string {
+	if strings.TrimSpace(request.ConversationID) == "" {
+		return "creator_person_id = $" + strconv.Itoa(firstPlaceholderIndex)
+	}
+	return "(creator_person_id = $" + strconv.Itoa(firstPlaceholderIndex) + " OR delivery_conversation_id = $" + strconv.Itoa(firstPlaceholderIndex+1) + ")"
 }
 
 func taskScheduleIDCondition(taskScheduleIDs []string, firstPlaceholderIndex int) (string, []any) {
