@@ -10,5 +10,6 @@ var (
 	errScheduleTimeZoneInvalid      = errors.New("timeZone must be a valid IANA time zone")
 	errScheduleRunAtInvalid         = errors.New("runAt must be RFC3339")
 	errScheduleInvalidExpiresAt     = errors.New("expiresAt must be a future RFC3339 timestamp")
-	errScheduleFiniteBoundRequired  = errors.New("high-frequency or external repeated schedules require expiresAt or maxRunCount")
+	errScheduleRepeatPolicyRequired = errors.New("interval and cron schedules require repeatPolicy finite or unbounded")
+	errScheduleFiniteBoundRequired  = errors.New("finite interval and cron schedules require expiresAt or maxRunCount")
 )

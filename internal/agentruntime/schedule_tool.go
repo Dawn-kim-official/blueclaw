@@ -3,8 +3,6 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +22,7 @@ type scheduleCreateToolInput struct {
 	CronExpression   string `json:"cronExpression"`
 	TimeZone         string `json:"timeZone"`
 	MaxRunCount      int    `json:"maxRunCount"`
+	RepeatPolicy     string `json:"repeatPolicy"`
 }
 
 type scheduleCancelToolInput struct {
@@ -31,37 +30,12 @@ type scheduleCancelToolInput struct {
 	TaskScheduleIDs []string `json:"scheduleIDs"`
 }
 
-type scheduleIntervalPattern struct {
-	expression *regexp.Regexp
-	multiplier int
-}
-
-var scheduleIntervalPatterns = []scheduleIntervalPattern{
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*분\s*마다`), multiplier: 60},
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*분\s*(에|간격으로)\s*(한\s*)?번씩`), multiplier: 60},
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*분\s*간격`), multiplier: 60},
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*시간\s*마다`), multiplier: 60 * 60},
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*시간\s*(에|간격으로)\s*(한\s*)?번씩`), multiplier: 60 * 60},
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*시간\s*간격`), multiplier: 60 * 60},
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*일\s*마다`), multiplier: 24 * 60 * 60},
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*일\s*(에|간격으로)\s*(한\s*)?번씩`), multiplier: 24 * 60 * 60},
-	{expression: regexp.MustCompile(`(?i)(\d+)\s*일\s*간격`), multiplier: 24 * 60 * 60},
-	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+minute`), multiplier: 60},
-	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+hour`), multiplier: 60 * 60},
-	{expression: regexp.MustCompile(`(?i)every\s+(\d+)\s+day`), multiplier: 24 * 60 * 60},
-}
-
-var scheduleRunCountPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(\d+)\s*(번|회)\s*(만|해|반복|보내|전송|말|알려)?`),
-	regexp.MustCompile(`(?i)(\d+)\s+times`),
-}
-
 func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.create",
-			Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. Use expiresAt for requests that say until/by/까지만/까지. Set maxRunCount for finite repeats. High-frequency or third-party external repeated sends must include expiresAt or maxRunCount.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"}},"required":["prompt","executionMode","kind"]}`),
+			Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. For interval or cron schedules, set repeatPolicy to finite when the user gave an end condition and include expiresAt or maxRunCount; set repeatPolicy to unbounded only when the user explicitly wants no end. Do not rely on the prompt text for cadence or stop conditions: fill intervalSecond, cronExpression, expiresAt, and maxRunCount explicitly.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"},"repeatPolicy":{"type":"string","enum":["finite","unbounded"]}},"required":["prompt","executionMode","kind"]}`),
 		},
 		Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
@@ -203,9 +177,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		ReplyTargetID:    strings.TrimSpace(handlerContext.request.ReplyTargetID),
 		TimeZone:         timeZone,
 		Kind:             normalizeTaskScheduleKind(input),
-		IntervalSecond:   normalizeScheduleIntervalSecond(input, handlerContext.request.Prompt),
+		IntervalSecond:   input.IntervalSecond,
 		CronExpression:   strings.TrimSpace(input.CronExpression),
-		MaxRunCount:      normalizeScheduleMaxRunCount(input, handlerContext.request.Prompt),
+		MaxRunCount:      input.MaxRunCount,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 		NextAttemptAt:    &now,
@@ -216,8 +190,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 	if errorValue := applyScheduleExpiresAt(&taskSchedule, input.ExpiresAt, now); errorValue != nil {
 		return task.TaskSchedule{}, errorValue
 	}
-	if scheduleCreateNeedsFiniteBound(input, taskSchedule, handlerContext.request.Prompt) {
-		return task.TaskSchedule{}, errScheduleFiniteBoundRequired
+	if errorValue := validateScheduleRepeatPolicy(input, taskSchedule); errorValue != nil {
+		return task.TaskSchedule{}, errorValue
 	}
 	return taskSchedule, nil
 }
@@ -242,13 +216,6 @@ func normalizeTaskScheduleExecutionMode(value string) task.TaskScheduleExecution
 	}
 }
 
-func normalizeScheduleMaxRunCount(input scheduleCreateToolInput, requestPrompt string) int {
-	if input.MaxRunCount > 0 {
-		return input.MaxRunCount
-	}
-	return inferScheduleMaxRunCount(requestPrompt)
-}
-
 func applyScheduleExpiresAt(taskSchedule *task.TaskSchedule, value string, referenceTime time.Time) error {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
@@ -266,74 +233,21 @@ func applyScheduleExpiresAt(taskSchedule *task.TaskSchedule, value string, refer
 	return nil
 }
 
-func scheduleCreateNeedsFiniteBound(input scheduleCreateToolInput, taskSchedule task.TaskSchedule, requestPrompt string) bool {
-	if taskSchedule.Kind != task.TaskScheduleKindInterval {
-		return false
+func validateScheduleRepeatPolicy(input scheduleCreateToolInput, taskSchedule task.TaskSchedule) error {
+	if taskSchedule.Kind != task.TaskScheduleKindInterval && taskSchedule.Kind != task.TaskScheduleKindCron {
+		return nil
 	}
 	if taskSchedule.MaxRunCount > 0 || taskSchedule.ExpiresAt != nil {
-		return false
+		return nil
 	}
-	if taskSchedule.IntervalSecond > 0 && taskSchedule.IntervalSecond < 3600 {
-		return true
+	switch strings.TrimSpace(input.RepeatPolicy) {
+	case "unbounded":
+		return nil
+	case "finite":
+		return errScheduleFiniteBoundRequired
+	default:
+		return errScheduleRepeatPolicyRequired
 	}
-	return looksLikeExternalRepeatedSend(input.Prompt) || looksLikeExternalRepeatedSend(requestPrompt)
-}
-
-func looksLikeExternalRepeatedSend(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return false
-	}
-	return containsAny(normalizedPrompt, []string{"dm", "direct message", "email", "mail", "slack", "mattermost", "보내", "전송", "메일", "디엠"})
-}
-
-func normalizeScheduleIntervalSecond(input scheduleCreateToolInput, requestPrompt string) int {
-	if input.IntervalSecond > 0 {
-		return input.IntervalSecond
-	}
-	if normalizeTaskScheduleKind(input) != task.TaskScheduleKindInterval {
-		return 0
-	}
-	return inferScheduleIntervalSecond(requestPrompt)
-}
-
-func inferScheduleIntervalSecond(prompt string) int {
-	normalizedPrompt := strings.TrimSpace(prompt)
-	if normalizedPrompt == "" {
-		return 0
-	}
-	if strings.Contains(normalizedPrompt, "매분") || strings.Contains(strings.ToLower(normalizedPrompt), "every minute") {
-		return 60
-	}
-	for _, pattern := range scheduleIntervalPatterns {
-		match := pattern.expression.FindStringSubmatch(normalizedPrompt)
-		if len(match) < 2 {
-			continue
-		}
-		count, errorValue := strconv.Atoi(match[1])
-		if errorValue == nil && count > 0 {
-			return count * pattern.multiplier
-		}
-	}
-	return 0
-}
-
-func inferScheduleMaxRunCount(prompt string) int {
-	normalizedPrompt := strings.TrimSpace(prompt)
-	if normalizedPrompt == "" {
-		return 0
-	}
-	for _, pattern := range scheduleRunCountPatterns {
-		match := pattern.FindStringSubmatch(normalizedPrompt)
-		if len(match) < 2 {
-			continue
-		}
-		count, errorValue := strconv.Atoi(match[1])
-		if errorValue == nil && count > 0 {
-			return count
-		}
-	}
-	return 0
 }
 
 func validateScheduleCreateContext(request ToolCatalogRequest) error {

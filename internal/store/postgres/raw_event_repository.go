@@ -325,6 +325,12 @@ func (rawEventRepository RawEventRepository) EnqueueScheduledConnectorReply(task
 	rawEventID := "schedule:" + taskSchedule.TaskScheduleID + ":task:" + taskRunID
 	reply.RawEventID = rawEventID
 	reply.OutboxID = rawEventID
+	if strings.TrimSpace(reply.TaskRunID) == "" {
+		reply.TaskRunID = taskRunID
+	}
+	if strings.TrimSpace(reply.ReplyKind) == "" {
+		reply.ReplyKind = "success"
+	}
 	replyTarget := connectors.ReplyTarget{
 		ConversationID: taskSchedule.ConversationID,
 		ReplyTargetID:  taskSchedule.ReplyTargetID,
