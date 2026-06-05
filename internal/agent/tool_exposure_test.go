@@ -74,7 +74,7 @@ func TestCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 		"calendar.event.delete",
 		"flow.task.add",
 		"flow.task.list",
-		"flow.task.complete",
+		"flow.task.update",
 	})
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
@@ -88,7 +88,7 @@ func TestCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	for _, toolID := range []string{"flow.task.complete", "flow.task.list", "calendar.event.list", "calendar.event.update"} {
+	for _, toolID := range []string{"flow.task.update", "flow.task.list", "calendar.event.list", "calendar.event.update"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected %s for calendar/work request, got %+v", toolID, filteredToolSet.ListToolNames())
 		}

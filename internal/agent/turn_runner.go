@@ -1167,7 +1167,7 @@ func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan,
 			"calendar.event.delete",
 			"flow.task.add",
 			"flow.task.list",
-			"flow.task.complete",
+			"flow.task.update",
 		)
 	}
 	return request
@@ -1479,11 +1479,11 @@ func specificToolDescription(toolName string) string {
 	case "browser.wait":
 		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
 	case "flow.task.add":
-		return `Add a work item for the requester, or request work for another person. Input: {"prompt":"기획안 전달","targetPersonHint":"lee"}.`
+		return `Add a new Flow work item for the requester, or request new work for another person. Do not use this for editing, changing, completing, or updating an existing work item. Input: {"prompt":"기획안 전달","targetPersonHint":"lee"}.`
 	case "flow.task.list":
 		return `List work items by natural-language query, owner hint, week, or status. Use before completing work when the matching task is uncertain. Input: {"query":"디플랫 코리아","status":"예정"}.`
-	case "flow.task.complete":
-		return `Mark one work item complete by taskID or natural-language query. If multiple tasks match, the tool returns candidates instead of completing one. Input: {"query":"디플랫 코리아"}.`
+	case "flow.task.update":
+		return `Update or complete an existing Flow work item. Use this for edits, status changes, "수정", "변경", and "완료". Input: {"query":"10분 회의","content":"15분 회의"} or {"query":"10분 회의"} to mark it complete. Optional status values include "예정", "진행", "완료", "일시정지", "기각", and "중단".`
 	default:
 		return ""
 	}
@@ -2449,8 +2449,8 @@ func completionStateToolReply(state CompletionState) string {
 			return "일정을 삭제했습니다."
 		case "flow.task.add":
 			return "업무를 등록했습니다."
-		case "flow.task.complete":
-			return "업무를 완료 처리했습니다."
+		case "flow.task.update":
+			return "업무를 수정했습니다."
 		case "google.gmail.send":
 			return "메일을 보냈습니다."
 		}
