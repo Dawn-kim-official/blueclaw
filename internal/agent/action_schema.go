@@ -260,6 +260,10 @@ func specificToolInputSchema(toolName string) json.RawMessage {
 		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}}}`)
 	case "flow.task.add":
 		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"]}`)
+	case "flow.task.list":
+		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"status":{"type":"string"},"limit":{"type":"number"}}}`)
+	case "flow.task.complete":
+		return json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"completionNote":{"type":"string"}}}`)
 	default:
 		return nil
 	}

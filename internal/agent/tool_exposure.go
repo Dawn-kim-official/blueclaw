@@ -392,7 +392,15 @@ func activeGoalCandidateToolNames(request AgentRequest, executionPlan ExecutionP
 	toolNames := append([]string{}, outcomeContractToolNames(outcomeContract)...)
 	toolNames = appendUniqueStrings(toolNames, outcomeContractToolNames(request.ActiveGoal.OutcomeContract)...)
 	if requestLooksLikeCalendarWork(request) {
-		toolNames = appendUniqueStrings(toolNames, "calendar.event.add", "calendar.event.delete")
+		toolNames = appendUniqueStrings(toolNames,
+			"calendar.event.add",
+			"calendar.event.list",
+			"calendar.event.update",
+			"calendar.event.delete",
+			"flow.task.add",
+			"flow.task.list",
+			"flow.task.complete",
+		)
 	}
 	return toolNames
 }

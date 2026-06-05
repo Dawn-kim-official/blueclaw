@@ -63,6 +63,38 @@ func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
 	}
 }
 
+func TestCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
+	toolSet := testToolSet([]string{
+		"skill.search",
+		"tool.describe",
+		"ask.confirm",
+		"calendar.event.add",
+		"calendar.event.list",
+		"calendar.event.update",
+		"calendar.event.delete",
+		"flow.task.add",
+		"flow.task.list",
+		"flow.task.complete",
+	})
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		AgentRequest{Prompt: "디플랫 코리아 완료"},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolSelectionDecision{},
+		ToolExposureEvent{},
+	)
+
+	for _, toolID := range []string{"flow.task.complete", "flow.task.list", "calendar.event.list", "calendar.event.update"} {
+		if !filteredToolSet.IsAllowed(toolID) {
+			t.Fatalf("expected %s for calendar/work request, got %+v", toolID, filteredToolSet.ListToolNames())
+		}
+	}
+}
+
 func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
 	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "file.preview", "document.read", "mail.message.search", "mattermost.channel.post"})
 	instructionBundle := InstructionBundle{
