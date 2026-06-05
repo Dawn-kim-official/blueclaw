@@ -536,13 +536,22 @@ func promptLooksLikeCalendarRequest(prompt string) bool {
 	})
 }
 
+func promptLooksLikeCalendarOrWorkRequest(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	return containsAny(normalizedPrompt, []string{
+		"calendar", "event", "task", "todo", "work item",
+		"일정", "캘린더", "달력", "회의", "미팅", "약속", "휴가",
+		"업무", "할 일", "할일", "마감", "완료", "전달", "요청",
+	})
+}
+
 func requestLooksLikeCalendarWork(request AgentRequest) bool {
 	if requestLooksLikeSitePrototypeWork(request) || requestLooksLikeSlidesArtifactWork(request) {
 		return false
 	}
-	return promptLooksLikeCalendarRequest(request.Prompt) ||
-		promptLooksLikeCalendarRequest(request.ActiveGoal.OriginalInstruction) ||
-		promptLooksLikeCalendarRequest(request.ActiveGoal.CurrentObjective)
+	return promptLooksLikeCalendarOrWorkRequest(request.Prompt) ||
+		promptLooksLikeCalendarOrWorkRequest(request.ActiveGoal.OriginalInstruction) ||
+		promptLooksLikeCalendarOrWorkRequest(request.ActiveGoal.CurrentObjective)
 }
 
 func requestLooksLikeSlidesArtifactWork(request AgentRequest) bool {
@@ -1084,6 +1093,9 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 		return intakeDecision.TaskShape == TaskShapeScheduledTask
 	}
 	if strings.HasPrefix(trimmedToolName, "calendar.") {
+		return requestLooksLikeCalendarWork(request)
+	}
+	if strings.HasPrefix(trimmedToolName, "flow.task.") {
 		return requestLooksLikeCalendarWork(request)
 	}
 	return false

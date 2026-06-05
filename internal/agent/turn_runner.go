@@ -1160,7 +1160,15 @@ func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan,
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
 	if requestLooksLikeCalendarStep(request) {
-		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, "calendar.event.add", "calendar.event.delete")
+		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames,
+			"calendar.event.add",
+			"calendar.event.list",
+			"calendar.event.update",
+			"calendar.event.delete",
+			"flow.task.add",
+			"flow.task.list",
+			"flow.task.complete",
+		)
 	}
 	return request
 }
@@ -1471,7 +1479,11 @@ func specificToolDescription(toolName string) string {
 	case "browser.wait":
 		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
 	case "flow.task.add":
-		return `Add a Flow work item for the requester, or request work for another person. Input: {"prompt":"10분 회의"} or {"prompt":"10분 회의","targetPersonHint":"lee"}.`
+		return `Add a work item for the requester, or request work for another person. Input: {"prompt":"기획안 전달","targetPersonHint":"lee"}.`
+	case "flow.task.list":
+		return `List work items by natural-language query, owner hint, week, or status. Use before completing work when the matching task is uncertain. Input: {"query":"디플랫 코리아","status":"예정"}.`
+	case "flow.task.complete":
+		return `Mark one work item complete by taskID or natural-language query. If multiple tasks match, the tool returns candidates instead of completing one. Input: {"query":"디플랫 코리아"}.`
 	default:
 		return ""
 	}
@@ -2437,6 +2449,8 @@ func completionStateToolReply(state CompletionState) string {
 			return "일정을 삭제했습니다."
 		case "flow.task.add":
 			return "업무를 등록했습니다."
+		case "flow.task.complete":
+			return "업무를 완료 처리했습니다."
 		case "google.gmail.send":
 			return "메일을 보냈습니다."
 		}
