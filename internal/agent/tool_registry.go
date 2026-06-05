@@ -214,6 +214,10 @@ func ToolFailureWithOutput(kind FailureKind, code FailureCode, stage string, sum
 	return result
 }
 
+func ToolFailureData(kind FailureKind, code FailureCode, stage string, summary string, data json.RawMessage) ToolResult {
+	return ToolFailureWithOutput(kind, code, stage, summary, data)
+}
+
 func ToolInputFailure(message string) ToolResult {
 	return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "tool_input", message)
 }

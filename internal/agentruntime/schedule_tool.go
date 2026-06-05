@@ -30,6 +30,14 @@ type scheduleCancelToolInput struct {
 	TaskScheduleIDs []string `json:"scheduleIDs"`
 }
 
+type scheduleCancelOperationResult struct {
+	CancelledScheduleCount     int                 `json:"cancelledScheduleCount"`
+	CancelledTaskRunCount      int                 `json:"cancelledTaskRunCount"`
+	CancelledWaitCount         int                 `json:"cancelledWaitCount"`
+	EffectiveCancellationCount int                 `json:"effectiveCancellationCount"`
+	TaskSchedules              []task.TaskSchedule `json:"taskSchedules"`
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
@@ -91,25 +99,35 @@ func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext con
 		TaskScheduleIDs:   trimNonEmptyStrings(input.TaskScheduleIDs),
 		CancelledAt:       cancelledAt,
 	}
-	result, errorValue := toolCatalogBuilder.taskScheduleRepository.CancelTaskSchedules(cancelRequest)
+	result, errorValue := toolCatalogBuilder.cancelMatchingSchedules(cancelRequest, cancelledAt)
 	if errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
-	cancelledTaskRunCount := toolCatalogBuilder.cancelScheduledTaskRuns(cancelRequest, result)
-	cancelledWaitCount := toolCatalogBuilder.cancelPendingWaits(cancelRequest, cancelledAt)
-	response := map[string]any{
-		"cancelledScheduleCount": len(result.TaskSchedules),
-		"cancelledTaskRunCount":  cancelledTaskRunCount,
-		"cancelledWaitCount":     cancelledWaitCount,
-		"taskSchedules":          result.TaskSchedules,
-	}
-	if len(result.TaskSchedules)+cancelledTaskRunCount+cancelledWaitCount == 0 {
-		return agent.ToolFailureWithOutput(agent.FailureNotFound, agent.FailureCodes.NotFound, "schedule_cancel", "no active schedules or pending scheduled work matched the cancellation request", json.RawMessage(marshalToolResult(response))), nil
+	resultDocument := json.RawMessage(marshalToolResult(result))
+	if result.EffectiveCancellationCount == 0 {
+		return agent.ToolFailureData(agent.FailureNotFound, agent.FailureCodes.NotFound, "schedule_cancel", "no active schedules or pending scheduled work matched the cancellation request", resultDocument), nil
 	}
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
-		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.cancelled", marshalToolResult(response))
+		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.cancelled", string(resultDocument))
 	}
-	return agent.ToolSuccess(marshalToolResult(response)), nil
+	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) cancelMatchingSchedules(cancelRequest task.TaskScheduleCancelRequest, cancelledAt time.Time) (scheduleCancelOperationResult, error) {
+	result, errorValue := toolCatalogBuilder.taskScheduleRepository.CancelTaskSchedules(cancelRequest)
+	if errorValue != nil {
+		return scheduleCancelOperationResult{}, errorValue
+	}
+	cancelledTaskRunCount := toolCatalogBuilder.cancelScheduledTaskRuns(cancelRequest, result)
+	cancelledWaitCount := toolCatalogBuilder.cancelPendingWaits(cancelRequest, cancelledAt)
+	effectiveCancellationCount := len(result.TaskSchedules) + cancelledTaskRunCount + cancelledWaitCount
+	return scheduleCancelOperationResult{
+		CancelledScheduleCount:     len(result.TaskSchedules),
+		CancelledTaskRunCount:      cancelledTaskRunCount,
+		CancelledWaitCount:         cancelledWaitCount,
+		EffectiveCancellationCount: effectiveCancellationCount,
+		TaskSchedules:              result.TaskSchedules,
+	}, nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduledTaskRuns(cancelRequest task.TaskScheduleCancelRequest, result task.TaskScheduleCancelResult) int {

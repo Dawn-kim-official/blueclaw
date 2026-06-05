@@ -172,11 +172,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) removeSkillTool(toolContext contex
 	}
 	skillDirectoryPath := toolCatalogBuilder.userManagedSkillDirectoryPath(skillName)
 	if _, errorValue := os.Stat(skillDirectoryPath); os.IsNotExist(errorValue) {
-		return agent.ToolSuccess(marshalToolResult(map[string]string{
+		return agent.ToolFailureData(agent.FailureNotFound, agent.FailureCodes.NotFound, "skill_remove", "user-managed skill was not found", json.RawMessage(marshalToolResult(map[string]string{
 			"name":   skillName,
 			"path":   toolCatalogBuilder.agentWorkspacePath(skillDirectoryPath),
 			"status": "missing",
-		})), nil
+		}))), nil
 	}
 	if errorValue := os.RemoveAll(skillDirectoryPath); errorValue != nil {
 		return agent.ToolResult{}, errorValue
