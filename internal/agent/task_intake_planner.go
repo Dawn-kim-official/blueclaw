@@ -154,6 +154,7 @@ type IntakeDecision struct {
 	TaskComplexity            TaskComplexity        `json:"taskComplexity"`
 	EffortLevel               EffortLevel           `json:"effortLevel"`
 	RequestedOutputFormats    []string              `json:"requestedOutputFormats"`
+	ExpectedResults           []ExpectedResult      `json:"expectedResults,omitempty"`
 	ResponseLanguage          string                `json:"responseLanguage"`
 	Reason                    string                `json:"reason"`
 	UserFacingReply           string                `json:"userFacingReply"`
@@ -175,6 +176,7 @@ type TurnDecision struct {
 	TaskComplexity            TaskComplexity        `json:"taskComplexity"`
 	EffortLevel               EffortLevel           `json:"effortLevel"`
 	RequestedOutputFormats    []string              `json:"requestedOutputFormats"`
+	ExpectedResults           []ExpectedResult      `json:"expectedResults,omitempty"`
 	ResponseLanguage          string                `json:"responseLanguage"`
 	Reason                    string                `json:"reason"`
 	UserFacingReply           string                `json:"userFacingReply"`
@@ -195,6 +197,7 @@ func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 		TaskComplexity:            turnDecision.TaskComplexity,
 		EffortLevel:               turnDecision.EffortLevel,
 		RequestedOutputFormats:    append([]string{}, turnDecision.RequestedOutputFormats...),
+		ExpectedResults:           normalizeExpectedResults(turnDecision.ExpectedResults),
 		ResponseLanguage:          turnDecision.ResponseLanguage,
 		Reason:                    turnDecision.Reason,
 		UserFacingReply:           turnDecision.UserFacingReply,
@@ -428,6 +431,7 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	}
 	decision.EffortLevel = LargerEffortLevel(normalizedEffortLevel, minimumEffortLevelForRequest(request))
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
+	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
 	decision.ResponseLanguage = resolveDecisionResponseLanguage(decision.ResponseLanguage, request.ResponseLanguage)
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
@@ -482,6 +486,7 @@ func turnRouterSchema(request AgentRequest) string {
 			map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"html", "pptx", "pdf", "txt", "docx", "xlsx", "csv"}}},
 			map[string]any{"type": "null"},
 		}},
+		"expectedResults":  expectedResultsSchema(),
 		"responseLanguage": map[string]any{"type": "string", "enum": []string{"ko", "en", "same_as_conversation"}},
 		"reason":           map[string]any{"type": "string"},
 		"userFacingReply":  map[string]any{"type": "string"},
@@ -525,6 +530,24 @@ func turnRouterSchema(request AgentRequest) string {
 		return `{"type":"object","properties":{"route":{"type":"string"},"classification":{"type":"string"},"taskShape":{"type":"string"},"taskComplexity":{"type":"string"},"effortLevel":{"type":"string"},"requestedOutputFormats":{"type":"null"},"responseLanguage":{"type":"string"},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["route","classification","taskShape","taskComplexity","effortLevel","requestedOutputFormats","responseLanguage","reason","userFacingReply"],"additionalProperties":false}`
 	}
 	return string(document)
+}
+
+func expectedResultsSchema() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":              map[string]any{"type": "string"},
+				"type":            map[string]any{"type": "string", "enum": []string{ExpectedResultTypeMessage, ExpectedResultTypeFile, ExpectedResultTypeLink}},
+				"description":     map[string]any{"type": "string"},
+				"required":        map[string]any{"type": "boolean"},
+				"acceptanceHints": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			},
+			"required":             []string{"description", "required"},
+			"additionalProperties": false,
+		},
+	}
 }
 
 func normalizeBusyRoute(busyRoute BusyRoute, turnRoute TurnRoute, request AgentRequest) BusyRoute {
