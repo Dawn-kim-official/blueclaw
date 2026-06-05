@@ -144,6 +144,24 @@
       ]
     },
     {
+      "resource": "tool:flow.task.list",
+      "actions": [
+        "execute"
+      ],
+      "circles": [
+        "staff"
+      ]
+    },
+    {
+      "resource": "tool:flow.task.update",
+      "actions": [
+        "execute"
+      ],
+      "circles": [
+        "staff"
+      ]
+    },
+    {
       "resource": "tool:company.broadcast.send",
       "actions": [
         "execute"

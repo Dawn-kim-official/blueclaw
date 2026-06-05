@@ -399,7 +399,7 @@ func activeGoalCandidateToolNames(request AgentRequest, executionPlan ExecutionP
 			"calendar.event.delete",
 			"flow.task.add",
 			"flow.task.list",
-			"flow.task.complete",
+			"flow.task.update",
 		)
 	}
 	return toolNames

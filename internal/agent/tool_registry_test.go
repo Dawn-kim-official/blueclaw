@@ -98,6 +98,18 @@ func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
 	}
 }
 
+func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "flow.task.update"}}, false, nil, false)
+	for _, fragment := range []string{"flow.task.update", "taskID", "query", "content", "status", "endDate"} {
+		if !strings.Contains(actionSchema, fragment) {
+			t.Fatalf("expected action schema to include %q, got %s", fragment, actionSchema)
+		}
+	}
+	if !isOneShotCompletionEvidenceTool("flow.task.update") {
+		t.Fatal("expected flow.task.update to count as one-shot completion evidence")
+	}
+}
+
 func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
