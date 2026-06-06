@@ -55,11 +55,31 @@ type TaskScheduleDeliveryGroup struct {
 	LatestNextRunAt *time.Time `json:"latestNextRunAt,omitempty"`
 }
 
+type TaskScheduleMaintenanceCancelRequest struct {
+	DryRun                       bool
+	DeliveryConversationIDs      []string
+	DeliveryConversationIDPrefix string
+	IncludeScheduleChildren      bool
+	UnboundedOnly                bool
+	StaleFailedOnly              bool
+	CancelledAt                  time.Time
+}
+
+type TaskScheduleMaintenanceCancelResult struct {
+	DryRun                 bool      `json:"dryRun"`
+	MatchedScheduleCount   int       `json:"matchedScheduleCount"`
+	CancelledScheduleCount int       `json:"cancelledScheduleCount"`
+	ScheduleIDs            []string  `json:"scheduleIDs"`
+	MatchedConversationIDs []string  `json:"matchedConversationIDs"`
+	CheckedAt              time.Time `json:"checkedAt"`
+}
+
 type TaskScheduleRepository interface {
 	UpsertTaskSchedule(TaskSchedule) error
 	ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]TaskSchedule, error)
 	MarkTaskScheduleSucceeded(TaskSchedule) error
 	MarkTaskScheduleFailed(TaskSchedule, string, time.Time) error
+	ExpireTaskSchedule(TaskSchedule, string, time.Time) error
 	CancelTaskSchedules(TaskScheduleCancelRequest) (TaskScheduleCancelResult, error)
 }
 

@@ -154,6 +154,10 @@ func (repository *scheduledDeliveryRepository) MarkTaskScheduleFailed(_ task.Tas
 	return nil
 }
 
+func (repository *scheduledDeliveryRepository) ExpireTaskSchedule(task.TaskSchedule, string, time.Time) error {
+	return nil
+}
+
 func (repository *scheduledDeliveryRepository) CancelTaskSchedules(task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
 	return task.TaskScheduleCancelResult{}, nil
 }

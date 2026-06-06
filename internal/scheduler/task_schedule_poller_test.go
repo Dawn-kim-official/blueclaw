@@ -262,8 +262,11 @@ func TestTaskSchedulePollerRejectsScheduledInteractionWithoutWaiting(t *testing.
 	if repository.succeeded != nil {
 		t.Fatalf("expected interactive scheduled task not to advance, got %+v", repository.succeeded)
 	}
-	if len(repository.failed) != 1 || strings.Contains(repository.failed[0], "waiting_approval") {
-		t.Fatalf("expected scheduled interaction not to wait for approval, got %+v", repository.failed)
+	if len(repository.expired) != 1 || strings.Contains(repository.expired[0].LastError, "waiting_approval") {
+		t.Fatalf("expected scheduled interaction to expire without waiting for approval, got expired=%+v failed=%+v", repository.expired, repository.failed)
+	}
+	if len(repository.failed) != 0 {
+		t.Fatalf("expected terminal scheduled interaction not to retry, got %+v", repository.failed)
 	}
 }
 
@@ -314,8 +317,46 @@ func TestTaskSchedulePollerDoesNotDeliverFailedTaskReply(t *testing.T) {
 	if len(deliveryRepository.replies) != 0 {
 		t.Fatalf("expected no failed task reply, got %+v", deliveryRepository.replies)
 	}
-	if len(repository.failed) != 1 || !strings.Contains(repository.failed[0], "failed") {
-		t.Fatalf("expected failed task status to be recorded, got %+v", repository.failed)
+	if len(repository.expired) != 1 || !strings.Contains(repository.expired[0].LastError, "failed") {
+		t.Fatalf("expected failed task status to expire schedule, got expired=%+v failed=%+v", repository.expired, repository.failed)
+	}
+	if len(repository.failed) != 0 {
+		t.Fatalf("expected terminal task failure not to retry, got %+v", repository.failed)
+	}
+}
+
+func TestTaskSchedulePollerExpiresOneTimeMessageWithInvalidDeliveryTarget(t *testing.T) {
+	runAt := time.Now().UTC().Add(-time.Minute)
+	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:   "schedule-once",
+		CreatorPersonID:  "person-1",
+		Prompt:           "알림입니다.",
+		ExecutionMode:    task.TaskScheduleExecutionModeMessage,
+		AgentProfileName: "default",
+		Platform:         "mattermost",
+		ConversationID:   "channel-1",
+		TimeZone:         "Asia/Seoul",
+		Kind:             task.TaskScheduleKindOnce,
+		RunAt:            &runAt,
+		NextRunAt:        &runAt,
+	}}}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		DeliveryRepository:     &pollerDeliveryRepository{},
+		TaskRunService:         task.NewTaskRunService(task.NewTaskEventService()),
+		PersonAccessResolver:   staticPersonAccessResolver{},
+	}
+
+	_, errorValue := poller.RunDue(context.Background(), runAt, 1)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(repository.expired) != 1 || repository.expired[0].NextRunAt != nil {
+		t.Fatalf("expected invalid one-time message schedule to expire, got %+v", repository.expired)
+	}
+	if len(repository.failed) != 0 {
+		t.Fatalf("expected invalid one-time message schedule not to retry, got %+v", repository.failed)
 	}
 }
 
@@ -347,6 +388,7 @@ type pollerScheduleRepository struct {
 	taskSchedules []task.TaskSchedule
 	succeeded     *task.TaskSchedule
 	failed        []string
+	expired       []task.TaskSchedule
 	claimError    error
 	claimCallback func()
 }
@@ -382,6 +424,14 @@ func (repository *pollerScheduleRepository) MarkTaskScheduleSucceeded(taskSchedu
 
 func (repository *pollerScheduleRepository) MarkTaskScheduleFailed(_ task.TaskSchedule, errorMessage string, _ time.Time) error {
 	repository.failed = append(repository.failed, errorMessage)
+	return nil
+}
+
+func (repository *pollerScheduleRepository) ExpireTaskSchedule(taskSchedule task.TaskSchedule, errorMessage string, referenceTime time.Time) error {
+	taskSchedule.ExpiresAt = &referenceTime
+	taskSchedule.NextRunAt = nil
+	taskSchedule.LastError = errorMessage
+	repository.expired = append(repository.expired, taskSchedule)
 	return nil
 }
 

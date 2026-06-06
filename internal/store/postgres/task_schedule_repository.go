@@ -179,6 +179,28 @@ WHERE task_schedule_id = $4`,
 	return errorValue
 }
 
+func (taskScheduleRepository TaskScheduleRepository) ExpireTaskSchedule(taskSchedule task.TaskSchedule, errorMessage string, referenceTime time.Time) error {
+	if referenceTime.IsZero() {
+		referenceTime = time.Now().UTC()
+	}
+	_, errorValue := taskScheduleRepository.database.SQL.ExecContext(context.Background(), `
+UPDATE task_schedule
+SET expires_at = $1,
+  next_run_at = NULL,
+  lease_owner = '',
+  leased_until = NULL,
+  failure_count = failure_count + 1,
+  last_error = $2,
+  next_attempt_at = $1,
+  updated_at = $1
+WHERE task_schedule_id = $3`,
+		referenceTime,
+		errorMessage,
+		taskSchedule.TaskScheduleID,
+	)
+	return errorValue
+}
+
 func (taskScheduleRepository TaskScheduleRepository) CancelTaskSchedules(request task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
 	cancelledAt := request.CancelledAt
 	if cancelledAt.IsZero() {
@@ -350,6 +372,167 @@ LIMIT $` + strconv.Itoa(len(arguments))
 	}
 	defer rows.Close()
 	return scanTaskScheduleDeliveryGroups(rows)
+}
+
+func (taskScheduleRepository TaskScheduleRepository) MaintenanceCancelTaskSchedules(request task.TaskScheduleMaintenanceCancelRequest) (task.TaskScheduleMaintenanceCancelResult, error) {
+	cancelledAt := request.CancelledAt
+	if cancelledAt.IsZero() {
+		cancelledAt = time.Now().UTC()
+	}
+	conditions, arguments := maintenanceCancelConditions(request, cancelledAt)
+	if len(conditions) == 0 {
+		return task.TaskScheduleMaintenanceCancelResult{DryRun: request.DryRun, CheckedAt: cancelledAt}, nil
+	}
+	query, arguments := maintenanceCancelQuery(request, conditions, arguments)
+	rows, errorValue := taskScheduleRepository.database.SQL.QueryContext(context.Background(), query, arguments...)
+	if errorValue != nil {
+		return task.TaskScheduleMaintenanceCancelResult{}, errorValue
+	}
+	defer rows.Close()
+	taskSchedules, errorValue := scanTaskSchedules(rows)
+	if errorValue != nil {
+		return task.TaskScheduleMaintenanceCancelResult{}, errorValue
+	}
+	return maintenanceCancelResult(request.DryRun, cancelledAt, taskSchedules), nil
+}
+
+func maintenanceCancelConditions(request task.TaskScheduleMaintenanceCancelRequest, referenceTime time.Time) ([]string, []any) {
+	conditions := []string{
+		"next_run_at IS NOT NULL",
+		"(expires_at IS NULL OR expires_at > $1)",
+	}
+	arguments := []any{referenceTime}
+	targetConditions := []string{}
+	deliveryConversationIDs := trimTaskScheduleStrings(request.DeliveryConversationIDs)
+	if len(deliveryConversationIDs) > 0 {
+		placeholders := []string{}
+		for _, deliveryConversationID := range deliveryConversationIDs {
+			arguments = append(arguments, deliveryConversationID)
+			placeholders = append(placeholders, "$"+strconv.Itoa(len(arguments)))
+		}
+		targetConditions = append(targetConditions, "delivery_conversation_id IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if strings.TrimSpace(request.DeliveryConversationIDPrefix) != "" {
+		arguments = append(arguments, strings.TrimSpace(request.DeliveryConversationIDPrefix)+"%")
+		targetConditions = append(targetConditions, "delivery_conversation_id LIKE $"+strconv.Itoa(len(arguments)))
+	}
+	if len(targetConditions) == 0 {
+		return nil, nil
+	}
+	conditions = append(conditions, "("+strings.Join(targetConditions, " OR ")+")")
+	if request.UnboundedOnly {
+		conditions = append(conditions, "expires_at IS NULL", "max_run_count IS NULL")
+	}
+	if request.StaleFailedOnly {
+		conditions = append(conditions, "failure_count > 0", "next_run_at <= $1")
+	}
+	return conditions, arguments
+}
+
+func maintenanceCancelQuery(request task.TaskScheduleMaintenanceCancelRequest, conditions []string, arguments []any) (string, []any) {
+	activeConditions := "next_run_at IS NOT NULL AND (expires_at IS NULL OR expires_at > $1)"
+	if request.UnboundedOnly {
+		activeConditions += " AND expires_at IS NULL AND max_run_count IS NULL"
+	}
+	if request.StaleFailedOnly {
+		activeConditions += " AND failure_count > 0 AND next_run_at <= $1"
+	}
+	baseQuery := `WITH RECURSIVE matched AS (
+  SELECT task_schedule_id
+  FROM task_schedule
+  WHERE ` + strings.Join(conditions, " AND ")
+	if request.IncludeScheduleChildren {
+		baseQuery += `
+  UNION
+  SELECT child.task_schedule_id
+  FROM task_schedule child
+  JOIN matched parent ON child.delivery_conversation_id = 'schedule:' || parent.task_schedule_id
+  WHERE ` + prefixedTaskScheduleCondition(activeConditions, "child")
+	}
+	baseQuery += `
+)`
+	if request.DryRun {
+		return baseQuery + `
+SELECT ` + taskScheduleReturningColumns() + `
+FROM task_schedule
+WHERE task_schedule_id IN (SELECT task_schedule_id FROM matched)
+ORDER BY created_at DESC`, arguments
+	}
+	arguments = append(arguments, arguments[0])
+	return baseQuery + `
+UPDATE task_schedule
+SET expires_at = $` + strconv.Itoa(len(arguments)) + `,
+  next_run_at = NULL,
+  lease_owner = '',
+  leased_until = NULL,
+  updated_at = $` + strconv.Itoa(len(arguments)) + `
+WHERE task_schedule_id IN (SELECT task_schedule_id FROM matched)
+RETURNING ` + taskScheduleReturningColumns(), arguments
+}
+
+func maintenanceCancelResult(dryRun bool, checkedAt time.Time, taskSchedules []task.TaskSchedule) task.TaskScheduleMaintenanceCancelResult {
+	return task.TaskScheduleMaintenanceCancelResult{
+		DryRun:                 dryRun,
+		MatchedScheduleCount:   len(taskSchedules),
+		CancelledScheduleCount: cancelledScheduleCount(dryRun, taskSchedules),
+		ScheduleIDs:            taskScheduleIDs(taskSchedules),
+		MatchedConversationIDs: taskScheduleConversationIDs(taskSchedules),
+		CheckedAt:              checkedAt,
+	}
+}
+
+func cancelledScheduleCount(dryRun bool, taskSchedules []task.TaskSchedule) int {
+	if dryRun {
+		return 0
+	}
+	return len(taskSchedules)
+}
+
+func taskScheduleIDs(taskSchedules []task.TaskSchedule) []string {
+	values := []string{}
+	for _, taskSchedule := range taskSchedules {
+		values = appendUniqueTaskScheduleString(values, taskSchedule.TaskScheduleID)
+	}
+	return values
+}
+
+func taskScheduleConversationIDs(taskSchedules []task.TaskSchedule) []string {
+	values := []string{}
+	for _, taskSchedule := range taskSchedules {
+		values = appendUniqueTaskScheduleString(values, taskSchedule.ConversationID)
+	}
+	return values
+}
+
+func trimTaskScheduleStrings(values []string) []string {
+	trimmedValues := []string{}
+	for _, value := range values {
+		trimmedValues = appendUniqueTaskScheduleString(trimmedValues, value)
+	}
+	return trimmedValues
+}
+
+func appendUniqueTaskScheduleString(values []string, value string) []string {
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return values
+	}
+	for _, existingValue := range values {
+		if existingValue == trimmedValue {
+			return values
+		}
+	}
+	return append(values, trimmedValue)
+}
+
+func prefixedTaskScheduleCondition(condition string, alias string) string {
+	prefix := strings.TrimSpace(alias) + "."
+	return strings.NewReplacer(
+		"next_run_at", prefix+"next_run_at",
+		"expires_at", prefix+"expires_at",
+		"max_run_count", prefix+"max_run_count",
+		"failure_count", prefix+"failure_count",
+	).Replace(condition)
 }
 
 func taskScheduleCancelAccessCondition(request task.TaskScheduleCancelRequest, firstPlaceholderIndex int) string {

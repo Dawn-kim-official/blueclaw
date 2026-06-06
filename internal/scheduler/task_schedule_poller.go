@@ -45,6 +45,14 @@ type taskScheduleExecutionResult struct {
 	DidRun       bool
 }
 
+type taskScheduleTerminalError struct {
+	message string
+}
+
+func (errorValue taskScheduleTerminalError) Error() string {
+	return errorValue.message
+}
+
 func (taskSchedulePoller TaskSchedulePoller) Start(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
@@ -94,13 +102,25 @@ func (taskSchedulePoller TaskSchedulePoller) RunDue(ctx context.Context, referen
 				"error",
 				errorValue.Error(),
 			)
-			_ = taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleFailed(taskSchedule, errorValue.Error(), referenceTime)
+			_ = taskSchedulePoller.recordTaskScheduleFailure(taskSchedule, errorValue, referenceTime)
 			continue
 		}
 		taskSchedulePoller.logger().Info("task_schedule.run.completed", "taskScheduleID", taskSchedule.TaskScheduleID)
 		runCount++
 	}
 	return runCount, nil
+}
+
+func (taskSchedulePoller TaskSchedulePoller) recordTaskScheduleFailure(taskSchedule task.TaskSchedule, errorValue error, referenceTime time.Time) error {
+	if taskScheduleFailureIsTerminal(taskSchedule, errorValue, referenceTime) {
+		return taskSchedulePoller.TaskScheduleRepository.ExpireTaskSchedule(taskSchedule, errorValue.Error(), referenceTime)
+	}
+	return taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleFailed(taskSchedule, errorValue.Error(), referenceTime)
+}
+
+func taskScheduleFailureIsTerminal(_ task.TaskSchedule, errorValue error, _ time.Time) bool {
+	var terminalError taskScheduleTerminalError
+	return errors.As(errorValue, &terminalError)
 }
 
 func (taskSchedulePoller TaskSchedulePoller) runTaskSchedule(ctx context.Context, taskSchedule task.TaskSchedule, referenceTime time.Time) error {
@@ -224,16 +244,16 @@ func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.O
 		if reason != "" {
 			reason = " reason=" + reason
 		}
-		return connectors.OutboundReply{}, errors.New("scheduled task did not complete: taskRunID=" + turnResult.TaskRun.TaskRunID + " status=" + string(turnResult.TaskRun.Status) + reason)
+		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task did not complete: taskRunID=" + turnResult.TaskRun.TaskRunID + " status=" + string(turnResult.TaskRun.Status) + reason}
 	}
 	if reply == "" {
-		return connectors.OutboundReply{}, errors.New("scheduled task completed without a reply")
+		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task completed without a reply"}
 	}
 	if agent.FinishMessageContainsNonDeliverableArtifactLocator(reply) {
-		return connectors.OutboundReply{}, errors.New("scheduled task reply exposes non-deliverable artifact locator")
+		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task reply exposes non-deliverable artifact locator"}
 	}
 	if agent.FinishMessageClaimsAttachmentDelivery(reply) && len(turnResult.Attachments) == 0 {
-		return connectors.OutboundReply{}, errors.New("scheduled task reply claims attachments without evidence")
+		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task reply claims attachments without evidence"}
 	}
 	return connectors.OutboundReply{Message: reply, TaskRunID: turnResult.TaskRun.TaskRunID, ReplyKind: "success", Attachments: turnResult.Attachments}, nil
 }
@@ -291,13 +311,13 @@ func (taskSchedulePoller TaskSchedulePoller) staleTaskRunTimeout() time.Duration
 
 func validateTaskScheduleDeliveryTarget(taskSchedule task.TaskSchedule) error {
 	if strings.TrimSpace(taskSchedule.Platform) == "" {
-		return errors.New("scheduled task platform is required")
+		return taskScheduleTerminalError{message: "scheduled task platform is required"}
 	}
 	if strings.TrimSpace(taskSchedule.ConversationID) == "" {
-		return errors.New("scheduled task conversation is required")
+		return taskScheduleTerminalError{message: "scheduled task conversation is required"}
 	}
 	if strings.TrimSpace(taskSchedule.ReplyTargetID) == "" {
-		return errors.New("scheduled task reply target is required")
+		return taskScheduleTerminalError{message: "scheduled task reply target is required"}
 	}
 	return nil
 }

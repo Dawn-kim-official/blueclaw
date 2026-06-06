@@ -91,6 +91,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	var taskScheduleSummaryRepository adminapi.TaskScheduleSummaryRepository
 	var taskScheduleListRepository adminapi.TaskScheduleListRepository
 	var taskScheduleDeliveryGroupRepository adminapi.TaskScheduleDeliveryGroupRepository
+	var taskScheduleMaintenanceRepository adminapi.TaskScheduleMaintenanceCancelRepository
 	var taskWaitTokenRepository task.TaskWaitTokenRepository
 	var scheduledDeliveryRepository scheduler.TaskScheduleDeliveryRepository
 	if database.SQL != nil {
@@ -103,6 +104,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskScheduleSummaryRepository = postgresTaskScheduleRepository
 		taskScheduleListRepository = postgresTaskScheduleRepository
 		taskScheduleDeliveryGroupRepository = postgresTaskScheduleRepository
+		taskScheduleMaintenanceRepository = postgresTaskScheduleRepository
 		taskWaitTokenRepository = postgres.NewTaskWaitTokenRepository(database)
 		scheduledDeliveryRepository = postgres.NewRawEventRepository(database)
 	}
@@ -246,6 +248,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			SummaryRepository:       taskScheduleSummaryRepository,
 			ListRepository:          taskScheduleListRepository,
 			DeliveryGroupRepository: taskScheduleDeliveryGroupRepository,
+			MaintenanceRepository:   taskScheduleMaintenanceRepository,
 		},
 		MemoryGraphHandler: adminapi.MemoryGraphHandler{
 			MemoryService: memoryService,
