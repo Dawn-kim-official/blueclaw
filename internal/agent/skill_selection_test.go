@@ -617,7 +617,7 @@ func TestEmbeddingRetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 				Name:         "scheduled-task",
 				Description:  "Create scheduled, recurring, and finite repeated messages, 1분에 한 번씩, 10번, reminders, and repeats.",
 				WhenToUse:    "Use for reminders, interval messages, 1분에 한 번씩, 10번, finite repeated message, and repeat N times requests.",
-				Prompt:       "Use schedule.create with executionMode message for exact repeated messages, intervalSecond, and maxRunCount.",
+				Prompt:       "Use schedule.create with taskInstruction for the run-time work, intervalSecond, and maxRunCount.",
 				AllowedTools: []string{"schedule.create"},
 				Source:       InstructionSource{Path: "skills/scheduled-task/SKILL.md", SHA256: "schedule", SkillName: "scheduled-task"},
 			},

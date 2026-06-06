@@ -1472,7 +1472,7 @@ func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing
 func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
 		`{"action":"select_tools","toolNames":["schedule.create"],"skillNames":["scheduled-task"],"executionStateUpdate":{}}`,
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","prompt":"매일 업계 뉴스를 조사해서 핵심만 보고해줘.","executionMode":"agent","kind":"cron","cronExpression":"0 7 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","taskInstruction":"업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
 		connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1494,8 +1494,8 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 		t.Fatalf("expected one task schedule, got %+v", repository.taskSchedules)
 	}
 	taskSchedule := repository.taskSchedules[0]
-	if taskSchedule.Prompt != "매일 업계 뉴스를 조사해서 핵심만 보고해줘." {
-		t.Fatalf("expected stored research prompt, got %q", taskSchedule.Prompt)
+	if taskSchedule.Prompt != "업계 뉴스를 조사해서 핵심만 보고해줘." {
+		t.Fatalf("expected stored task instruction without cadence, got %q", taskSchedule.Prompt)
 	}
 	if taskSchedule.CronExpression != "0 7 * * *" || taskSchedule.TimeZone != "Asia/Seoul" {
 		t.Fatalf("expected cron schedule in Asia/Seoul, got %+v", taskSchedule)
@@ -2794,7 +2794,7 @@ func connectorScheduledTaskSkill() agent.SkillInstruction {
 		Name:         "scheduled-task",
 		Description:  "Create scheduled tasks.",
 		WhenToUse:    "Use for schedule, remind, 매일, 예약, 알림, and 마다 requests.",
-		Prompt:       "Use schedule.create with executionMode message for exact reminders and executionMode agent for scheduled work. Set repeatPolicy finite with expiresAt or maxRunCount for finite repeats, and unbounded only when explicitly requested.",
+		Prompt:       "Use schedule.create with taskInstruction for only the work to perform at run time. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount.",
 		TriggerHints: []string{"schedule", "remind", "매일", "예약", "알림", "마다"},
 		Completion: agent.SkillCompletion{
 			RequiredEvidenceTools: []string{"schedule.create"},
