@@ -1145,6 +1145,14 @@ func (repository *memoryTaskScheduleRepository) MarkTaskScheduleFailed(_ task.Ta
 	return nil
 }
 
+func (repository *memoryTaskScheduleRepository) ExpireTaskSchedule(taskSchedule task.TaskSchedule, errorMessage string, referenceTime time.Time) error {
+	taskSchedule.ExpiresAt = timePointer(referenceTime)
+	taskSchedule.NextRunAt = nil
+	taskSchedule.LastError = errorMessage
+	repository.taskSchedules = append(repository.taskSchedules, taskSchedule)
+	return nil
+}
+
 func (repository *memoryTaskScheduleRepository) CancelTaskSchedules(request task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
 	cancelledTaskSchedules := []task.TaskSchedule{}
 	remainingTaskSchedules := []task.TaskSchedule{}

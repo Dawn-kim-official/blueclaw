@@ -2326,6 +2326,10 @@ func (repository *connectorTaskScheduleRepository) MarkTaskScheduleFailed(task.T
 	return nil
 }
 
+func (repository *connectorTaskScheduleRepository) ExpireTaskSchedule(task.TaskSchedule, string, time.Time) error {
+	return nil
+}
+
 func (repository *connectorTaskScheduleRepository) CancelTaskSchedules(task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
 	return task.TaskScheduleCancelResult{}, nil
 }

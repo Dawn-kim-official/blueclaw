@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -123,6 +124,54 @@ func TestTaskScheduleHandlerListsDeliveryGroupsWithoutPromptDetails(t *testing.T
 	}
 }
 
+func TestTaskScheduleHandlerMaintenanceCancelDefaultsToDryRun(t *testing.T) {
+	repository := &taskScheduleMaintenanceRepositoryStub{
+		result: task.TaskScheduleMaintenanceCancelResult{
+			DryRun:               true,
+			MatchedScheduleCount: 2,
+			ScheduleIDs:          []string{"schedule-1", "schedule-2"},
+		},
+	}
+	handler := TaskScheduleHandler{MaintenanceRepository: repository}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/maintenance-cancel", bytes.NewReader([]byte(`{
+		"deliveryConversationIDs":["channel-1"],
+		"deliveryConversationIDPrefix":"thread:channel-1:",
+		"includeScheduleChildren":true,
+		"unboundedOnly":true
+	}`)))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleMaintenanceCancel(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if !repository.request.DryRun || !repository.request.IncludeScheduleChildren || !repository.request.UnboundedOnly {
+		t.Fatalf("expected maintenance options to reach repository, got %+v", repository.request)
+	}
+	if repository.request.DeliveryConversationIDPrefix != "thread:channel-1:" || len(repository.request.DeliveryConversationIDs) != 1 {
+		t.Fatalf("expected target conversations, got %+v", repository.request)
+	}
+}
+
+func TestTaskScheduleHandlerMaintenanceCancelReturnsNotFound(t *testing.T) {
+	repository := &taskScheduleMaintenanceRepositoryStub{
+		result: task.TaskScheduleMaintenanceCancelResult{DryRun: true},
+	}
+	handler := TaskScheduleHandler{MaintenanceRepository: repository}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/maintenance-cancel", bytes.NewReader([]byte(`{}`)))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleMaintenanceCancel(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusNotFound {
+		t.Fatalf("expected not found response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if !strings.Contains(responseRecorder.Body.String(), `"status":"not_found"`) {
+		t.Fatalf("expected not_found body, got %s", responseRecorder.Body.String())
+	}
+}
+
 type taskScheduleSummaryRepositoryStub struct {
 	summary task.TaskScheduleSummary
 }
@@ -149,4 +198,14 @@ type taskScheduleDeliveryGroupRepositoryStub struct {
 func (repository *taskScheduleDeliveryGroupRepositoryStub) ListActiveTaskScheduleDeliveryGroups(request task.TaskScheduleDeliveryGroupRequest) ([]task.TaskScheduleDeliveryGroup, error) {
 	repository.request = request
 	return repository.groups, nil
+}
+
+type taskScheduleMaintenanceRepositoryStub struct {
+	request task.TaskScheduleMaintenanceCancelRequest
+	result  task.TaskScheduleMaintenanceCancelResult
+}
+
+func (repository *taskScheduleMaintenanceRepositoryStub) MaintenanceCancelTaskSchedules(request task.TaskScheduleMaintenanceCancelRequest) (task.TaskScheduleMaintenanceCancelResult, error) {
+	repository.request = request
+	return repository.result, nil
 }

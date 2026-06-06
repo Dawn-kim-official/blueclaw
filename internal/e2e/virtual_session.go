@@ -978,6 +978,10 @@ func (repository *virtualTaskScheduleRepository) MarkTaskScheduleFailed(task.Tas
 	return nil
 }
 
+func (repository *virtualTaskScheduleRepository) ExpireTaskSchedule(task.TaskSchedule, string, time.Time) error {
+	return nil
+}
+
 func (repository *virtualTaskScheduleRepository) CancelTaskSchedules(request task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
 	repository.mutex.Lock()
 	defer repository.mutex.Unlock()

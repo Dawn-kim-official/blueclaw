@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,10 +22,15 @@ type TaskScheduleDeliveryGroupRepository interface {
 	ListActiveTaskScheduleDeliveryGroups(task.TaskScheduleDeliveryGroupRequest) ([]task.TaskScheduleDeliveryGroup, error)
 }
 
+type TaskScheduleMaintenanceCancelRepository interface {
+	MaintenanceCancelTaskSchedules(task.TaskScheduleMaintenanceCancelRequest) (task.TaskScheduleMaintenanceCancelResult, error)
+}
+
 type TaskScheduleHandler struct {
 	SummaryRepository       TaskScheduleSummaryRepository
 	ListRepository          TaskScheduleListRepository
 	DeliveryGroupRepository TaskScheduleDeliveryGroupRepository
+	MaintenanceRepository   TaskScheduleMaintenanceCancelRepository
 }
 
 func (taskScheduleHandler TaskScheduleHandler) HandleSummary(responseWriter http.ResponseWriter, request *http.Request) {
@@ -74,6 +80,32 @@ func (taskScheduleHandler TaskScheduleHandler) HandleDeliveryGroups(responseWrit
 	})
 }
 
+func (taskScheduleHandler TaskScheduleHandler) HandleMaintenanceCancel(responseWriter http.ResponseWriter, request *http.Request) {
+	if taskScheduleHandler.MaintenanceRepository == nil {
+		http.Error(responseWriter, "task schedule maintenance repository is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	cancelRequest, errorValue := taskScheduleMaintenanceCancelRequestFromHTTP(request)
+	if errorValue != nil {
+		http.Error(responseWriter, "invalid task schedule maintenance cancel request", http.StatusBadRequest)
+		return
+	}
+	result, errorValue := taskScheduleHandler.MaintenanceRepository.MaintenanceCancelTaskSchedules(cancelRequest)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	if result.MatchedScheduleCount == 0 {
+		writeJSON(responseWriter, http.StatusNotFound, map[string]any{
+			"status":  "not_found",
+			"message": "no active schedules matched the maintenance cancellation request",
+			"result":  result,
+		})
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, result)
+}
+
 type taskScheduleListItem struct {
 	TaskScheduleID    string     `json:"taskScheduleID"`
 	CreatorPersonID   string     `json:"creatorPersonID"`
@@ -93,6 +125,35 @@ type taskScheduleListItem struct {
 	DeliveryChannelID string     `json:"deliveryChannelID"`
 	ReplyTargetID     string     `json:"replyTargetID,omitempty"`
 	PromptPreview     string     `json:"promptPreview"`
+}
+
+type taskScheduleMaintenanceCancelHTTPRequest struct {
+	DryRun                       *bool    `json:"dryRun"`
+	DeliveryConversationIDs      []string `json:"deliveryConversationIDs"`
+	DeliveryConversationIDPrefix string   `json:"deliveryConversationIDPrefix"`
+	IncludeScheduleChildren      bool     `json:"includeScheduleChildren"`
+	UnboundedOnly                bool     `json:"unboundedOnly"`
+	StaleFailedOnly              bool     `json:"staleFailedOnly"`
+}
+
+func taskScheduleMaintenanceCancelRequestFromHTTP(request *http.Request) (task.TaskScheduleMaintenanceCancelRequest, error) {
+	var document taskScheduleMaintenanceCancelHTTPRequest
+	if errorValue := json.NewDecoder(request.Body).Decode(&document); errorValue != nil {
+		return task.TaskScheduleMaintenanceCancelRequest{}, errorValue
+	}
+	dryRun := true
+	if document.DryRun != nil {
+		dryRun = *document.DryRun
+	}
+	return task.TaskScheduleMaintenanceCancelRequest{
+		DryRun:                       dryRun,
+		DeliveryConversationIDs:      document.DeliveryConversationIDs,
+		DeliveryConversationIDPrefix: strings.TrimSpace(document.DeliveryConversationIDPrefix),
+		IncludeScheduleChildren:      document.IncludeScheduleChildren,
+		UnboundedOnly:                document.UnboundedOnly,
+		StaleFailedOnly:              document.StaleFailedOnly,
+		CancelledAt:                  time.Now().UTC(),
+	}, nil
 }
 
 func taskScheduleListRequestFromHTTP(request *http.Request) task.TaskScheduleListRequest {

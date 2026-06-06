@@ -73,5 +73,5 @@ func (languageModel staticScheduleLanguageModel) GenerateStructuredResponse(cont
 }
 
 func scheduleFinishMessage(reply string) string {
-	return `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"finishMessage":"` + reply + `"}`
+	return `{"action":"finish","message":"` + reply + `","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`
 }
