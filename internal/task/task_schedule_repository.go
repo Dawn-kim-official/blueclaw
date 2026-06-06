@@ -23,14 +23,36 @@ type TaskScheduleCancelResult struct {
 }
 
 type TaskScheduleSummary struct {
-	ActiveCount      int        `json:"activeCount"`
-	UnboundedCount   int        `json:"unboundedCount"`
-	IntervalCount    int        `json:"intervalCount"`
-	CronCount        int        `json:"cronCount"`
-	OnceCount        int        `json:"onceCount"`
+	ActiveCount       int        `json:"activeCount"`
+	UnboundedCount    int        `json:"unboundedCount"`
+	IntervalCount     int        `json:"intervalCount"`
+	CronCount         int        `json:"cronCount"`
+	OnceCount         int        `json:"onceCount"`
 	EarliestNextRunAt *time.Time `json:"earliestNextRunAt,omitempty"`
-	LatestNextRunAt  *time.Time `json:"latestNextRunAt,omitempty"`
-	CheckedAt        time.Time  `json:"checkedAt"`
+	LatestNextRunAt   *time.Time `json:"latestNextRunAt,omitempty"`
+	CheckedAt         time.Time  `json:"checkedAt"`
+}
+
+type TaskScheduleListRequest struct {
+	ConversationID  string
+	CreatorPersonID string
+	UnboundedOnly   bool
+	Limit           int
+	ReferenceTime   time.Time
+}
+
+type TaskScheduleDeliveryGroupRequest struct {
+	UnboundedOnly bool
+	Limit         int
+	ReferenceTime time.Time
+}
+
+type TaskScheduleDeliveryGroup struct {
+	ConversationID  string     `json:"deliveryConversationID"`
+	ActiveCount     int        `json:"activeCount"`
+	UnboundedCount  int        `json:"unboundedCount"`
+	LatestCreatedAt *time.Time `json:"latestCreatedAt,omitempty"`
+	LatestNextRunAt *time.Time `json:"latestNextRunAt,omitempty"`
 }
 
 type TaskScheduleRepository interface {

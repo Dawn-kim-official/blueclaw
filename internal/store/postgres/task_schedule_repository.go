@@ -276,6 +276,82 @@ WHERE next_run_at IS NOT NULL
 	return summary, nil
 }
 
+func (taskScheduleRepository TaskScheduleRepository) ListActiveTaskSchedules(request task.TaskScheduleListRequest) ([]task.TaskSchedule, error) {
+	referenceTime := request.ReferenceTime
+	if referenceTime.IsZero() {
+		referenceTime = time.Now().UTC()
+	}
+	limit := request.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	conditions := []string{
+		"next_run_at IS NOT NULL",
+		"(expires_at IS NULL OR expires_at > $1)",
+	}
+	arguments := []any{referenceTime}
+	if strings.TrimSpace(request.ConversationID) != "" {
+		conditions = append(conditions, "delivery_conversation_id = $"+strconv.Itoa(len(arguments)+1))
+		arguments = append(arguments, strings.TrimSpace(request.ConversationID))
+	}
+	if strings.TrimSpace(request.CreatorPersonID) != "" {
+		conditions = append(conditions, "creator_person_id = $"+strconv.Itoa(len(arguments)+1))
+		arguments = append(arguments, strings.TrimSpace(request.CreatorPersonID))
+	}
+	if request.UnboundedOnly {
+		conditions = append(conditions, "expires_at IS NULL", "max_run_count IS NULL")
+	}
+	arguments = append(arguments, limit)
+	query := `SELECT ` + taskScheduleReturningColumns() + `
+FROM task_schedule
+WHERE ` + strings.Join(conditions, " AND ") + `
+ORDER BY created_at DESC
+LIMIT $` + strconv.Itoa(len(arguments))
+	rows, errorValue := taskScheduleRepository.database.SQL.QueryContext(context.Background(), query, arguments...)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	defer rows.Close()
+	return scanTaskSchedules(rows)
+}
+
+func (taskScheduleRepository TaskScheduleRepository) ListActiveTaskScheduleDeliveryGroups(request task.TaskScheduleDeliveryGroupRequest) ([]task.TaskScheduleDeliveryGroup, error) {
+	referenceTime := request.ReferenceTime
+	if referenceTime.IsZero() {
+		referenceTime = time.Now().UTC()
+	}
+	limit := request.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	conditions := []string{
+		"next_run_at IS NOT NULL",
+		"(expires_at IS NULL OR expires_at > $1)",
+	}
+	arguments := []any{referenceTime}
+	if request.UnboundedOnly {
+		conditions = append(conditions, "expires_at IS NULL", "max_run_count IS NULL")
+	}
+	arguments = append(arguments, limit)
+	query := `SELECT
+  COALESCE(delivery_conversation_id, ''),
+  count(*),
+  count(*) FILTER (WHERE expires_at IS NULL AND max_run_count IS NULL),
+  max(created_at),
+  max(next_run_at)
+FROM task_schedule
+WHERE ` + strings.Join(conditions, " AND ") + `
+GROUP BY delivery_conversation_id
+ORDER BY max(created_at) DESC
+LIMIT $` + strconv.Itoa(len(arguments))
+	rows, errorValue := taskScheduleRepository.database.SQL.QueryContext(context.Background(), query, arguments...)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	defer rows.Close()
+	return scanTaskScheduleDeliveryGroups(rows)
+}
+
 func taskScheduleCancelAccessCondition(request task.TaskScheduleCancelRequest, firstPlaceholderIndex int) string {
 	if strings.TrimSpace(request.ConversationID) == "" {
 		return "creator_person_id = $" + strconv.Itoa(firstPlaceholderIndex)
@@ -311,6 +387,34 @@ func taskScheduleRetryDelay(failureCount int) time.Duration {
 		return time.Hour
 	}
 	return delay
+}
+
+func scanTaskScheduleDeliveryGroups(rows *sql.Rows) ([]task.TaskScheduleDeliveryGroup, error) {
+	groups := []task.TaskScheduleDeliveryGroup{}
+	for rows.Next() {
+		group, errorValue := scanTaskScheduleDeliveryGroup(rows)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		groups = append(groups, group)
+	}
+	return groups, rows.Err()
+}
+
+func scanTaskScheduleDeliveryGroup(scanner taskScheduleScanner) (task.TaskScheduleDeliveryGroup, error) {
+	var group task.TaskScheduleDeliveryGroup
+	var latestCreatedAt sql.NullTime
+	var latestNextRunAt sql.NullTime
+	errorValue := scanner.Scan(
+		&group.ConversationID,
+		&group.ActiveCount,
+		&group.UnboundedCount,
+		&latestCreatedAt,
+		&latestNextRunAt,
+	)
+	group.LatestCreatedAt = nullableTaskScheduleTime(latestCreatedAt)
+	group.LatestNextRunAt = nullableTaskScheduleTime(latestNextRunAt)
+	return group, errorValue
 }
 
 type taskScheduleScanner interface {
