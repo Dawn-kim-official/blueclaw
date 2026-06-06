@@ -7,6 +7,7 @@ var (
 	errScheduleConversationRequired = errors.New("conversation target is required for schedule.create")
 	errScheduleReplyTargetRequired  = errors.New("reply target is required for schedule.create")
 	errSchedulePromptRequired       = errors.New("prompt is required for schedule.create")
+	errScheduleCreateInScheduledRun = errors.New("scheduled task executions cannot create new schedules")
 	errScheduleTimeZoneInvalid      = errors.New("timeZone must be a valid IANA time zone")
 	errScheduleRunAtInvalid         = errors.New("runAt must be RFC3339")
 	errScheduleInvalidExpiresAt     = errors.New("expiresAt must be a future RFC3339 timestamp")

@@ -39,17 +39,19 @@ type scheduleCancelOperationResult struct {
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        "schedule.create",
-			Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. For interval or cron schedules, set repeatPolicy to finite when the user gave an end condition and include expiresAt or maxRunCount; set repeatPolicy to unbounded only when the user explicitly wants no end. Do not rely on the prompt text for cadence or stop conditions: fill intervalSecond, cronExpression, expiresAt, and maxRunCount explicitly.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"},"repeatPolicy":{"type":"string","enum":["finite","unbounded"]}},"required":["prompt","executionMode","kind"]}`),
-		},
-		Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
-			return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
-		},
-		Result: agent.IdentityToolResult,
-	})
+	if !handlerContext.request.IsScheduledRun {
+		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
+			Definition: agent.ToolDefinition{
+				Name:        "schedule.create",
+				Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. For interval or cron schedules, set repeatPolicy to finite when the user gave an end condition and include expiresAt or maxRunCount; set repeatPolicy to unbounded only when the user explicitly wants no end. Do not rely on the prompt text for cadence or stop conditions: fill intervalSecond, cronExpression, expiresAt, and maxRunCount explicitly.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"},"repeatPolicy":{"type":"string","enum":["finite","unbounded"]}},"required":["prompt","executionMode","kind"]}`),
+			},
+			Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
+				return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
+			},
+			Result: agent.IdentityToolResult,
+		})
+	}
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCancelToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "schedule.cancel",
@@ -272,6 +274,9 @@ func validateScheduleRepeatPolicy(input scheduleCreateToolInput, taskSchedule ta
 }
 
 func validateScheduleCreateContext(request ToolCatalogRequest) error {
+	if request.IsScheduledRun {
+		return errScheduleCreateInScheduledRun
+	}
 	if strings.TrimSpace(request.RequesterPersonID) == "" {
 		return errScheduleRequesterRequired
 	}

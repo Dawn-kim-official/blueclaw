@@ -705,11 +705,11 @@ func TestScheduledToolSetDoesNotExposeInteractiveTools(t *testing.T) {
 		Name:        "user.confirm",
 		Description: "Ask the user to confirm",
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm", "ask.choice", "ask.input", "user.confirm"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm", "ask.choice", "ask.input", "user.confirm", "schedule.create"})
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsScheduledRun: true})
 
-	for _, toolName := range []string{"ask.confirm", "ask.choice", "ask.input", "user.confirm"} {
+	for _, toolName := range []string{"ask.confirm", "ask.choice", "ask.input", "user.confirm", "schedule.create"} {
 		if toolRegistry.IsRegistered(toolName) || toolRegistry.IsAllowed(toolName) {
 			t.Fatalf("expected scheduled run not to register interactive tool %s", toolName)
 		}
@@ -1083,6 +1083,32 @@ func TestScheduleCreateToolRejectsMissingReplyTarget(t *testing.T) {
 	}
 	if !result.Failed() || !strings.Contains(result.ContentText(), "reply target") {
 		t.Fatalf("expected reply target error, got %+v", result)
+	}
+}
+
+func TestScheduleCreateExecutorRejectsScheduledRunContext(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
+
+	result, errorValue := toolCatalogBuilder.createScheduleTool(context.Background(), scheduleCreateToolInput{
+		Prompt:         "매분 새 예약을 만들어줘.",
+		ExecutionMode:  "agent",
+		Kind:           "cron",
+		CronExpression: "* * * * *",
+		RepeatPolicy:   "unbounded",
+	}, toolHandlerContext{request: ToolCatalogRequest{
+		IsScheduledRun:    true,
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		ReplyTargetID:     "reply-target-1",
+	}})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "scheduled task executions cannot create new schedules") {
+		t.Fatalf("expected scheduled run schedule.create failure, got %+v", result)
 	}
 }
 
