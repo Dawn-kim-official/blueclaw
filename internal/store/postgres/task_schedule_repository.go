@@ -238,6 +238,44 @@ RETURNING ` + taskScheduleReturningColumns()
 	return task.TaskScheduleCancelResult{TaskSchedules: taskSchedules}, nil
 }
 
+func (taskScheduleRepository TaskScheduleRepository) SummarizeActiveTaskSchedules(referenceTime time.Time) (task.TaskScheduleSummary, error) {
+	if referenceTime.IsZero() {
+		referenceTime = time.Now().UTC()
+	}
+	var summary task.TaskScheduleSummary
+	var earliestNextRunAt sql.NullTime
+	var latestNextRunAt sql.NullTime
+	errorValue := taskScheduleRepository.database.SQL.QueryRowContext(context.Background(), `
+SELECT
+  count(*),
+  count(*) FILTER (WHERE expires_at IS NULL AND max_run_count IS NULL),
+  count(*) FILTER (WHERE interval_second IS NOT NULL),
+  count(*) FILTER (WHERE cron_expression IS NOT NULL),
+  count(*) FILTER (WHERE schedule_kind = 'once'),
+  min(next_run_at),
+  max(next_run_at)
+FROM task_schedule
+WHERE next_run_at IS NOT NULL
+  AND (expires_at IS NULL OR expires_at > $1)`,
+		referenceTime,
+	).Scan(
+		&summary.ActiveCount,
+		&summary.UnboundedCount,
+		&summary.IntervalCount,
+		&summary.CronCount,
+		&summary.OnceCount,
+		&earliestNextRunAt,
+		&latestNextRunAt,
+	)
+	if errorValue != nil {
+		return task.TaskScheduleSummary{}, errorValue
+	}
+	summary.EarliestNextRunAt = nullableTaskScheduleTime(earliestNextRunAt)
+	summary.LatestNextRunAt = nullableTaskScheduleTime(latestNextRunAt)
+	summary.CheckedAt = referenceTime
+	return summary, nil
+}
+
 func taskScheduleCancelAccessCondition(request task.TaskScheduleCancelRequest, firstPlaceholderIndex int) string {
 	if strings.TrimSpace(request.ConversationID) == "" {
 		return "creator_person_id = $" + strconv.Itoa(firstPlaceholderIndex)

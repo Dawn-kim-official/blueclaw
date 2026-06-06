@@ -22,6 +22,17 @@ type TaskScheduleCancelResult struct {
 	TaskSchedules []TaskSchedule `json:"taskSchedules"`
 }
 
+type TaskScheduleSummary struct {
+	ActiveCount      int        `json:"activeCount"`
+	UnboundedCount   int        `json:"unboundedCount"`
+	IntervalCount    int        `json:"intervalCount"`
+	CronCount        int        `json:"cronCount"`
+	OnceCount        int        `json:"onceCount"`
+	EarliestNextRunAt *time.Time `json:"earliestNextRunAt,omitempty"`
+	LatestNextRunAt  *time.Time `json:"latestNextRunAt,omitempty"`
+	CheckedAt        time.Time  `json:"checkedAt"`
+}
+
 type TaskScheduleRepository interface {
 	UpsertTaskSchedule(TaskSchedule) error
 	ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]TaskSchedule, error)
