@@ -417,7 +417,7 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 		`{"classification":"unsupported","taskShape":"scheduled_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"prompt":"죄송합니다.","executionMode":"message","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
 		finishMessageDocument("1분 간격으로 10번 보내도록 예약했습니다."),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
@@ -427,7 +427,7 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 			Name:         "scheduled-task",
 			Description:  "Create scheduled, recurring, and finite repeated messages.",
 			WhenToUse:    "Use for reminders, interval messages, 1분에 한 번씩, 10번, finite repeated message, and repeat N times requests.",
-			Prompt:       "Use schedule.create with executionMode message for exact repeated messages, intervalSecond, repeatPolicy, and maxRunCount.",
+			Prompt:       "Use schedule.create with taskInstruction for the run-time work, intervalSecond, repeatPolicy, and maxRunCount.",
 			AllowedTools: []string{"schedule.create"},
 			Source:       InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 		}}}

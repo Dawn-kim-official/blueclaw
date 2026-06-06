@@ -13,6 +13,7 @@ import (
 type scheduleCreateToolInput struct {
 	Name             string `json:"name"`
 	Prompt           string `json:"prompt"`
+	TaskInstruction  string `json:"taskInstruction"`
 	ExecutionMode    string `json:"executionMode"`
 	AgentProfileName string `json:"agentProfileName"`
 	Kind             string `json:"kind"`
@@ -38,13 +39,30 @@ type scheduleCancelOperationResult struct {
 	TaskSchedules              []task.TaskSchedule `json:"taskSchedules"`
 }
 
+type scheduleCreateToolResult struct {
+	TaskScheduleID   string     `json:"taskScheduleID"`
+	Name             string     `json:"name"`
+	TaskInstruction  string     `json:"taskInstruction"`
+	TimeZone         string     `json:"timeZone"`
+	Kind             string     `json:"kind"`
+	RunAt            *time.Time `json:"runAt,omitempty"`
+	IntervalSecond   int        `json:"intervalSecond,omitempty"`
+	CronExpression   string     `json:"cronExpression,omitempty"`
+	MaxRunCount      int        `json:"maxRunCount,omitempty"`
+	ExpiresAt        *time.Time `json:"expiresAt,omitempty"`
+	NextRunAt        *time.Time `json:"nextRunAt,omitempty"`
+	ConversationID   string     `json:"conversationID"`
+	ReplyTargetID    string     `json:"replyTargetID"`
+	AgentProfileName string     `json:"agentProfileName"`
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	if !handlerContext.request.IsScheduledRun {
 		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
 			Definition: agent.ToolDefinition{
 				Name:        "schedule.create",
-				Description: "Create a scheduled task for the current requester and reply target. Use executionMode message when the schedule should send the prompt verbatim, such as reminders, repeated messages, or \"say this\" requests. Use executionMode agent only when the schedule must perform reasoning, research, checks, summaries, or tool work at run time. For interval or cron schedules, set repeatPolicy to finite when the user gave an end condition and include expiresAt or maxRunCount; set repeatPolicy to unbounded only when the user explicitly wants no end. Do not rely on the prompt text for cadence or stop conditions: fill intervalSecond, cronExpression, expiresAt, and maxRunCount explicitly.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"prompt":{"type":"string"},"executionMode":{"type":"string","enum":["message","agent"]},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"},"repeatPolicy":{"type":"string","enum":["finite","unbounded"]}},"required":["prompt","executionMode","kind"]}`),
+				Description: "Create a scheduled task for the current requester and reply target. Put only the work to perform at run time in taskInstruction. Do not copy the original scheduling request into taskInstruction. Cadence and stop conditions must be represented only by kind, runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. For interval or cron schedules, set repeatPolicy to finite when the user gave an end condition and include expiresAt or maxRunCount; set repeatPolicy to unbounded only when the user explicitly wants no end.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"},"taskInstruction":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"},"repeatPolicy":{"type":"string","enum":["finite","unbounded"]}},"required":["taskInstruction","kind"]}`),
 			},
 			Handler: func(toolContext context.Context, input scheduleCreateToolInput) (agent.ToolResult, error) {
 				return toolCatalogBuilder.createScheduleTool(toolContext, input, handlerContext)
@@ -83,10 +101,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext con
 	if errorValue := toolCatalogBuilder.taskScheduleRepository.UpsertTaskSchedule(initializedTaskSchedule); errorValue != nil {
 		return agent.ToolResult{}, errorValue
 	}
+	resultDocument := scheduleCreateResultDocument(initializedTaskSchedule)
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
-		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.created", marshalToolResult(initializedTaskSchedule))
+		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.created", string(resultDocument))
 	}
-	return agent.ToolSuccess(marshalToolResult(initializedTaskSchedule)), nil
+	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) cancelScheduleTool(toolContext context.Context, input scheduleCancelToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -179,9 +198,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 	if errorValue := validateScheduleCreateContext(handlerContext.request); errorValue != nil {
 		return task.TaskSchedule{}, errorValue
 	}
-	prompt := strings.TrimSpace(input.Prompt)
-	if prompt == "" {
-		return task.TaskSchedule{}, errSchedulePromptRequired
+	taskInstruction := firstNonEmptyString(input.TaskInstruction, input.Prompt)
+	if taskInstruction == "" {
+		return task.TaskSchedule{}, errScheduleTaskInstructionRequired
 	}
 	timeZone, errorValue := normalizeScheduleTimeZone(input.TimeZone)
 	if errorValue != nil {
@@ -191,9 +210,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 	taskSchedule := task.TaskSchedule{
 		TaskScheduleID:   task.NewIdentifier(),
 		CreatorPersonID:  strings.TrimSpace(handlerContext.request.RequesterPersonID),
-		Name:             firstNonEmptyString(input.Name, prompt),
-		Prompt:           prompt,
-		ExecutionMode:    normalizeTaskScheduleExecutionMode(input.ExecutionMode),
+		Name:             firstNonEmptyString(input.Name, taskInstruction),
+		Prompt:           taskInstruction,
+		ExecutionMode:    task.TaskScheduleExecutionModeAgent,
 		AgentProfileName: firstNonEmptyString(input.AgentProfileName, handlerContext.request.ProfileName, "default"),
 		Platform:         strings.TrimSpace(handlerContext.request.Platform),
 		ConversationID:   strings.TrimSpace(handlerContext.request.ConversationID),
@@ -217,6 +236,25 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 		return task.TaskSchedule{}, errorValue
 	}
 	return taskSchedule, nil
+}
+
+func scheduleCreateResultDocument(taskSchedule task.TaskSchedule) json.RawMessage {
+	return json.RawMessage(marshalToolResult(scheduleCreateToolResult{
+		TaskScheduleID:   taskSchedule.TaskScheduleID,
+		Name:             taskSchedule.Name,
+		TaskInstruction:  taskSchedule.Prompt,
+		TimeZone:         taskSchedule.TimeZone,
+		Kind:             string(taskSchedule.Kind),
+		RunAt:            taskSchedule.RunAt,
+		IntervalSecond:   taskSchedule.IntervalSecond,
+		CronExpression:   taskSchedule.CronExpression,
+		MaxRunCount:      taskSchedule.MaxRunCount,
+		ExpiresAt:        taskSchedule.ExpiresAt,
+		NextRunAt:        taskSchedule.NextRunAt,
+		ConversationID:   taskSchedule.ConversationID,
+		ReplyTargetID:    taskSchedule.ReplyTargetID,
+		AgentProfileName: taskSchedule.AgentProfileName,
+	}))
 }
 
 func normalizeScheduleCancelScope(value string) task.TaskScheduleCancelScope {
