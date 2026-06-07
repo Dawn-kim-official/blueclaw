@@ -609,6 +609,8 @@ func turnRoutingContextDescription(request AgentRequest) string {
 			"- Task: "+strings.TrimSpace(request.PendingConfirmation.Prompt),
 			"- Question: "+strings.TrimSpace(request.PendingConfirmation.Question),
 			"- Return approval=approve only when the latest user message clearly authorizes this exact pending action.",
+			"- Use answer_question only when the latest user message asks about this pending confirmation.",
+			"- If the latest user message changes the target, scope, conditions, or asks for a different action, use revise_task or start_task with approval=unclear.",
 		)
 	}
 	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
@@ -622,6 +624,7 @@ func turnRoutingContextDescription(request AgentRequest) string {
 			"- Selection mode: "+strings.TrimSpace(request.PendingChoice.SelectionMode),
 			"- Options: "+strings.Join(optionLines, "; "),
 			"- Return choices as option keys only. Return an empty array when the latest message does not select valid options.",
+			"- If the latest user message changes the task instead of selecting an option, use revise_task or start_task with an empty choices array.",
 		)
 	}
 	if strings.TrimSpace(request.PendingInput.TaskRunID) != "" {

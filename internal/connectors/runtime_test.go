@@ -1648,7 +1648,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	}
 }
 
-func TestConnectorRuntimeTreatsAnyPendingConfirmationReplyAsTerminal(t *testing.T) {
+func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_task_intake_effort": {
@@ -1698,6 +1698,84 @@ func TestConnectorRuntimeTreatsAnyPendingConfirmationReplyAsTerminal(t *testing.
 	}
 	if connectorContainsSchemaName(languageModel.Requests(), "blueclaw_agent_turn_action") {
 		t.Fatalf("non-approval confirmation reply must not launch a new agent turn, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+}
+
+func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_task_intake_effort": {
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+			},
+			"blueclaw_execution_plan": {
+				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
+			},
+			"blueclaw_confirmation_message": {
+				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
+			},
+			"blueclaw_turn_router": {
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"expectedResults":[{"id":"final-message","type":"message","description":"삭제 대상 정정 요청 처리 결과","required":true}],"responseLanguage":"ko","reason":"user replaced the pending confirmation with a different message deletion target","userFacingReply":"","approval":"unclear"}`,
+			},
+		},
+		ActionResponses: []string{
+			connectorFinishMessage("정정한 삭제 요청으로 새로 처리했습니다."),
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.delete", "platform.message.search", "platform.message.delete"})
+
+	firstEvent := testInboundEvent("message-1")
+	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
+	firstResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, firstEvent)
+	if errorValue != nil {
+		t.Fatalf("expected first event to process: %v", errorValue)
+	}
+	if firstResult.TaskRunID == "" || len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected confirmation request, result=%+v replies=%+v", firstResult, adapter.sentReplies)
+	}
+
+	secondEvent := testInboundEvent("message-2")
+	secondEvent.Prompt = "아니 가사랍시고 보낸 것들 말야"
+	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
+	if errorValue != nil {
+		t.Fatalf("expected pending confirmation revision to process: %v", errorValue)
+	}
+	if secondResult.TaskRunID == "" || secondResult.TaskRunID == firstResult.TaskRunID {
+		t.Fatalf("expected corrected request to launch a replacement task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
+	}
+	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "dispatch-1" {
+		t.Fatalf("expected pending confirmation attachment to resolve, got %+v", adapter.resolutions)
+	}
+	if !connectorContainsSchemaName(languageModel.Requests(), "blueclaw_agent_turn_action") {
+		t.Fatalf("expected corrected request to launch agent turn, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "정정한 삭제 요청으로 새로 처리했습니다." {
+		t.Fatalf("expected replacement task final reply only, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestAskReplyConsumesChoiceRevision(t *testing.T) {
+	interaction := AskInteraction{
+		Kind: "ask_choice_single",
+		Options: []AskChoiceOption{
+			{Key: "one", Label: "선택지 1"},
+			{Key: "two", Label: "선택지 2"},
+		},
+	}
+	event := testInboundEvent("message-2")
+	event.Prompt = "아니 새로 이걸 해줘"
+	decision := agent.TurnDecision{
+		Route:          agent.TurnRouteStartTask,
+		Classification: agent.IntakeClassificationBoundedTask,
+		TaskShape:      agent.TaskShapeMaintenanceTask,
+		Choices:        nil,
+	}
+
+	if !askReplyConsumesInteraction(interaction, "선택지를 골라주세요", event, decision, true) {
+		t.Fatal("expected non-choice replacement request to resolve the pending choice")
 	}
 }
 

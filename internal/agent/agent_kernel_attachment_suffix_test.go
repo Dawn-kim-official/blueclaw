@@ -246,7 +246,7 @@ func TestOutcomeContractDoesNotPromoteSiteHintsForMessageDeleteContinuation(t *t
 			{
 				Name: "mattermost",
 				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"platform.message.delete"},
+					RequiredEvidenceTools: []string{"platform.message.delete", "platform.message.send"},
 				},
 			},
 			{
@@ -265,7 +265,7 @@ func TestOutcomeContractDoesNotPromoteSiteHintsForMessageDeleteContinuation(t *t
 		Prompt: "해",
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			ArtifactRequirement:   ArtifactRequirementNone,
-			SelectedEvidenceHints: []string{"platform.message.delete", "site.app.status", "site.app.build", "artifact.review", "site.app.publish"},
+			SelectedEvidenceHints: []string{"platform.message.delete", "platform.message.send", "site.app.status", "site.app.build", "artifact.review", "site.app.publish"},
 			Source:                "execution_plan",
 		}},
 	}
@@ -282,6 +282,9 @@ func TestOutcomeContractDoesNotPromoteSiteHintsForMessageDeleteContinuation(t *t
 	}
 	if !stringSliceContains(contract.RequiredEvidenceTools, "platform.message.delete") {
 		t.Fatalf("expected message delete continuation to require delete outcome, got %+v", contract)
+	}
+	if stringSliceContains(contract.RequiredEvidenceTools, "platform.message.send") || stringSliceContains(contract.SelectedEvidenceHints, "platform.message.send") {
+		t.Fatalf("expected message delete continuation not to require separate send outcome, got %+v", contract)
 	}
 	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
 		t.Fatalf("expected no site link result for message delete continuation, got %+v", contract.ExpectedResults)

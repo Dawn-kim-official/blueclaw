@@ -1228,7 +1228,10 @@ func askReplyConsumesInteraction(interaction AskInteraction, previousPrompt stri
 	}
 	switch strings.TrimSpace(interaction.Kind) {
 	case "ask_choice_single", "ask_choice_multiple":
-		return len(decision.Choices) > 0 && strings.TrimSpace(event.Prompt) != strings.TrimSpace(previousPrompt)
+		if len(decision.Choices) > 0 && strings.TrimSpace(event.Prompt) != strings.TrimSpace(previousPrompt) {
+			return true
+		}
+		return len(decision.Choices) == 0 && (decision.Route == agent.TurnRouteStartTask || decision.Route == agent.TurnRouteReviseTask)
 	case "ask_input":
 		return decision.Route == agent.TurnRouteContinueTask || decision.Route == agent.TurnRouteReviseTask || decision.Route == agent.TurnRouteStartTask
 	default:
