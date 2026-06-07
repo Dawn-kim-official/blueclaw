@@ -637,7 +637,7 @@ func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "make site",
+		Prompt:            "create website",
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
@@ -725,7 +725,7 @@ func TestValidateCompletionEvidenceDoesNotDeliverImageReadAttachment(t *testing.
 func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"select_tools","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
-		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
+		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"},"nextStepPlan":{"objective":"finish after creating the site","expectedTools":[],"expectedNextResults":["site created"],"doneCriteria":["site created"],"risk":"none","workingSetReason":"site.app.create should satisfy this test"}}`,
 		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
@@ -752,7 +752,7 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
 	if result.FinishMessage != "created" {
-		t.Fatalf("expected final reply, got %q", result.FinishMessage)
+		t.Fatalf("expected final reply, got %q events=%+v userNotice=%q status=%s", result.FinishMessage, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), result.UserNotice, result.TaskRun.Status)
 	}
 	if len(languageModel.requests) < 2 || !strings.Contains(joinMessageContent(languageModel.requests[1].Messages), "SITE WORKFLOW BODY") {
 		t.Fatalf("expected pinned skill instructions in next model request")

@@ -1938,16 +1938,44 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.FailureNotice, string) {
 	if taskStatusRequiresFailureNotice(turnResult.TaskRun.Status) {
 		message := turnResult.FailureNotice.SendableMessage()
-		if message == "" {
-			return "", turnResult.FailureNotice, "missing_failure_notice"
+		if message != "" {
+			return message, turnResult.FailureNotice, ""
 		}
-		return message, turnResult.FailureNotice, ""
+		if fallbackMessage := safeFailureUserNotice(turnResult.UserNotice); fallbackMessage != "" {
+			return fallbackMessage, turnResult.FailureNotice, ""
+		}
+		if fallbackMessage := safeGenericFailureUserNotice(turnResult); fallbackMessage != "" {
+			return fallbackMessage, turnResult.FailureNotice, ""
+		}
+		return "", turnResult.FailureNotice, "missing_failure_notice"
 	}
 	message := strings.TrimSpace(turnResult.UserNotice)
 	if message == "" {
 		return "", agent.FailureNotice{}, "missing_user_notice"
 	}
 	return message, agent.FailureNotice{}, ""
+}
+
+func safeFailureUserNotice(message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return ""
+	}
+	if agent.ValidateUserNoticeDelivery(message) != nil {
+		return ""
+	}
+	return message
+}
+
+func safeGenericFailureUserNotice(turnResult agent.AgentTurnResult) string {
+	switch turnResult.TaskRun.Status {
+	case task.TaskStatusBlocked:
+		return "요청을 완료하지 못하고 중단됐습니다. 같은 요청을 다시 보내시면 확인된 지점부터 다시 시도하겠습니다."
+	case task.TaskStatusFailed:
+		return "요청을 처리하는 중 오류가 발생해 완료하지 못했습니다. 같은 요청을 다시 보내시면 다시 시도하겠습니다."
+	default:
+		return ""
+	}
 }
 
 func taskStatusRequiresFailureNotice(status task.TaskStatus) bool {

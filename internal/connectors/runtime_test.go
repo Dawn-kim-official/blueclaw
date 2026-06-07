@@ -996,6 +996,63 @@ func TestConnectorRuntimeSendsFailureNoticeForBlockedTask(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeSendsSafeUserNoticeWhenFailureNoticeMissing(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+
+	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
+		context.Background(),
+		"test",
+		event,
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{
+			TaskRun:    task.TaskRun{Status: task.TaskStatusBlocked},
+			UserNotice: "메시지 삭제 작업을 완료하지 못했습니다.",
+		},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected safe fallback notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
+	}
+	if len(sentReplies) != 1 || sentReplies[0].Message != "메시지 삭제 작업을 완료하지 못했습니다." {
+		t.Fatalf("expected fallback user notice reply, got %+v", sentReplies)
+	}
+}
+
+func TestConnectorRuntimeSendsGenericFailureNoticeWhenFailureReplyMissing(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+
+	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
+		context.Background(),
+		"test",
+		event,
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{
+			TaskRun: task.TaskRun{Status: task.TaskStatusFailed},
+		},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected generic failure notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
+	}
+	if len(sentReplies) != 1 || !strings.Contains(sentReplies[0].Message, "완료하지 못했습니다") {
+		t.Fatalf("expected generic failure reply, got %+v", sentReplies)
+	}
+}
+
 func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}

@@ -923,6 +923,16 @@ func defaultCapabilityToolDescription(toolName string) string {
 		return "Read a workspace document path as Markdown using the shared document conversion pipeline. Prefer file.preview for paths listed in the conversation attachment catalog."
 	case "image.read":
 		return "Load an image path from the conversation attachment catalog or workspace into the model as an image input. Use only when visual inspection is needed; do not call for PDFs or text documents."
+	case "platform.message.context":
+		return "Read the current platform conversation, thread, channel, requester, and bot message context."
+	case "platform.message.search":
+		return "Search platform messages by scope, author, and query. Returns compact messageIDs before previews. Use before deleting or editing messages described in natural language."
+	case "platform.message.delete":
+		return "Delete InternKim bot messages by exact messageIDs returned from platform.message.search. Deletes one selected page at a time and never searches internally."
+	case "platform.message.send":
+		return "Send a platform message to a direct message, current thread, current channel, or named channel. Recipient resolution and ambiguity are handled by this tool."
+	case "platform.message.update":
+		return "Update an InternKim bot message text or pin state. Use only for platform messages that should be edited or pinned."
 	default:
 		return "InternKim capability tool"
 	}
