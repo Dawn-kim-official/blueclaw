@@ -96,11 +96,11 @@ func TestCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 }
 
 func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
-	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "file.preview", "document.read", "mail.message.search", "mattermost.channel.post"})
+	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "file.preview", "document.read", "mail.message.search", "platform.message.send"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{Name: "mail", AllowedTools: []string{"mail.message.search"}},
-			{Name: "mattermost", AllowedTools: []string{"mattermost.channel.post"}},
+			{Name: "mattermost", AllowedTools: []string{"platform.message.send"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "mail", Status: "selected"},
@@ -131,7 +131,7 @@ func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
 	if filteredToolSet.IsAllowed("terminal.run") {
 		t.Fatalf("expected terminal.run to stay hidden for attachment read selection, got %+v", filteredToolSet.ListToolNames())
 	}
-	for _, toolName := range []string{"mail.message.search", "mattermost.channel.post"} {
+	for _, toolName := range []string{"mail.message.search", "platform.message.send"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected selected skill tool %s to stay hidden for attachment read selection, got %+v", toolName, filteredToolSet.ListToolNames())
 		}

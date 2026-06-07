@@ -72,6 +72,95 @@ func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
 	}
 }
 
+func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+		Endpoint: "http://capability.local",
+		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[
+			{"name":"platform.message.context"},
+			{"name":"platform.message.search"},
+			{"name":"platform.message.send"},
+			{"name":"platform.message.update"},
+			{"name":"platform.message.delete"}
+		]}`},
+	}, platformMessageCapabilityDescriptors())
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"platform.message.context", "platform.message.search", "platform.message.delete"},
+	}, nil)
+
+	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+		Source:                    TaskLaunchSourceConnector,
+		SourceReference:           "mattermost:post-1",
+		RequesterPersonID:         "person-1",
+		ProfileName:               "default",
+		ConversationID:            "channel-1",
+		Prompt:                    "너가 보낸 메시지 삭제해줘",
+		PersonAccess:              policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
+		AccessibleConversationIDs: []string{"channel-1"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected matching registry launch to succeed: %v", errorValue)
+	}
+
+	taskLaunchEvent := findTaskEvent(taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID), "agent.task_launched")
+	if taskLaunchEvent.Name == "" {
+		t.Fatalf("expected launch event")
+	}
+	for _, expected := range []string{
+		`"toolRegistryVersion":"platform-message-v1"`,
+		`"capabilityDescriptorHash":"`,
+		`"liveCapabilityHash":"`,
+		`"allowedToolHash":"`,
+		`"hasPlatformMessageDelete":true`,
+		`"liveHasPlatformMessageDelete":true`,
+		`"hasOldMattermostPostDelete":false`,
+		`"hasOldPlatformDMInspect":false`,
+	} {
+		if !strings.Contains(taskLaunchEvent.Body, expected) {
+			t.Fatalf("expected launch event to contain %s, got %s", expected, taskLaunchEvent.Body)
+		}
+	}
+}
+
+func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("should not run")})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+		Endpoint: "http://capability.local",
+		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[
+			{"name":"platform.message.context"},
+			{"name":"platform.message.search"},
+			{"name":"platform.message.send"},
+			{"name":"platform.message.update"},
+			{"name":"platform.message.delete"}
+		]}`},
+	}, []CapabilityToolDescriptor{{Name: "mattermost.post.delete", PolicyResource: "tool:mattermost.post.delete"}})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"mattermost.post.delete"},
+	}, nil)
+
+	_, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+		Source:            TaskLaunchSourceConnector,
+		SourceReference:   "mattermost:post-1",
+		RequesterPersonID: "person-1",
+		ProfileName:       "default",
+		ConversationID:    "channel-1",
+		Prompt:            "너가 보낸 메시지 삭제해줘",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
+	})
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "runtime_registry_mismatch") {
+		t.Fatalf("expected runtime registry mismatch, got %v", errorValue)
+	}
+	if len(taskEventService.ListTaskEvent("")) != 0 {
+		t.Fatalf("expected no task events for pre-model registry mismatch")
+	}
+}
+
 func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
 	personAccess := requesterPersonAccessForTaskLaunch(TaskLaunchRequest{
 		RequesterPersonID: "person-1",
@@ -784,7 +873,10 @@ type recordingHTTPClient struct {
 }
 
 func (httpClient *recordingHTTPClient) Do(request *http.Request) (*http.Response, error) {
-	body, _ := io.ReadAll(request.Body)
+	body := []byte{}
+	if request.Body != nil {
+		body, _ = io.ReadAll(request.Body)
+	}
 	httpClient.requestPath = request.URL.Path
 	httpClient.requestBody = string(body)
 	responseBody := httpClient.responseBody
@@ -800,6 +892,16 @@ func (httpClient *recordingHTTPClient) Do(request *http.Request) (*http.Response
 
 type staticRuntimeLanguageModel struct {
 	content string
+}
+
+func platformMessageCapabilityDescriptors() []CapabilityToolDescriptor {
+	return []CapabilityToolDescriptor{
+		{Name: "platform.message.context", PolicyResource: "tool:platform.message.context"},
+		{Name: "platform.message.search", PolicyResource: "tool:platform.message.search"},
+		{Name: "platform.message.send", PolicyResource: "tool:platform.message.send"},
+		{Name: "platform.message.update", PolicyResource: "tool:platform.message.update"},
+		{Name: "platform.message.delete", PolicyResource: "tool:platform.message.delete"},
+	}
 }
 
 func (languageModel staticRuntimeLanguageModel) GenerateResponse(context.Context, string) (string, error) {

@@ -145,7 +145,7 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 			{
 				Name: "direct-message",
 				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"platform.dm.send"},
+					RequiredEvidenceTools: []string{"platform.message.send"},
 				},
 			},
 			{
@@ -170,7 +170,7 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 		nil,
 	)
 
-	if stringSliceContains(contract.RequiredEvidenceTools, "platform.dm.send") {
+	if stringSliceContains(contract.RequiredEvidenceTools, "platform.message.send") {
 		t.Fatalf("expected reply instruction not to require external send evidence, got %+v", contract.RequiredEvidenceTools)
 	}
 	if !stringSliceContains(contract.RequiredEvidenceTools, "site.app.publish") {
@@ -192,7 +192,7 @@ func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T)
 		Skills: []SkillInstruction{{
 			Name: "direct-message",
 			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"platform.dm.send"},
+				RequiredEvidenceTools: []string{"platform.message.send"},
 			},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
@@ -204,7 +204,7 @@ func TestOutcomeContractIgnoresSelectedDirectMessageForNonSendGoal(t *testing.T)
 	if len(contract.RequiredEvidenceTools) != 0 {
 		t.Fatalf("expected no DM hard gate for non-send goal, got %+v", contract.RequiredEvidenceTools)
 	}
-	if len(contract.SelectedEvidenceHints) != 1 || contract.SelectedEvidenceHints[0] != "platform.dm.send" {
+	if len(contract.SelectedEvidenceHints) != 1 || contract.SelectedEvidenceHints[0] != "platform.message.send" {
 		t.Fatalf("expected selected evidence hint to be retained, got %+v", contract.SelectedEvidenceHints)
 	}
 }
@@ -214,7 +214,7 @@ func TestOutcomeContractDoesNotPromoteDirectMessageHintForAttachmentFollowUp(t *
 		Skills: []SkillInstruction{{
 			Name: "direct-message",
 			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"platform.dm.send"},
+				RequiredEvidenceTools: []string{"platform.message.send"},
 			},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
@@ -229,13 +229,13 @@ func TestOutcomeContractDoesNotPromoteDirectMessageHintForAttachmentFollowUp(t *
 			}},
 		},
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			SelectedEvidenceHints: []string{"platform.dm.send"},
+			SelectedEvidenceHints: []string{"platform.message.send"},
 		}},
 	}
 
 	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
 
-	if stringSliceContains(contract.RequiredEvidenceTools, "platform.dm.send") {
+	if stringSliceContains(contract.RequiredEvidenceTools, "platform.message.send") {
 		t.Fatalf("expected attachment follow-up not to require DM send evidence, got %+v", contract.RequiredEvidenceTools)
 	}
 }
@@ -245,7 +245,7 @@ func TestOutcomeContractIgnoresMailKeywordForArtifactAttachmentGoal(t *testing.T
 		Skills: []SkillInstruction{{
 			Name: "direct-message",
 			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"platform.dm.send"},
+				RequiredEvidenceTools: []string{"platform.message.send"},
 			},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
@@ -261,7 +261,7 @@ func TestOutcomeContractIgnoresMailKeywordForArtifactAttachmentGoal(t *testing.T
 		[]string{".pptx"},
 	)
 
-	if stringSliceContains(contract.RequiredEvidenceTools, "platform.dm.send") {
+	if stringSliceContains(contract.RequiredEvidenceTools, "platform.message.send") {
 		t.Fatalf("expected artifact attachment request not to require DM send evidence, got %+v", contract.RequiredEvidenceTools)
 	}
 	if !stringSliceContains(contract.RequiredEvidenceTools, "file.attach") {
@@ -274,7 +274,7 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 		Skills: []SkillInstruction{{
 			Name: "direct-message",
 			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"platform.dm.send"},
+				RequiredEvidenceTools: []string{"platform.message.send"},
 			},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
@@ -283,15 +283,15 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 
 	contract := outcomeContractForRequest(AgentRequest{Prompt: "샘플에게 테스트라고 DM 보내줘"}, intakeDecision, instructionBundle, ExecutionPlan{ExternalSend: true, ThirdPartyExternalSend: true}, true, nil)
 
-	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "platform.dm.send" {
+	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "platform.message.send" {
 		t.Fatalf("expected send hard gate for external send goal, got %+v", contract.RequiredEvidenceTools)
 	}
 }
 
 func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.T) {
-	toolSet := testToolSet([]string{"web.fetch", "file.write", "file.attach", "site.app.create", "site.app.publish", "platform.dm.send", "mail.message.send"})
+	toolSet := testToolSet([]string{"web.fetch", "file.write", "file.attach", "site.app.create", "site.app.publish", "platform.message.send", "mail.message.send"})
 	contract := OutcomeContract{
-		SelectedEvidenceHints: []string{"site.app.create", "site.app.publish", "platform.dm.send", "mail.message.send"},
+		SelectedEvidenceHints: []string{"site.app.create", "site.app.publish", "platform.message.send", "mail.message.send"},
 	}
 
 	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "https://example.com 참고해서 사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
@@ -301,7 +301,7 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"site.app.create", "site.app.publish", "platform.dm.send", "mail.message.send"} {
+	for _, toolName := range []string{"site.app.create", "site.app.publish", "platform.message.send", "mail.message.send"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected %s to be hidden for document goal, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -446,7 +446,7 @@ func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing
 		Skills: []SkillInstruction{{
 			Name: "direct-message",
 			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"platform.dm.send"},
+				RequiredEvidenceTools: []string{"platform.message.send"},
 			},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
@@ -454,24 +454,24 @@ func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing
 	request := AgentRequest{
 		Prompt: "다시 해줘",
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			SelectedEvidenceHints: []string{"platform.dm.send"},
+			SelectedEvidenceHints: []string{"platform.message.send"},
 		}},
 	}
 	request.ActiveGoal.OriginalInstruction = "샘플에게 테스트라고 DM 보내줘"
 
 	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
 
-	if !stringSliceContains(contract.RequiredEvidenceTools, "platform.dm.send") {
+	if !stringSliceContains(contract.RequiredEvidenceTools, "platform.message.send") {
 		t.Fatalf("expected active send continuation to require send evidence, got %+v", contract.RequiredEvidenceTools)
 	}
 }
 
 func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *testing.T) {
-	toolSet := testToolSet([]string{"ask.confirm", "platform.dm.send", "file.write"})
+	toolSet := testToolSet([]string{"ask.confirm", "platform.message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "direct-message",
-			AllowedTools: []string{"ask.confirm", "platform.dm.send"},
+			AllowedTools: []string{"ask.confirm", "platform.message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
@@ -480,25 +480,25 @@ func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *tes
 		ActiveGoal: ActiveGoal{
 			OriginalInstruction: "샘플에게 테스트라고 DM 보내줘",
 			OutcomeContract: OutcomeContract{
-				SelectedEvidenceHints: []string{"platform.dm.send"},
+				SelectedEvidenceHints: []string{"platform.message.send"},
 			},
 		},
 	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.dm.send"}}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.message.send"}}
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	if !filteredToolSet.IsAllowed("platform.dm.send") {
+	if !filteredToolSet.IsAllowed("platform.message.send") {
 		t.Fatalf("expected active send tool to remain available for continuation, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
 func TestSelectedSkillToolSetHidesSendToolForAttachmentFollowUp(t *testing.T) {
-	toolSet := testToolSet([]string{"ask.confirm", "platform.dm.send", "file.preview", "file.read"})
+	toolSet := testToolSet([]string{"ask.confirm", "platform.message.send", "file.preview", "file.read"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "direct-message",
-			AllowedTools: []string{"ask.confirm", "platform.dm.send"},
+			AllowedTools: []string{"ask.confirm", "platform.message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
@@ -512,14 +512,14 @@ func TestSelectedSkillToolSetHidesSendToolForAttachmentFollowUp(t *testing.T) {
 			}},
 		},
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			SelectedEvidenceHints: []string{"platform.dm.send"},
+			SelectedEvidenceHints: []string{"platform.message.send"},
 		}},
 	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.dm.send"}}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.message.send"}}
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	if filteredToolSet.IsAllowed("platform.dm.send") {
+	if filteredToolSet.IsAllowed("platform.message.send") {
 		t.Fatalf("expected send tool to stay hidden for attachment follow-up, got %+v", filteredToolSet.ListToolNames())
 	}
 	if !filteredToolSet.IsAllowed("file.preview") {
@@ -528,11 +528,11 @@ func TestSelectedSkillToolSetHidesSendToolForAttachmentFollowUp(t *testing.T) {
 }
 
 func TestOutcomeReferenceToolSetKeepsSendToolsForExplicitSendGoal(t *testing.T) {
-	toolSet := testToolSet([]string{"web.fetch", "platform.dm.send", "mail.message.send"})
+	toolSet := testToolSet([]string{"web.fetch", "platform.message.send", "mail.message.send"})
 
 	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "샘플에게 DM 보내줘"}, ExecutionPlan{}, false, OutcomeContract{})
 
-	if !filteredToolSet.IsAllowed("platform.dm.send") {
+	if !filteredToolSet.IsAllowed("platform.message.send") {
 		t.Fatalf("expected DM send to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
 }
@@ -541,7 +541,7 @@ func TestConfirmationHintsIgnoreUnrelatedSelectedSkillEvidence(t *testing.T) {
 	hints := confirmationEvidenceHintsForRequest(
 		AgentRequest{Prompt: "https://example.com 참고해서 사업계획서 작성해줘"},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask},
-		[]string{"site.app.publish", "platform.dm.send"},
+		[]string{"site.app.publish", "platform.message.send"},
 	)
 
 	if len(hints) != 0 {

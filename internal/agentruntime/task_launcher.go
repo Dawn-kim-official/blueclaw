@@ -130,6 +130,10 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		InputParts:                 append([]agent.AgentPart{}, request.InputParts...),
 	})
 	toolNames := toolSet.ListToolNames()
+	registryAudit, errorValue := taskLauncher.toolCatalogBuilder.BuildToolRegistryAudit(ctx, toolSet)
+	if errorValue != nil {
+		return TaskLaunchResult{}, errorValue
+	}
 	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{
 		RequesterPersonID:       request.RequesterPersonID,
 		ConversationID:          request.ConversationID,
@@ -187,7 +191,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		} else {
 			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryFacts)}))
 		}
-		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, len(memoryFacts)))
+		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, registryAudit, len(memoryFacts)))
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.conversation_scope", marshalToolResult(conversationScope))
 	}
 	return TaskLaunchResult{

@@ -426,7 +426,7 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 
 func confirmationRiskyEvidenceTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "platform.dm.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+	case "platform.message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
 		return true
 	default:
 		return false
@@ -1103,7 +1103,7 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 
 func isSendEvidenceTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "platform.dm.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+	case "platform.message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
 		return true
 	default:
 		return false

@@ -133,7 +133,7 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 			},
 			ForbiddenModelContexts: []string{
 				"mail.message.search",
-				"mattermost.channel.post",
+				"platform.message.send",
 			},
 			ExpectedReplyFragments: []string{"이미지"},
 		}},

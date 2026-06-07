@@ -39,7 +39,7 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 		MemoryContext: "사용자는 구체적인 실패 이유를 원한다.",
 		Observations: []turnObservation{{
 			ObservationID: "obs-1",
-			Tool:          "platform.dm.send",
+			Tool:          "platform.message.send",
 			Failure: &ToolFailure{
 				Code:            "send_failed",
 				Stage:           "message_send",
@@ -47,7 +47,7 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 			},
 		}},
 		FailureFacts: failureReportFacts{Attempts: []failureReportAttempt{{
-			ToolName:     "platform.dm.send",
+			ToolName:     "platform.message.send",
 			ErrorCode:    "send_failed",
 			FailureStage: "message_send",
 			Message:      "Mattermost returned 503",

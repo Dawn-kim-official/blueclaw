@@ -1726,7 +1726,7 @@ func previousSuccessfulExternalSend(observations []turnObservation, toolName str
 
 func isUnsafeRepeatSensitiveTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "platform.dm.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+	case "platform.message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
 		return true
 	default:
 		return false

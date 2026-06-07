@@ -1728,8 +1728,8 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"샘플","message":"우선 진행합니다.","platform":"mattermost"}}`,
-			connectorFinishMessageWithEvidence("샘플에게 DM을 보냈습니다.", "obs-001", "platform.dm.send", 0),
+			`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"우선 진행합니다."}}`,
+			connectorFinishMessageWithEvidence("샘플에게 DM을 보냈습니다.", "obs-001", "platform.message.send", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -1738,14 +1738,14 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
 		Name:        "direct-message",
 		Description: "사업계획서 작성과 메시지 전송 후보.",
-		Prompt:      "Use platform.dm.send only for explicit DM delivery.",
+		Prompt:      "Use platform.message.send only for explicit DM delivery.",
 		Completion: agent.SkillCompletion{
-			RequiredEvidenceTools: []string{"platform.dm.send"},
+			RequiredEvidenceTools: []string{"platform.message.send"},
 		},
-		AllowedTools: []string{"platform.dm.send"},
+		AllowedTools: []string{"platform.message.send"},
 		Source:       agent.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
 	})
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "platform.dm.send"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "platform.message.send"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -1755,7 +1755,7 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"platform.dm.send"})
+	}, []string{"platform.message.send"})
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "샘플에게 DM 보내줘"
 
@@ -1812,8 +1812,8 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
 		Name:         "direct-message",
 		Description:  "DM 후보.",
-		Completion:   agent.SkillCompletion{RequiredEvidenceTools: []string{"platform.dm.send"}},
-		AllowedTools: []string{"platform.dm.send"},
+		Completion:   agent.SkillCompletion{RequiredEvidenceTools: []string{"platform.message.send"}},
+		AllowedTools: []string{"platform.message.send"},
 	})
 
 	firstEvent := testInboundEvent("message-1")

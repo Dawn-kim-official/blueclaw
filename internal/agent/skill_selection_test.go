@@ -186,22 +186,22 @@ func TestToolSetForAgentTurnUsesSelectedSkillAllowedTools(t *testing.T) {
 }
 
 func TestToolSetForAgentTurnHidesSelectedSendToolForNonSendOutcome(t *testing.T) {
-	fullToolSet := testToolSet([]string{"ask.confirm", "platform.dm.send", "file.write"})
+	fullToolSet := testToolSet([]string{"ask.confirm", "platform.message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "direct-message",
-			AllowedTools: []string{"ask.confirm", "platform.dm.send"},
+			AllowedTools: []string{"ask.confirm", "platform.message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.dm.send"}}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.message.send"}}
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
 
 	if !filteredToolSet.IsAllowed("ask.confirm") || !filteredToolSet.IsAllowed("file.write") {
 		t.Fatalf("expected universal tools to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
-	if filteredToolSet.IsAllowed("platform.dm.send") {
+	if filteredToolSet.IsAllowed("platform.message.send") {
 		t.Fatalf("expected send tool to be hidden for non-send outcome, got %+v", filteredToolSet.ListToolNames())
 	}
 }
