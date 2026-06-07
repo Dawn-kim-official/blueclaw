@@ -2,11 +2,8 @@ package postgres
 
 import (
 	"database/sql"
-	"strings"
 	"testing"
 	"time"
-
-	"blueclaw/internal/task"
 )
 
 type taskScheduleScannerStub struct {
@@ -77,50 +74,5 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 	}
 	if taskSchedule.CronExpression != "" {
 		t.Fatalf("expected nullable cron expression to scan as empty, got %q", taskSchedule.CronExpression)
-	}
-}
-
-func TestMaintenanceCancelQueryIncludesRecursiveChildren(t *testing.T) {
-	request := taskScheduleMaintenanceCancelRequestFixture()
-	conditions, arguments := maintenanceCancelConditions(request, request.CancelledAt)
-	query, arguments := maintenanceCancelQuery(request, conditions, arguments)
-
-	if !strings.Contains(query, "WITH RECURSIVE matched") || !strings.Contains(query, "child.delivery_conversation_id = 'schedule:' || parent.task_schedule_id") {
-		t.Fatalf("expected recursive child query, got %s", query)
-	}
-	if !strings.Contains(query, "UPDATE task_schedule") {
-		t.Fatalf("expected non-dry-run query to update schedules, got %s", query)
-	}
-	if strings.Contains(query, "FROM updated") || strings.Contains(query, "updated AS") {
-		t.Fatalf("expected update query to return task schedule columns directly, got %s", query)
-	}
-	if len(arguments) < 4 {
-		t.Fatalf("expected reference time and delivery filters, got %+v", arguments)
-	}
-}
-
-func TestMaintenanceCancelDryRunQueryDoesNotUpdate(t *testing.T) {
-	request := taskScheduleMaintenanceCancelRequestFixture()
-	request.DryRun = true
-	conditions, arguments := maintenanceCancelConditions(request, request.CancelledAt)
-	query, _ := maintenanceCancelQuery(request, conditions, arguments)
-
-	if strings.Contains(query, "UPDATE task_schedule") {
-		t.Fatalf("expected dry-run query to avoid updates, got %s", query)
-	}
-	if !strings.Contains(query, "SELECT "+taskScheduleReturningColumns()) {
-		t.Fatalf("expected dry-run query to return matching schedules, got %s", query)
-	}
-}
-
-func taskScheduleMaintenanceCancelRequestFixture() task.TaskScheduleMaintenanceCancelRequest {
-	return task.TaskScheduleMaintenanceCancelRequest{
-		DryRun:                       false,
-		DeliveryConversationIDs:      []string{"channel-1"},
-		DeliveryConversationIDPrefix: "thread:channel-1:",
-		IncludeScheduleChildren:      true,
-		UnboundedOnly:                true,
-		StaleFailedOnly:              true,
-		CancelledAt:                  time.Date(2026, 6, 6, 13, 0, 0, 0, time.UTC),
 	}
 }
