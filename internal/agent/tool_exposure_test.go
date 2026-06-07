@@ -138,6 +138,52 @@ func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
 	}
 }
 
+func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
+	toolSet := testToolSet([]string{
+		"skill.search",
+		"tool.describe",
+		"ask.confirm",
+		"platform.message.context",
+		"platform.message.search",
+		"platform.message.delete",
+		"site.app.status",
+		"site.app.build",
+		"artifact.review",
+		"site.app.publish",
+	})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{Name: "mattermost", AllowedTools: []string{"platform.message.context", "platform.message.search", "platform.message.delete"}},
+			{Name: "site-prototype", AllowedTools: []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"}},
+		},
+		SkillDecisions: []SkillSelectionDecision{
+			{Name: "mattermost", Status: "selected"},
+			{Name: "site-prototype", Status: "selected"},
+		},
+	}
+	contract := OutcomeContract{
+		RequiredEvidenceTools: []string{"platform.message.delete"},
+		SelectedEvidenceHints: []string{"platform.message.delete"},
+		ExpectedResults: []ExpectedResult{{
+			ID:          "final-message",
+			Type:        ExpectedResultTypeMessage,
+			Description: "삭제 결과를 알려주는 최종 답변",
+			Required:    true,
+		}},
+	}
+
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "해"}, ExecutionPlan{}, false, contract, ToolSelectionDecision{}, ToolExposureEvent{})
+
+	for _, toolName := range []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"} {
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected stale site tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+	if !filteredToolSet.IsAllowed("platform.message.delete") {
+		t.Fatalf("expected platform.message.delete to remain exposed, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
 func TestToolExposureSelectsFilePreviewForVisibleDocumentMaterial(t *testing.T) {
 	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "file.preview", "document.read", "terminal.run"})
 	request := AgentRequest{

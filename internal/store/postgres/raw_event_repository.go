@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,83 @@ type RawEventRepository struct {
 
 func NewRawEventRepository(database Database) RawEventRepository {
 	return RawEventRepository{database: database}
+}
+
+func (rawEventRepository RawEventRepository) ListConnectorEventDiagnostics(ctx context.Context, filter connectors.EventDiagnosticFilter) ([]connectors.EventDiagnostic, error) {
+	limit := filter.Limit
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	conditions := []string{"connector_event_json != '{}'::jsonb"}
+	arguments := []any{}
+	appendCondition := func(column string, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		arguments = append(arguments, value)
+		conditions = append(conditions, column+" = $"+strconv.Itoa(len(arguments)))
+	}
+	appendCondition("platform", filter.Platform)
+	appendCondition("conversation_id", filter.ConversationID)
+	appendCondition("external_message_id", filter.MessageID)
+	arguments = append(arguments, limit)
+
+	rows, errorValue := rawEventRepository.database.SQL.QueryContext(ctx, `
+SELECT raw_event_id, platform, conversation_id, external_message_id, connector_status,
+  connector_attempt_count, connector_error, connector_result_json, ingested_at,
+  connector_started_at, connector_completed_at
+FROM raw_event
+WHERE `+strings.Join(conditions, " AND ")+`
+ORDER BY ingested_at DESC
+LIMIT $`+strconv.Itoa(len(arguments)), arguments...)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	defer rows.Close()
+
+	diagnostics := []connectors.EventDiagnostic{}
+	for rows.Next() {
+		diagnostic, scanError := scanConnectorEventDiagnostic(rows)
+		if scanError != nil {
+			return nil, scanError
+		}
+		diagnostics = append(diagnostics, diagnostic)
+	}
+	return diagnostics, rows.Err()
+}
+
+func scanConnectorEventDiagnostic(rows *sql.Rows) (connectors.EventDiagnostic, error) {
+	var diagnostic connectors.EventDiagnostic
+	var connectorError sql.NullString
+	var result []byte
+	var startedAt sql.NullTime
+	var completedAt sql.NullTime
+	errorValue := rows.Scan(
+		&diagnostic.RawEventID,
+		&diagnostic.Platform,
+		&diagnostic.ConversationID,
+		&diagnostic.ExternalMessageID,
+		&diagnostic.ConnectorStatus,
+		&diagnostic.AttemptCount,
+		&connectorError,
+		&result,
+		&diagnostic.IngestedAt,
+		&startedAt,
+		&completedAt,
+	)
+	if errorValue != nil {
+		return connectors.EventDiagnostic{}, errorValue
+	}
+	diagnostic.ConnectorError = strings.TrimSpace(connectorError.String)
+	diagnostic.Result = json.RawMessage(result)
+	if startedAt.Valid {
+		diagnostic.StartedAt = &startedAt.Time
+	}
+	if completedAt.Valid {
+		diagnostic.CompletedAt = &completedAt.Time
+	}
+	return diagnostic, nil
 }
 
 func (rawEventRepository RawEventRepository) InsertRawEvent(rawEventID string) error {

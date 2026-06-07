@@ -78,15 +78,9 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
-		Endpoint: "http://capability.local",
-		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[
-			{"name":"platform.message.context"},
-			{"name":"platform.message.search"},
-			{"name":"platform.message.send"},
-			{"name":"platform.message.update"},
-			{"name":"platform.message.delete"}
-		]}`},
-	}, platformMessageCapabilityDescriptors())
+		Endpoint:   "http://capability.local",
+		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteCriteriaSchema())},
+	}, testPlatformMessageCapabilityDescriptors())
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"platform.message.context", "platform.message.search", "platform.message.delete"},
 	}, nil)
@@ -113,6 +107,8 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 		`"toolRegistryVersion":"platform-message-v1"`,
 		`"capabilityDescriptorHash":"`,
 		`"liveCapabilityHash":"`,
+		`"platformMessageDescriptorHash":"`,
+		`"livePlatformMessageDescriptorHash":"`,
 		`"allowedToolHash":"`,
 		`"hasPlatformMessageDelete":true`,
 		`"liveHasPlatformMessageDelete":true`,
@@ -122,6 +118,42 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 		if !strings.Contains(taskLaunchEvent.Body, expected) {
 			t.Fatalf("expected launch event to contain %s, got %s", expected, taskLaunchEvent.Body)
 		}
+	}
+}
+
+func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
+		Endpoint:   "http://capability.local",
+		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteIDsOnlySchema())},
+	}, testPlatformMessageCapabilityDescriptors())
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"platform.message.context", "platform.message.search", "platform.message.delete"},
+	}, nil)
+
+	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+		Source:                    TaskLaunchSourceConnector,
+		SourceReference:           "mattermost:post-1",
+		RequesterPersonID:         "person-1",
+		ProfileName:               "default",
+		ConversationID:            "channel-1",
+		Prompt:                    "너가 보낸 메시지 삭제해줘",
+		PersonAccess:              policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
+		AccessibleConversationIDs: []string{"channel-1"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected schema skew to remain diagnostic-only, got %v", errorValue)
+	}
+	taskLaunchEvent := findTaskEvent(taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID), "agent.task_launched")
+	if taskLaunchEvent.Name == "" {
+		t.Fatal("expected task launch event")
+	}
+	if !strings.Contains(taskLaunchEvent.Body, `"platformMessageDescriptorHash":"`) ||
+		!strings.Contains(taskLaunchEvent.Body, `"livePlatformMessageDescriptorHash":"`) {
+		t.Fatalf("expected schema skew hashes in launch event, got %s", taskLaunchEvent.Body)
 	}
 }
 
@@ -894,14 +926,43 @@ type staticRuntimeLanguageModel struct {
 	content string
 }
 
-func platformMessageCapabilityDescriptors() []CapabilityToolDescriptor {
+func testPlatformMessageCapabilityDescriptors() []CapabilityToolDescriptor {
 	return []CapabilityToolDescriptor{
-		{Name: "platform.message.context", PolicyResource: "tool:platform.message.context"},
-		{Name: "platform.message.search", PolicyResource: "tool:platform.message.search"},
-		{Name: "platform.message.send", PolicyResource: "tool:platform.message.send"},
-		{Name: "platform.message.update", PolicyResource: "tool:platform.message.update"},
-		{Name: "platform.message.delete", PolicyResource: "tool:platform.message.delete"},
+		{Name: "platform.message.context", PolicyResource: "tool:platform.message.context", InputSchema: platformMessageEmptySchema()},
+		{Name: "platform.message.search", PolicyResource: "tool:platform.message.search", InputSchema: platformMessageEmptySchema()},
+		{Name: "platform.message.send", PolicyResource: "tool:platform.message.send", InputSchema: platformMessageEmptySchema()},
+		{Name: "platform.message.update", PolicyResource: "tool:platform.message.update", InputSchema: platformMessageEmptySchema()},
+		{Name: "platform.message.delete", PolicyResource: "tool:platform.message.delete", InputSchema: platformMessageDeleteCriteriaSchema()},
 	}
+}
+
+func platformMessageLiveRegistryResponse(deleteSchema json.RawMessage) string {
+	response := map[string]any{
+		"deviceCapabilities": []map[string]any{
+			{"name": "platform.message.context", "inputSchema": platformMessageEmptySchema()},
+			{"name": "platform.message.search", "inputSchema": platformMessageEmptySchema()},
+			{"name": "platform.message.send", "inputSchema": platformMessageEmptySchema()},
+			{"name": "platform.message.update", "inputSchema": platformMessageEmptySchema()},
+			{"name": "platform.message.delete", "inputSchema": deleteSchema},
+		},
+	}
+	document, errorValue := json.Marshal(response)
+	if errorValue != nil {
+		panic(errorValue)
+	}
+	return string(document)
+}
+
+func platformMessageEmptySchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{}}`)
+}
+
+func platformMessageDeleteCriteriaSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}},"scope":{"type":"string"},"deliveryTarget":{"type":"object","properties":{"type":{"type":"string"},"personHint":{"type":"string"},"channelID":{"type":"string"},"channelName":{"type":"string"}}},"authoredBy":{"type":"string"},"query":{"type":"string"},"limit":{"type":"integer"}}}`)
+}
+
+func platformMessageDeleteIDsOnlySchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"messageIDs":{"type":"array","items":{"type":"string"}}},"required":["messageIDs"]}`)
 }
 
 func (languageModel staticRuntimeLanguageModel) GenerateResponse(context.Context, string) (string, error) {

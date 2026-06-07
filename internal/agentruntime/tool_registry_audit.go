@@ -34,16 +34,18 @@ var oldPlatformMessageToolNames = []string{
 }
 
 type ToolRegistryAudit struct {
-	ToolRegistryVersion            string `json:"toolRegistryVersion"`
-	CapabilityDescriptorHash       string `json:"capabilityDescriptorHash"`
-	LiveCapabilityHash             string `json:"liveCapabilityHash,omitempty"`
-	AllowedToolHash                string `json:"allowedToolHash"`
-	HasPlatformMessageDelete       bool   `json:"hasPlatformMessageDelete"`
-	HasOldMattermostPostDelete     bool   `json:"hasOldMattermostPostDelete"`
-	HasOldPlatformDMInspect        bool   `json:"hasOldPlatformDMInspect"`
-	LiveHasPlatformMessageDelete   bool   `json:"liveHasPlatformMessageDelete,omitempty"`
-	LiveHasOldMattermostPostDelete bool   `json:"liveHasOldMattermostPostDelete,omitempty"`
-	LiveHasOldPlatformDMInspect    bool   `json:"liveHasOldPlatformDMInspect,omitempty"`
+	ToolRegistryVersion               string `json:"toolRegistryVersion"`
+	CapabilityDescriptorHash          string `json:"capabilityDescriptorHash"`
+	LiveCapabilityHash                string `json:"liveCapabilityHash,omitempty"`
+	PlatformMessageDescriptorHash     string `json:"platformMessageDescriptorHash"`
+	LivePlatformMessageDescriptorHash string `json:"livePlatformMessageDescriptorHash,omitempty"`
+	AllowedToolHash                   string `json:"allowedToolHash"`
+	HasPlatformMessageDelete          bool   `json:"hasPlatformMessageDelete"`
+	HasOldMattermostPostDelete        bool   `json:"hasOldMattermostPostDelete"`
+	HasOldPlatformDMInspect           bool   `json:"hasOldPlatformDMInspect"`
+	LiveHasPlatformMessageDelete      bool   `json:"liveHasPlatformMessageDelete,omitempty"`
+	LiveHasOldMattermostPostDelete    bool   `json:"liveHasOldMattermostPostDelete,omitempty"`
+	LiveHasOldPlatformDMInspect       bool   `json:"liveHasOldPlatformDMInspect,omitempty"`
 }
 
 type capabilityRegistryResponse struct {
@@ -60,9 +62,11 @@ type toolRegistryMismatchError struct {
 }
 
 func (errorValue toolRegistryMismatchError) Error() string {
-	return fmt.Sprintf("runtime_registry_mismatch: configuredHash=%s liveHash=%s platformMessageDelete=%t livePlatformMessageDelete=%t oldMattermostPostDelete=%t liveOldMattermostPostDelete=%t oldPlatformDMInspect=%t liveOldPlatformDMInspect=%t",
+	return fmt.Sprintf("runtime_registry_mismatch: configuredHash=%s liveHash=%s platformMessageDescriptorHash=%s livePlatformMessageDescriptorHash=%s platformMessageDelete=%t livePlatformMessageDelete=%t oldMattermostPostDelete=%t liveOldMattermostPostDelete=%t oldPlatformDMInspect=%t liveOldPlatformDMInspect=%t",
 		errorValue.audit.CapabilityDescriptorHash,
 		errorValue.audit.LiveCapabilityHash,
+		errorValue.audit.PlatformMessageDescriptorHash,
+		errorValue.audit.LivePlatformMessageDescriptorHash,
 		errorValue.audit.HasPlatformMessageDelete,
 		errorValue.audit.LiveHasPlatformMessageDelete,
 		errorValue.audit.HasOldMattermostPostDelete,
@@ -75,29 +79,33 @@ func (errorValue toolRegistryMismatchError) Error() string {
 func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context.Context, toolSet *agent.ToolSet) (ToolRegistryAudit, error) {
 	configuredDescriptors := toolCatalogBuilder.capabilityToolDefinitions()
 	configuredNames := capabilityDescriptorNames(configuredDescriptors)
+	configuredPlatformMessageDescriptors := platformMessageCapabilityDescriptors(configuredDescriptors)
 	allowedToolNames := []string{}
 	if toolSet != nil {
 		allowedToolNames = toolSet.ListToolNames()
 	}
 
 	audit := ToolRegistryAudit{
-		ToolRegistryVersion:        toolRegistryVersion,
-		CapabilityDescriptorHash:   hashStrings(configuredNames),
-		AllowedToolHash:            hashStrings(allowedToolNames),
-		HasPlatformMessageDelete:   registryContainsString(configuredNames, "platform.message.delete"),
-		HasOldMattermostPostDelete: registryContainsString(configuredNames, "mattermost.post.delete"),
-		HasOldPlatformDMInspect:    registryContainsString(configuredNames, "platform.dm.inspect"),
+		ToolRegistryVersion:           toolRegistryVersion,
+		CapabilityDescriptorHash:      hashStrings(configuredNames),
+		PlatformMessageDescriptorHash: hashCapabilityDescriptors(configuredPlatformMessageDescriptors),
+		AllowedToolHash:               hashStrings(allowedToolNames),
+		HasPlatformMessageDelete:      registryContainsString(configuredNames, "platform.message.delete"),
+		HasOldMattermostPostDelete:    registryContainsString(configuredNames, "mattermost.post.delete"),
+		HasOldPlatformDMInspect:       registryContainsString(configuredNames, "platform.dm.inspect"),
 	}
 
 	if !requiresLiveMessageRegistryCheck(configuredNames) {
 		return audit, nil
 	}
 
-	liveNames, liveHash, errorValue := toolCatalogBuilder.liveCapabilityToolNames(ctx)
+	liveDescriptors, liveHash, errorValue := toolCatalogBuilder.liveCapabilityToolDescriptors(ctx)
 	if errorValue != nil {
 		return audit, fmt.Errorf("runtime_registry_mismatch: live capability registry unavailable: %w", errorValue)
 	}
+	liveNames := capabilityDescriptorNames(liveDescriptors)
 	audit.LiveCapabilityHash = liveHash
+	audit.LivePlatformMessageDescriptorHash = hashCapabilityDescriptors(platformMessageCapabilityDescriptors(liveDescriptors))
 	audit.LiveHasPlatformMessageDelete = registryContainsString(liveNames, "platform.message.delete")
 	audit.LiveHasOldMattermostPostDelete = registryContainsString(liveNames, "mattermost.post.delete")
 	audit.LiveHasOldPlatformDMInspect = registryContainsString(liveNames, "platform.dm.inspect")
@@ -124,20 +132,22 @@ func requiresLiveMessageRegistryCheck(toolNames []string) bool {
 	return registryContainsString(toolNames, "platform.message.delete") || registryContainsAnyString(toolNames, oldPlatformMessageToolNames)
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolNames(ctx context.Context) ([]string, string, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolDescriptors(ctx context.Context) ([]CapabilityToolDescriptor, string, error) {
 	var response capabilityRegistryResponse
 	if errorValue := toolCatalogBuilder.capabilityClient.GetJSON(ctx, "/v1/capabilities", &response); errorValue != nil {
 		return nil, "", errorValue
 	}
-	toolNames := []string{}
+	toolDescriptors := []CapabilityToolDescriptor{}
 	for _, descriptor := range response.DeviceCapabilities {
 		toolName := strings.TrimSpace(descriptor.Name)
 		if toolName != "" {
-			toolNames = append(toolNames, toolName)
+			toolDescriptors = append(toolDescriptors, CapabilityToolDescriptor{
+				Name:        toolName,
+				InputSchema: append(json.RawMessage{}, descriptor.InputSchema...),
+			})
 		}
 	}
-	toolNames = sortedUniqueRegistryStrings(toolNames)
-	return toolNames, hashStrings(toolNames), nil
+	return toolDescriptors, hashStrings(capabilityDescriptorNames(toolDescriptors)), nil
 }
 
 func hasMessageRegistryMismatch(audit ToolRegistryAudit) bool {
@@ -147,7 +157,52 @@ func hasMessageRegistryMismatch(audit ToolRegistryAudit) bool {
 	if audit.LiveHasOldMattermostPostDelete || audit.LiveHasOldPlatformDMInspect {
 		return true
 	}
-	return audit.HasPlatformMessageDelete != audit.LiveHasPlatformMessageDelete
+	if audit.HasPlatformMessageDelete != audit.LiveHasPlatformMessageDelete {
+		return true
+	}
+	return false
+}
+
+func platformMessageCapabilityDescriptors(toolDescriptors []CapabilityToolDescriptor) []CapabilityToolDescriptor {
+	result := []CapabilityToolDescriptor{}
+	for _, toolDescriptor := range toolDescriptors {
+		toolName := strings.TrimSpace(toolDescriptor.Name)
+		if isPlatformMessageToolName(toolName) || registryContainsString(oldPlatformMessageToolNames, toolName) {
+			result = append(result, toolDescriptor)
+		}
+	}
+	return result
+}
+
+func isPlatformMessageToolName(toolName string) bool {
+	return strings.HasPrefix(strings.TrimSpace(toolName), "platform.message.")
+}
+
+func hashCapabilityDescriptors(toolDescriptors []CapabilityToolDescriptor) string {
+	signatures := []string{}
+	for _, toolDescriptor := range toolDescriptors {
+		toolName := strings.TrimSpace(toolDescriptor.Name)
+		if toolName == "" {
+			continue
+		}
+		signatures = append(signatures, toolName+"\t"+normalizedJSONSchemaString(toolDescriptor.InputSchema))
+	}
+	return hashStrings(signatures)
+}
+
+func normalizedJSONSchemaString(schema json.RawMessage) string {
+	if len(schema) == 0 {
+		return ""
+	}
+	var document any
+	if errorValue := json.Unmarshal(schema, &document); errorValue != nil {
+		return strings.TrimSpace(string(schema))
+	}
+	normalizedDocument, errorValue := json.Marshal(document)
+	if errorValue != nil {
+		return strings.TrimSpace(string(schema))
+	}
+	return string(normalizedDocument)
 }
 
 func hashStrings(values []string) string {
