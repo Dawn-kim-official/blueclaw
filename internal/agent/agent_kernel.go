@@ -923,7 +923,26 @@ func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan Execu
 	if outcomeContractRequiresPublicLinkOnly(contract) {
 		contract.ArtifactRequirement = ArtifactRequirementNone
 	}
+	if outcomeContractRequiresPlatformMessageMaintenance(contract) {
+		contract = removePlatformMessageSendContract(contract)
+	}
 	return normalizeOutcomeContract(contract)
+}
+
+func outcomeContractRequiresPlatformMessageMaintenance(contract OutcomeContract) bool {
+	for _, toolName := range outcomeContractToolNames(contract) {
+		if isPlatformMessageMaintenanceTool(toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func removePlatformMessageSendContract(contract OutcomeContract) OutcomeContract {
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "platform.message.send")
+	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, "platform.message.send")
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "platform.message.send")
+	return contract
 }
 
 func removeImplicitHTMLFileContract(contract OutcomeContract) OutcomeContract {

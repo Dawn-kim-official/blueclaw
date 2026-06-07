@@ -926,7 +926,7 @@ func defaultCapabilityToolDescription(toolName string) string {
 	case "platform.message.context":
 		return "Read the current platform conversation, thread, channel, requester, and bot message context."
 	case "platform.message.search":
-		return "Search platform messages by scope, author, and query. Returns compact messageIDs before previews. Use before deleting or editing messages described in natural language."
+		return "Search platform messages by scope, author, and queries. queries is an OR list; use one item for a single keyword. Returns compact messageIDs before previews. Use before deleting or editing messages described in natural language."
 	case "platform.message.delete":
 		return "Delete InternKim bot messages by exact messageIDs returned from platform.message.search. Deletes one selected page at a time and never searches internally."
 	case "platform.message.send":
