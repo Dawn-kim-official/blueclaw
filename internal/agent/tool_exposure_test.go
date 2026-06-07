@@ -145,6 +145,7 @@ func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
 		"ask.confirm",
 		"platform.message.context",
 		"platform.message.search",
+		"platform.message.send",
 		"platform.message.delete",
 		"site.app.status",
 		"site.app.build",
@@ -153,7 +154,7 @@ func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
 	})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
-			{Name: "mattermost", AllowedTools: []string{"platform.message.context", "platform.message.search", "platform.message.delete"}},
+			{Name: "mattermost", AllowedTools: []string{"platform.message.context", "platform.message.search", "platform.message.send", "platform.message.delete"}},
 			{Name: "site-prototype", AllowedTools: []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{
@@ -172,7 +173,7 @@ func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
 		}},
 	}
 
-	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "해"}, ExecutionPlan{}, false, contract, ToolSelectionDecision{}, ToolExposureEvent{})
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "네가 보낸 메시지 삭제해줘"}, ExecutionPlan{}, false, contract, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	for _, toolName := range []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"} {
 		if filteredToolSet.IsAllowed(toolName) {
@@ -181,6 +182,9 @@ func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
 	}
 	if !filteredToolSet.IsAllowed("platform.message.delete") {
 		t.Fatalf("expected platform.message.delete to remain exposed, got %+v", filteredToolSet.ListToolNames())
+	}
+	if filteredToolSet.IsAllowed("platform.message.send") {
+		t.Fatalf("expected platform.message.send to stay hidden for delete completion reporting, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 

@@ -1542,11 +1542,13 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		RequesterName:     "이샘플",
-		ConversationID:    "conversation-1",
-		Prompt:            "정국에게 DM 보내줘",
-		ToolSet:           toolRegistry,
+		RequesterPersonID:     "person-1",
+		RequesterName:         "이샘플",
+		ConversationID:        "conversation-1",
+		Prompt:                "정국에게 DM 보내줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"platform.message.send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
@@ -1645,10 +1647,12 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "send dm",
-		ToolSet:           toolRegistry,
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "send dm",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"platform.message.send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected retry recovery: %v", errorValue)
@@ -1685,6 +1689,7 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"platform.message.send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to complete from first send: %v", errorValue)
@@ -1744,11 +1749,13 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		RequesterName:     "이샘플",
-		ConversationID:    "conversation-1",
-		Prompt:            "샘플에게 DM 보내줘",
-		ToolSet:           toolRegistry,
+		RequesterPersonID:     "person-1",
+		RequesterName:         "이샘플",
+		ConversationID:        "conversation-1",
+		Prompt:                "샘플에게 DM 보내줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"platform.message.send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected exhausted retry failure result: %v", errorValue)
@@ -1782,11 +1789,13 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		RequesterName:     "이샘플",
-		ConversationID:    "conversation-1",
-		Prompt:            "샘플에게 DM 보내줘",
-		ToolSet:           toolRegistry,
+		RequesterPersonID:     "person-1",
+		RequesterName:         "이샘플",
+		ConversationID:        "conversation-1",
+		Prompt:                "샘플에게 DM 보내줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"platform.message.send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected safe failure: %v", errorValue)
