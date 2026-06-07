@@ -31,22 +31,22 @@ func TestGoogleSearchStillRequiresBrowserEvidence(t *testing.T) {
 }
 
 func TestDirectMessageEvidenceSuppressesImplicitBrowserRequirement(t *testing.T) {
-	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "platform.dm.send"})
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "platform.message.send"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
 		Prompt:                "동하에게 구글에서 검색해보라고 DM 보내줘",
 		ToolSet:               toolRegistry,
-		RequiredEvidenceTools: []string{"platform.dm.send"},
+		RequiredEvidenceTools: []string{"platform.message.send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	})
 
-	if len(requirements) != 1 || requirements[0].ToolName != "platform.dm.send" {
+	if len(requirements) != 1 || requirements[0].ToolName != "platform.message.send" {
 		t.Fatalf("expected only DM send evidence, got %+v", requirements)
 	}
 }
 
 func TestSelectedDirectMessageSkillDoesNotRequireDirectMessageEvidence(t *testing.T) {
-	toolRegistry := newTestToolSet([]string{"platform.dm.send", "web.fetch"})
+	toolRegistry := newTestToolSet([]string{"platform.message.send", "web.fetch"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
 		Prompt:         "https://dawn.kim 참고해서 사업계획서 작성해줘",

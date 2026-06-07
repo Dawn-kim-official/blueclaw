@@ -898,11 +898,11 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:             "platform.dm.send",
+		Name:             "platform.message.send",
 		Description:      "Send a direct message",
 		RequiresApproval: true,
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"platform.dm.send"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"platform.message.send"})
 
 	immediateToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	if !strings.Contains(immediateToolSet.Descriptions(), "ask approval before invoking") {
@@ -919,7 +919,7 @@ func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 }
 
 func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
-	requestDocument := capabilityToolRequest("platform.dm.send", ToolCatalogRequest{
+	requestDocument := capabilityToolRequest("platform.message.send", ToolCatalogRequest{
 		TaskSource:              TaskLaunchSourceScheduled,
 		IsScheduledRun:          true,
 		IsApprovalContinuation:  true,
@@ -929,7 +929,7 @@ func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
 		ConversationChannelID:   "channel-1",
 		ReplyTargetID:           "reply-target-1",
 		Platform:                "mattermost",
-	}, json.RawMessage(`{"recipientHint":"동하","message":"테스트"}`))
+	}, json.RawMessage(`{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"테스트"}`))
 	contextDocument, isFound := requestDocument["context"].(map[string]any)
 	if !isFound {
 		t.Fatalf("expected context document, got %+v", requestDocument)

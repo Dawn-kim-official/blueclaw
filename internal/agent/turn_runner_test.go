@@ -1529,15 +1529,15 @@ func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 
 func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-		failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+		failureReportDocument("recipient missing", "platform.message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 	}, textResponses: []string{
 		"recipient_resolve/not_found 단계에서 수신자를 찾지 못해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"platform.message.send", "platform.message.context"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 
@@ -1555,7 +1555,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 		t.Fatalf("expected structured failure in final reply, got %q", result.UserNotice)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "tool.platform.dm.send.result", FailureCodes.NotFound.String()) {
+	if !taskEventsContain(taskEvents, "tool.platform.message.send.result", FailureCodes.NotFound.String()) {
 		t.Fatal("expected structured tool failure event")
 	}
 }
@@ -1563,15 +1563,15 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-			failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+			`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+			failureReportDocument("recipient missing", "platform.message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{"요청을 처리하지 못했습니다."},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"platform.message.send"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 
@@ -1597,15 +1597,15 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	generatedReply := "recipient_resolve/not_found 단계에서 수신자를 찾지 못했습니다."
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-			failureReportDocument("recipient missing", "platform.dm.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+			`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+			failureReportDocument("recipient missing", "platform.message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{generatedReply},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"platform.message.send"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 
@@ -1629,14 +1629,14 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"이동하","message":"확인 부탁해"}}`,
-		finishMessageWithEvidence("sent", "obs-003", "platform.dm.send", 0),
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"이동하"},"message":"확인 부탁해"}}`,
+		finishMessageWithEvidence("sent", "obs-003", "platform.message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
-	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
+	toolRegistry := newTestToolSet([]string{"platform.message.send"})
 	callCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
 		if callCount == 1 {
 			return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
@@ -1666,14 +1666,14 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"첫 번째"}}`,
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"두 번째"}}`,
-		finishMessageWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "platform.dm.send", 0),
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"첫 번째"}}`,
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"두 번째"}}`,
+		finishMessageWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "platform.message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestToolSet([]string{"platform.dm.send"})
+	toolRegistry := newTestToolSet([]string{"platform.message.send"})
 	sendCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
 		return ToolSuccess("sent"), nil
 	})
@@ -1683,7 +1683,7 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "동하에게 DM 보내줘",
 		ToolSet:               toolRegistry,
-		RequiredEvidenceTools: []string{"platform.dm.send"},
+		RequiredEvidenceTools: []string{"platform.message.send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	})
 	if errorValue != nil {
@@ -1701,13 +1701,13 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 }
 
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
-	failure := newFailureObservation("obs-001", "continue", "platform.dm.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
+	failure := newFailureObservation("obs-001", "continue", "platform.message.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
 	passiveGuidance := recoveryGuidanceObservation(2, failure)
 	spentGuidance := recoveryGuidanceObservation(3, failure)
 	spentGuidance.RecoveryAttemptSpent = true
 	retryObservation := failure
 	retryObservation.ObservationID = "obs-004"
-	retryObservation.RecoveryAttemptKey = "platform.dm.send\x00{}"
+	retryObservation.RecoveryAttemptKey = "platform.message.send\x00{}"
 	retryObservation.RecoveryAttemptSpent = true
 
 	if count := recoveryAttemptCount([]turnObservation{failure, passiveGuidance}); count != 0 {
@@ -1720,26 +1720,26 @@ func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"동하"}}`,
-		`{"action":"continue","toolName":"platform.dm.inspect","toolInput":{"recipientHint":"이동하"}}`,
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"정국","message":"확인 부탁해"}}`,
-		failureReportDocument("mattermost still unavailable", "platform.dm.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.message.context","toolInput":{}}`,
+		`{"action":"continue","toolName":"platform.message.context","toolInput":{}}`,
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+		failureReportDocument("mattermost still unavailable", "platform.message.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
 		"mattermost_lookup/unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, RecoveryAttemptLimit: 3})
-	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
+	toolRegistry := newTestToolSet([]string{"platform.message.send", "platform.message.context"})
 	callCount := 0
 	sendInputs := []string{}
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		callCount++
 		sendInputs = append(sendInputs, string(invocation.Input))
 		return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.inspect"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.context"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("mattermost still unavailable", "mattermost still unavailable", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
 
@@ -1753,7 +1753,7 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected exhausted retry failure result: %v", errorValue)
 	}
-	if countStringOccurrences(sendInputs, `"recipientHint":"동하"`) != 1 {
+	if countStringOccurrences(sendInputs, `"personHint":"동하"`) != 1 {
 		t.Fatalf("expected repeated fingerprint to be rejected before invoke, got inputs %+v", sendInputs)
 	}
 	if !strings.Contains(result.UserNotice, "mattermost_lookup/unavailable") {
@@ -1766,17 +1766,17 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.dm.send","toolInput":{"recipientHint":"동하","message":"확인 부탁해"}}`,
-		failureReportDocument("send failed", "platform.dm.send", "동하", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		failureReportDocument("send failed", "platform.message.send", "동하", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("message send failed", "message_send/operation_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
 		"message_send/operation_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"platform.dm.send", "platform.dm.inspect"})
+	toolRegistry := newTestToolSet([]string{"platform.message.send", "platform.message.context"})
 	callCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.dm.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
 		return structuredFailureToolResult("Mattermost returned 503 after post create", "Mattermost returned 503 after post create", "send_failed", "message_send", true, false), nil
 	})
@@ -2883,16 +2883,16 @@ func TestStepPlanDoesNotPinSendToolForAttachmentFollowUp(t *testing.T) {
 			}},
 		},
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			SelectedEvidenceHints: []string{"platform.dm.send"},
+			SelectedEvidenceHints: []string{"platform.message.send"},
 		}},
-		OutcomeContract: OutcomeContract{SelectedEvidenceHints: []string{"platform.dm.send"}},
+		OutcomeContract: OutcomeContract{SelectedEvidenceHints: []string{"platform.message.send"}},
 	}
 
 	updatedRequest := requestWithStepWorkingSetTools(request, NextStepPlan{
-		ExpectedTools: []string{"platform.dm.send", "file.preview"},
+		ExpectedTools: []string{"platform.message.send", "file.preview"},
 	}, nil)
 
-	if stringSliceContains(updatedRequest.PinnedToolNames, "platform.dm.send") {
+	if stringSliceContains(updatedRequest.PinnedToolNames, "platform.message.send") {
 		t.Fatalf("did not expect send tool pinned for attachment follow-up, got %+v", updatedRequest.PinnedToolNames)
 	}
 	if !stringSliceContains(updatedRequest.PinnedToolNames, "file.preview") {
@@ -3037,7 +3037,7 @@ func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing
 		finishMessageDocument("승인 요청했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestToolSet([]string{"ask.confirm", "terminal.run", "site.app.create", "site.app.publish", "platform.dm.send"})
+	toolRegistry := newTestToolSet([]string{"ask.confirm", "terminal.run", "site.app.create", "site.app.publish", "platform.message.send"})
 	approvalCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		approvalCallCount++

@@ -122,6 +122,38 @@ func (client Client) PostJSON(ctx context.Context, path string, requestDocument 
 	return json.Unmarshal(responseBody, responseDocument)
 }
 
+func (client Client) GetJSON(ctx context.Context, path string, responseDocument any) error {
+	if client.HTTPClient == nil {
+		return errors.New("capability http client is not configured")
+	}
+
+	httpRequest, errorValue := http.NewRequestWithContext(ctx, http.MethodGet, client.endpointURL(path), nil)
+	if errorValue != nil {
+		return errorValue
+	}
+
+	httpResponse, errorValue := client.HTTPClient.Do(httpRequest)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer httpResponse.Body.Close()
+
+	responseBody, errorValue := io.ReadAll(httpResponse.Body)
+	if errorValue != nil {
+		return errorValue
+	}
+
+	if httpResponse.StatusCode >= http.StatusBadRequest {
+		return errors.New(strings.TrimSpace(string(responseBody)))
+	}
+
+	if responseDocument == nil || len(responseBody) == 0 {
+		return nil
+	}
+
+	return json.Unmarshal(responseBody, responseDocument)
+}
+
 func (client Client) endpointURL(path string) string {
 	cleanPath := "/" + strings.TrimLeft(path, "/")
 	return strings.TrimRight(client.Endpoint, "/") + cleanPath

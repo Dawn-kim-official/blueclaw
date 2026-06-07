@@ -992,7 +992,7 @@ func capabilityFailureKind(errorCode string, failureStage string) agent.FailureK
 }
 
 func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest) bool {
-	if strings.TrimSpace(toolName) != "platform.dm.send" {
+	if strings.TrimSpace(toolName) != "platform.message.send" {
 		return false
 	}
 	return request.IsScheduledRun || request.IsApprovalContinuation
