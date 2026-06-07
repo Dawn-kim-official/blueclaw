@@ -503,6 +503,7 @@ func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing
 	request := AgentRequest{
 		Prompt: "다시 해줘",
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"platform.message.send"},
 			SelectedEvidenceHints: []string{"platform.message.send"},
 		}},
 	}
@@ -529,11 +530,12 @@ func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *tes
 		ActiveGoal: ActiveGoal{
 			OriginalInstruction: "동하에게 테스트라고 DM 보내줘",
 			OutcomeContract: OutcomeContract{
+				RequiredEvidenceTools: []string{"platform.message.send"},
 				SelectedEvidenceHints: []string{"platform.message.send"},
 			},
 		},
 	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.message.send"}}
+	contract := OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}, SelectedEvidenceHints: []string{"platform.message.send"}}
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
@@ -579,7 +581,7 @@ func TestSelectedSkillToolSetHidesSendToolForAttachmentFollowUp(t *testing.T) {
 func TestOutcomeReferenceToolSetKeepsSendToolsForExplicitSendGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "platform.message.send", "mail.message.send"})
 
-	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "동하에게 DM 보내줘"}, ExecutionPlan{}, false, OutcomeContract{})
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "동하에게 DM 보내줘"}, ExecutionPlan{}, false, OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}})
 
 	if !filteredToolSet.IsAllowed("platform.message.send") {
 		t.Fatalf("expected DM send to remain available, got %+v", filteredToolSet.ListToolNames())

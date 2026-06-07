@@ -475,31 +475,6 @@ func promptLooksLikeConfirmationCandidate(prompt string) bool {
 	})
 }
 
-func promptLooksLikeExternalSend(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if promptLooksLikeArtifactCreationPrompt(normalizedPrompt) && !promptLooksLikeExplicitExternalSendPrompt(normalizedPrompt) {
-		return false
-	}
-	return containsAny(normalizedPrompt, []string{
-		"dm", "direct message", "email", "mail", "send", "message",
-		"보내", "전송", "메일", "디엠", "dm으로", "메시지", "전달",
-	})
-}
-
-func promptLooksLikeArtifactCreationPrompt(normalizedPrompt string) bool {
-	return containsAny(normalizedPrompt, []string{
-		"website", "web app", "homepage", "landing page", "site", "slides", "slide deck", "presentation", "pptx", "powerpoint", "deck",
-		"웹사이트", "홈페이지", "사이트", "발표자료", "슬라이드", "프레젠테이션", "피피티", "파워포인트", "자료", "파일", "첨부",
-	})
-}
-
-func promptLooksLikeExplicitExternalSendPrompt(normalizedPrompt string) bool {
-	return containsAny(normalizedPrompt, []string{
-		"dm", "direct message", "email to", "send to", "mail to", "@",
-		"dm으로", "디엠", "메일로", "이메일로", "에게", "한테", "전송해", "보내줘",
-	})
-}
-
 func promptLooksLikeSitePrototypeRequest(prompt string) bool {
 	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
 	return containsAny(normalizedPrompt, []string{
@@ -635,11 +610,9 @@ func selectedSkillToolShouldExpose(toolName string, selectedSkillToolNames map[s
 	return true
 }
 
-func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
+func outcomeAllowsExternalSendTools(_ AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
 	return contractRequiresSendTool(outcomeContract) ||
-		(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) ||
-		promptLooksLikeExternalSend(request.Prompt) ||
-		activeGoalLooksLikeExternalSend(request.ActiveGoal)
+		(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend))
 }
 
 func outcomeAllowsVisualArtifactReview(request AgentRequest, outcomeContract OutcomeContract) bool {
@@ -1135,9 +1108,7 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	}
 	if isSendEvidenceTool(trimmedToolName) {
 		return activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) ||
-			(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend)) ||
-			promptLooksLikeExternalSend(request.Prompt) ||
-			activeGoalLooksLikeExternalSend(request.ActiveGoal)
+			(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend))
 	}
 	if isPlatformMessageMaintenanceTool(trimmedToolName) {
 		return intakeDecision.TaskShape == TaskShapeMaintenanceTask ||
@@ -1235,18 +1206,12 @@ func activeGoalRequiresTool(activeGoal ActiveGoal, toolName string) bool {
 	return false
 }
 
-func activeGoalLooksLikeExternalSend(activeGoal ActiveGoal) bool {
-	return promptLooksLikeExternalSend(strings.Join(nonEmptyStrings([]string{
-		activeGoal.OriginalInstruction,
-		activeGoal.CurrentObjective,
-		strings.Join(activeGoal.KnownContext, "\n"),
-	}), "\n"))
-}
-
 func requestLooksLikeExternalSendContinuation(request AgentRequest, contract OutcomeContract) bool {
 	return contractRequiresSendTool(contract) ||
-		promptLooksLikeExternalSend(request.Prompt) ||
-		activeGoalLooksLikeExternalSend(request.ActiveGoal)
+		activeGoalRequiresTool(request.ActiveGoal, "platform.message.send") ||
+		activeGoalRequiresTool(request.ActiveGoal, "mail.message.send") ||
+		activeGoalRequiresTool(request.ActiveGoal, "google.gmail.send") ||
+		activeGoalRequiresTool(request.ActiveGoal, "slack.message.send")
 }
 
 func contractMentionsToolPrefix(contract OutcomeContract, prefix string) bool {
