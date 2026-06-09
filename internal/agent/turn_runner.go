@@ -1083,6 +1083,9 @@ func approvalObservationUserFacingMessage(observation turnObservation) string {
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, allowQualityCriteria bool) (turnActionDocument, error) {
+	if actionDocument, ok := deterministicRequiredWebSearchAction(request, observations); ok {
+		return actionDocument, nil
+	}
 	state := agentTaskState{
 		Request:         request,
 		Options:         agentTurnRunner.options,
@@ -1097,6 +1100,61 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request 
 		return turnActionDocument{}, errorValue
 	}
 	return actionDocument, nil
+}
+
+func deterministicRequiredWebSearchAction(request AgentTurnRequest, observations []turnObservation) (turnActionDocument, bool) {
+	if !shouldUseDeterministicWebSearchAction(request, observations) {
+		return turnActionDocument{}, false
+	}
+	query := strings.TrimSpace(request.Prompt)
+	return turnActionDocument{
+		Action:     "continue",
+		ToolName:   "web.search",
+		ToolInput:  MarshalToolInput(map[string]any{"query": query, "limit": 3, "language": webSearchLanguage(request.ResponseLanguage)}),
+		GoalStatus: "in_progress",
+		ExecutionStateUpdate: ExecutionState{
+			Goal:     truncateText(query, 300),
+			NextPlan: "Search the public web with web.search, then answer from the returned evidence.",
+		},
+		NextStepPlan: NextStepPlan{
+			Objective:           "Search the public web for the requested information.",
+			ExpectedTools:       []string{"web.search"},
+			ExpectedNextResults: []string{"Public web search results relevant to the request."},
+			DoneCriteria:        []string{"web.search succeeds with relevant public results."},
+			WorkingSetReason:    "web.search is the required evidence tool.",
+		},
+	}, true
+}
+
+func shouldUseDeterministicWebSearchAction(request AgentTurnRequest, observations []turnObservation) bool {
+	if strings.TrimSpace(request.Prompt) == "" {
+		return false
+	}
+	if len(request.ToolPalettePlan.ExposedToolNames) != 1 || request.ToolPalettePlan.ExposedToolNames[0] != "web.search" {
+		return false
+	}
+	if !stringSliceContains(request.ExecutionContract.FinishPolicy.RequiredEvidenceTools, "web.search") {
+		return false
+	}
+	return !hasToolObservation(observations, "web.search")
+}
+
+func hasToolObservation(observations []turnObservation, toolName string) bool {
+	normalizedToolName := strings.TrimSpace(toolName)
+	for _, observation := range observations {
+		if strings.TrimSpace(observation.Tool) == normalizedToolName {
+			return true
+		}
+	}
+	return false
+}
+
+func webSearchLanguage(responseLanguage string) string {
+	normalizedLanguage := strings.ToLower(strings.TrimSpace(responseLanguage))
+	if strings.HasPrefix(normalizedLanguage, "ko") || strings.Contains(normalizedLanguage, "korean") || strings.Contains(normalizedLanguage, "한국") {
+		return "ko"
+	}
+	return "en"
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
