@@ -188,7 +188,8 @@ func PlanToolPalette(toolSet *ToolSet, instructionBundle InstructionBundle, requ
 	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, recentObservations)
 	executionContract = normalizeExecutionContract(executionContract)
 	if shouldSuppressConfirmationToolForReadOnlyLookup(outcomeContract, executionContract) {
-		coreGroups = removeToolFromExposureGroups(coreGroups, "ask.confirm")
+		coreGroups = removeConfirmationToolsFromExposureGroups(coreGroups)
+		candidateGroups = removeConfirmationToolsFromExposureGroups(candidateGroups)
 	}
 	requiredGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "G0 execution-required", ToolIDs: executionContract.ToolPolicy.RequiredToolNames})
 	hintGroup := filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G6 execution-hints", ToolIDs: executionContract.ToolPolicy.HintToolNames}, selectedAndPinnedSkillToolNameSet(instructionBundle, request.PinnedSkillNames), request, executionPlan, hasExecutionPlan, outcomeContract)
@@ -197,7 +198,7 @@ func PlanToolPalette(toolSet *ToolSet, instructionBundle InstructionBundle, requ
 		selectedGroup = selectedRegisteredToolGroup(toolSet, selection.SelectedToolIDs)
 	}
 	if shouldSuppressConfirmationToolForReadOnlyLookup(outcomeContract, executionContract) {
-		selectedGroup.ToolIDs = removeToolName(selectedGroup.ToolIDs, "ask.confirm")
+		selectedGroup.ToolIDs = removeConfirmationToolNames(selectedGroup.ToolIDs)
 	}
 	selectionEvent.ValidSelectedToolIDs = append([]string{}, selectedGroup.ToolIDs...)
 
@@ -240,13 +241,19 @@ func shouldSuppressConfirmationToolForReadOnlyLookup(outcomeContract OutcomeCont
 	return true
 }
 
-func removeToolFromExposureGroups(groups []toolExposureGroup, toolName string) []toolExposureGroup {
+func removeConfirmationToolsFromExposureGroups(groups []toolExposureGroup) []toolExposureGroup {
 	nextGroups := []toolExposureGroup{}
 	for _, group := range groups {
-		group.ToolIDs = removeToolName(group.ToolIDs, toolName)
+		group.ToolIDs = removeConfirmationToolNames(group.ToolIDs)
 		nextGroups = append(nextGroups, group)
 	}
 	return nextGroups
+}
+
+func removeConfirmationToolNames(toolNames []string) []string {
+	toolNames = removeToolName(toolNames, "ask.confirm")
+	toolNames = removeToolName(toolNames, "user.confirm")
+	return toolNames
 }
 
 func selectedRegisteredToolGroup(toolSet *ToolSet, selectedToolIDs []string) toolExposureGroup {

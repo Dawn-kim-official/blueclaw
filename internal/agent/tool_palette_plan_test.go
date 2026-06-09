@@ -111,6 +111,7 @@ func TestToolPalettePlanRecordsDroppedToolReason(t *testing.T) {
 func TestToolPalettePlanSuppressesConfirmationForReadOnlyWebLookup(t *testing.T) {
 	toolSet := newTestToolSet([]string{
 		"ask.confirm",
+		"user.confirm",
 		"skill.search",
 		"web.search",
 		"memory.search",
@@ -131,7 +132,7 @@ func TestToolPalettePlanSuppressesConfirmationForReadOnlyWebLookup(t *testing.T)
 		false,
 		outcomeContract,
 		executionContract,
-		ToolSelectionDecision{SelectedToolIDs: []string{"ask.confirm"}},
+		ToolSelectionDecision{SelectedToolIDs: []string{"ask.confirm", "user.confirm"}},
 		ToolExposureEvent{},
 	)
 
@@ -140,5 +141,8 @@ func TestToolPalettePlanSuppressesConfirmationForReadOnlyWebLookup(t *testing.T)
 	}
 	if containsString(plan.ExposedToolNames, "ask.confirm") {
 		t.Fatalf("expected ask.confirm to be hidden for read-only web lookup, got %+v", plan)
+	}
+	if containsString(plan.ExposedToolNames, "user.confirm") {
+		t.Fatalf("expected user.confirm to be hidden for read-only web lookup, got %+v", plan)
 	}
 }
