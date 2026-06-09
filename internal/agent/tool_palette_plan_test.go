@@ -139,6 +139,9 @@ func TestToolPalettePlanSuppressesConfirmationForReadOnlyWebLookup(t *testing.T)
 	if !containsString(plan.ExposedToolNames, "web.search") {
 		t.Fatalf("expected web.search to be exposed, got %+v", plan)
 	}
+	if len(plan.ExposedToolNames) != 1 {
+		t.Fatalf("expected read-only web lookup to expose only web.search, got %+v", plan)
+	}
 	if containsString(plan.ExposedToolNames, "ask.confirm") {
 		t.Fatalf("expected ask.confirm to be hidden for read-only web lookup, got %+v", plan)
 	}

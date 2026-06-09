@@ -193,6 +193,9 @@ func PlanToolPalette(toolSet *ToolSet, instructionBundle InstructionBundle, requ
 	}
 	requiredGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "G0 execution-required", ToolIDs: executionContract.ToolPolicy.RequiredToolNames})
 	hintGroup := filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G6 execution-hints", ToolIDs: executionContract.ToolPolicy.HintToolNames}, selectedAndPinnedSkillToolNameSet(instructionBundle, request.PinnedSkillNames), request, executionPlan, hasExecutionPlan, outcomeContract)
+	if shouldUseOnlyRequiredToolsForReadOnlyLookup(outcomeContract, executionContract, requiredGroup) {
+		return toolPalettePlanFromGroups([]toolExposureGroup{requiredGroup}, selectionEvent, executionContract.ToolPolicy.MaxCallableTools)
+	}
 	selectedGroup := selectedOptionalGroup(selection.SelectedToolIDs, candidateGroups)
 	if len(selectedGroup.ToolIDs) == 0 {
 		selectedGroup = selectedRegisteredToolGroup(toolSet, selection.SelectedToolIDs)
@@ -219,7 +222,11 @@ func PlanToolPalette(toolSet *ToolSet, instructionBundle InstructionBundle, requ
 		groups = append(groups, hintGroup)
 	}
 
-	exposedToolIDs, droppedGroups := applyGroupCap(groups, executionContract.ToolPolicy.MaxCallableTools)
+	return toolPalettePlanFromGroups(groups, selectionEvent, executionContract.ToolPolicy.MaxCallableTools)
+}
+
+func toolPalettePlanFromGroups(groups []toolExposureGroup, selectionEvent ToolExposureEvent, maxCallableTools int) (ToolPalettePlan, ToolExposureEvent) {
+	exposedToolIDs, droppedGroups := applyGroupCap(groups, maxCallableTools)
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
 	selectionEvent.DroppedGroups = droppedGroups
 	plan := ToolPalettePlan{
@@ -228,6 +235,13 @@ func PlanToolPalette(toolSet *ToolSet, instructionBundle InstructionBundle, requ
 		Candidates:       toolCandidatesFromGroups(groups),
 	}
 	return plan, selectionEvent
+}
+
+func shouldUseOnlyRequiredToolsForReadOnlyLookup(outcomeContract OutcomeContract, executionContract ExecutionContract, requiredGroup toolExposureGroup) bool {
+	if !shouldSuppressConfirmationToolForReadOnlyLookup(outcomeContract, executionContract) {
+		return false
+	}
+	return len(requiredGroup.ToolIDs) == 1 && requiredGroup.ToolIDs[0] == "web.search"
 }
 
 func shouldSuppressConfirmationToolForReadOnlyLookup(outcomeContract OutcomeContract, executionContract ExecutionContract) bool {
