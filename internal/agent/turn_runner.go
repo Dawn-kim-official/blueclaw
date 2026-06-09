@@ -78,8 +78,10 @@ type AgentTurnRequest struct {
 	RequiredEvidenceTools      []string
 	RequiredAttachmentSuffixes []string
 	OutcomeContract            OutcomeContract
+	ExecutionContract          ExecutionContract
 	ActiveGoal                 ActiveGoal
 	ToolExposure               ToolExposureEvent
+	ToolPalettePlan            ToolPalettePlan
 	CurrentStepPlan            NextStepPlan
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
@@ -341,6 +343,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage)
+	request.ExecutionContract = executionContractForTurnRequest(request)
 	request, _ = applyToolSelectionRequest(request, selectToolsRequest{
 		ToolNames:  request.PinnedToolNames,
 		SkillNames: request.PinnedSkillNames,
@@ -413,12 +416,14 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			"step":         iteration,
 			"nextStepPlan": state.NextStepPlan,
 			"exposure":     iterationRequest.ToolExposure,
+			"palette":      iterationRequest.ToolPalettePlan,
 		}))
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_palette.built", marshalEventBody(map[string]any{
 			"step":     iteration,
 			"exposure": iterationRequest.ToolExposure,
+			"palette":  iterationRequest.ToolPalettePlan,
 		}))
-		actionDocument, actionError := agentTurnRunner.nextAction(taskContext, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, len(state.QualityCriteria) == 0)
+		actionDocument, actionError := agentTurnRunner.nextAction(taskContext, iterationRequest, toolUseRequirements, state.Observations, state.Attachments, state.ExecutionState, len(state.QualityCriteria) == 0)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.Canceled) {
@@ -1077,11 +1082,12 @@ func approvalObservationUserFacingMessage(observation turnObservation) string {
 	return firstNonEmptyString(document.UserFacingMessage, document.Message)
 }
 
-func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, executionState ExecutionState, allowQualityCriteria bool) (turnActionDocument, error) {
+func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, allowQualityCriteria bool) (turnActionDocument, error) {
 	state := agentTaskState{
 		Request:         request,
 		Options:         agentTurnRunner.options,
 		Observations:    append([]turnObservation{}, observations...),
+		Attachments:     append([]FileAttachment{}, attachments...),
 		ExecutionState:  executionState,
 		QualityCriteria: qualityCriteriaForActionRequest(allowQualityCriteria),
 		Requirements:    append([]toolUseRequirement{}, requirements...),
@@ -1111,20 +1117,24 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, reques
 	} else {
 		exposureEvent.SelectionSource = "deterministic_palette"
 	}
-	filteredToolSet, exposureEvent := toolSetForAgentTurnWithExposure(
+	toolPalettePlan, exposureEvent := PlanToolPalette(
 		plannedRequest.ToolSet,
 		instructionBundleFromTurnRequest(plannedRequest),
 		agentRequestFromTurnRequest(plannedRequest),
 		ExecutionPlan{},
 		false,
 		plannedRequest.OutcomeContract,
+		plannedRequest.ExecutionContract,
 		selectionDecision,
 		exposureEvent,
 		state.Observations,
 	)
 	iterationRequest := plannedRequest
-	iterationRequest.ToolSet = filteredToolSet
+	if plannedRequest.ToolSet != nil {
+		iterationRequest.ToolSet = plannedRequest.ToolSet.WithAllowedToolNames(exposedToolIDsForFiltering(toolPalettePlan.ExposedToolNames))
+	}
 	iterationRequest.ToolExposure = exposureEvent
+	iterationRequest.ToolPalettePlan = toolPalettePlan
 	iterationRequest.CurrentStepPlan = normalizeNextStepPlan(state.NextStepPlan)
 	iterationRequest.StepBudgetContext = agentTurnRunner.stepBudgetContext(state)
 	return iterationRequest
@@ -1156,7 +1166,7 @@ func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan,
 	expectedTools = filterLatestSuccessfulTerminalTool(expectedTools, observations)
 	expectedTools = filterExhaustedRecoveryToolNames(expectedTools, observations)
 	expectedTools = filterStepPlanToolsForRequest(expectedTools, request)
-	request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, expectedTools...)
+	request.ExecutionContract.ToolPolicy.HintToolNames = appendUniqueStrings(request.ExecutionContract.ToolPolicy.HintToolNames, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
 	if requestLooksLikeCalendarStep(request) {
@@ -1351,6 +1361,9 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	if len(request.RequiredAttachmentSuffixes) > 0 {
 		instruction += " This task requires attached artifacts with these filename suffixes before finish: " + strings.Join(request.RequiredAttachmentSuffixes, ", ") + "."
 	}
+	if executionContractDescription := compactExecutionContractDescription(request.ExecutionContract); executionContractDescription != "" {
+		instruction += " " + executionContractDescription
+	}
 	instruction += " Artifact workflow: write source under tmp/<slug>, run builds with terminal.run workingDirectoryPath tmp/<slug>, create outputs under build/, promote final outputs with file.promote to artifacts/<slug> or an allowed circle/shared destination, then attach all requested promoted files in one file.attach call with a files array. finish.message may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths. finish.message must not promise future work such as starting now, waiting, or sharing later unless schedule.create succeeded and is cited as evidence."
 	return instruction
 }
@@ -1386,6 +1399,7 @@ func (agentTurnRunner *AgentTurnRunner) appendInstructionEvent(taskRunID string,
 		"skillQueries":              request.SkillQueries,
 		"activeGoal":                request.ActiveGoal,
 		"outcomeContract":           request.OutcomeContract,
+		"executionContract":         request.ExecutionContract,
 		"toolExposure":              request.ToolExposure,
 	}
 	if strings.TrimSpace(request.InstructionPrompt) == "" {

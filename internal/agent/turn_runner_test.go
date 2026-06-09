@@ -566,6 +566,51 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerExposesFinishAfterRequiredAttachment(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
+		finishMessageWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.attach", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath: "artifacts/deck/deck.html",
+				Filename:   "deck.html",
+				SizeBytes:  12,
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "html만 주면 돼",
+		ToolSet:                    toolRegistry,
+		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredAttachmentSuffixes: []string{".html"},
+		OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".html"},
+			ArtifactRequirement:        ArtifactRequirementRequired,
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to finish: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if len(languageModel.requests) < 1 {
+		t.Fatalf("expected at least one model action request, got %d", len(languageModel.requests))
+	}
+	if actionSchemaContainsAction(t, languageModel.requests[0].StructuredOutputSchema.Document, "finish") {
+		t.Fatalf("expected first action schema to hide finish, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
+}
+
 func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("done"),

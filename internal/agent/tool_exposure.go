@@ -34,6 +34,26 @@ type ToolSelectionDecision struct {
 	Reason          string   `json:"reason"`
 }
 
+type ToolPalettePlan struct {
+	ExposedToolNames []string        `json:"exposedToolNames,omitempty"`
+	DroppedTools     []DroppedTool   `json:"droppedTools,omitempty"`
+	Candidates       []ToolCandidate `json:"candidates,omitempty"`
+}
+
+type DroppedTool struct {
+	ToolName string `json:"toolName"`
+	Source   string `json:"source,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	Priority int    `json:"priority,omitempty"`
+}
+
+type ToolCandidate struct {
+	ToolName string `json:"toolName"`
+	Source   string `json:"source,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	Priority int    `json:"priority,omitempty"`
+}
+
 type toolSelectionRequest struct {
 	Prompt          string
 	VisibleContext  VisibleContext
@@ -148,15 +168,27 @@ func mergeStringSet(left map[string]bool, right map[string]bool) map[string]bool
 }
 
 func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selection ToolSelectionDecision, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
+	return toolSetForAgentTurnWithExecutionContract(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, ExecutionContract{}, selection, selectionEvent, observations...)
+}
+
+func toolSetForAgentTurnWithExecutionContract(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, executionContract ExecutionContract, selection ToolSelectionDecision, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
 	if toolSet == nil {
 		return nil, selectionEvent
 	}
+	plan, event := PlanToolPalette(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, executionContract, selection, selectionEvent, observations...)
+	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(plan.ExposedToolNames)), event
+}
+
+func PlanToolPalette(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, executionContract ExecutionContract, selection ToolSelectionDecision, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (ToolPalettePlan, ToolExposureEvent) {
 	recentObservations := []turnObservation{}
 	if len(observations) > 0 {
 		recentObservations = observations[0]
 	}
 	coreGroups := collectCoreGroups(toolSet)
 	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, recentObservations)
+	executionContract = normalizeExecutionContract(executionContract)
+	requiredGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "G0 execution-required", ToolIDs: executionContract.ToolPolicy.RequiredToolNames})
+	hintGroup := filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G6 execution-hints", ToolIDs: executionContract.ToolPolicy.HintToolNames}, selectedAndPinnedSkillToolNameSet(instructionBundle, request.PinnedSkillNames), request, executionPlan, hasExecutionPlan, outcomeContract)
 	selectedGroup := selectedOptionalGroup(selection.SelectedToolIDs, candidateGroups)
 	if len(selectedGroup.ToolIDs) == 0 {
 		selectedGroup = selectedRegisteredToolGroup(toolSet, selection.SelectedToolIDs)
@@ -164,6 +196,9 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	selectionEvent.ValidSelectedToolIDs = append([]string{}, selectedGroup.ToolIDs...)
 
 	groups := []toolExposureGroup{}
+	if len(requiredGroup.ToolIDs) > 0 {
+		groups = append(groups, requiredGroup)
+	}
 	if len(selectedGroup.ToolIDs) > 0 {
 		groups = append(groups, selectedGroup)
 		if selectionEvent.SelectionSource != "deterministic" {
@@ -171,13 +206,21 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 		}
 	} else {
 		selectionEvent.UsedFallbackGroups = true
-		groups = fallbackToolExposureGroups(coreGroups, candidateGroups)
+		groups = append(groups, fallbackToolExposureGroups(coreGroups, candidateGroups)...)
+	}
+	if len(hintGroup.ToolIDs) > 0 {
+		groups = append(groups, hintGroup)
 	}
 
-	exposedToolIDs, droppedGroups := applyGroupCap(groups, maxSchemaCallableToolCount)
+	exposedToolIDs, droppedGroups := applyGroupCap(groups, executionContract.ToolPolicy.MaxCallableTools)
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
 	selectionEvent.DroppedGroups = droppedGroups
-	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
+	plan := ToolPalettePlan{
+		ExposedToolNames: append([]string{}, exposedToolIDs...),
+		DroppedTools:     droppedToolsFromGroups(droppedGroups),
+		Candidates:       toolCandidatesFromGroups(groups),
+	}
+	return plan, selectionEvent
 }
 
 func selectedRegisteredToolGroup(toolSet *ToolSet, selectedToolIDs []string) toolExposureGroup {
@@ -192,6 +235,60 @@ func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
 		return exposedToolIDs
 	}
 	return []string{"__blueclaw_no_callable_tools__"}
+}
+
+func droppedToolsFromGroups(groups []droppedToolGroup) []DroppedTool {
+	droppedTools := []DroppedTool{}
+	for _, group := range groups {
+		for _, toolName := range group.ToolIDs {
+			droppedTools = append(droppedTools, DroppedTool{
+				ToolName: toolName,
+				Source:   group.Name,
+				Reason:   "callable tool cap reached",
+			})
+		}
+	}
+	return droppedTools
+}
+
+func toolCandidatesFromGroups(groups []toolExposureGroup) []ToolCandidate {
+	candidates := []ToolCandidate{}
+	seenToolNames := map[string]bool{}
+	for groupIndex, group := range groups {
+		for _, toolName := range group.ToolIDs {
+			trimmedToolName := strings.TrimSpace(toolName)
+			if trimmedToolName == "" || seenToolNames[trimmedToolName] {
+				continue
+			}
+			seenToolNames[trimmedToolName] = true
+			candidates = append(candidates, ToolCandidate{
+				ToolName: trimmedToolName,
+				Source:   group.Name,
+				Reason:   toolCandidateReason(group.Name),
+				Priority: groupIndex + 1,
+			})
+		}
+	}
+	return candidates
+}
+
+func toolCandidateReason(source string) string {
+	switch source {
+	case "G0 execution-required":
+		return "execution contract requires this evidence tool"
+	case "G0 selected", "G0 selected tools":
+		return "model selected this tool for the next step"
+	case "G4 recovery/pinned candidates":
+		return "recovery context or pinned step requires this tool"
+	case "G5 selected-skill candidates":
+		return "selected skill exposes this tool"
+	case "G6 active-goal candidates", "G6 execution-hints":
+		return "active goal or execution contract hints this tool"
+	case "G7 generic candidates":
+		return "generic fallback candidate"
+	default:
+		return "tool group candidate"
+	}
 }
 
 func fallbackToolExposureGroups(coreGroups []toolExposureGroup, candidateGroups []toolExposureGroup) []toolExposureGroup {

@@ -262,6 +262,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return confirmationResult, errorValue
 	}
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
+	executionContract := executionContractForRequest(request, intakeDecision, instructionBundle, outcomeContract, executionPlan, hasExecutionPlan)
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
 
@@ -297,6 +298,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequiredEvidenceTools:      requiredEvidenceTools,
 		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
 		OutcomeContract:            outcomeContract,
+		ExecutionContract:          executionContract,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		TaskComplexity:             intakeDecision.TaskComplexity,

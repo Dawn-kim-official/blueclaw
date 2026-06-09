@@ -24,15 +24,23 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	if len(allowFailValues) > 0 {
 		allowFail = allowFailValues[0]
 	}
+	return buildActionSchemaFromToolDefinitionsWithPolicy(toolDefinitions, blockedToolNames, hasFailureDebt, actionSchemaPolicy(allowQualityCriteria, allowFail, true))
+}
+
+func buildActionSchemaFromToolDefinitionsWithPolicy(toolDefinitions []ToolDefinition, blockedToolNames map[string]bool, hasFailureDebt bool, policy ActionPolicy) string {
 	var variants []any
-	variants = append(variants, finishActionSchema(hasFailureDebt))
-	if allowFail {
+	if shouldExposeFinishActionForPolicy(policy) {
+		variants = append(variants, finishActionSchema(hasFailureDebt))
+	}
+	if policy.CanFail {
 		variants = append(variants, failActionSchema(hasFailureDebt))
 	}
-	if allowQualityCriteria {
+	if policy.CanSetQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
 	}
-	variants = append(variants, selectToolsActionSchema())
+	if policy.CanSelectTools {
+		variants = append(variants, selectToolsActionSchema())
+	}
 	for _, toolDefinition := range toolDefinitions {
 		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
 			continue
@@ -45,6 +53,23 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 		return fallbackActionSchema()
 	}
 	return string(document)
+}
+
+func actionSchemaPolicy(allowQualityCriteria bool, allowFail bool, allowFinish bool) ActionPolicy {
+	finishExposure := FinishExposureWhenReady
+	if allowFinish {
+		finishExposure = FinishExposureAlways
+	}
+	return ActionPolicy{
+		CanSelectTools:        true,
+		CanSetQualityCriteria: allowQualityCriteria,
+		CanFail:               allowFail,
+		FinishExposure:        finishExposure,
+	}
+}
+
+func shouldExposeFinishActionForPolicy(policy ActionPolicy) bool {
+	return policy.FinishExposure != FinishExposureWhenReady
 }
 
 func selectToolsActionSchema() map[string]any {
