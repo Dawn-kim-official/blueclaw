@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -235,6 +236,7 @@ func portableNestedSchema(value any) any {
 	document, isDocument := value.(map[string]any)
 	if isDocument {
 		clone := map[string]any{}
+		requiredFieldNames := stringSet(stringSliceFromAnySchema(document["required"]))
 		for fieldName, fieldValue := range document {
 			if fieldName == "required" {
 				continue
@@ -243,11 +245,18 @@ func portableNestedSchema(value any) any {
 				clone[fieldName] = "number"
 				continue
 			}
+			if fieldName == "properties" {
+				clone[fieldName] = portableSchemaProperties(fieldValue, requiredFieldNames)
+				continue
+			}
 			clone[fieldName] = portableNestedSchema(fieldValue)
 		}
 		if clone["type"] == "object" {
-			if _, isFound := clone["properties"]; !isFound {
-				clone["properties"] = map[string]any{}
+			properties := mapFromAnySchema(clone["properties"])
+			clone["properties"] = properties
+			clone["required"] = sortedSchemaPropertyNames(properties)
+			if len(properties) == 0 {
+				clone["required"] = []string{}
 			}
 		}
 		return clone
@@ -261,6 +270,101 @@ func portableNestedSchema(value any) any {
 		return clone
 	}
 	return value
+}
+
+func portableSchemaProperties(value any, requiredFieldNames map[string]bool) map[string]any {
+	properties := mapFromAnySchema(value)
+	clone := map[string]any{}
+	for fieldName, propertySchema := range properties {
+		normalizedPropertySchema := portableNestedSchema(propertySchema)
+		if !requiredFieldNames[fieldName] {
+			normalizedPropertySchema = nullableSchemaValue(normalizedPropertySchema)
+		}
+		clone[fieldName] = normalizedPropertySchema
+	}
+	return clone
+}
+
+func nullableSchemaValue(value any) any {
+	document, isDocument := value.(map[string]any)
+	if !isDocument {
+		return value
+	}
+	clone := map[string]any{}
+	for fieldName, fieldValue := range document {
+		clone[fieldName] = fieldValue
+	}
+	clone["type"] = nullableSchemaType(clone["type"])
+	if enumValues, ok := clone["enum"].([]any); ok && !schemaEnumContainsNull(enumValues) {
+		clone["enum"] = append(enumValues, nil)
+	}
+	return clone
+}
+
+func nullableSchemaType(value any) any {
+	values, isValues := value.([]any)
+	if isValues {
+		for _, item := range values {
+			if item == nil || item == "null" {
+				return values
+			}
+		}
+		return append(values, "null")
+	}
+	if strings.TrimSpace(stringFromAnySchema(value)) == "" {
+		return value
+	}
+	return []any{value, "null"}
+}
+
+func schemaEnumContainsNull(values []any) bool {
+	for _, value := range values {
+		if value == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedSchemaPropertyNames(properties map[string]any) []string {
+	names := make([]string, 0, len(properties))
+	for name := range properties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func stringSliceFromAnySchema(value any) []string {
+	stringValues, isStringValues := value.([]string)
+	if isStringValues {
+		return append([]string{}, stringValues...)
+	}
+	values, isValues := value.([]any)
+	if !isValues {
+		return nil
+	}
+	result := []string{}
+	for _, item := range values {
+		stringValue := strings.TrimSpace(stringFromAnySchema(item))
+		if stringValue != "" {
+			result = append(result, stringValue)
+		}
+	}
+	return result
+}
+
+func mapFromAnySchema(value any) map[string]any {
+	document, isDocument := value.(map[string]any)
+	if isDocument {
+		return document
+	}
+	return map[string]any{}
+}
+
+func stringFromAnySchema(value any) string {
+	stringValue, _ := value.(string)
+	return stringValue
 }
 
 func specificToolInputSchema(toolName string) json.RawMessage {

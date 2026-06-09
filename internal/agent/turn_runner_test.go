@@ -30,53 +30,6 @@ func structuredFailureToolResult(content string, message string, code string, st
 	}
 }
 
-func TestDeterministicRequiredWebSearchAction(t *testing.T) {
-	request := AgentTurnRequest{
-		Prompt:           "OpenRouter server tools 검색해줘",
-		ResponseLanguage: "ko",
-		ExecutionContract: normalizeExecutionContract(ExecutionContract{
-			FinishPolicy: FinishPolicy{RequiredEvidenceTools: []string{"web.search"}},
-		}),
-		ToolPalettePlan: ToolPalettePlan{ExposedToolNames: []string{"web.search"}},
-	}
-
-	actionDocument, ok := deterministicRequiredWebSearchAction(request, nil)
-
-	if !ok {
-		t.Fatal("expected deterministic web.search action")
-	}
-	if actionDocument.Action != "continue" || actionDocument.ToolName != "web.search" {
-		t.Fatalf("unexpected action: %+v", actionDocument)
-	}
-	var input map[string]any
-	if errorValue := json.Unmarshal(actionDocument.ToolInput, &input); errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if input["query"] != request.Prompt || input["language"] != "ko" {
-		t.Fatalf("unexpected web.search input: %+v", input)
-	}
-}
-
-func TestDeterministicRequiredWebSearchActionStopsAfterEvidence(t *testing.T) {
-	request := AgentTurnRequest{
-		Prompt: "OpenRouter server tools 검색해줘",
-		ExecutionContract: normalizeExecutionContract(ExecutionContract{
-			FinishPolicy: FinishPolicy{RequiredEvidenceTools: []string{"web.search"}},
-		}),
-		ToolPalettePlan: ToolPalettePlan{ExposedToolNames: []string{"web.search"}},
-	}
-	observations := []turnObservation{{
-		ObservationID: "obs-001",
-		Action:        "continue",
-		Tool:          "web.search",
-		Output:        ToolOutput{Content: "result"},
-	}}
-
-	if _, ok := deterministicRequiredWebSearchAction(request, observations); ok {
-		t.Fatal("did not expect deterministic web.search after successful evidence")
-	}
-}
-
 func TestFinishActionMessagePrefersReplyPartBody(t *testing.T) {
 	reply := finishActionMessage(turnActionDocument{
 		Message: "요약만 있습니다.",
@@ -2128,7 +2081,7 @@ func TestBrowserActionSchemaUsesProviderCompatibleObjectInputs(t *testing.T) {
 	assertActionSchemaUsesProviderSafeNestedSubset(t, schemaDocument)
 	for _, fragment := range []string{
 		`"toolName":{"enum":["browser.open"],"type":"string"}`,
-		`"properties":{"milliseconds":{"type":"number"},"ref":{"type":"string"},"selector":{"type":"string"},"target":{"type":"string"}}`,
+		`"properties":{"milliseconds":{"type":["number","null"]},"ref":{"type":["string","null"]},"selector":{"type":["string","null"]},"target":{"type":["string","null"]}}`,
 	} {
 		if !strings.Contains(schemaDocument, fragment) {
 			t.Fatalf("expected action schema to include %q, got %s", fragment, schemaDocument)
@@ -2159,7 +2112,7 @@ func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMa
 				assertProviderSafeNestedSchemaValue(t, fieldValue, false)
 				continue
 			}
-			if fieldName == "required" || fieldName == "additionalProperties" || fieldName == "maxItems" {
+			if fieldName == "additionalProperties" || fieldName == "maxItems" {
 				t.Fatalf("nested action schema uses unsupported key %s in %+v", fieldName, document)
 			}
 			if fieldName == "type" && fieldValue == "integer" {

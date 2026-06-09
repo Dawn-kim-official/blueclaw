@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -108,6 +109,51 @@ func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
 	if !isOneShotCompletionEvidenceTool("flow.task.update") {
 		t.Fatal("expected flow.task.update to count as one-shot completion evidence")
 	}
+}
+
+func TestActionSchemaPreservesToolInputRequiredFields(t *testing.T) {
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{
+		Name:        "lookup.search",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"}},"required":["query"],"additionalProperties":false}`),
+	}}, false, nil, false)
+
+	toolInputSchema := actionSchemaToolInputSchema(t, actionSchema, "lookup.search")
+	requiredFields := stringSliceFromAny(toolInputSchema["required"])
+	for _, fieldName := range []string{"query", "limit"} {
+		if !containsString(requiredFields, fieldName) {
+			t.Fatalf("expected tool input required fields to include %s, got %+v in %s", fieldName, requiredFields, actionSchema)
+		}
+	}
+	properties, _ := toolInputSchema["properties"].(map[string]any)
+	querySchema, _ := properties["query"].(map[string]any)
+	if querySchema["type"] != "string" {
+		t.Fatalf("expected originally required query field to stay non-nullable, got %+v", querySchema)
+	}
+	limitSchema, _ := properties["limit"].(map[string]any)
+	if !containsString(stringSliceFromAny(limitSchema["type"]), "number") || !containsString(stringSliceFromAny(limitSchema["type"]), "null") {
+		t.Fatalf("expected integer type to remain portable as number, got %+v", limitSchema)
+	}
+}
+
+func actionSchemaToolInputSchema(t *testing.T, schemaDocument string, toolName string) map[string]any {
+	t.Helper()
+	var schema struct {
+		OneOf []map[string]any `json:"oneOf"`
+	}
+	if errorValue := json.Unmarshal([]byte(schemaDocument), &schema); errorValue != nil {
+		t.Fatalf("expected action schema json: %v", errorValue)
+	}
+	for _, variant := range schema.OneOf {
+		properties, _ := variant["properties"].(map[string]any)
+		toolNameSchema, _ := properties["toolName"].(map[string]any)
+		if !containsString(stringSliceFromAny(toolNameSchema["enum"]), toolName) {
+			continue
+		}
+		toolInputSchema, _ := properties["toolInput"].(map[string]any)
+		return toolInputSchema
+	}
+	t.Fatalf("expected tool input schema for %s in %s", toolName, schemaDocument)
+	return nil
 }
 
 func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
