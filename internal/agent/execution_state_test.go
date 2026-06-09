@@ -105,6 +105,19 @@ func TestNormalizeExecutionStateEnforcesLimits(t *testing.T) {
 	}
 }
 
+func TestExecutionStateAcceptsStringUpdate(t *testing.T) {
+	var state ExecutionState
+
+	errorValue := json.Unmarshal([]byte(`"call web.search next"`), &state)
+
+	if errorValue != nil {
+		t.Fatalf("expected string execution state to parse: %v", errorValue)
+	}
+	if state.NextPlan != "call web.search next" {
+		t.Fatalf("expected string execution state to become next plan, got %+v", state)
+	}
+}
+
 func TestValidateTerminalToolInputRejectsVirtualPathInsideTmpWorkingDirectory(t *testing.T) {
 	input := MarshalToolInput(map[string]any{
 		"workingDirectoryPath": "tmp/deck",

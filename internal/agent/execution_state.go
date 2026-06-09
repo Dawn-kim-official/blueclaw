@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -21,6 +22,29 @@ type ExecutionState struct {
 	CurrentBlocker string   `json:"currentBlocker,omitempty"`
 	NextPlan       string   `json:"nextPlan,omitempty"`
 	WasCompacted   bool     `json:"wasCompacted,omitempty"`
+}
+
+func (state *ExecutionState) UnmarshalJSON(document []byte) error {
+	document = bytes.TrimSpace(document)
+	if len(document) == 0 || bytes.Equal(document, []byte("null")) {
+		*state = ExecutionState{}
+		return nil
+	}
+	if len(document) > 0 && document[0] == '"' {
+		var nextPlan string
+		if errorValue := json.Unmarshal(document, &nextPlan); errorValue != nil {
+			return errorValue
+		}
+		*state = ExecutionState{NextPlan: nextPlan}
+		return nil
+	}
+	type executionStateAlias ExecutionState
+	var parsed executionStateAlias
+	if errorValue := json.Unmarshal(document, &parsed); errorValue != nil {
+		return errorValue
+	}
+	*state = ExecutionState(parsed)
+	return nil
 }
 
 type TerminalObservationTail struct {
