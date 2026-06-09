@@ -107,3 +107,38 @@ func TestToolPalettePlanRecordsDroppedToolReason(t *testing.T) {
 		t.Fatalf("expected dropped tool source and reason, got %+v", plan.DroppedTools[0])
 	}
 }
+
+func TestToolPalettePlanSuppressesConfirmationForReadOnlyWebLookup(t *testing.T) {
+	toolSet := newTestToolSet([]string{
+		"ask.confirm",
+		"skill.search",
+		"web.search",
+		"memory.search",
+	})
+	outcomeContract := OutcomeContract{RequiredEvidenceTools: []string{"web.search"}}
+	executionContract := normalizeExecutionContract(ExecutionContract{
+		ToolPolicy: ToolPolicy{
+			RequiredToolNames: []string{"web.search"},
+			MaxCallableTools:  4,
+		},
+	})
+
+	plan, _ := PlanToolPalette(
+		toolSet,
+		InstructionBundle{},
+		AgentRequest{Prompt: "검색해봐"},
+		ExecutionPlan{},
+		false,
+		outcomeContract,
+		executionContract,
+		ToolSelectionDecision{SelectedToolIDs: []string{"ask.confirm"}},
+		ToolExposureEvent{},
+	)
+
+	if !containsString(plan.ExposedToolNames, "web.search") {
+		t.Fatalf("expected web.search to be exposed, got %+v", plan)
+	}
+	if containsString(plan.ExposedToolNames, "ask.confirm") {
+		t.Fatalf("expected ask.confirm to be hidden for read-only web lookup, got %+v", plan)
+	}
+}

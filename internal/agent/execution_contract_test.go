@@ -90,3 +90,32 @@ func TestExecutionContractPreservesExternalSendEvidenceTool(t *testing.T) {
 		t.Fatalf("expected send tool in required tool policy, got %+v", contract.ToolPolicy.RequiredToolNames)
 	}
 }
+
+func TestExecutionContractRequiresWebSearchForPublicLookup(t *testing.T) {
+	outcomeContract := outcomeContractForRequest(
+		AgentRequest{Prompt: "어제 발표된 OpenRouter web search 문서 검색해봐"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeResearchTask},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+	contract := executionContractForRequest(
+		AgentRequest{Prompt: "어제 발표된 OpenRouter web search 문서 검색해봐"},
+		IntakeDecision{TaskShape: TaskShapeResearchTask},
+		InstructionBundle{},
+		outcomeContract,
+		ExecutionPlan{},
+		false,
+	)
+
+	if !containsString(contract.FinishPolicy.RequiredEvidenceTools, "web.search") {
+		t.Fatalf("expected web.search in finish policy, got %+v", contract.FinishPolicy.RequiredEvidenceTools)
+	}
+	if !containsString(contract.ToolPolicy.RequiredToolNames, "web.search") {
+		t.Fatalf("expected web.search in required tool policy, got %+v", contract.ToolPolicy.RequiredToolNames)
+	}
+	if contract.ActionPolicy.FinishExposure != FinishExposureWhenReady {
+		t.Fatalf("expected search result before finish, got %+v", contract.ActionPolicy)
+	}
+}

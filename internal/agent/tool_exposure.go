@@ -187,11 +187,17 @@ func PlanToolPalette(toolSet *ToolSet, instructionBundle InstructionBundle, requ
 	coreGroups := collectCoreGroups(toolSet)
 	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, recentObservations)
 	executionContract = normalizeExecutionContract(executionContract)
+	if shouldSuppressConfirmationToolForReadOnlyLookup(outcomeContract, executionContract) {
+		coreGroups = removeToolFromExposureGroups(coreGroups, "ask.confirm")
+	}
 	requiredGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "G0 execution-required", ToolIDs: executionContract.ToolPolicy.RequiredToolNames})
 	hintGroup := filterGroupToolsForTurn(toolSet, toolExposureGroup{Name: "G6 execution-hints", ToolIDs: executionContract.ToolPolicy.HintToolNames}, selectedAndPinnedSkillToolNameSet(instructionBundle, request.PinnedSkillNames), request, executionPlan, hasExecutionPlan, outcomeContract)
 	selectedGroup := selectedOptionalGroup(selection.SelectedToolIDs, candidateGroups)
 	if len(selectedGroup.ToolIDs) == 0 {
 		selectedGroup = selectedRegisteredToolGroup(toolSet, selection.SelectedToolIDs)
+	}
+	if shouldSuppressConfirmationToolForReadOnlyLookup(outcomeContract, executionContract) {
+		selectedGroup.ToolIDs = removeToolName(selectedGroup.ToolIDs, "ask.confirm")
 	}
 	selectionEvent.ValidSelectedToolIDs = append([]string{}, selectedGroup.ToolIDs...)
 
@@ -221,6 +227,26 @@ func PlanToolPalette(toolSet *ToolSet, instructionBundle InstructionBundle, requ
 		Candidates:       toolCandidatesFromGroups(groups),
 	}
 	return plan, selectionEvent
+}
+
+func shouldSuppressConfirmationToolForReadOnlyLookup(outcomeContract OutcomeContract, executionContract ExecutionContract) bool {
+	requiredToolNames := appendUniqueStrings(outcomeContractRequiredToolNames(outcomeContract), executionContract.ToolPolicy.RequiredToolNames...)
+	if len(requiredToolNames) != 1 || !stringSliceContains(requiredToolNames, "web.search") {
+		return false
+	}
+	if len(outcomeContract.RequiredAttachmentSuffixes) > 0 || expectedResultRequiresFileAttachment(outcomeContract) {
+		return false
+	}
+	return true
+}
+
+func removeToolFromExposureGroups(groups []toolExposureGroup, toolName string) []toolExposureGroup {
+	nextGroups := []toolExposureGroup{}
+	for _, group := range groups {
+		group.ToolIDs = removeToolName(group.ToolIDs, toolName)
+		nextGroups = append(nextGroups, group)
+	}
+	return nextGroups
 }
 
 func selectedRegisteredToolGroup(toolSet *ToolSet, selectedToolIDs []string) toolExposureGroup {

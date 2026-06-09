@@ -1095,12 +1095,33 @@ func isArtifactOutputFormat(value string) bool {
 
 func outcomeEvidenceTools(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, evidenceHints []string, requiredAttachmentSuffixes []string) []string {
 	toolNames := []string{}
+	if requestLooksLikePublicWebLookup(request, intakeDecision) {
+		toolNames = appendUniqueStrings(toolNames, "web.search")
+	}
 	for _, toolName := range evidenceHints {
 		if evidenceHintMatchesOutcome(toolName, request, intakeDecision, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes) {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
 	}
 	return toolNames
+}
+
+func requestLooksLikePublicWebLookup(request AgentRequest, intakeDecision IntakeDecision) bool {
+	if intakeDecision.Classification != IntakeClassificationBoundedTask && intakeDecision.Classification != IntakeClassificationQuickReply {
+		return false
+	}
+	prompt := strings.ToLower(strings.TrimSpace(strings.Join([]string{
+		request.Prompt,
+		request.ActiveGoal.OriginalInstruction,
+		request.ActiveGoal.CurrentObjective,
+	}, "\n")))
+	if !containsAny(prompt, []string{"web search", "internet search", "search the web", "look up online", "current", "latest", "검색", "웹 검색", "인터넷", "찾아봐", "찾아줘", "최신"}) {
+		return false
+	}
+	if containsAny(prompt, []string{"dm", "email", "mail", "send", "delete", "remove", "deploy", "publish", "calendar", "schedule", "전송", "보내", "삭제", "배포", "공개", "일정", "예약", "반복"}) {
+		return false
+	}
+	return true
 }
 
 func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) bool {
