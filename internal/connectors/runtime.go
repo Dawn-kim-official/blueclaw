@@ -117,6 +117,7 @@ type AskInteraction struct {
 	RecommendedOptionKey string            `json:"recommendedOptionKey,omitempty"`
 	SelectionMode        string            `json:"selectionMode,omitempty"`
 	ResponseLanguage     string            `json:"responseLanguage,omitempty"`
+	TargetPlatformUserID string            `json:"targetPlatformUserID,omitempty"`
 }
 
 type AskChoiceOption struct {
@@ -1262,6 +1263,12 @@ func trimNonEmptyConnectorStrings(values []string) []string {
 }
 
 func (connectorRuntime *ConnectorRuntime) resolveAskInteractionMessage(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, interaction AskInteraction) {
+	if strings.TrimSpace(interaction.TargetPlatformUserID) != "" {
+		return
+	}
+	if legacyBool(event.LegacyFields, "ephemeralAsk") {
+		return
+	}
 	resolver, isSupported := adapter.(InteractionResolvingAdapter)
 	if !isSupported {
 		return
@@ -1803,6 +1810,11 @@ func legacyString(fields map[string]interface{}, key string) string {
 	return strings.TrimSpace(value)
 }
 
+func legacyBool(fields map[string]interface{}, key string) bool {
+	value, _ := fields[key].(bool)
+	return value
+}
+
 func normalizedAskInteractionKind(kind string) string {
 	switch strings.TrimSpace(kind) {
 	case "confirm":
@@ -1924,7 +1936,7 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 		FailureNotice:   failureNotice,
 	}
 	interaction, _ := latestAskInteraction(taskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRunID))
-	reply.Interaction = optionalAskInteraction(interaction)
+	reply.Interaction = optionalAskInteraction(interaction, event.SenderID)
 	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
 	if errorValue != nil {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.failed", connectorReplyEventBody(event, reply, "", "", errorValue.Error()))
@@ -1985,10 +1997,11 @@ func taskStatusRequiresFailureNotice(status task.TaskStatus) bool {
 	return status == task.TaskStatusFailed || status == task.TaskStatusBlocked
 }
 
-func optionalAskInteraction(interaction AskInteraction) *AskInteraction {
+func optionalAskInteraction(interaction AskInteraction, targetPlatformUserID string) *AskInteraction {
 	if strings.TrimSpace(interaction.Kind) == "" {
 		return nil
 	}
+	interaction.TargetPlatformUserID = strings.TrimSpace(targetPlatformUserID)
 	return &interaction
 }
 

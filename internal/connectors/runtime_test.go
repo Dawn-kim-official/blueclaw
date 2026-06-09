@@ -421,10 +421,11 @@ func TestOutboundReplyJSONPreservesAskInteraction(t *testing.T) {
 	reply := OutboundReply{
 		Message: "확인해 주세요.",
 		Interaction: &AskInteraction{
-			InteractionID: "interaction-1",
-			TaskRunID:     "task-1",
-			Kind:          "ask_confirm",
-			Message:       "진행할까요?",
+			InteractionID:        "interaction-1",
+			TaskRunID:            "task-1",
+			Kind:                 "ask_confirm",
+			Message:              "진행할까요?",
+			TargetPlatformUserID: "user-1",
 		},
 	}
 
@@ -437,7 +438,7 @@ func TestOutboundReplyJSONPreservesAskInteraction(t *testing.T) {
 		t.Fatalf("expected reply to unmarshal: %v", errorValue)
 	}
 
-	if decodedReply.Interaction == nil || decodedReply.Interaction.Kind != "ask_confirm" || decodedReply.Interaction.Message != "진행할까요?" {
+	if decodedReply.Interaction == nil || decodedReply.Interaction.Kind != "ask_confirm" || decodedReply.Interaction.Message != "진행할까요?" || decodedReply.Interaction.TargetPlatformUserID != "user-1" {
 		t.Fatalf("expected ask interaction to survive outbox json, got %+v", decodedReply.Interaction)
 	}
 }
