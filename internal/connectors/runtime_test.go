@@ -419,7 +419,8 @@ func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 
 func TestOutboundReplyJSONPreservesAskInteraction(t *testing.T) {
 	reply := OutboundReply{
-		Message: "확인해 주세요.",
+		Message:         "확인해 주세요.",
+		EphemeralUserID: "requester-1",
 		Interaction: &AskInteraction{
 			InteractionID:        "interaction-1",
 			TaskRunID:            "task-1",
@@ -440,6 +441,9 @@ func TestOutboundReplyJSONPreservesAskInteraction(t *testing.T) {
 
 	if decodedReply.Interaction == nil || decodedReply.Interaction.Kind != "ask_confirm" || decodedReply.Interaction.Message != "진행할까요?" || decodedReply.Interaction.TargetPlatformUserID != "user-1" {
 		t.Fatalf("expected ask interaction to survive outbox json, got %+v", decodedReply.Interaction)
+	}
+	if decodedReply.EphemeralUserID != "requester-1" {
+		t.Fatalf("expected ephemeral target to survive outbox json, got %+v", decodedReply)
 	}
 }
 

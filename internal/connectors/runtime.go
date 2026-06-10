@@ -80,6 +80,7 @@ type OutboundReply struct {
 	ReplyKind       string                 `json:"replyKind,omitempty"`
 	RawEventID      string                 `json:"rawEventID,omitempty"`
 	OutboxID        string                 `json:"outboxID,omitempty"`
+	EphemeralUserID string                 `json:"ephemeralUserID,omitempty"`
 	Attachments     []agent.FileAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction `json:"recoveryActions,omitempty"`
 	FailureNotice   agent.FailureNotice    `json:"failureNotice,omitempty"`
@@ -92,6 +93,7 @@ type outboundReplyDocument struct {
 	ReplyKind       string                    `json:"replyKind,omitempty"`
 	RawEventID      string                    `json:"rawEventID,omitempty"`
 	OutboxID        string                    `json:"outboxID,omitempty"`
+	EphemeralUserID string                    `json:"ephemeralUserID,omitempty"`
 	Attachments     []outboundReplyAttachment `json:"attachments,omitempty"`
 	RecoveryActions []agent.RecoveryAction    `json:"recoveryActions,omitempty"`
 	FailureNotice   agent.FailureNotice       `json:"failureNotice,omitempty"`
@@ -133,6 +135,7 @@ func (reply OutboundReply) MarshalJSON() ([]byte, error) {
 		ReplyKind:       reply.ReplyKind,
 		RawEventID:      reply.RawEventID,
 		OutboxID:        reply.OutboxID,
+		EphemeralUserID: reply.EphemeralUserID,
 		Attachments:     outboundReplyAttachments(reply.Attachments),
 		RecoveryActions: reply.RecoveryActions,
 		FailureNotice:   reply.FailureNotice,
@@ -151,6 +154,7 @@ func (reply *OutboundReply) UnmarshalJSON(documentBytes []byte) error {
 	reply.ReplyKind = document.ReplyKind
 	reply.RawEventID = document.RawEventID
 	reply.OutboxID = document.OutboxID
+	reply.EphemeralUserID = document.EphemeralUserID
 	reply.Attachments = fileAttachmentsFromOutboundReplyAttachments(document.Attachments)
 	reply.RecoveryActions = append([]agent.RecoveryAction{}, document.RecoveryActions...)
 	reply.FailureNotice = document.FailureNotice
@@ -1937,6 +1941,9 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 	}
 	interaction, _ := latestAskInteraction(taskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRunID))
 	reply.Interaction = optionalAskInteraction(interaction, event.SenderID)
+	if reply.Interaction != nil {
+		reply.EphemeralUserID = strings.TrimSpace(event.SenderID)
+	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
 	if errorValue != nil {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.failed", connectorReplyEventBody(event, reply, "", "", errorValue.Error()))
