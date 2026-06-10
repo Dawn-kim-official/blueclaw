@@ -90,10 +90,15 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	var taskScheduleRepository task.TaskScheduleRepository
 	var taskScheduleSummaryRepository adminapi.TaskScheduleSummaryRepository
 	var taskScheduleListRepository adminapi.TaskScheduleListRepository
+	var taskScheduleCreatorRepairRepository adminapi.TaskScheduleCreatorRepairRepository
 	var connectorEventDiagnosticRepository adminapi.ConnectorEventDiagnosticRepository
 	var taskWaitTokenRepository task.TaskWaitTokenRepository
 	var scheduledDeliveryRepository scheduler.TaskScheduleDeliveryRepository
+	var personRepository postgres.PersonRepository
+	var personReferenceCanonicalizer adminapi.PersonReferenceCanonicalizer
 	if database.SQL != nil {
+		personRepository = postgres.NewPersonRepository(database)
+		personReferenceCanonicalizer = personRepository
 		taskEventService.UseRepository(postgres.NewTaskEventRepository(database))
 		taskStepService.UseRepository(postgres.NewTaskStepRepository(database))
 		taskArtifactService.UseRepository(postgres.NewTaskArtifactRepository(database))
@@ -102,6 +107,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskScheduleRepository = postgresTaskScheduleRepository
 		taskScheduleSummaryRepository = postgresTaskScheduleRepository
 		taskScheduleListRepository = postgresTaskScheduleRepository
+		taskScheduleCreatorRepairRepository = postgresTaskScheduleRepository
 		connectorEventDiagnosticRepository = postgres.NewRawEventRepository(database)
 		taskWaitTokenRepository = postgres.NewTaskWaitTokenRepository(database)
 		scheduledDeliveryRepository = postgres.NewRawEventRepository(database)
@@ -215,14 +221,15 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		PolicyHandler: adminapi.PolicyHandler{
 			PolicyPath:    policyPath,
 			PolicyLoader:  policyLoader,
-			PolicySaver:   policy.PolicySaver{},
-			PolicyWatcher: policyWatcher,
-			Validator:     policy.PolicyValidator{},
-			AuditHandler:  auditHandler,
-			OnPolicyReload: func(policyDocument policy.PolicyDocument) {
-				if database.SQL != nil {
-					_ = postgres.NewPersonRepository(database).UpsertPeople(policyDocument)
-				}
+		PolicySaver:   policy.PolicySaver{},
+		PolicyWatcher: policyWatcher,
+		Validator:     policy.PolicyValidator{},
+		AuditHandler:  auditHandler,
+		PersonReferenceCanonicalizer: personReferenceCanonicalizer,
+		OnPolicyReload: func(policyDocument policy.PolicyDocument) {
+			if database.SQL != nil {
+				_ = personRepository.UpsertPeople(policyDocument)
+			}
 				identityService.ReloadPolicyProjection(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
 				_ = posixSynchronizer.Synchronize()
 			},
@@ -245,6 +252,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		TaskScheduleHandler: adminapi.TaskScheduleHandler{
 			SummaryRepository: taskScheduleSummaryRepository,
 			ListRepository:    taskScheduleListRepository,
+			RepairRepository:  taskScheduleCreatorRepairRepository,
 		},
 		ConnectorDiagnostics: adminapi.ConnectorEventDiagnosticHandler{
 			Repository: connectorEventDiagnosticRepository,

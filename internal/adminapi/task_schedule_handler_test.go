@@ -65,7 +65,7 @@ func TestTaskScheduleHandlerListsActiveSchedules(t *testing.T) {
 		}},
 	}
 	handler := TaskScheduleHandler{ListRepository: repository}
-	request := httptest.NewRequest(http.MethodGet, "/admin/api/task-schedules?deliveryConversationID=channel-1&unboundedOnly=true&limit=5", nil)
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task-schedules?deliveryConversationID=channel-1&unboundedOnly=true&includeExpired=true&page=2&pageSize=5", nil)
 	responseRecorder := httptest.NewRecorder()
 
 	handler.HandleList(responseRecorder, request)
@@ -73,11 +73,11 @@ func TestTaskScheduleHandlerListsActiveSchedules(t *testing.T) {
 	if responseRecorder.Code != http.StatusOK {
 		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
 	}
-	if repository.request.ConversationID != "channel-1" || !repository.request.UnboundedOnly || repository.request.Limit != 5 {
+	if repository.request.ConversationID != "channel-1" || !repository.request.UnboundedOnly || !repository.request.IncludeExpired || repository.request.Page != 2 || repository.request.PageSize != 5 {
 		t.Fatalf("expected query parameters to reach repository, got %+v", repository.request)
 	}
 	responseBody := responseRecorder.Body.String()
-	for _, expectedFragment := range []string{`"taskScheduleID":"schedule-1"`, `"deliveryChannelID":"channel-1"`, `"promptPreview":"`} {
+	for _, expectedFragment := range []string{`"taskScheduleID":"schedule-1"`, `"deliveryChannelID":"channel-1"`, `"totalCount":1`, `"page":2`, `"pageSize":5`, `"promptPreview":"`} {
 		if !strings.Contains(responseBody, expectedFragment) {
 			t.Fatalf("expected response to contain %s, got %s", expectedFragment, responseBody)
 		}
@@ -100,7 +100,7 @@ type taskScheduleListRepositoryStub struct {
 	taskSchedules []task.TaskSchedule
 }
 
-func (repository *taskScheduleListRepositoryStub) ListActiveTaskSchedules(request task.TaskScheduleListRequest) ([]task.TaskSchedule, error) {
+func (repository *taskScheduleListRepositoryStub) ListTaskSchedules(request task.TaskScheduleListRequest) (task.TaskScheduleListResult, error) {
 	repository.request = request
-	return repository.taskSchedules, nil
+	return task.TaskScheduleListResult{TaskSchedules: repository.taskSchedules, TotalCount: len(repository.taskSchedules), Page: request.Page, PageSize: request.PageSize}, nil
 }

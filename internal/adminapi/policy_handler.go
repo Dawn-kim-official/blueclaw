@@ -1,8 +1,6 @@
 package adminapi
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -12,16 +10,22 @@ import (
 )
 
 type PolicyHandler struct {
-	PolicyPath     string
-	PolicyLoader   policy.PolicyLoader
-	PolicySaver    policy.PolicySaver
-	PolicyWatcher  *policy.PolicyWatcher
-	Validator      policy.PolicyValidator
-	AuditHandler   *AuditHandler
-	OnPolicyReload func(policy.PolicyDocument)
+	PolicyPath                   string
+	PolicyLoader                 policy.PolicyLoader
+	PolicySaver                  policy.PolicySaver
+	PolicyWatcher                *policy.PolicyWatcher
+	Validator                    policy.PolicyValidator
+	AuditHandler                 *AuditHandler
+	PersonReferenceCanonicalizer PersonReferenceCanonicalizer
+	OnPolicyReload               func(policy.PolicyDocument)
+}
+
+type PersonReferenceCanonicalizer interface {
+	CanonicalizePersonReferences(legacyPersonID string, personID string) error
 }
 
 type invitePersonRequest struct {
+	PersonID          string   `json:"personID"`
 	Email             string   `json:"email"`
 	DisplayName       string   `json:"displayName"`
 	IsAdmin           bool     `json:"isAdmin"`
@@ -29,6 +33,11 @@ type invitePersonRequest struct {
 	SecurityLevelName string   `json:"securityLevelName"`
 	SecurityLevelRank int      `json:"securityLevelRank"`
 	GrantedClasses    []string `json:"grantedClasses"`
+}
+
+type canonicalizePersonReferencesRequest struct {
+	LegacyPersonID string `json:"legacyPersonID"`
+	PersonID       string `json:"personID"`
 }
 
 func (policyHandler PolicyHandler) HandleGetPolicy(responseWriter http.ResponseWriter, request *http.Request) {
@@ -124,6 +133,34 @@ func (policyHandler PolicyHandler) HandleRemovePerson(responseWriter http.Respon
 	writeJSON(responseWriter, http.StatusOK, map[string]bool{"isRemoved": true})
 }
 
+func (policyHandler PolicyHandler) HandleCanonicalizePersonReferences(responseWriter http.ResponseWriter, request *http.Request) {
+	if policyHandler.PersonReferenceCanonicalizer == nil {
+		http.Error(responseWriter, "person reference canonicalizer is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var canonicalizeRequest canonicalizePersonReferencesRequest
+	errorValue := json.NewDecoder(request.Body).Decode(&canonicalizeRequest)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	legacyPersonID := strings.TrimSpace(canonicalizeRequest.LegacyPersonID)
+	personID := strings.TrimSpace(canonicalizeRequest.PersonID)
+	if legacyPersonID == "" || personID == "" {
+		http.Error(responseWriter, "legacyPersonID and personID are required", http.StatusBadRequest)
+		return
+	}
+	if legacyPersonID == personID {
+		writeJSON(responseWriter, http.StatusOK, map[string]bool{"isCanonicalized": false})
+		return
+	}
+	if errorValue := policyHandler.PersonReferenceCanonicalizer.CanonicalizePersonReferences(legacyPersonID, personID); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, map[string]bool{"isCanonicalized": true})
+}
+
 func (policyHandler PolicyHandler) notifyPolicyReload(policyDocument policy.PolicyDocument) {
 	if policyHandler.OnPolicyReload != nil {
 		policyHandler.OnPolicyReload(policyDocument)
@@ -131,6 +168,10 @@ func (policyHandler PolicyHandler) notifyPolicyReload(policyDocument policy.Poli
 }
 
 func (policyHandler PolicyHandler) invitePerson(inviteRequest invitePersonRequest) (policy.PolicyDocument, policy.PersonPolicy, string, error) {
+	personID := strings.TrimSpace(inviteRequest.PersonID)
+	if personID == "" {
+		return policy.PolicyDocument{}, policy.PersonPolicy{}, "", errors.New("personID is required")
+	}
 	email := normalizeEmail(inviteRequest.Email)
 	if email == "" {
 		return policy.PolicyDocument{}, policy.PersonPolicy{}, "", errors.New("email is required")
@@ -141,9 +182,21 @@ func (policyHandler PolicyHandler) invitePerson(inviteRequest invitePersonReques
 		return policy.PolicyDocument{}, policy.PersonPolicy{}, "", errorValue
 	}
 
-	for _, personPolicy := range policyDocument.People {
+	for index, personPolicy := range policyDocument.People {
+		if personPolicy.PersonID == personID && !personHasEmail(personPolicy, email) {
+			return policy.PolicyDocument{}, policy.PersonPolicy{}, "", errors.New("personID already belongs to another person")
+		}
 		if personHasEmail(personPolicy, email) {
-			return policyDocument, personPolicy, "", nil
+			if personPolicy.PersonID == personID {
+				return policyDocument, personPolicy, "", nil
+			}
+			personPolicy.PersonID = personID
+			policyDocument.People[index] = personPolicy
+			backupPath, errorValue := policyHandler.savePolicyDocument(policyDocument)
+			if errorValue != nil {
+				return policy.PolicyDocument{}, policy.PersonPolicy{}, "", errorValue
+			}
+			return policyDocument, personPolicy, backupPath, nil
 		}
 	}
 
@@ -230,7 +283,7 @@ func createInvitedPersonPolicy(inviteRequest invitePersonRequest, email string) 
 	}
 
 	return policy.PersonPolicy{
-		PersonID:          newPersonID(),
+		PersonID:          strings.TrimSpace(inviteRequest.PersonID),
 		DisplayName:       displayNameForInvite(inviteRequest.DisplayName, email),
 		Emails:            []string{email},
 		Circles:           circles,
@@ -292,18 +345,9 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
-func newPersonID() string {
-	identifierBytes := make([]byte, 16)
-	_, errorValue := rand.Read(identifierBytes)
-	if errorValue != nil {
-		return "00000000000000000000000000000000"
-	}
-	return hex.EncodeToString(identifierBytes)
-}
-
 func statusCodeForPolicyMutationError(errorValue error) int {
 	switch errorValue.Error() {
-	case "email is required", "email or personID is required", "cannot remove admin person":
+	case "personID is required", "email is required", "email or personID is required", "cannot remove admin person", "personID already belongs to another person":
 		return http.StatusBadRequest
 	case "person not found":
 		return http.StatusNotFound

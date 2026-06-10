@@ -298,20 +298,72 @@ WHERE next_run_at IS NOT NULL
 	return summary, nil
 }
 
-func (taskScheduleRepository TaskScheduleRepository) ListActiveTaskSchedules(request task.TaskScheduleListRequest) ([]task.TaskSchedule, error) {
+func (taskScheduleRepository TaskScheduleRepository) ListTaskSchedules(request task.TaskScheduleListRequest) (task.TaskScheduleListResult, error) {
+	conditions, filterArguments := taskScheduleListFilter(request)
+	page := taskScheduleListPage(request.Page)
+	pageSize := taskScheduleListPageSize(request.PageSize)
+	queryArguments := append([]any{}, filterArguments...)
+	queryArguments = append(queryArguments, pageSize, (page-1)*pageSize)
+	query := `SELECT ` + taskScheduleReturningColumns() + `
+FROM task_schedule
+WHERE ` + strings.Join(conditions, " AND ") + `
+ORDER BY created_at DESC
+LIMIT $` + strconv.Itoa(len(filterArguments)+1) + `
+OFFSET $` + strconv.Itoa(len(filterArguments)+2)
+	rows, errorValue := taskScheduleRepository.database.SQL.QueryContext(context.Background(), query, queryArguments...)
+	if errorValue != nil {
+		return task.TaskScheduleListResult{}, errorValue
+	}
+	defer rows.Close()
+	taskSchedules, errorValue := scanTaskSchedules(rows)
+	if errorValue != nil {
+		return task.TaskScheduleListResult{}, errorValue
+	}
+	totalCount, errorValue := taskScheduleRepository.countTaskSchedules(conditions, filterArguments)
+	if errorValue != nil {
+		return task.TaskScheduleListResult{}, errorValue
+	}
+	return task.TaskScheduleListResult{TaskSchedules: taskSchedules, TotalCount: totalCount, Page: page, PageSize: pageSize}, nil
+}
+
+func (taskScheduleRepository TaskScheduleRepository) RepairTaskScheduleCreatorPersonID(request task.TaskScheduleCreatorRepairRequest) (task.TaskScheduleCreatorRepairResult, error) {
+	result, errorValue := taskScheduleRepository.database.SQL.ExecContext(context.Background(), `
+UPDATE task_schedule
+SET creator_person_id = $2,
+  updated_at = now()
+WHERE creator_person_id = $1`,
+		strings.TrimSpace(request.FromCreatorPersonID),
+		strings.TrimSpace(request.ToCreatorPersonID),
+	)
+	if errorValue != nil {
+		return task.TaskScheduleCreatorRepairResult{}, errorValue
+	}
+	updatedCount, errorValue := result.RowsAffected()
+	if errorValue != nil {
+		return task.TaskScheduleCreatorRepairResult{}, errorValue
+	}
+	return task.TaskScheduleCreatorRepairResult{UpdatedCount: int(updatedCount)}, nil
+}
+
+func (taskScheduleRepository TaskScheduleRepository) countTaskSchedules(conditions []string, arguments []any) (int, error) {
+	query := `SELECT COUNT(*) FROM task_schedule WHERE ` + strings.Join(conditions, " AND ")
+	row := taskScheduleRepository.database.SQL.QueryRowContext(context.Background(), query, arguments...)
+	var count int
+	errorValue := row.Scan(&count)
+	return count, errorValue
+}
+
+func taskScheduleListFilter(request task.TaskScheduleListRequest) ([]string, []any) {
 	referenceTime := request.ReferenceTime
 	if referenceTime.IsZero() {
 		referenceTime = time.Now().UTC()
 	}
-	limit := request.Limit
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	conditions := []string{"next_run_at IS NOT NULL"}
+	arguments := []any{}
+	if !request.IncludeExpired {
+		arguments = append(arguments, referenceTime)
+		conditions = append(conditions, "(expires_at IS NULL OR expires_at > $1)")
 	}
-	conditions := []string{
-		"next_run_at IS NOT NULL",
-		"(expires_at IS NULL OR expires_at > $1)",
-	}
-	arguments := []any{referenceTime}
 	if strings.TrimSpace(request.ConversationID) != "" {
 		conditions = append(conditions, "delivery_conversation_id = $"+strconv.Itoa(len(arguments)+1))
 		arguments = append(arguments, strings.TrimSpace(request.ConversationID))
@@ -323,18 +375,24 @@ func (taskScheduleRepository TaskScheduleRepository) ListActiveTaskSchedules(req
 	if request.UnboundedOnly {
 		conditions = append(conditions, "expires_at IS NULL", "max_run_count IS NULL")
 	}
-	arguments = append(arguments, limit)
-	query := `SELECT ` + taskScheduleReturningColumns() + `
-FROM task_schedule
-WHERE ` + strings.Join(conditions, " AND ") + `
-ORDER BY created_at DESC
-LIMIT $` + strconv.Itoa(len(arguments))
-	rows, errorValue := taskScheduleRepository.database.SQL.QueryContext(context.Background(), query, arguments...)
-	if errorValue != nil {
-		return nil, errorValue
+	return conditions, arguments
+}
+
+func taskScheduleListPage(page int) int {
+	if page < 1 {
+		return 1
 	}
-	defer rows.Close()
-	return scanTaskSchedules(rows)
+	return page
+}
+
+func taskScheduleListPageSize(pageSize int) int {
+	if pageSize < 1 {
+		return 50
+	}
+	if pageSize > 200 {
+		return 200
+	}
+	return pageSize
 }
 
 func taskScheduleCancelAccessCondition(request task.TaskScheduleCancelRequest, firstPlaceholderIndex int) string {

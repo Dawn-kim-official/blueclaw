@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,12 +15,22 @@ type TaskScheduleSummaryRepository interface {
 }
 
 type TaskScheduleListRepository interface {
-	ListActiveTaskSchedules(task.TaskScheduleListRequest) ([]task.TaskSchedule, error)
+	ListTaskSchedules(task.TaskScheduleListRequest) (task.TaskScheduleListResult, error)
+}
+
+type TaskScheduleCreatorRepairRepository interface {
+	RepairTaskScheduleCreatorPersonID(task.TaskScheduleCreatorRepairRequest) (task.TaskScheduleCreatorRepairResult, error)
 }
 
 type TaskScheduleHandler struct {
 	SummaryRepository TaskScheduleSummaryRepository
 	ListRepository    TaskScheduleListRepository
+	RepairRepository  TaskScheduleCreatorRepairRepository
+}
+
+type taskScheduleCreatorRepairRequest struct {
+	FromCreatorPersonID string `json:"fromCreatorPersonID"`
+	ToCreatorPersonID   string `json:"toCreatorPersonID"`
 }
 
 func (taskScheduleHandler TaskScheduleHandler) HandleSummary(responseWriter http.ResponseWriter, request *http.Request) {
@@ -40,16 +51,50 @@ func (taskScheduleHandler TaskScheduleHandler) HandleList(responseWriter http.Re
 		http.Error(responseWriter, "task schedule list repository is not configured", http.StatusServiceUnavailable)
 		return
 	}
-	taskSchedules, errorValue := taskScheduleHandler.ListRepository.ListActiveTaskSchedules(taskScheduleListRequestFromHTTP(request))
+	result, errorValue := taskScheduleHandler.ListRepository.ListTaskSchedules(taskScheduleListRequestFromHTTP(request))
 	if errorValue != nil {
 		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(responseWriter, http.StatusOK, map[string]any{
-		"schedules": taskScheduleListItems(taskSchedules),
-		"count":     len(taskSchedules),
-		"checkedAt": time.Now().UTC(),
+		"schedules":  taskScheduleListItems(result.TaskSchedules),
+		"count":      len(result.TaskSchedules),
+		"totalCount": result.TotalCount,
+		"page":       result.Page,
+		"pageSize":   result.PageSize,
+		"checkedAt":  time.Now().UTC(),
 	})
+}
+
+func (taskScheduleHandler TaskScheduleHandler) HandleRepairCreator(responseWriter http.ResponseWriter, request *http.Request) {
+	if taskScheduleHandler.RepairRepository == nil {
+		http.Error(responseWriter, "task schedule repair repository is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var repairRequest taskScheduleCreatorRepairRequest
+	if errorValue := json.NewDecoder(request.Body).Decode(&repairRequest); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	fromCreatorPersonID := strings.TrimSpace(repairRequest.FromCreatorPersonID)
+	toCreatorPersonID := strings.TrimSpace(repairRequest.ToCreatorPersonID)
+	if fromCreatorPersonID == "" || toCreatorPersonID == "" {
+		http.Error(responseWriter, "fromCreatorPersonID and toCreatorPersonID are required", http.StatusBadRequest)
+		return
+	}
+	if fromCreatorPersonID == toCreatorPersonID {
+		writeJSON(responseWriter, http.StatusOK, task.TaskScheduleCreatorRepairResult{})
+		return
+	}
+	result, errorValue := taskScheduleHandler.RepairRepository.RepairTaskScheduleCreatorPersonID(task.TaskScheduleCreatorRepairRequest{
+		FromCreatorPersonID: fromCreatorPersonID,
+		ToCreatorPersonID:   toCreatorPersonID,
+	})
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, result)
 }
 
 type taskScheduleListItem struct {
@@ -79,7 +124,9 @@ func taskScheduleListRequestFromHTTP(request *http.Request) task.TaskScheduleLis
 		ConversationID:  strings.TrimSpace(queryValues.Get("deliveryConversationID")),
 		CreatorPersonID: strings.TrimSpace(queryValues.Get("creatorPersonID")),
 		UnboundedOnly:   parseBoolQuery(queryValues.Get("unboundedOnly")),
-		Limit:           parseLimitQuery(queryValues.Get("limit")),
+		IncludeExpired:  parseBoolQuery(queryValues.Get("includeExpired")),
+		Page:            parsePositiveQuery(queryValues.Get("page"), 1),
+		PageSize:        parsePageSizeQuery(queryValues.Get("pageSize")),
 		ReferenceTime:   time.Now().UTC(),
 	}
 }
@@ -120,12 +167,23 @@ func parseBoolQuery(value string) bool {
 	}
 }
 
-func parseLimitQuery(value string) int {
-	limit, errorValue := strconv.Atoi(strings.TrimSpace(value))
+func parsePositiveQuery(value string, fallback int) int {
+	number, errorValue := strconv.Atoi(strings.TrimSpace(value))
 	if errorValue != nil {
-		return 50
+		return fallback
 	}
-	return limit
+	if number < 1 {
+		return fallback
+	}
+	return number
+}
+
+func parsePageSizeQuery(value string) int {
+	pageSize := parsePositiveQuery(value, 50)
+	if pageSize > 200 {
+		return 200
+	}
+	return pageSize
 }
 
 func compactPromptPreview(value string, limit int) string {
