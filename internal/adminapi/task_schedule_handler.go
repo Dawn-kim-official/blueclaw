@@ -14,7 +14,7 @@ type TaskScheduleSummaryRepository interface {
 }
 
 type TaskScheduleListRepository interface {
-	ListActiveTaskSchedules(task.TaskScheduleListRequest) ([]task.TaskSchedule, error)
+	ListActiveTaskSchedules(task.TaskScheduleListRequest) (task.TaskScheduleListResult, error)
 }
 
 type TaskScheduleHandler struct {
@@ -40,15 +40,18 @@ func (taskScheduleHandler TaskScheduleHandler) HandleList(responseWriter http.Re
 		http.Error(responseWriter, "task schedule list repository is not configured", http.StatusServiceUnavailable)
 		return
 	}
-	taskSchedules, errorValue := taskScheduleHandler.ListRepository.ListActiveTaskSchedules(taskScheduleListRequestFromHTTP(request))
+	taskScheduleList, errorValue := taskScheduleHandler.ListRepository.ListActiveTaskSchedules(taskScheduleListRequestFromHTTP(request))
 	if errorValue != nil {
 		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
 		return
 	}
 	writeJSON(responseWriter, http.StatusOK, map[string]any{
-		"schedules": taskScheduleListItems(taskSchedules),
-		"count":     len(taskSchedules),
-		"checkedAt": time.Now().UTC(),
+		"schedules":  taskScheduleListItems(taskScheduleList.TaskSchedules),
+		"count":      len(taskScheduleList.TaskSchedules),
+		"totalCount": taskScheduleList.TotalCount,
+		"page":       taskScheduleList.Page,
+		"pageSize":   taskScheduleList.PageSize,
+		"checkedAt":  time.Now().UTC(),
 	})
 }
 
@@ -79,7 +82,8 @@ func taskScheduleListRequestFromHTTP(request *http.Request) task.TaskScheduleLis
 		ConversationID:  strings.TrimSpace(queryValues.Get("deliveryConversationID")),
 		CreatorPersonID: strings.TrimSpace(queryValues.Get("creatorPersonID")),
 		UnboundedOnly:   parseBoolQuery(queryValues.Get("unboundedOnly")),
-		Limit:           parseLimitQuery(queryValues.Get("limit")),
+		Page:            parsePositiveIntQuery(queryValues.Get("page"), 1),
+		PageSize:        parsePositiveIntQuery(queryValues.Get("pageSize"), 25),
 		ReferenceTime:   time.Now().UTC(),
 	}
 }
@@ -120,12 +124,15 @@ func parseBoolQuery(value string) bool {
 	}
 }
 
-func parseLimitQuery(value string) int {
-	limit, errorValue := strconv.Atoi(strings.TrimSpace(value))
+func parsePositiveIntQuery(value string, fallback int) int {
+	parsedValue, errorValue := strconv.Atoi(strings.TrimSpace(value))
 	if errorValue != nil {
-		return 50
+		return fallback
 	}
-	return limit
+	if parsedValue < 1 {
+		return fallback
+	}
+	return parsedValue
 }
 
 func compactPromptPreview(value string, limit int) string {

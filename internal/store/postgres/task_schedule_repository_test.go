@@ -2,8 +2,11 @@ package postgres
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
+
+	"blueclaw/internal/task"
 )
 
 type taskScheduleScannerStub struct {
@@ -74,5 +77,40 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 	}
 	if taskSchedule.CronExpression != "" {
 		t.Fatalf("expected nullable cron expression to scan as empty, got %q", taskSchedule.CronExpression)
+	}
+}
+
+func TestNormalizeTaskScheduleListPagination(t *testing.T) {
+	if normalizedTaskScheduleListPage(0) != 1 {
+		t.Fatalf("expected default page")
+	}
+	if normalizedTaskScheduleListPageSize(0) != 25 {
+		t.Fatalf("expected default page size")
+	}
+	if normalizedTaskScheduleListPageSize(999) != 100 {
+		t.Fatalf("expected capped page size")
+	}
+}
+
+func TestBuildTaskScheduleListFilterSharesListAndCountConditions(t *testing.T) {
+	filter := buildTaskScheduleListFilter(task.TaskScheduleListRequest{
+		ConversationID:  "channel-1",
+		CreatorPersonID: "person-1",
+		UnboundedOnly:   true,
+	}, time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC))
+	conditionText := strings.Join(filter.conditions, " AND ")
+	for _, expectedCondition := range []string{
+		"next_run_at IS NOT NULL",
+		"delivery_conversation_id = $2",
+		"creator_person_id = $3",
+		"expires_at IS NULL",
+		"max_run_count IS NULL",
+	} {
+		if !strings.Contains(conditionText, expectedCondition) {
+			t.Fatalf("expected condition %q in %q", expectedCondition, conditionText)
+		}
+	}
+	if len(filter.arguments) != 3 {
+		t.Fatalf("expected filter arguments to exclude pagination values, got %+v", filter.arguments)
 	}
 }
