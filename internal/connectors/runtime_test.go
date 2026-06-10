@@ -257,6 +257,56 @@ func TestConnectorRuntimeBusyStatusDoesNotCreateNewTask(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeInterruptsInactiveRunningTaskAndStartsNewTask(t *testing.T) {
+	now := time.Now()
+	taskRunRepository := newTestTaskRunRepository()
+	orphanedTaskRun := task.TaskRun{
+		TaskRunID:            "task-orphaned",
+		RequesterPersonID:    "person-1",
+		OriginConversationID: "direct-1",
+		CurrentAttemptID:     "attempt-orphaned",
+		Status:               task.TaskStatusRunning,
+		Prompt:               "멈춘 작업",
+		CreatedAt:            now.Add(-time.Minute),
+		UpdatedAt:            now.Add(-time.Minute),
+	}
+	taskRunRepository.taskRuns[orphanedTaskRun.TaskRunID] = orphanedTaskRun
+	taskRunRepository.taskAttempts[orphanedTaskRun.CurrentAttemptID] = task.TaskAttempt{
+		TaskAttemptID: orphanedTaskRun.CurrentAttemptID,
+		TaskRunID:     orphanedTaskRun.TaskRunID,
+		RunnerID:      "previous-runner",
+		Status:        task.TaskAttemptStatusRunning,
+		StartedAt:     now.Add(-time.Minute),
+	}
+	connectorRuntime, adapter, taskEventService := newRepositoryBackedTestConnectorRuntime(t, testLanguageModel{reply: "새 작업으로 처리했습니다."}, taskRunRepository)
+	taskEventService.AppendTaskEvent(orphanedTaskRun.TaskRunID, "tool.site.app.build.requested", `{"observationID":"observation-1","toolName":"site.app.build"}`)
+	event := testInboundEvent("message-after-stale-task")
+	event.Prompt = "다시 해줘"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected event after inactive running task to process: %v", errorValue)
+	}
+	if result.TaskRunID == "" || result.TaskRunID == orphanedTaskRun.TaskRunID {
+		t.Fatalf("expected new task after inactive task interruption, got %+v", result)
+	}
+	interruptedTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(orphanedTaskRun.TaskRunID)
+	if !isFound || interruptedTaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected inactive task failed, got found=%v task=%+v", isFound, interruptedTaskRun)
+	}
+	taskAttempt := taskRunRepository.taskAttempts[orphanedTaskRun.CurrentAttemptID]
+	if taskAttempt.Status != task.TaskAttemptStatusInterrupted {
+		t.Fatalf("attempt status = %s, want interrupted", taskAttempt.Status)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, orphanedTaskRun.TaskRunID, "tool.site.app.build.cancelled", "cancelled_by_attempt_end") {
+		t.Fatal("expected orphaned tool request to be cancelled")
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "새 작업으로 처리했습니다." {
+		t.Fatalf("expected new task reply, got %+v", adapter.sentReplies)
+	}
+}
+
 func TestConnectorRuntimeBusySteerAppendsInstructionWithoutNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
@@ -1090,6 +1140,38 @@ func TestConnectorRuntimeAddsSenderToRecoveryActions(t *testing.T) {
 	}
 	if sentReplies[0].RecoveryActions[0].PlatformUserID != "sender-user-1" {
 		t.Fatalf("expected sender recovery target, got %+v", sentReplies[0].RecoveryActions[0])
+	}
+}
+
+func TestConnectorRuntimeSendsFailureNoticeWhenTurnReturnsError(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("provider unavailable")})
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
+	if errorValue != nil {
+		t.Fatalf("expected turn error to be reported to the user: %v", errorValue)
+	}
+
+	if result.Reason != "task_not_completed" || result.TaskRunID == "" {
+		t.Fatalf("expected task failure result, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "완료하지 못했습니다") {
+		t.Fatalf("expected task failure notice, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeSendsNoticeWhenLaunchReturnsNoTask(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, nil)
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, testInboundEvent("message-1"))
+	if errorValue != nil {
+		t.Fatalf("expected launch error to be reported to the user: %v", errorValue)
+	}
+
+	if result.Reason != "agent_launch_failed" {
+		t.Fatalf("expected launch failure result, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "내부 오류") {
+		t.Fatalf("expected launch failure notice, got %+v", adapter.sentReplies)
 	}
 }
 
@@ -2900,6 +2982,87 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter
+}
+
+func newRepositoryBackedTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider, taskRunRepository *testTaskRunRepository) (*ConnectorRuntime, *testAdapter, *task.TaskEventService) {
+	t.Helper()
+
+	identityService := identity.NewIdentityService(policy.PolicyProjection{
+		PersonIDByEmail: map[string]string{"invited@example.com": "person-1"},
+		PersonAccessByPersonID: map[string]policy.PersonAccess{
+			"person-1": {PersonID: "person-1", SecurityLevelRank: 100, GrantedClasses: []string{"internal", "finance"}},
+		},
+	})
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRunService.UseRepository(taskRunRepository)
+	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(languageModel)
+
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	connectorRuntime.UseTaskRunService(taskRunService)
+	adapter := &testAdapter{senderEmail: "invited@example.com"}
+	connectorRuntime.RegisterAdapter(adapter)
+	return connectorRuntime, adapter, taskEventService
+}
+
+type testTaskRunRepository struct {
+	taskRuns     map[string]task.TaskRun
+	taskAttempts map[string]task.TaskAttempt
+}
+
+func newTestTaskRunRepository() *testTaskRunRepository {
+	return &testTaskRunRepository{
+		taskRuns:     map[string]task.TaskRun{},
+		taskAttempts: map[string]task.TaskAttempt{},
+	}
+}
+
+func (repository *testTaskRunRepository) SaveTaskRun(taskRun task.TaskRun) error {
+	repository.taskRuns[taskRun.TaskRunID] = taskRun
+	return nil
+}
+
+func (repository *testTaskRunRepository) StartTaskRunAttempt(taskRun task.TaskRun, taskAttempt task.TaskAttempt) error {
+	repository.taskRuns[taskRun.TaskRunID] = taskRun
+	repository.taskAttempts[taskAttempt.TaskAttemptID] = taskAttempt
+	return nil
+}
+
+func (repository *testTaskRunRepository) FinishTaskRunAttempt(taskRun task.TaskRun, taskAttempt task.TaskAttempt) error {
+	repository.taskRuns[taskRun.TaskRunID] = taskRun
+	if strings.TrimSpace(taskAttempt.TaskAttemptID) != "" {
+		repository.taskAttempts[taskAttempt.TaskAttemptID] = taskAttempt
+	}
+	return nil
+}
+
+func (repository *testTaskRunRepository) FindTaskRun(taskRunID string) (task.TaskRun, bool, error) {
+	taskRun, isFound := repository.taskRuns[taskRunID]
+	return taskRun, isFound, nil
+}
+
+func (repository *testTaskRunRepository) FindTaskAttempt(taskAttemptID string) (task.TaskAttempt, bool, error) {
+	taskAttempt, isFound := repository.taskAttempts[taskAttemptID]
+	return taskAttempt, isFound, nil
+}
+
+func (repository *testTaskRunRepository) ListTaskRun() ([]task.TaskRun, error) {
+	taskRuns := make([]task.TaskRun, 0, len(repository.taskRuns))
+	for _, taskRun := range repository.taskRuns {
+		taskRuns = append(taskRuns, taskRun)
+	}
+	return taskRuns, nil
+}
+
+func (repository *testTaskRunRepository) ListTaskRunByPersonID(personID string) ([]task.TaskRun, error) {
+	taskRuns := []task.TaskRun{}
+	for _, taskRun := range repository.taskRuns {
+		if taskRun.RequesterPersonID == personID {
+			taskRuns = append(taskRuns, taskRun)
+		}
+	}
+	return taskRuns, nil
 }
 
 func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction agent.SkillInstruction) {

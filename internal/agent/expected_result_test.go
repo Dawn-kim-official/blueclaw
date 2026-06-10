@@ -33,6 +33,20 @@ func TestObservedResultsTreatPublishedSiteStatusAsDeliverableLink(t *testing.T) 
 	}
 }
 
+func TestObservedResultsDoNotTreatFailedSiteStatusURLAsDeliverableLink(t *testing.T) {
+	results := buildObservedResults([]turnObservation{{
+		ObservationID: "obs-001",
+		Tool:          "site.app.status",
+		Output: ToolOutput{
+			Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`,
+		},
+	}}, nil, "배포했습니다: https://portfolio.example")
+
+	if observedResultsContainType(results, ExpectedResultTypeLink) {
+		t.Fatalf("failed site status URL must not count as delivered link: %+v", results)
+	}
+}
+
 func TestRequiredLinkVerificationRequiresObservedLinkResult(t *testing.T) {
 	expectedResults := []ExpectedResult{{
 		ID:          "site-public-link",

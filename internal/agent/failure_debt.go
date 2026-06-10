@@ -104,13 +104,20 @@ func activeFailureDebt(observations []turnObservation) (FailureDebt, bool) {
 			continue
 		}
 		if !observation.Failed() && strings.TrimSpace(activeDebt.LatestFailure.ObservationID) != "" {
-			if strings.TrimSpace(observation.RecoveryStep) == recoveryStepInspection {
+			if successfulObservationIsInspection(observation) {
 				continue
 			}
 			activeDebt = FailureDebt{}
 		}
 	}
 	return activeDebt, strings.TrimSpace(activeDebt.LatestFailure.ObservationID) != ""
+}
+
+func successfulObservationIsInspection(observation turnObservation) bool {
+	if strings.TrimSpace(observation.RecoveryStep) == recoveryStepInspection {
+		return true
+	}
+	return isInspectionRecoveryTool(observation.Tool)
 }
 
 func attemptFingerprint(toolInputKey string, errorCode string) string {

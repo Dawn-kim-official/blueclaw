@@ -15,6 +15,17 @@ const (
 	TaskStatusCancelled        TaskStatus = "cancelled"
 )
 
+type TaskAttemptStatus string
+
+const (
+	TaskAttemptStatusStarting    TaskAttemptStatus = "starting"
+	TaskAttemptStatusRunning     TaskAttemptStatus = "running"
+	TaskAttemptStatusCompleted   TaskAttemptStatus = "completed"
+	TaskAttemptStatusFailed      TaskAttemptStatus = "failed"
+	TaskAttemptStatusCancelled   TaskAttemptStatus = "cancelled"
+	TaskAttemptStatusInterrupted TaskAttemptStatus = "interrupted"
+)
+
 type TaskScheduleKind string
 
 const (
@@ -36,6 +47,7 @@ type TaskRun struct {
 	OriginConversationID    string     `json:"originConversationID"`
 	OriginReplyTargetID     string     `json:"originReplyTargetID,omitempty"`
 	OriginIsThread          bool       `json:"originIsThread,omitempty"`
+	CurrentAttemptID        string     `json:"currentAttemptID,omitempty"`
 	CurrentAgentProfileName string     `json:"currentAgentProfileName"`
 	Status                  TaskStatus `json:"status"`
 	Prompt                  string     `json:"prompt"`
@@ -43,6 +55,16 @@ type TaskRun struct {
 	FailureReason           string     `json:"failureReason"`
 	CreatedAt               time.Time  `json:"createdAt"`
 	UpdatedAt               time.Time  `json:"updatedAt"`
+}
+
+type TaskAttempt struct {
+	TaskAttemptID string            `json:"taskAttemptID"`
+	TaskRunID     string            `json:"taskRunID"`
+	RunnerID      string            `json:"runnerID"`
+	Status        TaskAttemptStatus `json:"status"`
+	StartedAt     time.Time         `json:"startedAt"`
+	FinishedAt    *time.Time        `json:"finishedAt,omitempty"`
+	FailureReason string            `json:"failureReason,omitempty"`
 }
 
 type TaskStep struct {

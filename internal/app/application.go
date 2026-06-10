@@ -103,6 +103,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskStepService.UseRepository(postgres.NewTaskStepRepository(database))
 		taskArtifactService.UseRepository(postgres.NewTaskArtifactRepository(database))
 		taskRunService.UseRepository(postgres.NewTaskRunRepository(database))
+		taskRunService.InterruptOrphanedRuntimeTaskRuns("runtime restarted before task completed")
 		postgresTaskScheduleRepository := postgres.NewTaskScheduleRepository(database)
 		taskScheduleRepository = postgresTaskScheduleRepository
 		taskScheduleSummaryRepository = postgresTaskScheduleRepository
@@ -219,17 +220,17 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			MaximumBacklog:   1000,
 		},
 		PolicyHandler: adminapi.PolicyHandler{
-			PolicyPath:    policyPath,
-			PolicyLoader:  policyLoader,
-		PolicySaver:   policy.PolicySaver{},
-		PolicyWatcher: policyWatcher,
-		Validator:     policy.PolicyValidator{},
-		AuditHandler:  auditHandler,
-		PersonReferenceCanonicalizer: personReferenceCanonicalizer,
-		OnPolicyReload: func(policyDocument policy.PolicyDocument) {
-			if database.SQL != nil {
-				_ = personRepository.UpsertPeople(policyDocument)
-			}
+			PolicyPath:                   policyPath,
+			PolicyLoader:                 policyLoader,
+			PolicySaver:                  policy.PolicySaver{},
+			PolicyWatcher:                policyWatcher,
+			Validator:                    policy.PolicyValidator{},
+			AuditHandler:                 auditHandler,
+			PersonReferenceCanonicalizer: personReferenceCanonicalizer,
+			OnPolicyReload: func(policyDocument policy.PolicyDocument) {
+				if database.SQL != nil {
+					_ = personRepository.UpsertPeople(policyDocument)
+				}
 				identityService.ReloadPolicyProjection(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
 				_ = posixSynchronizer.Synchronize()
 			},

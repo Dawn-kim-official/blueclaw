@@ -2,7 +2,10 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -10,17 +13,29 @@ import (
 
 type TaskRunRepository interface {
 	SaveTaskRun(TaskRun) error
+	StartTaskRunAttempt(TaskRun, TaskAttempt) error
+	FinishTaskRunAttempt(TaskRun, TaskAttempt) error
 	FindTaskRun(string) (TaskRun, bool, error)
+	FindTaskAttempt(string) (TaskAttempt, bool, error)
 	ListTaskRun() ([]TaskRun, error)
 	ListTaskRunByPersonID(string) ([]TaskRun, error)
 }
 
 type TaskRunService struct {
-	mutex               sync.RWMutex
-	taskRuns            map[string]TaskRun
-	taskCancelFunctions map[string]context.CancelFunc
-	taskEventService    *TaskEventService
-	repository          TaskRunRepository
+	mutex            sync.RWMutex
+	taskRuns         map[string]TaskRun
+	taskAttempts     map[string]TaskAttempt
+	activeAttempts   map[string]activeTaskAttempt
+	taskEventService *TaskEventService
+	repository       TaskRunRepository
+	runnerID         string
+}
+
+type activeTaskAttempt struct {
+	TaskRunID                string
+	CancelFunction           context.CancelFunc
+	CurrentToolName          string
+	CurrentToolObservationID string
 }
 
 type TaskRunCancelRequest struct {
@@ -41,9 +56,11 @@ type TaskRunOrigin struct {
 
 func NewTaskRunService(taskEventService *TaskEventService) *TaskRunService {
 	return &TaskRunService{
-		taskRuns:            map[string]TaskRun{},
-		taskCancelFunctions: map[string]context.CancelFunc{},
-		taskEventService:    taskEventService,
+		taskRuns:         map[string]TaskRun{},
+		taskAttempts:     map[string]TaskAttempt{},
+		activeAttempts:   map[string]activeTaskAttempt{},
+		taskEventService: taskEventService,
+		runnerID:         defaultTaskRunnerID(),
 	}
 }
 
@@ -87,11 +104,56 @@ func (taskRunService *TaskRunService) RegisterTaskRunCancel(taskRunID string, ca
 		return func() {}
 	}
 	taskRunService.mutex.Lock()
-	taskRunService.taskCancelFunctions[trimmedTaskRunID] = cancelFunction
+	taskRun, isFound := taskRunService.findTaskRunForMutation(trimmedTaskRunID)
+	if !isFound || !taskRunService.taskRunHasActiveAttemptLocked(taskRun) {
+		taskRunService.mutex.Unlock()
+		return func() {}
+	}
+	taskAttemptID := taskRun.CurrentAttemptID
+	activeAttempt := taskRunService.activeAttempts[taskAttemptID]
+	activeAttempt.TaskRunID = trimmedTaskRunID
+	activeAttempt.CancelFunction = cancelFunction
+	taskRunService.activeAttempts[taskAttemptID] = activeAttempt
 	taskRunService.mutex.Unlock()
 	return func() {
 		taskRunService.mutex.Lock()
-		delete(taskRunService.taskCancelFunctions, trimmedTaskRunID)
+		activeAttempt, isFound := taskRunService.activeAttempts[taskAttemptID]
+		if isFound && activeAttempt.TaskRunID == trimmedTaskRunID {
+			activeAttempt.CancelFunction = nil
+			taskRunService.activeAttempts[taskAttemptID] = activeAttempt
+		}
+		taskRunService.mutex.Unlock()
+	}
+}
+
+func (taskRunService *TaskRunService) RegisterTaskRunTool(taskRunID string, observationID string, toolName string) func() {
+	trimmedTaskRunID := strings.TrimSpace(taskRunID)
+	trimmedObservationID := strings.TrimSpace(observationID)
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedTaskRunID == "" || trimmedToolName == "" {
+		return func() {}
+	}
+	taskRunService.mutex.Lock()
+	taskRun, isFound := taskRunService.findTaskRunForMutation(trimmedTaskRunID)
+	if !isFound || !taskRunService.taskRunHasActiveAttemptLocked(taskRun) {
+		taskRunService.mutex.Unlock()
+		return func() {}
+	}
+	taskAttemptID := taskRun.CurrentAttemptID
+	activeAttempt := taskRunService.activeAttempts[taskAttemptID]
+	activeAttempt.TaskRunID = trimmedTaskRunID
+	activeAttempt.CurrentToolName = trimmedToolName
+	activeAttempt.CurrentToolObservationID = trimmedObservationID
+	taskRunService.activeAttempts[taskAttemptID] = activeAttempt
+	taskRunService.mutex.Unlock()
+	return func() {
+		taskRunService.mutex.Lock()
+		activeAttempt, isFound := taskRunService.activeAttempts[taskAttemptID]
+		if isFound && activeAttempt.TaskRunID == trimmedTaskRunID && activeAttempt.CurrentToolObservationID == trimmedObservationID {
+			activeAttempt.CurrentToolName = ""
+			activeAttempt.CurrentToolObservationID = ""
+			taskRunService.activeAttempts[taskAttemptID] = activeAttempt
+		}
 		taskRunService.mutex.Unlock()
 	}
 }
@@ -114,11 +176,24 @@ func (taskRunService *TaskRunService) AdvanceTaskRun(taskRunID string, currentAg
 		return TaskRun{}, errors.New("task run not found")
 	}
 
+	now := time.Now()
+	taskAttempt := TaskAttempt{
+		TaskAttemptID: newIdentifier(),
+		TaskRunID:     taskRunID,
+		RunnerID:      taskRunService.runnerID,
+		Status:        TaskAttemptStatusRunning,
+		StartedAt:     now,
+	}
 	taskRun.Status = TaskStatusRunning
+	taskRun.CurrentAttemptID = taskAttempt.TaskAttemptID
 	taskRun.CurrentAgentProfileName = currentAgentProfileName
-	taskRun.UpdatedAt = time.Now()
+	taskRun.UpdatedAt = now
+	if errorValue := taskRunService.startTaskRunAttempt(taskRun, taskAttempt); errorValue != nil {
+		return TaskRun{}, errorValue
+	}
 	taskRunService.taskRuns[taskRunID] = taskRun
-	_ = taskRunService.saveTaskRun(taskRun)
+	taskRunService.taskAttempts[taskAttempt.TaskAttemptID] = taskAttempt
+	taskRunService.activeAttempts[taskAttempt.TaskAttemptID] = activeTaskAttempt{TaskRunID: taskRunID}
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.running", currentAgentProfileName)
 	return taskRun, nil
 }
@@ -135,10 +210,16 @@ func (taskRunService *TaskRunService) PauseTaskRun(taskRunID string, status Task
 	taskRun.Status = status
 	taskRun.FailureReason = reason
 	taskRun.UpdatedAt = time.Now()
+	if _, errorValue := taskRunService.finishCurrentAttemptLocked(taskRun, taskAttemptStatusForTaskStatus(status), reason); errorValue != nil {
+		return TaskRun{}, errorValue
+	}
 	taskRunService.taskRuns[taskRunID] = taskRun
-	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.paused", reason)
 	return taskRun, nil
+}
+
+func (taskRunService *TaskRunService) FailTaskRun(taskRunID string, reason string) (TaskRun, error) {
+	return taskRunService.PauseTaskRun(taskRunID, TaskStatusFailed, reason)
 }
 
 func (taskRunService *TaskRunService) ResumeTaskRun(taskRunID string) (TaskRun, error) {
@@ -185,6 +266,67 @@ func (taskRunService *TaskRunService) CancelActiveTaskRuns(request TaskRunCancel
 		cancelledTaskRuns = append(cancelledTaskRuns, cancelledTaskRun)
 	}
 	return cancelledTaskRuns
+}
+
+func (taskRunService *TaskRunService) InterruptOrphanedRuntimeTaskRuns(reason string) []TaskRun {
+	interruptedTaskRuns := []TaskRun{}
+	for _, taskRun := range taskRunService.ListTaskRun() {
+		if !taskRunIsRuntimeOwned(taskRun) {
+			continue
+		}
+		interruptedTaskRun, isInterrupted := taskRunService.InterruptInactiveTaskRun(taskRun.TaskRunID, reason)
+		if !isInterrupted {
+			continue
+		}
+		taskRunService.taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.orphaned_runtime_interrupted", reason)
+		interruptedTaskRuns = append(interruptedTaskRuns, interruptedTaskRun)
+	}
+	return interruptedTaskRuns
+}
+
+func (taskRunService *TaskRunService) InterruptInactiveTaskRun(taskRunID string, reason string) (TaskRun, bool) {
+	taskRunService.mutex.Lock()
+	defer taskRunService.mutex.Unlock()
+
+	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
+	if !isFound || !taskRunIsRuntimeOwned(taskRun) {
+		return TaskRun{}, false
+	}
+	if taskRun.Status == TaskStatusRunning && taskRunService.taskRunHasActiveAttemptLocked(taskRun) {
+		return TaskRun{}, false
+	}
+	taskRun.Status = TaskStatusFailed
+	taskRun.FailureReason = reason
+	taskRun.UpdatedAt = time.Now()
+	if _, errorValue := taskRunService.finishCurrentAttemptLocked(taskRun, TaskAttemptStatusInterrupted, reason); errorValue != nil {
+		return TaskRun{}, false
+	}
+	taskRunService.taskRuns[taskRunID] = taskRun
+	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.interrupted", reason)
+	return taskRun, true
+}
+
+func (taskRunService *TaskRunService) IsTaskRunActuallyRunning(taskRun TaskRun) bool {
+	taskRunService.mutex.RLock()
+	defer taskRunService.mutex.RUnlock()
+	return taskRunService.taskRunHasActiveAttemptLocked(taskRun)
+}
+
+func (taskRunService *TaskRunService) CloseOpenToolRequests(taskRunID string, reason string) {
+	taskRunService.closeOpenToolRequests(taskRunID, "", reason)
+}
+
+func (taskRunService *TaskRunService) closeOpenToolRequests(taskRunID string, taskAttemptID string, reason string) {
+	openRequests := openToolRequests(taskRunService.taskEventService.ListTaskEvent(taskRunID))
+	for _, openRequest := range openRequests {
+		taskRunService.taskEventService.AppendTaskEvent(taskRunID, "tool."+openRequest.ToolName+".cancelled", marshalTaskRunServiceEventBody(map[string]string{
+			"observationID":  openRequest.ObservationID,
+			"toolName":       openRequest.ToolName,
+			"taskAttemptID":  taskAttemptID,
+			"reason":         reason,
+			"terminalStatus": "cancelled",
+		}))
+	}
 }
 
 func (taskRunService *TaskRunService) taskRunsForCancelRequest(request TaskRunCancelRequest) []TaskRun {
@@ -239,6 +381,10 @@ func taskRunIsWaiting(taskRun TaskRun) bool {
 	return taskRun.Status == TaskStatusWaitingApproval || taskRun.Status == TaskStatusWaitingUserInput
 }
 
+func taskRunIsRuntimeOwned(taskRun TaskRun) bool {
+	return taskRun.Status == TaskStatusPlanned || taskRun.Status == TaskStatusRunning
+}
+
 func trimUniqueTaskRunIDs(taskRunIDs []string) []string {
 	seenTaskRunIDs := map[string]bool{}
 	trimmedTaskRunIDs := []string{}
@@ -277,9 +423,10 @@ func (taskRunService *TaskRunService) CompleteTaskRun(taskRunID string, result s
 	taskRun.Status = TaskStatusCompleted
 	taskRun.Result = result
 	taskRun.UpdatedAt = time.Now()
+	if _, errorValue := taskRunService.finishCurrentAttemptLocked(taskRun, TaskAttemptStatusCompleted, ""); errorValue != nil {
+		return TaskRun{}, errorValue
+	}
 	taskRunService.taskRuns[taskRunID] = taskRun
-	delete(taskRunService.taskCancelFunctions, taskRunID)
-	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.completed", result)
 	return taskRun, nil
 }
@@ -357,15 +504,171 @@ func (taskRunService *TaskRunService) cancelTaskRun(taskRunID string, requesterP
 	taskRun.Status = TaskStatusCancelled
 	taskRun.FailureReason = strings.TrimSpace(reason)
 	taskRun.UpdatedAt = time.Now()
+	cancelFunction, errorValue := taskRunService.finishCurrentAttemptLocked(taskRun, TaskAttemptStatusCancelled, reason)
+	if errorValue != nil {
+		return TaskRun{}, errorValue
+	}
 	taskRunService.taskRuns[taskRunID] = taskRun
-	cancelFunction := taskRunService.taskCancelFunctions[taskRunID]
-	delete(taskRunService.taskCancelFunctions, taskRunID)
-	_ = taskRunService.saveTaskRun(taskRun)
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.cancelled", firstNonEmptyTaskRunString(reason, requesterPersonID))
 	if cancelFunction != nil {
 		cancelFunction()
 	}
 	return taskRun, nil
+}
+
+func (taskRunService *TaskRunService) startTaskRunAttempt(taskRun TaskRun, taskAttempt TaskAttempt) error {
+	if taskRunService.repository == nil {
+		return nil
+	}
+	return taskRunService.repository.StartTaskRunAttempt(taskRun, taskAttempt)
+}
+
+func (taskRunService *TaskRunService) finishCurrentAttemptLocked(taskRun TaskRun, status TaskAttemptStatus, reason string) (context.CancelFunc, error) {
+	taskAttemptID := strings.TrimSpace(taskRun.CurrentAttemptID)
+	if taskAttemptID == "" {
+		if errorValue := taskRunService.saveTaskRun(taskRun); errorValue != nil {
+			return nil, errorValue
+		}
+		taskRunService.closeOpenToolRequests(taskRun.TaskRunID, "", "cancelled_by_attempt_end")
+		return nil, nil
+	}
+	taskAttempt := taskRunService.findTaskAttemptForMutation(taskAttemptID, taskRun.TaskRunID)
+	now := time.Now()
+	taskAttempt.Status = status
+	taskAttempt.FinishedAt = &now
+	taskAttempt.FailureReason = strings.TrimSpace(reason)
+	if errorValue := taskRunService.finishTaskRunAttempt(taskRun, taskAttempt); errorValue != nil {
+		return nil, errorValue
+	}
+	taskRunService.taskAttempts[taskAttemptID] = taskAttempt
+	activeAttempt := taskRunService.activeAttempts[taskAttemptID]
+	delete(taskRunService.activeAttempts, taskAttemptID)
+	taskRunService.closeOpenToolRequests(taskRun.TaskRunID, taskAttemptID, "cancelled_by_attempt_end")
+	return activeAttempt.CancelFunction, nil
+}
+
+func (taskRunService *TaskRunService) findTaskAttemptForMutation(taskAttemptID string, taskRunID string) TaskAttempt {
+	taskAttempt, isFound := taskRunService.taskAttempts[taskAttemptID]
+	if isFound {
+		return taskAttempt
+	}
+	if taskRunService.repository != nil {
+		taskAttempt, isFound, errorValue := taskRunService.repository.FindTaskAttempt(taskAttemptID)
+		if errorValue == nil && isFound {
+			taskRunService.taskAttempts[taskAttemptID] = taskAttempt
+			return taskAttempt
+		}
+	}
+	return TaskAttempt{
+		TaskAttemptID: taskAttemptID,
+		TaskRunID:     taskRunID,
+		RunnerID:      taskRunService.runnerID,
+		Status:        TaskAttemptStatusRunning,
+		StartedAt:     time.Now(),
+	}
+}
+
+func (taskRunService *TaskRunService) finishTaskRunAttempt(taskRun TaskRun, taskAttempt TaskAttempt) error {
+	if taskRunService.repository == nil {
+		return nil
+	}
+	return taskRunService.repository.FinishTaskRunAttempt(taskRun, taskAttempt)
+}
+
+func (taskRunService *TaskRunService) taskRunHasActiveAttemptLocked(taskRun TaskRun) bool {
+	if taskRun.Status != TaskStatusRunning {
+		return false
+	}
+	taskAttemptID := strings.TrimSpace(taskRun.CurrentAttemptID)
+	if taskAttemptID == "" {
+		return false
+	}
+	activeAttempt, isFound := taskRunService.activeAttempts[taskAttemptID]
+	return isFound && activeAttempt.TaskRunID == taskRun.TaskRunID
+}
+
+func taskAttemptStatusForTaskStatus(status TaskStatus) TaskAttemptStatus {
+	switch status {
+	case TaskStatusCompleted:
+		return TaskAttemptStatusCompleted
+	case TaskStatusCancelled:
+		return TaskAttemptStatusCancelled
+	case TaskStatusFailed:
+		return TaskAttemptStatusFailed
+	default:
+		return TaskAttemptStatusInterrupted
+	}
+}
+
+type openToolRequest struct {
+	ObservationID string
+	ToolName      string
+}
+
+type toolEventBody struct {
+	ObservationID string `json:"observationID"`
+	ToolName      string `json:"toolName"`
+}
+
+func openToolRequests(taskEvents []TaskEvent) []openToolRequest {
+	requests := []openToolRequest{}
+	closedObservationIDs := map[string]bool{}
+	for _, taskEvent := range taskEvents {
+		toolName, isToolEvent := toolEventName(taskEvent.Name, ".requested")
+		if isToolEvent {
+			body := parseToolEventBody(taskEvent.Body)
+			requests = append(requests, openToolRequest{ObservationID: firstNonEmptyTaskRunString(body.ObservationID, taskEvent.TaskEventID), ToolName: firstNonEmptyTaskRunString(body.ToolName, toolName)})
+			continue
+		}
+		if _, isResult := toolEventName(taskEvent.Name, ".result"); isResult {
+			body := parseToolEventBody(taskEvent.Body)
+			if body.ObservationID != "" {
+				closedObservationIDs[body.ObservationID] = true
+			}
+			continue
+		}
+		if _, isCancelled := toolEventName(taskEvent.Name, ".cancelled"); isCancelled {
+			body := parseToolEventBody(taskEvent.Body)
+			if body.ObservationID != "" {
+				closedObservationIDs[body.ObservationID] = true
+			}
+		}
+	}
+	openRequests := []openToolRequest{}
+	for _, request := range requests {
+		if !closedObservationIDs[request.ObservationID] {
+			openRequests = append(openRequests, request)
+		}
+	}
+	return openRequests
+}
+
+func toolEventName(eventName string, suffix string) (string, bool) {
+	trimmedName := strings.TrimSpace(eventName)
+	if !strings.HasPrefix(trimmedName, "tool.") || !strings.HasSuffix(trimmedName, suffix) {
+		return "", false
+	}
+	toolName := strings.TrimSuffix(strings.TrimPrefix(trimmedName, "tool."), suffix)
+	return strings.TrimSpace(toolName), strings.TrimSpace(toolName) != ""
+}
+
+func parseToolEventBody(body string) toolEventBody {
+	var parsedBody toolEventBody
+	_ = json.Unmarshal([]byte(body), &parsedBody)
+	return parsedBody
+}
+
+func marshalTaskRunServiceEventBody(value any) string {
+	document, errorValue := json.Marshal(value)
+	if errorValue != nil {
+		return "{}"
+	}
+	return string(document)
+}
+
+func defaultTaskRunnerID() string {
+	hostname, _ := os.Hostname()
+	return firstNonEmptyTaskRunString(strings.TrimSpace(hostname), "unknown-host") + ":" + strconv.Itoa(os.Getpid())
 }
 
 func firstNonEmptyTaskRunString(values ...string) string {

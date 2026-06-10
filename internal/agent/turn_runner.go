@@ -1845,6 +1845,8 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 		"toolName":      trimmedToolName,
 		"input":         json.RawMessage(toolInput),
 	}))
+	unregisterTool := agentTurnRunner.taskRunService.RegisterTaskRunTool(taskRunID, observationID, trimmedToolName)
+	defer unregisterTool()
 	toolContext := WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage)
 	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
@@ -2259,7 +2261,7 @@ func (agentTurnRunner *AgentTurnRunner) appendQualityReview(taskRunID string, cr
 }
 
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
-	failedTaskRun, _ := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusFailed, reason)
+	failedTaskRun, _ := agentTurnRunner.taskRunService.FailTaskRun(taskRunID, reason)
 	failureNotice, replyStatus, hasReply := agentTurnRunner.generateFailureNotice(taskRunID, request, reason, observations, attachments, executionState)
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
 	if !hasReply {

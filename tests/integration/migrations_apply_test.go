@@ -15,8 +15,8 @@ func TestMigrationsApplyList(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected migrations to load: %v", errorValue)
 	}
-	if len(migrationPaths) != 22 {
-		t.Fatalf("expected 22 migration files, got %d", len(migrationPaths))
+	if len(migrationPaths) != 24 {
+		t.Fatalf("expected 24 migration files, got %d", len(migrationPaths))
 	}
 }
 
@@ -95,6 +95,27 @@ func TestConnectorQueueMigrationStoresInboxAndOutboxState(t *testing.T) {
 		"reply_target_json jsonb",
 		"reply_json jsonb",
 		"UNIQUE (raw_event_id)",
+	}
+	for _, requiredField := range requiredFields {
+		if !strings.Contains(migrationText, requiredField) {
+			t.Fatalf("expected migration to include %q", requiredField)
+		}
+	}
+}
+
+func TestTaskAttemptMigrationStoresExecutionAuthority(t *testing.T) {
+	migrationDocument, errorValue := os.ReadFile(filepath.Join("../../migrations", "024_task_attempt.sql"))
+	if errorValue != nil {
+		t.Fatalf("expected task attempt migration to load: %v", errorValue)
+	}
+
+	migrationText := string(migrationDocument)
+	requiredFields := []string{
+		"CREATE TABLE IF NOT EXISTS task_attempt",
+		"task_attempt_id text PRIMARY KEY",
+		"task_run_id text NOT NULL REFERENCES task_run(task_run_id) ON DELETE CASCADE",
+		"runner_id text NOT NULL",
+		"ALTER TABLE task_run ADD COLUMN IF NOT EXISTS current_attempt_id text",
 	}
 	for _, requiredField := range requiredFields {
 		if !strings.Contains(migrationText, requiredField) {
