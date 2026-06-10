@@ -219,6 +219,9 @@ func TestCapabilityPlatformAdapterUsesCapabilityEndpointsWithoutAuthorization(t 
 			if requestDocument.ReplyTargetID != "reply-target-1" {
 				t.Fatalf("expected reply target id, got %q", requestDocument.ReplyTargetID)
 			}
+			if requestDocument.EphemeralUserID != "requester-1" {
+				t.Fatalf("expected ephemeral user id, got %q", requestDocument.EphemeralUserID)
+			}
 			if len(requestDocument.Attachments) != 1 || requestDocument.Attachments[0].DevicePath != "/tmp/internkim-companion-files/screen.png" {
 				t.Fatalf("expected reply attachment, got %+v", requestDocument.Attachments)
 			}
@@ -259,7 +262,8 @@ func TestCapabilityPlatformAdapterUsesCapabilityEndpointsWithoutAuthorization(t 
 		t.Fatalf("expected progress stop: %v", errorValue)
 	}
 	dispatchID, errorValue := adapter.SendReply(context.Background(), replyTarget, OutboundReply{
-		Message: "hello",
+		Message:         "hello",
+		EphemeralUserID: "requester-1",
 		Attachments: []agent.FileAttachment{{
 			DevicePath: "/tmp/internkim-companion-files/screen.png",
 			Filename:   "screen.png",
