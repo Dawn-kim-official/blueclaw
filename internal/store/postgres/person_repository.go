@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"blueclaw/internal/policy"
@@ -9,6 +10,11 @@ import (
 
 type PersonRepository struct {
 	database Database
+}
+
+type canonicalPersonReferenceUpdate struct {
+	tableName string
+	statement string
 }
 
 func NewPersonRepository(database Database) PersonRepository {
@@ -43,6 +49,9 @@ ON CONFLICT (person_id) DO UPDATE SET
 		return errorValue
 	}
 	for index, email := range personPolicy.Emails {
+		if errorValue := personRepository.canonicalizePersonReferencesForEmail(personPolicy.PersonID, email); errorValue != nil {
+			return errorValue
+		}
 		if errorValue := personRepository.upsertPersonEmail(personPolicy.PersonID, email, index == 0, now); errorValue != nil {
 			return errorValue
 		}
@@ -73,5 +82,83 @@ ON CONFLICT (email) DO UPDATE SET
 		isPrimary,
 		now,
 	)
+	return errorValue
+}
+
+func (personRepository PersonRepository) canonicalizePersonReferencesForEmail(personID string, email string) error {
+	row := personRepository.database.SQL.QueryRowContext(context.Background(), `
+SELECT person_id FROM person_email WHERE email = $1`, email)
+	var legacyPersonID string
+	errorValue := row.Scan(&legacyPersonID)
+	if errorValue == sql.ErrNoRows {
+		return nil
+	}
+	if errorValue != nil {
+		return errorValue
+	}
+	if legacyPersonID == "" || legacyPersonID == personID {
+		return nil
+	}
+	return personRepository.canonicalizePersonReferences(legacyPersonID, personID)
+}
+
+func (personRepository PersonRepository) CanonicalizePersonReferences(legacyPersonID string, personID string) error {
+	return personRepository.canonicalizePersonReferences(legacyPersonID, personID)
+}
+
+func (personRepository PersonRepository) canonicalizePersonReferences(legacyPersonID string, personID string) error {
+	for _, updateStatement := range canonicalPersonReferenceUpdateStatements() {
+		hasTable, errorValue := personRepository.hasTable(updateStatement.tableName)
+		if errorValue != nil {
+			return errorValue
+		}
+		if !hasTable {
+			continue
+		}
+		if _, errorValue := personRepository.database.SQL.ExecContext(context.Background(), updateStatement.statement, legacyPersonID, personID); errorValue != nil {
+			return errorValue
+		}
+	}
+	return personRepository.canonicalizePersonCircles(legacyPersonID, personID)
+}
+
+func canonicalPersonReferenceUpdateStatements() []canonicalPersonReferenceUpdate {
+	return []canonicalPersonReferenceUpdate{
+		{tableName: "task_schedule", statement: "UPDATE task_schedule SET creator_person_id = $2 WHERE creator_person_id = $1"},
+		{tableName: "task_run", statement: "UPDATE task_run SET requester_person_id = $2 WHERE requester_person_id = $1"},
+		{tableName: "task_wait_token", statement: "UPDATE task_wait_token SET person_id = $2 WHERE person_id = $1"},
+		{tableName: "task_session", statement: "UPDATE task_session SET person_id = $2 WHERE person_id = $1"},
+		{tableName: "platform_account", statement: "UPDATE platform_account SET person_id = $2 WHERE person_id = $1"},
+		{tableName: "raw_event", statement: "UPDATE raw_event SET sender_person_id = $2 WHERE sender_person_id = $1"},
+		{tableName: "content_segment", statement: "UPDATE content_segment SET owner_person_id = $2 WHERE owner_person_id = $1"},
+		{tableName: "memory_record", statement: "UPDATE memory_record SET scope_person_id = $2 WHERE scope_person_id = $1"},
+		{tableName: "policy_revision", statement: "UPDATE policy_revision SET changed_by_person_id = $2 WHERE changed_by_person_id = $1"},
+		{tableName: "admin_audit_log", statement: "UPDATE admin_audit_log SET actor_person_id = $2 WHERE actor_person_id = $1"},
+		{tableName: "graphiti_namespace", statement: "UPDATE graphiti_namespace SET scope_person_id = $2 WHERE scope_person_id = $1"},
+		{tableName: "graphiti_episode", statement: "UPDATE graphiti_episode SET sender_person_id = $2 WHERE sender_person_id = $1"},
+	}
+}
+
+func (personRepository PersonRepository) hasTable(tableName string) (bool, error) {
+	row := personRepository.database.SQL.QueryRowContext(context.Background(), `SELECT to_regclass($1) IS NOT NULL`, tableName)
+	var hasTable bool
+	errorValue := row.Scan(&hasTable)
+	return hasTable, errorValue
+}
+
+func (personRepository PersonRepository) canonicalizePersonCircles(legacyPersonID string, personID string) error {
+	_, errorValue := personRepository.database.SQL.ExecContext(context.Background(), `
+INSERT INTO person_circle (person_circle_id, person_id, circle_id, source, created_at, updated_at)
+SELECT $2 || ':' || circle_id, $2, circle_id, source, created_at, updated_at
+FROM person_circle
+WHERE person_id = $1
+ON CONFLICT (person_id, circle_id) DO UPDATE SET
+  source = EXCLUDED.source,
+  updated_at = EXCLUDED.updated_at`, legacyPersonID, personID)
+	if errorValue != nil {
+		return errorValue
+	}
+	_, errorValue = personRepository.database.SQL.ExecContext(context.Background(), `
+DELETE FROM person_circle WHERE person_id = $1`, legacyPersonID)
 	return errorValue
 }

@@ -37,8 +37,26 @@ type TaskScheduleListRequest struct {
 	ConversationID  string
 	CreatorPersonID string
 	UnboundedOnly   bool
-	Limit           int
+	IncludeExpired  bool
+	Page            int
+	PageSize        int
 	ReferenceTime   time.Time
+}
+
+type TaskScheduleListResult struct {
+	TaskSchedules []TaskSchedule
+	TotalCount    int
+	Page          int
+	PageSize      int
+}
+
+type TaskScheduleCreatorRepairRequest struct {
+	FromCreatorPersonID string
+	ToCreatorPersonID   string
+}
+
+type TaskScheduleCreatorRepairResult struct {
+	UpdatedCount int
 }
 
 type TaskScheduleRepository interface {
