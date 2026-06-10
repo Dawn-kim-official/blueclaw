@@ -120,6 +120,14 @@ func (agentKernel *AgentKernel) CancelActiveTasks(request task.TaskRunCancelRequ
 	return agentKernel.taskRunService.CancelActiveTaskRuns(request)
 }
 
+func (agentKernel *AgentKernel) IsTaskRunActuallyRunning(taskRun task.TaskRun) bool {
+	return agentKernel.taskRunService.IsTaskRunActuallyRunning(taskRun)
+}
+
+func (agentKernel *AgentKernel) InterruptInactiveTaskRun(taskRunID string, reason string) (task.TaskRun, bool) {
+	return agentKernel.taskRunService.InterruptInactiveTaskRun(taskRunID, reason)
+}
+
 func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, prompt string) (string, error) {
 	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
 }

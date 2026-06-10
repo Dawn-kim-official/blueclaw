@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"blueclaw/internal/config"
@@ -95,6 +96,7 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 	defer cancelFunction()
 
 	command := exec.CommandContext(ctx, commandPlan.ExecutablePath, commandPlan.Arguments...)
+	configureCommandGroupKill(command)
 	command.Dir = commandPlan.WorkingDirectoryPath
 	command.Env = mapEnvironmentVariables(commandPlan.EnvironmentVariables)
 	if strings.TrimSpace(commandPlan.Stdin) != "" {
@@ -138,6 +140,17 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 		Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
 		Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
 	}, nil
+}
+
+func configureCommandGroupKill(command *exec.Cmd) {
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Cancel = func() error {
+		if command.Process == nil {
+			return os.ErrProcessDone
+		}
+		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+	}
+	command.WaitDelay = 2 * time.Second
 }
 
 func (terminalSessionService *TerminalSessionService) runPreToolUseHooks(commandRequest CommandRequest) (CommandRequest, error) {

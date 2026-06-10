@@ -237,6 +237,23 @@ func TestRunCommandReportsTimeout(t *testing.T) {
 	}
 }
 
+func TestRunCommandTimeoutKillsChildProcesses(t *testing.T) {
+	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
+	startedAt := time.Now()
+
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
+		Command:       "sh -c 'sleep 30 & wait'",
+		TimeoutSecond: 1,
+	})
+
+	if errorValue == nil || !commandResult.TimedOut {
+		t.Fatalf("expected timed out command result, got result=%+v error=%v", commandResult, errorValue)
+	}
+	if time.Since(startedAt) > 5*time.Second {
+		t.Fatalf("expected process group timeout to return quickly, took %s", time.Since(startedAt))
+	}
+}
+
 func TestRunCommandIncludesProcessErrorWhenStderrIsEmpty(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 

@@ -88,19 +88,19 @@ func observationCanDeliverLink(observation turnObservation, content string) bool
 	case "site.app.create":
 		return false
 	case "site.app.status":
-		return !siteObservationHasDraftStatus(content)
+		return siteObservationHasPublishedStatus(content)
 	default:
 		return true
 	}
 }
 
-func siteObservationHasDraftStatus(content string) bool {
+func siteObservationHasPublishedStatus(content string) bool {
 	var document map[string]any
 	if errorValue := json.Unmarshal([]byte(content), &document); errorValue != nil {
 		return false
 	}
 	status, _ := document["status"].(string)
-	return strings.TrimSpace(status) == "draft"
+	return strings.TrimSpace(status) == "published"
 }
 
 func observedResultFromAttachment(observationID string, toolName string, attachment FileAttachment) ObservedResult {

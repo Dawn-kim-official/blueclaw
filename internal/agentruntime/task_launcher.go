@@ -179,6 +179,14 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		CheckpointSender:        request.CheckpointSender,
 	})
 	if errorValue != nil {
+		if strings.TrimSpace(turnResult.TaskRun.TaskRunID) != "" {
+			return TaskLaunchResult{
+				TurnResult:            turnResult,
+				MemoryFacts:           memoryFacts,
+				ToolNames:             toolNames,
+				NormalizedProfileName: normalizedProfileName,
+			}, nil
+		}
 		return TaskLaunchResult{}, errorValue
 	}
 	launchedToolNames := turnResult.ToolNames

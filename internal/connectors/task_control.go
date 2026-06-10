@@ -126,11 +126,25 @@ func taskRunMatchesStopScope(taskRun task.TaskRun, event PlatformInboundEvent) b
 func (connectorRuntime *ConnectorRuntime) activeTaskRunsForPerson(personID string) []task.TaskRun {
 	taskRuns := []task.TaskRun{}
 	for _, taskRun := range connectorRuntime.agentKernel.ListTaskRunByPersonID(personID) {
+		if connectorRuntime.interruptInactiveRuntimeTaskIfNeeded(taskRun) {
+			continue
+		}
 		if isTaskControlActiveStatus(taskRun.Status) {
 			taskRuns = append(taskRuns, taskRun)
 		}
 	}
 	return taskRuns
+}
+
+func (connectorRuntime *ConnectorRuntime) interruptInactiveRuntimeTaskIfNeeded(taskRun task.TaskRun) bool {
+	if taskRun.Status != task.TaskStatusRunning && taskRun.Status != task.TaskStatusPlanned {
+		return false
+	}
+	if connectorRuntime.agentKernel.IsTaskRunActuallyRunning(taskRun) {
+		return false
+	}
+	_, isInterrupted := connectorRuntime.agentKernel.InterruptInactiveTaskRun(taskRun.TaskRunID, "runtime no longer owns this execution")
+	return isInterrupted
 }
 
 func (connectorRuntime *ConnectorRuntime) hasActiveTaskForPerson(personID string) bool {
