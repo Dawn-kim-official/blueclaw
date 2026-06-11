@@ -63,7 +63,7 @@ func TestSlackEventRejectsUninvitedEmail(t *testing.T) {
 	if result.TaskRunID != "" {
 		t.Fatal("expected uninvited user to be rejected")
 	}
-	if conversationClient.lastMessage != slack.NotInvitedReply {
+	if conversationClient.lastMessage != connectors.NotInvitedReply {
 		t.Fatalf("expected not invited reply, got %q", conversationClient.lastMessage)
 	}
 }

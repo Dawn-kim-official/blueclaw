@@ -949,10 +949,6 @@ func firstNonEmptyVirtualString(values ...string) string {
 	return ""
 }
 
-func (adapter *virtualAdapter) NotInvitedReply() string {
-	return "not invited"
-}
-
 type virtualMemoryStore struct {
 	mutex sync.Mutex
 	facts []memory.MemoryFact

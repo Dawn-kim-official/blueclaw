@@ -277,6 +277,8 @@ type ConnectorRuntimeResult struct {
 	ReplyDispatchID string `json:"replyDispatchID,omitempty"`
 }
 
+const NotInvitedReply = "This Intern Kim has not invited your account yet. Ask the administrator for access."
+
 type PlatformAdapter interface {
 	Name() string
 	ParseHTTPEvent(context.Context, *http.Request) (HTTPParseResult, error)
@@ -286,7 +288,6 @@ type PlatformAdapter interface {
 	StopProgress(context.Context, ReplyTarget) error
 	SendReply(context.Context, ReplyTarget, OutboundReply) (string, error)
 	FetchHistory(context.Context, string, int) (VisibleContext, error)
-	NotInvitedReply() string
 }
 
 type InteractionResolvingAdapter interface {
@@ -842,7 +843,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 			return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "not_addressed_to_bot"}, nil
 		}
 		connectorRuntime.logger.Info("connector."+platform+".auth.rejected", slog.String("messageID", event.MessageID), slog.String("reason", "not_invited"))
-		dispatchID, sendError := sendReply(ctx, replyTarget, OutboundReply{Message: adapter.NotInvitedReply(), ReplyKind: connectorReplyKindPermissionNotice})
+		dispatchID, sendError := sendReply(ctx, replyTarget, OutboundReply{Message: NotInvitedReply, ReplyKind: connectorReplyKindPermissionNotice})
 		if sendError != nil {
 			connectorRuntime.logger.Error("connector."+platform+".outbound.failed", slog.String("messageID", event.MessageID), slog.String("error", sendError.Error()))
 			return ConnectorRuntimeResult{Handled: true, Platform: platform, Reason: "not_invited"}, nil
