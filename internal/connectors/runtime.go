@@ -953,9 +953,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.buildTaskLaunchRequest(conversationTurn))
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".agent.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		if dispatchID, isSent := connectorRuntime.sendLaunchFailureNotice(ctx, platform, event, replyTarget, sendReply); isSent {
-			return ConnectorRuntimeResult{Handled: true, Platform: platform, Reason: "agent_launch_failed", ReplyDispatchID: dispatchID}, nil
-		}
 		return ConnectorRuntimeResult{}, errorValue
 	}
 	turnResult := launchResult.TurnResult
@@ -1960,20 +1957,6 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 	return dispatchID, true
 }
 
-func (connectorRuntime *ConnectorRuntime) sendLaunchFailureNotice(ctx context.Context, platform string, event PlatformInboundEvent, replyTarget ReplyTarget, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) (string, bool) {
-	reply := OutboundReply{
-		Message:   "요청을 처리하는 중 내부 오류가 발생해 작업이 중단됐습니다. 같은 요청을 다시 보내시면 다시 시도하겠습니다.",
-		ReplyKind: connectorReplyKindUserNotice,
-	}
-	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
-	if errorValue != nil {
-		connectorRuntime.logger.Error("connector."+platform+".launch_failure_notice.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		return "", false
-	}
-	connectorRuntime.logger.Info("connector."+platform+".launch_failure_notice.sent", slog.String("messageID", event.MessageID), slog.String("replyDispatchID", dispatchID))
-	return dispatchID, true
-}
-
 func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.FailureNotice, string) {
 	if taskStatusRequiresFailureNotice(turnResult.TaskRun.Status) {
 		message := turnResult.FailureNotice.SendableMessage()
@@ -1981,9 +1964,6 @@ func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.Fai
 			return message, turnResult.FailureNotice, ""
 		}
 		if fallbackMessage := safeFailureUserNotice(turnResult.UserNotice); fallbackMessage != "" {
-			return fallbackMessage, turnResult.FailureNotice, ""
-		}
-		if fallbackMessage := safeGenericFailureUserNotice(turnResult); fallbackMessage != "" {
 			return fallbackMessage, turnResult.FailureNotice, ""
 		}
 		return "", turnResult.FailureNotice, "missing_failure_notice"
@@ -2004,17 +1984,6 @@ func safeFailureUserNotice(message string) string {
 		return ""
 	}
 	return message
-}
-
-func safeGenericFailureUserNotice(turnResult agent.AgentTurnResult) string {
-	switch turnResult.TaskRun.Status {
-	case task.TaskStatusBlocked:
-		return "요청을 완료하지 못하고 중단됐습니다. 같은 요청을 다시 보내시면 확인된 지점부터 다시 시도하겠습니다."
-	case task.TaskStatusFailed:
-		return "요청을 처리하는 중 오류가 발생해 완료하지 못했습니다. 같은 요청을 다시 보내시면 다시 시도하겠습니다."
-	default:
-		return ""
-	}
 }
 
 func taskStatusRequiresFailureNotice(status task.TaskStatus) bool {

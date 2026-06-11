@@ -27,6 +27,11 @@ func (taskEventService *TaskEventService) UseRepository(repository TaskEventRepo
 }
 
 func (taskEventService *TaskEventService) AppendTaskEvent(taskRunID string, name string, body string) TaskEvent {
+	taskEvent, _ := taskEventService.AppendTaskEventWithError(taskRunID, name, body)
+	return taskEvent
+}
+
+func (taskEventService *TaskEventService) AppendTaskEventWithError(taskRunID string, name string, body string) (TaskEvent, error) {
 	taskEvent := TaskEvent{
 		TaskEventID: newIdentifier(),
 		TaskRunID:   taskRunID,
@@ -38,8 +43,7 @@ func (taskEventService *TaskEventService) AppendTaskEvent(taskRunID string, name
 	taskEventService.mutex.Lock()
 	defer taskEventService.mutex.Unlock()
 	taskEventService.taskEvents[taskRunID] = append(taskEventService.taskEvents[taskRunID], taskEvent)
-	_ = taskEventService.saveTaskEvent(taskEvent)
-	return taskEvent
+	return taskEvent, taskEventService.saveTaskEvent(taskEvent)
 }
 
 func (taskEventService *TaskEventService) ListTaskEvent(taskRunID string) []TaskEvent {

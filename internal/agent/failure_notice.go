@@ -1,8 +1,14 @@
 package agent
 
 import (
+	"context"
+	"errors"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
+
+	"blueclaw/internal/llm"
 )
 
 const (
@@ -12,9 +18,11 @@ const (
 
 type FailureReport struct {
 	Phase               string   `json:"phase,omitempty"`
+	StepName            string   `json:"stepName,omitempty"`
 	StopReason          string   `json:"stopReason,omitempty"`
 	FailedOperation     string   `json:"failedOperation,omitempty"`
 	SafeFailureSummary  string   `json:"safeFailureSummary,omitempty"`
+	RawError            string   `json:"rawError,omitempty"`
 	CompletedSummary    string   `json:"completedSummary,omitempty"`
 	NextAction          string   `json:"nextAction,omitempty"`
 	OriginalRequest     string   `json:"originalRequest,omitempty"`
@@ -33,6 +41,28 @@ type FailureNotice struct {
 	IsSendable        bool   `json:"isSendable,omitempty"`
 }
 
+type FailureNoticeGenerationStatus struct {
+	Source             string `json:"source"`
+	FirstInvalid       bool   `json:"firstInvalid"`
+	RepairCount        int    `json:"repairCount"`
+	Reason             string `json:"reason,omitempty"`
+	TextRecoveryError  string `json:"textRecoveryError,omitempty"`
+	LocalRecoveryError string `json:"localRecoveryError,omitempty"`
+	OriginalWasInvalid bool   `json:"originalWasInvalid,omitempty"`
+}
+
+type FailureNoticeGenerator struct {
+	LanguageModel llm.LanguageModelProvider
+}
+
+type recoveryLanguageModelProvider interface {
+	GenerateRecoveryResponse(context.Context, string) (string, error)
+}
+
+type localRecoveryLanguageModelProvider interface {
+	GenerateLocalRecoveryResponse(context.Context, string) (string, error)
+}
+
 func (notice FailureNotice) SendableMessage() string {
 	if !notice.IsSendable {
 		return ""
@@ -44,6 +74,7 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 	report := FailureReport{
 		Phase:               strings.TrimSpace(phase),
 		StopReason:          compactWhitespace(strings.TrimSpace(stopReason)),
+		RawError:            compactWhitespace(redactRawFailureNotice(strings.TrimSpace(stopReason))),
 		FailedOperation:     latestFailedOperation(observations),
 		SafeFailureSummary:  latestSafeFailureSummary(observations, stopReason),
 		CompletedSummary:    buildLimitObservationSummary(observations),
@@ -62,6 +93,175 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 		report.NextAction = strings.TrimSpace(executionState.NextPlan)
 	}
 	return report
+}
+
+func (generator FailureNoticeGenerator) Generate(ctx context.Context, report FailureReport) (FailureNotice, FailureNoticeGenerationStatus) {
+	report = normalizeFailureReport(report)
+	generationContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	status := FailureNoticeGenerationStatus{}
+	if generator.LanguageModel == nil {
+		status.Source = "raw_error"
+		status.Reason = "language_model_unavailable"
+		return buildRawErrorFailureNotice(report), status
+	}
+	reply, errorValue := generator.generateRecoveryText(generationContext, buildFailureNoticePrompt(report))
+	if errorValue == nil {
+		if notice, source, hasNotice := prepareFailureNoticeWithGenerator(generator, generationContext, reply, "generated", report); hasNotice {
+			status.Source = source
+			return notice, status
+		}
+	}
+	if strings.TrimSpace(reply) != "" {
+		status.FirstInvalid = true
+		for repairCount := 1; repairCount <= 2; repairCount++ {
+			repairedReply, repairError := generator.generateRecoveryText(generationContext, buildFailureNoticeRepairPrompt(report, reply, repairCount))
+			if repairError != nil || strings.TrimSpace(repairedReply) == "" {
+				if notice, localError, hasNotice := generator.generateLocalFailureNotice(generationContext, report, reply); hasNotice {
+					status.Source = notice.Source
+					status.RepairCount = repairCount
+					status.Reason = "local_recovery_after_repair_failed"
+					status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+					return notice, status
+				} else if localError != "" {
+					status.LocalRecoveryError = localError
+				}
+				status.Source = "raw_error"
+				status.RepairCount = repairCount
+				status.Reason = "repair_failed"
+				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
+				return buildRawErrorFailureNotice(report), status
+			}
+			notice, source, hasNotice := prepareFailureNoticeWithGenerator(generator, generationContext, repairedReply, "generated_repair", report)
+			if hasNotice {
+				status.Source = source
+				status.RepairCount = repairCount
+				return notice, status
+			}
+			reply = repairedReply
+		}
+		status.RepairCount = 2
+	}
+	if notice, localError, hasNotice := generator.generateLocalFailureNotice(generationContext, report, reply); hasNotice {
+		status.Source = notice.Source
+		status.Reason = "local_recovery_after_text_failure"
+		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
+		return notice, status
+	} else if localError != "" {
+		status.LocalRecoveryError = localError
+	}
+	status.Source = "raw_error"
+	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
+	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
+	return buildRawErrorFailureNotice(report), status
+}
+
+func normalizeFailureReport(report FailureReport) FailureReport {
+	report.Phase = strings.TrimSpace(report.Phase)
+	report.StepName = strings.TrimSpace(report.StepName)
+	report.StopReason = compactWhitespace(strings.TrimSpace(report.StopReason))
+	report.SafeFailureSummary = compactWhitespace(strings.TrimSpace(report.SafeFailureSummary))
+	report.RawError = compactWhitespace(redactRawFailureNotice(strings.TrimSpace(report.RawError)))
+	report.OriginalRequest = strings.TrimSpace(report.OriginalRequest)
+	report.ResponseLanguage = ResolveResponseLanguage(report.ResponseLanguage)
+	report.DiagnosticEventID = strings.TrimSpace(report.DiagnosticEventID)
+	if report.SafeFailureSummary == "" {
+		report.SafeFailureSummary = report.StopReason
+	}
+	if report.RawError == "" {
+		report.RawError = redactRawFailureNotice(firstNonEmptyString(report.StopReason, report.SafeFailureSummary))
+	}
+	return report
+}
+
+func (generator FailureNoticeGenerator) generateRecoveryText(ctx context.Context, prompt string) (string, error) {
+	recoveryProvider, isRecoveryProvider := generator.LanguageModel.(recoveryLanguageModelProvider)
+	if isRecoveryProvider {
+		reply, errorValue := recoveryProvider.GenerateRecoveryResponse(ctx, prompt)
+		return strings.TrimSpace(reply), errorValue
+	}
+	reply, errorValue := generator.LanguageModel.GenerateResponse(ctx, prompt)
+	return strings.TrimSpace(reply), errorValue
+}
+
+func (generator FailureNoticeGenerator) generateLocalRecoveryText(ctx context.Context, prompt string) (string, error) {
+	localRecoveryProvider, isLocalRecoveryProvider := generator.LanguageModel.(localRecoveryLanguageModelProvider)
+	if !isLocalRecoveryProvider {
+		return "", errors.New("local recovery provider unavailable")
+	}
+	reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(ctx, prompt)
+	return strings.TrimSpace(reply), errorValue
+}
+
+func (generator FailureNoticeGenerator) generateLocalFailureNotice(ctx context.Context, report FailureReport, rejectedReply string) (FailureNotice, string, bool) {
+	prompt := buildFailureNoticePrompt(report)
+	if strings.TrimSpace(rejectedReply) != "" {
+		prompt = buildFailureNoticeRepairPrompt(report, rejectedReply, 3)
+	}
+	reply, errorValue := generator.generateLocalRecoveryText(ctx, prompt)
+	if errorValue != nil || strings.TrimSpace(reply) == "" {
+		return FailureNotice{}, firstNonEmptyString(errorString(errorValue), "empty_local_reply"), false
+	}
+	notice, _, hasNotice := prepareFailureNoticeWithGenerator(generator, ctx, reply, "local_generated", report)
+	if hasNotice {
+		notice.Source = "local_generated"
+		return notice, "", true
+	}
+	for repairCount := 1; repairCount <= 2; repairCount++ {
+		repairedReply, repairError := generator.generateLocalRecoveryText(ctx, buildFailureNoticeRepairPrompt(report, reply, repairCount))
+		if repairError != nil || strings.TrimSpace(repairedReply) == "" {
+			return FailureNotice{}, firstNonEmptyString(errorString(repairError), "empty_local_repair"), false
+		}
+		notice, _, hasNotice := prepareFailureNoticeWithGenerator(generator, ctx, repairedReply, "local_generated", report)
+		if hasNotice {
+			notice.Source = "local_generated"
+			return notice, "", true
+		}
+		reply = repairedReply
+	}
+	return FailureNotice{}, "invalid_local_generated_reply", false
+}
+
+func prepareFailureNoticeWithGenerator(generator FailureNoticeGenerator, ctx context.Context, reply string, source string, report FailureReport) (FailureNotice, string, bool) {
+	notice := buildFailureNotice(reply, source, report)
+	if notice.IsSendable {
+		return notice, source, true
+	}
+	if !textExceedsCharacterBudget(reply, failureNoticeMaximumCharacters) {
+		return FailureNotice{}, "", false
+	}
+	compressedReply, errorValue := generator.generateRecoveryText(ctx, buildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
+	if errorValue != nil || strings.TrimSpace(compressedReply) == "" {
+		return FailureNotice{}, "", false
+	}
+	compressedNotice := buildFailureNotice(compressedReply, source, report)
+	return compressedNotice, compressedNotice.Source, compressedNotice.IsSendable
+}
+
+func buildRawErrorFailureNotice(report FailureReport) FailureNotice {
+	message := firstNonEmptyString(report.RawError, report.SafeFailureSummary, report.StopReason)
+	message = truncateText(compactWhitespace(redactRawFailureNotice(message)), failureNoticeMaximumCharacters)
+	return FailureNotice{
+		Message:           message,
+		Source:            "raw_error",
+		Language:          strings.TrimSpace(report.ResponseLanguage),
+		DiagnosticEventID: strings.TrimSpace(report.DiagnosticEventID),
+		IsSendable:        strings.TrimSpace(message) != "",
+	}
+}
+
+var rawFailureNoticePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+`),
+	regexp.MustCompile(`(?i)((?:api[_-]?key|token|secret|authorization)\s*[:=]\s*)[^\s,;]+`),
+	regexp.MustCompile(`(?i)sk-[A-Za-z0-9_-]{8,}`),
+}
+
+func redactRawFailureNotice(message string) string {
+	redactedMessage := strings.TrimSpace(message)
+	for _, pattern := range rawFailureNoticePatterns {
+		redactedMessage = pattern.ReplaceAllString(redactedMessage, "${1}[redacted]")
+	}
+	return redactedMessage
 }
 
 func latestFailedOperation(observations []turnObservation) string {

@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -65,7 +66,9 @@ func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseW
 	}
 	personAccess := taskRunHandler.IdentityService.ResolvePersonAccess(runRequest.RequesterPersonID)
 	conversationID := firstNonEmptyAdminString(runRequest.ConversationID, "admin:"+runRequest.RequesterPersonID)
-	launchResult, errorValue := taskRunHandler.TaskLauncher.Launch(request.Context(), agentruntime.TaskLaunchRequest{
+	launchContext, cancelLaunch := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancelLaunch()
+	launchResult, errorValue := taskRunHandler.TaskLauncher.Launch(launchContext, agentruntime.TaskLaunchRequest{
 		Source:                    agentruntime.TaskLaunchSourceAdmin,
 		SourceReference:           "admin:" + runRequest.RequesterPersonID,
 		RequesterPersonID:         runRequest.RequesterPersonID,

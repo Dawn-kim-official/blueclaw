@@ -47,6 +47,41 @@ func TestTaskRunHandlerLaunchesAdminTask(t *testing.T) {
 	}
 }
 
+func TestTaskRunHandlerLaunchIgnoresClientCancellation(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(contextAwareAdminLanguageModel{content: `{"action":"finish","goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"message":"admin done"}`})
+	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"admin": {"memory.search"},
+	}, nil)
+	identityService := identity.NewIdentityService(policy.PolicyProjection{
+		PersonIDByEmail: map[string]string{"admin@example.com": "person-1"},
+		PersonAccessByPersonID: map[string]policy.PersonAccess{
+			"person-1": {PersonID: "person-1", SecurityLevelRank: 100, GrantedClasses: []string{"internal"}},
+		},
+	})
+	handler := TaskRunHandler{
+		TaskLauncher:    agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder),
+		IdentityService: identityService,
+		WorkspaceID:     "workspace-1",
+	}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/run", strings.NewReader(`{"requesterPersonID":"person-1","prompt":"run admin task","profileName":"admin"}`))
+	requestContext, cancelRequest := context.WithCancel(request.Context())
+	cancelRequest()
+	request = request.WithContext(requestContext)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleRunTask(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if !strings.Contains(responseRecorder.Body.String(), "admin done") {
+		t.Fatalf("expected final reply, got %s", responseRecorder.Body.String())
+	}
+}
+
 func TestTaskRunHandlerCancelsActiveTaskRun(t *testing.T) {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	taskRun := taskRunService.CreateTaskRun("person-1", "schedule:schedule-1", "stale schedule")
@@ -112,4 +147,26 @@ func (languageModel staticAdminLanguageModel) GenerateResponse(context.Context, 
 
 func (languageModel staticAdminLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	return llm.StructuredResponse{Content: languageModel.content}, nil
+}
+
+type contextAwareAdminLanguageModel struct {
+	content string
+}
+
+func (languageModel contextAwareAdminLanguageModel) GenerateResponse(ctx context.Context, prompt string) (string, error) {
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+		return staticAdminLanguageModel{content: languageModel.content}.GenerateResponse(ctx, prompt)
+	}
+}
+
+func (languageModel contextAwareAdminLanguageModel) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	select {
+	case <-ctx.Done():
+		return llm.StructuredResponse{}, ctx.Err()
+	default:
+		return staticAdminLanguageModel{content: languageModel.content}.GenerateStructuredResponse(ctx, request)
+	}
 }
