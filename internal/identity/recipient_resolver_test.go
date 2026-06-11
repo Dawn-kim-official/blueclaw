@@ -99,3 +99,17 @@ func TestResolveRecipientLinksAccountByEmailWhenPersonIDMissing(test *testing.T)
 		test.Fatalf("expected email-linked resolution, got %+v", resolution)
 	}
 }
+
+func TestResolveRecipientTrustsProfileEmailOverLearnedPersonID(test *testing.T) {
+	accounts := []PlatformAccountIdentity{
+		{Platform: "mattermost", ExternalUserID: "mm-rain", Email: "rain@dawn.kim", DisplayName: "rain", PersonID: "person-lee"},
+	}
+	resolution := ResolveRecipient("mattermost", "우경", testPeople(), accounts)
+	if resolution.Status != RecipientResolved || resolution.Recipient.PersonID != "person-rain" || resolution.Recipient.ExternalUserID != "mm-rain" {
+		test.Fatalf("expected profile email attribution to win, got %+v", resolution)
+	}
+	leeResolution := ResolveRecipient("mattermost", "rain", testPeople(), accounts)
+	if leeResolution.Status != RecipientResolved || leeResolution.Recipient.PersonID != "person-rain" {
+		test.Fatalf("expected crossed row not to leak into other people, got %+v", leeResolution)
+	}
+}
