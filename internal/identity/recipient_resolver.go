@@ -90,9 +90,9 @@ func platformAccountsByPersonID(platform string, people []policy.PersonPolicy, p
 		if !strings.EqualFold(strings.TrimSpace(account.Platform), strings.TrimSpace(platform)) {
 			continue
 		}
-		personID := strings.TrimSpace(account.PersonID)
+		personID := personIDByEmail[normalizeRecipientMatchValue(account.Email)]
 		if personID == "" {
-			personID = personIDByEmail[normalizeRecipientMatchValue(account.Email)]
+			personID = strings.TrimSpace(account.PersonID)
 		}
 		if personID == "" {
 			continue
