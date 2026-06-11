@@ -39,6 +39,12 @@ func TestAgentTurnRunnerGeneratesFailureReplyAfterStructuredModelFailure(t *test
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
 		t.Fatal("expected generated failure reply event")
 	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_report", "structured model failed") {
+		t.Fatal("expected failure report event with the raw failure reason")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_report", `"generation"`) {
+		t.Fatal("expected failure report event with generation status")
+	}
 }
 
 func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {

@@ -69,10 +69,11 @@ type MCPToolConfiguration struct {
 }
 
 type AgentConfiguration struct {
-	Intake             AgentIntakeConfiguration `json:"intake"`
-	DefaultEffortLevel string                   `json:"defaultEffortLevel"`
-	ToolResultMaxBytes int                      `json:"toolResultMaxBytes"`
-	FailureRecovery    AgentFailureRecovery     `json:"failureRecovery"`
+	Intake               AgentIntakeConfiguration `json:"intake"`
+	DefaultEffortLevel   string                   `json:"defaultEffortLevel"`
+	ToolResultMaxBytes   int                      `json:"toolResultMaxBytes"`
+	FailureRecovery      AgentFailureRecovery     `json:"failureRecovery"`
+	AdminTaskLinkBaseURL string                   `json:"adminTaskLinkBaseURL,omitempty"`
 }
 
 type AgentIntakeConfiguration struct {

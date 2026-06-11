@@ -168,7 +168,7 @@ func (agentKernel *AgentKernel) CompleteLaunchFailure(responseContext context.Co
 		taskRun.FailureReason = firstNonEmptyString(reason, failError.Error())
 		failedTaskRun = taskRun
 	}
-	failureNotice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentKernel.languageModel}).Generate(responseContext, FailureReport{
+	launchFailureReport := FailureReport{
 		Phase:              phase,
 		StepName:           stepName,
 		StopReason:         reason,
@@ -177,8 +177,10 @@ func (agentKernel *AgentKernel) CompleteLaunchFailure(responseContext context.Co
 		OriginalRequest:    request.Prompt,
 		ResponseLanguage:   request.ResponseLanguage,
 		DiagnosticEventID:  diagnosticEventID(request, taskRun.TaskRunID, phase),
-	})
+	}
+	failureNotice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentKernel.languageModel}).Generate(responseContext, launchFailureReport)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.failure_reply", marshalEventBody(noticeStatus))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody(phase, launchFailureReport, noticeStatus)))
 	failedTaskRun.Result = failureNotice.SendableMessage()
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: failedTaskRun.Result, FailureNotice: failureNotice, ToolNames: toolNamesForEvent(request.ToolSet)}
 }
