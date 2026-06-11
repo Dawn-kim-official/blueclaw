@@ -12,8 +12,6 @@ import (
 	"blueclaw/internal/identity"
 )
 
-const NotInvitedReply = "This Intern Kim has not invited your account yet. Ask the administrator for access."
-
 type BotIdentityClient interface {
 	ResolveUserIdentity(externalUserID string) (identity.PlatformAccountIdentity, error)
 }
@@ -138,10 +136,6 @@ func (adapter Adapter) FetchHistory(_ context.Context, historyCursor string, lim
 		HasMoreBefore: len(posts) >= limit,
 		HistoryCursor: conversationID,
 	}, nil
-}
-
-func (adapter Adapter) NotInvitedReply() string {
-	return NotInvitedReply
 }
 
 func (adapter Adapter) convertEvent(event Event, source string) connectors.PlatformInboundEvent {

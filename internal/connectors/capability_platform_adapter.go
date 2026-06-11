@@ -15,8 +15,6 @@ import (
 	"blueclaw/internal/identity"
 )
 
-const CapabilityNotInvitedReply = "This Intern Kim has not invited your account yet. Ask the administrator for access."
-
 type CapabilityPlatformAdapter struct {
 	PlatformName     string
 	CapabilityClient capability.Client
@@ -194,10 +192,6 @@ func (adapter CapabilityPlatformAdapter) ImportInputAttachments(ctx context.Cont
 		return InputAttachmentImportResult{}, errorValue
 	}
 	return response, nil
-}
-
-func (adapter CapabilityPlatformAdapter) NotInvitedReply() string {
-	return CapabilityNotInvitedReply
 }
 
 func (adapter CapabilityPlatformAdapter) parseNormalizedEvent(payload []byte, source string) (PlatformInboundEvent, bool, error) {

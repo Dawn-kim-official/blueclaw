@@ -559,7 +559,7 @@ func TestConnectorRuntimeRejectsUninvitedUserWithoutTask(t *testing.T) {
 	if result.ReplyDispatchID != "dispatch-1" {
 		t.Fatalf("expected rejection dispatch id, got %q", result.ReplyDispatchID)
 	}
-	if adapter.sentReplies[0].message != adapter.NotInvitedReply() {
+	if adapter.sentReplies[0].message != NotInvitedReply {
 		t.Fatalf("expected not invited reply, got %q", adapter.sentReplies[0].message)
 	}
 }
@@ -2758,10 +2758,6 @@ func (adapter *testAdapter) FetchHistory(_ context.Context, historyCursor string
 	}, nil
 }
 
-func (adapter *testAdapter) NotInvitedReply() string {
-	return "not invited"
-}
-
 type testAdapterWithoutReaction struct {
 	adapter *testAdapter
 }
@@ -2800,10 +2796,6 @@ func (adapter testAdapterWithoutReaction) ResolveInteraction(ctx context.Context
 
 func (adapter testAdapterWithoutReaction) FetchHistory(ctx context.Context, historyCursor string, limit int) (VisibleContext, error) {
 	return adapter.adapter.FetchHistory(ctx, historyCursor, limit)
-}
-
-func (adapter testAdapterWithoutReaction) NotInvitedReply() string {
-	return adapter.adapter.NotInvitedReply()
 }
 
 type testLanguageModel struct {

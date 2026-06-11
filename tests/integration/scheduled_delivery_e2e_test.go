@@ -280,10 +280,6 @@ func (adapter *scheduledDeliveryAdapter) FetchHistory(context.Context, string, i
 	return connectors.VisibleContext{}, nil
 }
 
-func (adapter *scheduledDeliveryAdapter) NotInvitedReply() string {
-	return "not invited"
-}
-
 type scheduledDeliveryAccessResolver struct{}
 
 func (scheduledDeliveryAccessResolver) ResolvePersonAccess(personID string) policy.PersonAccess {
