@@ -11,16 +11,19 @@ import (
 const llmCallErrorMaximumCharacters = 300
 
 type llmCallRecord struct {
-	Kind         string `json:"kind"`
-	SchemaName   string `json:"schemaName,omitempty"`
-	Provider     string `json:"provider,omitempty"`
-	Model        string `json:"model,omitempty"`
-	LatencyMS    int64  `json:"latencyMs"`
-	PromptBytes  int    `json:"promptBytes"`
-	ContentBytes int    `json:"contentBytes"`
-	UsedFallback bool   `json:"usedFallback,omitempty"`
-	IsError      bool   `json:"isError,omitempty"`
-	Error        string `json:"error,omitempty"`
+	Kind             string `json:"kind"`
+	SchemaName       string `json:"schemaName,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
+	LatencyMS        int64  `json:"latencyMs"`
+	PromptBytes      int    `json:"promptBytes"`
+	ContentBytes     int    `json:"contentBytes"`
+	UsedFallback     bool   `json:"usedFallback,omitempty"`
+	PromptTokens     int64  `json:"promptTokens,omitempty"`
+	CompletionTokens int64  `json:"completionTokens,omitempty"`
+	TotalTokens      int64  `json:"totalTokens,omitempty"`
+	IsError          bool   `json:"isError,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 type llmCallObserver func(record llmCallRecord)
@@ -69,14 +72,17 @@ func (model observedLanguageModel) GenerateStructuredResponse(ctx context.Contex
 	startedAt := time.Now()
 	response, errorValue := model.provider.GenerateStructuredResponse(ctx, request)
 	record := llmCallRecord{
-		Kind:         "structured",
-		SchemaName:   strings.TrimSpace(request.StructuredOutputSchema.Name),
-		Provider:     response.ProviderName,
-		Model:        response.ModelName,
-		LatencyMS:    time.Since(startedAt).Milliseconds(),
-		PromptBytes:  structuredRequestByteCount(request),
-		ContentBytes: len(response.Content),
-		UsedFallback: response.UsedFallback,
+		Kind:             "structured",
+		SchemaName:       strings.TrimSpace(request.StructuredOutputSchema.Name),
+		Provider:         response.ProviderName,
+		Model:            response.ModelName,
+		LatencyMS:        time.Since(startedAt).Milliseconds(),
+		PromptBytes:      structuredRequestByteCount(request),
+		ContentBytes:     len(response.Content),
+		UsedFallback:     response.UsedFallback,
+		PromptTokens:     response.Usage.PromptTokens,
+		CompletionTokens: response.Usage.CompletionTokens,
+		TotalTokens:      response.Usage.TotalTokens,
 	}
 	if errorValue != nil {
 		record.IsError = true

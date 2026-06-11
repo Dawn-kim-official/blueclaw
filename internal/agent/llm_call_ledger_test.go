@@ -32,6 +32,46 @@ func TestObserveLanguageModelRecordsStructuredCalls(t *testing.T) {
 	}
 }
 
+func TestObserveLanguageModelRecordsTokenCounts(t *testing.T) {
+	records := []llmCallRecord{}
+	observed := observeLanguageModel(tokenReportingProvider{}, func(record llmCallRecord) {
+		records = append(records, record)
+	})
+
+	_, errorValue := observed.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{
+		Messages:               []llm.Message{{Role: "user", Content: "hello"}},
+		StructuredOutputSchema: llm.StructuredOutputSchema{Name: "test_schema"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected structured call: %v", errorValue)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one call record, got %d", len(records))
+	}
+	if records[0].PromptTokens != 10 {
+		t.Fatalf("expected prompt tokens 10, got %d", records[0].PromptTokens)
+	}
+	if records[0].CompletionTokens != 5 {
+		t.Fatalf("expected completion tokens 5, got %d", records[0].CompletionTokens)
+	}
+	if records[0].TotalTokens != 15 {
+		t.Fatalf("expected total tokens 15, got %d", records[0].TotalTokens)
+	}
+}
+
+type tokenReportingProvider struct{}
+
+func (tokenReportingProvider) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (tokenReportingProvider) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{
+		Content: "{}",
+		Usage:   llm.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+	}, nil
+}
+
 func TestObserveLanguageModelRecordsErrors(t *testing.T) {
 	records := []llmCallRecord{}
 	observed := observeLanguageModel(failingLanguageModel{}, func(record llmCallRecord) {

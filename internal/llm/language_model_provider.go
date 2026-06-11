@@ -52,11 +52,18 @@ func RequestContextFromContext(ctx context.Context) RequestContext {
 	return requestContext
 }
 
+type Usage struct {
+	PromptTokens     int64 `json:"promptTokens"`
+	CompletionTokens int64 `json:"completionTokens"`
+	TotalTokens      int64 `json:"totalTokens"`
+}
+
 type StructuredResponse struct {
 	ProviderName string
 	ModelName    string
 	Content      string
 	UsedFallback bool
+	Usage        Usage
 }
 
 type LanguageModelProvider interface {
