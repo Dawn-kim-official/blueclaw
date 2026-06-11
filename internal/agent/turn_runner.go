@@ -158,6 +158,7 @@ type turnObservation struct {
 	RecoveryPacket       *RecoveryPacket      `json:"recoveryPacket,omitempty"`
 	Attachments          []FileAttachment     `json:"attachments,omitempty"`
 	RecoveryActions      []RecoveryAction     `json:"recoveryActions,omitempty"`
+	DurationMS           int64                `json:"durationMs"`
 }
 
 type toolCallActionOutcome struct {
@@ -310,6 +311,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	})
 
 	taskRun := agentTurnRunner.taskRunForRequest(request)
+	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, func(record llmCallRecord) {
+		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))
+	})
 	runningTaskRun, errorValue := agentTurnRunner.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
 	if errorValue != nil {
 		return agentTurnRunner.failLaunchStep(context.Background(), taskRun, request, "start_attempt", errorValue), nil

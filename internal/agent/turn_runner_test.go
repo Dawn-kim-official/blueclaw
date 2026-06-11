@@ -78,6 +78,21 @@ func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 	if len(languageModel.requests) != 3 {
 		t.Fatalf("expected three model calls, got %d", len(languageModel.requests))
 	}
+	llmCallEventCount := 0
+	for _, taskEvent := range services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID) {
+		if taskEvent.Name == "llm.call" {
+			llmCallEventCount++
+		}
+	}
+	if llmCallEventCount != 3 {
+		t.Fatalf("expected three llm.call ledger events, got %d", llmCallEventCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "llm.call", "blueclaw_agent_turn_action") {
+		t.Fatal("expected llm.call event with action schema name")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.alpha.result", "durationMs") {
+		t.Fatal("expected tool result event with duration")
+	}
 }
 
 func TestAgentTurnRunnerAppliesPendingSteeringEvent(t *testing.T) {
