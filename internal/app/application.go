@@ -76,8 +76,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	policyProjectionService := policy.PolicyProjectionService{}
 	identityService := identity.NewIdentityService(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
+	var platformAccountLister adminapi.PlatformAccountLister
 	if database.SQL != nil {
-		identityService.UsePlatformAccountRepository(postgres.NewPlatformAccountRepository(database))
+		platformAccountRepository := postgres.NewPlatformAccountRepository(database)
+		identityService.UsePlatformAccountRepository(platformAccountRepository)
+		platformAccountLister = platformAccountRepository
 	}
 	policyWatcher := &policy.PolicyWatcher{}
 	policyWatcher.ReloadPolicyDocument(policyDocument)
@@ -234,6 +237,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 				identityService.ReloadPolicyProjection(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
 				_ = posixSynchronizer.Synchronize()
 			},
+		},
+		IdentityResolve: adminapi.IdentityResolveHandler{
+			PolicyWatcher:         policyWatcher,
+			PlatformAccountLister: platformAccountLister,
 		},
 		AuditHandler: auditHandler,
 		AttentionHandler: adminapi.AttentionHandler{
