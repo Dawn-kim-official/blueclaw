@@ -63,6 +63,33 @@ func TestCapabilityLLMClientSendsStructuredRequestWithoutAuthorization(t *testin
 	}
 }
 
+func TestCapabilityLLMClientRoundTripsUsage(t *testing.T) {
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		return jsonCapabilityResponse(http.StatusOK, `{"provider":"capabilityLLM","model":"gemma-4-E4B-it","content":"{\"reply\":\"ok\"}","selectedBackend":"gpu","usage":{"promptTokens":123,"completionTokens":45,"totalTokens":168}}`), nil
+	}}
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName: "gemma-4-E4B-it",
+	}
+
+	structuredResponse, errorValue := client.GenerateStructuredResponse(context.Background(), buildTestStructuredResponseRequest())
+	if errorValue != nil {
+		t.Fatalf("expected structured response: %v", errorValue)
+	}
+	if structuredResponse.Usage.PromptTokens != 123 {
+		t.Fatalf("expected prompt tokens 123, got %d", structuredResponse.Usage.PromptTokens)
+	}
+	if structuredResponse.Usage.CompletionTokens != 45 {
+		t.Fatalf("expected completion tokens 45, got %d", structuredResponse.Usage.CompletionTokens)
+	}
+	if structuredResponse.Usage.TotalTokens != 168 {
+		t.Fatalf("expected total tokens 168, got %d", structuredResponse.Usage.TotalTokens)
+	}
+}
+
 func TestCapabilityLLMClientReturnsCapabilityError(t *testing.T) {
 	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
 		return jsonCapabilityResponse(http.StatusBadGateway, "local model unavailable"), nil

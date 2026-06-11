@@ -45,6 +45,7 @@ type capabilityStructuredResponseDocument struct {
 	ModelName       string `json:"model"`
 	Content         string `json:"content"`
 	SelectedBackend string `json:"selectedBackend"`
+	Usage           Usage  `json:"usage"`
 }
 
 func (capabilityLLMClient CapabilityLLMClient) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
@@ -137,6 +138,7 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 		ProviderName: providerName,
 		ModelName:    modelName,
 		Content:      responseDocument.Content,
+		Usage:        responseDocument.Usage,
 	}, nil
 }
 
