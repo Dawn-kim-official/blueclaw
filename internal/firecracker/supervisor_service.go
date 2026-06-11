@@ -167,7 +167,7 @@ func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecif
 	if errorValue != nil {
 		return BootSpecification{}, errorValue
 	}
-	errorValue = supervisorService.WorkspaceVolumeService.SyncWorkspaceDirectory(
+	errorValue = supervisorService.WorkspaceVolumeService.SyncWorkspaceDirectoryPreservingGuestConfig(
 		workspaceVolumeMetadata.HostImagePath,
 		supervisorService.FirecrackerConfiguration.HostWorkspacePath,
 	)
