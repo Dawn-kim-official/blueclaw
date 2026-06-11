@@ -74,7 +74,7 @@ func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 }
 
 func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
-	requestDocument := capabilityToolRequest("platform.message.send", ToolCatalogRequest{
+	requestDocument := capabilityToolRequest(context.Background(), "platform.message.send", ToolCatalogRequest{
 		TaskSource:              TaskLaunchSourceScheduled,
 		IsScheduledRun:          true,
 		IsApprovalContinuation:  true,

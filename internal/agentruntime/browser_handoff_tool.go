@@ -34,7 +34,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) openBrowserHandoffTool(toolContext
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "browser_handoff", errorValue.Error()), nil
 	}
-	requestDocument := capabilityToolRequest("browser.handoff", handlerContext.request, inputDocument)
+	requestDocument := capabilityToolRequest(toolContext, "browser.handoff", handlerContext.request, inputDocument)
 	requestDocument["executionMode"] = "companion"
 	requestDocument["requiresUserPresence"] = true
 	requestDocument["privacyClass"] = "user_browser"

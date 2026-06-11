@@ -150,6 +150,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		ActiveGoal:              request.ActiveGoal,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
 		TaskComplexity:          request.TaskComplexity,
+		WorkKinds:               append([]string{}, request.WorkKinds...),
 		TurnStartedAt:           request.TurnStartedAt,
 		CheckpointSender:        request.CheckpointSender,
 	})
@@ -222,6 +223,16 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
+	request.WorkKinds = appendUniqueStrings(append([]string{}, intakeDecision.WorkKinds...), request.ActiveGoal.WorkKinds...)
+	intakeRequest.WorkKinds = request.WorkKinds
+	if turnDecision.Route == TurnRouteStartTask && !request.IsApprovalContinuation {
+		if strings.TrimSpace(request.ExistingTaskRunID) == strings.TrimSpace(request.ActiveGoal.TaskRunID) {
+			request.ExistingTaskRunID = ""
+			intakeRequest.ExistingTaskRunID = ""
+		}
+		request.ActiveGoal = ActiveGoal{}
+		intakeRequest.ActiveGoal = ActiveGoal{}
+	}
 	if turnDecision.Route == TurnRouteConsume {
 		return agentKernel.completeConsumedRequest(intakeRequest, turnDecision)
 	}
@@ -283,6 +294,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		TaskComplexity:             intakeDecision.TaskComplexity,
+		WorkKinds:                  append([]string{}, request.WorkKinds...),
 		TurnStartedAt:              request.TurnStartedAt,
 		CheckpointSender:           request.CheckpointSender,
 	}
@@ -350,8 +362,10 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		if errorValue != nil {
 			return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 		}
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)))
-		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)))
+		waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)
+		waitingGoal.WorkKinds = append([]string{}, request.WorkKinds...)
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
+		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(waitingGoal))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalEventBody(map[string]string{
 			"kind":             "input",
@@ -370,8 +384,10 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 	if errorValue != nil {
 		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 	}
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, evidenceHints, nil)))
-	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_approval", marshalEventBody(activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, evidenceHints, nil)))
+	approvalGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, evidenceHints, nil)
+	approvalGoal.WorkKinds = append([]string{}, request.WorkKinds...)
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(approvalGoal))
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_approval", marshalEventBody(approvalGoal))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalEventBody(map[string]string{
 		"message":                 reply,
 		"reason":                  decision.Reason,

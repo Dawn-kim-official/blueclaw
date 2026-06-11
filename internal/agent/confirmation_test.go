@@ -101,8 +101,9 @@ func TestSitePrototypeContinuationDoesNotBuildConfirmationPlan(t *testing.T) {
 func TestDestructiveSiteManagementStillBuildsConfirmationPlan(t *testing.T) {
 	toolSet := newTestToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"})
 	request := AgentRequest{
-		Prompt:  "이 사이트 내려줘",
-		ToolSet: toolSet,
+		Prompt:    "이 사이트 내려줘",
+		ToolSet:   toolSet,
+		WorkKinds: []string{WorkKindDestructiveAction},
 	}
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,

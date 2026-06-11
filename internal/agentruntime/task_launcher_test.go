@@ -525,7 +525,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 		Platform:                "mattermost",
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithWorkKinds(context.Background(), []string{agent.WorkKindUserBrowser}), agent.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://example.com"}`),
 	})
@@ -634,7 +634,7 @@ func TestBrowserFollowUpWithSensitiveVisibleContextUsesCompanion(t *testing.T) {
 		}},
 	})
 
-	toolResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithWorkKinds(context.Background(), []string{agent.WorkKindUserBrowser}), agent.ToolInvocation{
 		ToolName: "browser.open",
 		Input:    json.RawMessage(`{"url":"https://console.cloud.google.com/"}`),
 	})

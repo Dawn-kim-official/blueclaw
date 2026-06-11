@@ -883,10 +883,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if hasPendingConfirmation && !isApprovalContinuation {
 		connectorRuntime.cancelPendingConfirmation(event, pendingApproval, turnDecision)
 	}
-	if !hasPendingConfirmation && looksLikeBareConfirmationReply(event.Prompt) {
-		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "confirmation_no_pending_task"))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "confirmation_no_pending_task"}, nil
-	}
 	if connectorRuntime.shouldIgnoreOrphanAskAction(personID, event, hasPendingConfirmation) {
 		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "ask_no_pending_interaction"))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "ask_no_pending_interaction"}, nil
@@ -899,7 +895,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingAskInteraction.TaskRunID, pendingAskInteraction)
 	}
 	activeGoal, hasActiveGoal := connectorRuntime.findActiveGoal(personID, event.ConversationID)
-	if !isApprovalContinuation && hasActiveGoal && promptClearlyStartsNewGoal(event.Prompt, activeGoal) {
+	if !isApprovalContinuation && hasActiveGoal && turnDecision.Route == agent.TurnRouteStartTask {
 		activeGoal = agent.ActiveGoal{}
 		hasActiveGoal = false
 	}
@@ -1584,85 +1580,6 @@ func activeGoalStatusForTaskRun(taskRun task.TaskRun) agent.ActiveGoalStatus {
 	}
 }
 
-func promptClearlyStartsNewGoal(prompt string, activeGoal agent.ActiveGoal) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return false
-	}
-	if promptLooksLikeGoalContinuation(normalizedPrompt) {
-		return false
-	}
-	if promptSharesActiveGoalTerms(normalizedPrompt, activeGoal) {
-		return false
-	}
-	return promptLooksLikeIndependentRequest(normalizedPrompt)
-}
-
-func promptLooksLikeGoalContinuation(prompt string) bool {
-	trimmedPrompt := strings.Trim(prompt, " \t\n\r.,!?()[]{}\"'`~")
-	for _, value := range []string{"응", "네", "ㅇㅇ", "yes", "ok"} {
-		if trimmedPrompt == value {
-			return true
-		}
-	}
-	return containsConnectorText(prompt, []string{
-		"우선", "계속", "진행", "그대로", "좋아", "해봐", "다시 해", "다시 진행", "그럼",
-		"continue", "go ahead", "proceed", "retry",
-	})
-}
-
-func promptSharesActiveGoalTerms(prompt string, activeGoal agent.ActiveGoal) bool {
-	values := []string{activeGoal.OriginalInstruction, activeGoal.CurrentObjective}
-	values = append(values, activeGoal.KnownContext...)
-	values = append(values, activeGoal.MissingInformation...)
-	for _, value := range values {
-		for _, term := range meaningfulGoalTerms(value) {
-			if strings.Contains(prompt, term) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func meaningfulGoalTerms(value string) []string {
-	terms := []string{}
-	seenTerms := map[string]bool{}
-	for _, field := range strings.Fields(strings.ToLower(value)) {
-		term := strings.Trim(field, " \t\n\r.,!?()[]{}\"'`~:;<>/@#")
-		if !meaningfulGoalTerm(term) || seenTerms[term] {
-			continue
-		}
-		seenTerms[term] = true
-		terms = append(terms, term)
-	}
-	return terms
-}
-
-func meaningfulGoalTerm(term string) bool {
-	if len([]rune(term)) < 2 {
-		return false
-	}
-	return !containsConnectorText(term, []string{"the", "and", "with", "for", "해서", "해줘", "해주세요", "합니다", "진행"})
-}
-
-func promptLooksLikeIndependentRequest(prompt string) bool {
-	return containsConnectorText(prompt, []string{
-		"캘린더", "일정", "회의", "휴가", "알림", "예약", "dm", "메일", "보내", "전송",
-		"검색", "찾아", "조사", "작성", "만들", "수정", "삭제", "배포", "열어",
-		"calendar", "meeting", "remind", "schedule", "send", "email", "search", "write", "create", "delete", "deploy",
-	})
-}
-
-func containsConnectorText(value string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if strings.Contains(value, candidate) {
-			return true
-		}
-	}
-	return false
-}
-
 func approvedContinuationEvent(event PlatformInboundEvent, approval pendingApproval) PlatformInboundEvent {
 	event.ResponseLanguage = agent.ResolveResponseLanguage(event.ResponseLanguage, approval.ResponseLanguage)
 	return event
@@ -1788,32 +1705,6 @@ func shouldUseApprovalQuestionAsIntent(taskPrompt string, approvalQuestion strin
 		"go ahead": true,
 	}
 	return approvalReplies[normalizedPrompt]
-}
-
-func looksLikeBareConfirmationReply(prompt string) bool {
-	normalizedPrompt := strings.TrimSpace(strings.ToLower(prompt))
-	confirmationReplies := map[string]bool{
-		"ㅇ":        true,
-		"응":        true,
-		"네":        true,
-		"예":        true,
-		"그래":       true,
-		"좋아":       true,
-		"진행해":      true,
-		"진행해줘":     true,
-		"해":        true,
-		"해줘":       true,
-		"approved": true,
-		"rejected": true,
-		"yes":      true,
-		"y":        true,
-		"no":       true,
-		"n":        true,
-		"ok":       true,
-		"okay":     true,
-		"go ahead": true,
-	}
-	return confirmationReplies[normalizedPrompt]
 }
 
 func latestApprovalQuestion(taskEvents []task.TaskEvent) string {

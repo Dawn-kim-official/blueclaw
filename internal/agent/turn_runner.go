@@ -82,6 +82,7 @@ type AgentTurnRequest struct {
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
 	TaskComplexity             TaskComplexity
+	WorkKinds                  []string
 	TurnStartedAt              time.Time
 	CheckpointSender           AgentCheckpointSender
 	StepBudgetContext          string
@@ -572,7 +573,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
 	}
 	state.Observations = agentTurnRunner.sendCheckpointMessage(ctx, taskRunID, request, actionDocument, state.Observations)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage)
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, request.WorkKinds)
 	if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRunID, state.Attachments); isCancelled {
 		return toolCallActionOutcome{Result: cancelledResult, ShouldReturn: true, WasHandled: true}
 	}
@@ -1008,7 +1009,7 @@ func hasSuccessfulToolObservation(observations []turnObservation, toolName strin
 }
 
 func requestLooksLikeCalendarStep(request AgentTurnRequest) bool {
-	return requestLooksLikeCalendarWork(agentRequestFromTurnRequest(request))
+	return workKindsContain(request.WorkKinds, WorkKindCalendar)
 }
 
 func instructionBundleFromTurnRequest(request AgentTurnRequest) InstructionBundle {
@@ -1046,6 +1047,7 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 		ActivePaths:            append([]string{}, request.ActivePaths...),
 		InstructionPrompt:      request.InstructionPrompt,
 		ActiveGoal:             request.ActiveGoal,
+		WorkKinds:              append([]string{}, request.WorkKinds...),
 		TurnStartedAt:          request.TurnStartedAt,
 		CheckpointSender:       request.CheckpointSender,
 	}

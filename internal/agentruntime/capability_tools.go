@@ -84,7 +84,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 				if errorValue := toolCatalogBuilder.validateCapabilityToolInputAccess(toolName, request, toolInput); errorValue != nil {
 					return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read_access", errorValue.Error()), nil
 				}
-				errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolName, request, toolInput), &response)
+				errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolContext, toolName, request, toolInput), &response)
 				if errorValue != nil {
 					return agent.ToolResult{}, errorValue
 				}
@@ -208,7 +208,7 @@ func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest)
 	return request.IsScheduledRun || request.IsApprovalContinuation
 }
 
-func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {
+func capabilityToolRequest(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {
 	requestDocument := map[string]any{
 		"toolName": toolName,
 		"input":    toolInput,
@@ -228,7 +228,7 @@ func capabilityToolRequest(toolName string, request ToolCatalogRequest, toolInpu
 			"platform":                request.Platform,
 		},
 	}
-	if shouldRequireCompanionBrowser(toolName, request, toolInput) {
+	if shouldRequireCompanionBrowser(toolContext, toolName, toolInput) {
 		requestDocument["executionMode"] = "companion"
 		requestDocument["requiresUserPresence"] = true
 		requestDocument["privacyClass"] = "user_browser"
@@ -322,7 +322,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(
 	return nil
 }
 
-func shouldRequireCompanionBrowser(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) bool {
+func shouldRequireCompanionBrowser(toolContext context.Context, toolName string, toolInput json.RawMessage) bool {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if !strings.HasPrefix(trimmedToolName, "browser.") {
 		return false
@@ -331,60 +331,12 @@ func shouldRequireCompanionBrowser(toolName string, request ToolCatalogRequest, 
 	case "browser.handoff", "browser.screenshot":
 		return true
 	}
-	return promptRequiresUserBrowser(request.Prompt) || browserFollowUpRequiresUserBrowser(request) || browserInputUsesPrivateURL(toolInput)
-}
-
-func promptRequiresUserBrowser(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return false
-	}
-	if containsAny(normalizedPrompt, []string{"브라우저 열", "브라우저 켜", "open browser", "open the browser"}) {
-		return true
-	}
-	return containsAny(normalizedPrompt, []string{
-		"로그인", "login", "sign in", "signin", "account", "계정",
-		"mfa", "2fa", "otp", "쿠키", "cookie", "세션", "session",
-		"결제", "payment", "관리자", "admin", "내 컴퓨터", "my computer",
-		"내 브라우저", "my browser", "localhost", "local url", "private network",
-		"credential", "credentials", "자격 증명", "인증 정보",
-		"google cloud console", "cloud console", "구글 클라우드 콘솔",
-	})
-}
-
-func browserFollowUpRequiresUserBrowser(request ToolCatalogRequest) bool {
-	if !looksLikeBrowserFollowUp(request.Prompt) {
-		return false
-	}
-	return visibleContextMentionsUserBrowser(request.VisibleContext)
-}
-
-func looksLikeBrowserFollowUp(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return false
-	}
-	return containsAny(normalizedPrompt, []string{
-		"다시 해", "다시 열", "다시 시도", "계속해", "진행해", "이제 연결", "연결했",
-		"try again", "open it again", "do it again", "continue", "go ahead", "connected now",
-	})
-}
-
-func visibleContextMentionsUserBrowser(visibleContext agent.VisibleContext) bool {
-	for _, message := range visibleContext.Messages {
-		text := strings.ToLower(strings.TrimSpace(message.Text))
-		if text == "" {
-			continue
-		}
-		if containsAny(text, []string{
-			"browser", "브라우저", "companion", "컴패니언", "login", "로그인",
-			"credential", "credentials", "자격 증명", "인증 정보",
-			"google cloud console", "cloud console", "구글 클라우드 콘솔",
-		}) {
+	for _, workKind := range agent.WorkKindsFromContext(toolContext) {
+		if workKind == agent.WorkKindUserBrowser {
 			return true
 		}
 	}
-	return false
+	return browserInputUsesPrivateURL(toolInput)
 }
 
 func containsAny(value string, candidates []string) bool {

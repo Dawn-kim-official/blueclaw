@@ -117,7 +117,7 @@ func TestOutcomeContractTreatsWebsiteHTMLFormatAsPublicLink(t *testing.T) {
 
 func TestOutcomeContractKeepsExplicitWebsiteHTMLFileRequest(t *testing.T) {
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘"},
+		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘", WorkKinds: []string{WorkKindSitePrototype, WorkKindFileDelivery}},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}},
 		InstructionBundle{},
 		ExecutionPlan{PublicDeploy: true},
@@ -378,7 +378,7 @@ func TestSelectedSkillToolSetKeepsGenericWebTools(t *testing.T) {
 func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "site.app.create", "site.app.publish"})
 
-	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "웹사이트 하나 만들어서 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{})
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "웹사이트 하나 만들어서 배포해줘", WorkKinds: []string{WorkKindSitePrototype}}, ExecutionPlan{}, false, OutcomeContract{})
 
 	for _, toolName := range []string{"site.app.create", "site.app.publish"} {
 		if !filteredToolSet.IsAllowed(toolName) {
@@ -390,7 +390,8 @@ func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 func TestOutcomeReferenceToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.app.create", "site.app.publish"})
 	request := AgentRequest{
-		Prompt: "다시 해봐 그럼 될 거야",
+		Prompt:    "다시 해봐 그럼 될 거야",
+		WorkKinds: []string{WorkKindSitePrototype},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
 		}},
@@ -415,7 +416,8 @@ func TestSelectedSkillToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *test
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt: "다시 해봐 그럼 될 거야",
+		Prompt:    "다시 해봐 그럼 될 거야",
+		WorkKinds: []string{WorkKindSitePrototype},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
 		}},
@@ -444,7 +446,8 @@ func TestSelectedSkillToolSetKeepsMatchingSelectedSkillToolsWhenActiveGoalWasAtt
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt: "다시 해봐",
+		Prompt:    "다시 해봐",
+		WorkKinds: []string{WorkKindSitePrototype},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "개인 홈페이지를 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.attach"},
 			RequiredAttachmentSuffixes: []string{".html"},

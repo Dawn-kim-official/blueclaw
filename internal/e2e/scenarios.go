@@ -338,6 +338,7 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 	return VirtualSessionScenario{
 		Name:                  "site_prototype_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
+		RouterWorkKinds:       []string{agent.WorkKindSitePrototype},
 		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
 		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),

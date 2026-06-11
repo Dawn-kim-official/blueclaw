@@ -420,6 +420,7 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "make site",
+		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
 		AvailableSkills: []SkillInstruction{{
 			Name:         "site-prototype",
@@ -579,6 +580,8 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "브라우저 열어줘.",
+		TaskComplexity:    TaskComplexitySimple,
+		WorkKinds:         []string{WorkKindBrowserSession},
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
@@ -611,6 +614,7 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "다시 열어봐",
+		WorkKinds:         []string{WorkKindBrowserSession},
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
@@ -741,6 +745,7 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "개인 홈페이지 만들고 배포해줘",
+		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"},
 		AvailableSkills: []SkillInstruction{{
@@ -880,6 +885,7 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "개인 홈페이지 만들고 배포해줘",
+		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"site.app.build"},
 		AvailableSkills: []SkillInstruction{{
@@ -1176,6 +1182,7 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "스크린샷 줘",
+		WorkKinds:         []string{WorkKindBrowserSession},
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {

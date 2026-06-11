@@ -1657,8 +1657,8 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_task_intake_effort": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
-				`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":"","workKinds":["calendar","destructive_action"]}`,
+				`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","workKinds":["calendar"]}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
@@ -1740,7 +1740,7 @@ func TestConnectorRuntimeHandlesDeterministicConfirmationReplyBeforeRouter(t *te
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_task_intake_effort": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":"","workKinds":["calendar","destructive_action"]}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
@@ -1803,7 +1803,7 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_task_intake_effort": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":"","workKinds":["calendar","destructive_action"]}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
@@ -1855,17 +1855,17 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_task_intake_effort": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+			"blueclaw_turn_router": {
+				`{"route":"start_task","classification":"bounded_task","taskShape":"approval_gated_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":"","workKinds":["calendar","destructive_action"]}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"expectedResults":[{"id":"final-message","type":"message","description":"삭제 대상 정정 요청 처리 결과","required":true}],"responseLanguage":"ko","reason":"user replaced the pending confirmation with a different message deletion target","userFacingReply":"","approval":"unclear","workKinds":["destructive_action"]}`,
+				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"corrected deletion target runs as new bounded work","userFacingReply":"","workKinds":["destructive_action"]}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
+				`{"originalInstruction":"가사랍시고 보낸 메시지를 삭제해줘","summary":"정정된 삭제 대상을 처리합니다.","targets":["platform message"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"정정된 삭제 대상을 처리합니다."}`,
 			},
 			"blueclaw_confirmation_message": {
 				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
-			},
-			"blueclaw_turn_router": {
-				`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"expectedResults":[{"id":"final-message","type":"message","description":"삭제 대상 정정 요청 처리 결과","required":true}],"responseLanguage":"ko","reason":"user replaced the pending confirmation with a different message deletion target","userFacingReply":"","approval":"unclear"}`,
 			},
 		},
 		ActionResponses: []string{
@@ -1895,7 +1895,7 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 		t.Fatalf("expected pending confirmation revision to process: %v", errorValue)
 	}
 	if secondResult.TaskRunID == "" || secondResult.TaskRunID == firstResult.TaskRunID {
-		t.Fatalf("expected corrected request to launch a replacement task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
+		t.Fatalf("expected corrected request to launch a replacement task, got first=%q second=%q result=%+v", firstResult.TaskRunID, secondResult.TaskRunID, secondResult)
 	}
 	if len(adapter.resolutions) != 1 || adapter.resolutions[0].DispatchID != "dispatch-1" {
 		t.Fatalf("expected pending confirmation attachment to resolve, got %+v", adapter.resolutions)
@@ -1934,7 +1934,7 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_task_intake_effort": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":"","workKinds":["calendar","destructive_action"]}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
@@ -1978,9 +1978,17 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeIgnoresBareConfirmationReplyWithoutPendingTask(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{})
+func TestConnectorRuntimeConsumesBareConfirmationReplyWithoutPendingTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"consume","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"orphan approval acknowledgement","userFacingReply":"","reactionEmojiName":"ok_hand"}`,
+			},
+		},
+	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 
 	event := testInboundEvent("message-approved")
 	event.Prompt = "approved"
@@ -1988,10 +1996,13 @@ func TestConnectorRuntimeIgnoresBareConfirmationReplyWithoutPendingTask(t *testi
 	if errorValue != nil {
 		t.Fatalf("expected orphan approval reply to process: %v", errorValue)
 	}
-	if !result.Ignored || result.Reason != "confirmation_no_pending_task" {
-		t.Fatalf("expected orphan approval to be consumed, got %+v", result)
+	if result.Reason != "consume_reacted" {
+		t.Fatalf("expected orphan approval to be consumed via router, got %+v", result)
 	}
-	if len(languageModel.Requests()) != 0 {
+	if !connectorContainsSchemaName(languageModel.Requests(), "blueclaw_turn_router") {
+		t.Fatalf("expected router classification, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+	if connectorContainsSchemaName(languageModel.Requests(), "blueclaw_agent_turn_action") {
 		t.Fatalf("orphan approval must not launch an agent turn, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
 	if len(adapter.sentReplies) != 0 {
@@ -2003,7 +2014,7 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_task_intake_effort": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"business plan needs enough detail","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"business plan needs enough detail","userFacingReply":"","workKinds":["external_send"]}`,
 				`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"continue active goal","userFacingReply":""}`,
 			},
 			"blueclaw_execution_plan": {
@@ -2078,8 +2089,8 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_task_intake_effort": {
-				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"dm needs message","userFacingReply":""}`,
-				`{"classification":"bounded_task","taskShape":"calendar_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"new calendar request","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"dm needs message","userFacingReply":"","workKinds":["external_send"]}`,
+				`{"classification":"bounded_task","taskShape":"calendar_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","route":"start_task","reason":"new calendar request","userFacingReply":"","workKinds":["calendar"]}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"동하에게 DM 보내줘","summary":"동하에게 DM을 보냅니다.","targets":["동하"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":true,"thirdPartyExternalSend":true,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":["보낼 메시지"],"continuationInstruction":"동하에게 DM을 보냅니다."}`,
@@ -2131,7 +2142,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	invokedTools := []string{}
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{"blueclaw_task_intake_effort": {
-			`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
+			`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":"","workKinds":["calendar"]}`,
 		}},
 		ActionResponses: []string{
 			`{"action":"continue","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
