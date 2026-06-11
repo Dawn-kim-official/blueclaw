@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -574,10 +575,17 @@ func normalizeBusyRoute(busyRoute BusyRoute, turnRoute TurnRoute, request AgentR
 
 func pendingChoiceKeys(pendingChoice PendingChoiceContext) []string {
 	keys := []string{}
-	for _, option := range pendingChoice.Options {
+	seenKeys := map[string]bool{}
+	for index, option := range pendingChoice.Options {
 		key := strings.TrimSpace(option.Key)
-		if key != "" {
+		if key != "" && !seenKeys[key] {
 			keys = append(keys, key)
+			seenKeys[key] = true
+		}
+		indexKey := strconv.Itoa(index + 1)
+		if !seenKeys[indexKey] {
+			keys = append(keys, indexKey)
+			seenKeys[indexKey] = true
 		}
 	}
 	return keys
@@ -615,8 +623,8 @@ func turnRoutingContextDescription(request AgentRequest) string {
 	}
 	if strings.TrimSpace(request.PendingChoice.TaskRunID) != "" {
 		optionLines := []string{}
-		for _, option := range request.PendingChoice.Options {
-			optionLines = append(optionLines, strings.TrimSpace(option.Key)+" / "+strings.TrimSpace(option.Label))
+		for index, option := range request.PendingChoice.Options {
+			optionLines = append(optionLines, strconv.Itoa(index+1)+". "+strings.TrimSpace(option.Label)+" / key "+strings.TrimSpace(option.Key))
 		}
 		lines = append(lines,
 			"Pending choice:",
@@ -826,16 +834,21 @@ func normalizeChoiceSelections(selections []string, pendingChoice PendingChoiceC
 		return nil
 	}
 	validChoices := map[string]bool{}
-	for _, option := range pendingChoice.Options {
+	choiceByIndex := map[string]string{}
+	for index, option := range pendingChoice.Options {
 		key := strings.TrimSpace(option.Key)
 		if key != "" {
 			validChoices[key] = true
+			choiceByIndex[strconv.Itoa(index+1)] = key
 		}
 	}
 	normalizedChoices := []string{}
 	seenChoices := map[string]bool{}
 	for _, selection := range selections {
 		normalizedSelection := strings.TrimSpace(selection)
+		if indexedSelection, isFound := choiceByIndex[normalizedSelection]; isFound {
+			normalizedSelection = indexedSelection
+		}
 		if !validChoices[normalizedSelection] || seenChoices[normalizedSelection] {
 			continue
 		}

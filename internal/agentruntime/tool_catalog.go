@@ -153,10 +153,10 @@ type askConfirmToolInput struct {
 }
 
 type askChoiceToolInput struct {
-	Question             string            `json:"question"`
-	Options              []askChoiceOption `json:"options"`
-	RecommendedOptionKey string            `json:"recommendedOptionKey"`
-	SelectionMode        string            `json:"selectionMode"`
+	Question             string   `json:"question"`
+	Options              []string `json:"options"`
+	RecommendedOptionKey string   `json:"recommendedOptionKey"`
+	SelectionMode        string   `json:"selectionMode"`
 }
 
 type askChoiceOption struct {
@@ -475,7 +475,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 			Definition: agent.ToolDefinition{
 				Name:        "ask.choice",
 				Description: "Pause the current task and ask the user to choose from explicit options. Always include exactly one recommendedOptionKey. Use selectionMode single or multiple.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"value":{"type":"string"}},"required":["label"]}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"]}`),
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"]}`),
 			},
 			Handler: toolCatalogBuilder.askChoiceTool,
 			Result:  agent.IdentityToolResult,
@@ -2329,31 +2329,20 @@ func normalizeAskChoiceRequest(input askChoiceToolInput, responseLanguage string
 	}, nil
 }
 
-func normalizedAskChoiceOptions(options []askChoiceOption) []askChoiceOption {
+func normalizedAskChoiceOptions(options []string) []askChoiceOption {
 	normalizedOptions := []askChoiceOption{}
 	for index, option := range options {
-		label := strings.TrimSpace(option.Label)
+		label := strings.TrimSpace(option)
 		if label == "" {
 			continue
 		}
-		key := strings.TrimSpace(option.Key)
-		if key == "" {
-			key = askChoiceKey(index)
-		}
-		value := strings.TrimSpace(option.Value)
-		if value == "" {
-			value = label
-		}
-		normalizedOptions = append(normalizedOptions, askChoiceOption{Key: key, Label: label, Value: value})
+		normalizedOptions = append(normalizedOptions, askChoiceOption{Key: askChoiceKey(index), Label: label, Value: label})
 	}
 	return normalizedOptions
 }
 
 func askChoiceKey(index int) string {
-	if index >= 0 && index < 26 {
-		return string(rune('A' + index))
-	}
-	return fmt.Sprintf("O%d", index+1)
+	return fmt.Sprintf("%d", index+1)
 }
 
 func askChoiceOptionKeyExists(options []askChoiceOption, key string) bool {

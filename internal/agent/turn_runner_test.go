@@ -2117,9 +2117,9 @@ func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMa
 
 func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"set_quality_criteria","qualityCriteria":[{"id":"done-once","description":"criteria are declared","required":true}],"goalStatus":"in_progress","goalSatisfied":false}`,
+		`{"action":"set_quality_criteria","qualityCriteria":["done once: criteria are declared"],"goalStatus":"in_progress","goalSatisfied":false}`,
 		`{"action":"continue","toolName":"alpha","toolInput":{}}`,
-		`{"action":"finish","message":"done","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"alpha"}],"qualityReview":[{"id":"done-once","passed":true,"evidence":[{"observationID":"obs-002","toolName":"alpha"}]}]}`,
+		`{"action":"finish","message":"done","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-002"],"qualityReview":[{"id":"done-once-criteria-are-declared","passed":true,"evidenceIDs":["obs-002"]}]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"alpha"})
@@ -2153,9 +2153,9 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 
 func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityReview(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"set_quality_criteria","qualityCriteria":[{"id":"visual-review","description":"review the artifact","required":true}],"goalStatus":"in_progress","goalSatisfied":false}`,
+		`{"action":"set_quality_criteria","qualityCriteria":["visual review: review the artifact"],"goalStatus":"in_progress","goalSatisfied":false}`,
 		`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish with the public URL","expectedTools":[],"expectedNextResults":["public URL"],"doneCriteria":["public URL is available"],"risk":"none","workingSetReason":"publish satisfies the link expected result"}}`,
-		`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"site.app.publish"}]}`,
+		`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-002"]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestToolSet([]string{"site.app.publish"})

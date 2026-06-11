@@ -20,12 +20,9 @@ func TestQualityReviewGuidanceDoesNotBlockCompletion(t *testing.T) {
 }
 
 func TestQualityReviewRequiresPassingEvidence(t *testing.T) {
-	criteria := normalizeQualityCriteria([]qualityCriterion{{
-		ID:          "original-request",
-		Description: "Original request is preserved.",
-	}})
+	criteria := normalizeQualityCriteria([]string{"Original request is preserved."})
 	review := []qualityReviewItem{{
-		ID:       "original-request",
+		ID:       "original-request-is-preserved",
 		Passed:   true,
 		Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "terminal.run"}},
 	}}
@@ -42,12 +39,9 @@ func TestQualityReviewRequiresPassingEvidence(t *testing.T) {
 }
 
 func TestQualityReviewRejectsFailedCriterion(t *testing.T) {
-	criteria := normalizeQualityCriteria([]qualityCriterion{{
-		ID:          "formats",
-		Description: "All requested formats are attached.",
-	}})
+	criteria := normalizeQualityCriteria([]string{"All requested formats are attached."})
 	review := []qualityReviewItem{{
-		ID:       "formats",
+		ID:       "all-requested-formats-are-attached",
 		Passed:   false,
 		Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach"}},
 	}}
@@ -64,12 +58,9 @@ func TestQualityReviewRejectsFailedCriterion(t *testing.T) {
 }
 
 func TestQualityReviewRejectsMissingEvidence(t *testing.T) {
-	criteria := normalizeQualityCriteria([]qualityCriterion{{
-		ID:          "design",
-		Description: "DESIGN.md is reflected in final artifacts.",
-	}})
+	criteria := normalizeQualityCriteria([]string{"DESIGN.md is reflected in final artifacts."})
 	review := []qualityReviewItem{{
-		ID:     "design",
+		ID:     "design-md-is-reflected-in-final-artifacts",
 		Passed: true,
 	}}
 
@@ -79,17 +70,14 @@ func TestQualityReviewRejectsMissingEvidence(t *testing.T) {
 }
 
 func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testing.T) {
-	criteria := normalizeQualityCriteria([]qualityCriterion{{
-		ID:          "business-plan",
-		Description: "Business plan sample is complete.",
-	}})
+	criteria := normalizeQualityCriteria([]string{"Business plan sample is complete."})
 	actionDocument := turnActionDocument{
 		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
 		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.app.create"}},
 		QualityReview: []qualityReviewItem{{
-			ID:       "business-plan",
+			ID:       "business-plan-sample-is-complete",
 			Passed:   false,
 			Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "site.app.create"}},
 		}},
@@ -110,10 +98,7 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 }
 
 func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
-	criteria := normalizeQualityCriteria([]qualityCriterion{{
-		ID:          "artifact-delivered",
-		Description: "HTML artifact is attached.",
-	}})
+	criteria := normalizeQualityCriteria([]string{"HTML artifact is attached."})
 	evidence := []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach", AttachmentIndex: intPointer(0)}}
 	actionDocument := turnActionDocument{
 		Action:             "finish",
@@ -121,7 +106,7 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 		GoalSatisfied:      boolPointer(true),
 		CompletionEvidence: evidence,
 		QualityReview: []qualityReviewItem{{
-			ID:       "artifact-delivered",
+			ID:       "html-artifact-is-attached",
 			Passed:   true,
 			Evidence: evidence,
 		}},

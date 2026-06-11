@@ -245,6 +245,7 @@ func ParseAgentActionResponse(response llm.StructuredResponse) (agentAction, err
 }
 
 func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument {
+	actionDocument = normalizeParsedEvidence(actionDocument)
 	action := strings.TrimSpace(actionDocument.Action)
 	switch action {
 	case "continue":
@@ -255,6 +256,33 @@ func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument
 		actionDocument.Action = action
 	}
 	return actionDocument
+}
+
+func normalizeParsedEvidence(actionDocument turnActionDocument) turnActionDocument {
+	if len(actionDocument.CompletionEvidence) == 0 {
+		actionDocument.CompletionEvidence = evidenceReferencesFromIDs(actionDocument.CompletionEvidenceIDs)
+	}
+	for index, item := range actionDocument.QualityReview {
+		if len(item.Evidence) == 0 {
+			item.Evidence = evidenceReferencesFromIDs(item.EvidenceIDs)
+			actionDocument.QualityReview[index] = item
+		}
+	}
+	return actionDocument
+}
+
+func evidenceReferencesFromIDs(values []string) []completionEvidenceReference {
+	references := []completionEvidenceReference{}
+	seenReferences := map[string]bool{}
+	for _, value := range values {
+		observationID := strings.TrimSpace(value)
+		if observationID == "" || seenReferences[observationID] {
+			continue
+		}
+		seenReferences[observationID] = true
+		references = append(references, completionEvidenceReference{ObservationID: observationID})
+	}
+	return references
 }
 
 func DecideAgentAction(ctx context.Context, languageModel llm.LanguageModelProvider, state agentTaskState) (agentAction, error) {

@@ -12,7 +12,7 @@ type QualityState struct {
 	Review   []qualityReviewItem `json:"review,omitempty"`
 }
 
-func normalizeQualityCriteria(criteria []qualityCriterion) []qualityCriterion {
+func normalizeQualityCriteria(criteria []string) []qualityCriterion {
 	normalizedCriteria := []qualityCriterion{}
 	seenCriterion := map[string]bool{}
 	for index, criterion := range criteria {
@@ -26,9 +26,9 @@ func normalizeQualityCriteria(criteria []qualityCriterion) []qualityCriterion {
 	return normalizedCriteria
 }
 
-func normalizeQualityCriterion(criterion qualityCriterion, index int) qualityCriterion {
-	id := normalizedQualityID(criterion.ID)
-	description := strings.TrimSpace(criterion.Description)
+func normalizeQualityCriterion(criterion string, index int) qualityCriterion {
+	description := strings.TrimSpace(criterion)
+	id := normalizedQualityID(description)
 	if id == "" {
 		id = "criterion-" + strconv.Itoa(index)
 	}

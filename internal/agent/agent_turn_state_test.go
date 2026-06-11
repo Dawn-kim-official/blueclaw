@@ -69,7 +69,7 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	}
 	finishVariant := actionSchemaVariant(t, request.StructuredOutputSchema.Document, "finish")
 	requiredFields := stringSliceFromAny(finishVariant["required"])
-	for _, fieldName := range []string{"message", "completionEvidence", "qualityReview", "executionStateUpdate"} {
+	for _, fieldName := range []string{"message", "completionEvidenceIDs", "qualityReview", "executionStateUpdate"} {
 		if !containsString(requiredFields, fieldName) {
 			t.Fatalf("expected finish schema to require %s, got %+v", fieldName, requiredFields)
 		}
@@ -146,12 +146,25 @@ func TestBuildAgentActionRequestIncludesApprovalUserFacingContract(t *testing.T)
 }
 
 func TestParseAgentActionResponseUsesReplyPartsForFinishMessage(t *testing.T) {
-	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"summary","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"qualityReview":[]}`})
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"summary","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[]}`})
 	if errorValue != nil {
 		t.Fatalf("expected parsed action: %v", errorValue)
 	}
 	if action.Action != "finish" || finishActionMessage(action) != "done" {
 		t.Fatalf("expected replyParts to provide finish message, got %+v", action)
+	}
+}
+
+func TestParseAgentActionResponseExpandsShallowEvidenceIDs(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"done","passed":true,"evidenceIDs":["obs-001"]}]}`})
+	if errorValue != nil {
+		t.Fatalf("expected parsed action: %v", errorValue)
+	}
+	if len(action.CompletionEvidence) != 1 || action.CompletionEvidence[0].ObservationID != "obs-001" {
+		t.Fatalf("expected completion evidence IDs to expand, got %+v", action.CompletionEvidence)
+	}
+	if len(action.QualityReview) != 1 || len(action.QualityReview[0].Evidence) != 1 || action.QualityReview[0].Evidence[0].ObservationID != "obs-001" {
+		t.Fatalf("expected quality review evidence IDs to expand, got %+v", action.QualityReview)
 	}
 }
 

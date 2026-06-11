@@ -140,6 +140,26 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	}
 }
 
+func TestAskChoiceReplyAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), AskChoiceReplyAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected ask choice reply acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turns, got %+v", result)
+	}
+}
+
+func TestAskConfirmReplyAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), AskConfirmReplyAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected ask confirm reply acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turns, got %+v", result)
+	}
+}
+
 func TestAttachmentMaterialRead(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), AttachmentMaterialReadScenario(t.TempDir()))
 	if errorValue != nil {
