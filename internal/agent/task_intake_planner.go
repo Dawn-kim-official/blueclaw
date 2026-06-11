@@ -353,7 +353,6 @@ func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDec
 		EffortLevel:               LargerEffortLevel(effortLevel, minimumEffortLevelForRequest(request)),
 		Reason:                    reason,
 		ResponseLanguage:          responseLanguage,
-		UserFacingReply:           defaultUserFacingReplyForLanguage(classification, responseLanguage),
 		UsedDeterministicFallback: true,
 	}
 }
@@ -436,9 +435,6 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	decision.ResponseLanguage = resolveDecisionResponseLanguage(decision.ResponseLanguage, request.ResponseLanguage)
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
-	}
-	if strings.TrimSpace(decision.UserFacingReply) == "" {
-		decision.UserFacingReply = defaultUserFacingReplyForLanguage(decision.Classification, decision.ResponseLanguage)
 	}
 	return decision
 }
@@ -939,17 +935,6 @@ func turnRouterPromptLooksIndependent(prompt string) bool {
 		"검색", "찾아", "조사", "작성", "만들", "수정", "삭제", "배포", "열어",
 		"calendar", "meeting", "remind", "schedule", "send", "email", "search", "write", "create", "delete", "deploy",
 	})
-}
-
-func defaultUserFacingReply(classification IntakeClassification) string {
-	switch classification {
-	case IntakeClassificationNeedsConfirmation:
-		return "This looks too large for one bounded run. Please confirm a narrower scope or split it into smaller steps."
-	case IntakeClassificationUnsupported:
-		return "I cannot safely complete that within the current execution boundary. Please narrow the request."
-	default:
-		return ""
-	}
 }
 
 func looksLikeToolRequest(prompt string) bool {

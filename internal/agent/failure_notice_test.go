@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"blueclaw/internal/llm"
 )
 
 func TestFailureNoticeSendabilityAllowsPublicURLAndNaturalEllipsis(t *testing.T) {
@@ -77,5 +80,72 @@ func TestFinishMessageCompressionPromptUsesMattermostBudget(t *testing.T) {
 
 	if !strings.Contains(prompt, "Maximum characters: 1200") {
 		t.Fatalf("expected Mattermost finish budget, got %q", prompt)
+	}
+}
+
+type staticReplyLanguageModel struct {
+	reply string
+}
+
+func (model staticReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return model.reply, nil
+}
+
+func (model staticReplyLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{}, errors.New("structured response unsupported")
+}
+
+func TestIntakeNoticeGeneratorUsesGeneratedReply(t *testing.T) {
+	generator := FailureNoticeGenerator{LanguageModel: staticReplyLanguageModel{reply: "요청 범위가 한 번에 처리하기에 커서 더 좁혀주시면 진행할게요."}}
+
+	notice := generator.GenerateIntakeNotice(context.Background(), IntakeReport{
+		Classification:   IntakeClassificationNeedsConfirmation,
+		Reason:           "request appears too large for one bounded execution",
+		OriginalRequest:  "회사 전체 데이터를 다 정리해줘",
+		ResponseLanguage: ResponseLanguageKorean,
+	})
+
+	if notice.Source != "generated" || !notice.IsSendable {
+		t.Fatalf("expected generated sendable notice, got %+v", notice)
+	}
+	if !strings.Contains(notice.Message, "좁혀주시면") {
+		t.Fatalf("expected model wording, got %q", notice.Message)
+	}
+}
+
+func TestIntakeNoticeGeneratorFallsBackToReasonWhenModelFails(t *testing.T) {
+	generator := FailureNoticeGenerator{LanguageModel: failingLanguageModel{}}
+
+	notice := generator.GenerateIntakeNotice(context.Background(), IntakeReport{
+		Classification:   IntakeClassificationUnsupported,
+		Reason:           "request is outside the available execution boundary",
+		ResponseLanguage: ResponseLanguageKorean,
+	})
+
+	if notice.Source != "raw_error" {
+		t.Fatalf("expected raw error fallback, got %+v", notice)
+	}
+	if !strings.Contains(notice.Message, "execution boundary") {
+		t.Fatalf("expected compact reason summary, got %q", notice.Message)
+	}
+	if notice.SendableMessage() == "" {
+		t.Fatalf("expected fallback notice to be sendable")
+	}
+}
+
+func TestIntakeNoticePromptCarriesClassificationIntent(t *testing.T) {
+	report := normalizeFailureReport(FailureReport{
+		Phase:            "task_intake",
+		StopReason:       "request appears too large for one bounded execution",
+		ResponseLanguage: ResponseLanguageKorean,
+	})
+
+	prompt := buildIntakeNoticePrompt(IntakeClassificationNeedsConfirmation, report)
+
+	if !strings.Contains(prompt, "confirm a narrower scope") {
+		t.Fatalf("expected needs-confirmation intent, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "Compact intake context") {
+		t.Fatalf("expected compact intake context, got %q", prompt)
 	}
 }
