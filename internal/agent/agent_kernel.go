@@ -220,6 +220,46 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 	})
 }
 
+func (agentKernel *AgentKernel) CompleteLaunchFailure(responseContext context.Context, request AgentTurnRequest, phase string, stepName string, errorValue error) AgentTurnResult {
+	taskRun, createError := agentKernel.taskRunForLaunchFailure(request)
+	reason := firstNonEmptyString(errorString(errorValue), errorString(createError))
+	if createError != nil {
+		reason = strings.TrimSpace(reason + "; task_run_create=" + createError.Error())
+	}
+	failedTaskRun, failError := agentKernel.taskRunService.FailTaskRun(taskRun.TaskRunID, reason)
+	if failError != nil {
+		taskRun.Status = task.TaskStatusFailed
+		taskRun.FailureReason = firstNonEmptyString(reason, failError.Error())
+		failedTaskRun = taskRun
+	}
+	failureNotice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentKernel.languageModel}).Generate(responseContext, FailureReport{
+		Phase:              phase,
+		StepName:           stepName,
+		StopReason:         reason,
+		SafeFailureSummary: reason,
+		RawError:           reason,
+		OriginalRequest:    request.Prompt,
+		ResponseLanguage:   request.ResponseLanguage,
+		DiagnosticEventID:  diagnosticEventID(request, taskRun.TaskRunID, phase),
+	})
+	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.failure_reply", marshalEventBody(noticeStatus))
+	failedTaskRun.Result = failureNotice.SendableMessage()
+	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: failedTaskRun.Result, FailureNotice: failureNotice, ToolNames: toolNamesForEvent(request.ToolSet)}
+}
+
+func (agentKernel *AgentKernel) taskRunForLaunchFailure(request AgentTurnRequest) (task.TaskRun, error) {
+	if taskRunID := strings.TrimSpace(request.ExistingTaskRunID); taskRunID != "" {
+		if taskRun, isFound := agentKernel.taskRunService.FindTaskRun(taskRunID); isFound {
+			return taskRun, nil
+		}
+	}
+	return agentKernel.taskRunService.CreateTaskRunWithOriginAndError(request.RequesterPersonID, task.TaskRunOrigin{
+		ConversationID: request.ConversationID,
+		ReplyTargetID:  request.OriginReplyTargetID,
+		IsThread:       request.OriginIsThread,
+	}, request.Prompt)
+}
+
 func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, request AgentRequest) TurnDecision {
 	return NewTurnRouter(agentKernel.intakeLanguageModel, agentKernel.intakeOptions).Plan(responseContext, request)
 }

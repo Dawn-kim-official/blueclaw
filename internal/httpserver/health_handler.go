@@ -107,7 +107,7 @@ func healthFailureReasons(response healthResponse) []string {
 		failureReasons = append(failureReasons, "postgres database is not reachable")
 	}
 	if !response.Database.SchemaValid {
-		failureReasons = append(failureReasons, "connector database schema is not valid")
+		failureReasons = append(failureReasons, "database schema is not valid")
 	}
 	if !response.Connector.Passed {
 		failureReasons = append(failureReasons, "connector runtime is not healthy")

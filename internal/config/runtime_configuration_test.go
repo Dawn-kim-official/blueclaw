@@ -57,7 +57,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
   "database": {
     "driver": "postgres",
     "connectionString": "postgres://blueclaw@/blueclaw?host=/var/run/postgresql&sslmode=disable",
-    "migrationDirectoryPath": "/workspace/.blueclaw/migrations"
+    "migrationDirectoryPath": "/workspace/.blueclaw/runtime/current/migrations"
   },
   "memory": {
     "workspaceID": "acme",
@@ -185,7 +185,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Database.Driver != "postgres" {
 		t.Fatalf("expected database driver to match, got %q", runtimeConfiguration.Database.Driver)
 	}
-	if runtimeConfiguration.Database.MigrationDirectoryPath != "/workspace/.blueclaw/migrations" {
+	if runtimeConfiguration.Database.MigrationDirectoryPath != "/workspace/.blueclaw/runtime/current/migrations" {
 		t.Fatalf("expected migration directory to match, got %q", runtimeConfiguration.Database.MigrationDirectoryPath)
 	}
 	if runtimeConfiguration.Memory.WorkspaceID != "acme" {

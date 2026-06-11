@@ -176,7 +176,7 @@ func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T
 		"default": {"mattermost.post.delete"},
 	}, nil)
 
-	_, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
+	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
 		Source:            TaskLaunchSourceConnector,
 		SourceReference:   "mattermost:post-1",
 		RequesterPersonID: "person-1",
@@ -185,11 +185,18 @@ func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T
 		Prompt:            "너가 보낸 메시지 삭제해줘",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
 	})
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "runtime_registry_mismatch") {
-		t.Fatalf("expected runtime registry mismatch, got %v", errorValue)
+	if errorValue != nil {
+		t.Fatalf("expected registry mismatch to return failed task result: %v", errorValue)
 	}
-	if len(taskEventService.ListTaskEvent("")) != 0 {
-		t.Fatalf("expected no task events for pre-model registry mismatch")
+	if launchResult.TurnResult.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task, got %+v", launchResult.TurnResult.TaskRun)
+	}
+	if !strings.Contains(launchResult.TurnResult.FailureNotice.SendableMessage(), "runtime_registry_mismatch") {
+		t.Fatalf("expected raw registry mismatch notice, got %+v", launchResult.TurnResult.FailureNotice)
+	}
+	taskEvents := taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID)
+	if !containsTaskEvent(taskEvents, "agent.launch_step.error") {
+		t.Fatalf("expected launch step error event, got %+v", taskEvents)
 	}
 }
 

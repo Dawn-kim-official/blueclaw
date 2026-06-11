@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -45,6 +46,29 @@ func TestFailureNoticePromptUsesCompactContextOnly(t *testing.T) {
 	}
 	if strings.Contains(prompt, "VisibleContext") || strings.Contains(prompt, "Messages") {
 		t.Fatalf("expected prompt to avoid full visible history references, got %q", prompt)
+	}
+}
+
+func TestFailureNoticeGeneratorFallsBackToRedactedRawError(t *testing.T) {
+	notice, status := (FailureNoticeGenerator{LanguageModel: failingLanguageModel{}}).Generate(context.Background(), FailureReport{
+		Phase:             "launch",
+		StepName:          "audit_tool_registry",
+		RawError:          "runtime_registry_mismatch token=secret-token Authorization: Bearer sk-testsecret123",
+		ResponseLanguage:  "ko",
+		DiagnosticEventID: "task-1:launch",
+	})
+
+	if status.Source != "raw_error" || notice.Source != "raw_error" {
+		t.Fatalf("expected raw error source, got status=%+v notice=%+v", status, notice)
+	}
+	if !strings.Contains(notice.Message, "runtime_registry_mismatch") {
+		t.Fatalf("expected raw failure detail, got %q", notice.Message)
+	}
+	if strings.Contains(notice.Message, "secret-token") || strings.Contains(notice.Message, "sk-testsecret123") {
+		t.Fatalf("expected secrets to be redacted, got %q", notice.Message)
+	}
+	if notice.SendableMessage() == "" {
+		t.Fatalf("expected raw error notice to be sendable")
 	}
 }
 

@@ -10,6 +10,11 @@ import (
 
 const RequiredConnectorMigrationFileName = "013_connector_queue.sql"
 
+var requiredMigrationFileNames = []string{
+	RequiredConnectorMigrationFileName,
+	"024_task_attempt.sql",
+}
+
 type ConnectorDeliveryBacklog struct {
 	RawEventPendingCount int `json:"rawEventPendingCount"`
 	RawEventRunningCount int `json:"rawEventRunningCount"`
@@ -25,12 +30,20 @@ func ValidateConnectorMigrationDirectory(migrationRunner MigrationRunner) error 
 	if len(migrationPaths) == 0 {
 		return errors.New("blueclaw migration directory is empty")
 	}
+	foundMigrationFileNames := map[string]bool{}
 	for _, migrationPath := range migrationPaths {
-		if filepath.Base(migrationPath) == RequiredConnectorMigrationFileName {
-			return nil
+		foundMigrationFileNames[filepath.Base(migrationPath)] = true
+	}
+	missingMigrationFileNames := []string{}
+	for _, fileName := range requiredMigrationFileNames {
+		if !foundMigrationFileNames[fileName] {
+			missingMigrationFileNames = append(missingMigrationFileNames, fileName)
 		}
 	}
-	return errors.New("blueclaw connector migration is missing: " + RequiredConnectorMigrationFileName)
+	if len(missingMigrationFileNames) > 0 {
+		return errors.New("blueclaw migrations are missing: " + strings.Join(missingMigrationFileNames, ", "))
+	}
+	return nil
 }
 
 func ValidateConnectorDeliverySchema(ctx context.Context, database Database) error {
@@ -43,7 +56,20 @@ func ValidateConnectorDeliverySchema(ctx context.Context, database Database) err
 	if errorValue := validateRawEventConnectorColumns(ctx, database.SQL); errorValue != nil {
 		return errorValue
 	}
-	return validateConnectorOutboxTable(ctx, database.SQL)
+	if errorValue := validateConnectorOutboxTable(ctx, database.SQL); errorValue != nil {
+		return errorValue
+	}
+	return ValidateTaskAttemptSchema(ctx, database)
+}
+
+func ValidateTaskAttemptSchema(ctx context.Context, database Database) error {
+	if database.SQL == nil {
+		return errors.New("postgres database is not open")
+	}
+	if errorValue := validateTaskRunAttemptColumns(ctx, database.SQL); errorValue != nil {
+		return errorValue
+	}
+	return validateTaskAttemptTable(ctx, database.SQL)
 }
 
 func QueryConnectorDeliveryBacklog(ctx context.Context, database Database) (ConnectorDeliveryBacklog, error) {
@@ -122,6 +148,54 @@ func validateConnectorOutboxTable(ctx context.Context, database *sql.DB) error {
 	}
 	if !tableName.Valid || strings.TrimSpace(tableName.String) == "" {
 		return errors.New("connector_outbox table is missing")
+	}
+	return nil
+}
+
+func validateTaskRunAttemptColumns(ctx context.Context, database *sql.DB) error {
+	requiredColumns := []string{"current_attempt_id"}
+	rows, errorValue := database.QueryContext(ctx, `
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'task_run'
+  AND column_name IN ('current_attempt_id')`)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer rows.Close()
+
+	foundColumns := map[string]bool{}
+	for rows.Next() {
+		var columnName string
+		if errorValue := rows.Scan(&columnName); errorValue != nil {
+			return errorValue
+		}
+		foundColumns[columnName] = true
+	}
+	if errorValue := rows.Err(); errorValue != nil {
+		return errorValue
+	}
+	missingColumns := []string{}
+	for _, columnName := range requiredColumns {
+		if !foundColumns[columnName] {
+			missingColumns = append(missingColumns, columnName)
+		}
+	}
+	if len(missingColumns) > 0 {
+		return errors.New("task_run attempt columns are missing: " + strings.Join(missingColumns, ", "))
+	}
+	return nil
+}
+
+func validateTaskAttemptTable(ctx context.Context, database *sql.DB) error {
+	var tableName sql.NullString
+	errorValue := database.QueryRowContext(ctx, "SELECT to_regclass('public.task_attempt')::text").Scan(&tableName)
+	if errorValue != nil {
+		return errorValue
+	}
+	if !tableName.Valid || strings.TrimSpace(tableName.String) == "" {
+		return errors.New("task_attempt table is missing")
 	}
 	return nil
 }

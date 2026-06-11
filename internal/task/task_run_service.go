@@ -73,6 +73,11 @@ func (taskRunService *TaskRunService) CreateTaskRun(requesterPersonID string, or
 }
 
 func (taskRunService *TaskRunService) CreateTaskRunWithOrigin(requesterPersonID string, origin TaskRunOrigin, prompt string) TaskRun {
+	taskRun, _ := taskRunService.CreateTaskRunWithOriginAndError(requesterPersonID, origin, prompt)
+	return taskRun
+}
+
+func (taskRunService *TaskRunService) CreateTaskRunWithOriginAndError(requesterPersonID string, origin TaskRunOrigin, prompt string) (TaskRun, error) {
 	taskRun := TaskRun{
 		TaskRunID:            newIdentifier(),
 		RequesterPersonID:    requesterPersonID,
@@ -88,14 +93,22 @@ func (taskRunService *TaskRunService) CreateTaskRunWithOrigin(requesterPersonID 
 	taskRunService.mutex.Lock()
 	taskRunService.taskRuns[taskRun.TaskRunID] = taskRun
 	taskRunService.mutex.Unlock()
-	_ = taskRunService.saveTaskRun(taskRun)
+	if errorValue := taskRunService.saveTaskRun(taskRun); errorValue != nil {
+		return taskRun, errorValue
+	}
 
-	taskRunService.taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.created", prompt)
-	return taskRun
+	if _, errorValue := taskRunService.taskEventService.AppendTaskEventWithError(taskRun.TaskRunID, "task.created", prompt); errorValue != nil {
+		return taskRun, errorValue
+	}
+	return taskRun, nil
 }
 
 func (taskRunService *TaskRunService) AppendTaskEvent(taskRunID string, name string, body string) {
 	taskRunService.taskEventService.AppendTaskEvent(taskRunID, name, body)
+}
+
+func (taskRunService *TaskRunService) AppendTaskEventWithError(taskRunID string, name string, body string) (TaskEvent, error) {
+	return taskRunService.taskEventService.AppendTaskEventWithError(taskRunID, name, body)
 }
 
 func (taskRunService *TaskRunService) RegisterTaskRunCancel(taskRunID string, cancelFunction context.CancelFunc) func() {

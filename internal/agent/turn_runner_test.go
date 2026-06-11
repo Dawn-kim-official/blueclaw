@@ -117,6 +117,36 @@ func TestAgentTurnRunnerAppliesPendingSteeringEvent(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerFailsWhenAttemptStartFails(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("should not run")}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	services.taskRunService.UseRepository(failingAttemptStartRepository{errorValue: errors.New("attempt store unavailable token=secret-value")})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "do it",
+		ResponseLanguage:  "ko",
+		ToolSet:           newTestToolSet(nil),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected attempt start failure to become task result: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task, got %+v", result.TaskRun)
+	}
+	if !strings.Contains(result.FailureNotice.SendableMessage(), "attempt store unavailable") {
+		t.Fatalf("expected raw attempt failure notice, got %+v", result.FailureNotice)
+	}
+	if strings.Contains(result.FailureNotice.SendableMessage(), "secret-value") {
+		t.Fatalf("expected secret redaction, got %q", result.FailureNotice.SendableMessage())
+	}
+	if len(languageModel.requests) != 0 {
+		t.Fatalf("expected no action model calls, got %d", len(languageModel.requests))
+	}
+}
+
 func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","message":"작업 중입니다.","toolName":"alpha","toolInput":{"value":"one"}}`,
@@ -379,7 +409,7 @@ func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerSuppressesReplyWhenAllModelCallsFail(t *testing.T) {
+func TestAgentTurnRunnerReportsRawErrorWhenAllModelCallsFail(t *testing.T) {
 	languageModel := failingRecoveryLanguageModel{errorValue: errors.New("model unavailable")}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 
@@ -394,11 +424,11 @@ func TestAgentTurnRunnerSuppressesReplyWhenAllModelCallsFail(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
-	if !result.ReplySuppressed || result.UserNotice != "" {
-		t.Fatalf("expected suppressed raw error reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
+	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "llm action failed: model unavailable") {
+		t.Fatalf("expected raw error reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.llm_unavailable", "model unavailable") {
-		t.Fatal("expected admin diagnostic event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "raw_error") {
+		t.Fatal("expected raw error failure reply event")
 	}
 }
 
@@ -451,8 +481,8 @@ func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModel
 	if errorValue != nil {
 		t.Fatalf("expected failed turn without deterministic capability reply: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed || !result.ReplySuppressed || result.UserNotice != "" {
-		t.Fatalf("expected suppressed failed task notice, got status=%s reply=%q suppressed=%v", result.TaskRun.Status, result.UserNotice, result.ReplySuppressed)
+	if result.TaskRun.Status != task.TaskStatusFailed || result.ReplySuppressed || !strings.Contains(result.UserNotice, "structured action unavailable") {
+		t.Fatalf("expected raw failed task notice, got status=%s reply=%q suppressed=%v", result.TaskRun.Status, result.UserNotice, result.ReplySuppressed)
 	}
 	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.capability_fallback", "math.calculate") {
 		t.Fatal("expected no deterministic capability fallback event")
@@ -3553,11 +3583,11 @@ func TestAgentTurnRunnerReportsRawLimitErrorWhenGenerationKeepsLeakingDiagnostic
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if !result.ReplySuppressed || result.UserNotice != "" {
-		t.Fatalf("expected suppressed invalid limit reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
+	if result.ReplySuppressed || result.UserNotice != "max_iterations" {
+		t.Fatalf("expected raw limit reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.llm_unavailable", "invalid_repair") {
-		t.Fatal("expected admin diagnostic for invalid limit reply")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "raw_error") {
+		t.Fatal("expected raw error limit reply event")
 	}
 }
 
@@ -3793,6 +3823,39 @@ type turnRunnerTestServices struct {
 	taskEventService    *task.TaskEventService
 	taskStepService     *task.TaskStepService
 	taskArtifactService *task.TaskArtifactService
+}
+
+type failingAttemptStartRepository struct {
+	errorValue error
+	taskRuns   map[string]task.TaskRun
+}
+
+func (repository failingAttemptStartRepository) SaveTaskRun(taskRun task.TaskRun) error {
+	return nil
+}
+
+func (repository failingAttemptStartRepository) StartTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
+	return repository.errorValue
+}
+
+func (repository failingAttemptStartRepository) FinishTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
+	return nil
+}
+
+func (repository failingAttemptStartRepository) FindTaskRun(string) (task.TaskRun, bool, error) {
+	return task.TaskRun{}, false, nil
+}
+
+func (repository failingAttemptStartRepository) FindTaskAttempt(string) (task.TaskAttempt, bool, error) {
+	return task.TaskAttempt{}, false, nil
+}
+
+func (repository failingAttemptStartRepository) ListTaskRun() ([]task.TaskRun, error) {
+	return nil, nil
+}
+
+func (repository failingAttemptStartRepository) ListTaskRunByPersonID(string) ([]task.TaskRun, error) {
+	return nil, nil
 }
 
 func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options TurnOptions) turnRunnerTestServices {

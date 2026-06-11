@@ -1100,11 +1100,11 @@ func TestConnectorRuntimeSendsGenericFailureNoticeWhenFailureReplyMissing(t *tes
 		},
 	)
 
-	if !isSent || dispatchID != "dispatch-1" {
-		t.Fatalf("expected generic failure notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
+	if isSent || dispatchID != "" {
+		t.Fatalf("expected missing generated failure notice to be suppressed, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
-	if len(sentReplies) != 1 || !strings.Contains(sentReplies[0].Message, "완료하지 못했습니다") {
-		t.Fatalf("expected generic failure reply, got %+v", sentReplies)
+	if len(sentReplies) != 0 {
+		t.Fatalf("expected no generic failure reply, got %+v", sentReplies)
 	}
 }
 
@@ -1154,7 +1154,7 @@ func TestConnectorRuntimeSendsFailureNoticeWhenTurnReturnsError(t *testing.T) {
 	if result.Reason != "task_not_completed" || result.TaskRunID == "" {
 		t.Fatalf("expected task failure result, got %+v", result)
 	}
-	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "완료하지 못했습니다") {
+	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "provider unavailable") {
 		t.Fatalf("expected task failure notice, got %+v", adapter.sentReplies)
 	}
 }
@@ -1167,10 +1167,10 @@ func TestConnectorRuntimeSendsNoticeWhenLaunchReturnsNoTask(t *testing.T) {
 		t.Fatalf("expected launch error to be reported to the user: %v", errorValue)
 	}
 
-	if result.Reason != "agent_launch_failed" {
+	if result.Reason != "task_not_completed" || result.TaskRunID == "" {
 		t.Fatalf("expected launch failure result, got %+v", result)
 	}
-	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "내부 오류") {
+	if len(adapter.sentReplies) != 1 || !strings.Contains(adapter.sentReplies[0].message, "language model provider is not configured") {
 		t.Fatalf("expected launch failure notice, got %+v", adapter.sentReplies)
 	}
 }

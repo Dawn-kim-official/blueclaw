@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"blueclaw/internal/agent"
@@ -80,6 +81,28 @@ type TaskPinnedMemoryRequest struct {
 	RequesterPersonID string
 }
 
+type taskLaunchStep[T any] interface {
+	Name() string
+	Run(context.Context, *taskLaunchExecution) (T, error)
+}
+
+type taskLaunchExecution struct {
+	Launcher              *TaskLauncher
+	Request               TaskLaunchRequest
+	NormalizedProfileName string
+}
+
+type launchStepRecord struct {
+	StepName string `json:"stepName"`
+	Status   string `json:"status"`
+	Error    string `json:"error,omitempty"`
+}
+
+type launchMemoryResult struct {
+	Facts []memory.MemoryFact
+	Error string
+}
+
 func NewTaskLauncher(agentKernel *agent.AgentKernel, toolCatalogBuilder *ToolCatalogBuilder) *TaskLauncher {
 	if toolCatalogBuilder == nil {
 		toolCatalogBuilder = NewToolCatalogBuilder()
@@ -102,8 +125,189 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	})
 	request.ActiveCircleID = activeCircleRequest.ActiveCircleID
 	request.ActiveCircleConflict = activeCircleRequest.ActiveCircleConflict
-	toolSet := taskLauncher.toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:                normalizedProfileName,
+	execution := &taskLaunchExecution{
+		Launcher:              taskLauncher,
+		Request:               request,
+		NormalizedProfileName: normalizedProfileName,
+	}
+	launchRecords := []launchStepRecord{}
+	toolSet, record := runLaunchStep(ctx, execution, buildToolSetLaunchStep{})
+	launchRecords = append(launchRecords, record)
+	toolNames := toolSet.ListToolNames()
+	registryAudit, record := runLaunchStep(ctx, execution, auditToolRegistryLaunchStep{ToolSet: toolSet})
+	launchRecords = append(launchRecords, record)
+	if record.Error != "" {
+		return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, toolNames, record.StepName, launchRecords, errorFromStepRecord(record)), nil
+	}
+	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{
+		RequesterPersonID:       request.RequesterPersonID,
+		ConversationID:          request.ConversationID,
+		ConversationType:        request.ConversationType,
+		ConversationChannelID:   request.ConversationChannelID,
+		ConversationChannelName: request.ConversationChannelName,
+	})
+	memoryResult, record := runLaunchStep(ctx, execution, loadMemoryLaunchStep{})
+	launchRecords = append(launchRecords, record)
+	turnResult, record := runLaunchStep(ctx, execution, runTurnLaunchStep{
+		MemoryFacts:       memoryResult.Facts,
+		ToolSet:           toolSet,
+		ConversationScope: conversationScope,
+	})
+	launchRecords = append(launchRecords, record)
+	if record.Error != "" {
+		if strings.TrimSpace(turnResult.TaskRun.TaskRunID) == "" {
+			return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, toolNames, record.StepName, launchRecords, errorFromStepRecord(record)), nil
+		}
+		return TaskLaunchResult{}, errorFromStepRecord(record)
+	}
+	launchedToolNames := turnResult.ToolNames
+	if len(launchedToolNames) == 0 {
+		launchedToolNames = toolNames
+	}
+	if turnResult.TaskRun.TaskRunID != "" {
+		taskLauncher.appendLaunchStepRecords(turnResult.TaskRun.TaskRunID, launchRecords)
+		if memoryResult.Error != "" {
+			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_failed", memoryResult.Error)
+		} else {
+			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryResult.Facts)}))
+		}
+		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, registryAudit, len(memoryResult.Facts)))
+		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.conversation_scope", marshalToolResult(conversationScope))
+	}
+	return TaskLaunchResult{
+		TurnResult:            turnResult,
+		MemoryFacts:           memoryResult.Facts,
+		ToolNames:             launchedToolNames,
+		NormalizedProfileName: normalizedProfileName,
+	}, nil
+}
+
+type buildToolSetLaunchStep struct{}
+
+func (buildToolSetLaunchStep) Name() string {
+	return "build_tool_set"
+}
+
+func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecution) (*agent.ToolSet, error) {
+	return execution.Launcher.toolCatalogBuilder.BuildToolSet(
+		execution.Launcher.toolCatalogRequestForLaunch(execution.Request, execution.NormalizedProfileName),
+	), nil
+}
+
+type auditToolRegistryLaunchStep struct {
+	ToolSet *agent.ToolSet
+}
+
+func (auditToolRegistryLaunchStep) Name() string {
+	return "audit_tool_registry"
+}
+
+func (step auditToolRegistryLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (ToolRegistryAudit, error) {
+	return execution.Launcher.toolCatalogBuilder.BuildToolRegistryAudit(ctx, step.ToolSet)
+}
+
+type loadMemoryLaunchStep struct{}
+
+func (loadMemoryLaunchStep) Name() string {
+	return "load_memory"
+}
+
+func (loadMemoryLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (launchMemoryResult, error) {
+	memoryFacts, errorValue := execution.Launcher.toolCatalogBuilder.LoadPinnedMemory(ctx, TaskPinnedMemoryRequest{
+		RequesterPersonID: execution.Request.RequesterPersonID,
+	})
+	if errorValue != nil {
+		return launchMemoryResult{Error: errorValue.Error()}, nil
+	}
+	return launchMemoryResult{Facts: memoryFacts}, nil
+}
+
+type runTurnLaunchStep struct {
+	MemoryFacts       []memory.MemoryFact
+	ToolSet           *agent.ToolSet
+	ConversationScope ConversationResourceScope
+}
+
+func (runTurnLaunchStep) Name() string {
+	return "run_turn"
+}
+
+func (step runTurnLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (agent.AgentTurnResult, error) {
+	return execution.Launcher.agentKernel.RunTurn(ctx, execution.Launcher.agentTurnRequestForLaunch(
+		execution.Request,
+		execution.NormalizedProfileName,
+		step.MemoryFacts,
+		step.ToolSet,
+		step.ConversationScope,
+	))
+}
+
+func runLaunchStep[T any](ctx context.Context, execution *taskLaunchExecution, step taskLaunchStep[T]) (T, launchStepRecord) {
+	result, errorValue := step.Run(ctx, execution)
+	if errorValue != nil {
+		return result, launchStepRecord{StepName: step.Name(), Status: "error", Error: errorValue.Error()}
+	}
+	return result, launchStepRecord{StepName: step.Name(), Status: "result"}
+}
+
+func errorFromStepRecord(record launchStepRecord) error {
+	return errors.New(record.Error)
+}
+
+func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, request TaskLaunchRequest, profileName string, toolNames []string, stepName string, records []launchStepRecord, errorValue error) TaskLaunchResult {
+	turnRequest := taskLauncher.agentTurnRequestForLaunch(request, profileName, nil, nil, ConversationResourceScope{})
+	turnResult := taskLauncher.agentKernel.CompleteLaunchFailure(ctx, turnRequest, "launch", stepName, errorValue)
+	turnResult.ToolNames = append([]string{}, toolNames...)
+	taskLauncher.appendLaunchStepRecords(turnResult.TaskRun.TaskRunID, records)
+	return TaskLaunchResult{
+		TurnResult:            turnResult,
+		ToolNames:             append([]string{}, toolNames...),
+		NormalizedProfileName: profileName,
+	}
+}
+
+func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRequest, profileName string, memoryFacts []memory.MemoryFact, toolSet *agent.ToolSet, conversationScope ConversationResourceScope) agent.AgentTurnRequest {
+	return agent.AgentTurnRequest{
+		RequesterPersonID:       request.RequesterPersonID,
+		RequesterEmail:          request.RequesterEmail,
+		RequesterName:           request.RequesterName,
+		RequesterPlatformUserID: request.RequesterPlatformUserID,
+		IsApprovalContinuation:  request.IsApprovalContinuation,
+		ExistingTaskRunID:       request.ExistingTaskRunID,
+		OriginReplyTargetID:     request.OriginReplyTargetID,
+		OriginIsThread:          request.OriginIsThread,
+		Platform:                request.Platform,
+		RequesterCallingName:    request.RequesterCallingName,
+		RequesterHandle:         request.RequesterHandle,
+		RequesterCircles:        append([]string{}, request.PersonAccess.Circles...),
+		ProfileName:             profileName,
+		ConversationID:          request.ConversationID,
+		Prompt:                  request.Prompt,
+		InputParts:              append([]agent.AgentPart{}, request.InputParts...),
+		ResponseLanguage:        request.ResponseLanguage,
+		VisibleContext:          request.VisibleContext,
+		ActiveGoal:              request.ActiveGoal,
+		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
+		MemoryFacts:             memoryFacts,
+		ToolSet:                 toolSet,
+		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
+		PinnedSkillNames:        append([]string{}, request.PinnedSkillNames...),
+		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
+		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
+		CheckpointSender:        request.CheckpointSender,
+	}
+}
+
+func (taskLauncher *TaskLauncher) appendLaunchStepRecords(taskRunID string, records []launchStepRecord) {
+	for _, record := range records {
+		eventName := "agent.launch_step." + record.Status
+		taskLauncher.agentKernel.AppendTaskEvent(taskRunID, eventName, marshalToolResult(record))
+	}
+}
+
+func (taskLauncher *TaskLauncher) toolCatalogRequestForLaunch(request TaskLaunchRequest, profileName string) ToolCatalogRequest {
+	return ToolCatalogRequest{
+		ProfileName:                profileName,
 		Prompt:                     request.Prompt,
 		VisibleContext:             request.VisibleContext,
 		RequesterPersonID:          request.RequesterPersonID,
@@ -128,86 +332,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		MemoryNamespaces:           request.MemoryNamespaces,
 		AccessibleConversationIDs:  request.AccessibleConversationIDs,
 		InputParts:                 append([]agent.AgentPart{}, request.InputParts...),
-	})
-	toolNames := toolSet.ListToolNames()
-	registryAudit, errorValue := taskLauncher.toolCatalogBuilder.BuildToolRegistryAudit(ctx, toolSet)
-	if errorValue != nil {
-		return TaskLaunchResult{}, errorValue
 	}
-	conversationScope := ConversationScopeForRequest(taskLauncher.toolCatalogBuilder.WorkspaceRootPath(), ToolCatalogRequest{
-		RequesterPersonID:       request.RequesterPersonID,
-		ConversationID:          request.ConversationID,
-		ConversationType:        request.ConversationType,
-		ConversationChannelID:   request.ConversationChannelID,
-		ConversationChannelName: request.ConversationChannelName,
-	})
-	memoryFacts, errorValue := taskLauncher.toolCatalogBuilder.LoadPinnedMemory(ctx, TaskPinnedMemoryRequest{
-		RequesterPersonID: request.RequesterPersonID,
-	})
-	pinnedMemoryError := ""
-	if errorValue != nil {
-		pinnedMemoryError = errorValue.Error()
-		memoryFacts = nil
-	}
-	turnResult, errorValue := taskLauncher.agentKernel.RunTurn(ctx, agent.AgentTurnRequest{
-		RequesterPersonID:       request.RequesterPersonID,
-		RequesterEmail:          request.RequesterEmail,
-		RequesterName:           request.RequesterName,
-		RequesterPlatformUserID: request.RequesterPlatformUserID,
-		IsApprovalContinuation:  request.IsApprovalContinuation,
-		ExistingTaskRunID:       request.ExistingTaskRunID,
-		OriginReplyTargetID:     request.OriginReplyTargetID,
-		OriginIsThread:          request.OriginIsThread,
-		Platform:                request.Platform,
-		RequesterCallingName:    request.RequesterCallingName,
-		RequesterHandle:         request.RequesterHandle,
-		RequesterCircles:        append([]string{}, request.PersonAccess.Circles...),
-		ProfileName:             normalizedProfileName,
-		ConversationID:          request.ConversationID,
-		Prompt:                  request.Prompt,
-		InputParts:              append([]agent.AgentPart{}, request.InputParts...),
-		ResponseLanguage:        request.ResponseLanguage,
-		VisibleContext:          request.VisibleContext,
-		ActiveGoal:              request.ActiveGoal,
-		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
-		MemoryFacts:             memoryFacts,
-		ToolSet:                 toolSet,
-		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
-		PinnedSkillNames:        append([]string{}, request.PinnedSkillNames...),
-		WorkspaceRootPath:       taskLauncher.toolCatalogBuilder.WorkspaceRootPath(),
-		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
-		CheckpointSender:        request.CheckpointSender,
-	})
-	if errorValue != nil {
-		if strings.TrimSpace(turnResult.TaskRun.TaskRunID) != "" {
-			return TaskLaunchResult{
-				TurnResult:            turnResult,
-				MemoryFacts:           memoryFacts,
-				ToolNames:             toolNames,
-				NormalizedProfileName: normalizedProfileName,
-			}, nil
-		}
-		return TaskLaunchResult{}, errorValue
-	}
-	launchedToolNames := turnResult.ToolNames
-	if len(launchedToolNames) == 0 {
-		launchedToolNames = toolNames
-	}
-	if turnResult.TaskRun.TaskRunID != "" {
-		if pinnedMemoryError != "" {
-			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_failed", pinnedMemoryError)
-		} else {
-			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryFacts)}))
-		}
-		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, registryAudit, len(memoryFacts)))
-		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.conversation_scope", marshalToolResult(conversationScope))
-	}
-	return TaskLaunchResult{
-		TurnResult:            turnResult,
-		MemoryFacts:           memoryFacts,
-		ToolNames:             launchedToolNames,
-		NormalizedProfileName: normalizedProfileName,
-	}, nil
 }
 
 func requesterPersonAccessForTaskLaunch(request TaskLaunchRequest) policy.PersonAccess {
