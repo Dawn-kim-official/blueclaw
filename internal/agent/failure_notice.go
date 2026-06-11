@@ -55,6 +55,14 @@ type FailureNoticeGenerator struct {
 	LanguageModel llm.LanguageModelProvider
 }
 
+type IntakeReport struct {
+	Classification    IntakeClassification `json:"classification,omitempty"`
+	Reason            string               `json:"reason,omitempty"`
+	OriginalRequest   string               `json:"originalRequest,omitempty"`
+	ResponseLanguage  string               `json:"responseLanguage,omitempty"`
+	DiagnosticEventID string               `json:"diagnosticEventID,omitempty"`
+}
+
 type recoveryLanguageModelProvider interface {
 	GenerateRecoveryResponse(context.Context, string) (string, error)
 }
@@ -154,6 +162,59 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
 	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
 	return buildRawErrorFailureNotice(report), status
+}
+
+func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context, report IntakeReport) FailureNotice {
+	failureReport := normalizeFailureReport(FailureReport{
+		Phase:             "task_intake",
+		StopReason:        report.Reason,
+		OriginalRequest:   report.OriginalRequest,
+		ResponseLanguage:  report.ResponseLanguage,
+		DiagnosticEventID: report.DiagnosticEventID,
+	})
+	if generator.LanguageModel == nil {
+		return buildRawErrorFailureNotice(failureReport)
+	}
+	generationContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	prompt := buildIntakeNoticePrompt(report.Classification, failureReport)
+	reply, errorValue := generator.generateRecoveryText(generationContext, prompt)
+	if errorValue == nil {
+		if notice := buildFailureNotice(reply, "generated", failureReport); notice.IsSendable {
+			return notice
+		}
+	}
+	localReply, localError := generator.generateLocalRecoveryText(generationContext, prompt)
+	if localError == nil {
+		if notice := buildFailureNotice(localReply, "local_generated", failureReport); notice.IsSendable {
+			return notice
+		}
+	}
+	return buildRawErrorFailureNotice(failureReport)
+}
+
+func buildIntakeNoticePrompt(classification IntakeClassification, report FailureReport) string {
+	sections := []string{
+		"You are writing a short user-facing reply for a request that was not started.",
+		responseLanguageInstruction(report.ResponseLanguage),
+		intakeNoticeIntent(classification),
+		"Use only the compact intake context below. Do not infer from earlier conversation history.",
+		"Write one or two natural sentences.",
+		"Do not expose provider errors, internal service URLs, internal filesystem paths, or tokens.",
+		"Compact intake context:\n" + marshalEventBody(report),
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+func intakeNoticeIntent(classification IntakeClassification) string {
+	switch classification {
+	case IntakeClassificationNeedsConfirmation:
+		return "Ask the user to confirm a narrower scope or split the request into smaller steps before work starts."
+	case IntakeClassificationUnsupported:
+		return "Explain that the request cannot run safely within the current execution boundary and suggest narrowing it."
+	default:
+		return "Explain briefly why the request was not started and what the user can do next."
+	}
 }
 
 func normalizeFailureReport(report FailureReport) FailureReport {

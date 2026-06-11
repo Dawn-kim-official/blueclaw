@@ -291,12 +291,12 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return agentKernel.completeConsumedRequest(intakeRequest, turnDecision)
 	}
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
-		result, errorValue := agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
 		result.TurnRoute = turnDecision.Route
 		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
-		result, errorValue := agentKernel.completeIntakeOnlyRequest(intakeRequest, intakeDecision, task.TaskStatusBlocked)
+		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked)
 		result.TurnRoute = turnDecision.Route
 		return result, errorValue
 	}
@@ -2140,15 +2140,18 @@ func (agentKernel *AgentKernel) ResumeTask(taskRunID string) (task.TaskRun, erro
 	return agentKernel.taskRunService.ResumeTaskRun(taskRunID)
 }
 
-func (agentKernel *AgentKernel) completeIntakeOnlyRequest(request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus) (AgentTurnResult, error) {
+func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, status task.TaskStatus) (AgentTurnResult, error) {
 	taskRun := agentKernel.createTaskRunForRequest(request)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
 	finishMessage := strings.TrimSpace(intakeDecision.UserFacingReply)
 	if finishMessage == "" {
-		finishMessage = defaultUserFacingReplyForLanguage(intakeDecision.Classification, request.ResponseLanguage)
-	}
-	if finishMessage == "" {
-		finishMessage = defaultExecutionBoundaryReply(request.ResponseLanguage)
+		finishMessage = (FailureNoticeGenerator{LanguageModel: agentKernel.languageModel}).GenerateIntakeNotice(responseContext, IntakeReport{
+			Classification:    intakeDecision.Classification,
+			Reason:            intakeDecision.Reason,
+			OriginalRequest:   request.Prompt,
+			ResponseLanguage:  request.ResponseLanguage,
+			DiagnosticEventID: taskRun.TaskRunID + ":task_intake",
+		}).SendableMessage()
 	}
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
 		finishMessage = firstNonEmptyString(strings.TrimSpace(intakeDecision.ClarificationQuestion), finishMessage)
@@ -2189,27 +2192,6 @@ func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, a
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, taskRun.TaskRunID)
 	activeGoal.Status = activeGoalStatusForTaskStatus(taskRun.Status)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, activeGoalEventNameForTaskStatus(taskRun.Status), marshalEventBody(activeGoal))
-}
-
-func defaultUserFacingReplyForLanguage(classification IntakeClassification, responseLanguage string) string {
-	if ResolveResponseLanguage(responseLanguage) == ResponseLanguageEnglish {
-		return defaultUserFacingReply(classification)
-	}
-	switch classification {
-	case IntakeClassificationNeedsConfirmation:
-		return "진행하기 전에 범위를 조금 더 좁혀주세요."
-	case IntakeClassificationUnsupported:
-		return "현재 실행 범위에서는 안전하게 처리할 수 없습니다."
-	default:
-		return ""
-	}
-}
-
-func defaultExecutionBoundaryReply(responseLanguage string) string {
-	if ResolveResponseLanguage(responseLanguage) == ResponseLanguageEnglish {
-		return "I cannot complete that within the current execution boundary."
-	}
-	return "현재 실행 범위에서는 요청을 완료할 수 없습니다."
 }
 
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {
