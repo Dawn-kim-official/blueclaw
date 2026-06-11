@@ -63,14 +63,6 @@ type IntakeReport struct {
 	DiagnosticEventID string               `json:"diagnosticEventID,omitempty"`
 }
 
-type recoveryLanguageModelProvider interface {
-	GenerateRecoveryResponse(context.Context, string) (string, error)
-}
-
-type localRecoveryLanguageModelProvider interface {
-	GenerateLocalRecoveryResponse(context.Context, string) (string, error)
-}
-
 func (notice FailureNotice) SendableMessage() string {
 	if !notice.IsSendable {
 		return ""
@@ -236,7 +228,7 @@ func normalizeFailureReport(report FailureReport) FailureReport {
 }
 
 func (generator FailureNoticeGenerator) generateRecoveryText(ctx context.Context, prompt string) (string, error) {
-	recoveryProvider, isRecoveryProvider := generator.LanguageModel.(recoveryLanguageModelProvider)
+	recoveryProvider, isRecoveryProvider := generator.LanguageModel.(llm.RecoveryResponder)
 	if isRecoveryProvider {
 		reply, errorValue := recoveryProvider.GenerateRecoveryResponse(ctx, prompt)
 		return strings.TrimSpace(reply), errorValue
@@ -246,7 +238,7 @@ func (generator FailureNoticeGenerator) generateRecoveryText(ctx context.Context
 }
 
 func (generator FailureNoticeGenerator) generateLocalRecoveryText(ctx context.Context, prompt string) (string, error) {
-	localRecoveryProvider, isLocalRecoveryProvider := generator.LanguageModel.(localRecoveryLanguageModelProvider)
+	localRecoveryProvider, isLocalRecoveryProvider := generator.LanguageModel.(llm.LocalRecoveryResponder)
 	if !isLocalRecoveryProvider {
 		return "", errors.New("local recovery provider unavailable")
 	}

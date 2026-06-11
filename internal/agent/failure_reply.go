@@ -358,7 +358,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (string, error) {
 	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	recoveryProvider, isRecoveryProvider := agentTurnRunner.languageModel.(recoveryLanguageModelProvider)
+	recoveryProvider, isRecoveryProvider := agentTurnRunner.languageModel.(llm.RecoveryResponder)
 	if isRecoveryProvider {
 		recoveryReply, recoveryError := recoveryProvider.GenerateRecoveryResponse(finalizationContext, prompt)
 		recoveryReply = strings.TrimSpace(recoveryReply)
@@ -372,7 +372,7 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (str
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLocalRecoveryText(prompt string) (string, error) {
-	localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.languageModel.(localRecoveryLanguageModelProvider)
+	localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.languageModel.(llm.LocalRecoveryResponder)
 	if !isLocalRecoveryProvider {
 		return "", errors.New("local recovery provider unavailable")
 	}

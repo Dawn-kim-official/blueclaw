@@ -63,3 +63,11 @@ type LanguageModelProvider interface {
 	GenerateResponse(context.Context, string) (string, error)
 	GenerateStructuredResponse(context.Context, StructuredResponseRequest) (StructuredResponse, error)
 }
+
+type RecoveryResponder interface {
+	GenerateRecoveryResponse(context.Context, string) (string, error)
+}
+
+type LocalRecoveryResponder interface {
+	GenerateLocalRecoveryResponse(context.Context, string) (string, error)
+}
