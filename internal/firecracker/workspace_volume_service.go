@@ -73,6 +73,14 @@ func (workspaceVolumeService WorkspaceVolumeService) MountWorkspaceMetadata(work
 }
 
 func (workspaceVolumeService WorkspaceVolumeService) SyncWorkspaceDirectory(workspaceImagePath string, sourceDirectoryPath string) error {
+	return workspaceVolumeService.syncWorkspaceDirectory(workspaceImagePath, sourceDirectoryPath, false)
+}
+
+func (workspaceVolumeService WorkspaceVolumeService) SyncWorkspaceDirectoryPreservingGuestConfig(workspaceImagePath string, sourceDirectoryPath string) error {
+	return workspaceVolumeService.syncWorkspaceDirectory(workspaceImagePath, sourceDirectoryPath, true)
+}
+
+func (workspaceVolumeService WorkspaceVolumeService) syncWorkspaceDirectory(workspaceImagePath string, sourceDirectoryPath string, preserveGuestConfig bool) error {
 	if sourceDirectoryPath == "" {
 		return nil
 	}
@@ -113,11 +121,31 @@ func (workspaceVolumeService WorkspaceVolumeService) SyncWorkspaceDirectory(work
 	}
 	defer exec.Command(unmountPath, mountDirectoryPath).Run()
 
-	syncCommand := exec.Command(syncPath, "-a", filepath.Clean(sourceDirectoryPath)+"/", mountDirectoryPath+"/")
+	syncArguments := []string{"-a"}
+	if preserveGuestConfig {
+		syncArguments = append(syncArguments, "--exclude", "/.blueclaw/config")
+	}
+	syncArguments = append(syncArguments, filepath.Clean(sourceDirectoryPath)+"/", mountDirectoryPath+"/")
+	syncCommand := exec.Command(syncPath, syncArguments...)
 	if output, errorValue := syncCommand.CombinedOutput(); errorValue != nil {
 		return errors.New("sync workspace image: " + string(output))
 	}
+	if preserveGuestConfig {
+		return seedGuestConfigDirectory(syncPath, sourceDirectoryPath, mountDirectoryPath)
+	}
 
+	return nil
+}
+
+func seedGuestConfigDirectory(syncPath string, sourceDirectoryPath string, mountDirectoryPath string) error {
+	sourceConfigPath := filepath.Join(filepath.Clean(sourceDirectoryPath), ".blueclaw", "config")
+	if information, errorValue := os.Stat(sourceConfigPath); errorValue != nil || !information.IsDir() {
+		return nil
+	}
+	seedCommand := exec.Command(syncPath, "-a", "--ignore-existing", sourceConfigPath+"/", filepath.Join(mountDirectoryPath, ".blueclaw", "config")+"/")
+	if output, errorValue := seedCommand.CombinedOutput(); errorValue != nil {
+		return errors.New("seed workspace guest config: " + string(output))
+	}
 	return nil
 }
 
