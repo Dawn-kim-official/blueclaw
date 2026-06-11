@@ -47,11 +47,12 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	unregisterTool := agentTurnRunner.taskRunService.RegisterTaskRunTool(taskRunID, observationID, trimmedToolName)
 	defer unregisterTool()
 	toolContext := WithWorkKinds(WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage), workKinds)
+	invocationStartedAt := time.Now()
 	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {
 		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
-	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt)
+	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
 	return observation
 }
 
@@ -59,7 +60,7 @@ func toolFailureObservation(observationID string, toolName string, message strin
 	return newFailureObservation(observationID, "continue", toolName, message, FailureUnknown, FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
 }
 
-func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
 	toolResult = normalizeToolFailureResult(toolName, toolResult)
 	content := toolResult.ContentText()
 	originalContent := content
@@ -98,6 +99,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 	observation.ImageRefs = toolResultImageRefs(observationID, attachments)
 	observation.Summary = agentTurnRunner.buildToolResultSummary(ctx, taskRunID, toolName, originalContent, isError, attachments, artifactID, toolResult)
 	observation.ToolInputKey = toolInputKey
+	observation.DurationMS = durationMS
 	if observation.Failed() {
 		observation.AttemptFingerprint = attemptFingerprint(toolInputKey, observation.FailureCode())
 	}

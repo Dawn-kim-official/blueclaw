@@ -309,6 +309,10 @@ var rawFailureNoticePatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)sk-[A-Za-z0-9_-]{8,}`),
 }
 
+func RedactDiagnosticText(value string) string {
+	return truncateText(compactWhitespace(redactRawFailureNotice(value)), failureNoticeMaximumCharacters)
+}
+
 func redactRawFailureNotice(message string) string {
 	redactedMessage := strings.TrimSpace(message)
 	for _, pattern := range rawFailureNoticePatterns {

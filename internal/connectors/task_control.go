@@ -157,7 +157,7 @@ func (connectorRuntime *ConnectorRuntime) taskRunWasCancelled(taskRunID string) 
 }
 
 func shouldProcessBeforeConversationLock(event PlatformInboundEvent) bool {
-	return exactTaskControlIntent(event.Prompt) != agent.TaskControlIntentNone
+	return exactTaskControlIntent(event.Prompt) != agent.TaskControlIntentNone || exactDebugControlRequested(event.Prompt)
 }
 
 func exactTaskControlIntent(prompt string) agent.TaskControlIntent {
