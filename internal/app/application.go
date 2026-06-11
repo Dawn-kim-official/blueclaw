@@ -203,6 +203,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.UseAllowedToolNamesByProfile(deriveAllowedToolNamesByProfile(runtimeConfiguration), deriveAllowedToolNames(runtimeConfiguration))
 	connectorRuntime.UseMemoryService(memoryService)
 	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
+	connectorRuntime.UseAdminTaskLinkBaseURL(runtimeConfiguration.Agent.AdminTaskLinkBaseURL)
 	connectorRuntime.UseIngressGate(backupCoordinator)
 	if database.SQL != nil {
 		connectorRuntime.UseEventRepository(postgres.NewRawEventRepository(database))

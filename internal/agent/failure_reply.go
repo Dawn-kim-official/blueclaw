@@ -112,7 +112,16 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(taskRunID string, 
 	status.Reason = noticeStatus.Reason
 	status.TextRecoveryError = noticeStatus.TextRecoveryError
 	status.LocalRecoveryError = noticeStatus.LocalRecoveryError
+	agentTurnRunner.appendEvent(taskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody("failure", failureReport, noticeStatus)))
 	return notice, status, notice.SendableMessage() != ""
+}
+
+func failureReportEventBody(phase string, report FailureReport, generation FailureNoticeGenerationStatus) map[string]any {
+	return map[string]any{
+		"phase":      phase,
+		"report":     report,
+		"generation": generation,
+	}
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
@@ -129,6 +138,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID str
 	status.Reason = noticeStatus.Reason
 	status.TextRecoveryError = noticeStatus.TextRecoveryError
 	status.LocalRecoveryError = noticeStatus.LocalRecoveryError
+	agentTurnRunner.appendEvent(taskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody("limit", failureReport, noticeStatus)))
 	return notice, status, notice.SendableMessage() != ""
 }
 

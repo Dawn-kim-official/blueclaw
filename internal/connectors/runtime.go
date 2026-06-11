@@ -340,14 +340,15 @@ const connectorReplyKindUserNotice = "user_notice"
 const connectorReplyKindPermissionNotice = "permission_notice"
 
 type ConnectorRuntime struct {
-	identityService    *identity.IdentityService
-	agentKernel        *agent.AgentKernel
-	taskLauncher       *agentruntime.TaskLauncher
-	toolCatalogBuilder *agentruntime.ToolCatalogBuilder
-	memoryService      *memory.MemoryService
-	memoryRouter       *memory.GraphitiIngestionRouter
-	workspaceID        string
-	logger             *slog.Logger
+	identityService      *identity.IdentityService
+	agentKernel          *agent.AgentKernel
+	taskLauncher         *agentruntime.TaskLauncher
+	toolCatalogBuilder   *agentruntime.ToolCatalogBuilder
+	memoryService        *memory.MemoryService
+	memoryRouter         *memory.GraphitiIngestionRouter
+	workspaceID          string
+	adminTaskLinkBaseURL string
+	logger               *slog.Logger
 
 	mutex             sync.Mutex
 	adapterByPlatform map[string]PlatformAdapter
@@ -417,6 +418,10 @@ func (connectorRuntime *ConnectorRuntime) UseMemoryService(memoryService *memory
 
 func (connectorRuntime *ConnectorRuntime) UseGraphitiIngestionRouter(memoryRouter *memory.GraphitiIngestionRouter) {
 	connectorRuntime.memoryRouter = memoryRouter
+}
+
+func (connectorRuntime *ConnectorRuntime) UseAdminTaskLinkBaseURL(adminTaskLinkBaseURL string) {
+	connectorRuntime.adminTaskLinkBaseURL = strings.TrimRight(strings.TrimSpace(adminTaskLinkBaseURL), "/")
 }
 
 func (connectorRuntime *ConnectorRuntime) UseWorkspaceID(workspaceID string) {
@@ -1947,6 +1952,9 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 		connectorRuntime.logger.Info("connector."+platform+".outbound.skipped", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("reason", "invalid_user_notice"), slog.String("error", errorValue.Error()))
 		return "", false
 	}
+	if taskStatusRequiresFailureNotice(turnResult.TaskRun.Status) {
+		notice += failureRunFooter(taskRunID, connectorRuntime.adminTaskLinkBaseURL)
+	}
 	reply := OutboundReply{
 		Message:         notice,
 		TaskRunID:       taskRunID,
@@ -1970,6 +1978,22 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 	}
 	connectorRuntime.logger.Info("connector."+platform+".outbound.sent", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.String("replyDispatchID", dispatchID), slog.String("reason", "task_not_completed"))
 	return dispatchID, true
+}
+
+func failureRunFooter(taskRunID string, adminTaskLinkBaseURL string) string {
+	trimmedTaskRunID := strings.TrimSpace(taskRunID)
+	if trimmedTaskRunID == "" {
+		return ""
+	}
+	shortTaskRunID := trimmedTaskRunID
+	if len(shortTaskRunID) > 6 {
+		shortTaskRunID = shortTaskRunID[:6]
+	}
+	footer := "\n\n🔎 `" + shortTaskRunID + "`"
+	if adminTaskLinkBaseURL != "" {
+		footer += " " + adminTaskLinkBaseURL + "/tasks/" + trimmedTaskRunID
+	}
+	return footer
 }
 
 func userNoticeReplyMessage(turnResult agent.AgentTurnResult) (string, agent.FailureNotice, string) {
