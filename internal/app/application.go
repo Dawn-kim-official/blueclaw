@@ -47,9 +47,12 @@ type Application struct {
 	taskScheduleCancel            context.CancelFunc
 	logRetentionCancel            context.CancelFunc
 	memoryUpdateCancel            context.CancelFunc
+	taskRetentionCancel           context.CancelFunc
 	taskSchedulePoller            *scheduler.TaskSchedulePoller
+	taskRetentionSweeper          *scheduler.TaskRetentionSweeper
 	memoryUpdateQueue             *memory.BackgroundMemoryUpdateQueue
 	taskSchedulePollSecond        int
+	taskRetentionIntervalMinute   int
 	languageModelDefaultProvider  string
 	languageModelFallbackProvider string
 	languageModelConfigured       bool
@@ -194,6 +197,14 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		}
 		taskSchedulePoller = &poller
 	}
+	taskRetentionSweeper := &scheduler.TaskRetentionSweeper{
+		TaskRunService:      taskRunService,
+		TaskEventService:    taskEventService,
+		TaskStepService:     taskStepService,
+		TaskArtifactService: taskArtifactService,
+		Logger:              logger,
+		RetentionDays:       runtimeConfiguration.Scheduler.TaskRetentionDays,
+	}
 	connectorRuntime := connectors.NewConnectorRuntime(
 		identityService,
 		agentKernel,
@@ -299,8 +310,10 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		database:                      database,
 		startupError:                  startupError,
 		taskSchedulePoller:            taskSchedulePoller,
+		taskRetentionSweeper:          taskRetentionSweeper,
 		memoryUpdateQueue:             memoryUpdateQueue,
 		taskSchedulePollSecond:        runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond,
+		taskRetentionIntervalMinute:   runtimeConfiguration.Scheduler.RetentionCheckIntervalMinute,
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 		languageModelConfigured:       languageModelProvider != nil,
@@ -788,6 +801,7 @@ func (application *Application) Start() error {
 	application.startConnectorRuntime()
 	application.startConnectorTransports()
 	application.startTaskSchedulePoller()
+	application.startTaskRetentionSweeper()
 	listener, errorValue := net.Listen("tcp", application.httpServer.Addr)
 	if errorValue != nil {
 		return errorValue
@@ -819,6 +833,9 @@ func (application *Application) Shutdown(ctx context.Context) error {
 	}
 	if application.taskScheduleCancel != nil {
 		application.taskScheduleCancel()
+	}
+	if application.taskRetentionCancel != nil {
+		application.taskRetentionCancel()
 	}
 	if application.logRetentionCancel != nil {
 		application.logRetentionCancel()
@@ -893,6 +910,23 @@ func (application *Application) startTaskSchedulePoller() {
 	application.taskScheduleCancel = cancel
 	interval := time.Duration(application.taskSchedulePollIntervalSecond()) * time.Second
 	go application.taskSchedulePoller.Start(ctx, interval)
+}
+
+func (application *Application) startTaskRetentionSweeper() {
+	if application.taskRetentionSweeper == nil || application.taskRetentionCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	application.taskRetentionCancel = cancel
+	interval := time.Duration(application.taskRetentionIntervalMinuteOrDefault()) * time.Minute
+	go application.taskRetentionSweeper.Start(ctx, interval)
+}
+
+func (application *Application) taskRetentionIntervalMinuteOrDefault() int {
+	if application.taskRetentionIntervalMinute > 0 {
+		return application.taskRetentionIntervalMinute
+	}
+	return 60
 }
 
 func (application *Application) startMemoryUpdateQueue() {

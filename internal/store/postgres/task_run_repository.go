@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"blueclaw/internal/task"
 )
@@ -136,6 +137,27 @@ FROM task_run WHERE requester_person_id = $1 ORDER BY created_at DESC`, personID
 	}
 	defer rows.Close()
 	return scanTaskRuns(rows)
+}
+
+func (taskRunRepository TaskRunRepository) DeleteTaskRunsBefore(cutoff time.Time, statuses []string) ([]string, error) {
+	rows, errorValue := taskRunRepository.database.SQL.QueryContext(context.Background(),
+		`DELETE FROM task_run WHERE updated_at < $1 AND status = ANY($2::text[]) RETURNING task_run_id`,
+		cutoff,
+		statuses,
+	)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	defer rows.Close()
+	deletedIDs := []string{}
+	for rows.Next() {
+		var taskRunID string
+		if errorValue := rows.Scan(&taskRunID); errorValue != nil {
+			return nil, errorValue
+		}
+		deletedIDs = append(deletedIDs, taskRunID)
+	}
+	return deletedIDs, rows.Err()
 }
 
 type taskRunScanner interface {

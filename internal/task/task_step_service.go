@@ -51,6 +51,12 @@ func (taskStepService *TaskStepService) ListTaskStep(taskRunID string) []TaskSte
 	return append([]TaskStep{}, taskStepService.taskSteps[taskRunID]...)
 }
 
+func (taskStepService *TaskStepService) RemoveTaskRunSteps(taskRunID string) {
+	taskStepService.mutex.Lock()
+	defer taskStepService.mutex.Unlock()
+	delete(taskStepService.taskSteps, taskRunID)
+}
+
 func (taskStepService *TaskStepService) saveTaskStep(taskStep TaskStep) error {
 	if taskStepService.repository == nil {
 		return nil

@@ -58,6 +58,12 @@ func (taskEventService *TaskEventService) ListTaskEvent(taskRunID string) []Task
 	return append([]TaskEvent{}, taskEventService.taskEvents[taskRunID]...)
 }
 
+func (taskEventService *TaskEventService) RemoveTaskRunEvents(taskRunID string) {
+	taskEventService.mutex.Lock()
+	defer taskEventService.mutex.Unlock()
+	delete(taskEventService.taskEvents, taskRunID)
+}
+
 func (taskEventService *TaskEventService) saveTaskEvent(taskEvent TaskEvent) error {
 	if taskEventService.repository == nil {
 		return nil

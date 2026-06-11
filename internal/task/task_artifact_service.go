@@ -53,6 +53,12 @@ func (taskArtifactService *TaskArtifactService) ListTaskArtifact(taskRunID strin
 	return append([]TaskArtifact{}, taskArtifactService.taskArtifacts[taskRunID]...)
 }
 
+func (taskArtifactService *TaskArtifactService) RemoveTaskRunArtifacts(taskRunID string) {
+	taskArtifactService.mutex.Lock()
+	defer taskArtifactService.mutex.Unlock()
+	delete(taskArtifactService.taskArtifacts, taskRunID)
+}
+
 func (taskArtifactService *TaskArtifactService) saveTaskArtifact(taskArtifact TaskArtifact) error {
 	if taskArtifactService.repository == nil {
 		return nil
