@@ -1,0 +1,427 @@
+package agentruntime
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"blueclaw/internal/agent"
+)
+
+func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
+			Name:         "mail",
+			Description:  "Read, search, summarize, reply to, and send email messages.",
+			AllowedTools: []string{"mail.message.search", "mail.message.read"},
+		}}}
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.search",
+		Input: agent.MarshalToolInput(map[string]any{
+			"queries": []map[string]string{{"description": "Search and read recent email messages."}},
+			"limit":   5,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected skill.search success, got %s", result.ContentText())
+	}
+	var resultDocument agent.SkillSearchResult
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Name != "mail" {
+		t.Fatalf("expected mail skill result, got %+v", resultDocument)
+	}
+	if !containsTestString(resultDocument.Skills[0].Tools, "mail.message.search") {
+		t.Fatalf("expected mail tools in result, got %+v", resultDocument.Skills[0].Tools)
+	}
+}
+
+func TestSkillSearchToolExactNameIncludesCompletionMetadata(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
+			Name:         "site-prototype",
+			Description:  "Create sites.",
+			AllowedTools: []string{"site.app.create", "site.app.publish"},
+			Completion: agent.SkillCompletion{
+				RequiredEvidenceTools: []string{"site.app.publish"},
+			},
+			Source: agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+		}}}
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.search",
+		Input: agent.MarshalToolInput(map[string]any{
+			"queries": []map[string]string{{"description": "site-prototype"}},
+			"limit":   5,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(result.ContentText(), `"sourcePath":"skills/site-prototype/SKILL.md"`) || !strings.Contains(result.ContentText(), "site.app.publish") {
+		t.Fatalf("expected exact skill metadata, got %s", result.ContentText())
+	}
+}
+
+func TestSkillAddCreatesUserManagedSkillAndRefreshes(t *testing.T) {
+	workspacePath := t.TempDir()
+	refreshCount := 0
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseSkillChangeHandler(func(context.Context) {
+		refreshCount++
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.add",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name":    "research-helper",
+			"content": userSkillDocument("research-helper"),
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected skill.add success, got %s", result.ContentText())
+	}
+	if refreshCount != 1 {
+		t.Fatalf("expected skill index refresh, got %d", refreshCount)
+	}
+	skillDocumentPath := filepath.Join(workspacePath, ".agents", "skills", "research-helper", "SKILL.md")
+	document, errorValue := os.ReadFile(skillDocumentPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(string(document), "Research helper handles source lookups.") {
+		t.Fatalf("expected skill document to be written, got %s", string(document))
+	}
+	if strings.Contains(result.ContentText(), workspacePath) || !strings.Contains(result.ContentText(), "/workspace/.agents/skills/research-helper/SKILL.md") {
+		t.Fatalf("expected agent workspace path in result, got %s", result.ContentText())
+	}
+	resultDocument := decodeSkillAddResult(t, result.ContentText())
+	if resultDocument.Name != "research-helper" || resultDocument.Status != "created" {
+		t.Fatalf("expected structured skill.add result, got %+v", resultDocument)
+	}
+}
+
+func TestSkillAddWritesAllowedResources(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	content := `---
+name: report-helper
+description: Help create reports from source material.
+when_to_use: Use for report writing requests.
+---
+Use references/reporting.md and scripts/build_report.sh when needed.
+`
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.add",
+		Input: agent.MarshalToolInput(map[string]any{
+			"name":    "report-helper",
+			"content": content,
+			"resources": []map[string]any{
+				{"path": "references/reporting.md", "content": "# Reporting"},
+				{"path": "scripts/build_report.sh", "content": "echo ok", "mode": 0o700},
+				{"path": "assets/template.txt", "content": "template"},
+			},
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected skill.add success, got %s", result.ContentText())
+	}
+	for _, path := range []string{"references/reporting.md", "scripts/build_report.sh", "assets/template.txt"} {
+		if _, errorValue := os.Stat(filepath.Join(workspacePath, ".agents", "skills", "report-helper", path)); errorValue != nil {
+			t.Fatalf("expected resource %s: %v", path, errorValue)
+		}
+	}
+	resultDocument := decodeSkillAddResult(t, result.ContentText())
+	if len(resultDocument.ResourcePaths) != 3 {
+		t.Fatalf("expected resource paths in result, got %+v", resultDocument)
+	}
+}
+
+func TestSkillRemoveDeletesOnlyUserManagedSkill(t *testing.T) {
+	workspacePath := t.TempDir()
+	skillDirectoryPath := filepath.Join(workspacePath, ".agents", "skills", "research-helper")
+	if errorValue := os.MkdirAll(skillDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeTestFile(t, filepath.Join(skillDirectoryPath, "SKILL.md"), userSkillDocument("research-helper"))
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.remove",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name": "research-helper",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected skill.remove success, got %s", result.ContentText())
+	}
+	if _, errorValue := os.Stat(skillDirectoryPath); !os.IsNotExist(errorValue) {
+		t.Fatalf("expected user-managed skill directory removed, got %v", errorValue)
+	}
+}
+
+func TestSkillRemoveMissingSkillFails(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.remove",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name": "missing-skill",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() || !strings.Contains(string(result.Output.Data), `"status":"missing"`) {
+		t.Fatalf("expected not found missing result, got %+v", result)
+	}
+}
+
+func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	for _, input := range []map[string]string{
+		{"name": "../escape", "content": userSkillDocument("escape")},
+		{"name": "simple-slides", "content": userSkillDocument("simple-slides")},
+	} {
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+			ToolName: "skill.add",
+			Input:    agent.MarshalToolInput(input),
+		})
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if !result.Failed() {
+			t.Fatalf("expected skill.add to reject %+v", input)
+		}
+	}
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.remove",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name": "agent-browser",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected skill.remove to reject built-in skill, got %+v", result)
+	}
+}
+
+func TestSkillAddRejectsMalformedOrCustomFrontmatter(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	for _, content := range []string{
+		"---\nname: broken\ndescription: Broken",
+		"---\nname: custom\nsummary: no\n---\nBody.",
+		"---\nname: custom\ntags: [one]\n---\nBody.",
+		"---\nname: custom\ntriggerHints: [one]\n---\nBody.",
+		"---\nname: custom\ncustomToolDependency: [terminal.run]\n---\nBody.",
+		"---\nname: custom\nallowedProfiles: [default]\n---\nBody.",
+	} {
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+			ToolName: "skill.add",
+			Input: agent.MarshalToolInput(map[string]string{
+				"name":    "broken",
+				"content": content,
+			}),
+		})
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if !result.Failed() {
+			t.Fatalf("expected malformed skill document to be rejected: %s", content)
+		}
+	}
+}
+
+func TestSkillAddAcceptsStandardOptionalMetadata(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	content := `---
+name: metadata-helper
+description: Help with metadata-backed standard skill imports.
+license: MIT
+metadata:
+  category: productivity
+  locale: ko-KR
+---
+Use this skill when standard skill metadata should be preserved.
+`
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.add",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name":    "metadata-helper",
+			"content": content,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected standard optional metadata to be accepted, got %s", result.ContentText())
+	}
+}
+
+func TestSkillAddRejectsInvalidResourcePaths(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	for _, resourcePath := range []string{
+		"../escape.md",
+		"/workspace/escape.md",
+		"SKILL.md",
+		".hidden/file.md",
+		"notes/file.md",
+	} {
+		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+			ToolName: "skill.add",
+			Input: agent.MarshalToolInput(map[string]any{
+				"name":    "resource-helper",
+				"content": userSkillDocument("resource-helper"),
+				"resources": []map[string]string{{
+					"path":    resourcePath,
+					"content": "no",
+				}},
+			}),
+		})
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if !result.Failed() {
+			t.Fatalf("expected resource path %q to be rejected", resourcePath)
+		}
+	}
+}
+
+func TestSkillAddReturnsQualityWarnings(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	content := `---
+name: tiny-helper
+description: Tiny.
+---
+Use references/missing.md.
+`
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.add",
+		Input: agent.MarshalToolInput(map[string]any{
+			"name":    "tiny-helper",
+			"content": content,
+			"resources": []map[string]string{{
+				"path":    "assets/unmentioned.txt",
+				"content": "asset",
+			}},
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected warning-only skill.add success, got %s", result.ContentText())
+	}
+	resultDocument := decodeSkillAddResult(t, result.ContentText())
+	for _, expectedWarning := range []string{
+		"when_to_use is recommended so retrieval has explicit trigger context",
+		"description is short; include what the skill does and when to use it",
+		"SKILL.md mentions references/ but no reference resources were supplied",
+		"resource assets/unmentioned.txt is not mentioned from SKILL.md",
+	} {
+		if !containsTestString(resultDocument.Warnings, expectedWarning) {
+			t.Fatalf("expected warning %q, got %+v", expectedWarning, resultDocument.Warnings)
+		}
+	}
+}
+
+func TestSkillAddReturnsLongBodyAndMissingScriptWarnings(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	content := `---
+name: long-helper
+description: Help with long deterministic workflows.
+when_to_use: Use for long workflow requests.
+---
+Use scripts/missing.sh when needed.
+` + strings.Repeat("step\n", longSkillBodyLineCount+1)
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.add",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name":    "long-helper",
+			"content": content,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected warning-only skill.add success, got %s", result.ContentText())
+	}
+	resultDocument := decodeSkillAddResult(t, result.ContentText())
+	for _, expectedWarning := range []string{
+		"skill body is long; move detailed material into references",
+		"SKILL.md mentions scripts/ but no script resources were supplied",
+	} {
+		if !containsTestString(resultDocument.Warnings, expectedWarning) {
+			t.Fatalf("expected warning %q, got %+v", expectedWarning, resultDocument.Warnings)
+		}
+	}
+}
+
+func TestSkillManagementRejectsProductionServiceOwnedWorkspace(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath("/workspace")
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.add",
+		Input: agent.MarshalToolInput(map[string]string{
+			"name":    "demo-skill",
+			"content": "---\nname: demo-skill\ndescription: Demo skill for rejection testing.\n---\n# Demo\n",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.Failure.Stage != "actor_permission_denied" {
+		t.Fatalf("expected actor_permission_denied for production skill.add, got %+v", result)
+	}
+}

@@ -416,3 +416,98 @@ func isImmutableSkillPath(workspaceRootPath string, path string) bool {
 		relativePath == ".agents/skills/agent-browser" ||
 		strings.HasPrefix(relativePath, ".agents/skills/agent-browser/")
 }
+
+type skillSearchToolInput struct {
+	Queries []agent.SkillSearchQuery `json:"queries"`
+	Limit   int                      `json:"limit"`
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) {
+	if toolCatalogBuilder.skillRetriever == nil || toolCatalogBuilder.instructionBundleLoader == nil {
+		return
+	}
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillSearchToolInput, agent.SkillSearchResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "skill.search",
+			Description: "Search available Blueclaw skills by concise skill-need descriptions.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"number"}},"required":["queries"]}`),
+		},
+		Handler: func(toolContext context.Context, input skillSearchToolInput) (agent.SkillSearchResult, error) {
+			return toolCatalogBuilder.searchSkills(toolContext, input, handlerContext, availableToolSet)
+		},
+	})
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) (agent.SkillSearchResult, error) {
+	limit := input.Limit
+	if limit <= 0 || limit > 8 {
+		limit = 5
+	}
+	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
+	agentRequest := agent.AgentRequest{
+		ProfileName:       handlerContext.request.ProfileName,
+		Prompt:            handlerContext.request.Prompt,
+		VisibleContext:    handlerContext.request.VisibleContext,
+		RequesterPersonID: handlerContext.request.RequesterPersonID,
+		RequesterName:     handlerContext.request.RequesterName,
+		ToolSet:           availableToolSet,
+	}
+	retrievalResult := toolCatalogBuilder.skillRetriever.Search(toolContext, agentRequest, instructionBundle.Skills, agent.SkillSearchQuerySet{Queries: input.Queries}, limit)
+	retrievalResult = includeExactSkillNameMatches(instructionBundle.Skills, input.Queries, retrievalResult)
+	return skillSearchResult(instructionBundle.Skills, retrievalResult), nil
+}
+
+func includeExactSkillNameMatches(skillInstructions []agent.SkillInstruction, queries []agent.SkillSearchQuery, retrievalResult agent.SkillRetrievalResult) agent.SkillRetrievalResult {
+	for _, query := range queries {
+		queryDescription := strings.TrimSpace(query.Description)
+		if queryDescription == "" {
+			continue
+		}
+		for _, skillInstruction := range skillInstructions {
+			if strings.TrimSpace(skillInstruction.Name) != queryDescription {
+				continue
+			}
+			retrievalResult.SelectedCandidates = prependSkillCandidate(retrievalResult.SelectedCandidates, agent.SkillCandidate{
+				Name:   skillInstruction.Name,
+				Score:  1,
+				Reason: "exact_name_match",
+				Source: skillInstruction.Source,
+			})
+		}
+	}
+	return retrievalResult
+}
+
+func prependSkillCandidate(candidates []agent.SkillCandidate, candidate agent.SkillCandidate) []agent.SkillCandidate {
+	result := []agent.SkillCandidate{candidate}
+	for _, existingCandidate := range candidates {
+		if strings.TrimSpace(existingCandidate.Name) == strings.TrimSpace(candidate.Name) {
+			continue
+		}
+		result = append(result, existingCandidate)
+	}
+	return result
+}
+
+func skillSearchResult(skillInstructions []agent.SkillInstruction, retrievalResult agent.SkillRetrievalResult) agent.SkillSearchResult {
+	skillInstructionByName := map[string]agent.SkillInstruction{}
+	for _, skillInstruction := range skillInstructions {
+		skillInstructionByName[skillInstruction.Name] = skillInstruction
+	}
+	items := []agent.SkillSearchResultItem{}
+	for _, candidate := range retrievalResult.SelectedCandidates {
+		skillInstruction, isFound := skillInstructionByName[candidate.Name]
+		if !isFound {
+			continue
+		}
+		items = append(items, agent.SkillSearchResultItem{
+			Name:        skillInstruction.Name,
+			Description: skillInstruction.Description,
+			Score:       candidate.Score,
+			Tools:       append([]string{}, skillInstruction.AllowedTools...),
+			SourcePath:  skillInstruction.Source.Path,
+			Completion:  skillInstruction.Completion,
+		})
+	}
+	return agent.SkillSearchResult{Skills: items}
+}
