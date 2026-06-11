@@ -19,6 +19,7 @@ type TaskRunRepository interface {
 	FindTaskAttempt(string) (TaskAttempt, bool, error)
 	ListTaskRun() ([]TaskRun, error)
 	ListTaskRunByPersonID(string) ([]TaskRun, error)
+	DeleteTaskRunsBefore(time.Time, []string) ([]string, error)
 }
 
 type TaskRunService struct {
@@ -705,4 +706,58 @@ func (taskRunService *TaskRunService) findTaskRunForMutation(taskRunID string) (
 	}
 	taskRunService.taskRuns[taskRunID] = taskRun
 	return taskRun, true
+}
+
+func (taskRunService *TaskRunService) PruneTerminalTaskRunsBefore(cutoff time.Time) []string {
+	terminalStatuses := []string{
+		string(TaskStatusCompleted),
+		string(TaskStatusFailed),
+		string(TaskStatusCancelled),
+		string(TaskStatusBlocked),
+	}
+	if taskRunService.repository != nil {
+		deletedIDs, errorValue := taskRunService.repository.DeleteTaskRunsBefore(cutoff, terminalStatuses)
+		if errorValue == nil {
+			taskRunService.evictTaskRunIDs(deletedIDs)
+			return deletedIDs
+		}
+	}
+	return taskRunService.pruneTerminalTaskRunsFromMemory(cutoff, terminalStatuses)
+}
+
+func (taskRunService *TaskRunService) pruneTerminalTaskRunsFromMemory(cutoff time.Time, terminalStatuses []string) []string {
+	terminalStatusSet := map[string]bool{}
+	for _, status := range terminalStatuses {
+		terminalStatusSet[status] = true
+	}
+	taskRunService.mutex.Lock()
+	defer taskRunService.mutex.Unlock()
+	prunedIDs := []string{}
+	for taskRunID, taskRun := range taskRunService.taskRuns {
+		if terminalStatusSet[string(taskRun.Status)] && taskRun.UpdatedAt.Before(cutoff) {
+			prunedIDs = append(prunedIDs, taskRunID)
+		}
+	}
+	taskRunService.evictTaskRunIDsLocked(prunedIDs)
+	return prunedIDs
+}
+
+func (taskRunService *TaskRunService) evictTaskRunIDs(taskRunIDs []string) {
+	taskRunService.mutex.Lock()
+	defer taskRunService.mutex.Unlock()
+	taskRunService.evictTaskRunIDsLocked(taskRunIDs)
+}
+
+func (taskRunService *TaskRunService) evictTaskRunIDsLocked(taskRunIDs []string) {
+	for _, taskRunID := range taskRunIDs {
+		delete(taskRunService.taskRuns, taskRunID)
+	}
+	for taskAttemptID, taskAttempt := range taskRunService.taskAttempts {
+		for _, taskRunID := range taskRunIDs {
+			if taskAttempt.TaskRunID == taskRunID {
+				delete(taskRunService.taskAttempts, taskAttemptID)
+				break
+			}
+		}
+	}
 }

@@ -3196,6 +3196,10 @@ func (repository *testTaskRunRepository) ListTaskRunByPersonID(personID string) 
 	return taskRuns, nil
 }
 
+func (repository *testTaskRunRepository) DeleteTaskRunsBefore(time.Time, []string) ([]string, error) {
+	return nil, nil
+}
+
 func useTestConnectorSkill(connectorRuntime *ConnectorRuntime, skillInstruction agent.SkillInstruction) {
 	connectorRuntime.agentKernel.UseSkillRetriever(agent.NewEmbeddingSkillRetriever(connectorSkillEmbeddingProvider{}, ""))
 	connectorRuntime.agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {

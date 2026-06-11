@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -1348,6 +1349,10 @@ func (repository failingAttemptStartRepository) ListTaskRun() ([]task.TaskRun, e
 }
 
 func (repository failingAttemptStartRepository) ListTaskRunByPersonID(string) ([]task.TaskRun, error) {
+	return nil, nil
+}
+
+func (repository failingAttemptStartRepository) DeleteTaskRunsBefore(time.Time, []string) ([]string, error) {
 	return nil, nil
 }
 
