@@ -106,7 +106,7 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 		},
 		AllowGiveUp: true,
 	})
-	for _, expected := range []string{`"approval"`, `"choices"`, `"give_up"`, `"A"`} {
+	for _, expected := range []string{`"approval"`, `"choices"`, `"give_up"`, `"A"`, `"1"`} {
 		if !strings.Contains(pendingSchema, expected) {
 			t.Fatalf("expected %s in pending schema, got %s", expected, pendingSchema)
 		}
@@ -214,6 +214,32 @@ func TestTurnRouterNormalizesConditionalFields(t *testing.T) {
 	}
 	if strings.Join(decision.Choices, ",") != "A" {
 		t.Fatalf("expected choices to be whitelisted and deduplicated, got %+v", decision.Choices)
+	}
+}
+
+func TestTurnRouterNormalizesChoiceNumberToOptionKey(t *testing.T) {
+	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
+	decision := router.normalizeDecision(TurnDecision{
+		Route:                  TurnRouteContinueTask,
+		Classification:         IntakeClassificationBoundedTask,
+		TaskShape:              TaskShapeMaintenanceTask,
+		EffortLevel:            EffortLevelStandard,
+		RequestedOutputFormats: nil,
+		ResponseLanguage:       "ko",
+		Choices:                []string{"2"},
+	}, router.deterministicDecision(AgentRequest{}), AgentRequest{
+		PendingChoice: PendingChoiceContext{
+			TaskRunID:     "task-2",
+			SelectionMode: "single",
+			Options: []ChoiceReplyOption{
+				{Key: "1", Label: "첫 번째"},
+				{Key: "2", Label: "두 번째"},
+			},
+		},
+	})
+
+	if strings.Join(decision.Choices, ",") != "2" {
+		t.Fatalf("expected numbered choice to resolve to key 2, got %+v", decision.Choices)
 	}
 }
 
@@ -919,7 +945,7 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("아래 세 가지 중 하나를 선택해 주세요.\n\n1. 선택지 1\n2. 선택지 2\n3. 선택지 3"),
-		`{"action":"continue","toolName":"ask.choice","toolInput":{"question":"아래 세 가지 중 하나를 선택해 주세요.","options":[{"key":"1","label":"선택지 1","value":"1"},{"key":"2","label":"선택지 2","value":"2"},{"key":"3","label":"선택지 3","value":"3"}],"recommendedOptionKey":"1","selectionMode":"single"},"nextStepPlan":{"objective":"wait for the user choice","expectedTools":[],"expectedNextResults":["사용자가 선택지를 고름"],"doneCriteria":["ask.choice is displayed"],"risk":"none","workingSetReason":"ask.choice provides the requested options"}}`,
+		`{"action":"continue","toolName":"ask.choice","toolInput":{"question":"아래 세 가지 중 하나를 선택해 주세요.","options":["선택지 1","선택지 2","선택지 3"],"recommendedOptionKey":"1","selectionMode":"single"},"nextStepPlan":{"objective":"wait for the user choice","expectedTools":[],"expectedNextResults":["사용자가 선택지를 고름"],"doneCriteria":["ask.choice is displayed"],"risk":"none","workingSetReason":"ask.choice provides the requested options"}}`,
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"ask.choice"})

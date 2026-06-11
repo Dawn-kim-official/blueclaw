@@ -111,26 +111,27 @@ type AgentCheckpoint struct {
 }
 
 type turnActionDocument struct {
-	Action               string                        `json:"action"`
-	Message              string                        `json:"message"`
-	ReplyParts           []AgentPart                   `json:"replyParts,omitempty"`
-	CompletionSummary    string                        `json:"completionSummary,omitempty"`
-	ToolName             string                        `json:"toolName"`
-	ToolInput            json.RawMessage               `json:"toolInput"`
-	ToolNames            []string                      `json:"toolNames"`
-	SkillNames           []string                      `json:"skillNames"`
-	Reason               string                        `json:"reason"`
-	Reply                string                        `json:"reply"`
-	FailureResolution    string                        `json:"failureResolution"`
-	GoalStatus           string                        `json:"goalStatus"`
-	GoalSatisfied        *bool                         `json:"goalSatisfied"`
-	CompletionEvidence   []completionEvidenceReference `json:"completionEvidence"`
-	QualityCriteria      []qualityCriterion            `json:"qualityCriteria"`
-	QualityReview        []qualityReviewItem           `json:"qualityReview"`
-	RemainingWork        string                        `json:"remainingWork"`
-	UsedFailureFacts     failureReportFacts            `json:"usedFailureFacts"`
-	ExecutionStateUpdate ExecutionState                `json:"executionStateUpdate"`
-	NextStepPlan         NextStepPlan                  `json:"nextStepPlan"`
+	Action                string                        `json:"action"`
+	Message               string                        `json:"message"`
+	ReplyParts            []AgentPart                   `json:"replyParts,omitempty"`
+	CompletionSummary     string                        `json:"completionSummary,omitempty"`
+	ToolName              string                        `json:"toolName"`
+	ToolInput             json.RawMessage               `json:"toolInput"`
+	ToolNames             []string                      `json:"toolNames"`
+	SkillNames            []string                      `json:"skillNames"`
+	Reason                string                        `json:"reason"`
+	Reply                 string                        `json:"reply"`
+	FailureResolution     string                        `json:"failureResolution"`
+	GoalStatus            string                        `json:"goalStatus"`
+	GoalSatisfied         *bool                         `json:"goalSatisfied"`
+	CompletionEvidenceIDs []string                      `json:"completionEvidenceIDs"`
+	CompletionEvidence    []completionEvidenceReference `json:"completionEvidence"`
+	QualityCriteria       []string                      `json:"qualityCriteria"`
+	QualityReview         []qualityReviewItem           `json:"qualityReview"`
+	RemainingWork         string                        `json:"remainingWork"`
+	UsedFailureFacts      failureReportFacts            `json:"usedFailureFacts"`
+	ExecutionStateUpdate  ExecutionState                `json:"executionStateUpdate"`
+	NextStepPlan          NextStepPlan                  `json:"nextStepPlan"`
 }
 
 type NextStepPlan struct {
@@ -254,10 +255,11 @@ type qualityCriterion struct {
 }
 
 type qualityReviewItem struct {
-	ID       string                        `json:"id"`
-	Passed   bool                          `json:"passed"`
-	Evidence []completionEvidenceReference `json:"evidence"`
-	Notes    string                        `json:"notes,omitempty"`
+	ID          string                        `json:"id"`
+	Passed      bool                          `json:"passed"`
+	EvidenceIDs []string                      `json:"evidenceIDs"`
+	Evidence    []completionEvidenceReference `json:"evidence"`
+	Notes       string                        `json:"notes,omitempty"`
 }
 
 type completionGateResult struct {
@@ -3206,7 +3208,7 @@ func findSuccessfulObservation(observations []turnObservation, reference complet
 		if strings.TrimSpace(observation.ObservationID) != strings.TrimSpace(reference.ObservationID) {
 			continue
 		}
-		if strings.TrimSpace(observation.Tool) != strings.TrimSpace(reference.ToolName) {
+		if strings.TrimSpace(reference.ToolName) != "" && strings.TrimSpace(observation.Tool) != strings.TrimSpace(reference.ToolName) {
 			continue
 		}
 		return observation, true

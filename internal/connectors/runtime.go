@@ -1044,6 +1044,16 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, EffortLevel: agent.EffortLevelQuick, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true
 		}
 	}
+	if decision, isFound := deterministicConfirmationReplyDecision(event); isFound {
+		connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
+			"messageID":   event.MessageID,
+			"route":       decision.Route,
+			"approval":    decision.Approval,
+			"reason":      decision.Reason,
+			"replyPrompt": strings.TrimSpace(event.Prompt),
+		}))
+		return approval, decision, true
+	}
 	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
@@ -1068,6 +1078,40 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
 	}
 	return approval, decision, true
+}
+
+func deterministicConfirmationReplyDecision(event PlatformInboundEvent) (agent.TurnDecision, bool) {
+	switch deterministicConfirmationReplyKind(event.Prompt) {
+	case "confirm":
+		approvalSignal := agent.ApprovalSignalApprove
+		return agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, EffortLevel: agent.EffortLevelStandard, ResponseLanguage: responseLanguageForEvent(event), Reason: "deterministic_confirm"}, true
+	case "cancel":
+		approvalSignal := agent.ApprovalSignalReject
+		return agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, EffortLevel: agent.EffortLevelQuick, ResponseLanguage: responseLanguageForEvent(event), Reason: "deterministic_cancel"}, true
+	default:
+		return agent.TurnDecision{}, false
+	}
+}
+
+func deterministicConfirmationReplyKind(reply string) string {
+	normalizedReply := strings.TrimSpace(strings.ToLower(reply))
+	confirmReplies := map[string]bool{
+		"ㅇ": true, "응": true, "네": true, "예": true, "확인": true, "승인": true,
+		"좋아": true, "그래": true, "진행": true, "진행해": true, "진행해줘": true, "해": true, "해줘": true,
+		"approved": true, "approve": true, "confirm": true, "yes": true, "y": true, "ok": true, "okay": true, "go ahead": true,
+	}
+	cancelReplies := map[string]bool{
+		"ㄴ": true, "아니": true, "아니오": true, "취소": true, "취소해": true, "취소해줘": true, "거절": true,
+		"하지마": true, "하지 마": true, "안돼": true, "안 돼": true, "멈춰": true,
+		"rejected": true, "reject": true, "cancel": true, "no": true, "n": true, "stop": true,
+	}
+	if confirmReplies[normalizedReply] {
+		return "confirm"
+	}
+	if cancelReplies[normalizedReply] {
+		return "cancel"
+	}
+	return ""
 }
 
 func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent) (PlatformInboundEvent, agent.TurnDecision, bool) {
@@ -1096,6 +1140,25 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 	if pendingInteraction.Kind != "ask_choice_single" && pendingInteraction.Kind != "ask_choice_multiple" {
 		return event, agent.TurnDecision{}, false
 	}
+	if choices, isFound := deterministicChoiceSelections(event.Prompt, pendingInteraction); isFound {
+		decision := agent.TurnDecision{
+			Route:            agent.TurnRouteContinueTask,
+			Classification:   agent.IntakeClassificationBoundedTask,
+			TaskShape:        agent.TaskShapeMaintenanceTask,
+			EffortLevel:      agent.EffortLevelStandard,
+			ResponseLanguage: responseLanguageForEvent(event),
+			Reason:           "deterministic_choice_selection",
+			Choices:          choices,
+		}
+		connectorRuntime.agentKernel.AppendTaskEvent(pendingInteraction.TaskRunID, "ask.reply_classified", marshalConnectorEventBody(map[string]any{
+			"messageID": event.MessageID,
+			"choices":   decision.Choices,
+			"route":     decision.Route,
+			"reason":    decision.Reason,
+		}))
+		event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
+		return event, decision, true
+	}
 	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
@@ -1121,6 +1184,66 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 	}
 	event.Prompt = resolvedChoicePrompt(pendingInteraction, decision.Choices)
 	return event, decision, true
+}
+
+func deterministicChoiceSelections(reply string, interaction AskInteraction) ([]string, bool) {
+	choices := []string{}
+	seenChoices := map[string]bool{}
+	for _, token := range choiceSelectionTokens(reply) {
+		choiceKey := choiceKeyForSelectionToken(token, interaction.Options)
+		if choiceKey == "" || seenChoices[choiceKey] {
+			continue
+		}
+		seenChoices[choiceKey] = true
+		choices = append(choices, choiceKey)
+	}
+	if len(choices) == 0 {
+		return nil, false
+	}
+	if strings.TrimSpace(interaction.SelectionMode) != "multiple" && len(choices) > 1 {
+		return nil, false
+	}
+	return choices, true
+}
+
+func choiceSelectionTokens(reply string) []string {
+	tokens := []string{}
+	for _, field := range strings.FieldsFunc(strings.TrimSpace(reply), choiceSelectionSeparator) {
+		token := leadingChoiceDigits(field)
+		if token != "" {
+			tokens = append(tokens, token)
+		}
+	}
+	return tokens
+}
+
+func choiceSelectionSeparator(character rune) bool {
+	switch character {
+	case ',', '/', '&', '+', ' ', '\t', '\n', '\r':
+		return true
+	default:
+		return false
+	}
+}
+
+func leadingChoiceDigits(value string) string {
+	builder := strings.Builder{}
+	for _, character := range strings.TrimSpace(value) {
+		if character < '0' || character > '9' {
+			break
+		}
+		builder.WriteRune(character)
+	}
+	return builder.String()
+}
+
+func choiceKeyForSelectionToken(token string, options []AskChoiceOption) string {
+	for index, option := range options {
+		if token == strings.TrimSpace(option.Key) || token == fmt.Sprintf("%d", index+1) {
+			return strings.TrimSpace(option.Key)
+		}
+	}
+	return ""
 }
 
 func askInteractiveTurnDecision(event PlatformInboundEvent, interaction AskInteraction, action string) agent.TurnDecision {

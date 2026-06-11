@@ -1667,7 +1667,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
 			"blueclaw_confirmation_reply_decision": {
-				`{"decision":"approved","reason":"응 is an affirmative answer to the pending confirmation question."}`,
+				`{"decision":"approved","reason":"user explicitly confirms the pending calendar deletion."}`,
 			},
 		},
 		ActionResponses: []string{
@@ -1706,7 +1706,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	}
 
 	secondEvent := testInboundEvent("message-2")
-	secondEvent.Prompt = "응"
+	secondEvent.Prompt = "응 맞아 삭제해"
 	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
 	if errorValue != nil {
 		t.Fatalf("expected approval reply to process: %v", errorValue)
@@ -1732,6 +1732,70 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	}
 	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "내일 휴가 일정을 캘린더에서 삭제했습니다." {
 		t.Fatalf("expected final approved reply, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeHandlesDeterministicConfirmationReplyBeforeRouter(t *testing.T) {
+	invokedTools := []string{}
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_task_intake_effort": {
+				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+			},
+			"blueclaw_execution_plan": {
+				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
+			},
+			"blueclaw_confirmation_message": {
+				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
+			},
+		},
+		ActionResponses: []string{
+			`{"action":"continue","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.add", "calendar.event.delete"})
+	connectorRuntime.UseCapabilityTools(capability.Client{
+		Endpoint: "http://capability.test",
+		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"status":"ok","content":"calendar event deleted","result":{"eventID":"event-1"}}`)),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+			}, nil
+		}),
+	}, []string{"calendar.event.add", "calendar.event.delete"})
+
+	firstEvent := testInboundEvent("message-1")
+	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
+	firstResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, firstEvent)
+	if errorValue != nil {
+		t.Fatalf("expected first event to process: %v", errorValue)
+	}
+
+	secondEvent := testInboundEvent("message-2")
+	secondEvent.Prompt = "확인"
+	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
+	if errorValue != nil {
+		t.Fatalf("expected deterministic approval reply to process: %v", errorValue)
+	}
+
+	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.TaskRunID == "" {
+		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
+	}
+	if connectorContainsSchemaName(languageModel.Requests(), "blueclaw_confirmation_reply_decision") {
+		t.Fatalf("deterministic confirmation reply must not call confirmation router, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	}
+	if !connectorTaskEventsContain(connectorRuntime, firstResult.TaskRunID, "confirmation.reply_classified", "deterministic_confirm") {
+		t.Fatal("expected deterministic confirmation classification event")
+	}
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
+		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
 	}
 }
 

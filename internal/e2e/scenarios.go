@@ -364,6 +364,56 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 	}
 }
 
+func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "ask_choice_reply_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "ask.choice"},
+		Turns: []VirtualTurn{{
+			Prompt: "둘 중 하나 고르게 해줘",
+			ActionResponses: []string{
+				actionCallTool("ask.choice", `{"question":"어느 쪽으로 진행할까요?","options":["첫 번째","두 번째"],"recommendedOptionKey":"1","selectionMode":"single"}`),
+			},
+			ExpectedToolCalls:      []string{"ask.choice"},
+			ExpectedEvents:         []string{"ask.requested"},
+			ExpectedReplyFragments: []string{"어느 쪽으로 진행할까요?"},
+			ExpectedModelContexts:  []string{`"options":{"items":{"type":"string"},"type":"array"}`, `"recommendedOptionKey"`},
+		}, {
+			Prompt: "2",
+			ActionResponses: []string{
+				actionFinishMessage("두 번째로 진행하겠습니다."),
+			},
+			ExpectedEvents:         []string{"ask.resolved"},
+			ExpectedReplyFragments: []string{"두 번째"},
+			ExpectedModelContexts:  []string{"User selected: 2 / 두 번째"},
+		}},
+	}
+}
+
+func AskConfirmReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "ask_confirm_reply_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "ask.confirm"},
+		Turns: []VirtualTurn{{
+			Prompt: "진행 전에 확인 받아줘",
+			ActionResponses: []string{
+				actionCallTool("ask.confirm", `{"userFacingMessage":"이대로 진행할까요?","reasonCode":"external_send","reasonDetail":"confirmation acceptance test"}`),
+			},
+			ExpectedToolCalls:      []string{"ask.confirm"},
+			ExpectedEvents:         []string{"confirmation.requested"},
+			ExpectedReplyFragments: []string{"이대로 진행할까요?"},
+		}, {
+			Prompt: "확인",
+			ActionResponses: []string{
+				actionFinishMessage("확인되어 계속 진행하겠습니다."),
+			},
+			ExpectedEvents:         []string{"confirmation.reply_classified"},
+			ExpectedReplyFragments: []string{"확인되어"},
+		}},
+	}
+}
+
 func simpleSlidesSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:        "simple-slides",

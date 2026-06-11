@@ -121,6 +121,10 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return ScheduleCreateAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_prototype_acceptance":
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
+	case "ask_choice_reply_acceptance":
+		return AskChoiceReplyAcceptanceScenario(artifactDirectoryPath), nil
+	case "ask_confirm_reply_acceptance":
+		return AskConfirmReplyAcceptanceScenario(artifactDirectoryPath), nil
 	case "attachment_material_read":
 		return AttachmentMaterialReadScenario(artifactDirectoryPath), nil
 	case "attachment_html_preview_recovery":
