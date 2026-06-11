@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os/exec"
 	"strings"
@@ -112,4 +113,20 @@ func bcExecutionError(commandContext context.Context, standardError string, erro
 
 func mathCalculateError(message string, failureStage string) agent.ToolResult {
 	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, failureStage, message)
+}
+
+type mathCalculateToolInput struct {
+	Expression string `json:"expression"`
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) registerMathTool(toolRegistry *agent.ToolSet) {
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[mathCalculateToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "math.calculate",
+			Description: "Evaluate a safe arithmetic expression using bc. Supports numbers, parentheses, +, -, *, /, %, ^, and **.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"expression":{"type":"string"}},"required":["expression"]}`),
+		},
+		Handler: toolCatalogBuilder.calculateMathTool,
+		Result:  agent.IdentityToolResult,
+	})
 }
