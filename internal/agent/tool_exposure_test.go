@@ -48,7 +48,7 @@ func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "slides", Status: "selected"}},
 	}
 
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: []string{"unknown.tool"}}, ToolExposureEvent{})
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘", WorkKinds: []string{WorkKindSlidesArtifact}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: []string{"unknown.tool"}}, ToolExposureEvent{})
 
 	for _, toolID := range []string{"skill.search", "tool.describe", "ask.confirm", "terminal.run", "file.write"} {
 		if !filteredToolSet.IsAllowed(toolID) {
@@ -270,7 +270,7 @@ func TestDeterministicPaletteTruncatesSelectedSkillToolsByOrder(t *testing.T) {
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 만들고 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 만들고 배포해줘", WorkKinds: []string{WorkKindSitePrototype}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	if len(event.ExposedToolIDs) > maxSchemaCallableToolCount {
 		t.Fatalf("expected exposed tools to stay within cap, got %+v", event.ExposedToolIDs)
@@ -592,7 +592,7 @@ func TestFallbackKeepsSelectedSkillToolsBeforeCoreTools(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
 	}
 
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘", WorkKinds: []string{WorkKindSlidesArtifact}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	for _, toolName := range slideToolNames {
 		if !filteredToolSet.IsAllowed(toolName) {

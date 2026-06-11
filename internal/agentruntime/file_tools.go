@@ -753,7 +753,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) convertFilePreviewWithCapability(t
 		Result       json.RawMessage `json:"result"`
 	}
 	input := agent.MarshalToolInput(map[string]any{"path": path, "maxOutputBytes": maximumFilePreviewBytes})
-	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/document.read/invoke", capabilityToolRequest("document.read", request, input), &response)
+	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/document.read/invoke", capabilityToolRequest(toolContext, "document.read", request, input), &response)
 	if errorValue != nil || response.IsError || response.Status == "error" || response.Status == "denied" {
 		return agent.ToolResult{}, false
 	}

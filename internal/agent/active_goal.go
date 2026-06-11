@@ -23,6 +23,7 @@ type ActiveGoal struct {
 	CurrentObjective    string           `json:"currentObjective,omitempty"`
 	KnownContext        []string         `json:"knownContext,omitempty"`
 	MissingInformation  []string         `json:"missingInformation,omitempty"`
+	WorkKinds           []string         `json:"workKinds,omitempty"`
 	OutcomeContract     OutcomeContract  `json:"outcomeContract,omitempty"`
 	Status              ActiveGoalStatus `json:"status,omitempty"`
 }

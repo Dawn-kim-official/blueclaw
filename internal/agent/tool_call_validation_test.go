@@ -443,6 +443,7 @@ func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "웹사이트 만들어서 배포해",
+		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"site.app.publish"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},

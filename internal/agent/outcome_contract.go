@@ -13,7 +13,7 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 	if requestIsNonDestructiveSitePrototypePublish(request, requiredEvidenceTools) {
 		return false
 	}
-	if hasTool(request.ToolSet, "site.app.publish") && looksLikeDestructiveSiteManagement(strings.ToLower(strings.TrimSpace(request.Prompt))) {
+	if hasTool(request.ToolSet, "site.app.publish") && requestHasWorkKind(request, WorkKindDestructiveAction) {
 		return true
 	}
 	if intakeDecision.TaskShape == TaskShapeApprovalGatedTask {
@@ -24,7 +24,9 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 			return true
 		}
 	}
-	return promptLooksLikeConfirmationCandidate(request.Prompt)
+	return requestHasWorkKind(request, WorkKindDestructiveAction) ||
+		requestHasWorkKind(request, WorkKindPaidService) ||
+		requestHasWorkKind(request, WorkKindExternalSend)
 }
 
 func confirmationRiskyEvidenceTool(toolName string) bool {
@@ -43,101 +45,29 @@ func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredE
 	if !requiredEvidenceContains(requiredEvidenceTools, "site.app.publish") && !hasTool(request.ToolSet, "site.app.publish") {
 		return false
 	}
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
 	if !requestLooksLikeSitePrototypeWork(request) {
 		return false
 	}
-	if looksLikeDestructiveSiteManagement(prompt) || looksLikePaidProductionSiteRequest(prompt) {
+	if requestHasWorkKind(request, WorkKindDestructiveAction) || requestHasWorkKind(request, WorkKindPaidService) {
 		return false
 	}
 	return true
 }
 
-func looksLikeDestructiveSiteManagement(prompt string) bool {
-	return containsAny(prompt, []string{
-		"delete", "remove", "destroy", "unpublish", "take down", "rollback", "roll back",
-		"삭제", "제거", "폐기", "내려", "내리", "비공개", "롤백", "되돌", "중단",
-	})
-}
-
-func looksLikePaidProductionSiteRequest(prompt string) bool {
-	return containsAny(prompt, []string{
-		"production", "paid", "billing", "payment", "custom domain", "aws", "gcp", "azure", "cloudflare",
-		"프로덕션", "운영", "유료", "결제", "과금", "실도메인", "커스텀 도메인", "상용",
-	})
-}
-
-func promptLooksLikeConfirmationCandidate(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return false
-	}
-	return containsAny(normalizedPrompt, []string{
-		"dm", "direct message", "email", "mail", "delete", "remove", "cancel", "deploy", "publish", "permission", "invite", "every minute", "every hour",
-		"전송", "삭제", "취소", "배포", "공개", "권한", "초대", "분마다", "시간마다", "1분마다", "반복",
-	})
-}
-
-func promptLooksLikeSitePrototypeRequest(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	return containsAny(normalizedPrompt, []string{
-		"website", "web app", "prototype", "landing page", "publish", "deploy", "make site", "create site",
-		"웹사이트", "웹 앱", "프로토타입", "랜딩", "배포", "공개", "사이트 만들어", "사이트를 만들어",
-	})
-}
-
 func requestLooksLikeSitePrototypeWork(request AgentRequest) bool {
-	if promptLooksLikeSitePrototypeRequest(request.Prompt) {
-		return true
-	}
-	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.") {
-		return true
-	}
-	if promptLooksLikeSitePrototypeRequest(request.ActiveGoal.OriginalInstruction) {
-		return true
-	}
-	if promptLooksLikeSitePrototypeRequest(request.ActiveGoal.CurrentObjective) {
-		return true
-	}
-	for _, contextValue := range request.ActiveGoal.KnownContext {
-		if promptLooksLikeSitePrototypeRequest(contextValue) {
-			return true
-		}
-	}
-	return false
-}
-
-func promptLooksLikeCalendarRequest(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	return containsAny(normalizedPrompt, []string{
-		"calendar", "event", "일정", "캘린더", "달력", "회의", "약속", "휴가",
-	})
-}
-
-func promptLooksLikeCalendarOrWorkRequest(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	return containsAny(normalizedPrompt, []string{
-		"calendar", "event", "task", "todo", "work item",
-		"일정", "캘린더", "달력", "회의", "미팅", "약속", "휴가",
-		"업무", "할 일", "할일", "마감", "완료", "전달", "요청",
-	})
+	return requestHasWorkKind(request, WorkKindSitePrototype) || activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.")
 }
 
 func requestLooksLikeCalendarWork(request AgentRequest) bool {
-	if requestLooksLikeSitePrototypeWork(request) || requestLooksLikeSlidesArtifactWork(request) {
-		return false
-	}
-	return promptLooksLikeCalendarOrWorkRequest(request.Prompt) ||
-		promptLooksLikeCalendarOrWorkRequest(request.ActiveGoal.OriginalInstruction) ||
-		promptLooksLikeCalendarOrWorkRequest(request.ActiveGoal.CurrentObjective)
+	return requestHasWorkKind(request, WorkKindCalendar)
 }
 
 func requestLooksLikeSlidesArtifactWork(request AgentRequest) bool {
-	return textContainsAny(strings.ToLower(strings.Join([]string{
-		request.Prompt,
-		request.ActiveGoal.OriginalInstruction,
-		request.ActiveGoal.CurrentObjective,
-	}, "\n")), []string{"slides", "slide deck", "presentation", "pptx", "powerpoint", "슬라이드", "발표자료", "프레젠테이션", "피피티", "파워포인트"})
+	return requestHasWorkKind(request, WorkKindSlidesArtifact)
+}
+
+func requestHasWorkKind(request AgentRequest, workKind string) bool {
+	return workKindsContain(request.WorkKinds, workKind)
 }
 
 func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBundle) *ToolSet {
@@ -464,7 +394,7 @@ func attachmentSuffixesForOutcomeContract(request AgentRequest, executionPlan Ex
 	if !onlyHTMLAttachmentSuffixes(requiredAttachmentSuffixes) {
 		return append([]string{}, requiredAttachmentSuffixes...)
 	}
-	if promptExplicitlyRequestsFileDelivery(request.Prompt) {
+	if requestHasWorkKind(request, WorkKindFileDelivery) {
 		return append([]string{}, requiredAttachmentSuffixes...)
 	}
 	return nil
@@ -483,17 +413,9 @@ func onlyHTMLAttachmentSuffixes(requiredAttachmentSuffixes []string) bool {
 	return len(requiredAttachmentSuffixes) > 0
 }
 
-func promptExplicitlyRequestsFileDelivery(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	return containsAny(normalizedPrompt, []string{
-		"file", "attach", "attachment", "download", "source", "raw html", "html file",
-		"파일", "첨부", "다운로드", "소스", "원본", "html 파일", "html파일",
-	})
-}
-
 func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) OutcomeContract {
 	contract = normalizeOutcomeContract(contract)
-	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !promptExplicitlyRequestsFileDelivery(request.Prompt) {
+	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !requestHasWorkKind(request, WorkKindFileDelivery) {
 		contract = removeImplicitHTMLFileContract(contract)
 	}
 	if outcomeContractRequiresPublicLinkOnly(contract) {
@@ -857,6 +779,7 @@ func outcomeContractSource(hasExecutionPlan bool, requiredAttachmentSuffixes []s
 func activeGoalForTurn(request AgentRequest, outcomeContract OutcomeContract, executionPlan ExecutionPlan, hasExecutionPlan bool) ActiveGoal {
 	activeGoal := request.ActiveGoal
 	activeGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
+	activeGoal.WorkKinds = appendUniqueStrings(activeGoal.WorkKinds, request.WorkKinds...)
 	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
 		activeGoal.OriginalInstruction = strings.TrimSpace(request.Prompt)
 	}
@@ -895,6 +818,7 @@ func activeGoalFromIntakeOnly(taskRunID string, request AgentRequest, intakeDeci
 		TaskRunID:           strings.TrimSpace(taskRunID),
 		OriginalInstruction: strings.TrimSpace(request.Prompt),
 		CurrentObjective:    strings.TrimSpace(intakeDecision.Reason),
+		WorkKinds:           append([]string{}, intakeDecision.WorkKinds...),
 		Status:              activeGoalStatusForTaskStatus(status),
 	}
 }

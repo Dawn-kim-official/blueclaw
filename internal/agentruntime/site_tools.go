@@ -695,7 +695,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) siteStatusForWorkspaceTool(toolCon
 		Status  string          `json:"status"`
 		Message string          `json:"message"`
 	}
-	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/site.app.status/invoke", capabilityToolRequest("site.app.status", request, inputDocument), &response)
+	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/site.app.status/invoke", capabilityToolRequest(toolContext, "site.app.status", request, inputDocument), &response)
 	if errorValue != nil {
 		return siteCreateResult{}, errorValue
 	}

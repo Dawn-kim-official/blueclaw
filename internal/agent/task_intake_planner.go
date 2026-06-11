@@ -52,6 +52,16 @@ const (
 	BusyRouteNewTask   BusyRoute = "new_task"
 	BusyRouteUnrelated BusyRoute = "unrelated"
 
+	WorkKindSitePrototype     = "site_prototype"
+	WorkKindSlidesArtifact    = "slides_artifact"
+	WorkKindCalendar          = "calendar"
+	WorkKindFileDelivery      = "file_delivery"
+	WorkKindDestructiveAction = "destructive_action"
+	WorkKindPaidService       = "paid_service"
+	WorkKindUserBrowser       = "user_browser"
+	WorkKindBrowserSession    = "browser_session"
+	WorkKindExternalSend      = "external_send"
+
 	DefaultReactionEmojiName = "white_check_mark"
 
 	ApprovalSignalApprove ApprovalSignal = "approve"
@@ -120,6 +130,7 @@ type AgentRequest struct {
 	AllowGiveUpReason       string
 	PrecomputedTurnDecision *TurnDecision
 	TaskComplexity          TaskComplexity
+	WorkKinds               []string
 	TurnStartedAt           time.Time
 	CheckpointSender        AgentCheckpointSender
 }
@@ -159,6 +170,7 @@ type IntakeDecision struct {
 	ResponseLanguage          string                `json:"responseLanguage"`
 	Reason                    string                `json:"reason"`
 	UserFacingReply           string                `json:"userFacingReply"`
+	WorkKinds                 []string              `json:"workKinds,omitempty"`
 	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
 	ClarificationOptions      []ClarificationOption `json:"clarificationOptions,omitempty"`
 	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
@@ -181,6 +193,7 @@ type TurnDecision struct {
 	ResponseLanguage          string                `json:"responseLanguage"`
 	Reason                    string                `json:"reason"`
 	UserFacingReply           string                `json:"userFacingReply"`
+	WorkKinds                 []string              `json:"workKinds,omitempty"`
 	Approval                  *ApprovalSignal       `json:"approval,omitempty"`
 	Choices                   []string              `json:"choices,omitempty"`
 	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
@@ -202,6 +215,7 @@ func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 		ResponseLanguage:          turnDecision.ResponseLanguage,
 		Reason:                    turnDecision.Reason,
 		UserFacingReply:           turnDecision.UserFacingReply,
+		WorkKinds:                 append([]string{}, turnDecision.WorkKinds...),
 		ClarificationQuestion:     turnDecision.ClarificationQuestion,
 		ClarificationOptions:      append([]ClarificationOption{}, turnDecision.ClarificationOptions...),
 		UsedDeterministicFallback: turnDecision.UsedDeterministicFallback,
@@ -288,7 +302,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, cancels, or replaces an active task. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set taskComplexity=simple when a bounded task has a clear short outcome and should normally produce only one final user reply even if it needs tools, such as adding one calendar event, reading one visible attachment, or checking one obvious fact. Set taskComplexity=normal for ordinary bounded work, and taskComplexity=complex for long research, artifact generation, deployment, verification, or work where progress updates are useful. Use clarify when the latest request cannot be routed safely without a user choice; when route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement instead of writing an emoji in userFacingReply. When route is consume, set reactionEmojiName to one enum value that matches the message. For non-consume routes, set reactionEmojiName to null or omit it. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, cancels, or replaces an active task. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set taskComplexity=simple when a bounded task has a clear short outcome and should normally produce only one final user reply even if it needs tools, such as adding one calendar event, reading one visible attachment, or checking one obvious fact. Set taskComplexity=normal for ordinary bounded work, and taskComplexity=complex for long research, artifact generation, deployment, verification, or work where progress updates are useful. Use clarify when the latest request cannot be routed safely without a user choice; when route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement instead of writing an emoji in userFacingReply. When route is consume, set reactionEmojiName to one enum value that matches the message. For non-consume routes, set reactionEmojiName to null or omit it. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Set workKinds to every kind that matches the requested work: site_prototype for website or web app prototype creation and publishing, slides_artifact for slide or presentation deliverables, calendar for calendar, event, or schedule-management work, file_delivery when the user explicitly asks for a produced or attached file, destructive_action when the request deletes, removes, or overwrites existing data or published resources, paid_service when it needs paid or production infrastructure such as custom domains or cloud accounts, user_browser when it needs the requester's own logged-in browser session including login, MFA, or captcha handoff, browser_session when it needs interactive browser automation, and external_send when the result leaves the current conversation as a direct message, email, or another outbound delivery. For short follow-ups such as retry requests, infer workKinds from the visible context work they continue. Use an empty array when none apply. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -317,41 +331,14 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 }
 
 func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDecision {
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	classification := IntakeClassificationQuickReply
-	reason := "short request can be answered directly"
-	effortLevel := EffortLevelQuick
-	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
-		classification = IntakeClassificationBoundedTask
-		reason = "request may benefit from bounded tool use"
-		effortLevel = turnRouter.options.DefaultEffortLevel
-	}
-	if requestRequiresFollowUpToolWork(request) {
-		classification = IntakeClassificationBoundedTask
-		reason = "request resumes previous visible tool work"
-		effortLevel = turnRouter.options.DefaultEffortLevel
-	}
-	if request.VisibleContext.HasMoreBefore {
-		classification = IntakeClassificationBoundedTask
-		reason = "request has additional retrievable conversation history"
-		effortLevel = turnRouter.options.DefaultEffortLevel
-	}
-	if looksLikeLargeRequest(prompt) {
-		classification = IntakeClassificationNeedsConfirmation
-		reason = "request appears too large for one bounded execution"
-	}
-	if looksUnsupported(prompt) {
-		classification = IntakeClassificationUnsupported
-		reason = "request is outside the available execution boundary"
-	}
 	responseLanguage := ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
 	return TurnDecision{
 		Route:                     deterministicTurnRoute(request),
-		Classification:            classification,
-		TaskShape:                 deterministicTaskShape(request, classification),
+		Classification:            IntakeClassificationBoundedTask,
+		TaskShape:                 deterministicTaskShape(request, IntakeClassificationBoundedTask),
 		TaskComplexity:            TaskComplexityNormal,
-		EffortLevel:               LargerEffortLevel(effortLevel, minimumEffortLevelForRequest(request)),
-		Reason:                    reason,
+		EffortLevel:               LargerEffortLevel(turnRouter.options.DefaultEffortLevel, minimumEffortLevelForRequest(request)),
+		Reason:                    "intake language model unavailable; treating request as bounded work",
 		ResponseLanguage:          responseLanguage,
 		UsedDeterministicFallback: true,
 	}
@@ -387,16 +374,6 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		decision.Reason = firstNonEmptyString(decision.Reason, "synthetic connector verification probe")
 		decision.UserFacingReply = ""
 	}
-	if requestRequiresFollowUpToolWork(request) && decision.Classification == IntakeClassificationQuickReply {
-		decision.Classification = IntakeClassificationBoundedTask
-		decision.Reason = firstNonEmptyString(decision.Reason, "request resumes previous visible tool work")
-		decision.UserFacingReply = ""
-	}
-	if requestRequiresAttachmentFollowUpToolWork(request) && decision.Classification == IntakeClassificationQuickReply {
-		decision.Classification = IntakeClassificationBoundedTask
-		decision.Reason = firstNonEmptyString(decision.Reason, "request resumes previous visible attachment work")
-		decision.UserFacingReply = ""
-	}
 	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision.IntakeDecision()) {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
@@ -410,12 +387,6 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
 	if normalizedTaskShape == "" {
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
-	}
-	if requestRequiresFollowUpToolWork(request) {
-		normalizedTaskShape = TaskShapeBrowserHandoffTask
-	}
-	if shouldPreferAttachmentContinuationOverBrowser(request, normalizedTaskShape) {
-		normalizedTaskShape = deterministicTaskShapeForAttachmentContinuation(decision.Classification)
 	}
 	if decision.Classification == IntakeClassificationBoundedTask && normalizedTaskShape == TaskShapeApprovalGatedTask {
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
@@ -436,7 +407,46 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
 	}
+	decision.WorkKinds = normalizeWorkKinds(decision.WorkKinds)
 	return decision
+}
+
+func normalizeWorkKinds(workKinds []string) []string {
+	knownWorkKinds := map[string]bool{
+		WorkKindSitePrototype:     true,
+		WorkKindSlidesArtifact:    true,
+		WorkKindCalendar:          true,
+		WorkKindFileDelivery:      true,
+		WorkKindDestructiveAction: true,
+		WorkKindPaidService:       true,
+		WorkKindUserBrowser:       true,
+		WorkKindBrowserSession:    true,
+		WorkKindExternalSend:      true,
+	}
+	normalized := []string{}
+	seen := map[string]bool{}
+	for _, workKind := range workKinds {
+		trimmed := strings.ToLower(strings.TrimSpace(workKind))
+		if !knownWorkKinds[trimmed] || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
+}
+
+func workKindsContain(workKinds []string, workKind string) bool {
+	for _, value := range workKinds {
+		if value == workKind {
+			return true
+		}
+	}
+	return false
+}
+
+func (decision IntakeDecision) HasWorkKind(workKind string) bool {
+	return workKindsContain(decision.WorkKinds, workKind)
 }
 
 func turnRouterSchema(request AgentRequest) string {
@@ -487,6 +497,17 @@ func turnRouterSchema(request AgentRequest) string {
 		"responseLanguage": map[string]any{"type": "string", "enum": []string{"ko", "en", "same_as_conversation"}},
 		"reason":           map[string]any{"type": "string"},
 		"userFacingReply":  map[string]any{"type": "string"},
+		"workKinds": map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string", "enum": []string{
+			WorkKindSitePrototype,
+			WorkKindSlidesArtifact,
+			WorkKindCalendar,
+			WorkKindFileDelivery,
+			WorkKindDestructiveAction,
+			WorkKindPaidService,
+			WorkKindUserBrowser,
+			WorkKindBrowserSession,
+			WorkKindExternalSend,
+		}}},
 		"clarificationQuestion": map[string]any{
 			"type": "string",
 		},
@@ -496,7 +517,7 @@ func turnRouterSchema(request AgentRequest) string {
 			map[string]any{"type": "null"},
 		}},
 	}
-	requiredProperties := []string{"route", "classification", "taskShape", "taskComplexity", "effortLevel", "requestedOutputFormats", "responseLanguage", "reason", "userFacingReply"}
+	requiredProperties := []string{"route", "classification", "taskShape", "taskComplexity", "effortLevel", "requestedOutputFormats", "responseLanguage", "reason", "userFacingReply", "workKinds"}
 	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
 		properties["approval"] = map[string]any{"type": "string", "enum": []string{string(ApprovalSignalApprove), string(ApprovalSignalReject), string(ApprovalSignalUnclear)}}
 		requiredProperties = append(requiredProperties, "approval")
@@ -697,20 +718,7 @@ func deterministicTaskShape(request AgentRequest, classification IntakeClassific
 	if classification == IntakeClassificationNeedsConfirmation {
 		return TaskShapeApprovalGatedTask
 	}
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	if requestRequiresFollowUpToolWork(request) {
-		return TaskShapeBrowserHandoffTask
-	}
-	if hasToolPrefix(request.ToolSet, "browser.") && containsAny(prompt, []string{"browser", "website", "web", "브라우저", "사이트", "페이지"}) {
-		return TaskShapeBrowserHandoffTask
-	}
-	if containsAny(prompt, []string{"fix", "clean", "setup", "install", "deploy", "고쳐", "정리", "설치", "배포"}) {
-		return TaskShapeMaintenanceTask
-	}
-	if classification == IntakeClassificationBoundedTask {
-		return TaskShapeResearchTask
-	}
-	return TaskShapeImmediateReply
+	return TaskShapeResearchTask
 }
 
 func normalizeTaskShape(taskShape TaskShape) TaskShape {
@@ -768,13 +776,7 @@ func deterministicTurnRoute(request AgentRequest) TurnRoute {
 		return TurnRouteContinueTask
 	}
 	if strings.TrimSpace(request.ActiveGoal.TaskRunID) != "" {
-		if turnRouterPromptLooksIndependent(request.Prompt) && !turnRouterPromptLooksLikeGoalContinuation(request.Prompt) {
-			return TurnRouteStartTask
-		}
 		return TurnRouteContinueTask
-	}
-	if turnRouterLooksLikeBareConfirmationReply(request.Prompt) {
-		return TurnRouteConsume
 	}
 	return TurnRouteStartTask
 }
@@ -909,69 +911,6 @@ func NormalizeReactionEmojiName(emojiName string) string {
 	return DefaultReactionEmojiName
 }
 
-func turnRouterLooksLikeBareConfirmationReply(prompt string) bool {
-	normalizedPrompt := strings.TrimSpace(strings.ToLower(prompt))
-	confirmationReplies := map[string]bool{
-		"ㅇ": true, "응": true, "네": true, "예": true, "그래": true, "좋아": true,
-		"진행해": true, "진행해줘": true, "해": true, "해줘": true,
-		"approved": true, "rejected": true, "yes": true, "y": true, "no": true, "n": true,
-		"ok": true, "okay": true, "go ahead": true,
-	}
-	return confirmationReplies[normalizedPrompt]
-}
-
-func turnRouterPromptLooksLikeGoalContinuation(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	return containsAny(normalizedPrompt, []string{
-		"우선", "계속", "진행", "그대로", "좋아", "해봐", "다시 해", "다시 진행", "그럼",
-		"continue", "go ahead", "proceed", "retry",
-	})
-}
-
-func turnRouterPromptLooksIndependent(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	return containsAny(normalizedPrompt, []string{
-		"캘린더", "일정", "회의", "휴가", "알림", "예약", "dm", "메일", "보내", "전송",
-		"검색", "찾아", "조사", "작성", "만들", "수정", "삭제", "배포", "열어",
-		"calendar", "meeting", "remind", "schedule", "send", "email", "search", "write", "create", "delete", "deploy",
-	})
-}
-
-func looksLikeToolRequest(prompt string) bool {
-	toolWords := []string{"search", "find", "lookup", "check", "read", "fetch", "compare", "analyze", "summarize", "browser", "screenshot", "click", "fill", "press", "create", "write", "attach", "run", "검색", "찾", "확인", "읽", "분석", "요약", "브라우저", "인터넷", "스크린샷", "클릭", "입력", "만들", "작성", "첨부", "실행"}
-	return containsAny(prompt, toolWords)
-}
-
-func requestRequiresFollowUpToolWork(request AgentRequest) bool {
-	if !hasToolPrefix(request.ToolSet, "browser.") {
-		return false
-	}
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	if !looksLikeBrowserFollowUp(prompt) || !visibleContextMentionsBrowserWork(request.VisibleContext) {
-		return false
-	}
-	if visibleContextHasAttachmentAnchor(request.VisibleContext) && !promptExplicitlyMentionsBrowser(prompt) {
-		return false
-	}
-	return true
-}
-
-func requestRequiresAttachmentFollowUpToolWork(request AgentRequest) bool {
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	return looksLikeBrowserFollowUp(prompt) && visibleContextHasAttachmentAnchor(request.VisibleContext) && !promptExplicitlyMentionsBrowser(prompt)
-}
-
-func shouldPreferAttachmentContinuationOverBrowser(request AgentRequest, taskShape TaskShape) bool {
-	if taskShape != TaskShapeBrowserHandoffTask {
-		return false
-	}
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	if !looksLikeBrowserFollowUp(prompt) {
-		return false
-	}
-	return visibleContextHasAttachmentAnchor(request.VisibleContext) && !promptExplicitlyMentionsBrowser(prompt)
-}
-
 func deterministicTaskShapeForAttachmentContinuation(classification IntakeClassification) TaskShape {
 	if classification == IntakeClassificationQuickReply {
 		return TaskShapeImmediateReply
@@ -982,29 +921,17 @@ func deterministicTaskShapeForAttachmentContinuation(classification IntakeClassi
 	return TaskShapeResearchTask
 }
 
-func looksLikeLargeRequest(prompt string) bool {
-	largeWords := []string{"entire", "all files", "whole repo", "everything", "대부분", "전부", "전체", "모든", "오래", "대량"}
-	return containsAny(prompt, largeWords) || len([]rune(prompt)) > 1200
-}
-
-func looksUnsupported(prompt string) bool {
-	unsupportedWords := []string{"forever", "무기한", "계속 감시", "계속 실행"}
-	return containsAny(prompt, unsupportedWords)
-}
-
 func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decision IntakeDecision) bool {
 	if decision.Classification != IntakeClassificationNeedsConfirmation {
 		return false
 	}
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	if looksLikeDestructiveLocalWork(prompt) {
+	if decision.HasWorkKind(WorkKindDestructiveAction) {
 		return false
 	}
 	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.promote", "file.attach"}) {
 		return false
 	}
-	artifactWords := []string{"slide", "slides", "deck", "presentation", "ppt", "pptx", "pdf", "html", "artifact", "attach", "피피티", "파워포인트", "발표자료", "슬라이드", "자료", "첨부", "보내"}
-	return containsAny(prompt, artifactWords) && containsAny(prompt, []string{"create", "make", "write", "generate", "export", "만들", "작성", "생성", "줘", "보내"})
+	return decision.HasWorkKind(WorkKindSlidesArtifact) || decision.HasWorkKind(WorkKindFileDelivery)
 }
 
 func shouldTreatAsBoundedSitePrototype(request AgentRequest, decision IntakeDecision) bool {
@@ -1014,17 +941,10 @@ func shouldTreatAsBoundedSitePrototype(request AgentRequest, decision IntakeDeci
 	if !hasAllTools(request.ToolSet, []string{"site.app.create", "site.app.publish"}) {
 		return false
 	}
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	if looksLikeDestructiveLocalWork(prompt) || looksLikeLargeRequest(prompt) {
+	if decision.HasWorkKind(WorkKindDestructiveAction) || decision.HasWorkKind(WorkKindPaidService) {
 		return false
 	}
-	return containsAny(prompt, []string{"website", "web app", "site", "landing page", "prototype", "demo", "웹사이트", "사이트", "랜딩", "프로토타입", "데모"}) &&
-		containsAny(prompt, []string{"create", "make", "build", "publish", "deploy", "만들", "생성", "배포", "올려"})
-}
-
-func looksLikeDestructiveLocalWork(prompt string) bool {
-	destructiveWords := []string{"delete", "remove", "drop", "wipe", "format", "rm -rf", "destroy", "삭제", "제거", "초기화", "포맷"}
-	return containsAny(prompt, destructiveWords)
+	return decision.HasWorkKind(WorkKindSitePrototype)
 }
 
 func hasAllTools(toolRegistry *ToolSet, toolNames []string) bool {
@@ -1065,28 +985,13 @@ func containsAny(value string, candidates []string) bool {
 }
 
 func minimumEffortLevelForRequest(request AgentRequest) EffortLevel {
-	prompt := strings.ToLower(strings.TrimSpace(request.Prompt))
-	if looksLikeSyntheticConnectorVerificationProbe(prompt) {
+	if looksLikeSyntheticConnectorVerificationProbe(strings.ToLower(strings.TrimSpace(request.Prompt))) {
 		return EffortLevelQuick
 	}
-	if containsAny(prompt, []string{"migration", "backup", "restore", "delegated", "delegate", "scheduled workflow", "long-running", "마이그레이션", "백업", "복구", "위임", "장기", "예약 실행"}) {
-		return EffortLevelExtended
-	}
-	if containsAny(prompt, []string{"thorough", "deep", "exhaustive", "debug", "fix", "code edit", "multi-file", "verification", "verify", "browser handoff", "maintenance", "꼼꼼히", "깊게", "전체적으로", "디버그", "고쳐", "수정", "검증", "브라우저 핸드오프", "유지보수"}) {
+	if hasToolPrefix(request.ToolSet, "browser.") && !hasToolPrefix(request.ToolSet, "web.") {
 		return EffortLevelDeep
 	}
-	if hasToolPrefix(request.ToolSet, "browser.") {
-		if looksLikeBrowserControlSequence(prompt) {
-			return EffortLevelDeep
-		}
-		if !hasToolPrefix(request.ToolSet, "web.") {
-			return EffortLevelDeep
-		}
-	}
 	if hasToolPrefix(request.ToolSet, "file.") || hasToolPrefix(request.ToolSet, "user.") {
-		return EffortLevelStandard
-	}
-	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 && looksLikeToolRequest(prompt) {
 		return EffortLevelStandard
 	}
 	return EffortLevelQuick
@@ -1128,11 +1033,6 @@ func hasToolPrefix(toolRegistry *ToolSet, prefix string) bool {
 		}
 	}
 	return false
-}
-
-func looksLikeBrowserControlSequence(prompt string) bool {
-	words := []string{"screenshot", "click", "fill", "press", "select", "navigate", "스크린샷", "캡처", "클릭", "입력", "눌러", "이동", "서치바"}
-	return containsAny(prompt, words)
 }
 
 func (intakeDecision IntakeDecision) Validate() error {

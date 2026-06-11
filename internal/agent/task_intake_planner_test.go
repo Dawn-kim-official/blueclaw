@@ -294,11 +294,11 @@ func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
 
 	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "please analyze the whole repo"})
 
-	if decision.Classification != IntakeClassificationNeedsConfirmation {
-		t.Fatalf("expected confirmation fallback, got %q", decision.Classification)
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected uniform bounded fallback, got %q", decision.Classification)
 	}
-	if decision.TaskShape != TaskShapeApprovalGatedTask {
-		t.Fatalf("expected approval-gated fallback shape, got %+v", decision)
+	if decision.TaskShape != TaskShapeResearchTask {
+		t.Fatalf("expected research fallback shape, got %+v", decision)
 	}
 	if !decision.UsedDeterministicFallback {
 		t.Fatal("expected deterministic fallback marker")
@@ -336,9 +336,9 @@ func TestTaskIntakePlannerClampsBrowserControlEffort(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerPromotesBrowserFollowUpDespiteQuickModelDecision(t *testing.T) {
+func TestTaskIntakePlannerRespectsModelDecisionForShortFollowUp(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"looks conversational","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"browser_handoff_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"continues visible browser work","userFacingReply":"","workKinds":["user_browser","browser_session"]}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -353,45 +353,19 @@ func TestTaskIntakePlannerPromotesBrowserFollowUpDespiteQuickModelDecision(t *te
 	})
 
 	if decision.Classification != IntakeClassificationBoundedTask || decision.TaskShape != TaskShapeBrowserHandoffTask {
-		t.Fatalf("expected browser follow-up to stay bounded, got %+v", decision)
+		t.Fatalf("expected model browser decision to be preserved, got %+v", decision)
+	}
+	if !decision.HasWorkKind(WorkKindUserBrowser) || !decision.HasWorkKind(WorkKindBrowserSession) {
+		t.Fatalf("expected browser work kinds to be preserved, got %+v", decision.WorkKinds)
 	}
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "구글 클라우드 콘솔") {
 		t.Fatal("expected intake planner to receive visible context")
 	}
 }
 
-func TestTaskIntakePlannerPrefersAttachmentContinuationOverBrowserFailure(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"browser_handoff_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"previous browser failure","userFacingReply":""}`,
-	}}
-	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "file.preview", "file.read"})
-	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-
-	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:  "다시 시도해보자",
-		ToolSet: toolRegistry,
-		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
-			{
-				Speaker: "사용자",
-				Text:    "이 파일 내용 보고 개선점 말해줘",
-				Materials: []VisibleContextMaterial{{
-					MaterialID:  "mattermost:file-1",
-					Path:        "home/inbox/mattermost/direct-1/post-1/page.html",
-					IsAvailable: true,
-				}},
-			},
-			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
-		}},
-	})
-
-	if decision.Classification != IntakeClassificationBoundedTask || decision.TaskShape == TaskShapeBrowserHandoffTask {
-		t.Fatalf("expected attachment follow-up not to become browser handoff, got %+v", decision)
-	}
-}
-
 func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?"}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?","workKinds":["slides_artifact","file_delivery"]}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
@@ -575,7 +549,7 @@ func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testi
 
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?","workKinds":["site_prototype"]}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"site.app.create", "site.app.publish"})
 	for _, toolName := range toolRegistry.ListToolNames() {
@@ -640,27 +614,6 @@ func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T
 
 	if decision.Classification != IntakeClassificationNeedsConfirmation {
 		t.Fatalf("expected destructive request to stay approval gated, got %+v", decision)
-	}
-}
-
-func TestTaskIntakePlannerPromotesDeepAndExtendedRequests(t *testing.T) {
-	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
-	toolRegistry := newTestToolSet([]string{"terminal.run"})
-
-	deepDecision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:  "꼼꼼히 디버그하고 검증해줘",
-		ToolSet: toolRegistry,
-	})
-	if deepDecision.EffortLevel != EffortLevelDeep {
-		t.Fatalf("expected deep effort, got %+v", deepDecision)
-	}
-
-	extendedDecision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:  "backup restore migration workflow를 처리해줘",
-		ToolSet: toolRegistry,
-	})
-	if extendedDecision.EffortLevel != EffortLevelExtended {
-		t.Fatalf("expected extended effort, got %+v", extendedDecision)
 	}
 }
 

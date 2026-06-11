@@ -21,8 +21,9 @@ func TestGoogleSearchStillRequiresBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:  "구글에서 회사 정보를 검색해줘",
-		ToolSet: toolRegistry,
+		Prompt:    "구글에서 회사 정보를 검색해줘",
+		ToolSet:   toolRegistry,
+		WorkKinds: []string{WorkKindBrowserSession},
 	})
 
 	if len(requirements) != 1 || requirements[0].ToolPrefix != "browser." {
@@ -63,8 +64,9 @@ func TestBrowserRetryWithVisibleContextRequiresBrowserEvidence(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
-		Prompt:  "다시 열어봐",
-		ToolSet: toolRegistry,
+		Prompt:    "다시 열어봐",
+		ToolSet:   toolRegistry,
+		WorkKinds: []string{WorkKindUserBrowser, WorkKindBrowserSession},
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},

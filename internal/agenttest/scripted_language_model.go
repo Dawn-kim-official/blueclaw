@@ -93,7 +93,28 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 		}
 		return llm.StructuredResponse{}, fmt.Errorf("scripted language model has no %s response", schemaName)
 	}
+	if schemaName == "blueclaw_skill_search_queries" && response == `{"queries":[]}` {
+		return languageModel.structuredResponse(defaultSkillSearchQueriesResponse(request)), nil
+	}
 	return languageModel.structuredResponse(response), nil
+}
+
+func defaultSkillSearchQueriesResponse(request llm.StructuredResponseRequest) string {
+	prompt := ""
+	for index := len(request.Messages) - 1; index >= 0; index-- {
+		if request.Messages[index].Role == "user" {
+			prompt = strings.TrimSpace(request.Messages[index].Content)
+			break
+		}
+	}
+	if prompt == "" {
+		return `{"queries":[]}`
+	}
+	document, errorValue := json.Marshal(map[string]any{"queries": []map[string]string{{"description": prompt}}})
+	if errorValue != nil {
+		return `{"queries":[]}`
+	}
+	return string(document)
 }
 
 func (languageModel *ScriptedLanguageModel) popStructuredResponse(schemaName string, schemaDocument string) (string, bool) {
@@ -153,9 +174,6 @@ func legacyIntakeResponseAsTurnRouterResponse(response string) string {
 	document := map[string]any{}
 	if errorValue := json.Unmarshal([]byte(response), &document); errorValue != nil {
 		return response
-	}
-	if stringMapValue(document, "route") == "" {
-		document["route"] = "start_task"
 	}
 	encodedResponse, errorValue := json.Marshal(document)
 	if errorValue != nil {

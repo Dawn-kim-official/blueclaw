@@ -43,6 +43,7 @@ type VirtualSessionScenario struct {
 	AllowedTools          []string
 	CapabilityToolNames   []string
 	InitialMemory         []memory.MemoryFact
+	RouterWorkKinds       []string
 	Turns                 []VirtualTurn
 }
 
@@ -179,6 +180,8 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultEffortLevel: agent.EffortLevelStandard})
 	agentKernel.UseTurnOptions(agent.TurnOptions{MaxIterationCount: 20, MaxToolCallCount: 16, MaxElapsedSecond: 120})
 	agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: append([]agent.SkillInstruction{}, skillInstructions...)}
@@ -399,10 +402,36 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 func actionScriptedLanguageModelForScenario(scenario VirtualSessionScenario) *agenttest.ScriptedLanguageModel {
 	for _, virtualTurn := range scenario.Turns {
 		if len(virtualTurn.ActionResponses) > 0 {
-			return agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{ProviderName: "virtual", ModelName: "scripted"})
+			return agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+				ProviderName:             "virtual",
+				ModelName:                "scripted",
+				DefaultResponsesBySchema: scenarioDefaultResponses(scenario),
+			})
 		}
 	}
 	return nil
+}
+
+func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string {
+	if len(scenario.RouterWorkKinds) == 0 {
+		return nil
+	}
+	routerDocument := map[string]any{
+		"route":                  "start_task",
+		"classification":         "bounded_task",
+		"taskShape":              "maintenance_task",
+		"effortLevel":            "standard",
+		"requestedOutputFormats": nil,
+		"responseLanguage":       "ko",
+		"reason":                 "scripted scenario default",
+		"userFacingReply":        "",
+		"workKinds":              scenario.RouterWorkKinds,
+	}
+	encodedDocument, errorValue := json.Marshal(routerDocument)
+	if errorValue != nil {
+		return nil
+	}
+	return map[string]string{"blueclaw_turn_router": string(encodedDocument)}
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {

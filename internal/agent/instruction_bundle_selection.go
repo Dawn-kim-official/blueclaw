@@ -10,7 +10,7 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 		return decision
 	}
 	decision.Classification = IntakeClassificationBoundedTask
-	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply || decision.TaskShape == TaskShapeApprovalGatedTask {
+	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply || decision.TaskShape == TaskShapeApprovalGatedTask || decision.UsedDeterministicFallback {
 		decision.TaskShape = taskShapeForSelectedSkills(instructionBundle)
 	}
 	decision.EffortLevel = LargerEffortLevel(decision.EffortLevel, defaultEffortLevel)
@@ -20,6 +20,9 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 }
 
 func canPromoteIntakeDecisionForSelectedSkills(decision IntakeDecision) bool {
+	if decision.UsedDeterministicFallback {
+		return true
+	}
 	switch decision.Classification {
 	case IntakeClassificationQuickReply, IntakeClassificationNeedsConfirmation, IntakeClassificationUnsupported:
 		return true
@@ -171,13 +174,24 @@ func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, requ
 }
 
 func dominantArtifactSkillName(request AgentRequest, candidateByName map[string]SkillCandidate) string {
-	if sitePrototypeShouldDominateSkillSelection(request, candidateByName["site-prototype"]) {
+	siteCandidate := candidateByName["site-prototype"]
+	slidesCandidate := candidateByName["simple-slides"]
+	isSiteQualified := artifactSkillCandidateQualifies(siteCandidate)
+	isSlidesQualified := artifactSkillCandidateQualifies(slidesCandidate)
+	if isSiteQualified && expectedResultIncludesType(request.ActiveGoal.OutcomeContract, "link") {
 		return "site-prototype"
 	}
-	if simpleSlidesShouldDominateSkillSelection(request, candidateByName["simple-slides"]) {
+	if isSiteQualified && (!isSlidesQualified || siteCandidate.Score > slidesCandidate.Score) {
+		return "site-prototype"
+	}
+	if isSlidesQualified && (!isSiteQualified || slidesCandidate.Score > siteCandidate.Score) {
 		return "simple-slides"
 	}
 	return ""
+}
+
+func artifactSkillCandidateQualifies(skillCandidate SkillCandidate) bool {
+	return skillCandidate.Name != "" && skillCandidate.Score >= minimumSelectionScoreForCandidate(skillCandidate)
 }
 
 func shouldSkipDominatedArtifactSkill(skillName string, skillCandidate SkillCandidate, dominantSkillName string) bool {
@@ -185,32 +199,6 @@ func shouldSkipDominatedArtifactSkill(skillName string, skillCandidate SkillCand
 		return false
 	}
 	return skillCandidate.Reason != "direct_skill_name"
-}
-
-func sitePrototypeShouldDominateSkillSelection(request AgentRequest, skillCandidate SkillCandidate) bool {
-	if skillCandidate.Name == "" || skillCandidate.Score < minimumSelectionScoreForCandidate(skillCandidate) {
-		return false
-	}
-	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, "link") {
-		return true
-	}
-	return textContainsAny(strings.ToLower(request.Prompt), []string{"website", "web app", "homepage", "landing page", "site", "publish", "deploy", "웹사이트", "홈페이지", "사이트", "랜딩", "배포"})
-}
-
-func simpleSlidesShouldDominateSkillSelection(request AgentRequest, skillCandidate SkillCandidate) bool {
-	if skillCandidate.Name == "" || skillCandidate.Score < minimumSelectionScoreForCandidate(skillCandidate) {
-		return false
-	}
-	return textContainsAny(strings.ToLower(request.Prompt), []string{"slides", "slide deck", "presentation", "pptx", "powerpoint", "슬라이드", "발표자료", "프레젠테이션", "피피티", "파워포인트"})
-}
-
-func textContainsAny(text string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if strings.Contains(text, candidate) {
-			return true
-		}
-	}
-	return false
 }
 
 func alwaysSelectedSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, profileName string, existingSkillDecisions []SkillSelectionDecision) []SkillInstruction {
@@ -387,11 +375,7 @@ func skillSelectionPrompt(request AgentRequest) string {
 }
 
 func shouldUseVisibleContextForSkillSelection(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	return containsAny(normalizedPrompt, []string{
-		"again", "continue", "redo", "same", "that", "previous",
-		"계속", "다시", "새로", "아까", "이전", "그거", "그걸", "그 파일", "파일", "첨부", "이어",
-	})
+	return len([]rune(strings.TrimSpace(prompt))) <= 20
 }
 
 func normalizedAgentProfileName(profileName string) string {

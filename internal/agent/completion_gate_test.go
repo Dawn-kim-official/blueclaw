@@ -185,6 +185,7 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
+		WorkKinds:         []string{WorkKindBrowserSession},
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
@@ -193,7 +194,7 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 	if result.FinishMessage != "observed" {
 		t.Fatalf("expected final reply after tool use, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "browser.screenshot") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "browser.") {
 		t.Fatal("expected completion requirement event")
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.memory.search.result", "[]") {
@@ -760,6 +761,7 @@ func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityRevie
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "사이트를 배포해줘",
+		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
 		OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{{
 			ID:          "site-public-link",
@@ -808,6 +810,7 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "개인 홈페이지 만들어서 배포해줘",
+		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
 		OutcomeContract: OutcomeContract{
 			ExpectedResults: []ExpectedResult{{
@@ -852,6 +855,7 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "개인 홈페이지 배포해줘",
+		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"file.attach"},
 		OutcomeContract: OutcomeContract{
@@ -973,6 +977,7 @@ func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) 
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "사이트 빌드해서 배포 준비해줘",
+		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		RequiredEvidenceTools: []string{"site.app.build"},
 	})
