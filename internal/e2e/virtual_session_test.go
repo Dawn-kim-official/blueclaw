@@ -189,6 +189,34 @@ func TestScheduleLifecycleAcceptance(t *testing.T) {
 	}
 }
 
+func TestCalendarEventLifecycleAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), CalendarEventLifecycleAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected calendar event lifecycle acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 3 {
+		t.Fatalf("expected three turn results, got %d", len(result.TurnResults))
+	}
+	firstTurnResult := result.TurnResults[0]
+	secondTurnResult := result.TurnResults[1]
+	thirdTurnResult := result.TurnResults[2]
+	if countEvents(firstTurnResult.Events, "tool.calendar.event.add.requested") != 1 {
+		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(firstTurnResult.Events))
+	}
+	if countEvents(secondTurnResult.Events, "tool.calendar.event.update.requested") != 1 {
+		t.Fatalf("expected one calendar update request; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "tool.calendar.event.update.requested", "2026-06-13T14:00:00+09:00") {
+		t.Fatalf("expected updated time in calendar update input; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if countEvents(thirdTurnResult.Events, "tool.calendar.event.delete.requested") != 1 {
+		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
+	}
+	if !strings.Contains(thirdTurnResult.FinishMessage, "삭제했습니다") {
+		t.Fatalf("expected deletion confirmation, got %q", thirdTurnResult.FinishMessage)
+	}
+}
+
 func TestOneTimeScheduleAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), OneTimeScheduleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
@@ -294,6 +322,26 @@ func TestChannelPostAcceptance(t *testing.T) {
 	}
 	if eventsContain(turnResult.Events, "tool.platform.message.send.requested", `"type":"directMessage"`) {
 		t.Fatalf("expected no direct message target; events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
+func TestPlatformMessageEditAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), PlatformMessageEditAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected platform message edit acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one turn, got %+v", result)
+	}
+	turnResult := result.TurnResults[0]
+	if countEvents(turnResult.Events, "tool.platform.message.update.requested") != 1 {
+		t.Fatalf("expected one message update request; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "tool.platform.message.update.requested", `"messageID":"virtual-platform-message-001"`) {
+		t.Fatalf("expected message ID in update input; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "tool.platform.message.update.requested", `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`) {
+		t.Fatalf("expected new text in update input; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
 
