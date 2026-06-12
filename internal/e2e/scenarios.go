@@ -76,6 +76,39 @@ func MemoryGuidedFollowupScenario(artifactDirectoryPath string) VirtualSessionSc
 	}
 }
 
+func PlainQuestionAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "plain_question_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		Turns: []VirtualTurn{{
+			Prompt: "도구 없이 짧게 답해줘. 좋은 회의록의 핵심은 뭐야?",
+			ActionResponses: []string{
+				actionFinishMessage("좋은 회의록의 핵심은 결정사항, 담당자, 기한을 분명히 남기는 것입니다."),
+			},
+			ExpectedReplyFragments: []string{"결정사항", "담당자", "기한"},
+		}},
+	}
+}
+
+func WebSearchAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "web_search_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "web.search"},
+		CapabilityToolNames:   []string{"web.search"},
+		Turns: []VirtualTurn{{
+			Prompt: "오늘 기준으로 외부 검색이 필요한 정보를 찾아서 핵심만 알려줘",
+			ActionResponses: []string{
+				`{"action":"select_tools","toolNames":["web.search"],"skillNames":[],"reason":"외부 최신 정보 검색이 필요합니다."}`,
+				actionCallTool("web.search", `{"query":"current external information acceptance test","limit":1}`),
+				actionFinishMessage("검색 결과 BlueclawSearchStubToken 정보를 확인했습니다.", "obs-002:web.search:0"),
+			},
+			ExpectedToolCalls:      []string{"web.search"},
+			ExpectedReplyFragments: []string{"BlueclawSearchStubToken"},
+		}},
+	}
+}
+
 func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "tool_permission_hides_skill",

@@ -114,6 +114,10 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath), nil
 	case "memory", "memory_guided_followup":
 		return MemoryGuidedFollowupScenario(artifactDirectoryPath), nil
+	case "plain_question_acceptance":
+		return PlainQuestionAcceptanceScenario(artifactDirectoryPath), nil
+	case "web_search_acceptance":
+		return WebSearchAcceptanceScenario(artifactDirectoryPath), nil
 	case "tool_permission_hides_skill":
 		return ToolPermissionHidesSkillScenario(artifactDirectoryPath), nil
 	case "gws_disabled":
@@ -369,6 +373,8 @@ func virtualCapabilityResponse(toolName string) string {
 		return `{"status":"ok","result":{"logs":[]}}`
 	case "image.read":
 		return `{"status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
+	case "web.search":
+		return `{"status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
 	default:
 		return `{"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true}}`
 	}
