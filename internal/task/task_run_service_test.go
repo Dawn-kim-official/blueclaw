@@ -3,6 +3,7 @@ package task
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTaskRunCancelCallsRegisteredCancelFunction(t *testing.T) {
@@ -155,7 +156,7 @@ func TestTaskRunTerminalTransitionsCloseCurrentAttempt(t *testing.T) {
 	}
 }
 
-func TestInterruptOrphanedRuntimeTaskRunsFailsRuntimeOwnedTasks(t *testing.T) {
+func TestInterruptOrphanedRuntimeTaskRunsMarksRuntimeOwnedTasksInterrupted(t *testing.T) {
 	taskEventService := NewTaskEventService()
 	taskRunService := NewTaskRunService(taskEventService)
 	plannedTaskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "planned")
@@ -178,8 +179,11 @@ func TestInterruptOrphanedRuntimeTaskRunsFailsRuntimeOwnedTasks(t *testing.T) {
 	}
 	for _, taskRunID := range []string{plannedTaskRun.TaskRunID, runningTaskRun.TaskRunID} {
 		taskRun, isFound := taskRunService.FindTaskRun(taskRunID)
-		if !isFound || taskRun.Status != TaskStatusFailed {
+		if !isFound || taskRun.Status != TaskStatusInterrupted {
 			t.Fatalf("task %s status = %+v, found=%v", taskRunID, taskRun.Status, isFound)
+		}
+		if !taskEventsContain(taskRunService.ListTaskEvent(taskRunID), "task.interrupted", "runtime restarted") {
+			t.Fatalf("expected task.interrupted event for %s", taskRunID)
 		}
 	}
 	taskAttempt := taskRunService.taskAttempts[runningTaskRun.CurrentAttemptID]
@@ -193,6 +197,88 @@ func TestInterruptOrphanedRuntimeTaskRunsFailsRuntimeOwnedTasks(t *testing.T) {
 	if !isFound || taskRun.Status != TaskStatusWaitingUserInput {
 		t.Fatalf("waiting task status = %+v, found=%v", taskRun.Status, isFound)
 	}
+}
+
+func TestClaimInterruptedTaskRunAutoResumeAllowsOnlyOneAttempt(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	taskRun := interruptedTaskRunForTest(t, taskRunService, time.Now())
+
+	if !taskRunService.ClaimInterruptedTaskRunAutoResume(taskRun.TaskRunID, "boot resume") {
+		t.Fatal("expected first auto-resume claim")
+	}
+	if taskRunService.ClaimInterruptedTaskRunAutoResume(taskRun.TaskRunID, "boot resume") {
+		t.Fatal("did not expect second auto-resume claim")
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(taskRun.TaskRunID), "task.auto_resume_attempted", `"attemptCount":1`) {
+		t.Fatal("expected persisted auto-resume attempt event")
+	}
+}
+
+func TestSelectInterruptedTaskRunsForAutoResumeCapsNewestFirst(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	baseTime := time.Now()
+	for index := 0; index < 7; index++ {
+		interruptedTaskRunForTest(t, taskRunService, baseTime.Add(time.Duration(index)*time.Minute))
+	}
+
+	selection := taskRunService.SelectInterruptedTaskRunsForAutoResume(baseTime.Add(time.Hour), 5)
+
+	if len(selection.SelectedTaskRuns) != 5 {
+		t.Fatalf("selected count = %d, want 5", len(selection.SelectedTaskRuns))
+	}
+	if len(selection.SkippedTaskRuns) != 2 {
+		t.Fatalf("skipped count = %d, want 2", len(selection.SkippedTaskRuns))
+	}
+	for index := 1; index < len(selection.SelectedTaskRuns); index++ {
+		if selection.SelectedTaskRuns[index].UpdatedAt.After(selection.SelectedTaskRuns[index-1].UpdatedAt) {
+			t.Fatal("expected newest interrupted task runs first")
+		}
+	}
+}
+
+func TestSelectInterruptedTaskRunsForAutoResumeExcludesOldTasks(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	now := time.Now()
+	interruptedTaskRunForTest(t, taskRunService, now.Add(-25*time.Hour))
+	recentTaskRun := interruptedTaskRunForTest(t, taskRunService, now.Add(-23*time.Hour))
+
+	selection := taskRunService.SelectInterruptedTaskRunsForAutoResume(now, 5)
+
+	if len(selection.SelectedTaskRuns) != 1 || selection.SelectedTaskRuns[0].TaskRunID != recentTaskRun.TaskRunID {
+		t.Fatalf("selected task runs = %+v, want recent task", selection.SelectedTaskRuns)
+	}
+}
+
+func TestSelectInterruptedTaskRunsForAutoResumeExcludesWaitingStatuses(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	waitingTaskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "waiting")
+	waitingTaskRun.Status = TaskStatusWaitingApproval
+	waitingTaskRun.UpdatedAt = time.Now()
+	taskRunService.taskRuns[waitingTaskRun.TaskRunID] = waitingTaskRun
+	taskRunService.AppendTaskEvent(waitingTaskRun.TaskRunID, "task.interrupted", "runtime restarted")
+
+	selection := taskRunService.SelectInterruptedTaskRunsForAutoResume(time.Now(), 5)
+
+	if len(selection.SelectedTaskRuns) != 0 {
+		t.Fatalf("selected count = %d, want 0", len(selection.SelectedTaskRuns))
+	}
+}
+
+func interruptedTaskRunForTest(t *testing.T, taskRunService *TaskRunService, updatedAt time.Time) TaskRun {
+	t.Helper()
+	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "long task")
+	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	delete(taskRunService.activeAttempts, runningTaskRun.CurrentAttemptID)
+	interruptedTaskRun, isInterrupted := taskRunService.InterruptInactiveTaskRun(taskRun.TaskRunID, "runtime restarted")
+	if !isInterrupted {
+		t.Fatal("expected interrupted task run")
+	}
+	interruptedTaskRun.UpdatedAt = updatedAt
+	taskRunService.taskRuns[interruptedTaskRun.TaskRunID] = interruptedTaskRun
+	return interruptedTaskRun
 }
 
 func taskEventsContain(taskEvents []TaskEvent, name string, bodyFragment string) bool {

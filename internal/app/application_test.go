@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,9 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/config"
+	"blueclaw/internal/connectors"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/task"
 )
 
 func TestResolveLanguageModelProviderDefaultsToCapabilityLLM(t *testing.T) {
@@ -201,4 +205,122 @@ func TestApplicationRegistersSignalHTTPRoute(t *testing.T) {
 	if responseRecorder.Code != http.StatusOK {
 		t.Fatalf("expected signal normalized event status ok, got %d", responseRecorder.Code)
 	}
+}
+
+func TestApplicationAutoResumeLaunchesAtMostFiveInterruptedTaskRuns(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	now := time.Now()
+	repository := &applicationAutoResumeRepository{}
+	for index := 0; index < 7; index++ {
+		taskRun := task.TaskRun{
+			TaskRunID:            "task-" + string(rune('a'+index)),
+			RequesterPersonID:    "person-1",
+			OriginConversationID: "conversation-1",
+			OriginReplyTargetID:  "reply-1",
+			Status:               task.TaskStatusInterrupted,
+			Prompt:               "finish task",
+			CreatedAt:            now.Add(time.Duration(index) * time.Minute),
+			UpdatedAt:            now.Add(time.Duration(index) * time.Minute),
+		}
+		repository.taskRuns = append(repository.taskRuns, taskRun)
+		taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.interrupted", "runtime restarted")
+	}
+	taskRunService.UseRepository(repository)
+	resumer := &applicationAutoResumeResumer{}
+	application := &Application{
+		taskRunService:             taskRunService,
+		interruptedTaskResumer:     resumer,
+		interruptedTaskResumeDelay: 0,
+	}
+
+	application.resumeInterruptedTaskRuns(context.Background(), now.Add(time.Hour))
+
+	if len(resumer.taskRunIDs) != 5 {
+		t.Fatalf("resume count = %d, want 5", len(resumer.taskRunIDs))
+	}
+	for _, taskRunID := range resumer.taskRunIDs {
+		if !taskEventsContainApplicationEvent(taskRunService.ListTaskEvent(taskRunID), "task.auto_resume_attempted") {
+			t.Fatalf("expected auto-resume attempt event for %s", taskRunID)
+		}
+	}
+	skippedCount := 0
+	for _, taskRun := range repository.taskRuns {
+		if taskEventsContainApplicationEvent(taskRunService.ListTaskEvent(taskRun.TaskRunID), "task.auto_resume_skipped") {
+			skippedCount++
+		}
+	}
+	if skippedCount != 2 {
+		t.Fatalf("skipped count = %d, want 2", skippedCount)
+	}
+}
+
+type applicationAutoResumeResumer struct {
+	taskRunIDs []string
+}
+
+func (resumer *applicationAutoResumeResumer) CanResumeInterruptedTaskRun(task.TaskRun) bool {
+	return true
+}
+
+func (resumer *applicationAutoResumeResumer) ResumeInterruptedTaskRun(_ context.Context, taskRun task.TaskRun) (connectors.ConnectorRuntimeResult, error) {
+	resumer.taskRunIDs = append(resumer.taskRunIDs, taskRun.TaskRunID)
+	return connectors.ConnectorRuntimeResult{Handled: true, TaskRunID: taskRun.TaskRunID}, nil
+}
+
+type applicationAutoResumeRepository struct {
+	taskRuns []task.TaskRun
+}
+
+func (repository *applicationAutoResumeRepository) SaveTaskRun(taskRun task.TaskRun) error {
+	repository.taskRuns = append(repository.taskRuns, taskRun)
+	return nil
+}
+
+func (repository *applicationAutoResumeRepository) StartTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
+	return nil
+}
+
+func (repository *applicationAutoResumeRepository) FinishTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
+	return nil
+}
+
+func (repository *applicationAutoResumeRepository) FindTaskRun(taskRunID string) (task.TaskRun, bool, error) {
+	for _, taskRun := range repository.taskRuns {
+		if taskRun.TaskRunID == taskRunID {
+			return taskRun, true, nil
+		}
+	}
+	return task.TaskRun{}, false, nil
+}
+
+func (repository *applicationAutoResumeRepository) FindTaskAttempt(string) (task.TaskAttempt, bool, error) {
+	return task.TaskAttempt{}, false, nil
+}
+
+func (repository *applicationAutoResumeRepository) ListTaskRun() ([]task.TaskRun, error) {
+	return append([]task.TaskRun{}, repository.taskRuns...), nil
+}
+
+func (repository *applicationAutoResumeRepository) ListTaskRunByPersonID(personID string) ([]task.TaskRun, error) {
+	taskRuns := []task.TaskRun{}
+	for _, taskRun := range repository.taskRuns {
+		if taskRun.RequesterPersonID == personID {
+			taskRuns = append(taskRuns, taskRun)
+		}
+	}
+	return taskRuns, nil
+}
+
+func (repository *applicationAutoResumeRepository) DeleteTaskRunsBefore(time.Time, []string) ([]string, error) {
+	return nil, nil
+}
+
+func taskEventsContainApplicationEvent(taskEvents []task.TaskEvent, name string) bool {
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name == name {
+			return true
+		}
+	}
+	return false
 }

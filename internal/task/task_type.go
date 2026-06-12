@@ -10,6 +10,7 @@ const (
 	TaskStatusWaitingUserInput TaskStatus = "waiting_user_input"
 	TaskStatusWaitingApproval  TaskStatus = "waiting_approval"
 	TaskStatusBlocked          TaskStatus = "blocked"
+	TaskStatusInterrupted      TaskStatus = "interrupted"
 	TaskStatusCompleted        TaskStatus = "completed"
 	TaskStatusFailed           TaskStatus = "failed"
 	TaskStatusCancelled        TaskStatus = "cancelled"

@@ -25,6 +25,7 @@ type LLMContextInput struct {
 	PendingInput      PendingInputContext
 	CurrentStepPlan   NextStepPlan
 	StepBudgetContext string
+	ArtifactManifest  []ArtifactManifestEntry
 	Observations      []turnObservation
 	ExecutionState    ExecutionState
 	FailureFacts      failureReportFacts
@@ -48,6 +49,7 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 		builder.conversationContext(input.VisibleContext),
 		builder.taskContext(input),
 		builder.memoryContext(input),
+		builder.artifactManifestContext(input.ArtifactManifest),
 		strings.TrimSpace(input.StepBudgetContext),
 		builder.progressContext(input),
 		builder.knownFileContext(input),
@@ -151,6 +153,13 @@ func (builder LLMContextBuilder) memoryContext(input LLMContextInput) string {
 		return ""
 	}
 	return "Memory:\n" + memoryContext
+}
+
+func (builder LLMContextBuilder) artifactManifestContext(artifactManifest []ArtifactManifestEntry) string {
+	if len(artifactManifest) == 0 {
+		return ""
+	}
+	return "Artifacts:\nPreviously delivered artifacts in this conversation:\n" + marshalEventBody(artifactManifest)
 }
 
 func (builder LLMContextBuilder) failureContext(input LLMContextInput) string {

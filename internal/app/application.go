@@ -39,11 +39,14 @@ type Application struct {
 	httpServer                    *http.Server
 	connectorRuntime              *connectors.ConnectorRuntime
 	connectorTransports           []connectors.ConnectorTransport
+	taskRunService                *task.TaskRunService
+	interruptedTaskResumer        interruptedTaskResumer
 	runtimeLogger                 *runtimelogging.PersistentLogger
 	database                      postgres.Database
 	startupError                  error
 	connectorRuntimeCancel        context.CancelFunc
 	connectorTransportCancel      context.CancelFunc
+	interruptedTaskResumeCancel   context.CancelFunc
 	taskScheduleCancel            context.CancelFunc
 	logRetentionCancel            context.CancelFunc
 	memoryUpdateCancel            context.CancelFunc
@@ -53,9 +56,15 @@ type Application struct {
 	memoryUpdateQueue             *memory.BackgroundMemoryUpdateQueue
 	taskSchedulePollSecond        int
 	taskRetentionIntervalMinute   int
+	interruptedTaskResumeDelay    time.Duration
 	languageModelDefaultProvider  string
 	languageModelFallbackProvider string
 	languageModelConfigured       bool
+}
+
+type interruptedTaskResumer interface {
+	CanResumeInterruptedTaskRun(task.TaskRun) bool
+	ResumeInterruptedTaskRun(context.Context, task.TaskRun) (connectors.ConnectorRuntimeResult, error)
 }
 
 func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath string) *Application {
@@ -313,6 +322,8 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		},
 		connectorRuntime:              connectorRuntime,
 		connectorTransports:           connectorTransports,
+		taskRunService:                taskRunService,
+		interruptedTaskResumer:        connectorRuntime,
 		runtimeLogger:                 runtimeLogger,
 		database:                      database,
 		startupError:                  startupError,
@@ -321,6 +332,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		memoryUpdateQueue:             memoryUpdateQueue,
 		taskSchedulePollSecond:        runtimeConfiguration.Scheduler.TaskSchedulePollIntervalSecond,
 		taskRetentionIntervalMinute:   runtimeConfiguration.Scheduler.RetentionCheckIntervalMinute,
+		interruptedTaskResumeDelay:    2 * time.Second,
 		languageModelDefaultProvider:  languageModelRuntimeConfiguration.LanguageModel.DefaultProvider,
 		languageModelFallbackProvider: languageModelRuntimeConfiguration.LanguageModel.FallbackProvider,
 		languageModelConfigured:       languageModelProvider != nil,
@@ -829,6 +841,7 @@ func (application *Application) Start() error {
 		"logDirectoryPath",
 		application.runtimeLogger.DirectoryPath(),
 	)
+	application.startInterruptedTaskAutoResume()
 	return application.httpServer.Serve(listener)
 }
 
@@ -844,6 +857,9 @@ func (application *Application) Shutdown(ctx context.Context) error {
 	}
 	if application.taskRetentionCancel != nil {
 		application.taskRetentionCancel()
+	}
+	if application.interruptedTaskResumeCancel != nil {
+		application.interruptedTaskResumeCancel()
 	}
 	if application.logRetentionCancel != nil {
 		application.logRetentionCancel()
@@ -928,6 +944,55 @@ func (application *Application) startTaskRetentionSweeper() {
 	application.taskRetentionCancel = cancel
 	interval := time.Duration(application.taskRetentionIntervalMinuteOrDefault()) * time.Minute
 	go application.taskRetentionSweeper.Start(ctx, interval)
+}
+
+func (application *Application) startInterruptedTaskAutoResume() {
+	if application.taskRunService == nil || application.interruptedTaskResumer == nil || application.interruptedTaskResumeCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	application.interruptedTaskResumeCancel = cancel
+	go application.resumeInterruptedTaskRuns(ctx, time.Now())
+}
+
+func (application *Application) resumeInterruptedTaskRuns(ctx context.Context, now time.Time) {
+	selection := application.taskRunService.SelectInterruptedTaskRunsForAutoResume(now, 5)
+	for _, taskRun := range selection.SkippedTaskRuns {
+		application.taskRunService.MarkInterruptedTaskRunAutoResumeSkipped(taskRun.TaskRunID, "per_boot_limit_exceeded")
+	}
+	for index, taskRun := range selection.SelectedTaskRuns {
+		if ctx.Err() != nil {
+			return
+		}
+		if index > 0 && !application.waitBeforeInterruptedTaskResume(ctx) {
+			return
+		}
+		if !application.interruptedTaskResumer.CanResumeInterruptedTaskRun(taskRun) {
+			application.taskRunService.MarkInterruptedTaskRunAutoResumeSkipped(taskRun.TaskRunID, "resume_context_unavailable")
+			continue
+		}
+		if !application.taskRunService.ClaimInterruptedTaskRunAutoResume(taskRun.TaskRunID, "runtime_restart") {
+			continue
+		}
+		if _, errorValue := application.interruptedTaskResumer.ResumeInterruptedTaskRun(ctx, taskRun); errorValue != nil {
+			application.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "task.auto_resume_launch_failed", errorValue.Error())
+		}
+	}
+}
+
+func (application *Application) waitBeforeInterruptedTaskResume(ctx context.Context) bool {
+	delay := application.interruptedTaskResumeDelay
+	if delay <= 0 {
+		return true
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 func (application *Application) taskRetentionIntervalMinuteOrDefault() int {

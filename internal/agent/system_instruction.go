@@ -38,6 +38,7 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 		instruction += " " + ambientDutyInstruction
 	}
 	instruction += " Artifact workflow: write source under tmp/<slug>, run builds with terminal.run workingDirectoryPath tmp/<slug>, create outputs under build/, promote final outputs with file.promote to artifacts/<slug> or an allowed circle/shared destination, then attach all requested promoted files in one file.attach call with a files array. finish.message may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths. finish.message must not promise future work such as starting now, waiting, or sharing later unless schedule.create succeeded and is cited as evidence."
+	instruction += " When the user asks to change a previously delivered artifact, locate its source through the artifact manifest or workspace, edit the existing source in place, rebuild, and re-deliver the same artifact slug. Do not create a new artifact slug for a revision."
 	return instruction
 }
 

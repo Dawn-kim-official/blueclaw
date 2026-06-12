@@ -39,6 +39,7 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		ActiveGoal:        input.RuntimeRequest.ActiveGoal,
 		CurrentStepPlan:   input.RuntimeRequest.CurrentStepPlan,
 		StepBudgetContext: input.RuntimeRequest.StepBudgetContext,
+		ArtifactManifest:  input.RuntimeRequest.ArtifactManifest,
 		Observations:      input.Observations,
 		ExecutionState:    input.ExecutionState,
 		FailureFacts:      buildFailureReportFacts(input.Observations, defaultRecoveryBudget()),
