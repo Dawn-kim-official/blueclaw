@@ -913,10 +913,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		hasActiveGoal = true
 	}
 	event = connectorRuntime.withInitialVisibleContext(ctx, adapter, event)
-	shouldLaunch, ignoreReason := connectorRuntime.shouldLaunchForAddressing(ctx, platform, event)
-	if !shouldLaunch {
-		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", ignoreReason))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: ignoreReason}, nil
+	addressingLaunch := connectorRuntime.shouldLaunchForAddressing(ctx, platform, event)
+	if !addressingLaunch.ShouldLaunch {
+		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", addressingLaunch.IgnoreReason))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: addressingLaunch.IgnoreReason}, nil
 	}
 	if !isApprovalContinuation && !hasPendingAskInteraction {
 		busyResult, errorValue := connectorRuntime.handleBusyMessageIfNeeded(ctx, platform, event, replyTarget, personID, sendReply)
@@ -952,6 +952,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		ActiveGoal:                activeGoal,
 		HasActiveGoal:             hasActiveGoal,
 		PrecomputedTurnDecision:   precomputedTurnDecision,
+		AmbientDuty:               addressingLaunch.AmbientDuty,
 		CheckpointSender:          connectorRuntime.checkpointSenderForTurn(platform, event, replyTarget, sendReply),
 		AccessibleConversationIDs: []string{event.ConversationID},
 	}

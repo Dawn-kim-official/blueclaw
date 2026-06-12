@@ -439,6 +439,45 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 	}
 }
 
+func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "ambient_duty_calendar_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		RouterWorkKinds:       []string{agent.WorkKindCalendar},
+		AddressingResponse:    `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
+		Skills:                []agent.SkillInstruction{calendarSkill()},
+		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.event.add"},
+		CapabilityToolNames:   []string{"calendar.event.add"},
+		Turns: []VirtualTurn{{
+			Prompt:           "오늘 오후 5시 정기회의 추가 참석자 이찬희, 이동하",
+			ConversationType: "channel",
+			ChannelID:        "town-square",
+			ChannelName:      "town-square",
+			ReplyTargetID:    "virtual-message-001",
+			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
+			ActionResponses: []string{
+				actionCallTool("calendar.event.add", `{"title":"정기회의","startISO":"2026-06-12T17:00:00+09:00","endISO":"2026-06-12T18:00:00+09:00","timeZone":"Asia/Seoul","attendees":["이찬희","이동하"]}`),
+				actionFinishMessage("정기회의 일정을 추가했습니다.", "obs-001:calendar.event.add:0"),
+			},
+			ExpectedSelectedSkills: []string{"calendar"},
+			ExpectedToolCalls:      []string{"calendar.event.add"},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "agent.ambient_duty_launch", BodyFragment: `"dutyName":"calendar_upkeep"`, Count: 1},
+				{Name: "tool.calendar.event.add.requested", BodyFragment: "2026-06-12T17:00:00+09:00", Count: 1},
+				{Name: "tool.calendar.event.add.requested", BodyFragment: "이찬희", Count: 1},
+				{Name: "tool.calendar.event.add.requested", BodyFragment: "이동하", Count: 1},
+			},
+			ExpectedModelContexts: []string{
+				"Ambient duty context",
+				"not addressed to you",
+				"Reply only in the source message thread",
+			},
+			ExpectedReplyTargetID:  "virtual-message-001",
+			ExpectedReplyFragments: []string{"정기회의", "추가"},
+		}},
+	}
+}
+
 func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	skillName := "memo-helper"
 	skillContent := userManagedSkillDocument(skillName)

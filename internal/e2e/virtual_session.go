@@ -45,12 +45,18 @@ type VirtualSessionScenario struct {
 	CapabilityToolNames   []string
 	InitialMemory         []memory.MemoryFact
 	RouterWorkKinds       []string
+	AddressingResponse    string
 	TurnOptions           agent.TurnOptions
 	Turns                 []VirtualTurn
 }
 
 type VirtualTurn struct {
 	Prompt                  string
+	ConversationType        string
+	ChannelID               string
+	ChannelName             string
+	ReplyTargetID           string
+	Addressing              connectors.AddressingMetadata
 	InputAttachments        []connectors.InputAttachment
 	ContextMessages         []connectors.VisibleContextMessage
 	ContextMaterials        []connectors.InputAttachment
@@ -64,6 +70,7 @@ type VirtualTurn struct {
 	ExpectedWorkspaceFiles  []VirtualWorkspaceFileExpectation
 	ExpectedModelContexts   []string
 	ForbiddenModelContexts  []string
+	ExpectedReplyTargetID   string
 	ExpectedReplyFragments  []string
 	ForbiddenReplyFragments []string
 	MinimumReplyLength      int
@@ -93,6 +100,7 @@ type VirtualTurnResult struct {
 	TaskStatus              task.TaskStatus
 	FailureReason           string
 	FinishMessage           string
+	ReplyTargetID           string
 	Attachments             []agent.FileAttachment
 	Events                  []task.TaskEvent
 	ModelContext            string
@@ -135,6 +143,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath), nil
 	case "calendar_event_lifecycle_acceptance":
 		return CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath), nil
+	case "ambient_duty_calendar_acceptance":
+		return AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath), nil
 	case "skill_lifecycle_acceptance":
 		return SkillLifecycleAcceptanceScenario(artifactDirectoryPath), nil
 	case "capability_question_acceptance":
@@ -564,8 +574,13 @@ func actionScriptedLanguageModelForScenario(scenario VirtualSessionScenario) *ag
 }
 
 func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string {
+	defaultResponses := map[string]string{}
+	defaultResponses["blueclaw_addressing_classification"] = `{"target":"anyone","shouldReply":false,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`
+	if strings.TrimSpace(scenario.AddressingResponse) != "" {
+		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
+	}
 	if len(scenario.RouterWorkKinds) == 0 {
-		return nil
+		return defaultResponses
 	}
 	routerDocument := map[string]any{
 		"route":                  "start_task",
@@ -582,7 +597,8 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if errorValue != nil {
 		return nil
 	}
-	return map[string]string{"blueclaw_turn_router": string(encodedDocument)}
+	defaultResponses["blueclaw_turn_router"] = string(encodedDocument)
+	return defaultResponses
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {
@@ -598,7 +614,7 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		ConversationID: "virtual-conversation-1",
 		MessageID:      fmt.Sprintf("virtual-message-%03d", index+1),
 		SenderID:       "user-1",
-		ReplyTargetID:  fmt.Sprintf("virtual-reply-%03d", index+1),
+		ReplyTargetID:  virtualReplyTargetID(index, virtualTurn),
 		Prompt:         virtualTurn.Prompt,
 		Context: connectors.VisibleContext{
 			Messages: messages,
@@ -616,6 +632,10 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 				Name:        "동하",
 				CallingName: "동하 님",
 			},
+			ConversationType: strings.TrimSpace(virtualTurn.ConversationType),
+			ChannelID:        strings.TrimSpace(virtualTurn.ChannelID),
+			ChannelName:      strings.TrimSpace(virtualTurn.ChannelName),
+			Addressing:       virtualTurn.Addressing,
 		},
 		RawReceivedAt: time.Now().UTC(),
 	}
@@ -626,7 +646,7 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	if strings.TrimSpace(runtimeResult.TaskRunID) == "" {
 		return VirtualTurnResult{}, errors.New("virtual turn did not create a task run")
 	}
-	outboundReply, isFound := harness.adapter.FindReply(runtimeResult.ReplyDispatchID)
+	outboundReply, outboundReplyTarget, isFound := harness.adapter.FindReply(runtimeResult.ReplyDispatchID)
 	if !isFound {
 		events := harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID)
 		return VirtualTurnResult{}, fmt.Errorf("virtual turn did not dispatch a reply; events: %s", summarizeEvents(events))
@@ -640,12 +660,20 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		TaskStatus:              taskRun.Status,
 		FailureReason:           taskRun.FailureReason,
 		FinishMessage:           outboundReply.Message,
+		ReplyTargetID:           outboundReplyTarget.ReplyTargetID,
 		Attachments:             outboundReply.Attachments,
 		Events:                  harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
 		ModelContext:            harness.modelContextSince(modelRequestStartIndex),
 		ModelImagePartCount:     harness.modelImagePartCountSince(modelRequestStartIndex),
 		UserModelImagePartCount: harness.userModelImagePartCountSince(modelRequestStartIndex),
 	}, nil
+}
+
+func virtualReplyTargetID(index int, virtualTurn VirtualTurn) string {
+	if strings.TrimSpace(virtualTurn.ReplyTargetID) != "" {
+		return strings.TrimSpace(virtualTurn.ReplyTargetID)
+	}
+	return fmt.Sprintf("virtual-reply-%03d", index+1)
 }
 
 func (harness *VirtualSessionHarness) modelContextSince(startIndex int) string {
@@ -754,6 +782,9 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		if strings.Contains(turnResult.ModelContext, fragment) {
 			return fmt.Errorf("forbidden model context fragment %q found", fragment)
 		}
+	}
+	if strings.TrimSpace(virtualTurn.ExpectedReplyTargetID) != "" && turnResult.ReplyTargetID != strings.TrimSpace(virtualTurn.ExpectedReplyTargetID) {
+		return fmt.Errorf("expected reply target %q, got %q", strings.TrimSpace(virtualTurn.ExpectedReplyTargetID), turnResult.ReplyTargetID)
 	}
 	for _, fragment := range virtualTurn.ExpectedReplyFragments {
 		if !strings.Contains(turnResult.FinishMessage, fragment) {
@@ -1005,7 +1036,12 @@ func testPolicyProjection() policy.PolicyProjection {
 type virtualAdapter struct {
 	mutex         sync.Mutex
 	workspacePath string
-	replies       map[string]connectors.OutboundReply
+	replies       map[string]virtualReply
+}
+
+type virtualReply struct {
+	target connectors.ReplyTarget
+	reply  connectors.OutboundReply
 }
 
 func (adapter *virtualAdapter) Name() string { return "virtual" }
@@ -1035,22 +1071,22 @@ func (adapter *virtualAdapter) StopProgress(context.Context, connectors.ReplyTar
 	return nil
 }
 
-func (adapter *virtualAdapter) SendReply(_ context.Context, _ connectors.ReplyTarget, reply connectors.OutboundReply) (string, error) {
+func (adapter *virtualAdapter) SendReply(_ context.Context, target connectors.ReplyTarget, reply connectors.OutboundReply) (string, error) {
 	adapter.mutex.Lock()
 	defer adapter.mutex.Unlock()
 	if adapter.replies == nil {
-		adapter.replies = map[string]connectors.OutboundReply{}
+		adapter.replies = map[string]virtualReply{}
 	}
 	dispatchID := fmt.Sprintf("virtual-dispatch-%03d", len(adapter.replies)+1)
-	adapter.replies[dispatchID] = reply
+	adapter.replies[dispatchID] = virtualReply{target: target, reply: reply}
 	return dispatchID, nil
 }
 
-func (adapter *virtualAdapter) FindReply(dispatchID string) (connectors.OutboundReply, bool) {
+func (adapter *virtualAdapter) FindReply(dispatchID string) (connectors.OutboundReply, connectors.ReplyTarget, bool) {
 	adapter.mutex.Lock()
 	defer adapter.mutex.Unlock()
 	reply, isFound := adapter.replies[dispatchID]
-	return reply, isFound
+	return reply.reply, reply.target, isFound
 }
 
 func (adapter *virtualAdapter) FetchHistory(context.Context, string, int) (connectors.VisibleContext, error) {
