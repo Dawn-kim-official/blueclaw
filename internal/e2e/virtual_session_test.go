@@ -217,6 +217,72 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	}
 }
 
+func TestSkillLifecycleAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), SkillLifecycleAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected skill lifecycle acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
+	}
+	firstTurnResult := result.TurnResults[0]
+	secondTurnResult := result.TurnResults[1]
+	if countEvents(firstTurnResult.Events, "tool.skill.add.requested") != 1 {
+		t.Fatalf("expected one skill.add request; events: %s", summarizeEvents(firstTurnResult.Events))
+	}
+	if countEvents(secondTurnResult.Events, "tool.skill.remove.requested") != 1 {
+		t.Fatalf("expected one skill.remove request; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	skillDirectoryPath := filepath.Join(result.ArtifactDirectoryPath, "workspace", ".agents", "skills", "memo-helper")
+	if _, errorValue := os.Stat(skillDirectoryPath); !os.IsNotExist(errorValue) {
+		t.Fatalf("expected memo-helper skill directory to be removed, got %v", errorValue)
+	}
+}
+
+func TestCapabilityQuestionAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), CapabilityQuestionAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected capability question acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
+	}
+	turnResult := result.TurnResults[0]
+	requestedBodies := eventBodies(turnResult.Events, "tool.skill.search.requested")
+	if len(requestedBodies) != 1 {
+		t.Fatalf("expected one skill.search request, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if strings.Contains(requestedBodies[0], "queries") || strings.Contains(requestedBodies[0], "limit") {
+		t.Fatalf("expected empty skill.search input, got %s", requestedBodies[0])
+	}
+	if !eventsContain(turnResult.Events, "tool.skill.search.result", "simple-slides") {
+		t.Fatalf("expected skill.search result to include simple-slides; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !strings.Contains(turnResult.FinishMessage, "simple-slides") {
+		t.Fatalf("expected final reply to mention simple-slides, got %q", turnResult.FinishMessage)
+	}
+}
+
+func TestTaskHistoryQuestionAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), TaskHistoryQuestionAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected task history question acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
+	}
+	secondTurnResult := result.TurnResults[1]
+	if countEvents(secondTurnResult.Events, "tool.task.history.requested") != 1 {
+		t.Fatalf("expected one task.history request; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "tool.task.history.result", "계약서 확인 요약 작업") {
+		t.Fatalf("expected task.history result to include prior task prompt; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !strings.Contains(secondTurnResult.FinishMessage, "계약서 확인 요약") {
+		t.Fatalf("expected final reply to mention prior task, got %q", secondTurnResult.FinishMessage)
+	}
+}
+
 func TestOneTimeScheduleAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), OneTimeScheduleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
@@ -464,4 +530,14 @@ func activeScheduleCount(taskSchedules []task.TaskSchedule) int {
 		}
 	}
 	return count
+}
+
+func eventBodies(events []task.TaskEvent, name string) []string {
+	bodies := []string{}
+	for _, event := range events {
+		if event.Name == name {
+			bodies = append(bodies, event.Body)
+		}
+	}
+	return bodies
 }
