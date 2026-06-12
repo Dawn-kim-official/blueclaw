@@ -455,7 +455,7 @@ ON CONFLICT (raw_event_id) DO NOTHING`,
 INSERT INTO connector_outbox (
   outbox_id, raw_event_id, platform, reply_target_id, reply_target_json, reply_json
 ) VALUES ($1,$1,$2,$3,$4,$5)
-ON CONFLICT (raw_event_id) DO NOTHING`,
+ON CONFLICT (outbox_id) DO NOTHING`,
 		rawEventID,
 		taskSchedule.Platform,
 		taskSchedule.ReplyTargetID,
