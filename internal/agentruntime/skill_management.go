@@ -429,8 +429,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegist
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillSearchToolInput, agent.SkillSearchResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "skill.search",
-			Description: "Search available Blueclaw skills by concise skill-need descriptions.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"number"}},"required":["queries"]}`),
+			Description: "Search available Blueclaw skills by concise skill-need descriptions. Call with no queries to list every available skill, for example when asked what you can do.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"number"}}}`),
 		},
 		Handler: func(toolContext context.Context, input skillSearchToolInput) (agent.SkillSearchResult, error) {
 			return toolCatalogBuilder.searchSkills(toolContext, input, handlerContext, availableToolSet)
@@ -439,11 +439,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegist
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) (agent.SkillSearchResult, error) {
+	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
+	if !hasSkillSearchQuery(input.Queries) {
+		return listAllSkills(instructionBundle.Skills), nil
+	}
 	limit := input.Limit
 	if limit <= 0 || limit > 8 {
 		limit = 5
 	}
-	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
 	agentRequest := agent.AgentRequest{
 		ProfileName:       handlerContext.request.ProfileName,
 		Prompt:            handlerContext.request.Prompt,
@@ -455,6 +458,30 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.C
 	retrievalResult := toolCatalogBuilder.skillRetriever.Search(toolContext, agentRequest, instructionBundle.Skills, agent.SkillSearchQuerySet{Queries: input.Queries}, limit)
 	retrievalResult = includeExactSkillNameMatches(instructionBundle.Skills, input.Queries, retrievalResult)
 	return skillSearchResult(instructionBundle.Skills, retrievalResult), nil
+}
+
+func hasSkillSearchQuery(queries []agent.SkillSearchQuery) bool {
+	for _, query := range queries {
+		if strings.TrimSpace(query.Description) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func listAllSkills(skillInstructions []agent.SkillInstruction) agent.SkillSearchResult {
+	items := make([]agent.SkillSearchResultItem, 0, len(skillInstructions))
+	for _, skillInstruction := range skillInstructions {
+		items = append(items, agent.SkillSearchResultItem{
+			Name:        skillInstruction.Name,
+			Description: skillInstruction.Description,
+			Score:       1,
+			Tools:       append([]string{}, skillInstruction.AllowedTools...),
+			SourcePath:  skillInstruction.Source.Path,
+			Completion:  skillInstruction.Completion,
+		})
+	}
+	return agent.SkillSearchResult{Skills: items}
 }
 
 func includeExactSkillNameMatches(skillInstructions []agent.SkillInstruction, queries []agent.SkillSearchQuery, retrievalResult agent.SkillRetrievalResult) agent.SkillRetrievalResult {
