@@ -39,6 +39,8 @@ type VirtualSessionScenario struct {
 	ProfileName           string
 	ArtifactDirectoryPath string
 	LanguageModel         llm.LanguageModelProvider
+	DisableScriptedModel  bool
+	UseLooseAssertions    bool
 	SkillDirectoryPaths   []string
 	Skills                []agent.SkillInstruction
 	AllowedTools          []string
@@ -104,9 +106,16 @@ type VirtualTurnResult struct {
 	ReplyTargetID           string
 	Attachments             []agent.FileAttachment
 	Events                  []task.TaskEvent
+	InformationalAssertions []VirtualInformationalAssertion
 	ModelContext            string
 	ModelImagePartCount     int
 	UserModelImagePartCount int
+}
+
+type VirtualInformationalAssertion struct {
+	Name      string
+	Satisfied bool
+	Detail    string
 }
 
 type VirtualSessionHarness struct {
@@ -114,6 +123,7 @@ type VirtualSessionHarness struct {
 	artifactPath     string
 	workspacePath    string
 	scriptedModel    *agenttest.ScriptedLanguageModel
+	requestRecorder  virtualLanguageModelRequestRecorder
 	taskRunService   *task.TaskRunService
 	taskEventService *task.TaskEventService
 	scheduleStore    *virtualTaskScheduleRepository
@@ -122,6 +132,11 @@ type VirtualSessionHarness struct {
 	adapter          *virtualAdapter
 	history          []connectors.VisibleContextMessage
 	cleanup          func()
+}
+
+type virtualLanguageModelRequestRecorder interface {
+	RequestCount() int
+	RequestsSince(int) []llm.StructuredResponseRequest
 }
 
 func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionScenario, error) {
@@ -280,6 +295,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		artifactPath:     artifactPath,
 		workspacePath:    workspacePath,
 		scriptedModel:    scriptedModel,
+		requestRecorder:  virtualRequestRecorder(languageModel),
 		taskRunService:   taskRunService,
 		taskEventService: taskEventService,
 		scheduleStore:    scheduleStore,
@@ -551,7 +567,8 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		if errorValue != nil {
 			return result, errorValue
 		}
-		if errorValue := assertTurnResult(harness.workspacePath, virtualTurn, turnResult); errorValue != nil {
+		turnResult.InformationalAssertions = informationalAssertionResults(virtualTurn, turnResult)
+		if errorValue := harness.assertTurnResult(virtualTurn, turnResult); errorValue != nil {
 			return result, fmt.Errorf("%s turn %d: %w", harness.scenario.Name, index+1, errorValue)
 		}
 		result.TurnResults = append(result.TurnResults, turnResult)
@@ -562,6 +579,9 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 }
 
 func actionScriptedLanguageModelForScenario(scenario VirtualSessionScenario) *agenttest.ScriptedLanguageModel {
+	if scenario.DisableScriptedModel {
+		return nil
+	}
 	for _, virtualTurn := range scenario.Turns {
 		if len(virtualTurn.ActionResponses) > 0 {
 			return agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
@@ -605,8 +625,8 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {
 	modelRequestStartIndex := 0
-	if harness.scriptedModel != nil {
-		modelRequestStartIndex = harness.scriptedModel.RequestCount()
+	if harness.requestRecorder != nil {
+		modelRequestStartIndex = harness.requestRecorder.RequestCount()
 	}
 	messages := append([]connectors.VisibleContextMessage{}, harness.history...)
 	messages = append(messages, virtualTurn.ContextMessages...)
@@ -679,11 +699,11 @@ func virtualReplyTargetID(index int, virtualTurn VirtualTurn) string {
 }
 
 func (harness *VirtualSessionHarness) modelContextSince(startIndex int) string {
-	if harness.scriptedModel == nil {
+	if harness.requestRecorder == nil {
 		return ""
 	}
 	parts := []string{}
-	for _, request := range harness.scriptedModel.RequestsSince(startIndex) {
+	for _, request := range harness.requestRecorder.RequestsSince(startIndex) {
 		if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
 			continue
 		}
@@ -704,11 +724,11 @@ func (harness *VirtualSessionHarness) userModelImagePartCountSince(startIndex in
 }
 
 func (harness *VirtualSessionHarness) modelImagePartCountByRoleSince(startIndex int, role string) int {
-	if harness.scriptedModel == nil {
+	if harness.requestRecorder == nil {
 		return 0
 	}
 	count := 0
-	for _, request := range harness.scriptedModel.RequestsSince(startIndex) {
+	for _, request := range harness.requestRecorder.RequestsSince(startIndex) {
 		if request.StructuredOutputSchema.Name != "blueclaw_agent_turn_action" {
 			continue
 		}
@@ -731,6 +751,49 @@ func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turn
 		connectors.VisibleContextMessage{Speaker: "user", SpeakerCallingName: "동하 님", SpeakerHandle: "dongha", Text: virtualTurn.Prompt},
 		connectors.VisibleContextMessage{Speaker: "assistant", SpeakerCallingName: "김인턴", SpeakerHandle: "internkim", Text: turnResult.FinishMessage},
 	)
+}
+
+func virtualRequestRecorder(languageModel llm.LanguageModelProvider) virtualLanguageModelRequestRecorder {
+	recorder, _ := languageModel.(virtualLanguageModelRequestRecorder)
+	return recorder
+}
+
+func (harness *VirtualSessionHarness) assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	if harness.scenario.UseLooseAssertions {
+		return assertLooseTurnResult(turnResult)
+	}
+	return assertTurnResult(harness.workspacePath, virtualTurn, turnResult)
+}
+
+func assertLooseTurnResult(turnResult VirtualTurnResult) error {
+	if strings.TrimSpace(turnResult.FinishMessage) == "" {
+		return errors.New("expected non-empty final reply")
+	}
+	switch turnResult.TaskStatus {
+	case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusInterrupted:
+		return fmt.Errorf("expected terminal or waiting task status, got %s", turnResult.TaskStatus)
+	default:
+		return nil
+	}
+}
+
+func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTurnResult) []VirtualInformationalAssertion {
+	results := []VirtualInformationalAssertion{}
+	for _, toolName := range virtualTurn.ExpectedToolCalls {
+		results = append(results, VirtualInformationalAssertion{
+			Name:      "expected tool call " + toolName,
+			Satisfied: eventsContain(turnResult.Events, "tool."+toolName+".requested", toolName),
+			Detail:    toolName,
+		})
+	}
+	for _, fragment := range virtualTurn.ExpectedReplyFragments {
+		results = append(results, VirtualInformationalAssertion{
+			Name:      "expected reply fragment",
+			Satisfied: strings.Contains(turnResult.FinishMessage, fragment),
+			Detail:    fragment,
+		})
+	}
+	return results
 }
 
 func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
