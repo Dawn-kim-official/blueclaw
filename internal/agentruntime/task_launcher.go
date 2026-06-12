@@ -33,6 +33,7 @@ type TaskLaunchRequest struct {
 	RequesterEmail             string
 	RequesterPlatformUserID    string
 	IsApprovalContinuation     bool
+	IsRuntimeRestartResume     bool
 	ExistingTaskRunID          string
 	OriginReplyTargetID        string
 	OriginIsThread             bool
@@ -276,6 +277,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		RequesterName:           request.RequesterName,
 		RequesterPlatformUserID: request.RequesterPlatformUserID,
 		IsApprovalContinuation:  request.IsApprovalContinuation,
+		IsRuntimeRestartResume:  request.IsRuntimeRestartResume,
 		ExistingTaskRunID:       request.ExistingTaskRunID,
 		OriginReplyTargetID:     request.OriginReplyTargetID,
 		OriginIsThread:          request.OriginIsThread,

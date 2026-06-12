@@ -45,6 +45,7 @@ type AgentTurnRequest struct {
 	RequesterName              string
 	RequesterPlatformUserID    string
 	IsApprovalContinuation     bool
+	IsRuntimeRestartResume     bool
 	ExistingTaskRunID          string
 	OriginReplyTargetID        string
 	OriginIsThread             bool
@@ -87,6 +88,7 @@ type AgentTurnRequest struct {
 	TurnStartedAt              time.Time
 	CheckpointSender           AgentCheckpointSender
 	StepBudgetContext          string
+	ArtifactManifest           []ArtifactManifestEntry
 }
 
 type AgentTurnResult struct {
@@ -326,8 +328,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	defer taskCancel()
 	agentTurnRunner.appendInstructionEvent(taskRun.TaskRunID, request)
 
-	state := buildInitialAgentTaskState(request, agentTurnRunner.options, taskRun.TaskRunID)
-	state.Status = taskRun.Status
+	state, errorValue := agentTaskStateForTurn(request, agentTurnRunner.options, taskRun, agentTurnRunner.taskRunService.ListTaskEvent(taskRun.TaskRunID))
+	if errorValue != nil {
+		return agentTurnRunner.failLaunchStep(context.Background(), taskRun, request, "restore_state", errorValue), nil
+	}
 	toolUseRequirements := state.Requirements
 	successfulToolCalls := map[string]turnObservation{}
 	limitPressureWarnings := map[string]bool{}
@@ -1059,6 +1063,9 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildTurnMessages(request AgentTurnRequest, observations []turnObservation, executionState ExecutionState) []llm.Message {
+	if len(request.ArtifactManifest) == 0 {
+		request.ArtifactManifest = buildConversationArtifactManifest(request, agentTurnRunner.taskRunService, agentTurnRunner.taskArtifactService)
+	}
 	return (PromptAssembler{}).BuildTurnMessages(
 		request,
 		observations,

@@ -106,6 +106,15 @@ func buildInitialAgentTaskState(request AgentTurnRequest, options TurnOptions, t
 	}
 }
 
+func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) (agentTaskState, error) {
+	if !request.IsRuntimeRestartResume {
+		state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
+		state.Status = taskRun.Status
+		return state, nil
+	}
+	return restoreAgentTaskState(request, options, taskRun, events)
+}
+
 func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) (agentTaskState, error) {
 	state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
 	state.Status = taskRun.Status

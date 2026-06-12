@@ -292,8 +292,8 @@ func TestConnectorRuntimeInterruptsInactiveRunningTaskAndStartsNewTask(t *testin
 		t.Fatalf("expected new task after inactive task interruption, got %+v", result)
 	}
 	interruptedTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(orphanedTaskRun.TaskRunID)
-	if !isFound || interruptedTaskRun.Status != task.TaskStatusFailed {
-		t.Fatalf("expected inactive task failed, got found=%v task=%+v", isFound, interruptedTaskRun)
+	if !isFound || interruptedTaskRun.Status != task.TaskStatusInterrupted {
+		t.Fatalf("expected inactive task interrupted, got found=%v task=%+v", isFound, interruptedTaskRun)
 	}
 	taskAttempt := taskRunRepository.taskAttempts[orphanedTaskRun.CurrentAttemptID]
 	if taskAttempt.Status != task.TaskAttemptStatusInterrupted {
