@@ -136,6 +136,10 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return AskChoiceReplyAcceptanceScenario(artifactDirectoryPath), nil
 	case "ask_confirm_reply_acceptance":
 		return AskConfirmReplyAcceptanceScenario(artifactDirectoryPath), nil
+	case "dm_send_confirm_acceptance":
+		return DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath), nil
+	case "channel_post_acceptance":
+		return ChannelPostAcceptanceScenario(artifactDirectoryPath), nil
 	case "attachment_material_read":
 		return AttachmentMaterialReadScenario(artifactDirectoryPath), nil
 	case "attachment_html_preview_recovery":
@@ -397,6 +401,8 @@ func virtualCapabilityResponse(toolName string) string {
 		return `{"status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
 		return `{"status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
+	case "platform.message.send":
+		return `{"status":"ok","content":"sent virtual platform message virtual-platform-message-001","result":{"messageID":"virtual-platform-message-001","deliveryStatus":"sent"}}`
 	default:
 		return `{"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true}}`
 	}

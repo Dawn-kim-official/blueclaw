@@ -250,6 +250,53 @@ func TestAskConfirmReplyAcceptance(t *testing.T) {
 	}
 }
 
+func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), DirectMessageSendConfirmAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected direct message send confirm acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turns, got %+v", result)
+	}
+	firstTurnResult := result.TurnResults[0]
+	secondTurnResult := result.TurnResults[1]
+	if !eventsContain(firstTurnResult.Events, "confirmation.requested", "external_send") {
+		t.Fatalf("expected confirmation request before send; events: %s", summarizeEvents(firstTurnResult.Events))
+	}
+	if countEvents(firstTurnResult.Events, "tool.platform.message.send.requested") != 0 {
+		t.Fatalf("expected no send before approval; events: %s", summarizeEvents(firstTurnResult.Events))
+	}
+	if countEvents(secondTurnResult.Events, "tool.platform.message.send.requested") != 1 {
+		t.Fatalf("expected one send after approval; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "tool.platform.message.send.result", "virtual-platform-message-001") {
+		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !strings.Contains(secondTurnResult.FinishMessage, "보냈습니다") {
+		t.Fatalf("expected successful delivery reply, got %q", secondTurnResult.FinishMessage)
+	}
+}
+
+func TestChannelPostAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), ChannelPostAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected channel post acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one turn, got %+v", result)
+	}
+	turnResult := result.TurnResults[0]
+	if countEvents(turnResult.Events, "tool.platform.message.send.requested") != 1 {
+		t.Fatalf("expected one send request, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "tool.platform.message.send.requested", `"type":"channel"`) {
+		t.Fatalf("expected channel delivery target; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if eventsContain(turnResult.Events, "tool.platform.message.send.requested", `"type":"directMessage"`) {
+		t.Fatalf("expected no direct message target; events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
 func TestAttachmentMaterialRead(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), AttachmentMaterialReadScenario(t.TempDir()))
 	if errorValue != nil {
