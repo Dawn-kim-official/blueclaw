@@ -18,16 +18,24 @@ type askConfirmToolInput struct {
 }
 
 type askChoiceToolInput struct {
-	Question             string   `json:"question"`
-	Options              []string `json:"options"`
-	RecommendedOptionKey string   `json:"recommendedOptionKey"`
-	SelectionMode        string   `json:"selectionMode"`
+	Question             string                `json:"question"`
+	Options              []askChoiceToolOption `json:"options"`
+	RecommendedOptionKey string                `json:"recommendedOptionKey"`
+	SelectionMode        string                `json:"selectionMode"`
+}
+
+type askChoiceToolOption struct {
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	ShortLabel string `json:"shortLabel,omitempty"`
+	Value      string `json:"value,omitempty"`
 }
 
 type askChoiceOption struct {
-	Key   string `json:"key"`
-	Label string `json:"label"`
-	Value string `json:"value"`
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	ShortLabel string `json:"shortLabel,omitempty"`
+	Value      string `json:"value,omitempty"`
 }
 
 type askInputToolInput struct {
@@ -49,7 +57,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerAskTools(toolRegistry *age
 			Definition: agent.ToolDefinition{
 				Name:        "ask.choice",
 				Description: "Pause the current task and ask the user to choose from explicit options. Always include exactly one recommendedOptionKey. Use selectionMode single or multiple.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"]}`),
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"shortLabel":{"type":"string","description":"버튼에 표시할 1~3단어 단답; label은 본문에 길게 설명 가능"}},"required":["key","label"]}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"]}`),
 			},
 			Handler: toolCatalogBuilder.askChoiceTool,
 			Result:  agent.IdentityToolResult,
@@ -188,16 +196,52 @@ func normalizeAskChoiceRequest(input askChoiceToolInput, responseLanguage string
 	}, nil
 }
 
-func normalizedAskChoiceOptions(options []string) []askChoiceOption {
+func normalizedAskChoiceOptions(options []askChoiceToolOption) []askChoiceOption {
 	normalizedOptions := []askChoiceOption{}
 	for index, option := range options {
-		label := strings.TrimSpace(option)
+		key := strings.TrimSpace(option.Key)
+		if key == "" {
+			key = askChoiceKey(index)
+		}
+		label := strings.TrimSpace(option.Label)
 		if label == "" {
 			continue
 		}
-		normalizedOptions = append(normalizedOptions, askChoiceOption{Key: askChoiceKey(index), Label: label, Value: label})
+		value := strings.TrimSpace(option.Value)
+		if value == "" {
+			value = label
+		}
+		normalizedOptions = append(normalizedOptions, askChoiceOption{
+			Key:        key,
+			Label:      label,
+			ShortLabel: strings.TrimSpace(option.ShortLabel),
+			Value:      value,
+		})
 	}
 	return normalizedOptions
+}
+
+func (option *askChoiceToolOption) UnmarshalJSON(document []byte) error {
+	var label string
+	if errorValue := json.Unmarshal(document, &label); errorValue == nil {
+		option.Label = strings.TrimSpace(label)
+		option.Value = strings.TrimSpace(label)
+		return nil
+	}
+	var structuredOption struct {
+		Key        string `json:"key"`
+		Label      string `json:"label"`
+		ShortLabel string `json:"shortLabel"`
+		Value      string `json:"value"`
+	}
+	if errorValue := json.Unmarshal(document, &structuredOption); errorValue != nil {
+		return errorValue
+	}
+	option.Key = strings.TrimSpace(structuredOption.Key)
+	option.Label = strings.TrimSpace(structuredOption.Label)
+	option.ShortLabel = strings.TrimSpace(structuredOption.ShortLabel)
+	option.Value = strings.TrimSpace(structuredOption.Value)
+	return nil
 }
 
 func askChoiceKey(index int) string {
