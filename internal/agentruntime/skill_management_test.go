@@ -425,3 +425,32 @@ func TestSkillManagementRejectsProductionServiceOwnedWorkspace(t *testing.T) {
 		t.Fatalf("expected actor_permission_denied for production skill.add, got %+v", result)
 	}
 }
+
+func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{
+			{Name: "mail", Description: "Email skill.", AllowedTools: []string{"mail.message.search"}},
+			{Name: "site-prototype", Description: "Create sites.", AllowedTools: []string{"site.app.create"}},
+		}}
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.search",
+		Input:    agent.MarshalToolInput(map[string]any{}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected skill.search success, got %s", result.ContentText())
+	}
+	var resultDocument agent.SkillSearchResult
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(resultDocument.Skills) != 2 || resultDocument.Skills[0].Name != "mail" || resultDocument.Skills[1].Name != "site-prototype" {
+		t.Fatalf("expected full skill roster, got %+v", resultDocument.Skills)
+	}
+}
