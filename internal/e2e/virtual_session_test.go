@@ -283,6 +283,66 @@ func TestTaskHistoryQuestionAcceptance(t *testing.T) {
 	}
 }
 
+func TestMemoryExplicitToolAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), MemoryExplicitToolAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected memory explicit tool acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
+	}
+	firstTurnResult := result.TurnResults[0]
+	secondTurnResult := result.TurnResults[1]
+	if firstTurnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected first turn success, got %s", firstTurnResult.TaskStatus)
+	}
+	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
+	}
+	if countEvents(firstTurnResult.Events, "tool.memory.remember.requested")+countEvents(secondTurnResult.Events, "tool.memory.remember.requested") != 1 {
+		t.Fatalf("expected exactly one memory.remember request; first events: %s second events: %s", summarizeEvents(firstTurnResult.Events), summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(firstTurnResult.Events, "tool.memory.remember.requested", "Korean") {
+		t.Fatalf("expected memory.remember input to include Korean; events: %s", summarizeEvents(firstTurnResult.Events))
+	}
+	if countEvents(firstTurnResult.Events, "tool.memory.search.requested")+countEvents(secondTurnResult.Events, "tool.memory.search.requested") != 1 {
+		t.Fatalf("expected exactly one memory.search request; first events: %s second events: %s", summarizeEvents(firstTurnResult.Events), summarizeEvents(secondTurnResult.Events))
+	}
+	if !strings.Contains(secondTurnResult.FinishMessage, "Korean") {
+		t.Fatalf("expected final reply to mention Korean, got %q", secondTurnResult.FinishMessage)
+	}
+}
+
+func TestFailureExplanationAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), FailureExplanationAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected failure explanation acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
+	}
+	firstTurnResult := result.TurnResults[0]
+	secondTurnResult := result.TurnResults[1]
+	if firstTurnResult.TaskStatus != task.TaskStatusFailed {
+		t.Fatalf("expected first turn failure, got %s", firstTurnResult.TaskStatus)
+	}
+	if !strings.Contains(firstTurnResult.FailureReason, "permission denied") {
+		t.Fatalf("expected failure reason to mention permission denied, got %q", firstTurnResult.FailureReason)
+	}
+	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
+	}
+	if countEvents(secondTurnResult.Events, "tool.task.history.requested") == 0 {
+		t.Fatalf("expected task.history request in second turn; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "tool.task.history.result", "failureReason") || !eventsContain(secondTurnResult.Events, "tool.task.history.result", "permission denied") {
+		t.Fatalf("expected task.history result to include failure reason; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !strings.Contains(secondTurnResult.FinishMessage, "permission denied") {
+		t.Fatalf("expected final reply to mention permission denied, got %q", secondTurnResult.FinishMessage)
+	}
+}
+
 func TestOneTimeScheduleAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), OneTimeScheduleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
@@ -321,6 +381,33 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	}
 	if !strings.Contains(turnResult.ModelContext, "site.app.create") || !strings.Contains(turnResult.ModelContext, "site.app.publish") {
 		t.Fatal("expected model context to expose site app tools")
+	}
+}
+
+func TestSiteEditRedeployAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), SiteEditRedeployAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected site edit redeploy acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
+	}
+	secondTurnResult := result.TurnResults[1]
+	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
+	}
+	fileMutationCount := countEvents(secondTurnResult.Events, "tool.file.edit.requested") + countEvents(secondTurnResult.Events, "tool.file.write.requested") + countEvents(secondTurnResult.Events, "tool.file.patch.requested")
+	if fileMutationCount == 0 {
+		t.Fatalf("expected a file mutation tool in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if countEvents(secondTurnResult.Events, "tool.terminal.run.requested") == 0 {
+		t.Fatalf("expected terminal.run in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if countEvents(secondTurnResult.Events, "tool.site.app.publish.requested") == 0 {
+		t.Fatalf("expected site.app.publish in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !strings.Contains(secondTurnResult.FinishMessage, "https://") {
+		t.Fatalf("expected final assistant message to contain a URL, got %q", secondTurnResult.FinishMessage)
 	}
 }
 

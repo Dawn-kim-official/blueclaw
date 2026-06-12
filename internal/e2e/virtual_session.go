@@ -45,6 +45,7 @@ type VirtualSessionScenario struct {
 	CapabilityToolNames   []string
 	InitialMemory         []memory.MemoryFact
 	RouterWorkKinds       []string
+	TurnOptions           agent.TurnOptions
 	Turns                 []VirtualTurn
 }
 
@@ -89,6 +90,8 @@ type VirtualSessionResult struct {
 
 type VirtualTurnResult struct {
 	TaskRunID               string
+	TaskStatus              task.TaskStatus
+	FailureReason           string
 	FinishMessage           string
 	Attachments             []agent.FileAttachment
 	Events                  []task.TaskEvent
@@ -102,6 +105,7 @@ type VirtualSessionHarness struct {
 	artifactPath     string
 	workspacePath    string
 	scriptedModel    *agenttest.ScriptedLanguageModel
+	taskRunService   *task.TaskRunService
 	taskEventService *task.TaskEventService
 	scheduleStore    *virtualTaskScheduleRepository
 	memoryStore      *virtualMemoryStore
@@ -137,10 +141,16 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return CapabilityQuestionAcceptanceScenario(artifactDirectoryPath), nil
 	case "task_history_question_acceptance":
 		return TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath), nil
+	case "memory_explicit_tool_acceptance":
+		return MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath), nil
+	case "failure_explanation_acceptance":
+		return FailureExplanationAcceptanceScenario(artifactDirectoryPath), nil
 	case "one_time_schedule_acceptance":
 		return OneTimeScheduleAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_prototype_acceptance":
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
+	case "site_edit_redeploy_acceptance":
+		return SiteEditRedeployAcceptanceScenario(artifactDirectoryPath), nil
 	case "ask_choice_reply_acceptance":
 		return AskChoiceReplyAcceptanceScenario(artifactDirectoryPath), nil
 	case "ask_confirm_reply_acceptance":
@@ -207,7 +217,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel.UseLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultEffortLevel: agent.EffortLevelStandard})
-	agentKernel.UseTurnOptions(agent.TurnOptions{MaxIterationCount: 20, MaxToolCallCount: 16, MaxElapsedSecond: 120})
+	agentKernel.UseTurnOptions(virtualTurnOptions(scenario.TurnOptions))
 	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
 	skillRetriever := agent.NewEmbeddingSkillRetriever(virtualSkillEmbeddingProvider{}, "")
 	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
@@ -259,6 +269,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		artifactPath:     artifactPath,
 		workspacePath:    workspacePath,
 		scriptedModel:    scriptedModel,
+		taskRunService:   taskRunService,
 		taskEventService: taskEventService,
 		scheduleStore:    scheduleStore,
 		memoryStore:      memoryStore,
@@ -266,6 +277,26 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		adapter:          adapter,
 		cleanup:          cleanup,
 	}, nil
+}
+
+func virtualTurnOptions(scenarioOptions agent.TurnOptions) agent.TurnOptions {
+	turnOptions := agent.TurnOptions{MaxIterationCount: 20, MaxToolCallCount: 16, MaxElapsedSecond: 120}
+	if scenarioOptions.MaxIterationCount > 0 {
+		turnOptions.MaxIterationCount = scenarioOptions.MaxIterationCount
+	}
+	if scenarioOptions.MaxToolCallCount > 0 {
+		turnOptions.MaxToolCallCount = scenarioOptions.MaxToolCallCount
+	}
+	if scenarioOptions.MaxElapsedSecond > 0 {
+		turnOptions.MaxElapsedSecond = scenarioOptions.MaxElapsedSecond
+	}
+	if scenarioOptions.RecoveryAttemptLimit != 0 {
+		turnOptions.RecoveryAttemptLimit = scenarioOptions.RecoveryAttemptLimit
+	}
+	if scenarioOptions.RecoveryBudget != (agent.RecoveryBudget{}) {
+		turnOptions.RecoveryBudget = scenarioOptions.RecoveryBudget
+	}
+	return turnOptions
 }
 
 func virtualInstructionBundleLoader(baseSkillInstructions []agent.SkillInstruction, workspacePath string) func() agent.InstructionBundle {
@@ -316,6 +347,7 @@ func virtualToolCatalogBuilder(
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
 	toolCatalogBuilder.UseTaskScheduleRepository(scheduleStore)
 	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UseMemoryUpdateQueue(virtualMemoryUpdateQueue{memoryService: memoryService})
 	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
 	toolCatalogBuilder.UseSkillChangeHandler(func(contextValue context.Context) {
 		agentKernel.RefreshSkillIndex(contextValue, instructionBundleLoader())
@@ -599,8 +631,14 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		events := harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID)
 		return VirtualTurnResult{}, fmt.Errorf("virtual turn did not dispatch a reply; events: %s", summarizeEvents(events))
 	}
+	taskRun, isFound := harness.taskRunService.FindTaskRun(runtimeResult.TaskRunID)
+	if !isFound {
+		return VirtualTurnResult{}, errors.New("virtual turn task run not found")
+	}
 	return VirtualTurnResult{
 		TaskRunID:               runtimeResult.TaskRunID,
+		TaskStatus:              taskRun.Status,
+		FailureReason:           taskRun.FailureReason,
 		FinishMessage:           outboundReply.Message,
 		Attachments:             outboundReply.Attachments,
 		Events:                  harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
@@ -1102,9 +1140,39 @@ type virtualMemoryStore struct {
 	facts []memory.MemoryFact
 }
 
+type virtualMemoryUpdateQueue struct {
+	memoryService *memory.MemoryService
+}
+
 type virtualTaskScheduleRepository struct {
 	mutex         sync.Mutex
 	taskSchedules []task.TaskSchedule
+}
+
+func (queue virtualMemoryUpdateQueue) Enqueue(job memory.MemoryUpdateJob) (memory.MemoryUpdateAccepted, error) {
+	if queue.memoryService == nil {
+		return memory.MemoryUpdateAccepted{}, errors.New("memory update queue is unavailable")
+	}
+	jobID := strings.TrimSpace(job.JobID)
+	if jobID == "" {
+		jobID = "virtual-memory-update-" + time.Now().UTC().Format("20060102150405.000000000")
+	}
+	job.JobID = jobID
+	_, errorValue := queue.memoryService.AddEpisode(context.Background(), memory.MemoryEpisode{
+		EpisodeID:       job.JobID,
+		Platform:        job.Platform,
+		ConversationID:  job.ConversationID,
+		SenderPersonID:  job.SenderPersonID,
+		Prompt:          job.Content,
+		OccurredAt:      job.OccurredAt,
+		Namespaces:      []memory.MemoryNamespace{job.Namespace},
+		Source:          "memory.remember",
+		SourceReference: job.SourceReference,
+	})
+	if errorValue != nil {
+		return memory.MemoryUpdateAccepted{}, errorValue
+	}
+	return memory.MemoryUpdateAccepted{Accepted: true, JobID: job.JobID}, nil
 }
 
 func (repository *virtualTaskScheduleRepository) UpsertTaskSchedule(taskSchedule task.TaskSchedule) error {
@@ -1244,6 +1312,10 @@ func actionFinishWithReplyPart(summary string, replyPart string, evidence ...str
 
 func actionNoToolFallbackFinishMessage(reply string) string {
 	return `{"action":"finish","message":` + quote(reply) + `,"completionSummary":` + quote(reply) + `,"replyParts":[{"type":"text","text":` + quote(reply) + `}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"failureResolution":"no_tool_fallback"}`
+}
+
+func actionFailMessage(reason string) string {
+	return `{"action":"fail","reason":` + quote(reason) + `,"goalStatus":"blocked","goalSatisfied":false,"remainingWork":"The requested task could not complete.","failureResolution":"failure_report","usedFailureFacts":{"attempts":[{"toolName":"terminal.run","inputSummary":"printf 'permission denied blocked_by_captcha' >&2; exit 126","errorCode":"operation_failed","failureStage":"terminal_run","message":"errorCode=operation_failed; failureStage=terminal_run; exitCode=126; stderrTail=permission denied blocked_by_captcha"}],"budgetState":"failure_report_required"},"executionStateUpdate":{}}`
 }
 
 func actionSelectTools(toolNames ...string) string {
