@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"time"
@@ -245,12 +246,70 @@ func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blocked
 }
 
 func ParseAgentActionResponse(response llm.StructuredResponse) (agentAction, error) {
+	content, errorValue := normalizeAgentActionResponseContent([]byte(response.Content))
+	if errorValue != nil {
+		return turnActionDocument{}, errorValue
+	}
 	var actionDocument turnActionDocument
-	errorValue := json.Unmarshal([]byte(response.Content), &actionDocument)
+	errorValue = json.Unmarshal(content, &actionDocument)
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
 	}
 	return normalizeParsedAction(actionDocument), nil
+}
+
+func normalizeAgentActionResponseContent(content []byte) ([]byte, error) {
+	var document map[string]json.RawMessage
+	if errorValue := json.Unmarshal(content, &document); errorValue != nil {
+		return nil, errorValue
+	}
+	if _, hasAction := document["action"]; hasAction {
+		return content, nil
+	}
+	candidateAction, candidateCount := agentActionResponseCandidate(document)
+	if candidateCount == 0 {
+		return content, nil
+	}
+	if candidateCount > 1 {
+		return nil, errors.New("action response contains multiple candidate action blocks")
+	}
+	return injectAgentActionResponseCandidate(document, candidateAction)
+}
+
+func agentActionResponseCandidate(document map[string]json.RawMessage) (string, int) {
+	actionNames := []string{"finish", "continue", "fail", "select_tools", "set_quality_criteria"}
+	candidateAction := ""
+	candidateCount := 0
+	for _, actionName := range actionNames {
+		if _, isPresent := document[actionName]; !isPresent {
+			continue
+		}
+		candidateAction = actionName
+		candidateCount++
+	}
+	return candidateAction, candidateCount
+}
+
+func injectAgentActionResponseCandidate(document map[string]json.RawMessage, actionName string) ([]byte, error) {
+	normalizedDocument := map[string]json.RawMessage{}
+	for fieldName, fieldValue := range document {
+		normalizedDocument[fieldName] = fieldValue
+	}
+	var nestedDocument map[string]json.RawMessage
+	if json.Unmarshal(document[actionName], &nestedDocument) == nil {
+		for fieldName, fieldValue := range nestedDocument {
+			if _, isPresent := normalizedDocument[fieldName]; isPresent {
+				continue
+			}
+			normalizedDocument[fieldName] = fieldValue
+		}
+	}
+	actionValue, errorValue := json.Marshal(actionName)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	normalizedDocument["action"] = actionValue
+	return json.Marshal(normalizedDocument)
 }
 
 func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument {

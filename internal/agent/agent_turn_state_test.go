@@ -155,6 +155,32 @@ func TestParseAgentActionResponseUsesReplyPartsForFinishMessage(t *testing.T) {
 	}
 }
 
+func TestParseAgentActionResponseNormalizesNestedFinishBlock(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"executionStateUpdate":{"goal":"answer user"},"finish":{"message":"done","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"complete","passed":true,"evidenceIDs":["obs-001"]}]}}`})
+	if errorValue != nil {
+		t.Fatalf("expected parsed action: %v", errorValue)
+	}
+	if action.Action != "finish" || finishActionMessage(action) != "done" {
+		t.Fatalf("expected nested finish block to normalize, got %+v", action)
+	}
+	if action.GoalSatisfied == nil || !*action.GoalSatisfied {
+		t.Fatalf("expected goalSatisfied to be parsed, got %+v", action.GoalSatisfied)
+	}
+	if action.ExecutionStateUpdate.Goal != "answer user" {
+		t.Fatalf("expected top-level execution state to be preserved, got %+v", action.ExecutionStateUpdate)
+	}
+	if len(action.CompletionEvidence) != 1 || action.CompletionEvidence[0].ObservationID != "obs-001" {
+		t.Fatalf("expected nested completion evidence to expand, got %+v", action.CompletionEvidence)
+	}
+}
+
+func TestParseAgentActionResponseRejectsAmbiguousNestedActionBlocks(t *testing.T) {
+	_, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"finish":{"message":"done"},"continue":{"toolName":"browser.open","toolInput":{}}}`})
+	if errorValue == nil {
+		t.Fatal("expected ambiguous action blocks to be rejected")
+	}
+}
+
 func TestParseAgentActionResponseExpandsShallowEvidenceIDs(t *testing.T) {
 	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"done","passed":true,"evidenceIDs":["obs-001"]}]}`})
 	if errorValue != nil {
