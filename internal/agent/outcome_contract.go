@@ -6,6 +6,194 @@ import (
 	"blueclaw/internal/task"
 )
 
+const siteRequirementNormalizationEventName = "agent.site_requirement_normalized"
+
+type siteRequirementNormalizationReport struct {
+	Source                       string     `json:"source,omitempty"`
+	Reason                       string     `json:"reason,omitempty"`
+	SiteEvidenceQuote            string     `json:"siteEvidenceQuote,omitempty"`
+	DroppedWorkKinds             []string   `json:"droppedWorkKinds,omitempty"`
+	DroppedExpectedResultIDs     []string   `json:"droppedExpectedResultIDs,omitempty"`
+	DroppedRequiredEvidenceTools []string   `json:"droppedRequiredEvidenceTools,omitempty"`
+	DroppedRequiredEvidenceAnyOf [][]string `json:"droppedRequiredEvidenceAnyOf,omitempty"`
+	DroppedSelectedEvidenceHints []string   `json:"droppedSelectedEvidenceHints,omitempty"`
+}
+
+func (report siteRequirementNormalizationReport) HasDrops() bool {
+	return len(report.DroppedWorkKinds) > 0 ||
+		len(report.DroppedExpectedResultIDs) > 0 ||
+		len(report.DroppedRequiredEvidenceTools) > 0 ||
+		len(report.DroppedRequiredEvidenceAnyOf) > 0 ||
+		len(report.DroppedSelectedEvidenceHints) > 0
+}
+
+func normalizeTurnDecisionSiteRequirement(request AgentRequest, decision TurnDecision) (TurnDecision, siteRequirementNormalizationReport) {
+	intakeDecision := decision.IntakeDecision()
+	intakeDecision, report := normalizeIntakeDecisionSiteRequirement(request.Prompt, intakeDecision, "intake")
+	decision.ExpectedResults = intakeDecision.ExpectedResults
+	decision.SiteRequestEvidence = intakeDecision.SiteRequestEvidence
+	decision.WorkKinds = intakeDecision.WorkKinds
+	return decision, report
+}
+
+func normalizeIntakeDecisionSiteRequirement(currentUserMessage string, decision IntakeDecision, source string) (IntakeDecision, siteRequirementNormalizationReport) {
+	decision.SiteRequestEvidence = strings.TrimSpace(decision.SiteRequestEvidence)
+	if !intakeDecisionRequiresSiteEvidence(decision) {
+		decision.SiteRequestEvidence = ""
+		return decision, siteRequirementNormalizationReport{}
+	}
+	if siteEvidenceQuoteMatchesMessage(decision.SiteRequestEvidence, currentUserMessage) {
+		return decision, siteRequirementNormalizationReport{}
+	}
+	report := siteRequirementNormalizationReport{
+		Source:            source,
+		Reason:            "site evidence quote does not verify against current user message",
+		SiteEvidenceQuote: decision.SiteRequestEvidence,
+	}
+	decision.WorkKinds, report.DroppedWorkKinds = removeSiteWorkKinds(decision.WorkKinds)
+	decision.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(decision.ExpectedResults)
+	decision.SiteRequestEvidence = ""
+	return decision, report
+}
+
+func intakeDecisionRequiresSiteEvidence(decision IntakeDecision) bool {
+	return workKindsContain(decision.WorkKinds, WorkKindSitePrototype) || expectedResultsIncludeSiteRequirement(decision.ExpectedResults)
+}
+
+func normalizeActiveGoalSiteRequirement(activeGoal ActiveGoal, currentUserMessage string) (ActiveGoal, siteRequirementNormalizationReport) {
+	if !activeGoalRequiresSiteEvidence(activeGoal) {
+		return activeGoal, siteRequirementNormalizationReport{}
+	}
+	if siteEvidenceQuoteMatchesMessage(activeGoal.OutcomeContract.SiteEvidenceQuote, activeGoal.OriginalInstruction) {
+		return activeGoal, siteRequirementNormalizationReport{}
+	}
+	if siteEvidenceQuoteMatchesMessage(activeGoal.OutcomeContract.SiteEvidenceQuote, currentUserMessage) {
+		return activeGoal, siteRequirementNormalizationReport{}
+	}
+	report := siteRequirementNormalizationReport{
+		Source:            "active_goal",
+		Reason:            "stored site evidence quote does not verify against original instruction or current user message",
+		SiteEvidenceQuote: activeGoal.OutcomeContract.SiteEvidenceQuote,
+	}
+	activeGoal.WorkKinds, report.DroppedWorkKinds = removeSiteWorkKinds(activeGoal.WorkKinds)
+	activeGoal.OutcomeContract, report = stripOutcomeContractSiteRequirements(activeGoal.OutcomeContract, report)
+	return activeGoal, report
+}
+
+func activeGoalRequiresSiteEvidence(activeGoal ActiveGoal) bool {
+	return workKindsContain(activeGoal.WorkKinds, WorkKindSitePrototype) || outcomeContractHasSiteRequirement(activeGoal.OutcomeContract)
+}
+
+func outcomeContractHasSiteRequirement(contract OutcomeContract) bool {
+	return contractMentionsToolPrefix(contract, "site.app.") || expectedResultsIncludeSiteRequirement(contract.ExpectedResults)
+}
+
+func stripOutcomeContractSiteRequirements(contract OutcomeContract, report siteRequirementNormalizationReport) (OutcomeContract, siteRequirementNormalizationReport) {
+	contract.RequiredEvidenceTools, report.DroppedRequiredEvidenceTools = removeToolNamePrefix(contract.RequiredEvidenceTools, "site.app.")
+	contract.RequiredEvidenceAnyOf, report.DroppedRequiredEvidenceAnyOf = removeToolNamePrefixGroups(contract.RequiredEvidenceAnyOf, "site.app.")
+	contract.SelectedEvidenceHints, report.DroppedSelectedEvidenceHints = removeToolNamePrefix(contract.SelectedEvidenceHints, "site.app.")
+	contract.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(contract.ExpectedResults)
+	contract.SiteEvidenceQuote = ""
+	return normalizeOutcomeContract(contract), report
+}
+
+func removeSiteWorkKinds(workKinds []string) ([]string, []string) {
+	filteredWorkKinds := []string{}
+	droppedWorkKinds := []string{}
+	for _, workKind := range workKinds {
+		if strings.TrimSpace(workKind) == WorkKindSitePrototype {
+			droppedWorkKinds = appendUniqueStrings(droppedWorkKinds, WorkKindSitePrototype)
+			continue
+		}
+		filteredWorkKinds = appendUniqueStrings(filteredWorkKinds, workKind)
+	}
+	return filteredWorkKinds, droppedWorkKinds
+}
+
+func removeSiteExpectedResults(results []ExpectedResult) ([]ExpectedResult, []string) {
+	filteredResults := []ExpectedResult{}
+	droppedResultIDs := []string{}
+	for _, result := range results {
+		if expectedResultIsSiteRequirement(result) {
+			droppedResultIDs = appendUniqueStrings(droppedResultIDs, firstNonEmptyString(result.ID, result.Description))
+			continue
+		}
+		filteredResults = append(filteredResults, result)
+	}
+	return normalizeExpectedResults(filteredResults), droppedResultIDs
+}
+
+func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {
+	for _, result := range results {
+		if expectedResultIsSiteRequirement(result) {
+			return true
+		}
+	}
+	return false
+}
+
+func expectedResultIsSiteRequirement(result ExpectedResult) bool {
+	if strings.TrimSpace(result.Type) == ExpectedResultTypeLink {
+		return true
+	}
+	text := strings.ToLower(strings.Join(append([]string{result.ID, result.Description}, result.AcceptanceHints...), " "))
+	for _, fragment := range []string{"site", "website", "web app", "webpage", "public url", "웹사이트", "홈페이지", "웹 앱", "웹앱"} {
+		if strings.Contains(text, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func removeToolNamePrefix(toolNames []string, prefix string) ([]string, []string) {
+	filteredToolNames := []string{}
+	droppedToolNames := []string{}
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if strings.HasPrefix(trimmedToolName, prefix) {
+			droppedToolNames = appendUniqueStrings(droppedToolNames, trimmedToolName)
+			continue
+		}
+		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
+	}
+	return filteredToolNames, droppedToolNames
+}
+
+func removeToolNamePrefixGroups(groups [][]string, prefix string) ([][]string, [][]string) {
+	filteredGroups := [][]string{}
+	droppedGroups := [][]string{}
+	for _, group := range groups {
+		filteredGroup, droppedGroup := removeToolNamePrefix(group, prefix)
+		if len(droppedGroup) > 0 {
+			droppedGroups = append(droppedGroups, droppedGroup)
+		}
+		if len(filteredGroup) > 0 {
+			filteredGroups = append(filteredGroups, filteredGroup)
+		}
+	}
+	return filteredGroups, droppedGroups
+}
+
+func siteEvidenceQuoteMatchesMessage(siteEvidenceQuote string, userMessage string) bool {
+	normalizedQuote := trimSiteEvidencePunctuation(normalizeSiteEvidenceText(siteEvidenceQuote))
+	normalizedMessage := normalizeSiteEvidenceText(userMessage)
+	if normalizedQuote == "" || normalizedMessage == "" {
+		return false
+	}
+	if strings.Contains(normalizedMessage, normalizedQuote) {
+		return true
+	}
+	return strings.Contains(trimSiteEvidencePunctuation(normalizedMessage), normalizedQuote)
+}
+
+func normalizeSiteEvidenceText(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func trimSiteEvidencePunctuation(value string) string {
+	return strings.Trim(value, " \t\n\r\"'`.,!?;:()[]{}<>“”‘’…。！？、，")
+}
+
 func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecision IntakeDecision, requiredEvidenceTools []string) bool {
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
@@ -339,6 +527,8 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 }
 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
+	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	request = normalizeRequestSiteWorkKinds(request, intakeDecision)
 	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	if activeGoalOutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
@@ -363,8 +553,37 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	}
 	contract.ExpectedResults = expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, contract.RequiredEvidenceTools, requiredAttachmentSuffixes)
 	contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
+	contract.SiteEvidenceQuote = siteEvidenceQuoteForOutcomeContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)
 	contract.Source = outcomeContractSource(hasExecutionPlan, requiredAttachmentSuffixes)
 	return sanitizeOutcomeContractForRequest(request, executionPlan, hasExecutionPlan, contract)
+}
+
+func normalizeRequestSiteWorkKinds(request AgentRequest, intakeDecision IntakeDecision) AgentRequest {
+	if !workKindsContain(request.WorkKinds, WorkKindSitePrototype) {
+		return request
+	}
+	if siteEvidenceQuoteMatchesMessage(intakeDecision.SiteRequestEvidence, request.Prompt) {
+		return request
+	}
+	if siteEvidenceQuoteMatchesMessage(request.ActiveGoal.OutcomeContract.SiteEvidenceQuote, request.ActiveGoal.OriginalInstruction) {
+		return request
+	}
+	if siteEvidenceQuoteMatchesMessage(request.ActiveGoal.OutcomeContract.SiteEvidenceQuote, request.Prompt) {
+		return request
+	}
+	request.WorkKinds, _ = removeSiteWorkKinds(request.WorkKinds)
+	return request
+}
+
+func siteEvidenceQuoteForOutcomeContract(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) string {
+	if !requestExpectsPublicSiteResult(request, executionPlan, hasExecutionPlan, outcomeContractRequiredToolNames(contract)) {
+		return ""
+	}
+	siteEvidenceQuote := strings.TrimSpace(intakeDecision.SiteRequestEvidence)
+	if siteEvidenceQuoteMatchesMessage(siteEvidenceQuote, request.Prompt) {
+		return siteEvidenceQuote
+	}
+	return ""
 }
 
 func filterStaleOutcomeHints(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract, toolNames []string) []string {
@@ -416,6 +635,7 @@ func onlyHTMLAttachmentSuffixes(requiredAttachmentSuffixes []string) bool {
 
 func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) OutcomeContract {
 	contract = normalizeOutcomeContract(contract)
+	contract = normalizeOutcomeContractSiteRequirementForRequest(request, contract)
 	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !requestHasWorkKind(request, WorkKindFileDelivery) {
 		contract = removeImplicitHTMLFileContract(contract)
 	}
@@ -426,6 +646,21 @@ func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan Execu
 		contract = removePlatformMessageSendContract(contract)
 	}
 	return normalizeOutcomeContract(contract)
+}
+
+func normalizeOutcomeContractSiteRequirementForRequest(request AgentRequest, contract OutcomeContract) OutcomeContract {
+	if !outcomeContractHasSiteRequirement(contract) {
+		return contract
+	}
+	activeGoal := ActiveGoal{
+		OriginalInstruction: request.ActiveGoal.OriginalInstruction,
+		OutcomeContract:     contract,
+	}
+	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
+		activeGoal.OriginalInstruction = request.Prompt
+	}
+	activeGoal, _ = normalizeActiveGoalSiteRequirement(activeGoal, request.Prompt)
+	return activeGoal.OutcomeContract
 }
 
 func outcomeContractRequiresPlatformMessageMaintenance(contract OutcomeContract) bool {

@@ -52,7 +52,7 @@ func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "개인 홈페이지 만들어서 배포해줘"},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask, SiteRequestEvidence: "개인 홈페이지 만들어서 배포해줘"},
 		InstructionBundle{},
 		ExecutionPlan{PublicDeploy: true},
 		true,
@@ -88,7 +88,7 @@ func TestOutcomeContractCreatesExpectedResultsForRequestedFile(t *testing.T) {
 func TestOutcomeContractTreatsWebsiteHTMLFormatAsPublicLink(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포해줘"},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}, SiteRequestEvidence: "개인 홈페이지를 만들어서 배포해줘"},
 		InstructionBundle{},
 		ExecutionPlan{PublicDeploy: true},
 		true,
@@ -118,7 +118,7 @@ func TestOutcomeContractTreatsWebsiteHTMLFormatAsPublicLink(t *testing.T) {
 func TestOutcomeContractKeepsExplicitWebsiteHTMLFileRequest(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘", WorkKinds: []string{WorkKindSitePrototype, WorkKindFileDelivery}},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}, SiteRequestEvidence: "개인 홈페이지를 만들어서 배포"},
 		InstructionBundle{},
 		ExecutionPlan{PublicDeploy: true},
 		true,
@@ -163,7 +163,7 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 URL만 알려줘"},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, SiteRequestEvidence: "개인 홈페이지를 만들어서 배포"},
 		instructionBundle,
 		ExecutionPlan{PublicDeploy: true},
 		true,
@@ -378,7 +378,7 @@ func TestSelectedSkillToolSetKeepsGenericWebTools(t *testing.T) {
 func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "site.app.create", "site.app.publish"})
 
-	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "웹사이트 하나 만들어서 배포해줘", WorkKinds: []string{WorkKindSitePrototype}}, ExecutionPlan{}, false, OutcomeContract{})
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "웹사이트 하나 만들어서 배포해줘", WorkKinds: []string{WorkKindSitePrototype}}, ExecutionPlan{}, false, OutcomeContract{SiteEvidenceQuote: "웹사이트 하나 만들어서 배포해줘"})
 
 	for _, toolName := range []string{"site.app.create", "site.app.publish"} {
 		if !filteredToolSet.IsAllowed(toolName) {
@@ -394,6 +394,7 @@ func TestOutcomeReferenceToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *t
 		WorkKinds: []string{WorkKindSitePrototype},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
+			SiteEvidenceQuote:     "웹사이트 하나 만들어서 배포해줘",
 		}},
 	}
 
@@ -420,9 +421,10 @@ func TestSelectedSkillToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *test
 		WorkKinds: []string{WorkKindSitePrototype},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
+			SiteEvidenceQuote:     "웹사이트 하나 만들어서 배포해줘",
 		}},
 	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"}}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"}, SiteEvidenceQuote: "웹사이트 하나 만들어서 배포해줘"}
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
@@ -452,6 +454,7 @@ func TestSelectedSkillToolSetKeepsMatchingSelectedSkillToolsWhenActiveGoalWasAtt
 			RequiredEvidenceTools:      []string{"file.attach"},
 			RequiredAttachmentSuffixes: []string{".html"},
 			SelectedEvidenceHints:      []string{"site.app.create", "terminal.run", "site.app.publish"},
+			SiteEvidenceQuote:          "개인 홈페이지를 만들어서 배포해줘",
 			ArtifactRequirement:        ArtifactRequirementRequired,
 		}},
 	}
@@ -478,9 +481,10 @@ func TestOutcomeContractRequiresActiveGoalRequiredEvidenceForContinuation(t *tes
 	}
 	request := AgentRequest{
 		Prompt: "다시 해봐 그럼 될 거야",
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"site.app.create", "site.app.publish"},
 			SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
+			SiteEvidenceQuote:     "웹사이트 하나 만들어서 배포해줘",
 		}},
 	}
 
@@ -490,6 +494,110 @@ func TestOutcomeContractRequiresActiveGoalRequiredEvidenceForContinuation(t *tes
 		if !stringSliceContains(contract.RequiredEvidenceTools, toolName) {
 			t.Fatalf("expected active site continuation to require %s evidence, got %+v", toolName, contract.RequiredEvidenceTools)
 		}
+	}
+}
+
+func TestOutcomeContractStripsStaleUnverifiableSiteRequirement(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "site-prototype",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"site.app.create", "terminal.run", "site.app.publish"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+	request := AgentRequest{
+		Prompt:    "버튼 색 바꿔줘",
+		WorkKinds: []string{WorkKindSitePrototype},
+		ActiveGoal: ActiveGoal{
+			OriginalInstruction: "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스",
+			WorkKinds:           []string{WorkKindSitePrototype},
+			OutcomeContract: OutcomeContract{
+				RequiredEvidenceTools: []string{"site.app.create", "site.app.publish"},
+				SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
+				ExpectedResults: []ExpectedResult{{
+					ID:          "site-public-link",
+					Type:        ExpectedResultTypeLink,
+					Description: "public URL",
+					Required:    true,
+				}},
+				SiteEvidenceQuote: "웹사이트 만들어줘",
+			},
+		},
+	}
+
+	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
+
+	if !report.HasDrops() {
+		t.Fatalf("expected stale site normalization report, got %+v", report)
+	}
+	if workKindsContain(normalizedActiveGoal.WorkKinds, WorkKindSitePrototype) {
+		t.Fatalf("expected stale active goal work kind to be stripped, got %+v", normalizedActiveGoal.WorkKinds)
+	}
+	for _, toolName := range []string{"site.app.create", "site.app.publish"} {
+		if stringSliceContains(contract.RequiredEvidenceTools, toolName) {
+			t.Fatalf("expected stale site tool %s to be stripped, got %+v", toolName, contract)
+		}
+	}
+	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected stale public link result to be stripped, got %+v", contract.ExpectedResults)
+	}
+	if strings.TrimSpace(contract.SiteEvidenceQuote) != "" {
+		t.Fatalf("expected stale site evidence quote to be cleared, got %+v", contract)
+	}
+}
+
+func TestOutcomeContractPreservesGenuineSiteGoalContinuation(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "site-prototype",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"site.app.create", "terminal.run", "site.app.publish"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+	request := AgentRequest{
+		Prompt:    "버튼 색 바꿔줘",
+		WorkKinds: []string{WorkKindSitePrototype},
+		ActiveGoal: ActiveGoal{
+			OriginalInstruction: "포트폴리오 웹사이트 만들어서 배포해줘",
+			WorkKinds:           []string{WorkKindSitePrototype},
+			OutcomeContract: OutcomeContract{
+				RequiredEvidenceTools: []string{"site.app.create", "site.app.publish"},
+				SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
+				ExpectedResults: []ExpectedResult{{
+					ID:          "site-public-link",
+					Type:        ExpectedResultTypeLink,
+					Description: "public URL",
+					Required:    true,
+				}},
+				SiteEvidenceQuote: "웹사이트 만들어서 배포",
+			},
+		},
+	}
+
+	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
+
+	if report.HasDrops() {
+		t.Fatalf("expected genuine site continuation to keep requirements, got %+v", report)
+	}
+	if !workKindsContain(normalizedActiveGoal.WorkKinds, WorkKindSitePrototype) {
+		t.Fatalf("expected genuine active goal work kind to remain, got %+v", normalizedActiveGoal.WorkKinds)
+	}
+	for _, toolName := range []string{"site.app.create", "site.app.publish"} {
+		if !stringSliceContains(contract.RequiredEvidenceTools, toolName) {
+			t.Fatalf("expected genuine site tool %s to remain, got %+v", toolName, contract)
+		}
+	}
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected genuine public link result to remain, got %+v", contract.ExpectedResults)
+	}
+	if contract.SiteEvidenceQuote != "웹사이트 만들어서 배포" {
+		t.Fatalf("expected site evidence quote to remain, got %+v", contract)
 	}
 }
 

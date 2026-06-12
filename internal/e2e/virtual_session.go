@@ -46,6 +46,7 @@ type VirtualSessionScenario struct {
 	InitialMemory         []memory.MemoryFact
 	RouterWorkKinds       []string
 	AddressingResponse    string
+	RouterSiteEvidence    string
 	TurnOptions           agent.TurnOptions
 	Turns                 []VirtualTurn
 }
@@ -588,6 +589,7 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 		"taskShape":              "maintenance_task",
 		"effortLevel":            "standard",
 		"requestedOutputFormats": nil,
+		"siteRequestEvidence":    scenario.RouterSiteEvidence,
 		"responseLanguage":       "ko",
 		"reason":                 "scripted scenario default",
 		"userFacingReply":        "",

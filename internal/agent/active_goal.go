@@ -35,6 +35,7 @@ type OutcomeContract struct {
 	ExpectedResults            []ExpectedResult `json:"expectedResults,omitempty"`
 	ArtifactRequirement        string           `json:"artifactRequirement,omitempty"`
 	SelectedEvidenceHints      []string         `json:"selectedEvidenceHints,omitempty"`
+	SiteEvidenceQuote          string           `json:"siteEvidenceQuote,omitempty"`
 	Source                     string           `json:"source,omitempty"`
 }
 
@@ -77,6 +78,7 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredEvidenceAnyOf = normalizeEvidenceAnyOf(contract.RequiredEvidenceAnyOf)
 	contract.ExpectedResults = normalizeExpectedResults(contract.ExpectedResults)
 	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
+	contract.SiteEvidenceQuote = strings.TrimSpace(contract.SiteEvidenceQuote)
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
 }
