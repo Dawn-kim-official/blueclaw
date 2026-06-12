@@ -7,11 +7,14 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const DefaultOpenRouterChatCompletionsURL = "https://openrouter.ai/api/v1/chat/completions"
+const openRouterErrorBodyMaximumCharacters = 600
+const openRouterStructuredResponseRetryInstruction = "respond with ONLY a single valid JSON object matching the schema, no prose, no markdown"
 
 type OpenRouterClient struct {
 	APIKey         string
@@ -54,7 +57,8 @@ type openRouterUsage struct {
 }
 
 type openRouterResponse struct {
-	Choices []struct {
+	HTTPStatusCode int `json:"-"`
+	Choices        []struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
@@ -87,9 +91,10 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 	if errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}
-	response, errorValue := client.send(responseContext, openRouterRequest{
-		Model:       client.modelName(),
-		Messages:    openRouterMessages(request.Messages),
+	modelName := client.modelName()
+	openRouterStructuredRequest := openRouterRequest{
+		Model:       modelName,
+		Messages:    openRouterMessages(modelName, request.Messages),
 		Stream:      false,
 		Seed:        request.GenerationOptions.Seed,
 		Temperature: request.GenerationOptions.Temperature,
@@ -101,20 +106,27 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 				Schema: schemaDocument,
 			},
 		},
-	})
+	}
+	response, errorValue := client.send(responseContext, openRouterStructuredRequest)
 	if errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}
-	return StructuredResponse{
-		ProviderName: "openrouter",
-		ModelName:    client.modelName(),
-		Content:      openRouterResponseContent(response),
-		Usage: Usage{
-			PromptTokens:     response.Usage.PromptTokens,
-			CompletionTokens: response.Usage.CompletionTokens,
-			TotalTokens:      openRouterTotalTokens(response.Usage),
-		},
-	}, nil
+	content := openRouterStructuredResponseContent(response)
+	firstContentError := validateOpenRouterStructuredResponseContent(content)
+	if firstContentError == nil {
+		return openRouterStructuredResponse(modelName, response, content), nil
+	}
+	retryRequest := openRouterStructuredRetryRequest(openRouterStructuredRequest, openRouterResponseContent(response))
+	retryResponse, errorValue := client.send(responseContext, retryRequest)
+	if errorValue != nil {
+		return StructuredResponse{}, errors.New("openrouter structured response was not valid json before retry: " + openRouterStructuredResponseErrorSummary(response, content, firstContentError) + "; retry request failed: " + errorValue.Error())
+	}
+	retryContent := openRouterStructuredResponseContent(retryResponse)
+	retryContentError := validateOpenRouterStructuredResponseContent(retryContent)
+	if retryContentError != nil {
+		return StructuredResponse{}, errors.New("openrouter structured response was not valid json after retry: first " + openRouterStructuredResponseErrorSummary(response, content, firstContentError) + "; retry " + openRouterStructuredResponseErrorSummary(retryResponse, retryContent, retryContentError))
+	}
+	return openRouterStructuredResponse(modelName, retryResponse, retryContent), nil
 }
 
 func (client OpenRouterClient) send(ctx context.Context, request openRouterRequest) (openRouterResponse, error) {
@@ -154,15 +166,16 @@ func (client OpenRouterClient) sendOnce(ctx context.Context, request openRouterR
 		return openRouterResponse{}, errors.New("read openrouter response: " + errorValue.Error())
 	}
 	if httpResponse.StatusCode == http.StatusTooManyRequests {
-		return openRouterResponse{}, OpenRouterRateLimitError{Message: strings.TrimSpace(string(responseDocument))}
+		return openRouterResponse{}, OpenRouterRateLimitError{Message: openRouterHTTPErrorMessage(httpResponse.StatusCode, responseDocument)}
 	}
 	if httpResponse.StatusCode >= http.StatusBadRequest {
-		return openRouterResponse{}, errors.New(strings.TrimSpace(string(responseDocument)))
+		return openRouterResponse{}, errors.New(openRouterHTTPErrorMessage(httpResponse.StatusCode, responseDocument))
 	}
 	var response openRouterResponse
 	if errorValue := json.Unmarshal(responseDocument, &response); errorValue != nil {
 		return openRouterResponse{}, errorValue
 	}
+	response.HTTPStatusCode = httpResponse.StatusCode
 	if len(response.Choices) == 0 {
 		return openRouterResponse{}, errors.New("openrouter response did not include choices")
 	}
@@ -232,15 +245,57 @@ func (client OpenRouterClient) initialBackoff() time.Duration {
 	return 750 * time.Millisecond
 }
 
-func openRouterMessages(messages []Message) []openRouterMessage {
+func openRouterMessages(modelName string, messages []Message) []openRouterMessage {
 	result := make([]openRouterMessage, 0, len(messages))
 	for _, message := range messages {
-		result = append(result, openRouterMessage{
-			Role:    message.Role,
+		mappedMessage := openRouterMessage{
+			Role:    openRouterMessageRole(modelName, message.Role),
 			Content: openRouterMessageContent(message),
-		})
+		}
+		if mappedMessage.Role != message.Role {
+			mappedMessage.Content = openRouterInstructionContent(message.Role, mappedMessage.Content)
+		}
+		result = appendMergedOpenRouterMessage(result, mappedMessage)
 	}
 	return result
+}
+
+func openRouterMessageRole(modelName string, role string) string {
+	normalizedModelName := strings.ToLower(strings.TrimSpace(modelName))
+	normalizedRole := strings.ToLower(strings.TrimSpace(role))
+	if strings.HasPrefix(normalizedModelName, "google/gemma-") && (normalizedRole == "system" || normalizedRole == "developer") {
+		return "user"
+	}
+	return strings.TrimSpace(role)
+}
+
+func openRouterInstructionContent(role string, content any) any {
+	text, isText := content.(string)
+	if !isText {
+		return content
+	}
+	trimmedRole := strings.TrimSpace(role)
+	if trimmedRole == "" {
+		return text
+	}
+	return trimmedRole + " instruction:\n" + text
+}
+
+func appendMergedOpenRouterMessage(messages []openRouterMessage, message openRouterMessage) []openRouterMessage {
+	if len(messages) == 0 {
+		return append(messages, message)
+	}
+	previousMessage := messages[len(messages)-1]
+	if previousMessage.Role != message.Role {
+		return append(messages, message)
+	}
+	previousText, isPreviousText := previousMessage.Content.(string)
+	nextText, isNextText := message.Content.(string)
+	if !isPreviousText || !isNextText {
+		return append(messages, message)
+	}
+	messages[len(messages)-1].Content = strings.TrimSpace(previousText) + "\n\n" + strings.TrimSpace(nextText)
+	return messages
 }
 
 func openRouterMessageContent(message Message) any {
@@ -277,9 +332,79 @@ func openRouterResponseContent(response openRouterResponse) string {
 	return response.Choices[0].Message.Content
 }
 
+func openRouterStructuredResponseContent(response openRouterResponse) string {
+	return stripMarkdownJSONFence(openRouterResponseContent(response))
+}
+
+func openRouterStructuredResponse(modelName string, response openRouterResponse, content string) StructuredResponse {
+	return StructuredResponse{
+		ProviderName: "openrouter",
+		ModelName:    modelName,
+		Content:      content,
+		Usage: Usage{
+			PromptTokens:     response.Usage.PromptTokens,
+			CompletionTokens: response.Usage.CompletionTokens,
+			TotalTokens:      openRouterTotalTokens(response.Usage),
+		},
+	}
+}
+
+func openRouterStructuredRetryRequest(request openRouterRequest, returnedContent string) openRouterRequest {
+	retryRequest := request
+	retryRequest.Messages = append([]openRouterMessage{}, request.Messages...)
+	retryRequest.Messages = append(retryRequest.Messages, openRouterMessage{Role: "assistant", Content: returnedContent})
+	retryRequest.Messages = append(retryRequest.Messages, openRouterMessage{Role: "user", Content: openRouterStructuredResponseRetryInstruction})
+	return retryRequest
+}
+
+func validateOpenRouterStructuredResponseContent(content string) error {
+	var responseDocument json.RawMessage
+	return json.Unmarshal([]byte(content), &responseDocument)
+}
+
+func openRouterStructuredResponseErrorSummary(response openRouterResponse, content string, errorValue error) string {
+	return "status=" + openRouterStatusText(response.HTTPStatusCode) + " code=" + strconv.Itoa(response.HTTPStatusCode) + " parseError=" + errorValue.Error() + " content=" + truncateOpenRouterErrorBody(content)
+}
+
+func stripMarkdownJSONFence(value string) string {
+	trimmedValue := strings.TrimSpace(value)
+	if !strings.HasPrefix(trimmedValue, "```") {
+		return trimmedValue
+	}
+	lines := strings.Split(trimmedValue, "\n")
+	if len(lines) < 2 {
+		return trimmedValue
+	}
+	lines = lines[1:]
+	if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
 func openRouterTotalTokens(usage openRouterUsage) int64 {
 	if usage.TotalTokens != 0 {
 		return usage.TotalTokens
 	}
 	return usage.PromptTokens + usage.CompletionTokens
+}
+
+func openRouterHTTPErrorMessage(statusCode int, responseDocument []byte) string {
+	return "openrouter status=" + http.StatusText(statusCode) + " code=" + strconv.Itoa(statusCode) + " body=" + truncateOpenRouterErrorBody(string(responseDocument))
+}
+
+func openRouterStatusText(statusCode int) string {
+	statusText := http.StatusText(statusCode)
+	if statusText != "" {
+		return statusText
+	}
+	return "unknown"
+}
+
+func truncateOpenRouterErrorBody(value string) string {
+	trimmedValue := strings.Join(strings.Fields(value), " ")
+	if len([]rune(trimmedValue)) <= openRouterErrorBodyMaximumCharacters {
+		return trimmedValue
+	}
+	return string([]rune(trimmedValue)[:openRouterErrorBodyMaximumCharacters]) + "..."
 }

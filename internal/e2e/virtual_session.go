@@ -106,10 +106,27 @@ type VirtualTurnResult struct {
 	ReplyTargetID           string
 	Attachments             []agent.FileAttachment
 	Events                  []task.TaskEvent
+	LanguageModelCallEvents []VirtualLanguageModelCallEvent
 	InformationalAssertions []VirtualInformationalAssertion
 	ModelContext            string
 	ModelImagePartCount     int
 	UserModelImagePartCount int
+}
+
+type VirtualLanguageModelCallEvent struct {
+	Kind             string `json:"kind"`
+	SchemaName       string `json:"schemaName,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
+	LatencyMS        int64  `json:"latencyMs"`
+	PromptBytes      int    `json:"promptBytes"`
+	ContentBytes     int    `json:"contentBytes"`
+	UsedFallback     bool   `json:"usedFallback,omitempty"`
+	PromptTokens     int64  `json:"promptTokens,omitempty"`
+	CompletionTokens int64  `json:"completionTokens,omitempty"`
+	TotalTokens      int64  `json:"totalTokens,omitempty"`
+	IsError          bool   `json:"isError,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 type VirtualInformationalAssertion struct {
@@ -124,6 +141,7 @@ type VirtualSessionHarness struct {
 	workspacePath    string
 	scriptedModel    *agenttest.ScriptedLanguageModel
 	requestRecorder  virtualLanguageModelRequestRecorder
+	callRecorder     virtualLanguageModelCallRecorder
 	taskRunService   *task.TaskRunService
 	taskEventService *task.TaskEventService
 	scheduleStore    *virtualTaskScheduleRepository
@@ -137,6 +155,198 @@ type VirtualSessionHarness struct {
 type virtualLanguageModelRequestRecorder interface {
 	RequestCount() int
 	RequestsSince(int) []llm.StructuredResponseRequest
+}
+
+type virtualLanguageModelCallRecorder interface {
+	CallCount() int
+	CallsSince(int) []VirtualLanguageModelCallEvent
+}
+
+type virtualObservedLanguageModel struct {
+	provider llm.LanguageModelProvider
+	mutex    sync.Mutex
+	requests []llm.StructuredResponseRequest
+	calls    []VirtualLanguageModelCallEvent
+}
+
+type virtualObservedRecoveryLanguageModel struct {
+	*virtualObservedLanguageModel
+}
+
+type virtualObservedRemoteRecoveryLanguageModel struct {
+	*virtualObservedLanguageModel
+}
+
+type virtualObservedLocalRecoveryLanguageModel struct {
+	*virtualObservedLanguageModel
+}
+
+func newVirtualObservedLanguageModel(provider llm.LanguageModelProvider) llm.LanguageModelProvider {
+	base := &virtualObservedLanguageModel{provider: provider}
+	_, hasRecovery := provider.(llm.RecoveryResponder)
+	_, hasLocalRecovery := provider.(llm.LocalRecoveryResponder)
+	switch {
+	case hasRecovery && hasLocalRecovery:
+		return virtualObservedRecoveryLanguageModel{base}
+	case hasRecovery:
+		return virtualObservedRemoteRecoveryLanguageModel{base}
+	case hasLocalRecovery:
+		return virtualObservedLocalRecoveryLanguageModel{base}
+	default:
+		return base
+	}
+}
+
+func (languageModel *virtualObservedLanguageModel) GenerateResponse(ctx context.Context, prompt string) (string, error) {
+	startedAt := time.Now()
+	reply, errorValue := languageModel.provider.GenerateResponse(ctx, prompt)
+	languageModel.appendCall(virtualTextCallEvent("text", prompt, reply, startedAt, errorValue))
+	return reply, errorValue
+}
+
+func (languageModel *virtualObservedLanguageModel) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.appendRequest(request)
+	startedAt := time.Now()
+	response, errorValue := languageModel.provider.GenerateStructuredResponse(ctx, request)
+	languageModel.appendCall(virtualStructuredCallEvent(request, response, startedAt, errorValue))
+	return response, errorValue
+}
+
+func (languageModel *virtualObservedRecoveryLanguageModel) GenerateRecoveryResponse(ctx context.Context, prompt string) (string, error) {
+	return languageModel.recoveryResponse(ctx, prompt)
+}
+
+func (languageModel *virtualObservedRecoveryLanguageModel) GenerateLocalRecoveryResponse(ctx context.Context, prompt string) (string, error) {
+	return languageModel.localRecoveryResponse(ctx, prompt)
+}
+
+func (languageModel *virtualObservedRemoteRecoveryLanguageModel) GenerateRecoveryResponse(ctx context.Context, prompt string) (string, error) {
+	return languageModel.recoveryResponse(ctx, prompt)
+}
+
+func (languageModel *virtualObservedLocalRecoveryLanguageModel) GenerateLocalRecoveryResponse(ctx context.Context, prompt string) (string, error) {
+	return languageModel.localRecoveryResponse(ctx, prompt)
+}
+
+func (languageModel *virtualObservedLanguageModel) recoveryResponse(ctx context.Context, prompt string) (string, error) {
+	recoveryProvider, isRecoveryProvider := languageModel.provider.(llm.RecoveryResponder)
+	if !isRecoveryProvider {
+		return languageModel.GenerateResponse(ctx, prompt)
+	}
+	startedAt := time.Now()
+	reply, errorValue := recoveryProvider.GenerateRecoveryResponse(ctx, prompt)
+	languageModel.appendCall(virtualTextCallEvent("recovery_text", prompt, reply, startedAt, errorValue))
+	return reply, errorValue
+}
+
+func (languageModel *virtualObservedLanguageModel) localRecoveryResponse(ctx context.Context, prompt string) (string, error) {
+	localRecoveryProvider, isLocalRecoveryProvider := languageModel.provider.(llm.LocalRecoveryResponder)
+	if !isLocalRecoveryProvider {
+		return languageModel.GenerateResponse(ctx, prompt)
+	}
+	startedAt := time.Now()
+	reply, errorValue := localRecoveryProvider.GenerateLocalRecoveryResponse(ctx, prompt)
+	languageModel.appendCall(virtualTextCallEvent("local_recovery_text", prompt, reply, startedAt, errorValue))
+	return reply, errorValue
+}
+
+func (languageModel *virtualObservedLanguageModel) RequestCount() int {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	return len(languageModel.requests)
+}
+
+func (languageModel *virtualObservedLanguageModel) RequestsSince(startIndex int) []llm.StructuredResponseRequest {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(languageModel.requests) {
+		startIndex = 0
+	}
+	return append([]llm.StructuredResponseRequest{}, languageModel.requests[startIndex:]...)
+}
+
+func (languageModel *virtualObservedLanguageModel) CallCount() int {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	return len(languageModel.calls)
+}
+
+func (languageModel *virtualObservedLanguageModel) CallsSince(startIndex int) []VirtualLanguageModelCallEvent {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	if startIndex < 0 || startIndex > len(languageModel.calls) {
+		startIndex = 0
+	}
+	return append([]VirtualLanguageModelCallEvent{}, languageModel.calls[startIndex:]...)
+}
+
+func (languageModel *virtualObservedLanguageModel) appendRequest(request llm.StructuredResponseRequest) {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	languageModel.requests = append(languageModel.requests, request)
+}
+
+func (languageModel *virtualObservedLanguageModel) appendCall(callEvent VirtualLanguageModelCallEvent) {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	languageModel.calls = append(languageModel.calls, callEvent)
+}
+
+func virtualStructuredCallEvent(request llm.StructuredResponseRequest, response llm.StructuredResponse, startedAt time.Time, errorValue error) VirtualLanguageModelCallEvent {
+	callEvent := VirtualLanguageModelCallEvent{
+		Kind:             "structured",
+		SchemaName:       strings.TrimSpace(request.StructuredOutputSchema.Name),
+		Provider:         response.ProviderName,
+		Model:            response.ModelName,
+		LatencyMS:        time.Since(startedAt).Milliseconds(),
+		PromptBytes:      virtualStructuredRequestByteCount(request),
+		ContentBytes:     len(response.Content),
+		UsedFallback:     response.UsedFallback,
+		PromptTokens:     response.Usage.PromptTokens,
+		CompletionTokens: response.Usage.CompletionTokens,
+		TotalTokens:      response.Usage.TotalTokens,
+	}
+	if errorValue != nil {
+		callEvent.IsError = true
+		callEvent.Error = virtualTruncatedCallError(errorValue)
+	}
+	return callEvent
+}
+
+func virtualTextCallEvent(kind string, prompt string, reply string, startedAt time.Time, errorValue error) VirtualLanguageModelCallEvent {
+	callEvent := VirtualLanguageModelCallEvent{
+		Kind:         kind,
+		LatencyMS:    time.Since(startedAt).Milliseconds(),
+		PromptBytes:  len(prompt),
+		ContentBytes: len(reply),
+	}
+	if errorValue != nil {
+		callEvent.IsError = true
+		callEvent.Error = virtualTruncatedCallError(errorValue)
+	}
+	return callEvent
+}
+
+func virtualStructuredRequestByteCount(request llm.StructuredResponseRequest) int {
+	byteCount := 0
+	for _, message := range request.Messages {
+		byteCount += len(message.Content)
+		for _, part := range message.Parts {
+			byteCount += len(part.Text) + len(part.DataBase64)
+		}
+	}
+	return byteCount
+}
+
+func virtualTruncatedCallError(errorValue error) string {
+	if errorValue == nil {
+		return ""
+	}
+	errorText := strings.Join(strings.Fields(errorValue.Error()), " ")
+	if len([]rune(errorText)) <= 300 {
+		return errorText
+	}
+	return string([]rune(errorText)[:300])
 }
 
 func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionScenario, error) {
@@ -231,13 +441,14 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	taskStepService := task.NewTaskStepService()
 	taskArtifactService := task.NewTaskArtifactService()
 	scriptedModel := actionScriptedLanguageModelForScenario(scenario)
-	languageModel := scenario.LanguageModel
+	baseLanguageModel := scenario.LanguageModel
 	if scriptedModel != nil {
-		languageModel = scriptedModel
+		baseLanguageModel = scriptedModel
 	}
-	if languageModel == nil {
+	if baseLanguageModel == nil {
 		return nil, errors.New("virtual session requires a live language model or explicit scripted model responses")
 	}
+	languageModel := newVirtualObservedLanguageModel(baseLanguageModel)
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
@@ -275,7 +486,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(memoryStore)
 	runtime.UseMemoryService(memoryService)
-	runtime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(nil, "e2e"))
+	runtime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(languageModel, "e2e"))
 	toolCatalogBuilder := virtualToolCatalogBuilder(
 		scenario,
 		workspacePath,
@@ -296,6 +507,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		workspacePath:    workspacePath,
 		scriptedModel:    scriptedModel,
 		requestRecorder:  virtualRequestRecorder(languageModel),
+		callRecorder:     virtualCallRecorder(languageModel),
 		taskRunService:   taskRunService,
 		taskEventService: taskEventService,
 		scheduleStore:    scheduleStore,
@@ -628,6 +840,10 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	if harness.requestRecorder != nil {
 		modelRequestStartIndex = harness.requestRecorder.RequestCount()
 	}
+	modelCallStartIndex := 0
+	if harness.callRecorder != nil {
+		modelCallStartIndex = harness.callRecorder.CallCount()
+	}
 	messages := append([]connectors.VisibleContextMessage{}, harness.history...)
 	messages = append(messages, virtualTurn.ContextMessages...)
 	event := connectors.PlatformInboundEvent{
@@ -685,6 +901,7 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 		ReplyTargetID:           outboundReplyTarget.ReplyTargetID,
 		Attachments:             outboundReply.Attachments,
 		Events:                  harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
+		LanguageModelCallEvents: harness.modelCallsSince(modelCallStartIndex),
 		ModelContext:            harness.modelContextSince(modelRequestStartIndex),
 		ModelImagePartCount:     harness.modelImagePartCountSince(modelRequestStartIndex),
 		UserModelImagePartCount: harness.userModelImagePartCountSince(modelRequestStartIndex),
@@ -756,6 +973,18 @@ func (harness *VirtualSessionHarness) rememberTurn(virtualTurn VirtualTurn, turn
 func virtualRequestRecorder(languageModel llm.LanguageModelProvider) virtualLanguageModelRequestRecorder {
 	recorder, _ := languageModel.(virtualLanguageModelRequestRecorder)
 	return recorder
+}
+
+func virtualCallRecorder(languageModel llm.LanguageModelProvider) virtualLanguageModelCallRecorder {
+	recorder, _ := languageModel.(virtualLanguageModelCallRecorder)
+	return recorder
+}
+
+func (harness *VirtualSessionHarness) modelCallsSince(startIndex int) []VirtualLanguageModelCallEvent {
+	if harness.callRecorder == nil {
+		return nil
+	}
+	return harness.callRecorder.CallsSince(startIndex)
 }
 
 func (harness *VirtualSessionHarness) assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {

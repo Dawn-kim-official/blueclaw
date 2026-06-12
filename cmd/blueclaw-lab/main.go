@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -116,6 +117,13 @@ type virtualSessionArguments struct {
 	CassettePath          string
 }
 
+type languageModelCallEvent struct {
+	Kind       string `json:"kind"`
+	SchemaName string `json:"schemaName"`
+	IsError    bool   `json:"isError"`
+	Error      string `json:"error"`
+}
+
 func parseVirtualSessionArguments(arguments []string, defaultScenarioName string, defaultArtifactDirectoryPath string) (virtualSessionArguments, error) {
 	flagSet := flag.NewFlagSet("virtual-session", flag.ContinueOnError)
 	scenarioName := flagSet.String("scenario", defaultScenarioName, "virtual session scenario name")
@@ -210,6 +218,9 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 	for index, turnResult := range result.TurnResults {
 		fmt.Printf("turn %d taskRunID: %s\n", index+1, turnResult.TaskRunID)
 		fmt.Printf("turn %d reply: %s\n", index+1, turnResult.FinishMessage)
+		for _, summary := range languageModelCallFailureSummaries(turnResult) {
+			fmt.Printf("turn %d llm.call error: %s\n", index+1, summary)
+		}
 		for _, assertion := range turnResult.InformationalAssertions {
 			fmt.Printf("turn %d informational assertion %s: %t (%s)\n", index+1, assertion.Name, assertion.Satisfied, assertion.Detail)
 		}
@@ -218,6 +229,30 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		}
 	}
 	return nil
+}
+
+func languageModelCallFailureSummaries(turnResult e2e.VirtualTurnResult) []string {
+	summaries := []string{}
+	for _, event := range turnResult.LanguageModelCallEvents {
+		if !event.IsError {
+			continue
+		}
+		summaries = append(summaries, strings.TrimSpace(strings.Join([]string{event.Kind, event.SchemaName, event.Error}, " ")))
+	}
+	for _, event := range turnResult.Events {
+		if event.Name != "llm.call" {
+			continue
+		}
+		var callEvent languageModelCallEvent
+		if errorValue := json.Unmarshal([]byte(event.Body), &callEvent); errorValue != nil {
+			continue
+		}
+		if !callEvent.IsError {
+			continue
+		}
+		summaries = append(summaries, strings.TrimSpace(strings.Join([]string{callEvent.Kind, callEvent.SchemaName, callEvent.Error}, " ")))
+	}
+	return summaries
 }
 
 func hasVirtualSessionFlag(arguments []string, name string) bool {
@@ -261,7 +296,7 @@ func saveVirtualSessionCassette(path string, cassetteRecorder *e2e.RecordingLang
 	return e2e.SaveLanguageModelCassette(path, cassetteRecorder.Cassette())
 }
 
-func delayLiveVirtualSession() {
+var delayLiveVirtualSession = func() {
 	time.Sleep(1500 * time.Millisecond)
 }
 
