@@ -38,12 +38,7 @@ func ResolveRecipient(platform string, hint string, people []policy.PersonPolicy
 	candidates := recipientCandidates(platform, people, platformAccounts)
 	matches := bestScoredRecipientMatches(normalizedHint, candidates)
 	if len(matches) == 0 {
-		for _, strippedHint := range koreanNameSuffixVariants(normalizedHint) {
-			matches = bestScoredRecipientMatches(strippedHint, candidates)
-			if len(matches) > 0 {
-				break
-			}
-		}
+		matches = fuzzyRecipientMatches(normalizedHint, candidates)
 	}
 	switch len(matches) {
 	case 0:
@@ -55,15 +50,66 @@ func ResolveRecipient(platform string, hint string, people []policy.PersonPolicy
 	}
 }
 
-func koreanNameSuffixVariants(hint string) []string {
-	variants := []string{}
-	for _, suffix := range []string{"님", "씨", "이", "아", "야"} {
-		stripped := strings.TrimSuffix(hint, suffix)
-		if stripped != hint && len([]rune(stripped)) >= 2 {
-			variants = append(variants, stripped)
+func fuzzyRecipientMatches(normalizedHint string, candidates []scoredRecipientCandidate) []RecipientCandidate {
+	matches := []RecipientCandidate{}
+	bestOverlap := 0
+	for _, candidate := range candidates {
+		overlap := fuzzyCandidateOverlap(normalizedHint, candidate.matchValues)
+		if overlap == 0 {
+			continue
+		}
+		if overlap > bestOverlap {
+			bestOverlap = overlap
+			matches = nil
+		}
+		if overlap == bestOverlap {
+			matches = append(matches, candidate.candidate)
 		}
 	}
-	return variants
+	sort.Slice(matches, func(first int, second int) bool {
+		return matches[first].DisplayName < matches[second].DisplayName
+	})
+	return matches
+}
+
+func fuzzyCandidateOverlap(normalizedHint string, matchValues []string) int {
+	best := 0
+	for _, value := range matchValues {
+		normalizedValue := normalizeRecipientMatchValue(value)
+		if normalizedValue == "" {
+			continue
+		}
+		overlap := longestCommonSubstringLength([]rune(normalizedHint), []rune(normalizedValue))
+		shorter := len([]rune(normalizedHint))
+		if valueLength := len([]rune(normalizedValue)); valueLength < shorter {
+			shorter = valueLength
+		}
+		if overlap < 2 || overlap*3 < shorter*2 {
+			continue
+		}
+		if overlap > best {
+			best = overlap
+		}
+	}
+	return best
+}
+
+func longestCommonSubstringLength(left []rune, right []rune) int {
+	longest := 0
+	previousRow := make([]int, len(right)+1)
+	for leftIndex := 1; leftIndex <= len(left); leftIndex++ {
+		currentRow := make([]int, len(right)+1)
+		for rightIndex := 1; rightIndex <= len(right); rightIndex++ {
+			if left[leftIndex-1] == right[rightIndex-1] {
+				currentRow[rightIndex] = previousRow[rightIndex-1] + 1
+				if currentRow[rightIndex] > longest {
+					longest = currentRow[rightIndex]
+				}
+			}
+		}
+		previousRow = currentRow
+	}
+	return longest
 }
 
 func singleRecipientResolution(recipient RecipientCandidate) RecipientResolution {
