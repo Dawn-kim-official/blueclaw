@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +31,11 @@ type scheduleCreateToolInput struct {
 type scheduleCancelToolInput struct {
 	Scope           string   `json:"scope"`
 	TaskScheduleIDs []string `json:"scheduleIDs"`
+}
+
+type scheduleListToolInput struct {
+	Status string `json:"status"`
+	Limit  int    `json:"limit"`
 }
 
 type scheduleUpdateToolInput struct {
@@ -73,7 +79,35 @@ type scheduleCreateToolResult struct {
 	AgentProfileName string     `json:"agentProfileName"`
 }
 
+type scheduleListToolOutput struct {
+	Schedules []scheduleListToolItem `json:"schedules"`
+}
+
+type scheduleListToolItem struct {
+	ScheduleID     string     `json:"scheduleID"`
+	Prompt         string     `json:"prompt"`
+	Description    string     `json:"description,omitempty"`
+	Cadence        string     `json:"cadence"`
+	CronExpression string     `json:"cronExpression,omitempty"`
+	RunAt          *time.Time `json:"runAt,omitempty"`
+	Status         string     `json:"status"`
+	NextRunAt      *time.Time `json:"nextRunAt,omitempty"`
+	LastRunAt      *time.Time `json:"lastRunAt,omitempty"`
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
+	if toolCatalogBuilder.taskScheduleRepository != nil && strings.TrimSpace(handlerContext.request.RequesterPersonID) != "" {
+		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleListToolInput, scheduleListToolOutput]{
+			Definition: agent.ToolDefinition{
+				Name:        "schedule.list",
+				Description: "List active scheduled tasks created by the current requester. Use it to answer what reminders or recurring tasks are currently scheduled.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"},"limit":{"type":"integer"}}}`),
+			},
+			Handler: func(toolContext context.Context, input scheduleListToolInput) (scheduleListToolOutput, error) {
+				return toolCatalogBuilder.listScheduleTool(input, handlerContext)
+			},
+		})
+	}
 	if !handlerContext.request.IsScheduledRun {
 		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCreateToolInput, agent.ToolResult]{
 			Definition: agent.ToolDefinition{
@@ -109,6 +143,23 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 		},
 		Result: agent.IdentityToolResult,
 	})
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) listScheduleTool(input scheduleListToolInput, handlerContext toolHandlerContext) (scheduleListToolOutput, error) {
+	limit := normalizedScheduleListLimit(input.Limit)
+	referenceTime := time.Now().UTC()
+	result, errorValue := toolCatalogBuilder.taskScheduleRepository.ListTaskSchedules(task.TaskScheduleListRequest{
+		CreatorPersonID: strings.TrimSpace(handlerContext.request.RequesterPersonID),
+		Page:            1,
+		PageSize:        20,
+		ReferenceTime:   referenceTime,
+	})
+	if errorValue != nil {
+		return scheduleListToolOutput{}, errorValue
+	}
+	return scheduleListToolOutput{
+		Schedules: filteredScheduleListItems(result.TaskSchedules, input.Status, limit, referenceTime),
+	}, nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext context.Context, input scheduleCreateToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -329,6 +380,67 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildUpdatedTaskSchedule(taskSched
 		return task.TaskSchedule{}, errScheduleNoFutureRun
 	}
 	return initializedTaskSchedule, nil
+}
+
+func normalizedScheduleListLimit(limit int) int {
+	if limit <= 0 {
+		return 10
+	}
+	if limit > 20 {
+		return 20
+	}
+	return limit
+}
+
+func filteredScheduleListItems(taskSchedules []task.TaskSchedule, statusFilter string, limit int, referenceTime time.Time) []scheduleListToolItem {
+	filter := strings.TrimSpace(statusFilter)
+	items := []scheduleListToolItem{}
+	for _, taskSchedule := range taskSchedules {
+		item := scheduleListToolItemFromSchedule(taskSchedule, referenceTime)
+		if filter != "" && item.Status != filter {
+			continue
+		}
+		items = append(items, item)
+		if len(items) == limit {
+			break
+		}
+	}
+	return items
+}
+
+func scheduleListToolItemFromSchedule(taskSchedule task.TaskSchedule, referenceTime time.Time) scheduleListToolItem {
+	return scheduleListToolItem{
+		ScheduleID:     taskSchedule.TaskScheduleID,
+		Prompt:         taskSchedule.Prompt,
+		Description:    taskSchedule.Name,
+		Cadence:        taskScheduleCadence(taskSchedule),
+		CronExpression: taskSchedule.CronExpression,
+		RunAt:          taskSchedule.RunAt,
+		Status:         taskScheduleStatus(taskSchedule, referenceTime),
+		NextRunAt:      taskSchedule.NextRunAt,
+		LastRunAt:      taskSchedule.LastRunAt,
+	}
+}
+
+func taskScheduleCadence(taskSchedule task.TaskSchedule) string {
+	switch taskSchedule.Kind {
+	case task.TaskScheduleKindInterval:
+		return "every " + strconv.Itoa(taskSchedule.IntervalSecond) + " seconds"
+	case task.TaskScheduleKindCron:
+		return "cron"
+	default:
+		return "once"
+	}
+}
+
+func taskScheduleStatus(taskSchedule task.TaskSchedule, referenceTime time.Time) string {
+	if taskSchedule.NextRunAt == nil || taskSchedule.ExpiresAt != nil && !taskSchedule.ExpiresAt.After(referenceTime) {
+		return "expired"
+	}
+	if strings.TrimSpace(taskSchedule.LastError) != "" {
+		return "failed"
+	}
+	return "active"
 }
 
 func scheduleCreateResultDocument(taskSchedule task.TaskSchedule) json.RawMessage {

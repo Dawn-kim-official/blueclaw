@@ -98,6 +98,26 @@ func (repository *memoryTaskScheduleRepository) CancelTaskSchedules(request task
 	return task.TaskScheduleCancelResult{TaskSchedules: cancelledTaskSchedules}, nil
 }
 
+func (repository *memoryTaskScheduleRepository) ListTaskSchedules(request task.TaskScheduleListRequest) (task.TaskScheduleListResult, error) {
+	taskSchedules := []task.TaskSchedule{}
+	for _, taskSchedule := range repository.taskSchedules {
+		if !memoryTaskScheduleMatchesListRequest(taskSchedule, request) {
+			continue
+		}
+		taskSchedules = append(taskSchedules, taskSchedule)
+	}
+	pageSize := request.PageSize
+	if pageSize <= 0 || pageSize > len(taskSchedules) {
+		pageSize = len(taskSchedules)
+	}
+	return task.TaskScheduleListResult{
+		TaskSchedules: append([]task.TaskSchedule{}, taskSchedules[:pageSize]...),
+		TotalCount:    len(taskSchedules),
+		Page:          1,
+		PageSize:      pageSize,
+	}, nil
+}
+
 func memoryTaskScheduleMatchesUpdateRequest(taskSchedule task.TaskSchedule, request task.TaskScheduleUpdateRequest) bool {
 	if taskSchedule.TaskScheduleID != request.TaskScheduleID {
 		return false
@@ -123,6 +143,16 @@ func memoryTaskScheduleMatchesCancelRequest(taskSchedule task.TaskSchedule, requ
 	default:
 		return taskSchedule.CreatorPersonID == request.RequesterPersonID
 	}
+}
+
+func memoryTaskScheduleMatchesListRequest(taskSchedule task.TaskSchedule, request task.TaskScheduleListRequest) bool {
+	if request.CreatorPersonID != "" && taskSchedule.CreatorPersonID != request.CreatorPersonID {
+		return false
+	}
+	if request.ConversationID != "" && taskSchedule.ConversationID != request.ConversationID {
+		return false
+	}
+	return request.IncludeExpired || taskSchedule.NextRunAt != nil
 }
 
 func timePointer(value time.Time) *time.Time {

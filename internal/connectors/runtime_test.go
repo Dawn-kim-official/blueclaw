@@ -2694,6 +2694,20 @@ func (repository *connectorTaskScheduleRepository) UpdateTaskSchedule(request ta
 	return task.TaskScheduleUpdateResult{}, nil
 }
 
+func (repository *connectorTaskScheduleRepository) ListTaskSchedules(request task.TaskScheduleListRequest) (task.TaskScheduleListResult, error) {
+	taskSchedules := []task.TaskSchedule{}
+	for _, taskSchedule := range repository.taskSchedules {
+		if request.CreatorPersonID != "" && taskSchedule.CreatorPersonID != request.CreatorPersonID {
+			continue
+		}
+		if !request.IncludeExpired && taskSchedule.NextRunAt == nil {
+			continue
+		}
+		taskSchedules = append(taskSchedules, taskSchedule)
+	}
+	return task.TaskScheduleListResult{TaskSchedules: taskSchedules, TotalCount: len(taskSchedules), Page: 1, PageSize: len(taskSchedules)}, nil
+}
+
 func (repository *connectorTaskScheduleRepository) ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]task.TaskSchedule, error) {
 	return nil, nil
 }

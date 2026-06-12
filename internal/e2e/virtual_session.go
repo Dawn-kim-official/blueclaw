@@ -1248,6 +1248,26 @@ func (repository *virtualTaskScheduleRepository) TaskSchedules() []task.TaskSche
 	return append([]task.TaskSchedule{}, repository.taskSchedules...)
 }
 
+func (repository *virtualTaskScheduleRepository) ListTaskSchedules(request task.TaskScheduleListRequest) (task.TaskScheduleListResult, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	taskSchedules := []task.TaskSchedule{}
+	for _, taskSchedule := range repository.taskSchedules {
+		if request.CreatorPersonID != "" && taskSchedule.CreatorPersonID != request.CreatorPersonID {
+			continue
+		}
+		if !request.IncludeExpired && taskSchedule.NextRunAt == nil {
+			continue
+		}
+		taskSchedules = append(taskSchedules, taskSchedule)
+	}
+	pageSize := request.PageSize
+	if pageSize <= 0 || pageSize > len(taskSchedules) {
+		pageSize = len(taskSchedules)
+	}
+	return task.TaskScheduleListResult{TaskSchedules: append([]task.TaskSchedule{}, taskSchedules[:pageSize]...), TotalCount: len(taskSchedules), Page: 1, PageSize: pageSize}, nil
+}
+
 func (repository *virtualTaskScheduleRepository) ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]task.TaskSchedule, error) {
 	return nil, nil
 }

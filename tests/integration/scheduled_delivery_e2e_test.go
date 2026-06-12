@@ -130,6 +130,10 @@ func (repository *scheduledDeliveryRepository) UpsertTaskSchedule(taskSchedule t
 	return nil
 }
 
+func (repository *scheduledDeliveryRepository) ListTaskSchedules(task.TaskScheduleListRequest) (task.TaskScheduleListResult, error) {
+	return task.TaskScheduleListResult{}, nil
+}
+
 func (repository *scheduledDeliveryRepository) ClaimDueTaskSchedules(limit int, _ time.Duration, referenceTime time.Time, _ string) ([]task.TaskSchedule, error) {
 	claimedSchedules := []task.TaskSchedule{}
 	remainingSchedules := []task.TaskSchedule{}

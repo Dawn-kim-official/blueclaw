@@ -451,6 +451,10 @@ func (repository *pollerScheduleRepository) ClaimDueTaskSchedules(limit int, _ t
 	return append([]task.TaskSchedule{}, dueTaskSchedules[:limit]...), nil
 }
 
+func (repository *pollerScheduleRepository) ListTaskSchedules(task.TaskScheduleListRequest) (task.TaskScheduleListResult, error) {
+	return task.TaskScheduleListResult{}, nil
+}
+
 func (repository *pollerScheduleRepository) MarkTaskScheduleSucceeded(taskSchedule task.TaskSchedule) error {
 	repository.succeeded = &taskSchedule
 	for index, existingTaskSchedule := range repository.taskSchedules {

@@ -39,6 +39,7 @@ type SkillSearchResult struct {
 type SkillSearchResultItem struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
+	Prompt      string          `json:"prompt,omitempty"`
 	Score       float64         `json:"score"`
 	Tools       []string        `json:"tools"`
 	SourcePath  string          `json:"sourcePath,omitempty"`

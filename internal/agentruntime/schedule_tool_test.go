@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +58,82 @@ func TestScheduleCreateToolStoresCurrentReplyTarget(t *testing.T) {
 	}
 	if taskSchedule.TimeZone != "Asia/Seoul" || taskSchedule.NextRunAt == nil {
 		t.Fatalf("expected default timezone and next run, got %+v", taskSchedule)
+	}
+}
+
+func TestScheduleListToolListsRequesterSchedulesOnly(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{
+		{TaskScheduleID: "schedule-a", CreatorPersonID: "person-a", Name: "A schedule", Prompt: "Check A", Kind: task.TaskScheduleKindOnce, RunAt: &nextRunAt, NextRunAt: &nextRunAt},
+		{TaskScheduleID: "schedule-b", CreatorPersonID: "person-b", Name: "B schedule", Prompt: "Check B", Kind: task.TaskScheduleKindOnce, RunAt: &nextRunAt, NextRunAt: &nextRunAt},
+	}}
+	toolRegistry := newScheduleListTestRegistry(repository, "person-a")
+
+	output := invokeScheduleList(t, toolRegistry, map[string]any{})
+
+	if len(output.Schedules) != 1 || output.Schedules[0].ScheduleID != "schedule-a" {
+		t.Fatalf("expected only requester schedules, got %+v", output.Schedules)
+	}
+	if output.Schedules[0].Prompt != "Check A" || output.Schedules[0].Cadence != "once" || output.Schedules[0].Status != "active" {
+		t.Fatalf("expected schedule details, got %+v", output.Schedules[0])
+	}
+}
+
+func TestScheduleListToolFiltersByStatus(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{
+		{TaskScheduleID: "schedule-active", CreatorPersonID: "person-1", Prompt: "Active", Kind: task.TaskScheduleKindInterval, IntervalSecond: 60, NextRunAt: &nextRunAt},
+		{TaskScheduleID: "schedule-failed", CreatorPersonID: "person-1", Prompt: "Failed", Kind: task.TaskScheduleKindCron, CronExpression: "0 9 * * *", NextRunAt: &nextRunAt, LastError: "provider unavailable"},
+	}}
+	toolRegistry := newScheduleListTestRegistry(repository, "person-1")
+
+	output := invokeScheduleList(t, toolRegistry, map[string]any{"status": "failed"})
+
+	if len(output.Schedules) != 1 || output.Schedules[0].ScheduleID != "schedule-failed" {
+		t.Fatalf("expected failed schedule only, got %+v", output.Schedules)
+	}
+	if output.Schedules[0].Cadence != "cron" || output.Schedules[0].CronExpression != "0 9 * * *" {
+		t.Fatalf("expected cron details, got %+v", output.Schedules[0])
+	}
+}
+
+func TestScheduleListToolCapsLimitAtTwenty(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	taskSchedules := []task.TaskSchedule{}
+	for index := 0; index < 25; index++ {
+		taskSchedules = append(taskSchedules, task.TaskSchedule{
+			TaskScheduleID:  "schedule-" + strconv.Itoa(index),
+			CreatorPersonID: "person-1",
+			Prompt:          "Task",
+			Kind:            task.TaskScheduleKindOnce,
+			RunAt:           &nextRunAt,
+			NextRunAt:       &nextRunAt,
+		})
+	}
+	repository := &memoryTaskScheduleRepository{taskSchedules: taskSchedules}
+	toolRegistry := newScheduleListTestRegistry(repository, "person-1")
+
+	output := invokeScheduleList(t, toolRegistry, map[string]any{"limit": 99})
+
+	if len(output.Schedules) != 20 {
+		t.Fatalf("expected capped schedule list, got %d", len(output.Schedules))
+	}
+}
+
+func TestScheduleListToolRequiresRequesterPersonID(t *testing.T) {
+	repository := &memoryTaskScheduleRepository{}
+	toolRegistry := newScheduleListTestRegistry(repository, "")
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.list",
+		Input:    agent.MarshalToolInput(map[string]any{}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected schedule.list to be unregistered without requester, got %s", result.ContentText())
 	}
 }
 
@@ -786,4 +863,33 @@ func TestScheduleCreateExecutorRejectsScheduledRunContext(t *testing.T) {
 	if !result.Failed() || !strings.Contains(result.ContentText(), "scheduled task executions cannot create new schedules") {
 		t.Fatalf("expected scheduled run schedule.create failure, got %+v", result)
 	}
+}
+
+func newScheduleListTestRegistry(repository *memoryTaskScheduleRepository, requesterPersonID string) *agent.ToolSet {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.list"})
+	return toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: requesterPersonID,
+	})
+}
+
+func invokeScheduleList(t *testing.T, toolRegistry *agent.ToolSet, input map[string]any) scheduleListToolOutput {
+	t.Helper()
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.list",
+		Input:    agent.MarshalToolInput(input),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected schedule.list success, got %s", result.ContentText())
+	}
+	var output scheduleListToolOutput
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &output); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return output
 }

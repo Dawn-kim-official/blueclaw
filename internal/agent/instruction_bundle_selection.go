@@ -238,6 +238,17 @@ func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction)
 	return result
 }
 
+func VisibleSkillInstructionsForRequester(skillInstructions []SkillInstruction, requesterCircles []string) []SkillInstruction {
+	visibleSkillInstructions := []SkillInstruction{}
+	for _, skillInstruction := range skillInstructions {
+		if skillHiddenFromRequester(skillInstruction, requesterCircles) {
+			continue
+		}
+		visibleSkillInstructions = append(visibleSkillInstructions, skillInstruction)
+	}
+	return visibleSkillInstructions
+}
+
 func visibleCandidateSkillInstructions(skillInstructions []SkillInstruction, candidateByName map[string]SkillCandidate, requesterCircles []string) []SkillInstruction {
 	visibleSkillInstructions := []SkillInstruction{}
 	for _, skillInstruction := range skillInstructions {

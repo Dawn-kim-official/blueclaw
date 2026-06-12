@@ -78,6 +78,7 @@ type TaskScheduleRepository interface {
 	MarkTaskScheduleFailed(TaskSchedule, string, time.Time) error
 	ExpireTaskSchedule(TaskSchedule, string, time.Time) error
 	CancelTaskSchedules(TaskScheduleCancelRequest) (TaskScheduleCancelResult, error)
+	ListTaskSchedules(TaskScheduleListRequest) (TaskScheduleListResult, error)
 }
 
 type TaskWaitTokenRepository interface {

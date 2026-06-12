@@ -133,6 +133,8 @@ func defaultCapabilityToolDescription(toolName string) string {
 		return "Send a platform message to a direct message, current thread, current channel, or named channel. Recipient resolution and ambiguity are handled by this tool."
 	case "platform.message.update":
 		return "Update an InternKim bot message text or pin state. Use only for platform messages that should be edited or pinned."
+	case "site.app.status":
+		return siteAppStatusToolDescription
 	default:
 		return "InternKim capability tool"
 	}
