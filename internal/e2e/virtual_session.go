@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -83,6 +83,7 @@ type VirtualSessionResult struct {
 	ScenarioName          string
 	ArtifactDirectoryPath string
 	TurnResults           []VirtualTurnResult
+	TaskSchedules         []task.TaskSchedule
 }
 
 type VirtualTurnResult struct {
@@ -101,6 +102,7 @@ type VirtualSessionHarness struct {
 	workspacePath    string
 	scriptedModel    *agenttest.ScriptedLanguageModel
 	taskEventService *task.TaskEventService
+	scheduleStore    *virtualTaskScheduleRepository
 	memoryStore      *virtualMemoryStore
 	runtime          *connectors.ConnectorRuntime
 	adapter          *virtualAdapter
@@ -124,6 +126,10 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return GWSDisabledScenario(artifactDirectoryPath), nil
 	case "schedule_create_acceptance":
 		return ScheduleCreateAcceptanceScenario(artifactDirectoryPath), nil
+	case "schedule_lifecycle_acceptance":
+		return ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath), nil
+	case "one_time_schedule_acceptance":
+		return OneTimeScheduleAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_prototype_acceptance":
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
 	case "ask_choice_reply_acceptance":
@@ -203,7 +209,8 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	runtime.UseTerminalService(terminalService)
 	runtime.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
 	runtime.UseTaskRunService(taskRunService)
-	runtime.UseTaskScheduleRepository(&virtualTaskScheduleRepository{})
+	scheduleStore := &virtualTaskScheduleRepository{}
+	runtime.UseTaskScheduleRepository(scheduleStore)
 	cleanup := func() {}
 	if len(scenario.CapabilityToolNames) > 0 {
 		capabilityClient, capabilityCleanup := startVirtualCapabilityServer(scenario.CapabilityToolNames)
@@ -223,6 +230,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		workspacePath:    workspacePath,
 		scriptedModel:    scriptedModel,
 		taskEventService: taskEventService,
+		scheduleStore:    scheduleStore,
 		memoryStore:      memoryStore,
 		runtime:          runtime,
 		adapter:          adapter,
@@ -340,6 +348,10 @@ func fileSHA256(path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+type virtualCapabilityHTTPClient struct {
+	toolNameByName map[string]bool
+}
+
 func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()) {
 	toolNameByName := map[string]bool{}
 	for _, toolName := range toolNames {
@@ -348,17 +360,27 @@ func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()
 			toolNameByName[trimmedToolName] = true
 		}
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
-		toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
-		toolName = strings.TrimSuffix(toolName, "/invoke")
-		if !toolNameByName[toolName] {
-			http.Error(responseWriter, "unknown virtual capability tool", http.StatusNotFound)
-			return
-		}
-		responseWriter.Header().Set("Content-Type", "application/json")
-		_, _ = responseWriter.Write([]byte(virtualCapabilityResponse(toolName)))
-	}))
-	return capability.Client{Endpoint: server.URL, HTTPClient: server.Client()}, server.Close
+	return capability.Client{
+		Endpoint:   "http://virtual-capability",
+		HTTPClient: virtualCapabilityHTTPClient{toolNameByName: toolNameByName},
+	}, func() {}
+}
+
+func (client virtualCapabilityHTTPClient) Do(request *http.Request) (*http.Response, error) {
+	toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
+	toolName = strings.TrimSuffix(toolName, "/invoke")
+	if !client.toolNameByName[toolName] {
+		return virtualCapabilityHTTPResponse(http.StatusNotFound, "unknown virtual capability tool"), nil
+	}
+	return virtualCapabilityHTTPResponse(http.StatusOK, virtualCapabilityResponse(toolName)), nil
+}
+
+func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: statusCode,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
 }
 
 func virtualCapabilityResponse(toolName string) string {
@@ -402,6 +424,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		result.TurnResults = append(result.TurnResults, turnResult)
 		harness.rememberTurn(virtualTurn, turnResult)
 	}
+	result.TaskSchedules = harness.scheduleStore.TaskSchedules()
 	return result, nil
 }
 
@@ -999,6 +1022,12 @@ func (repository *virtualTaskScheduleRepository) UpsertTaskSchedule(taskSchedule
 	defer repository.mutex.Unlock()
 	repository.taskSchedules = append(repository.taskSchedules, taskSchedule)
 	return nil
+}
+
+func (repository *virtualTaskScheduleRepository) TaskSchedules() []task.TaskSchedule {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	return append([]task.TaskSchedule{}, repository.taskSchedules...)
 }
 
 func (repository *virtualTaskScheduleRepository) ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]task.TaskSchedule, error) {

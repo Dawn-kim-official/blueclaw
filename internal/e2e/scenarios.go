@@ -342,6 +342,68 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 	}
 }
 
+func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "schedule_lifecycle_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
+		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
+		Turns: []VirtualTurn{
+			{
+				Prompt: "30분마다 상태 확인하라고 알려줘. 세 번만 해줘",
+				ActionResponses: []string{
+					actionCallTool("schedule.create", `{"name":"상태 확인 알림","taskInstruction":"현재 대화에 \"상태를 확인하세요\"라고 보낸다.","kind":"interval","intervalSecond":1800,"maxRunCount":3,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}`),
+					actionFinishMessage("30분마다 세 번 상태 확인 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
+				},
+				ExpectedSelectedSkills: []string{"scheduled-task"},
+				ExpectedToolCalls:      []string{"schedule.create"},
+				ExpectedEvents:         []string{"schedule.created"},
+				ExpectedModelContexts:  []string{"scheduled-task", "schedule.create", "taskInstruction", "30분마다"},
+			},
+			{
+				Prompt: "그 예약을 1시간마다 다섯 번으로 바꿔줘",
+				ActionResponses: []string{
+					actionCallTool("schedule.cancel", `{"scope":"mine"}`),
+					actionCallTool("schedule.create", `{"name":"상태 확인 알림","taskInstruction":"현재 대화에 \"상태를 확인하세요\"라고 보낸다.","kind":"interval","intervalSecond":3600,"maxRunCount":5,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}`),
+					actionFinishMessage("기존 예약을 취소하고 1시간마다 다섯 번으로 다시 예약했습니다.", "obs-001:schedule.cancel:0", "obs-002:schedule.create:0"),
+				},
+				ExpectedToolCalls: []string{"schedule.cancel", "schedule.create"},
+				ExpectedEvents:    []string{"schedule.cancelled", "schedule.created"},
+			},
+			{
+				Prompt: "그 예약 삭제해줘",
+				ActionResponses: []string{
+					actionCallTool("schedule.cancel", `{"scope":"mine"}`),
+					actionFinishMessage("예약을 삭제했습니다.", "obs-001:schedule.cancel:0"),
+				},
+				ExpectedToolCalls: []string{"schedule.cancel"},
+				ExpectedEvents:    []string{"schedule.cancelled"},
+			},
+		},
+	}
+}
+
+func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "one_time_schedule_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
+		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
+		Turns: []VirtualTurn{{
+			Prompt: "2027년 1월 15일 오전 9시에 계약서 확인 알림을 한 번만 예약해줘",
+			ActionResponses: []string{
+				actionCallTool("schedule.create", `{"name":"계약서 확인 알림","taskInstruction":"현재 대화에 \"계약서를 확인하세요\"라고 보낸다.","kind":"once","runAt":"2027-01-15T00:00:00Z","timeZone":"Asia/Seoul"}`),
+				actionFinishMessage("2027년 1월 15일 오전 9시에 한 번 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
+			},
+			ExpectedSelectedSkills: []string{"scheduled-task"},
+			ExpectedToolCalls:      []string{"schedule.create"},
+			ExpectedEvents:         []string{"schedule.created"},
+			ExpectedModelContexts:  []string{"scheduled-task", "schedule.create", "runAt", "once"},
+			ExpectedReplyFragments: []string{"2027년 1월 15일", "한 번"},
+		}},
+	}
+}
+
 func scheduledTaskSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:        "scheduled-task",
