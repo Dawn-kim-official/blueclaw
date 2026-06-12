@@ -10,6 +10,7 @@ import (
 
 type RouterDependencies struct {
 	PolicyHandler         adminapi.PolicyHandler
+	IdentityResolve       adminapi.IdentityResolveHandler
 	HealthHandler         HealthHandler
 	AuditHandler          *adminapi.AuditHandler
 	AttentionHandler      adminapi.AttentionHandler
@@ -35,6 +36,7 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer.HandleFunc("POST /admin/api/people/invite", routerDependencies.PolicyHandler.HandleInvitePerson)
 	multiplexer.HandleFunc("DELETE /admin/api/people", routerDependencies.PolicyHandler.HandleRemovePerson)
 	multiplexer.HandleFunc("POST /admin/api/people/canonicalize-references", routerDependencies.PolicyHandler.HandleCanonicalizePersonReferences)
+	multiplexer.HandleFunc("POST /admin/api/identity/resolve-recipient", routerDependencies.IdentityResolve.HandleResolveRecipient)
 	multiplexer.HandleFunc("GET /admin/api/audit", routerDependencies.AuditHandler.HandleListAudit)
 	multiplexer.HandleFunc("POST /admin/api/attention/run", routerDependencies.AttentionHandler.HandleRunAttention)
 	multiplexer.HandleFunc("GET /admin/api/task", routerDependencies.TaskMonitorHandler.HandleListTaskRun)
