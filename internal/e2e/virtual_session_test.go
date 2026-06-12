@@ -161,6 +161,58 @@ func TestScheduleCreateAcceptance(t *testing.T) {
 	}
 }
 
+func TestScheduleLifecycleAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), ScheduleLifecycleAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected schedule lifecycle acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 3 {
+		t.Fatalf("expected three turn results, got %d", len(result.TurnResults))
+	}
+	firstTurnResult := result.TurnResults[0]
+	secondTurnResult := result.TurnResults[1]
+	thirdTurnResult := result.TurnResults[2]
+	if !eventsContain(firstTurnResult.Events, "schedule.created", `"intervalSecond":1800`) {
+		t.Fatalf("expected initial interval schedule; events: %s", summarizeEvents(firstTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "schedule.cancelled", `"cancelledScheduleCount":1`) {
+		t.Fatalf("expected modification to cancel existing schedule; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "schedule.created", `"intervalSecond":3600`) {
+		t.Fatalf("expected modification to create replacement schedule; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(thirdTurnResult.Events, "schedule.cancelled", `"cancelledScheduleCount":1`) {
+		t.Fatalf("expected deletion to cancel active schedule; events: %s", summarizeEvents(thirdTurnResult.Events))
+	}
+	if activeScheduleCount(result.TaskSchedules) != 0 {
+		t.Fatalf("expected zero active schedules, got %+v", result.TaskSchedules)
+	}
+}
+
+func TestOneTimeScheduleAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), OneTimeScheduleAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected one-time schedule acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
+	}
+	turnResult := result.TurnResults[0]
+	if !eventsContain(turnResult.Events, "schedule.created", `"kind":"once"`) {
+		t.Fatalf("expected one-time schedule creation event; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if len(result.TaskSchedules) != 1 {
+		t.Fatalf("expected one stored schedule, got %+v", result.TaskSchedules)
+	}
+	taskSchedule := result.TaskSchedules[0]
+	if taskSchedule.Kind != task.TaskScheduleKindOnce {
+		t.Fatalf("expected one-time schedule kind, got %+v", taskSchedule)
+	}
+	if taskSchedule.RunAt == nil || taskSchedule.NextRunAt == nil {
+		t.Fatalf("expected one-time schedule run time, got %+v", taskSchedule)
+	}
+}
+
 func TestSitePrototypeAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), SitePrototypeAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
@@ -303,6 +355,16 @@ func failureEventCount(events []task.TaskEvent) int {
 	for _, event := range events {
 		normalizedName := strings.ToLower(event.Name)
 		if strings.Contains(normalizedName, "fail") || strings.Contains(normalizedName, "error") {
+			count++
+		}
+	}
+	return count
+}
+
+func activeScheduleCount(taskSchedules []task.TaskSchedule) int {
+	count := 0
+	for _, taskSchedule := range taskSchedules {
+		if taskSchedule.NextRunAt != nil {
 			count++
 		}
 	}
