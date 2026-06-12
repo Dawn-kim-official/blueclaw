@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -87,6 +88,134 @@ func TestTaskScheduleHandlerListsActiveSchedules(t *testing.T) {
 	}
 }
 
+func TestTaskScheduleHandlerCancelsOwnedSchedule(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &taskScheduleListRepositoryStub{
+		taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:  "schedule-1",
+			CreatorPersonID: "person-1",
+			Kind:            task.TaskScheduleKindInterval,
+			IntervalSecond:  3600,
+			NextRunAt:       &nextRunAt,
+		}},
+	}
+	handler := TaskScheduleHandler{ListRepository: repository}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/cancel", strings.NewReader(`{"taskScheduleID":"schedule-1","creatorPersonID":"person-1"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleCancel(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if len(repository.cancelRequest.TaskScheduleIDs) != 1 || repository.cancelRequest.TaskScheduleIDs[0] != "schedule-1" {
+		t.Fatalf("expected schedule id cancel request, got %+v", repository.cancelRequest)
+	}
+	if repository.cancelRequest.RequesterPersonID != "person-1" {
+		t.Fatalf("expected requester person, got %+v", repository.cancelRequest)
+	}
+}
+
+func TestTaskScheduleHandlerRejectsCancelCreatorMismatch(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &taskScheduleListRepositoryStub{
+		taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:  "schedule-1",
+			CreatorPersonID: "person-1",
+			Kind:            task.TaskScheduleKindInterval,
+			IntervalSecond:  3600,
+			NextRunAt:       &nextRunAt,
+		}},
+	}
+	handler := TaskScheduleHandler{ListRepository: repository}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/cancel", strings.NewReader(`{"taskScheduleID":"schedule-1","creatorPersonID":"person-2"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleCancel(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected forbidden response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if repository.cancelRequest.RequesterPersonID != "" {
+		t.Fatalf("expected no cancel request, got %+v", repository.cancelRequest)
+	}
+}
+
+func TestTaskScheduleHandlerReturnsNotFoundForMissingCancelSchedule(t *testing.T) {
+	handler := TaskScheduleHandler{ListRepository: &taskScheduleListRepositoryStub{}}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/cancel", strings.NewReader(`{"taskScheduleID":"missing","creatorPersonID":"person-1"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleCancel(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusNotFound {
+		t.Fatalf("expected not found response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+}
+
+func TestTaskScheduleHandlerUpdatesOwnedSchedule(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &taskScheduleListRepositoryStub{
+		taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:   "schedule-1",
+			CreatorPersonID:  "person-1",
+			Name:             "Old name",
+			ExecutionMode:    task.TaskScheduleExecutionModeAgent,
+			AgentProfileName: "default",
+			TimeZone:         "Asia/Seoul",
+			Kind:             task.TaskScheduleKindInterval,
+			IntervalSecond:   3600,
+			NextRunAt:        &nextRunAt,
+			CreatedAt:        nextRunAt.Add(-time.Hour),
+			UpdatedAt:        nextRunAt.Add(-time.Hour),
+		}},
+	}
+	handler := TaskScheduleHandler{ListRepository: repository}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/update", strings.NewReader(`{"taskScheduleID":"schedule-1","creatorPersonID":"person-1","name":"New name","intervalSecond":7200,"repeatPolicy":"unbounded"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleUpdate(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	var result task.TaskScheduleUpdateResult
+	if errorValue := json.NewDecoder(responseRecorder.Body).Decode(&result); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.TaskSchedule.Name != "New name" || result.TaskSchedule.IntervalSecond != 7200 || result.TaskSchedule.NextRunAt == nil {
+		t.Fatalf("expected updated schedule, got %+v", result.TaskSchedule)
+	}
+	if repository.updateRequest.RequesterPersonID != "person-1" {
+		t.Fatalf("expected requester person, got %+v", repository.updateRequest)
+	}
+}
+
+func TestTaskScheduleHandlerRejectsUpdateCreatorMismatch(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &taskScheduleListRepositoryStub{
+		taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:  "schedule-1",
+			CreatorPersonID: "person-1",
+			Kind:            task.TaskScheduleKindInterval,
+			IntervalSecond:  3600,
+			NextRunAt:       &nextRunAt,
+		}},
+	}
+	handler := TaskScheduleHandler{ListRepository: repository}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/update", strings.NewReader(`{"taskScheduleID":"schedule-1","creatorPersonID":"person-2","name":"New name"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleUpdate(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected forbidden response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if repository.updateRequest.RequesterPersonID != "" {
+		t.Fatalf("expected no update request, got %+v", repository.updateRequest)
+	}
+}
+
 type taskScheduleSummaryRepositoryStub struct {
 	summary task.TaskScheduleSummary
 }
@@ -97,10 +226,56 @@ func (repository taskScheduleSummaryRepositoryStub) SummarizeActiveTaskSchedules
 
 type taskScheduleListRepositoryStub struct {
 	request       task.TaskScheduleListRequest
+	updateRequest task.TaskScheduleUpdateRequest
+	cancelRequest task.TaskScheduleCancelRequest
 	taskSchedules []task.TaskSchedule
 }
 
 func (repository *taskScheduleListRepositoryStub) ListTaskSchedules(request task.TaskScheduleListRequest) (task.TaskScheduleListResult, error) {
 	repository.request = request
 	return task.TaskScheduleListResult{TaskSchedules: repository.taskSchedules, TotalCount: len(repository.taskSchedules), Page: request.Page, PageSize: request.PageSize}, nil
+}
+
+func (repository *taskScheduleListRepositoryStub) UpdateTaskSchedule(request task.TaskScheduleUpdateRequest) (task.TaskScheduleUpdateResult, error) {
+	repository.updateRequest = request
+	for index, taskSchedule := range repository.taskSchedules {
+		if taskSchedule.TaskScheduleID != request.TaskScheduleID || taskSchedule.CreatorPersonID != request.RequesterPersonID || taskSchedule.NextRunAt == nil {
+			continue
+		}
+		updatedTaskSchedule := taskSchedule
+		if request.UpdateTaskSchedule != nil {
+			var errorValue error
+			updatedTaskSchedule, errorValue = request.UpdateTaskSchedule(taskSchedule)
+			if errorValue != nil {
+				return task.TaskScheduleUpdateResult{}, errorValue
+			}
+		}
+		repository.taskSchedules[index] = updatedTaskSchedule
+		return task.TaskScheduleUpdateResult{TaskSchedule: updatedTaskSchedule, IsFound: true}, nil
+	}
+	return task.TaskScheduleUpdateResult{}, nil
+}
+
+func (repository *taskScheduleListRepositoryStub) CancelTaskSchedules(request task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {
+	repository.cancelRequest = request
+	cancelledTaskSchedules := []task.TaskSchedule{}
+	for index, taskSchedule := range repository.taskSchedules {
+		if taskSchedule.CreatorPersonID != request.RequesterPersonID || !containsTaskScheduleID(request.TaskScheduleIDs, taskSchedule.TaskScheduleID) {
+			continue
+		}
+		taskSchedule.NextRunAt = nil
+		taskSchedule.ExpiresAt = &request.CancelledAt
+		repository.taskSchedules[index] = taskSchedule
+		cancelledTaskSchedules = append(cancelledTaskSchedules, taskSchedule)
+	}
+	return task.TaskScheduleCancelResult{TaskSchedules: cancelledTaskSchedules}, nil
+}
+
+func containsTaskScheduleID(taskScheduleIDs []string, taskScheduleID string) bool {
+	for _, candidateTaskScheduleID := range taskScheduleIDs {
+		if candidateTaskScheduleID == taskScheduleID {
+			return true
+		}
+	}
+	return false
 }

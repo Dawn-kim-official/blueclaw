@@ -2,6 +2,7 @@ package adminapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +17,8 @@ type TaskScheduleSummaryRepository interface {
 
 type TaskScheduleListRepository interface {
 	ListTaskSchedules(task.TaskScheduleListRequest) (task.TaskScheduleListResult, error)
+	UpdateTaskSchedule(task.TaskScheduleUpdateRequest) (task.TaskScheduleUpdateResult, error)
+	CancelTaskSchedules(task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error)
 }
 
 type TaskScheduleCreatorRepairRepository interface {
@@ -28,9 +31,36 @@ type TaskScheduleHandler struct {
 	RepairRepository  TaskScheduleCreatorRepairRepository
 }
 
+var (
+	errTaskScheduleTimeZoneInvalid      = errors.New("invalid task schedule timeZone")
+	errTaskScheduleRunAtInvalid         = errors.New("invalid task schedule runAt")
+	errTaskScheduleExpiresAtInvalid     = errors.New("invalid task schedule expiresAt")
+	errTaskScheduleRepeatPolicyRequired = errors.New("repeatPolicy unbounded or a finite bound is required")
+	errTaskScheduleNoFutureRun          = errors.New("task schedule has no future run")
+)
+
 type taskScheduleCreatorRepairRequest struct {
 	FromCreatorPersonID string `json:"fromCreatorPersonID"`
 	ToCreatorPersonID   string `json:"toCreatorPersonID"`
+}
+
+type taskScheduleCancelRequest struct {
+	TaskScheduleID  string `json:"taskScheduleID"`
+	CreatorPersonID string `json:"creatorPersonID"`
+}
+
+type taskScheduleUpdateRequest struct {
+	TaskScheduleID  string  `json:"taskScheduleID"`
+	CreatorPersonID string  `json:"creatorPersonID"`
+	Name            *string `json:"name"`
+	Kind            *string `json:"kind"`
+	RunAt           *string `json:"runAt"`
+	IntervalSecond  *int    `json:"intervalSecond"`
+	CronExpression  *string `json:"cronExpression"`
+	TimeZone        *string `json:"timeZone"`
+	ExpiresAt       *string `json:"expiresAt"`
+	MaxRunCount     *int    `json:"maxRunCount"`
+	RepeatPolicy    *string `json:"repeatPolicy"`
 }
 
 func (taskScheduleHandler TaskScheduleHandler) HandleSummary(responseWriter http.ResponseWriter, request *http.Request) {
@@ -64,6 +94,95 @@ func (taskScheduleHandler TaskScheduleHandler) HandleList(responseWriter http.Re
 		"pageSize":   result.PageSize,
 		"checkedAt":  time.Now().UTC(),
 	})
+}
+
+func (taskScheduleHandler TaskScheduleHandler) HandleCancel(responseWriter http.ResponseWriter, request *http.Request) {
+	if taskScheduleHandler.ListRepository == nil {
+		http.Error(responseWriter, "task schedule repository is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var cancelRequest taskScheduleCancelRequest
+	if errorValue := json.NewDecoder(request.Body).Decode(&cancelRequest); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	taskScheduleID := strings.TrimSpace(cancelRequest.TaskScheduleID)
+	creatorPersonID := strings.TrimSpace(cancelRequest.CreatorPersonID)
+	if taskScheduleID == "" || creatorPersonID == "" {
+		http.Error(responseWriter, "taskScheduleID and creatorPersonID are required", http.StatusBadRequest)
+		return
+	}
+	taskSchedule, found, errorValue := taskScheduleHandler.findTaskSchedule(taskScheduleID)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(responseWriter, "task schedule not found", http.StatusNotFound)
+		return
+	}
+	if taskSchedule.CreatorPersonID != creatorPersonID {
+		http.Error(responseWriter, "task schedule creator mismatch", http.StatusForbidden)
+		return
+	}
+	result, errorValue := taskScheduleHandler.ListRepository.CancelTaskSchedules(task.TaskScheduleCancelRequest{
+		Scope:             task.TaskScheduleCancelScopeScheduleIDs,
+		RequesterPersonID: creatorPersonID,
+		TaskScheduleIDs:   []string{taskScheduleID},
+		CancelledAt:       time.Now().UTC(),
+	})
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, result)
+}
+
+func (taskScheduleHandler TaskScheduleHandler) HandleUpdate(responseWriter http.ResponseWriter, request *http.Request) {
+	if taskScheduleHandler.ListRepository == nil {
+		http.Error(responseWriter, "task schedule repository is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var updateRequest taskScheduleUpdateRequest
+	if errorValue := json.NewDecoder(request.Body).Decode(&updateRequest); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	taskScheduleID := strings.TrimSpace(updateRequest.TaskScheduleID)
+	creatorPersonID := strings.TrimSpace(updateRequest.CreatorPersonID)
+	if taskScheduleID == "" || creatorPersonID == "" {
+		http.Error(responseWriter, "taskScheduleID and creatorPersonID are required", http.StatusBadRequest)
+		return
+	}
+	taskSchedule, found, errorValue := taskScheduleHandler.findTaskSchedule(taskScheduleID)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(responseWriter, "task schedule not found", http.StatusNotFound)
+		return
+	}
+	if taskSchedule.CreatorPersonID != creatorPersonID {
+		http.Error(responseWriter, "task schedule creator mismatch", http.StatusForbidden)
+		return
+	}
+	result, errorValue := taskScheduleHandler.ListRepository.UpdateTaskSchedule(task.TaskScheduleUpdateRequest{
+		TaskScheduleID:    taskScheduleID,
+		RequesterPersonID: creatorPersonID,
+		UpdateTaskSchedule: func(existingTaskSchedule task.TaskSchedule) (task.TaskSchedule, error) {
+			return applyTaskScheduleUpdateRequest(existingTaskSchedule, updateRequest)
+		},
+	})
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	if !result.IsFound {
+		http.Error(responseWriter, "task schedule not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, result)
 }
 
 func (taskScheduleHandler TaskScheduleHandler) HandleRepairCreator(responseWriter http.ResponseWriter, request *http.Request) {
@@ -100,6 +219,7 @@ func (taskScheduleHandler TaskScheduleHandler) HandleRepairCreator(responseWrite
 type taskScheduleListItem struct {
 	TaskScheduleID    string     `json:"taskScheduleID"`
 	CreatorPersonID   string     `json:"creatorPersonID"`
+	Name              string     `json:"name,omitempty"`
 	ExecutionMode     string     `json:"executionMode"`
 	Kind              string     `json:"kind"`
 	IntervalSecond    int        `json:"intervalSecond,omitempty"`
@@ -131,12 +251,111 @@ func taskScheduleListRequestFromHTTP(request *http.Request) task.TaskScheduleLis
 	}
 }
 
+func (taskScheduleHandler TaskScheduleHandler) findTaskSchedule(taskScheduleID string) (task.TaskSchedule, bool, error) {
+	page := 1
+	for {
+		result, errorValue := taskScheduleHandler.ListRepository.ListTaskSchedules(task.TaskScheduleListRequest{
+			IncludeExpired: true,
+			Page:           page,
+			PageSize:       200,
+			ReferenceTime:  time.Now().UTC(),
+		})
+		if errorValue != nil {
+			return task.TaskSchedule{}, false, errorValue
+		}
+		for _, taskSchedule := range result.TaskSchedules {
+			if taskSchedule.TaskScheduleID == taskScheduleID {
+				return taskSchedule, true, nil
+			}
+		}
+		if len(result.TaskSchedules) == 0 || page*result.PageSize >= result.TotalCount {
+			return task.TaskSchedule{}, false, nil
+		}
+		page++
+	}
+}
+
+func applyTaskScheduleUpdateRequest(taskSchedule task.TaskSchedule, request taskScheduleUpdateRequest) (task.TaskSchedule, error) {
+	if request.Name != nil {
+		taskSchedule.Name = strings.TrimSpace(*request.Name)
+	}
+	if request.Kind != nil {
+		taskSchedule.Kind = taskScheduleKind(*request.Kind)
+	}
+	if request.TimeZone != nil {
+		timeZone, errorValue := taskScheduleTimeZone(*request.TimeZone)
+		if errorValue != nil {
+			return task.TaskSchedule{}, errorValue
+		}
+		taskSchedule.TimeZone = timeZone
+	}
+	updatedTaskSchedule, errorValue := applyTaskScheduleUpdateTiming(taskSchedule, request)
+	if errorValue != nil {
+		return task.TaskSchedule{}, errorValue
+	}
+	updatedTaskSchedule.UpdatedAt = time.Now().UTC()
+	updatedTaskSchedule.NextAttemptAt = &updatedTaskSchedule.UpdatedAt
+	initializedTaskSchedule, errorValue := (task.TaskScheduler{}).InitializeTaskSchedule(updatedTaskSchedule, updatedTaskSchedule.UpdatedAt)
+	if errorValue != nil {
+		return task.TaskSchedule{}, errorValue
+	}
+	if initializedTaskSchedule.NextRunAt == nil {
+		return task.TaskSchedule{}, errTaskScheduleNoFutureRun
+	}
+	return initializedTaskSchedule, nil
+}
+
+func applyTaskScheduleUpdateTiming(taskSchedule task.TaskSchedule, request taskScheduleUpdateRequest) (task.TaskSchedule, error) {
+	if request.RunAt != nil {
+		runAt, errorValue := taskScheduleRunAt(*request.RunAt)
+		if errorValue != nil {
+			return task.TaskSchedule{}, errorValue
+		}
+		taskSchedule.RunAt = runAt
+	}
+	if request.ExpiresAt != nil {
+		expiresAt, errorValue := taskScheduleExpiresAt(*request.ExpiresAt)
+		if errorValue != nil {
+			return task.TaskSchedule{}, errorValue
+		}
+		taskSchedule.ExpiresAt = expiresAt
+	}
+	if request.IntervalSecond != nil {
+		taskSchedule.IntervalSecond = *request.IntervalSecond
+	}
+	if request.CronExpression != nil {
+		taskSchedule.CronExpression = strings.TrimSpace(*request.CronExpression)
+	}
+	if request.MaxRunCount != nil {
+		taskSchedule.MaxRunCount = *request.MaxRunCount
+	}
+	normalizeTaskScheduleKindFields(&taskSchedule)
+	if errorValue := validateTaskScheduleRepeatPolicy(taskSchedule, request.RepeatPolicy); errorValue != nil {
+		return task.TaskSchedule{}, errorValue
+	}
+	return taskSchedule, nil
+}
+
+func normalizeTaskScheduleKindFields(taskSchedule *task.TaskSchedule) {
+	switch taskSchedule.Kind {
+	case task.TaskScheduleKindOnce:
+		taskSchedule.IntervalSecond = 0
+		taskSchedule.CronExpression = ""
+		taskSchedule.MaxRunCount = 0
+	case task.TaskScheduleKindInterval:
+		taskSchedule.CronExpression = ""
+	case task.TaskScheduleKindCron:
+		taskSchedule.IntervalSecond = 0
+	}
+}
+
 func taskScheduleListItems(taskSchedules []task.TaskSchedule) []taskScheduleListItem {
 	items := []taskScheduleListItem{}
 	for _, taskSchedule := range taskSchedules {
 		items = append(items, taskScheduleListItem{
 			TaskScheduleID:    taskSchedule.TaskScheduleID,
 			CreatorPersonID:   taskSchedule.CreatorPersonID,
+			Name:              taskSchedule.Name,
 			ExecutionMode:     string(taskSchedule.ExecutionMode),
 			Kind:              string(taskSchedule.Kind),
 			IntervalSecond:    taskSchedule.IntervalSecond,
@@ -156,6 +375,64 @@ func taskScheduleListItems(taskSchedules []task.TaskSchedule) []taskScheduleList
 		})
 	}
 	return items
+}
+
+func taskScheduleKind(value string) task.TaskScheduleKind {
+	switch strings.TrimSpace(value) {
+	case string(task.TaskScheduleKindInterval):
+		return task.TaskScheduleKindInterval
+	case string(task.TaskScheduleKindCron):
+		return task.TaskScheduleKindCron
+	default:
+		return task.TaskScheduleKindOnce
+	}
+}
+
+func taskScheduleTimeZone(value string) (string, error) {
+	timeZone := strings.TrimSpace(value)
+	if timeZone == "" {
+		timeZone = "Asia/Seoul"
+	}
+	if _, errorValue := time.LoadLocation(timeZone); errorValue != nil {
+		return "", errTaskScheduleTimeZoneInvalid
+	}
+	return timeZone, nil
+}
+
+func taskScheduleRunAt(value string) (*time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	runAt, errorValue := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if errorValue != nil {
+		return nil, errTaskScheduleRunAtInvalid
+	}
+	return &runAt, nil
+}
+
+func taskScheduleExpiresAt(value string) (*time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
+	}
+	expiresAt, errorValue := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if errorValue != nil || !expiresAt.After(time.Now().UTC()) {
+		return nil, errTaskScheduleExpiresAtInvalid
+	}
+	expiresAt = expiresAt.UTC()
+	return &expiresAt, nil
+}
+
+func validateTaskScheduleRepeatPolicy(taskSchedule task.TaskSchedule, repeatPolicy *string) error {
+	if taskSchedule.Kind != task.TaskScheduleKindInterval && taskSchedule.Kind != task.TaskScheduleKindCron {
+		return nil
+	}
+	if taskSchedule.MaxRunCount > 0 || taskSchedule.ExpiresAt != nil {
+		return nil
+	}
+	if repeatPolicy != nil && strings.TrimSpace(*repeatPolicy) == "unbounded" {
+		return nil
+	}
+	return errTaskScheduleRepeatPolicyRequired
 }
 
 func parseBoolQuery(value string) bool {
