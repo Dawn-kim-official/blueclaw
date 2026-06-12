@@ -15,6 +15,7 @@ import (
 const DefaultOpenRouterChatCompletionsURL = "https://openrouter.ai/api/v1/chat/completions"
 const openRouterErrorBodyMaximumCharacters = 600
 const openRouterStructuredResponseRetryInstruction = "respond with ONLY a single valid JSON object matching the schema, no prose, no markdown"
+const openRouterStructuredSchemaInstructionPrefix = "Respond with ONLY a single JSON object that validates against this JSON Schema (no prose, no markdown): "
 
 type OpenRouterClient struct {
 	APIKey         string
@@ -92,9 +93,10 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 		return StructuredResponse{}, errorValue
 	}
 	modelName := client.modelName()
+	messages := appendOpenRouterStructuredSchemaInstruction(openRouterMessages(modelName, request.Messages), modelName, schemaDocument)
 	openRouterStructuredRequest := openRouterRequest{
 		Model:       modelName,
-		Messages:    openRouterMessages(modelName, request.Messages),
+		Messages:    messages,
 		Stream:      false,
 		Seed:        request.GenerationOptions.Seed,
 		Temperature: request.GenerationOptions.Temperature,
@@ -116,7 +118,7 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 	if firstContentError == nil {
 		return openRouterStructuredResponse(modelName, response, content), nil
 	}
-	retryRequest := openRouterStructuredRetryRequest(openRouterStructuredRequest, openRouterResponseContent(response))
+	retryRequest := openRouterStructuredRetryRequest(openRouterStructuredRequest, openRouterResponseContent(response), modelName, schemaDocument)
 	retryResponse, errorValue := client.send(responseContext, retryRequest)
 	if errorValue != nil {
 		return StructuredResponse{}, errors.New("openrouter structured response was not valid json before retry: " + openRouterStructuredResponseErrorSummary(response, content, firstContentError) + "; retry request failed: " + errorValue.Error())
@@ -260,6 +262,42 @@ func openRouterMessages(modelName string, messages []Message) []openRouterMessag
 	return result
 }
 
+func appendOpenRouterStructuredSchemaInstruction(messages []openRouterMessage, modelName string, schemaDocument json.RawMessage) []openRouterMessage {
+	result := make([]openRouterMessage, 0, len(messages)+1)
+	lastUserMessageIndex := -1
+	for messageIndex, message := range messages {
+		if strings.TrimSpace(message.Role) == "user" {
+			lastUserMessageIndex = messageIndex
+		}
+	}
+	for messageIndex, message := range messages {
+		result = appendMergedOpenRouterMessage(result, message)
+		if messageIndex == lastUserMessageIndex {
+			result = appendMergedOpenRouterMessage(result, openRouterStructuredSchemaInstructionMessage(modelName, schemaDocument))
+		}
+	}
+	if lastUserMessageIndex == -1 {
+		result = appendMergedOpenRouterMessage(result, openRouterStructuredSchemaInstructionMessage(modelName, schemaDocument))
+	}
+	return result
+}
+
+func openRouterStructuredSchemaInstructionMessage(modelName string, schemaDocument json.RawMessage) openRouterMessage {
+	role := openRouterMessageRole(modelName, "system")
+	message := openRouterMessage{
+		Role:    role,
+		Content: openRouterStructuredSchemaInstruction(schemaDocument),
+	}
+	if role != "system" {
+		message.Content = openRouterInstructionContent("system", message.Content)
+	}
+	return message
+}
+
+func openRouterStructuredSchemaInstruction(schemaDocument json.RawMessage) string {
+	return openRouterStructuredSchemaInstructionPrefix + string(schemaDocument)
+}
+
 func openRouterMessageRole(modelName string, role string) string {
 	normalizedModelName := strings.ToLower(strings.TrimSpace(modelName))
 	normalizedRole := strings.ToLower(strings.TrimSpace(role))
@@ -349,11 +387,12 @@ func openRouterStructuredResponse(modelName string, response openRouterResponse,
 	}
 }
 
-func openRouterStructuredRetryRequest(request openRouterRequest, returnedContent string) openRouterRequest {
+func openRouterStructuredRetryRequest(request openRouterRequest, returnedContent string, modelName string, schemaDocument json.RawMessage) openRouterRequest {
 	retryRequest := request
 	retryRequest.Messages = append([]openRouterMessage{}, request.Messages...)
 	retryRequest.Messages = append(retryRequest.Messages, openRouterMessage{Role: "assistant", Content: returnedContent})
 	retryRequest.Messages = append(retryRequest.Messages, openRouterMessage{Role: "user", Content: openRouterStructuredResponseRetryInstruction})
+	retryRequest.Messages = appendOpenRouterStructuredSchemaInstruction(retryRequest.Messages, modelName, schemaDocument)
 	return retryRequest
 }
 
