@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/policy"
 )
 
 func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
@@ -452,5 +453,92 @@ func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
 	}
 	if len(resultDocument.Skills) != 2 || resultDocument.Skills[0].Name != "mail" || resultDocument.Skills[1].Name != "site-prototype" {
 		t.Fatalf("expected full skill roster, got %+v", resultDocument.Skills)
+	}
+}
+
+func TestSkillSearchToolNameLookupReturnsPromptBody(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
+			Name:         "site-prototype",
+			Description:  "Create sites.",
+			Prompt:       "Build the site, verify it, and attach promoted outputs.",
+			AllowedTools: []string{"site.app.create"},
+			Source:       agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+		}}}
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.search",
+		Input:    agent.MarshalToolInput(map[string]any{"name": "SITE-PROTOTYPE"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected skill.search success, got %s", result.ContentText())
+	}
+	var resultDocument agent.SkillSearchResult
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Prompt != "Build the site, verify it, and attach promoted outputs." {
+		t.Fatalf("expected prompt body in name lookup, got %+v", resultDocument.Skills)
+	}
+	if resultDocument.Skills[0].SourcePath != "skills/site-prototype/SKILL.md" {
+		t.Fatalf("expected source path, got %+v", resultDocument.Skills[0])
+	}
+}
+
+func TestSkillSearchToolNameLookupHiddenSkillReturnsNotFound(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
+			Name:        "visible-skill",
+			Description: "Visible skill.",
+			Prompt:      "Visible instructions.",
+		}}}
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.search",
+		Input:    agent.MarshalToolInput(map[string]any{"name": "hidden-skill"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+		t.Fatalf("expected hidden skill to be not found, got %+v", result)
+	}
+}
+
+func TestSkillSearchToolHidesCircleHiddenSkillsFromList(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
+		return agent.InstructionBundle{Skills: []agent.SkillInstruction{
+			{Name: "mail", Description: "Email skill."},
+			{Name: "hr-review", Description: "HR review skill.", Prompt: "Confidential flow.", HiddenFromCircles: []string{"staff"}},
+		}}
+	})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:  "default",
+		PersonAccess: policy.PersonAccess{Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "skill.search",
+		Input:    agent.MarshalToolInput(map[string]any{}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	var resultDocument agent.SkillSearchResult
+	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Name != "mail" {
+		t.Fatalf("expected circle-hidden skill to be excluded from list, got %+v", resultDocument.Skills)
 	}
 }

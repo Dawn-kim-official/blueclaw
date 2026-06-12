@@ -17,6 +17,7 @@ import (
 const maximumSkillNameLength = 64
 const weakDescriptionRuneCount = 40
 const longSkillBodyLineCount = 500
+const maximumSkillSearchPromptLength = 20000
 
 var skillNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
@@ -420,28 +421,35 @@ func isImmutableSkillPath(workspaceRootPath string, path string) bool {
 type skillSearchToolInput struct {
 	Queries []agent.SkillSearchQuery `json:"queries"`
 	Limit   int                      `json:"limit"`
+	Name    string                   `json:"name"`
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerSkillSearchTool(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) {
 	if toolCatalogBuilder.skillRetriever == nil || toolCatalogBuilder.instructionBundleLoader == nil {
 		return
 	}
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillSearchToolInput, agent.SkillSearchResult]{
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[skillSearchToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "skill.search",
-			Description: "Search available Blueclaw skills by concise skill-need descriptions. Call with no queries to list every available skill, for example when asked what you can do.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"number"}}}`),
+			Description: "Search available Blueclaw skills by concise skill-need descriptions. Call with no queries to list every available skill, for example when asked what you can do. Call with name to fetch one visible skill by exact name and include its full instructions in prompt.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}},"limit":{"type":"number"},"name":{"type":"string"}}}`),
 		},
-		Handler: func(toolContext context.Context, input skillSearchToolInput) (agent.SkillSearchResult, error) {
+		Handler: func(toolContext context.Context, input skillSearchToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.searchSkills(toolContext, input, handlerContext, availableToolSet)
 		},
+		Result: agent.IdentityToolResult,
 	})
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) (agent.SkillSearchResult, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.Context, input skillSearchToolInput, handlerContext toolHandlerContext, availableToolSet *agent.ToolSet) (agent.ToolResult, error) {
 	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
+	if strings.TrimSpace(input.Name) != "" {
+		return skillSearchNameLookupResult(instructionBundle.Skills, input.Name), nil
+	}
+	visibleSkillInstructions := agent.VisibleSkillInstructionsForRequester(instructionBundle.Skills, handlerContext.request.PersonAccess.Circles)
 	if !hasSkillSearchQuery(input.Queries) {
-		return listAllSkills(instructionBundle.Skills), nil
+		result := listAllSkills(visibleSkillInstructions)
+		return agent.ToolSuccess(marshalToolResult(result)), nil
 	}
 	limit := input.Limit
 	if limit <= 0 || limit > 8 {
@@ -455,9 +463,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) searchSkills(toolContext context.C
 		RequesterName:     handlerContext.request.RequesterName,
 		ToolSet:           availableToolSet,
 	}
-	retrievalResult := toolCatalogBuilder.skillRetriever.Search(toolContext, agentRequest, instructionBundle.Skills, agent.SkillSearchQuerySet{Queries: input.Queries}, limit)
-	retrievalResult = includeExactSkillNameMatches(instructionBundle.Skills, input.Queries, retrievalResult)
-	return skillSearchResult(instructionBundle.Skills, retrievalResult), nil
+	retrievalResult := toolCatalogBuilder.skillRetriever.Search(toolContext, agentRequest, visibleSkillInstructions, agent.SkillSearchQuerySet{Queries: input.Queries}, limit)
+	retrievalResult = includeExactSkillNameMatches(visibleSkillInstructions, input.Queries, retrievalResult)
+	result := skillSearchResult(visibleSkillInstructions, retrievalResult)
+	return agent.ToolSuccess(marshalToolResult(result)), nil
 }
 
 func hasSkillSearchQuery(queries []agent.SkillSearchQuery) bool {
@@ -482,6 +491,46 @@ func listAllSkills(skillInstructions []agent.SkillInstruction) agent.SkillSearch
 		})
 	}
 	return agent.SkillSearchResult{Skills: items}
+}
+
+func skillSearchNameLookupResult(skillInstructions []agent.SkillInstruction, name string) agent.ToolResult {
+	skillInstruction, isFound := findSkillInstructionByName(skillInstructions, name)
+	if !isFound {
+		return agent.ToolFailureResult(agent.FailureNotFound, agent.FailureCodes.NotFound, "skill_search", "visible skill was not found")
+	}
+	result := agent.SkillSearchResult{Skills: []agent.SkillSearchResultItem{{
+		Name:        skillInstruction.Name,
+		Description: skillInstruction.Description,
+		Prompt:      truncatedSkillSearchPrompt(skillInstruction.Prompt),
+		Score:       1,
+		Tools:       append([]string{}, skillInstruction.AllowedTools...),
+		SourcePath:  skillInstruction.Source.Path,
+		Completion:  skillInstruction.Completion,
+	}}}
+	return agent.ToolSuccess(marshalToolResult(result))
+}
+
+func findSkillInstructionByName(skillInstructions []agent.SkillInstruction, name string) (agent.SkillInstruction, bool) {
+	trimmedName := strings.TrimSpace(name)
+	for _, skillInstruction := range skillInstructions {
+		if strings.TrimSpace(skillInstruction.Name) == trimmedName {
+			return skillInstruction, true
+		}
+	}
+	for _, skillInstruction := range skillInstructions {
+		if strings.EqualFold(strings.TrimSpace(skillInstruction.Name), trimmedName) {
+			return skillInstruction, true
+		}
+	}
+	return agent.SkillInstruction{}, false
+}
+
+func truncatedSkillSearchPrompt(prompt string) string {
+	characters := []rune(prompt)
+	if len(characters) <= maximumSkillSearchPromptLength {
+		return prompt
+	}
+	return string(characters[:maximumSkillSearchPromptLength]) + "\n\n[skill.search truncated prompt at 20000 characters]"
 }
 
 func includeExactSkillNameMatches(skillInstructions []agent.SkillInstruction, queries []agent.SkillSearchQuery, retrievalResult agent.SkillRetrievalResult) agent.SkillRetrievalResult {
