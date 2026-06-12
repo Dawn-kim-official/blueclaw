@@ -807,6 +807,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusResult(toolConte
 	if errorValue := json.Unmarshal(*result, &document); errorValue != nil {
 		return nil, errorValue
 	}
+	if siteStatus, _ := document["status"].(string); strings.TrimSpace(siteStatus) != "published" {
+		delete(document, "publishedURL")
+	}
 	sourceWorkspacePath, _ := document["sourceWorkspacePath"].(string)
 	if strings.TrimSpace(sourceWorkspacePath) == "" {
 		return nil, nil
