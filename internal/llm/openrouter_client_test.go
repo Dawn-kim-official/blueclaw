@@ -99,6 +99,13 @@ func TestOpenRouterClientRetriesStructuredProseWithJSONInstruction(t *testing.T)
 	if len(requestDocuments) != 2 {
 		t.Fatalf("expected two requests, got %d", len(requestDocuments))
 	}
+	schemaText := `"additionalProperties":false`
+	if !openRouterTestMessagesContainText(requestDocuments[0].Messages, schemaText) {
+		t.Fatalf("expected first request schema instruction, got %+v", requestDocuments[0].Messages)
+	}
+	if !openRouterTestMessagesContainText(requestDocuments[1].Messages, schemaText) {
+		t.Fatalf("expected retry request schema instruction, got %+v", requestDocuments[1].Messages)
+	}
 	retryMessages := requestDocuments[1].Messages
 	if len(retryMessages) != 3 {
 		t.Fatalf("expected retry conversation messages, got %+v", retryMessages)
@@ -106,7 +113,8 @@ func TestOpenRouterClientRetriesStructuredProseWithJSONInstruction(t *testing.T)
 	if retryMessages[1].Role != "assistant" || retryMessages[1].Content != "회의록은 결정과 실행 과제를 담아야 합니다." {
 		t.Fatalf("expected assistant prose in retry conversation, got %+v", retryMessages[1])
 	}
-	if retryMessages[2].Role != "user" || retryMessages[2].Content != openRouterStructuredResponseRetryInstruction {
+	retryInstruction, isText := retryMessages[2].Content.(string)
+	if retryMessages[2].Role != "user" || !isText || !strings.Contains(retryInstruction, openRouterStructuredResponseRetryInstruction) {
 		t.Fatalf("expected retry instruction, got %+v", retryMessages[2])
 	}
 }
@@ -313,6 +321,16 @@ func writeOpenRouterTestContent(t *testing.T, responseWriter http.ResponseWriter
 	if errorValue := json.NewEncoder(responseWriter).Encode(responseDocument); errorValue != nil {
 		t.Fatalf("expected response document to encode: %v", errorValue)
 	}
+}
+
+func openRouterTestMessagesContainText(messages []openRouterMessage, expectedText string) bool {
+	for _, message := range messages {
+		content, isText := message.Content.(string)
+		if isText && strings.Contains(content, expectedText) {
+			return true
+		}
+	}
+	return false
 }
 
 func openRouterTestResponse(statusCode int, body string) *http.Response {
