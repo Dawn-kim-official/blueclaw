@@ -790,12 +790,12 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		Turns: []VirtualTurn{{
 			Prompt: "둘 중 하나 고르게 해줘",
 			ActionResponses: []string{
-				actionCallTool("ask.choice", `{"question":"어느 쪽으로 진행할까요?","options":["첫 번째","두 번째"],"recommendedOptionKey":"1","selectionMode":"single"}`),
+				actionCallTool("ask.choice", `{"question":"어느 쪽으로 진행할까요?","options":[{"key":"1","label":"첫 번째","shortLabel":"첫 번째"},{"key":"2","label":"두 번째"}],"recommendedOptionKey":"1","selectionMode":"single"}`),
 			},
 			ExpectedToolCalls:      []string{"ask.choice"},
 			ExpectedEvents:         []string{"ask.requested"},
 			ExpectedReplyFragments: []string{"어느 쪽으로 진행할까요?"},
-			ExpectedModelContexts:  []string{`"options":{"items":{"type":"string"},"type":"array"}`, `"recommendedOptionKey"`},
+			ExpectedModelContexts:  []string{`"shortLabel":{"description":"버튼에 표시할 1~3단어 단답; label은 본문에 길게 설명 가능","type":"string"}`, `"recommendedOptionKey"`},
 		}, {
 			Prompt: "2",
 			ActionResponses: []string{

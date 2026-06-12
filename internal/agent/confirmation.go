@@ -49,9 +49,10 @@ type ChoiceReplyRequest struct {
 }
 
 type ChoiceReplyOption struct {
-	Key   string `json:"key"`
-	Label string `json:"label"`
-	Value string `json:"value,omitempty"`
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	ShortLabel string `json:"shortLabel,omitempty"`
+	Value      string `json:"value,omitempty"`
 }
 
 type ChoiceReplyDecision struct {

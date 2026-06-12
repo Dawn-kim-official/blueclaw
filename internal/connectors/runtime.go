@@ -123,9 +123,10 @@ type AskInteraction struct {
 }
 
 type AskChoiceOption struct {
-	Key   string `json:"key"`
-	Label string `json:"label"`
-	Value string `json:"value,omitempty"`
+	Key        string `json:"key"`
+	Label      string `json:"label"`
+	ShortLabel string `json:"shortLabel,omitempty"`
+	Value      string `json:"value,omitempty"`
 }
 
 func (reply OutboundReply) MarshalJSON() ([]byte, error) {
@@ -1283,9 +1284,10 @@ func choiceReplyOptions(options []AskChoiceOption) []agent.ChoiceReplyOption {
 	replyOptions := []agent.ChoiceReplyOption{}
 	for _, option := range options {
 		replyOptions = append(replyOptions, agent.ChoiceReplyOption{
-			Key:   strings.TrimSpace(option.Key),
-			Label: strings.TrimSpace(option.Label),
-			Value: strings.TrimSpace(option.Value),
+			Key:        strings.TrimSpace(option.Key),
+			Label:      strings.TrimSpace(option.Label),
+			ShortLabel: strings.TrimSpace(option.ShortLabel),
+			Value:      strings.TrimSpace(option.Value),
 		})
 	}
 	return replyOptions
