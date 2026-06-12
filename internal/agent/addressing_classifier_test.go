@@ -14,7 +14,7 @@ func TestAddressingClassificationSchemaOmitsReasonByDefault(t *testing.T) {
 	if containsAny(schema.Document, []string{"reason", "addressingClass"}) {
 		t.Fatalf("expected compact addressing schema without reason or legacy field, got %s", schema.Document)
 	}
-	for _, fragment := range []string{"target", "shouldReply", "bot", "human", "anyone", "none", "unclear"} {
+	for _, fragment := range []string{"target", "shouldReply", "dutyMatch", "dutyName", "dutyConfidence", "bot", "human", "anyone", "none", "unclear"} {
 		if !strings.Contains(schema.Document, fragment) {
 			t.Fatalf("expected addressing schema to contain %q, got %s", fragment, schema.Document)
 		}
@@ -24,7 +24,7 @@ func TestAddressingClassificationSchemaOmitsReasonByDefault(t *testing.T) {
 func TestAddressingClassificationSchemaIncludesReasonOnlyForDebug(t *testing.T) {
 	schema := addressingClassificationSchema(true)
 
-	for _, fragment := range []string{"target", "shouldReply", "reason"} {
+	for _, fragment := range []string{"target", "shouldReply", "dutyMatch", "dutyName", "dutyConfidence", "reason"} {
 		if !strings.Contains(schema.Document, fragment) {
 			t.Fatalf("expected debug addressing schema to contain %q, got %s", fragment, schema.Document)
 		}
@@ -34,7 +34,7 @@ func TestAddressingClassificationSchemaIncludesReasonOnlyForDebug(t *testing.T) 
 func TestAddressingClassificationPromptGuidesHumanDirectedAcknowledgements(t *testing.T) {
 	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "네 확인해볼게요"})
 
-	for _, fragment := range []string{"target=human", "shouldReply=false", "short acknowledgement", "human-directed message"} {
+	for _, fragment := range []string{"target=human", "shouldReply=false", "short acknowledgement", "human-directed message", "calendar_upkeep", "dutyMatch=true"} {
 		if !strings.Contains(prompt, fragment) {
 			t.Fatalf("expected addressing prompt to contain %q, got %s", fragment, prompt)
 		}
@@ -44,7 +44,7 @@ func TestAddressingClassificationPromptGuidesHumanDirectedAcknowledgements(t *te
 func TestAddressingClassificationOverridesHumanShouldReply(t *testing.T) {
 	agentKernel := NewAgentKernel(nil, nil)
 	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
-		content: `{"target":"human","shouldReply":true}`,
+		content: `{"target":"human","shouldReply":true,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
 	})
 
 	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "네 확인해볼게요"})
@@ -56,6 +56,21 @@ func TestAddressingClassificationOverridesHumanShouldReply(t *testing.T) {
 	}
 	if decision.ShouldReply {
 		t.Fatalf("expected human target to override shouldReply=false, got %+v", decision)
+	}
+}
+
+func TestAddressingClassificationReturnsAmbientDutyFields(t *testing.T) {
+	agentKernel := NewAgentKernel(nil, nil)
+	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
+		content: `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":1.2}`,
+	})
+
+	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "오늘 5시 회의"})
+	if errorValue != nil {
+		t.Fatalf("expected addressing classification: %v", errorValue)
+	}
+	if !decision.DutyMatch || decision.DutyName != "calendar_upkeep" || decision.DutyConfidence != 1 {
+		t.Fatalf("expected normalized duty fields, got %+v", decision)
 	}
 }
 

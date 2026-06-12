@@ -20,6 +20,7 @@ type ConversationTurn struct {
 	ActiveGoal                agent.ActiveGoal
 	HasActiveGoal             bool
 	PrecomputedTurnDecision   *agent.TurnDecision
+	AmbientDuty               agent.AmbientDutyContext
 	CheckpointSender          agent.AgentCheckpointSender
 	AccessibleConversationIDs []string
 }
@@ -57,6 +58,7 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		VisibleContext:             event.Context.ToAgentVisibleContext(),
 		ActiveGoal:                 activeGoalForLaunch(turn.ActiveGoal, turn.HasActiveGoal),
 		PrecomputedTurnDecision:    turn.PrecomputedTurnDecision,
+		AmbientDuty:                turn.AmbientDuty,
 		HistoryProvider:            connectorHistoryProvider{adapter: turn.Adapter},
 		AttachmentMaterialResolver: attachmentMaterialResolver,
 		PersonAccess:               turn.PersonAccess,

@@ -28,15 +28,32 @@ type AddressingClassificationRequest struct {
 }
 
 type AddressingDecision struct {
-	Target      AddressingTarget
-	ShouldReply bool
-	Reason      string
+	Target         AddressingTarget
+	ShouldReply    bool
+	Reason         string
+	DutyMatch      bool
+	DutyName       string
+	DutyConfidence float64
 }
 
 type addressingClassificationDocument struct {
-	Target      AddressingTarget `json:"target"`
-	ShouldReply bool             `json:"shouldReply"`
-	Reason      string           `json:"reason,omitempty"`
+	Target         AddressingTarget `json:"target"`
+	ShouldReply    bool             `json:"shouldReply"`
+	DutyMatch      bool             `json:"dutyMatch"`
+	DutyName       string           `json:"dutyName"`
+	DutyConfidence float64          `json:"dutyConfidence"`
+	Reason         string           `json:"reason,omitempty"`
+}
+
+type StandingDutySeed struct {
+	Name        string
+	Description string
+}
+
+var AddressingStandingDutySeeds = []StandingDutySeed{
+	{Name: "calendar_upkeep", Description: "meeting and schedule announcements that should become or update calendar events"},
+	{Name: "attendance_notice", Description: "attendance additions, removals, absences, or participant changes"},
+	{Name: "team_flow_update", Description: "team task, project flow, handoff, or operating updates that should be tracked"},
 }
 
 func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request AddressingClassificationRequest) (AddressingDecision, error) {
@@ -60,8 +77,15 @@ func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request 
 		return AddressingDecision{}, errors.New("invalid addressing target")
 	}
 	decision := AddressingDecision{
-		Target:      document.Target,
-		ShouldReply: document.ShouldReply,
+		Target:         document.Target,
+		ShouldReply:    document.ShouldReply,
+		DutyMatch:      document.DutyMatch,
+		DutyName:       strings.TrimSpace(document.DutyName),
+		DutyConfidence: normalizedDutyConfidence(document.DutyConfidence),
+	}
+	if !decision.DutyMatch {
+		decision.DutyName = ""
+		decision.DutyConfidence = 0
 	}
 	if decision.Target == AddressingTargetHuman {
 		decision.ShouldReply = false
@@ -95,14 +119,23 @@ func addressingClassificationPrompt(request AddressingClassificationRequest) str
 		"- none: the latest message has no response target",
 		"- unclear: there is not enough evidence",
 		"Set shouldReply=true only when the assistant should visibly handle the latest message with text, a tool action, a clarification, or an emoji reaction.",
-		"Set shouldReply=false for messages intended for another human, ambient messages, or unclear target.",
+		"Set shouldReply=false for messages intended for another human, non-duty ambient messages, or unclear target.",
+		"Standing duties:",
+	}
+	for _, duty := range AddressingStandingDutySeeds {
+		lines = append(lines, "- "+duty.Name+": "+duty.Description)
+	}
+	lines = append(lines,
+		"Set dutyMatch=true when the latest message carries actionable work matching one standing duty, even when it is not addressed to the assistant.",
+		"Set dutyName to the exact standing duty name, or empty string when there is no match.",
+		"Set dutyConfidence from 0 to 1 using the evidence in the latest message and context.",
 		"If the latest message is a short acknowledgement such as \"네\", \"확인해볼게요\", \"좋아요\", or \"고마워\" and recent context shows it follows a human-directed message, choose target=human and shouldReply=false.",
 		"Only choose target=bot when the assistant is explicitly addressed, the latest message answers the assistant's own question, or recent context clearly makes the assistant the intended responder.",
-		"conversationType: " + strings.TrimSpace(request.ConversationType),
-		"senderName: " + strings.TrimSpace(request.SenderName),
-		"senderHandle: " + strings.TrimSpace(request.SenderHandle),
-		"message: " + strings.TrimSpace(request.Prompt),
-	}
+		"conversationType: "+strings.TrimSpace(request.ConversationType),
+		"senderName: "+strings.TrimSpace(request.SenderName),
+		"senderHandle: "+strings.TrimSpace(request.SenderHandle),
+		"message: "+strings.TrimSpace(request.Prompt),
+	)
 	for _, message := range recentVisibleMessages(request.VisibleContext.Messages, 6) {
 		speaker := firstNonEmptyAddressingText(message.SpeakerCallingName, message.Speaker, message.SpeakerHandle, "unknown")
 		lines = append(lines, "context: "+speaker+": "+strings.TrimSpace(message.Text))
@@ -127,9 +160,9 @@ func firstNonEmptyAddressingText(values ...string) string {
 }
 
 func addressingClassificationSchema(includeReason bool) llm.StructuredOutputSchema {
-	document := `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldReply":{"type":"boolean"}},"required":["target","shouldReply"],"additionalProperties":false}`
+	document := `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldReply":{"type":"boolean"},"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"}},"required":["target","shouldReply","dutyMatch","dutyName","dutyConfidence"],"additionalProperties":false}`
 	if includeReason {
-		document = `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldReply":{"type":"boolean"},"reason":{"type":"string"}},"required":["target","shouldReply","reason"],"additionalProperties":false}`
+		document = `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldReply":{"type":"boolean"},"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"},"reason":{"type":"string"}},"required":["target","shouldReply","dutyMatch","dutyName","dutyConfidence","reason"],"additionalProperties":false}`
 	}
 	return llm.StructuredOutputSchema{
 		Name:               "blueclaw_addressing_classification",
@@ -144,4 +177,14 @@ func isValidAddressingTarget(target AddressingTarget) bool {
 		return true
 	}
 	return false
+}
+
+func normalizedDutyConfidence(confidence float64) float64 {
+	if confidence < 0 {
+		return 0
+	}
+	if confidence > 1 {
+		return 1
+	}
+	return confidence
 }
