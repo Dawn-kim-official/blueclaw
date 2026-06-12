@@ -10,6 +10,7 @@ import (
 
 	"blueclaw/internal/capability"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/task"
 )
 
 func TestSlidesScenarioDoesNotScriptToolCalls(t *testing.T) {
@@ -81,6 +82,43 @@ func TestMemoryGuidedFollowup(t *testing.T) {
 	}
 	if strings.Contains(secondTurn.FinishMessage, "아까") {
 		t.Fatalf("expected concrete recalled preference, got %q", secondTurn.FinishMessage)
+	}
+}
+
+func TestPlainQuestionAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), PlainQuestionAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected plain question acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
+	}
+	turnResult := result.TurnResults[0]
+	if strings.TrimSpace(turnResult.FinishMessage) == "" {
+		t.Fatal("expected non-empty final reply")
+	}
+	if toolEventCount(turnResult.Events) != 0 {
+		t.Fatalf("expected no tool events, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if failureEventCount(turnResult.Events) != 0 {
+		t.Fatalf("expected no failure events, got events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
+func TestWebSearchAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), WebSearchAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected web search acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
+	}
+	turnResult := result.TurnResults[0]
+	if countEvents(turnResult.Events, "tool.web.search.requested") != 1 {
+		t.Fatalf("expected one web.search request, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !strings.Contains(turnResult.FinishMessage, "BlueclawSearchStubToken") {
+		t.Fatalf("expected final reply to contain search stub token, got %q", turnResult.FinishMessage)
 	}
 }
 
@@ -248,4 +286,25 @@ func truthyEnvironmentValue(value string) bool {
 	default:
 		return false
 	}
+}
+
+func toolEventCount(events []task.TaskEvent) int {
+	count := 0
+	for _, event := range events {
+		if strings.HasPrefix(event.Name, "tool.") {
+			count++
+		}
+	}
+	return count
+}
+
+func failureEventCount(events []task.TaskEvent) int {
+	count := 0
+	for _, event := range events {
+		normalizedName := strings.ToLower(event.Name)
+		if strings.Contains(normalizedName, "fail") || strings.Contains(normalizedName, "error") {
+			count++
+		}
+	}
+	return count
 }
