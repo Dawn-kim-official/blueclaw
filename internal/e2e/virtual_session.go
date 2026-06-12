@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"blueclaw/internal/agent"
+	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
@@ -130,6 +131,12 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath), nil
 	case "calendar_event_lifecycle_acceptance":
 		return CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath), nil
+	case "skill_lifecycle_acceptance":
+		return SkillLifecycleAcceptanceScenario(artifactDirectoryPath), nil
+	case "capability_question_acceptance":
+		return CapabilityQuestionAcceptanceScenario(artifactDirectoryPath), nil
+	case "task_history_question_acceptance":
+		return TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath), nil
 	case "one_time_schedule_acceptance":
 		return OneTimeScheduleAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_prototype_acceptance":
@@ -201,10 +208,10 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultEffortLevel: agent.EffortLevelStandard})
 	agentKernel.UseTurnOptions(agent.TurnOptions{MaxIterationCount: 20, MaxToolCallCount: 16, MaxElapsedSecond: 120})
-	agentKernel.UseInstructionBundleLoader(func() agent.InstructionBundle {
-		return agent.InstructionBundle{Skills: append([]agent.SkillInstruction{}, skillInstructions...)}
-	})
-	agentKernel.UseSkillRetriever(agent.NewEmbeddingSkillRetriever(virtualSkillEmbeddingProvider{}, ""))
+	instructionBundleLoader := virtualInstructionBundleLoader(skillInstructions, workspacePath)
+	skillRetriever := agent.NewEmbeddingSkillRetriever(virtualSkillEmbeddingProvider{}, "")
+	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
+	agentKernel.UseSkillRetriever(skillRetriever)
 
 	identityService := identity.NewIdentityService(testPolicyProjection())
 	runtime := connectors.NewConnectorRuntime(identityService, agentKernel, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
@@ -220,8 +227,10 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	scheduleStore := &virtualTaskScheduleRepository{}
 	runtime.UseTaskScheduleRepository(scheduleStore)
 	cleanup := func() {}
+	var capabilityClient capability.Client
 	if len(scenario.CapabilityToolNames) > 0 {
-		capabilityClient, capabilityCleanup := startVirtualCapabilityServer(scenario.CapabilityToolNames)
+		var capabilityCleanup func()
+		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(scenario.CapabilityToolNames)
 		runtime.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
 		cleanup = capabilityCleanup
 	}
@@ -231,6 +240,19 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	memoryService.UseGraphStore(memoryStore)
 	runtime.UseMemoryService(memoryService)
 	runtime.UseGraphitiIngestionRouter(memory.NewGraphitiIngestionRouter(nil, "e2e"))
+	toolCatalogBuilder := virtualToolCatalogBuilder(
+		scenario,
+		workspacePath,
+		taskRunService,
+		scheduleStore,
+		terminalService,
+		memoryService,
+		capabilityClient,
+		skillRetriever,
+		instructionBundleLoader,
+		agentKernel,
+	)
+	runtime.UseTaskLauncher(agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder))
 
 	return &VirtualSessionHarness{
 		scenario:         scenario,
@@ -244,6 +266,64 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		adapter:          adapter,
 		cleanup:          cleanup,
 	}, nil
+}
+
+func virtualInstructionBundleLoader(baseSkillInstructions []agent.SkillInstruction, workspacePath string) func() agent.InstructionBundle {
+	return func() agent.InstructionBundle {
+		skillInstructions := append([]agent.SkillInstruction{}, baseSkillInstructions...)
+		skillInstructions = append(skillInstructions, loadVirtualUserManagedSkills(workspacePath)...)
+		return agent.InstructionBundle{Skills: skillInstructions}
+	}
+}
+
+func loadVirtualUserManagedSkills(workspacePath string) []agent.SkillInstruction {
+	userManagedSkillRootPath := filepath.Join(workspacePath, ".agents", "skills")
+	entries, errorValue := os.ReadDir(userManagedSkillRootPath)
+	if errorValue != nil {
+		return nil
+	}
+	skillInstructions := []agent.SkillInstruction{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		skillBundle, errorValue := (skill.SkillLoader{}).LoadSkillBundle(filepath.Join(userManagedSkillRootPath, entry.Name()))
+		if errorValue != nil {
+			continue
+		}
+		skillInstructions = append(skillInstructions, skillInstructionFromBundle(skillBundle))
+	}
+	return skillInstructions
+}
+
+func virtualToolCatalogBuilder(
+	scenario VirtualSessionScenario,
+	workspacePath string,
+	taskRunService *task.TaskRunService,
+	scheduleStore *virtualTaskScheduleRepository,
+	terminalService *security.TerminalSessionService,
+	memoryService *memory.MemoryService,
+	capabilityClient capability.Client,
+	skillRetriever agent.SkillRetriever,
+	instructionBundleLoader func() agent.InstructionBundle,
+	agentKernel *agent.AgentKernel,
+) *agentruntime.ToolCatalogBuilder {
+	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, allowedToolsOrDefault(scenario.AllowedTools))
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseTerminalService(terminalService)
+	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseTaskScheduleRepository(scheduleStore)
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UseSkillSearch(skillRetriever, instructionBundleLoader)
+	toolCatalogBuilder.UseSkillChangeHandler(func(contextValue context.Context) {
+		agentKernel.RefreshSkillIndex(contextValue, instructionBundleLoader())
+	})
+	if len(scenario.CapabilityToolNames) > 0 {
+		toolCatalogBuilder.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
+	}
+	return toolCatalogBuilder
 }
 
 type virtualSkillEmbeddingProvider struct{}
@@ -1164,6 +1244,14 @@ func actionFinishWithReplyPart(summary string, replyPart string, evidence ...str
 
 func actionNoToolFallbackFinishMessage(reply string) string {
 	return `{"action":"finish","message":` + quote(reply) + `,"completionSummary":` + quote(reply) + `,"replyParts":[{"type":"text","text":` + quote(reply) + `}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[],"failureResolution":"no_tool_fallback"}`
+}
+
+func actionSelectTools(toolNames ...string) string {
+	encodedToolNames := []string{}
+	for _, toolName := range toolNames {
+		encodedToolNames = append(encodedToolNames, quote(toolName))
+	}
+	return `{"action":"select_tools","toolNames":[` + strings.Join(encodedToolNames, ",") + `],"skillNames":[],"reason":"required for the requested task"}`
 }
 
 func actionCallTool(toolName string, input string) string {

@@ -440,6 +440,116 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 	}
 }
 
+func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	skillName := "memo-helper"
+	skillContent := userManagedSkillDocument(skillName)
+	return VirtualSessionScenario{
+		Name:                  "skill_lifecycle_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "skill.add", "skill.remove"},
+		Turns: []VirtualTurn{
+			{
+				Prompt: "간단한 메모 정리 custom skill을 등록해줘",
+				ActionResponses: []string{
+					actionSelectTools("skill.add"),
+					actionCallTool("skill.add", skillAddToolInput(skillName, skillContent)),
+					actionFinishMessage("memo-helper skill을 등록했습니다.", "obs-002:skill.add:0"),
+				},
+				ExpectedToolCalls: []string{"skill.add"},
+				ExpectedToolCallCounts: map[string]int{
+					"skill.add":    1,
+					"skill.remove": 0,
+				},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.skill.add.result", BodyFragment: "created", Count: 1},
+				},
+				ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
+					PathGlob:          ".agents/skills/memo-helper/SKILL.md",
+					ContainsFragments: []string{"name: memo-helper", "Memo helper organizes short notes"},
+				}},
+				ExpectedReplyFragments: []string{"memo-helper", "등록"},
+			},
+			{
+				Prompt: "방금 등록한 memo-helper skill 삭제해줘",
+				ActionResponses: []string{
+					actionSelectTools("skill.remove"),
+					actionCallTool("skill.remove", `{"name":"memo-helper"}`),
+					actionFinishMessage("memo-helper skill을 삭제했습니다.", "obs-002:skill.remove:0"),
+				},
+				ExpectedToolCalls: []string{"skill.remove"},
+				ExpectedToolCallCounts: map[string]int{
+					"skill.add":    0,
+					"skill.remove": 1,
+				},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.skill.remove.result", BodyFragment: "removed", Count: 1},
+				},
+				ExpectedReplyFragments: []string{"memo-helper", "삭제"},
+			},
+		},
+	}
+}
+
+func CapabilityQuestionAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "capability_question_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		Skills:                []agent.SkillInstruction{simpleSlidesSkill(), scheduledTaskSkill(), sitePrototypeSkill()},
+		AllowedTools:          []string{"conversation.history", "memory.search", "skill.search"},
+		Turns: []VirtualTurn{{
+			Prompt: "너는 무엇을 할 수 있어?",
+			ActionResponses: []string{
+				actionCallTool("skill.search", `{}`),
+				actionFinishMessage("사용 가능한 skill에는 simple-slides, scheduled-task, site-prototype이 있습니다.", "obs-001:skill.search:0"),
+			},
+			ExpectedToolCalls: []string{"skill.search"},
+			ExpectedToolCallCounts: map[string]int{
+				"skill.search": 1,
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.skill.search.result", BodyFragment: "simple-slides", Count: 1},
+			},
+			ExpectedReplyFragments: []string{"simple-slides"},
+		}},
+	}
+}
+
+func TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "task_history_question_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "task.history"},
+		Turns: []VirtualTurn{
+			{
+				Prompt: "계약서 확인 요약 작업을 완료했다고 답해줘",
+				ActionResponses: []string{
+					actionFinishMessage("계약서 확인 요약 작업을 완료했습니다."),
+				},
+				ExpectedToolCallCounts: map[string]int{
+					"task.history": 0,
+				},
+				ExpectedReplyFragments: []string{"계약서 확인 요약", "완료"},
+			},
+			{
+				Prompt: "최근에 어떤 작업을 했는지 알려줘",
+				ActionResponses: []string{
+					actionSelectTools("task.history"),
+					actionCallTool("task.history", `{}`),
+					actionFinishMessage("최근에는 계약서 확인 요약 작업을 완료했습니다.", "obs-002:task.history:0"),
+				},
+				ExpectedToolCalls: []string{"task.history"},
+				ExpectedToolCallCounts: map[string]int{
+					"task.history": 1,
+				},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.task.history.result", BodyFragment: "계약서 확인 요약 작업", Count: 1},
+				},
+				ExpectedReplyFragments: []string{"계약서 확인 요약"},
+			},
+		},
+	}
+}
+
 func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "one_time_schedule_acceptance",
@@ -459,6 +569,19 @@ func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 			ExpectedReplyFragments: []string{"2027년 1월 15일", "한 번"},
 		}},
 	}
+}
+
+func skillAddToolInput(skillName string, skillContent string) string {
+	return `{"name":` + quote(skillName) + `,"content":` + quote(skillContent) + `}`
+}
+
+func userManagedSkillDocument(skillName string) string {
+	return `---
+name: ` + skillName + `
+description: Memo helper organizes short notes and extracts action items from source text.
+when_to_use: Use when the user wants notes organized into concise memos.
+---
+Organize notes into concise memos with action items and owners.`
 }
 
 func calendarSkill() agent.SkillInstruction {
