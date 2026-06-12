@@ -22,6 +22,17 @@ type TaskScheduleCancelResult struct {
 	TaskSchedules []TaskSchedule `json:"taskSchedules"`
 }
 
+type TaskScheduleUpdateRequest struct {
+	TaskScheduleID     string
+	RequesterPersonID  string
+	UpdateTaskSchedule func(TaskSchedule) (TaskSchedule, error)
+}
+
+type TaskScheduleUpdateResult struct {
+	TaskSchedule TaskSchedule `json:"taskSchedule"`
+	IsFound      bool         `json:"isFound"`
+}
+
 type TaskScheduleSummary struct {
 	ActiveCount       int        `json:"activeCount"`
 	UnboundedCount    int        `json:"unboundedCount"`
@@ -61,6 +72,7 @@ type TaskScheduleCreatorRepairResult struct {
 
 type TaskScheduleRepository interface {
 	UpsertTaskSchedule(TaskSchedule) error
+	UpdateTaskSchedule(TaskScheduleUpdateRequest) (TaskScheduleUpdateResult, error)
 	ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]TaskSchedule, error)
 	MarkTaskScheduleSucceeded(TaskSchedule) error
 	MarkTaskScheduleFailed(TaskSchedule, string, time.Time) error

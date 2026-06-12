@@ -175,11 +175,8 @@ func TestScheduleLifecycleAcceptance(t *testing.T) {
 	if !eventsContain(firstTurnResult.Events, "schedule.created", `"intervalSecond":1800`) {
 		t.Fatalf("expected initial interval schedule; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "schedule.cancelled", `"cancelledScheduleCount":1`) {
-		t.Fatalf("expected modification to cancel existing schedule; events: %s", summarizeEvents(secondTurnResult.Events))
-	}
-	if !eventsContain(secondTurnResult.Events, "schedule.created", `"intervalSecond":3600`) {
-		t.Fatalf("expected modification to create replacement schedule; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "schedule.updated", `"intervalSecond":3600`) {
+		t.Fatalf("expected modification to update existing schedule; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !eventsContain(thirdTurnResult.Events, "schedule.cancelled", `"cancelledScheduleCount":1`) {
 		t.Fatalf("expected deletion to cancel active schedule; events: %s", summarizeEvents(thirdTurnResult.Events))

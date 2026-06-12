@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -91,6 +92,49 @@ ON CONFLICT (task_schedule_id) DO UPDATE SET
 	return errorValue
 }
 
+func (taskScheduleRepository TaskScheduleRepository) UpdateTaskSchedule(request task.TaskScheduleUpdateRequest) (task.TaskScheduleUpdateResult, error) {
+	taskScheduleID := strings.TrimSpace(request.TaskScheduleID)
+	requesterPersonID := strings.TrimSpace(request.RequesterPersonID)
+	if taskScheduleID == "" || requesterPersonID == "" {
+		return task.TaskScheduleUpdateResult{}, nil
+	}
+	transaction, errorValue := taskScheduleRepository.database.SQL.BeginTx(context.Background(), nil)
+	if errorValue != nil {
+		return task.TaskScheduleUpdateResult{}, errorValue
+	}
+	row := transaction.QueryRowContext(context.Background(), `SELECT `+taskScheduleReturningColumns()+`
+FROM task_schedule
+WHERE task_schedule_id = $1
+  AND creator_person_id = $2
+  AND next_run_at IS NOT NULL
+  AND (expires_at IS NULL OR expires_at > now())
+FOR UPDATE`, taskScheduleID, requesterPersonID)
+	taskSchedule, errorValue := scanTaskSchedule(row)
+	if errors.Is(errorValue, sql.ErrNoRows) {
+		_ = transaction.Rollback()
+		return task.TaskScheduleUpdateResult{}, nil
+	}
+	if errorValue != nil {
+		_ = transaction.Rollback()
+		return task.TaskScheduleUpdateResult{}, errorValue
+	}
+	if request.UpdateTaskSchedule != nil {
+		taskSchedule, errorValue = request.UpdateTaskSchedule(taskSchedule)
+		if errorValue != nil {
+			_ = transaction.Rollback()
+			return task.TaskScheduleUpdateResult{}, errorValue
+		}
+	}
+	if errorValue := updateTaskScheduleWithTransaction(transaction, taskSchedule); errorValue != nil {
+		_ = transaction.Rollback()
+		return task.TaskScheduleUpdateResult{}, errorValue
+	}
+	if errorValue := transaction.Commit(); errorValue != nil {
+		return task.TaskScheduleUpdateResult{}, errorValue
+	}
+	return task.TaskScheduleUpdateResult{TaskSchedule: taskSchedule, IsFound: true}, nil
+}
+
 func (taskScheduleRepository TaskScheduleRepository) ClaimDueTaskSchedules(limit int, leaseDuration time.Duration, referenceTime time.Time, leaseOwner string) ([]task.TaskSchedule, error) {
 	if limit <= 0 {
 		limit = 1
@@ -152,6 +196,63 @@ WHERE task_schedule_id = $5`,
 		taskSchedule.LastRunAt,
 		emptyStringAsNil(taskSchedule.LastTaskRunID),
 		taskSchedule.TaskScheduleID,
+		taskSchedule.CompletedRunCount,
+	)
+	return errorValue
+}
+
+func updateTaskScheduleWithTransaction(transaction *sql.Tx, taskSchedule task.TaskSchedule) error {
+	_, errorValue := transaction.ExecContext(context.Background(), `
+UPDATE task_schedule
+SET name = $2,
+  prompt = $3,
+  execution_mode = $4,
+  agent_profile_name = $5,
+  schedule_kind = $6,
+  run_at = $7,
+  interval_second = $8,
+  cron_expression = $9,
+  next_run_at = $10,
+  last_run_at = $11,
+  last_task_run_id = $12,
+  expires_at = $13,
+  updated_at = $14,
+  platform = $15,
+  delivery_conversation_id = $16,
+  reply_target_id = $17,
+  time_zone = $18,
+  lease_owner = $19,
+  leased_until = $20,
+  failure_count = $21,
+  last_error = $22,
+  next_attempt_at = $23,
+  max_run_count = $24,
+  completed_run_count = $25
+WHERE task_schedule_id = $1`,
+		taskSchedule.TaskScheduleID,
+		taskSchedule.Name,
+		taskSchedule.Prompt,
+		normalizedTaskScheduleExecutionMode(taskSchedule.ExecutionMode),
+		taskSchedule.AgentProfileName,
+		string(taskSchedule.Kind),
+		taskSchedule.RunAt,
+		zeroAsNil(taskSchedule.IntervalSecond),
+		emptyStringAsNil(taskSchedule.CronExpression),
+		taskSchedule.NextRunAt,
+		taskSchedule.LastRunAt,
+		emptyStringAsNil(taskSchedule.LastTaskRunID),
+		taskScheduleExpiresAt(taskSchedule),
+		taskSchedule.UpdatedAt,
+		taskSchedule.Platform,
+		taskSchedule.ConversationID,
+		taskSchedule.ReplyTargetID,
+		firstNonEmptyPostgresString(taskSchedule.TimeZone, "Asia/Seoul"),
+		taskSchedule.LeaseOwner,
+		taskSchedule.LeasedUntil,
+		taskSchedule.FailureCount,
+		taskSchedule.LastError,
+		firstNonNilTaskScheduleTime(taskSchedule.NextAttemptAt, taskSchedule.UpdatedAt),
+		zeroAsNil(taskSchedule.MaxRunCount),
 		taskSchedule.CompletedRunCount,
 	)
 	return errorValue

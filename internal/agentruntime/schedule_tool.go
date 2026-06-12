@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -29,6 +30,22 @@ type scheduleCreateToolInput struct {
 type scheduleCancelToolInput struct {
 	Scope           string   `json:"scope"`
 	TaskScheduleIDs []string `json:"scheduleIDs"`
+}
+
+type scheduleUpdateToolInput struct {
+	TaskScheduleID   string  `json:"scheduleID"`
+	Name             *string `json:"name"`
+	Prompt           *string `json:"prompt"`
+	TaskInstruction  *string `json:"taskInstruction"`
+	AgentProfileName *string `json:"agentProfileName"`
+	Kind             *string `json:"kind"`
+	RunAt            *string `json:"runAt"`
+	ExpiresAt        *string `json:"expiresAt"`
+	IntervalSecond   *int    `json:"intervalSecond"`
+	CronExpression   *string `json:"cronExpression"`
+	TimeZone         *string `json:"timeZone"`
+	MaxRunCount      *int    `json:"maxRunCount"`
+	RepeatPolicy     *string `json:"repeatPolicy"`
 }
 
 type scheduleCancelOperationResult struct {
@@ -69,6 +86,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerScheduleTools(toolRegistry
 			},
 			Result: agent.IdentityToolResult,
 		})
+		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleUpdateToolInput, agent.ToolResult]{
+			Definition: agent.ToolDefinition{
+				Name:        "schedule.update",
+				Description: "Update an active scheduled task created by the current requester. Provide scheduleID and only the scalar fields that should change. Keep only the work to perform at run time in taskInstruction; represent cadence and stop conditions only with kind, runAt, intervalSecond, cronExpression, expiresAt, maxRunCount, and repeatPolicy.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"scheduleID":{"type":"string"},"name":{"type":"string"},"taskInstruction":{"type":"string"},"agentProfileName":{"type":"string"},"kind":{"type":"string","enum":["once","interval","cron"]},"runAt":{"type":"string"},"expiresAt":{"type":"string"},"intervalSecond":{"type":"number"},"cronExpression":{"type":"string"},"timeZone":{"type":"string"},"maxRunCount":{"type":"number"},"repeatPolicy":{"type":"string","enum":["finite","unbounded"]}},"required":["scheduleID"]}`),
+			},
+			Handler: func(toolContext context.Context, input scheduleUpdateToolInput) (agent.ToolResult, error) {
+				return toolCatalogBuilder.updateScheduleTool(toolContext, input, handlerContext)
+			},
+			Result: agent.IdentityToolResult,
+		})
 	}
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[scheduleCancelToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
@@ -104,6 +132,34 @@ func (toolCatalogBuilder *ToolCatalogBuilder) createScheduleTool(toolContext con
 	resultDocument := scheduleCreateResultDocument(initializedTaskSchedule)
 	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
 		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.created", string(resultDocument))
+	}
+	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) updateScheduleTool(toolContext context.Context, input scheduleUpdateToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	if toolCatalogBuilder.taskScheduleRepository == nil {
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "schedule_update", "task schedule repository is unavailable"), nil
+	}
+	updateRequest := task.TaskScheduleUpdateRequest{
+		TaskScheduleID:    strings.TrimSpace(input.TaskScheduleID),
+		RequesterPersonID: strings.TrimSpace(handlerContext.request.RequesterPersonID),
+		UpdateTaskSchedule: func(existingTaskSchedule task.TaskSchedule) (task.TaskSchedule, error) {
+			return toolCatalogBuilder.buildUpdatedTaskSchedule(existingTaskSchedule, input)
+		},
+	}
+	result, errorValue := toolCatalogBuilder.taskScheduleRepository.UpdateTaskSchedule(updateRequest)
+	if errorValue != nil {
+		if isScheduleToolValidationError(errorValue) {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "schedule_update", errorValue.Error()), nil
+		}
+		return agent.ToolResult{}, errorValue
+	}
+	if !result.IsFound {
+		return agent.ToolFailureResult(agent.FailureNotFound, agent.FailureCodes.NotFound, "schedule_update", "active schedule was not found for the current requester"), nil
+	}
+	resultDocument := scheduleCreateResultDocument(result.TaskSchedule)
+	if taskRunID := agent.TaskRunIDFromContext(toolContext); taskRunID != "" && toolCatalogBuilder.taskRunService != nil {
+		toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "schedule.updated", string(resultDocument))
 	}
 	return agent.ToolSuccessData(string(resultDocument), resultDocument), nil
 }
@@ -238,6 +294,43 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildTaskSchedule(input scheduleCr
 	return taskSchedule, nil
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) buildUpdatedTaskSchedule(taskSchedule task.TaskSchedule, input scheduleUpdateToolInput) (task.TaskSchedule, error) {
+	now := time.Now().UTC()
+	if input.Name != nil {
+		taskSchedule.Name = strings.TrimSpace(*input.Name)
+	}
+	if taskInstruction := scheduleUpdateTaskInstruction(input); taskInstruction != nil {
+		if strings.TrimSpace(*taskInstruction) == "" {
+			return task.TaskSchedule{}, errScheduleTaskInstructionRequired
+		}
+		taskSchedule.Prompt = strings.TrimSpace(*taskInstruction)
+	}
+	if input.AgentProfileName != nil {
+		taskSchedule.AgentProfileName = strings.TrimSpace(*input.AgentProfileName)
+	}
+	if input.TimeZone != nil {
+		timeZone, errorValue := normalizeScheduleTimeZone(*input.TimeZone)
+		if errorValue != nil {
+			return task.TaskSchedule{}, errorValue
+		}
+		taskSchedule.TimeZone = timeZone
+	}
+	updatedTaskSchedule, errorValue := applyScheduleUpdateTiming(taskSchedule, input, now)
+	if errorValue != nil {
+		return task.TaskSchedule{}, errorValue
+	}
+	updatedTaskSchedule.UpdatedAt = now
+	updatedTaskSchedule.NextAttemptAt = &now
+	initializedTaskSchedule, errorValue := (task.TaskScheduler{}).InitializeTaskSchedule(updatedTaskSchedule, now)
+	if errorValue != nil {
+		return task.TaskSchedule{}, errorValue
+	}
+	if initializedTaskSchedule.NextRunAt == nil {
+		return task.TaskSchedule{}, errScheduleNoFutureRun
+	}
+	return initializedTaskSchedule, nil
+}
+
 func scheduleCreateResultDocument(taskSchedule task.TaskSchedule) json.RawMessage {
 	return json.RawMessage(marshalToolResult(scheduleCreateToolResult{
 		TaskScheduleID:   taskSchedule.TaskScheduleID,
@@ -277,6 +370,64 @@ func normalizeTaskScheduleExecutionMode(value string) task.TaskScheduleExecution
 	}
 }
 
+func applyScheduleUpdateTiming(taskSchedule task.TaskSchedule, input scheduleUpdateToolInput, now time.Time) (task.TaskSchedule, error) {
+	if input.Kind != nil {
+		taskSchedule.Kind = normalizeTaskScheduleKind(scheduleCreateToolInput{Kind: *input.Kind})
+	}
+	if input.RunAt != nil {
+		if errorValue := applyScheduleRunAtPointer(&taskSchedule, *input.RunAt); errorValue != nil {
+			return task.TaskSchedule{}, errorValue
+		}
+	}
+	if input.ExpiresAt != nil {
+		if errorValue := applyScheduleExpiresAtPointer(&taskSchedule, *input.ExpiresAt, now); errorValue != nil {
+			return task.TaskSchedule{}, errorValue
+		}
+	}
+	if input.IntervalSecond != nil {
+		taskSchedule.IntervalSecond = *input.IntervalSecond
+	}
+	if input.CronExpression != nil {
+		taskSchedule.CronExpression = strings.TrimSpace(*input.CronExpression)
+	}
+	if input.MaxRunCount != nil {
+		taskSchedule.MaxRunCount = *input.MaxRunCount
+	}
+	normalizeUpdatedTaskScheduleKindFields(&taskSchedule)
+	if errorValue := validateScheduleRepeatPolicy(scheduleUpdateAsCreateInput(input), taskSchedule); errorValue != nil {
+		return task.TaskSchedule{}, errorValue
+	}
+	return taskSchedule, nil
+}
+
+func normalizeUpdatedTaskScheduleKindFields(taskSchedule *task.TaskSchedule) {
+	switch taskSchedule.Kind {
+	case task.TaskScheduleKindOnce:
+		taskSchedule.IntervalSecond = 0
+		taskSchedule.CronExpression = ""
+		taskSchedule.MaxRunCount = 0
+	case task.TaskScheduleKindInterval:
+		taskSchedule.CronExpression = ""
+	case task.TaskScheduleKindCron:
+		taskSchedule.IntervalSecond = 0
+	}
+}
+
+func scheduleUpdateTaskInstruction(input scheduleUpdateToolInput) *string {
+	if input.TaskInstruction != nil {
+		return input.TaskInstruction
+	}
+	return input.Prompt
+}
+
+func scheduleUpdateAsCreateInput(input scheduleUpdateToolInput) scheduleCreateToolInput {
+	createInput := scheduleCreateToolInput{}
+	if input.RepeatPolicy != nil {
+		createInput.RepeatPolicy = *input.RepeatPolicy
+	}
+	return createInput
+}
+
 func applyScheduleExpiresAt(taskSchedule *task.TaskSchedule, value string, referenceTime time.Time) error {
 	trimmedValue := strings.TrimSpace(value)
 	if trimmedValue == "" {
@@ -292,6 +443,14 @@ func applyScheduleExpiresAt(taskSchedule *task.TaskSchedule, value string, refer
 	}
 	taskSchedule.ExpiresAt = &expiresAt
 	return nil
+}
+
+func applyScheduleExpiresAtPointer(taskSchedule *task.TaskSchedule, value string, referenceTime time.Time) error {
+	if strings.TrimSpace(value) == "" {
+		taskSchedule.ExpiresAt = nil
+		return nil
+	}
+	return applyScheduleExpiresAt(taskSchedule, value, referenceTime)
 }
 
 func validateScheduleRepeatPolicy(input scheduleCreateToolInput, taskSchedule task.TaskSchedule) error {
@@ -364,4 +523,22 @@ func applyScheduleRunAt(taskSchedule *task.TaskSchedule, value string) error {
 	}
 	taskSchedule.RunAt = &runAt
 	return nil
+}
+
+func applyScheduleRunAtPointer(taskSchedule *task.TaskSchedule, value string) error {
+	if strings.TrimSpace(value) == "" {
+		taskSchedule.RunAt = nil
+		return nil
+	}
+	return applyScheduleRunAt(taskSchedule, value)
+}
+
+func isScheduleToolValidationError(errorValue error) bool {
+	return errors.Is(errorValue, errScheduleTaskInstructionRequired) ||
+		errors.Is(errorValue, errScheduleTimeZoneInvalid) ||
+		errors.Is(errorValue, errScheduleRunAtInvalid) ||
+		errors.Is(errorValue, errScheduleInvalidExpiresAt) ||
+		errors.Is(errorValue, errScheduleRepeatPolicyRequired) ||
+		errors.Is(errorValue, errScheduleFiniteBoundRequired) ||
+		errors.Is(errorValue, errScheduleNoFutureRun)
 }

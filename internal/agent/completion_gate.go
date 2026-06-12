@@ -215,6 +215,8 @@ func completionStateToolReply(state CompletionState) string {
 		switch strings.TrimSpace(reference.ToolName) {
 		case "schedule.create":
 			return "예약을 만들었습니다."
+		case "schedule.update":
+			return "예약을 수정했습니다."
 		case "schedule.cancel":
 			return "예약을 취소했습니다."
 		case "calendar.event.add":

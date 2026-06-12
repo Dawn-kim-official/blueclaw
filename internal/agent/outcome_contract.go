@@ -266,6 +266,7 @@ func genericBuiltInToolNames() []string {
 		"skill.add",
 		"skill.remove",
 		"schedule.create",
+		"schedule.update",
 		"schedule.cancel",
 	}
 }

@@ -396,6 +396,173 @@ func TestScheduleCancelToolFailsWhenNothingMatched(t *testing.T) {
 	}
 }
 
+func TestScheduleUpdateToolUpdatesIntervalSchedule(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:   "schedule-owned",
+		CreatorPersonID:  "person-1",
+		Name:             "status reminder",
+		Prompt:           "상태를 확인하세요.",
+		Kind:             task.TaskScheduleKindInterval,
+		IntervalSecond:   1800,
+		MaxRunCount:      3,
+		NextRunAt:        &nextRunAt,
+		TimeZone:         "Asia/Seoul",
+		AgentProfileName: "default",
+	}}}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.update",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scheduleID":     "schedule-owned",
+			"intervalSecond": 3600,
+			"maxRunCount":    5,
+			"repeatPolicy":   "finite",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected schedule.update success, got %s", result.ContentText())
+	}
+	updatedSchedule := repository.taskSchedules[0]
+	if updatedSchedule.IntervalSecond != 3600 || updatedSchedule.MaxRunCount != 5 || updatedSchedule.NextRunAt == nil {
+		t.Fatalf("expected interval update, got %+v", updatedSchedule)
+	}
+	if !strings.Contains(result.ContentText(), `"intervalSecond":3600`) || !strings.Contains(result.ContentText(), `"maxRunCount":5`) {
+		t.Fatalf("expected updated interval result, got %s", result.ContentText())
+	}
+}
+
+func TestScheduleUpdateToolUpdatesOneOffRunAt(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	runAt := time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:   "schedule-owned",
+		CreatorPersonID:  "person-1",
+		Name:             "status reminder",
+		Prompt:           "상태를 확인하세요.",
+		Kind:             task.TaskScheduleKindInterval,
+		IntervalSecond:   1800,
+		MaxRunCount:      3,
+		NextRunAt:        &nextRunAt,
+		TimeZone:         "Asia/Seoul",
+		AgentProfileName: "default",
+	}}}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.update",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scheduleID": "schedule-owned",
+			"kind":       "once",
+			"runAt":      runAt.Format(time.RFC3339),
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected schedule.update success, got %s", result.ContentText())
+	}
+	updatedSchedule := repository.taskSchedules[0]
+	if updatedSchedule.Kind != task.TaskScheduleKindOnce || updatedSchedule.RunAt == nil || !updatedSchedule.RunAt.Equal(runAt) {
+		t.Fatalf("expected one-off runAt update, got %+v", updatedSchedule)
+	}
+	if updatedSchedule.IntervalSecond != 0 || updatedSchedule.MaxRunCount != 0 || updatedSchedule.NextRunAt == nil || !updatedSchedule.NextRunAt.Equal(runAt) {
+		t.Fatalf("expected one-off cadence fields, got %+v", updatedSchedule)
+	}
+	if !strings.Contains(result.ContentText(), `"kind":"once"`) || !strings.Contains(result.ContentText(), `"runAt"`) {
+		t.Fatalf("expected one-off result, got %s", result.ContentText())
+	}
+}
+
+func TestScheduleUpdateToolFailsForNonexistentID(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(&memoryTaskScheduleRepository{})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.update",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scheduleID":     "schedule-missing",
+			"intervalSecond": 3600,
+			"maxRunCount":    5,
+			"repeatPolicy":   "finite",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+		t.Fatalf("expected not found failure, got %s", result.ContentText())
+	}
+}
+
+func TestScheduleUpdateToolFailsForWrongOwnerID(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &memoryTaskScheduleRepository{taskSchedules: []task.TaskSchedule{{
+		TaskScheduleID:   "schedule-other",
+		CreatorPersonID:  "person-2",
+		Name:             "status reminder",
+		Prompt:           "상태를 확인하세요.",
+		Kind:             task.TaskScheduleKindInterval,
+		IntervalSecond:   1800,
+		MaxRunCount:      3,
+		NextRunAt:        &nextRunAt,
+		TimeZone:         "Asia/Seoul",
+		AgentProfileName: "default",
+	}}}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskScheduleRepository(repository)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"schedule.update"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "schedule.update",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scheduleID":     "schedule-other",
+			"intervalSecond": 3600,
+			"maxRunCount":    5,
+			"repeatPolicy":   "finite",
+		}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.FailureCode() != agent.FailureCodes.NotFound.String() {
+		t.Fatalf("expected not found failure, got %s", result.ContentText())
+	}
+	if repository.taskSchedules[0].IntervalSecond != 1800 || repository.taskSchedules[0].MaxRunCount != 3 {
+		t.Fatalf("expected wrong-owner schedule to remain unchanged, got %+v", repository.taskSchedules[0])
+	}
+}
+
 func TestScheduleCreateToolRejectsIntervalWithoutExplicitCadence(t *testing.T) {
 	repository := &memoryTaskScheduleRepository{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
