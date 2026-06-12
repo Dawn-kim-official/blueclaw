@@ -13,4 +13,5 @@ var (
 	errScheduleInvalidExpiresAt        = errors.New("expiresAt must be a future RFC3339 timestamp")
 	errScheduleRepeatPolicyRequired    = errors.New("interval and cron schedules require repeatPolicy finite or unbounded")
 	errScheduleFiniteBoundRequired     = errors.New("finite interval and cron schedules require expiresAt or maxRunCount")
+	errScheduleNoFutureRun             = errors.New("task schedule has no future run")
 )

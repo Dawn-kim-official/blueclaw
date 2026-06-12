@@ -347,7 +347,7 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 		Name:                  "schedule_lifecycle_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
-		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.update", "schedule.cancel"},
 		Turns: []VirtualTurn{
 			{
 				Prompt: "30분마다 상태 확인하라고 알려줘. 세 번만 해줘",
@@ -363,12 +363,11 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 			{
 				Prompt: "그 예약을 1시간마다 다섯 번으로 바꿔줘",
 				ActionResponses: []string{
-					actionCallTool("schedule.cancel", `{"scope":"mine"}`),
-					actionCallTool("schedule.create", `{"name":"상태 확인 알림","taskInstruction":"현재 대화에 \"상태를 확인하세요\"라고 보낸다.","kind":"interval","intervalSecond":3600,"maxRunCount":5,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}`),
-					actionFinishMessage("기존 예약을 취소하고 1시간마다 다섯 번으로 다시 예약했습니다.", "obs-001:schedule.cancel:0", "obs-002:schedule.create:0"),
+					actionCallTool("schedule.update", `{"scheduleID":"virtual-schedule-001","intervalSecond":3600,"maxRunCount":5,"repeatPolicy":"finite"}`),
+					actionFinishMessage("예약을 1시간마다 다섯 번으로 수정했습니다.", "obs-001:schedule.update:0"),
 				},
-				ExpectedToolCalls: []string{"schedule.cancel", "schedule.create"},
-				ExpectedEvents:    []string{"schedule.cancelled", "schedule.created"},
+				ExpectedToolCalls: []string{"schedule.update"},
+				ExpectedEvents:    []string{"schedule.updated"},
 			},
 			{
 				Prompt: "그 예약 삭제해줘",
@@ -691,14 +690,14 @@ func scheduledTaskSkill() agent.SkillInstruction {
 		WhenToUse:   "Use when the user asks to schedule, remind, repeat, cancel schedules, stop reminders, send something every minute/hour/day/week/month, repeat N times, send a finite repeated message, or says 예약, 알림, 리마인드, 취소, 중지, 마다, 분마다, 시간마다, 한 번씩, 1분에 한 번씩, 10번, 매일, 매주, or 매월.",
 		Category:    "automation",
 		Tags:        []string{"schedule", "reminder", "cron"},
-		Prompt:      "Use schedule.create to create schedules. Put only the run-time work in taskInstruction. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. Set repeatPolicy finite with expiresAt or maxRunCount for finite repeats; set repeatPolicy unbounded only when the user explicitly asks for no end. Do not claim background loops are unsupported when schedule.create is available.",
+		Prompt:      "Use schedule.create to create schedules and schedule.update to revise active schedules. Put only the run-time work in taskInstruction. Put cadence and stop conditions in structured fields such as runAt, intervalSecond, cronExpression, expiresAt, and maxRunCount. Set repeatPolicy finite with expiresAt or maxRunCount for finite repeats; set repeatPolicy unbounded only when the user explicitly asks for no end. Do not claim background loops are unsupported when schedule.create is available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
 		},
 		Completion: agent.SkillCompletion{
 			RequiredEvidenceTools: []string{"schedule.create"},
 		},
-		AllowedTools: []string{"schedule.create", "schedule.cancel"},
+		AllowedTools: []string{"schedule.create", "schedule.update", "schedule.cancel"},
 		TriggerHints: []string{"schedule", "scheduled", "cron", "remind", "reminder", "예약", "알림", "리마인드", "마다", "분마다", "시간마다", "매일", "매주", "매월"},
 		Source: agent.InstructionSource{
 			Path:      "skills/scheduled-task/SKILL.md",

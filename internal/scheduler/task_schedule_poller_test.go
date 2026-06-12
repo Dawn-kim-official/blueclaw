@@ -398,6 +398,25 @@ func (repository *pollerScheduleRepository) UpsertTaskSchedule(taskSchedule task
 	return nil
 }
 
+func (repository *pollerScheduleRepository) UpdateTaskSchedule(request task.TaskScheduleUpdateRequest) (task.TaskScheduleUpdateResult, error) {
+	for index, taskSchedule := range repository.taskSchedules {
+		if taskSchedule.TaskScheduleID != request.TaskScheduleID || taskSchedule.CreatorPersonID != request.RequesterPersonID || taskSchedule.NextRunAt == nil {
+			continue
+		}
+		updatedTaskSchedule := taskSchedule
+		var errorValue error
+		if request.UpdateTaskSchedule != nil {
+			updatedTaskSchedule, errorValue = request.UpdateTaskSchedule(taskSchedule)
+			if errorValue != nil {
+				return task.TaskScheduleUpdateResult{}, errorValue
+			}
+		}
+		repository.taskSchedules[index] = updatedTaskSchedule
+		return task.TaskScheduleUpdateResult{TaskSchedule: updatedTaskSchedule, IsFound: true}, nil
+	}
+	return task.TaskScheduleUpdateResult{}, nil
+}
+
 func (repository *pollerScheduleRepository) ClaimDueTaskSchedules(limit int, _ time.Duration, referenceTime time.Time, _ string) ([]task.TaskSchedule, error) {
 	if repository.claimCallback != nil {
 		repository.claimCallback()

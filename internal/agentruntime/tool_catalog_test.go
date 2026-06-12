@@ -41,6 +41,25 @@ func (repository *memoryTaskScheduleRepository) UpsertTaskSchedule(taskSchedule 
 	return nil
 }
 
+func (repository *memoryTaskScheduleRepository) UpdateTaskSchedule(request task.TaskScheduleUpdateRequest) (task.TaskScheduleUpdateResult, error) {
+	for index, taskSchedule := range repository.taskSchedules {
+		if !memoryTaskScheduleMatchesUpdateRequest(taskSchedule, request) {
+			continue
+		}
+		updatedTaskSchedule := taskSchedule
+		var errorValue error
+		if request.UpdateTaskSchedule != nil {
+			updatedTaskSchedule, errorValue = request.UpdateTaskSchedule(taskSchedule)
+			if errorValue != nil {
+				return task.TaskScheduleUpdateResult{}, errorValue
+			}
+		}
+		repository.taskSchedules[index] = updatedTaskSchedule
+		return task.TaskScheduleUpdateResult{TaskSchedule: updatedTaskSchedule, IsFound: true}, nil
+	}
+	return task.TaskScheduleUpdateResult{}, nil
+}
+
 func (repository *memoryTaskScheduleRepository) ClaimDueTaskSchedules(int, time.Duration, time.Time, string) ([]task.TaskSchedule, error) {
 	return append([]task.TaskSchedule{}, repository.taskSchedules...), nil
 }
@@ -77,6 +96,16 @@ func (repository *memoryTaskScheduleRepository) CancelTaskSchedules(request task
 	}
 	repository.taskSchedules = append(remainingTaskSchedules, cancelledTaskSchedules...)
 	return task.TaskScheduleCancelResult{TaskSchedules: cancelledTaskSchedules}, nil
+}
+
+func memoryTaskScheduleMatchesUpdateRequest(taskSchedule task.TaskSchedule, request task.TaskScheduleUpdateRequest) bool {
+	if taskSchedule.TaskScheduleID != request.TaskScheduleID {
+		return false
+	}
+	if taskSchedule.CreatorPersonID != request.RequesterPersonID {
+		return false
+	}
+	return taskSchedule.NextRunAt != nil
 }
 
 func memoryTaskScheduleMatchesCancelRequest(taskSchedule task.TaskSchedule, request task.TaskScheduleCancelRequest) bool {

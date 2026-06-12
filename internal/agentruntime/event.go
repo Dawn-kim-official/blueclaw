@@ -20,6 +20,7 @@ type taskLaunchEvent struct {
 	PlatformMessageDescriptorHash     string           `json:"platformMessageDescriptorHash,omitempty"`
 	LivePlatformMessageDescriptorHash string           `json:"livePlatformMessageDescriptorHash,omitempty"`
 	AllowedToolHash                   string           `json:"allowedToolHash,omitempty"`
+	HasScheduleUpdate                 bool             `json:"hasScheduleUpdate"`
 	HasPlatformMessageDelete          bool             `json:"hasPlatformMessageDelete"`
 	HasOldMattermostPostDelete        bool             `json:"hasOldMattermostPostDelete"`
 	HasOldPlatformDMInspect           bool             `json:"hasOldPlatformDMInspect"`
@@ -48,6 +49,7 @@ func marshalTaskLaunchEvent(request TaskLaunchRequest, profileName string, toolN
 		PlatformMessageDescriptorHash:     registryAudit.PlatformMessageDescriptorHash,
 		LivePlatformMessageDescriptorHash: registryAudit.LivePlatformMessageDescriptorHash,
 		AllowedToolHash:                   registryAudit.AllowedToolHash,
+		HasScheduleUpdate:                 registryAudit.HasScheduleUpdate,
 		HasPlatformMessageDelete:          registryAudit.HasPlatformMessageDelete,
 		HasOldMattermostPostDelete:        registryAudit.HasOldMattermostPostDelete,
 		HasOldPlatformDMInspect:           registryAudit.HasOldPlatformDMInspect,

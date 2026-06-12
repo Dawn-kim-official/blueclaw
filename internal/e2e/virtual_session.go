@@ -1178,8 +1178,30 @@ func (queue virtualMemoryUpdateQueue) Enqueue(job memory.MemoryUpdateJob) (memor
 func (repository *virtualTaskScheduleRepository) UpsertTaskSchedule(taskSchedule task.TaskSchedule) error {
 	repository.mutex.Lock()
 	defer repository.mutex.Unlock()
+	taskSchedule.TaskScheduleID = fmt.Sprintf("virtual-schedule-%03d", len(repository.taskSchedules)+1)
 	repository.taskSchedules = append(repository.taskSchedules, taskSchedule)
 	return nil
+}
+
+func (repository *virtualTaskScheduleRepository) UpdateTaskSchedule(request task.TaskScheduleUpdateRequest) (task.TaskScheduleUpdateResult, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+	for index, taskSchedule := range repository.taskSchedules {
+		if taskSchedule.TaskScheduleID != request.TaskScheduleID || taskSchedule.CreatorPersonID != request.RequesterPersonID || taskSchedule.NextRunAt == nil {
+			continue
+		}
+		updatedTaskSchedule := taskSchedule
+		var errorValue error
+		if request.UpdateTaskSchedule != nil {
+			updatedTaskSchedule, errorValue = request.UpdateTaskSchedule(taskSchedule)
+			if errorValue != nil {
+				return task.TaskScheduleUpdateResult{}, errorValue
+			}
+		}
+		repository.taskSchedules[index] = updatedTaskSchedule
+		return task.TaskScheduleUpdateResult{TaskSchedule: updatedTaskSchedule, IsFound: true}, nil
+	}
+	return task.TaskScheduleUpdateResult{}, nil
 }
 
 func (repository *virtualTaskScheduleRepository) TaskSchedules() []task.TaskSchedule {
