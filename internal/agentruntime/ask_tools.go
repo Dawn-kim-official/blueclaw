@@ -42,13 +42,15 @@ type askInputToolInput struct {
 	Question string `json:"question"`
 }
 
+var allowedApprovalReasonCodes = []string{"external_send", "destructive_action", "credential_access", "paid_action", "permission_change", "capability_unlock", "other_sensitive_action"}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) registerAskTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	if !handlerContext.request.IsScheduledRun {
 		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askConfirmToolInput, agent.ToolResult]{
 			Definition: agent.ToolDefinition{
 				Name:        "ask.confirm",
 				Description: "Pause the current task while waiting for explicit user confirmation. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. userFacingMessage is shown directly to the user and must use the same language as the original user request. reasonCode and reasonDetail are internal only.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."}},"required":["userFacingMessage","reasonCode"]}`),
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","description":"Internal reason code reserved for sensitive actions only. Allowed values: external_send, destructive_action, credential_access, paid_action, permission_change, capability_unlock, other_sensitive_action.","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."}},"required":["userFacingMessage","reasonCode"]}`),
 			},
 			Handler: toolCatalogBuilder.askConfirmTool,
 			Result:  agent.IdentityToolResult,
@@ -83,7 +85,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context
 	if userFacingMessage == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires userFacingMessage"), nil
 	}
-	reasonCode := normalizeApprovalReasonCode(input.ReasonCode)
+	reasonCode := strings.TrimSpace(input.ReasonCode)
+	if !isAllowedApprovalReasonCode(reasonCode) {
+		return invalidApprovalReasonCodeResult(), nil
+	}
 	reasonDetail := askConfirmReasonDetail(input)
 	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, approvalInternalReason(reasonCode, reasonDetail))
 	if errorValue != nil {
@@ -264,11 +269,16 @@ func approvalInternalReason(reasonCode string, reasonDetail string) string {
 	return reasonCode + ": " + strings.TrimSpace(reasonDetail)
 }
 
-func normalizeApprovalReasonCode(reasonCode string) string {
-	switch strings.TrimSpace(reasonCode) {
-	case "external_send", "destructive_action", "credential_access", "paid_action", "permission_change", "capability_unlock", "other_sensitive_action":
-		return strings.TrimSpace(reasonCode)
-	default:
-		return "other_sensitive_action"
+func isAllowedApprovalReasonCode(reasonCode string) bool {
+	for _, allowedReasonCode := range allowedApprovalReasonCodes {
+		if reasonCode == allowedReasonCode {
+			return true
+		}
 	}
+	return false
+}
+
+func invalidApprovalReasonCodeResult() agent.ToolResult {
+	guidance := "ask.confirm is reserved for sensitive action consent only (destructive_action, external_send, credential, paid_service, capability_unlock). Do not use it to relay information or confirm understanding. Call finish instead. Allowed reasonCode values: " + strings.Join(allowedApprovalReasonCodes, ", ")
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", guidance)
 }

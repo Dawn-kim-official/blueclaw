@@ -339,6 +339,32 @@ func TestApprovalRequestPausesActiveTaskRun(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestAllowsSensitiveReasonCodes(t *testing.T) {
+	for _, reasonCode := range allowedApprovalReasonCodes {
+		taskEventService := task.NewTaskEventService()
+		taskRunService := task.NewTaskRunService(taskEventService)
+		taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+		toolCatalogBuilder := NewToolCatalogBuilder()
+		toolCatalogBuilder.UseTaskRunService(taskRunService)
+		toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+			"default": {"ask.confirm"},
+		}, nil)
+		toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+		toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+			ToolName: "ask.confirm",
+			Input:    json.RawMessage(`{"userFacingMessage":"Approve sensitive action?","reasonCode":"` + reasonCode + `"}`),
+		})
+
+		if errorValue != nil {
+			t.Fatalf("expected approval tool to return a result for %s: %v", reasonCode, errorValue)
+		}
+		if toolResult.Failed() {
+			t.Fatalf("expected approval request to succeed for %s, got %+v", reasonCode, toolResult)
+		}
+	}
+}
+
 func TestApprovalRequestStoresUserFacingMessageSeparatelyFromReasonDetail(t *testing.T) {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
@@ -395,6 +421,68 @@ func TestApprovalRequestRejectsMissingUserFacingMessageWithoutPausing(t *testing
 	}
 	if !toolResult.Failed() || toolResult.FailureCode() != agent.FailureCodes.InvalidInput.String() {
 		t.Fatalf("expected missing message tool failure, got %+v", toolResult)
+	}
+	updatedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || updatedTaskRun.Status == task.TaskStatusWaitingApproval {
+		t.Fatalf("expected task not to pause, got found=%v run=%+v", isFound, updatedTaskRun)
+	}
+	if containsTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "confirmation.requested") {
+		t.Fatalf("unexpected approval event")
+	}
+}
+
+func TestApprovalRequestRejectsMissingReasonCodeWithoutPausing(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"ask.confirm"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "ask.confirm",
+		Input:    json.RawMessage(`{"userFacingMessage":"Proceed?"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected approval tool to return a result: %v", errorValue)
+	}
+	if !toolResult.Failed() || !strings.Contains(toolResult.ContentText(), "ask.confirm is reserved for sensitive action consent only") {
+		t.Fatalf("expected missing reason code guidance, got %+v", toolResult)
+	}
+	updatedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || updatedTaskRun.Status == task.TaskStatusWaitingApproval {
+		t.Fatalf("expected task not to pause, got found=%v run=%+v", isFound, updatedTaskRun)
+	}
+	if containsTaskEvent(taskEventService.ListTaskEvent(taskRun.TaskRunID), "confirmation.requested") {
+		t.Fatalf("unexpected approval event")
+	}
+}
+
+func TestApprovalRequestRejectsUnrecognizedReasonCodeWithoutPausing(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"ask.confirm"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "ask.confirm",
+		Input:    json.RawMessage(`{"userFacingMessage":"Understood?","reasonCode":"user_acknowledgement"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected approval tool to return a result: %v", errorValue)
+	}
+	if !toolResult.Failed() || !strings.Contains(toolResult.ContentText(), "Allowed reasonCode values: "+strings.Join(allowedApprovalReasonCodes, ", ")) {
+		t.Fatalf("expected unrecognized reason code guidance with allowed list, got %+v", toolResult)
 	}
 	updatedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
 	if !isFound || updatedTaskRun.Status == task.TaskStatusWaitingApproval {
