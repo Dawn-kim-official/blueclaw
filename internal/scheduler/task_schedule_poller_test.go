@@ -112,9 +112,10 @@ func TestTaskSchedulePollerDeliversMessageScheduleWithoutAgentRun(t *testing.T) 
 	}
 }
 
-func TestTaskSchedulePollerRetriesFailedDeliveryWithoutAdvancing(t *testing.T) {
+func TestTaskSchedulePollerAdvancesWhenDeliveryFailsWithoutRetrying(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
+	generatedResponseCount := 0
 	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
 		TaskScheduleID:   "schedule-1",
 		CreatorPersonID:  "person-1",
@@ -124,30 +125,44 @@ func TestTaskSchedulePollerRetriesFailedDeliveryWithoutAdvancing(t *testing.T) {
 		ConversationID:   "channel-1",
 		ReplyTargetID:    "reply-target-1",
 		TimeZone:         "Asia/Seoul",
-		Kind:             task.TaskScheduleKindCron,
-		CronExpression:   "0 7 * * *",
+		Kind:             task.TaskScheduleKindInterval,
+		IntervalSecond:   60,
+		MaxRunCount:      10,
 		NextRunAt:        &nextRunAt,
 	}}}
 	poller := TaskSchedulePoller{
 		TaskScheduleRepository: repository,
 		DeliveryRepository:     &pollerDeliveryRepository{errorValue: errors.New("outbox unavailable")},
-		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		TaskScheduleRunner:     testTaskScheduleRunnerWithResponseCount("오늘의 조사 결과입니다.", &generatedResponseCount),
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
 	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
+	secondRunCount, secondErrorValue := poller.RunDue(context.Background(), runAt, 1)
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if runCount != 0 {
-		t.Fatalf("expected failed delivery not to count as run, got %d", runCount)
+	if secondErrorValue != nil {
+		t.Fatal(secondErrorValue)
 	}
-	if repository.succeeded != nil {
-		t.Fatalf("expected schedule not to advance, got %+v", repository.succeeded)
+	if runCount != 1 {
+		t.Fatalf("expected delivery failure to count as completed run, got %d", runCount)
 	}
-	if len(repository.failed) != 1 || !strings.Contains(repository.failed[0], "outbox unavailable") {
-		t.Fatalf("expected delivery failure to be recorded, got %+v", repository.failed)
+	if secondRunCount != 0 {
+		t.Fatalf("expected advanced schedule not to run again, got %d", secondRunCount)
+	}
+	if repository.succeeded == nil || repository.succeeded.CompletedRunCount != 1 {
+		t.Fatalf("expected schedule to advance once, got %+v", repository.succeeded)
+	}
+	if repository.succeeded.NextRunAt == nil || !repository.succeeded.NextRunAt.Equal(runAt.Add(time.Minute)) {
+		t.Fatalf("expected next run to advance by one minute, got %+v", repository.succeeded.NextRunAt)
+	}
+	if len(repository.failed) != 0 {
+		t.Fatalf("expected delivery failure not to mark schedule failed, got %+v", repository.failed)
+	}
+	if generatedResponseCount != 1 {
+		t.Fatalf("expected task executor to run once, got %d", generatedResponseCount)
 	}
 }
 
@@ -204,7 +219,7 @@ func TestTaskSchedulePollerLogsClaimErrors(t *testing.T) {
 	}
 }
 
-func TestTaskSchedulePollerLogsRunFailures(t *testing.T) {
+func TestTaskSchedulePollerLogsDeliveryFailures(t *testing.T) {
 	var logBuffer bytes.Buffer
 	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
 	repository := &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
@@ -232,12 +247,12 @@ func TestTaskSchedulePollerLogsRunFailures(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if runCount != 0 {
-		t.Fatalf("expected failed run not to count, got %d", runCount)
+	if runCount != 1 {
+		t.Fatalf("expected delivery failure to count as completed run, got %d", runCount)
 	}
 	logDocument := logBuffer.String()
-	if !strings.Contains(logDocument, "task_schedule.run.failed") || !strings.Contains(logDocument, "schedule-1") || !strings.Contains(logDocument, "outbox unavailable") {
-		t.Fatalf("expected run failure log, got %q", logDocument)
+	if !strings.Contains(logDocument, "task_schedule.reply.enqueue_failed") || !strings.Contains(logDocument, "schedule-1") || !strings.Contains(logDocument, "outbox unavailable") {
+		t.Fatalf("expected delivery failure log, got %q", logDocument)
 	}
 }
 
@@ -438,6 +453,12 @@ func (repository *pollerScheduleRepository) ClaimDueTaskSchedules(limit int, _ t
 
 func (repository *pollerScheduleRepository) MarkTaskScheduleSucceeded(taskSchedule task.TaskSchedule) error {
 	repository.succeeded = &taskSchedule
+	for index, existingTaskSchedule := range repository.taskSchedules {
+		if existingTaskSchedule.TaskScheduleID == taskSchedule.TaskScheduleID {
+			repository.taskSchedules[index] = taskSchedule
+			break
+		}
+	}
 	return nil
 }
 
@@ -478,10 +499,14 @@ func (staticPersonAccessResolver) ResolvePersonAccess(personID string) policy.Pe
 }
 
 func testTaskScheduleRunner(content string) agentruntime.TaskScheduleRunner {
+	return testTaskScheduleRunnerWithResponseCount(content, nil)
+}
+
+func testTaskScheduleRunnerWithResponseCount(content string, generatedResponseCount *int) agentruntime.TaskScheduleRunner {
 	taskEventService := task.NewTaskEventService()
 	taskRunService := task.NewTaskRunService(taskEventService)
 	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
-	agentKernel.UseLanguageModelProvider(staticPollerLanguageModel{content: content})
+	agentKernel.UseLanguageModelProvider(staticPollerLanguageModel{content: content, generatedResponseCount: generatedResponseCount})
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm"})
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
@@ -505,7 +530,8 @@ func waitingTaskSchedule(runAt time.Time) task.TaskSchedule {
 }
 
 type staticPollerLanguageModel struct {
-	content string
+	content                string
+	generatedResponseCount *int
 }
 
 func (languageModel staticPollerLanguageModel) GenerateResponse(context.Context, string) (string, error) {
@@ -513,6 +539,9 @@ func (languageModel staticPollerLanguageModel) GenerateResponse(context.Context,
 }
 
 func (languageModel staticPollerLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if languageModel.generatedResponseCount != nil {
+		*languageModel.generatedResponseCount++
+	}
 	if strings.HasPrefix(languageModel.content, "{") {
 		return llm.StructuredResponse{Content: languageModel.content}, nil
 	}

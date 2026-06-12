@@ -134,8 +134,20 @@ func (taskSchedulePoller TaskSchedulePoller) runTaskSchedule(ctx context.Context
 	if !result.DidRun {
 		return taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleSucceeded(result.TaskSchedule)
 	}
-	if errorValue := taskSchedulePoller.enqueueTaskScheduleReply(result); errorValue != nil {
+	if errorValue := taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleSucceeded(result.TaskSchedule); errorValue != nil {
 		return errorValue
+	}
+	if errorValue := taskSchedulePoller.enqueueTaskScheduleReply(result); errorValue != nil {
+		taskSchedulePoller.logger().Error(
+			"task_schedule.reply.enqueue_failed",
+			"taskScheduleID",
+			result.TaskSchedule.TaskScheduleID,
+			"taskRunID",
+			result.TaskRunID,
+			"error",
+			errorValue.Error(),
+		)
+		return nil
 	}
 	taskSchedulePoller.logger().Info(
 		"task_schedule.reply.enqueued",
@@ -144,7 +156,7 @@ func (taskSchedulePoller TaskSchedulePoller) runTaskSchedule(ctx context.Context
 		"taskRunID",
 		result.TaskRunID,
 	)
-	return taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleSucceeded(result.TaskSchedule)
+	return nil
 }
 
 func (taskSchedulePoller TaskSchedulePoller) executeTaskSchedule(ctx context.Context, taskSchedule task.TaskSchedule, referenceTime time.Time) (taskScheduleExecutionResult, error) {
