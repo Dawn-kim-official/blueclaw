@@ -510,6 +510,67 @@ func AskConfirmReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 	}
 }
 
+func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "dm_send_confirm_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "ask.confirm", "platform.message.send"},
+		CapabilityToolNames:   []string{"platform.message.send"},
+		Turns: []VirtualTurn{{
+			Prompt: "테스트이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
+			ActionResponses: []string{
+				`{"action":"select_tools","toolNames":["ask.confirm"],"skillNames":[],"reason":"외부 DM 전송에는 확인이 필요합니다."}`,
+				actionCallTool("ask.confirm", `{"userFacingMessage":"테스트이에게 DM을 보낼까요?","reasonCode":"external_send","reasonDetail":"테스트이에게 오늘 오후 3시에 확인하자는 DM을 보냅니다."}`),
+			},
+			ExpectedToolCalls: []string{"ask.confirm"},
+			ExpectedToolCallCounts: map[string]int{
+				"platform.message.send": 0,
+			},
+			ExpectedEvents:         []string{"confirmation.requested"},
+			ExpectedReplyFragments: []string{"테스트이에게 DM을 보낼까요?"},
+		}, {
+			Prompt: "확인",
+			ActionResponses: []string{
+				`{"action":"select_tools","toolNames":["platform.message.send"],"skillNames":[],"reason":"승인 후 DM 전송 도구를 호출합니다."}`,
+				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"directMessage","personHint":"테스트"},"message":"오늘 오후 3시에 확인하자"}`),
+				actionFinishMessage("테스트이에게 DM을 보냈습니다.", "obs-002:platform.message.send:0"),
+			},
+			ExpectedToolCalls: []string{"platform.message.send"},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 1},
+				{Name: "tool.platform.message.send.result", BodyFragment: "virtual-platform-message-001", Count: 1},
+			},
+			ExpectedEvents:         []string{"confirmation.reply_classified"},
+			ExpectedModelContexts:  []string{"virtual-platform-message-001"},
+			ExpectedReplyFragments: []string{"DM", "보냈습니다"},
+		}},
+	}
+}
+
+func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "channel_post_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "platform.message.send"},
+		CapabilityToolNames:   []string{"platform.message.send"},
+		Turns: []VirtualTurn{{
+			Prompt: "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
+			ActionResponses: []string{
+				`{"action":"select_tools","toolNames":["platform.message.send"],"skillNames":[],"reason":"채널 공지를 게시하려면 플랫폼 메시지 전송 도구가 필요합니다."}`,
+				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"channel","channelName":"announcements"},"message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
+				actionFinishMessage("announcements 채널에 공지를 올렸습니다.", "obs-002:platform.message.send:0"),
+			},
+			ExpectedToolCalls: []string{"platform.message.send"},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"channel"`, Count: 1},
+				{Name: "tool.platform.message.send.requested", BodyFragment: `"channelName":"announcements"`, Count: 1},
+				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 0},
+			},
+			ExpectedReplyFragments: []string{"채널", "올렸습니다"},
+		}},
+	}
+}
+
 func simpleSlidesSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:        "simple-slides",
