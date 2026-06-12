@@ -17,7 +17,10 @@ import (
 	"blueclaw/internal/workspacepath"
 )
 
-const siteSourceBundleMaximumBytes = 64 * 1024 * 1024
+const (
+	siteSourceBundleMaximumBytes = 64 * 1024 * 1024
+	siteAppStatusToolDescription = "Inspect InternKim site status. Use scope=mine to list all requester-editable sites across conversations. Use checkLive=true to verify live HTTP reachability for published sites."
+)
 
 type siteAppBuildToolInput struct {
 	SiteID              string `json:"siteID"`
@@ -807,33 +810,67 @@ func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusResult(toolConte
 	if errorValue := json.Unmarshal(*result, &document); errorValue != nil {
 		return nil, errorValue
 	}
-	if siteStatus, _ := document["status"].(string); strings.TrimSpace(siteStatus) != "published" {
-		delete(document, "publishedURL")
-	}
-	sourceWorkspacePath, _ := document["sourceWorkspacePath"].(string)
-	if strings.TrimSpace(sourceWorkspacePath) == "" {
-		return nil, nil
-	}
-	siteID, _ := document["siteID"].(string)
-	health := toolCatalogBuilder.siteWorkspaceHealth(toolContext, request, siteID, sourceWorkspacePath)
-	if resolvedSourceWorkspacePath, _ := health["sourceWorkspacePath"].(string); strings.TrimSpace(resolvedSourceWorkspacePath) != "" {
-		document["sourceWorkspacePath"] = resolvedSourceWorkspacePath
-		document["draftPath"] = resolvedSourceWorkspacePath
-		if siteID := firstNonEmptyString(siteID, siteProjectIDFromPath(resolvedSourceWorkspacePath)); siteID != "" {
-			document["workspacePath"] = filepath.ToSlash(filepath.Join("home", "sites", siteID))
+	if isList, annotatedDocument, errorValue := toolCatalogBuilder.annotateSiteStatusListResult(toolContext, request, document); isList || errorValue != nil {
+		if errorValue == nil {
+			*result = annotatedDocument
 		}
+		return nil, errorValue
 	}
-	if resolvedAppWorkspacePath, _ := health["appWorkspacePath"].(string); strings.TrimSpace(resolvedAppWorkspacePath) != "" {
-		document["appWorkspacePath"] = resolvedAppWorkspacePath
-	}
-	document["workspaceHealth"] = health["status"]
-	document["workspaceHealthDetails"] = health
+	toolCatalogBuilder.annotateSiteStatusRecord(toolContext, request, document, true)
 	annotatedDocument, errorValue := json.Marshal(document)
 	if errorValue != nil {
 		return nil, errorValue
 	}
 	*result = annotatedDocument
 	return nil, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusListResult(toolContext context.Context, request ToolCatalogRequest, document map[string]any) (bool, json.RawMessage, error) {
+	rawSites, isList := document["sites"].([]any)
+	if !isList {
+		return false, nil, nil
+	}
+	for _, rawSite := range rawSites {
+		site, isSite := rawSite.(map[string]any)
+		if !isSite {
+			continue
+		}
+		toolCatalogBuilder.annotateSiteStatusRecord(toolContext, request, site, false)
+	}
+	annotatedDocument, errorValue := json.Marshal(document)
+	if errorValue != nil {
+		return true, nil, errorValue
+	}
+	return true, annotatedDocument, nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusRecord(toolContext context.Context, request ToolCatalogRequest, document map[string]any, includeWorkspaceDetails bool) {
+	if siteStatus, _ := document["status"].(string); strings.TrimSpace(siteStatus) != "published" {
+		delete(document, "publishedURL")
+	}
+	sourceWorkspacePath, _ := document["sourceWorkspacePath"].(string)
+	if strings.TrimSpace(sourceWorkspacePath) == "" {
+		sourceWorkspacePath = defaultSiteSourceWorkspacePath(document)
+	}
+	if strings.TrimSpace(sourceWorkspacePath) == "" {
+		return
+	}
+	siteID, _ := document["siteID"].(string)
+	health := toolCatalogBuilder.siteWorkspaceHealth(toolContext, request, siteID, sourceWorkspacePath)
+	if includeWorkspaceDetails {
+		if resolvedSourceWorkspacePath, _ := health["sourceWorkspacePath"].(string); strings.TrimSpace(resolvedSourceWorkspacePath) != "" {
+			document["sourceWorkspacePath"] = resolvedSourceWorkspacePath
+			document["draftPath"] = resolvedSourceWorkspacePath
+			if siteID := firstNonEmptyString(siteID, siteProjectIDFromPath(resolvedSourceWorkspacePath)); siteID != "" {
+				document["workspacePath"] = filepath.ToSlash(filepath.Join("home", "sites", siteID))
+			}
+		}
+		if resolvedAppWorkspacePath, _ := health["appWorkspacePath"].(string); strings.TrimSpace(resolvedAppWorkspacePath) != "" {
+			document["appWorkspacePath"] = resolvedAppWorkspacePath
+		}
+		document["workspaceHealthDetails"] = health
+	}
+	document["workspaceHealth"] = health["status"]
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) siteWorkspaceHealth(toolContext context.Context, request ToolCatalogRequest, siteID string, sourceWorkspacePath string) map[string]any {
