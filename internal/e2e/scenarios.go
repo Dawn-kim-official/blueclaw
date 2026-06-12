@@ -383,6 +383,63 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 	}
 }
 
+func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "calendar_event_lifecycle_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		RouterWorkKinds:       []string{agent.WorkKindCalendar},
+		Skills:                []agent.SkillInstruction{calendarSkill()},
+		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.event.add", "calendar.event.update", "calendar.event.delete"},
+		CapabilityToolNames:   []string{"calendar.event.add", "calendar.event.update", "calendar.event.delete"},
+		Turns: []VirtualTurn{
+			{
+				Prompt: "내일 오전 10시에 제품 회고 일정을 캘린더에 추가해줘",
+				ActionResponses: []string{
+					actionCallTool("calendar.event.add", `{"title":"제품 회고","startISO":"2026-06-13T10:00:00+09:00","endISO":"2026-06-13T11:00:00+09:00","timeZone":"Asia/Seoul"}`),
+					actionFinishMessage("내일 오전 10시에 제품 회고 일정을 추가했습니다.", "obs-001:calendar.event.add:0"),
+				},
+				ExpectedSelectedSkills: []string{"calendar"},
+				ExpectedToolCalls:      []string{"calendar.event.add"},
+				ExpectedToolCallCounts: map[string]int{
+					"calendar.event.add":    1,
+					"calendar.event.update": 0,
+					"calendar.event.delete": 0,
+				},
+			},
+			{
+				Prompt: "그 일정을 내일 오후 2시로 바꿔줘",
+				ActionResponses: []string{
+					actionCallTool("calendar.event.update", `{"eventID":"calendar-event-001","startISO":"2026-06-13T14:00:00+09:00","endISO":"2026-06-13T15:00:00+09:00","timeZone":"Asia/Seoul"}`),
+					actionFinishMessage("제품 회고 일정을 내일 오후 2시로 변경했습니다.", "obs-001:calendar.event.update:0"),
+				},
+				ExpectedToolCalls: []string{"calendar.event.update"},
+				ExpectedToolCallCounts: map[string]int{
+					"calendar.event.add":    0,
+					"calendar.event.update": 1,
+					"calendar.event.delete": 0,
+				},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.calendar.event.update.requested", BodyFragment: "2026-06-13T14:00:00+09:00", Count: 1},
+				},
+			},
+			{
+				Prompt: "그 일정 삭제해줘",
+				ActionResponses: []string{
+					actionCallTool("calendar.event.delete", `{"eventID":"calendar-event-001"}`),
+					actionFinishMessage("제품 회고 일정을 삭제했습니다.", "obs-001:calendar.event.delete:0"),
+				},
+				ExpectedToolCalls: []string{"calendar.event.delete"},
+				ExpectedToolCallCounts: map[string]int{
+					"calendar.event.add":    0,
+					"calendar.event.update": 0,
+					"calendar.event.delete": 1,
+				},
+				ExpectedReplyFragments: []string{"삭제했습니다"},
+			},
+		},
+	}
+}
+
 func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "one_time_schedule_acceptance",
@@ -401,6 +458,25 @@ func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 			ExpectedModelContexts:  []string{"scheduled-task", "schedule.create", "runAt", "once"},
 			ExpectedReplyFragments: []string{"2027년 1월 15일", "한 번"},
 		}},
+	}
+}
+
+func calendarSkill() agent.SkillInstruction {
+	return agent.SkillInstruction{
+		Name:         "calendar",
+		Description:  "Create, update, and delete calendar events.",
+		WhenToUse:    "Use for calendar event creation, updates, deletion, 일정, 달력, 캘린더, and meeting time changes.",
+		Prompt:       "Use calendar.event.add to create calendar events, calendar.event.update to edit event time or details, and calendar.event.delete to delete events.",
+		Category:     "calendar",
+		Tags:         []string{"calendar", "event"},
+		AllowedTools: []string{"calendar.event.add", "calendar.event.update", "calendar.event.delete"},
+		TriggerHints: []string{"calendar", "event", "일정", "달력", "캘린더", "meeting"},
+		Source: agent.InstructionSource{
+			Path:      "skills/calendar/SKILL.md",
+			SkillName: "calendar",
+			ByteSize:  512,
+			SHA256:    "virtual-calendar",
+		},
 	}
 }
 
@@ -567,6 +643,31 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 0},
 			},
 			ExpectedReplyFragments: []string{"채널", "올렸습니다"},
+		}},
+	}
+}
+
+func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "platform_message_edit_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "platform.message.update"},
+		CapabilityToolNames:   []string{"platform.message.update"},
+		Turns: []VirtualTurn{{
+			Prompt: "방금 올린 공지 message virtual-platform-message-001 문구를 '오늘 오후 6시에 전체 공지 회의가 있습니다.'로 바꿔줘",
+			ActionResponses: []string{
+				`{"action":"select_tools","toolNames":["platform.message.update"],"skillNames":[],"reason":"최근 공지 메시지를 수정하려면 플랫폼 메시지 업데이트 도구가 필요합니다."}`,
+				actionCallTool("platform.message.update", `{"messageID":"virtual-platform-message-001","text":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
+				actionFinishMessage("공지 메시지 문구를 수정했습니다.", "obs-002:platform.message.update:0"),
+			},
+			ExpectedToolCalls: []string{"platform.message.update"},
+			ExpectedToolCallCounts: map[string]int{
+				"platform.message.update": 1,
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.platform.message.update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 1},
+				{Name: "tool.platform.message.update.requested", BodyFragment: `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`, Count: 1},
+			},
 		}},
 	}
 }

@@ -128,6 +128,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return ScheduleCreateAcceptanceScenario(artifactDirectoryPath), nil
 	case "schedule_lifecycle_acceptance":
 		return ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath), nil
+	case "calendar_event_lifecycle_acceptance":
+		return CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath), nil
 	case "one_time_schedule_acceptance":
 		return OneTimeScheduleAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_prototype_acceptance":
@@ -140,6 +142,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath), nil
 	case "channel_post_acceptance":
 		return ChannelPostAcceptanceScenario(artifactDirectoryPath), nil
+	case "platform_message_edit_acceptance":
+		return PlatformMessageEditAcceptanceScenario(artifactDirectoryPath), nil
 	case "attachment_material_read":
 		return AttachmentMaterialReadScenario(artifactDirectoryPath), nil
 	case "attachment_html_preview_recovery":
