@@ -162,6 +162,10 @@ func (repository *scheduledDeliveryRepository) CancelTaskSchedules(task.TaskSche
 	return task.TaskScheduleCancelResult{}, nil
 }
 
+func (repository *scheduledDeliveryRepository) UpdateTaskSchedule(task.TaskScheduleUpdateRequest) (task.TaskScheduleUpdateResult, error) {
+	return task.TaskScheduleUpdateResult{}, nil
+}
+
 func (repository *scheduledDeliveryRepository) EnqueueScheduledConnectorReply(taskSchedule task.TaskSchedule, taskRunID string, reply connectors.OutboundReply) (string, error) {
 	repository.mutex.Lock()
 	defer repository.mutex.Unlock()
