@@ -347,6 +347,11 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		recoveryAllowance := evaluateRecoveryAllowance(state.Observations, agentTurnRunner.options.RecoveryBudget)
 		reason := "stopped after 3 consecutive model actions without workspace, tool, artifact, attachment, or new failure progress"
+		if agentTurnRunner.shouldPauseForStalledRecovery(taskRun.TaskRunID, state.Observations) {
+			if result, isPaused := agentTurnRunner.pauseTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state); isPaused {
+				return result, true
+			}
+		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.no_progress_loop_stopped", marshalEventBody(map[string]any{
 			"reason":             reason,
 			"progressEvaluation": progressEvaluation,
@@ -1109,6 +1114,49 @@ func (agentTurnRunner *AgentTurnRunner) appendQualityReview(taskRunID string, cr
 	}
 	qualityState := buildQualityState(criteria, review, observations)
 	agentTurnRunner.appendEvent(taskRunID, "agent.quality_review", marshalEventBody(qualityState))
+}
+
+func (agentTurnRunner *AgentTurnRunner) shouldPauseForStalledRecovery(taskRunID string, observations []turnObservation) bool {
+	if _, hasFailureDebt := activeFailureDebt(observations); !hasFailureDebt {
+		return false
+	}
+	for _, taskEvent := range agentTurnRunner.taskRunService.ListTaskEvent(taskRunID) {
+		if taskEvent.Name == "agent.no_progress_loop_paused" {
+			return false
+		}
+	}
+	return true
+}
+
+func (agentTurnRunner *AgentTurnRunner) pauseTurnForStall(taskRunID string, stepID string, request AgentTurnRequest, reason string, progressEvaluation actionProgressEvaluation, allowance recoveryAllowance, state agentTaskState) (AgentTurnResult, bool) {
+	notice, replyStatus, hasReply := agentTurnRunner.generateStallPauseNotice(taskRunID, request, reason, state.Observations, state.Attachments, state.ExecutionState)
+	agentTurnRunner.appendEvent(taskRunID, "agent.stall_pause_reply", marshalEventBody(replyStatus))
+	if !hasReply {
+		return AgentTurnResult{}, false
+	}
+	pausedTaskRun, errorValue := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, reason)
+	if errorValue != nil {
+		return AgentTurnResult{}, false
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.no_progress_loop_paused", marshalEventBody(map[string]any{
+		"reason":             reason,
+		"progressEvaluation": progressEvaluation,
+		"recoveryAllowance":  allowance,
+	}))
+	agentTurnRunner.appendEvent(taskRunID, "agent.goal.waiting_user_input", marshalEventBody(stalledWaitingGoal(taskRunID, request)))
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusWaitingUserInput, "no_progress_loop_paused", reason)
+	reply := notice.SendableMessage()
+	pausedTaskRun.Result = reply
+	return AgentTurnResult{TaskRun: pausedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
+}
+
+func stalledWaitingGoal(taskRunID string, request AgentTurnRequest) ActiveGoal {
+	waitingGoal := request.ActiveGoal
+	waitingGoal.GoalID = firstNonEmptyString(waitingGoal.GoalID, taskRunID)
+	waitingGoal.TaskRunID = firstNonEmptyString(waitingGoal.TaskRunID, taskRunID)
+	waitingGoal.OriginalInstruction = firstNonEmptyString(waitingGoal.OriginalInstruction, request.Prompt)
+	waitingGoal.Status = ActiveGoalStatusWaitingUserInput
+	return waitingGoal
 }
 
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {

@@ -380,9 +380,16 @@ func diagnosticEventID(request AgentTurnRequest, taskRunID string, phase string)
 	return strings.TrimSpace(phase)
 }
 
+func failureNoticeFramingInstruction(phase string) string {
+	if phase == "stall" {
+		return "You are writing a short user-facing notice that the task is paused because repeated attempts stopped making progress. Explain in plain terms what is stuck, then end with one concrete question asking how the user wants to proceed."
+	}
+	return "You are writing a short user-facing failure notice."
+}
+
 func buildFailureNoticePrompt(report FailureReport) string {
 	sections := []string{
-		"You are writing a short user-facing failure notice.",
+		failureNoticeFramingInstruction(report.Phase),
 		responseLanguageInstruction(report.ResponseLanguage),
 		"Use only the compact failure context below. Do not infer from earlier conversation history.",
 		"Write one or two natural sentences.",

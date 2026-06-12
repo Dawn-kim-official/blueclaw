@@ -1148,15 +1148,18 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected repeated state stop without error: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
-		t.Fatalf("expected failed task after repeated recovery state, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
+		t.Fatalf("expected paused task after repeated recovery state, got %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 1 {
 		t.Fatalf("expected no repeated terminal command, got %d calls", terminalCallCount)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "3 consecutive") {
-		t.Fatal("expected no-progress loop stop event")
+	if !taskEventsContain(taskEvents, "agent.no_progress_loop_paused", "3 consecutive") {
+		t.Fatal("expected no-progress loop pause event")
+	}
+	if !taskEventsContain(taskEvents, "agent.goal.waiting_user_input", result.TaskRun.TaskRunID) {
+		t.Fatal("expected waiting goal event for stalled task")
 	}
 	if taskEventsContain(taskEvents, "max_iterations", "") {
 		t.Fatal("expected loop breaker before max_iterations")
