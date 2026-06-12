@@ -339,6 +339,123 @@ func TestApprovalRequestPausesActiveTaskRun(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestReusesPriorApprovalForSameTaskAndConfirmation(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalToolResult(map[string]string{
+		"userFacingMessage": "Approve browser login?",
+		"reasonCode":        "credential_access",
+	}))
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", marshalToolResult(map[string]string{
+		"approval": "approve",
+		"reason":   "interactive_confirm",
+	}))
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"ask.confirm"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "ask.confirm",
+		Input:    json.RawMessage(`{"userFacingMessage":"Approve   browser\nlogin?","reasonCode":"credential_access"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected approval tool to return a result: %v", errorValue)
+	}
+	if toolResult.Failed() || !strings.Contains(toolResult.ContentText(), `"approvalReuse":"already_approved"`) {
+		t.Fatalf("expected already-approved result, got %+v", toolResult)
+	}
+	if countTaskEvents(taskEventService.ListTaskEvent(taskRun.TaskRunID), "confirmation.requested") != 1 {
+		t.Fatalf("expected no duplicate confirmation request")
+	}
+	updatedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || updatedTaskRun.Status == task.TaskStatusWaitingApproval {
+		t.Fatalf("expected task not to pause again, got found=%v run=%+v", isFound, updatedTaskRun)
+	}
+}
+
+func TestApprovalRequestEmitsAskForDifferentConfirmationContent(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalToolResult(map[string]string{
+		"userFacingMessage": "Approve browser login?",
+		"reasonCode":        "credential_access",
+	}))
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.reply_classified", marshalToolResult(map[string]string{
+		"approval": "approve",
+	}))
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"ask.confirm"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "ask.confirm",
+		Input:    json.RawMessage(`{"userFacingMessage":"Approve sending the DM?","reasonCode":"credential_access"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected approval tool to return a result: %v", errorValue)
+	}
+	if toolResult.Failed() || strings.Contains(toolResult.ContentText(), `"approvalReuse":"already_approved"`) {
+		t.Fatalf("expected normal approval request result, got %+v", toolResult)
+	}
+	if countTaskEvents(taskEventService.ListTaskEvent(taskRun.TaskRunID), "confirmation.requested") != 2 {
+		t.Fatalf("expected new confirmation request")
+	}
+}
+
+func TestApprovalRequestEmitsAskAfterPriorRejection(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "approve this")
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalToolResult(map[string]string{
+		"userFacingMessage": "Approve browser login?",
+		"reasonCode":        "credential_access",
+	}))
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.reply_classified", marshalToolResult(map[string]string{
+		"approval": "approve",
+	}))
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalToolResult(map[string]string{
+		"userFacingMessage": "Approve browser login?",
+		"reasonCode":        "credential_access",
+	}))
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.reply_classified", marshalToolResult(map[string]string{
+		"approval": "reject",
+	}))
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.rejected", marshalToolResult(map[string]string{
+		"reason": "interactive_cancel",
+	}))
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"ask.confirm"},
+	}, nil)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		ToolName: "ask.confirm",
+		Input:    json.RawMessage(`{"userFacingMessage":"Approve browser login?","reasonCode":"credential_access"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected approval tool to return a result: %v", errorValue)
+	}
+	if toolResult.Failed() || strings.Contains(toolResult.ContentText(), `"approvalReuse":"already_approved"`) {
+		t.Fatalf("expected normal approval request after rejection, got %+v", toolResult)
+	}
+	if countTaskEvents(taskEventService.ListTaskEvent(taskRun.TaskRunID), "confirmation.requested") != 3 {
+		t.Fatalf("expected confirmation request after rejection")
+	}
+}
+
 func TestApprovalRequestAllowsSensitiveReasonCodes(t *testing.T) {
 	for _, reasonCode := range allowedApprovalReasonCodes {
 		taskEventService := task.NewTaskEventService()
@@ -1101,6 +1218,16 @@ func containsString(values []string, expected string) bool {
 
 func containsTaskEvent(taskEvents []task.TaskEvent, name string) bool {
 	return findTaskEvent(taskEvents, name).Name != ""
+}
+
+func countTaskEvents(taskEvents []task.TaskEvent, name string) int {
+	count := 0
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name == name {
+			count++
+		}
+	}
+	return count
 }
 
 func findTaskEvent(taskEvents []task.TaskEvent, name string) task.TaskEvent {
