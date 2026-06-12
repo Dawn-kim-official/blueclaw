@@ -37,6 +37,14 @@ func ResolveRecipient(platform string, hint string, people []policy.PersonPolicy
 	}
 	candidates := recipientCandidates(platform, people, platformAccounts)
 	matches := bestScoredRecipientMatches(normalizedHint, candidates)
+	if len(matches) == 0 {
+		for _, strippedHint := range koreanNameSuffixVariants(normalizedHint) {
+			matches = bestScoredRecipientMatches(strippedHint, candidates)
+			if len(matches) > 0 {
+				break
+			}
+		}
+	}
 	switch len(matches) {
 	case 0:
 		return RecipientResolution{Status: RecipientNotFound, ApprovedPeople: approvedPeopleNames(people)}
@@ -45,6 +53,17 @@ func ResolveRecipient(platform string, hint string, people []policy.PersonPolicy
 	default:
 		return RecipientResolution{Status: RecipientAmbiguous, Candidates: matches}
 	}
+}
+
+func koreanNameSuffixVariants(hint string) []string {
+	variants := []string{}
+	for _, suffix := range []string{"님", "씨", "이", "아", "야"} {
+		stripped := strings.TrimSuffix(hint, suffix)
+		if stripped != hint && len([]rune(stripped)) >= 2 {
+			variants = append(variants, stripped)
+		}
+	}
+	return variants
 }
 
 func singleRecipientResolution(recipient RecipientCandidate) RecipientResolution {

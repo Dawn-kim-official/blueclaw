@@ -113,3 +113,17 @@ func TestResolveRecipientTrustsProfileEmailOverLearnedPersonID(test *testing.T) 
 		test.Fatalf("expected crossed row not to leak into other people, got %+v", leeResolution)
 	}
 }
+
+func TestResolveRecipientStripsKoreanNameSuffix(t *testing.T) {
+	people := []policy.PersonPolicy{{PersonID: "person-1", DisplayName: "신우경", Emails: []string{"rain@dawn.kim"}}}
+	accounts := []PlatformAccountIdentity{{Platform: "mattermost", PersonID: "person-1", Email: "rain@dawn.kim", ExternalUserID: "mm-1"}}
+	for _, hint := range []string{"우경이", "우경님", "우경씨", "신우경님"} {
+		resolution := ResolveRecipient("mattermost", hint, people, accounts)
+		if resolution.Status != RecipientResolved || resolution.Recipient == nil || resolution.Recipient.PersonID != "person-1" {
+			t.Fatalf("hint %q resolution = %+v", hint, resolution)
+		}
+	}
+	if resolution := ResolveRecipient("mattermost", "이", people, accounts); resolution.Status != RecipientNotFound {
+		t.Fatalf("single particle resolution = %+v", resolution)
+	}
+}
