@@ -801,8 +801,8 @@ func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testi
 	}
 }
 
-func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutTask(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "unused"}
+func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutClassifying(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "unused"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.OtherPersonMentioned = true
@@ -813,7 +813,7 @@ func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutTask(t *testing.T) {
 	}
 
 	if !result.Ignored || result.Reason != "addressed_to_other_person" {
-		t.Fatalf("expected addressed_to_other_person ignore, got %+v", result)
+		t.Fatalf("expected other-person mention ignore, got %+v", result)
 	}
 	if result.TaskRunID != "" || len(adapter.sentReplies) != 0 || len(adapter.progressStarts) != 0 {
 		t.Fatalf("expected no task/reply/progress, got result=%+v replies=%d progress=%d", result, len(adapter.sentReplies), len(adapter.progressStarts))
@@ -821,8 +821,8 @@ func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutTask(t *testing.T) {
 	if len(adapter.reactions) != 0 {
 		t.Fatalf("expected addressing ignored message not to receive reaction, got %+v", adapter.reactions)
 	}
-	if len(languageModel.requests) != 0 {
-		t.Fatalf("expected no language model calls, got %d", len(languageModel.requests))
+	if connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+		t.Fatalf("expected other-person mention to skip addressing classifier, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
 	}
 }
 
@@ -871,10 +871,10 @@ func TestConnectorRuntimeIgnoresNonAssistantAddressingClasses(t *testing.T) {
 		addressingTarget string
 		reason           string
 	}{
-		{name: "human", addressingTarget: string(agent.AddressingTargetHuman), reason: "addressing_human"},
-		{name: "anyone", addressingTarget: string(agent.AddressingTargetAnyone), reason: "addressing_anyone"},
-		{name: "none", addressingTarget: string(agent.AddressingTargetNone), reason: "addressing_none"},
-		{name: "unclear", addressingTarget: string(agent.AddressingTargetUnclear), reason: "addressing_unclear"},
+		{name: "human", addressingTarget: string(agent.AddressingTargetHuman), reason: "addressing_human dutyMatch=false"},
+		{name: "anyone", addressingTarget: string(agent.AddressingTargetAnyone), reason: "addressing_anyone dutyMatch=false"},
+		{name: "none", addressingTarget: string(agent.AddressingTargetNone), reason: "addressing_none dutyMatch=false"},
+		{name: "unclear", addressingTarget: string(agent.AddressingTargetUnclear), reason: "addressing_unclear dutyMatch=false"},
 	}
 
 	for _, test := range tests {
@@ -923,7 +923,7 @@ func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
 		t.Fatalf("expected classifier failure to close the gate: %v", errorValue)
 	}
 
-	if !result.Ignored || result.Reason != "addressing_classifier_failed" {
+	if !result.Ignored || result.Reason != "addressing_classifier_failed dutyMatch=false" {
 		t.Fatalf("expected addressing_classifier_failed ignore, got %+v", result)
 	}
 	if result.TaskRunID != "" || len(adapter.sentReplies) != 0 || len(adapter.progressStarts) != 0 {
@@ -2910,6 +2910,9 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(context.Contex
 
 type addressingTestLanguageModel struct {
 	addressingTarget string
+	dutyMatch        bool
+	dutyName         string
+	dutyConfidence   float64
 	addressingError  error
 	reply            string
 	requests         []llm.StructuredResponseRequest
@@ -2925,7 +2928,7 @@ func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ c
 		if languageModel.addressingError != nil {
 			return llm.StructuredResponse{}, languageModel.addressingError
 		}
-		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldReply":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot)) + `}`}, nil
+		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldReply":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot) || languageModel.dutyMatch) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }

@@ -51,6 +51,7 @@ type TaskLaunchRequest struct {
 	VisibleContext             agent.VisibleContext
 	ActiveGoal                 agent.ActiveGoal
 	PrecomputedTurnDecision    *agent.TurnDecision
+	AmbientDuty                agent.AmbientDutyContext
 	PinnedToolNames            []string
 	PinnedSkillNames           []string
 	HistoryProvider            HistoryProvider
@@ -172,6 +173,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryResult.Facts)}))
 		}
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, registryAudit, len(memoryResult.Facts)))
+		taskLauncher.appendAmbientDutyLaunchEvent(turnResult.TaskRun.TaskRunID, request)
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.conversation_scope", marshalToolResult(conversationScope))
 	}
 	return TaskLaunchResult{
@@ -259,6 +261,7 @@ func (taskLauncher *TaskLauncher) completeLaunchFailure(ctx context.Context, req
 	turnResult := taskLauncher.agentKernel.CompleteLaunchFailure(ctx, turnRequest, "launch", stepName, errorValue)
 	turnResult.ToolNames = append([]string{}, toolNames...)
 	taskLauncher.appendLaunchStepRecords(turnResult.TaskRun.TaskRunID, records)
+	taskLauncher.appendAmbientDutyLaunchEvent(turnResult.TaskRun.TaskRunID, request)
 	return TaskLaunchResult{
 		TurnResult:            turnResult,
 		ToolNames:             append([]string{}, toolNames...),
@@ -288,6 +291,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		VisibleContext:          request.VisibleContext,
 		ActiveGoal:              request.ActiveGoal,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
+		AmbientDuty:             request.AmbientDuty,
 		MemoryFacts:             memoryFacts,
 		ToolSet:                 toolSet,
 		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
@@ -296,6 +300,17 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		WorkspaceDefaultPath:    conversationScope.DefaultDirectoryPath,
 		CheckpointSender:        request.CheckpointSender,
 	}
+}
+
+func (taskLauncher *TaskLauncher) appendAmbientDutyLaunchEvent(taskRunID string, request TaskLaunchRequest) {
+	ambientDuty := request.AmbientDuty.Normalized()
+	if !ambientDuty.IsMatch {
+		return
+	}
+	taskLauncher.agentKernel.AppendTaskEvent(taskRunID, "agent.ambient_duty_launch", marshalToolResult(map[string]any{
+		"dutyName":   ambientDuty.Name,
+		"confidence": ambientDuty.Confidence,
+	}))
 }
 
 func (taskLauncher *TaskLauncher) appendLaunchStepRecords(taskRunID string, records []launchStepRecord) {

@@ -214,6 +214,26 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	}
 }
 
+func TestAmbientDutyCalendarAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), AmbientDutyCalendarAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected ambient duty calendar acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 1 {
+		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
+	}
+	turnResult := result.TurnResults[0]
+	if countEvents(turnResult.Events, "tool.calendar.event.add.requested") != 1 {
+		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"calendar_upkeep"`) {
+		t.Fatalf("expected ambient duty launch event; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if turnResult.ReplyTargetID != "virtual-message-001" {
+		t.Fatalf("expected thread reply target, got %q", turnResult.ReplyTargetID)
+	}
+}
+
 func TestSkillLifecycleAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), SkillLifecycleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {

@@ -81,6 +81,7 @@ type AgentTurnRequest struct {
 	CurrentStepPlan            NextStepPlan
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
+	AmbientDuty                AmbientDutyContext
 	TaskComplexity             TaskComplexity
 	WorkKinds                  []string
 	TurnStartedAt              time.Time

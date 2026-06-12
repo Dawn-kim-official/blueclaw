@@ -129,6 +129,7 @@ type AgentRequest struct {
 	AllowGiveUp             bool
 	AllowGiveUpReason       string
 	PrecomputedTurnDecision *TurnDecision
+	AmbientDuty             AmbientDutyContext
 	TaskComplexity          TaskComplexity
 	WorkKinds               []string
 	TurnStartedAt           time.Time

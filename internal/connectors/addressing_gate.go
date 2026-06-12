@@ -8,6 +8,14 @@ import (
 	"blueclaw/internal/agent"
 )
 
+const ambientDutyLaunchConfidenceThreshold = 0.7
+
+type addressingLaunchDecision struct {
+	ShouldLaunch bool
+	IgnoreReason string
+	AmbientDuty  agent.AmbientDutyContext
+}
+
 func shouldIgnoreBeforeAuthorization(event PlatformInboundEvent) bool {
 	return isMultiPersonConversation(event) && !event.Context.Addressing.BotMentioned && event.Context.Addressing.OtherPersonMentioned
 }
@@ -16,15 +24,15 @@ func shouldIgnoreUninvitedAddressing(event PlatformInboundEvent) bool {
 	return isMultiPersonConversation(event) && !event.Context.Addressing.BotMentioned
 }
 
-func (connectorRuntime *ConnectorRuntime) shouldLaunchForAddressing(ctx context.Context, platform string, event PlatformInboundEvent) (bool, string) {
+func (connectorRuntime *ConnectorRuntime) shouldLaunchForAddressing(ctx context.Context, platform string, event PlatformInboundEvent) addressingLaunchDecision {
 	if !isMultiPersonConversation(event) {
-		return true, ""
+		return addressingLaunchDecision{ShouldLaunch: true}
 	}
 	if event.Context.Addressing.BotMentioned {
-		return true, ""
+		return addressingLaunchDecision{ShouldLaunch: true}
 	}
 	if event.Context.Addressing.OtherPersonMentioned {
-		return false, "addressed_to_other_person"
+		return addressingLaunchDecision{IgnoreReason: "addressed_to_other_person"}
 	}
 	addressingDecision, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, agent.AddressingClassificationRequest{
 		Prompt:           event.Prompt,
@@ -35,12 +43,16 @@ func (connectorRuntime *ConnectorRuntime) shouldLaunchForAddressing(ctx context.
 	})
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".addressing.classifier_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		return false, "addressing_classifier_failed"
+		return addressingLaunchDecision{IgnoreReason: "addressing_classifier_failed dutyMatch=false"}
 	}
 	if addressingDecision.Target == agent.AddressingTargetBot {
-		return true, ""
+		return addressingLaunchDecision{ShouldLaunch: true}
 	}
-	return false, "addressing_" + string(addressingDecision.Target)
+	ambientDuty := ambientDutyContextFromAddressingDecision(addressingDecision)
+	if ambientDuty.IsMatch {
+		return addressingLaunchDecision{ShouldLaunch: true, AmbientDuty: ambientDuty}
+	}
+	return addressingLaunchDecision{IgnoreReason: "addressing_" + string(addressingDecision.Target) + " dutyMatch=false"}
 }
 
 func isMultiPersonConversation(event PlatformInboundEvent) bool {
@@ -53,4 +65,15 @@ func isMultiPersonConversation(event PlatformInboundEvent) bool {
 		return false
 	}
 	return true
+}
+
+func ambientDutyContextFromAddressingDecision(decision agent.AddressingDecision) agent.AmbientDutyContext {
+	if !decision.DutyMatch || decision.DutyConfidence < ambientDutyLaunchConfidenceThreshold {
+		return agent.AmbientDutyContext{}
+	}
+	return (agent.AmbientDutyContext{
+		IsMatch:    true,
+		Name:       decision.DutyName,
+		Confidence: decision.DutyConfidence,
+	}).Normalized()
 }
