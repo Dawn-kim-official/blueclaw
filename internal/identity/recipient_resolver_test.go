@@ -114,10 +114,10 @@ func TestResolveRecipientTrustsProfileEmailOverLearnedPersonID(test *testing.T) 
 	}
 }
 
-func TestResolveRecipientStripsKoreanNameSuffix(t *testing.T) {
+func TestResolveRecipientFuzzyMatchesSuffixedAndPartialHints(t *testing.T) {
 	people := []policy.PersonPolicy{{PersonID: "person-1", DisplayName: "김테스트", Emails: []string{"rain@example.com"}}}
 	accounts := []PlatformAccountIdentity{{Platform: "mattermost", PersonID: "person-1", Email: "rain@example.com", ExternalUserID: "mm-1"}}
-	for _, hint := range []string{"테스트이", "테스트님", "테스트씨", "김테스트님"} {
+	for _, hint := range []string{"테스트이", "테스트님", "테스트씨", "김테스트님", "김테스트이형"} {
 		resolution := ResolveRecipient("mattermost", hint, people, accounts)
 		if resolution.Status != RecipientResolved || resolution.Recipient == nil || resolution.Recipient.PersonID != "person-1" {
 			t.Fatalf("hint %q resolution = %+v", hint, resolution)
