@@ -259,6 +259,8 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
+	existingTaskRun := services.taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "conversation-1"}, "정국에게 DM 보내줘")
+	services.taskEventService.AppendTaskEvent(existingTaskRun.TaskRunID, "agent.no_progress_loop_paused", "previous stall pause")
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
@@ -266,9 +268,13 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 		ConversationID:    "conversation-1",
 		Prompt:            "정국에게 DM 보내줘",
 		ToolSet:           toolRegistry,
+		ExistingTaskRunID: existingTaskRun.TaskRunID,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task on second stall, got %s", result.TaskRun.Status)
 	}
 	if result.UserNotice != "요청을 처리하지 못했습니다." || result.ReplySuppressed {
 		t.Fatalf("expected safe degraded reply to be delivered, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
@@ -304,11 +310,14 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
+	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
+		t.Fatalf("expected stalled task to pause for user input, got %s", result.TaskRun.Status)
+	}
 	if result.UserNotice != generatedReply {
 		t.Fatalf("expected generated reply, got %q", result.UserNotice)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
-		t.Fatal("expected generated failure reply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.stall_pause_reply", "generated") {
+		t.Fatal("expected generated stall pause reply event")
 	}
 }
 

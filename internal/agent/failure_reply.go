@@ -124,6 +124,24 @@ func failureReportEventBody(phase string, report FailureReport, generation Failu
 	}
 }
 
+func (agentTurnRunner *AgentTurnRunner) generateStallPauseNotice(taskRunID string, request AgentTurnRequest, stallReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, failureReplyStatus, bool) {
+	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, stallReason, observations, attachments, executionState, "stall")
+	failureReport := buildFailureReport(request, taskRunID, "stall", stallReason, observations, attachments, executionState, decision)
+	status := failureReplyStatus{Decision: decision, FailureReportFacts: buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)}
+	if decisionError != nil {
+		status.StructuredRecoveryError = decisionError.Error()
+	}
+	notice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.languageModel}).Generate(context.Background(), failureReport)
+	status.Source = noticeStatus.Source
+	status.FirstInvalid = noticeStatus.FirstInvalid
+	status.RepairCount = noticeStatus.RepairCount
+	status.Reason = noticeStatus.Reason
+	status.TextRecoveryError = noticeStatus.TextRecoveryError
+	status.LocalRecoveryError = noticeStatus.LocalRecoveryError
+	agentTurnRunner.appendEvent(taskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody("stall", failureReport, noticeStatus)))
+	return notice, status, notice.SendableMessage() != ""
+}
+
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, stopReason, observations, attachments, executionState, "limit")
 	failureReport := buildFailureReport(request, taskRunID, "limit", stopReason, observations, attachments, executionState, decision)
