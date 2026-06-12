@@ -251,6 +251,9 @@ func mkdirAll(path string, mode os.FileMode) error {
 	if errorValue != nil {
 		return errorValue
 	}
+	if len(directories) == 0 {
+		return nil
+	}
 	if errorValue := os.MkdirAll(path, modeBits(mode)); errorValue != nil {
 		return errorValue
 	}
@@ -277,9 +280,6 @@ func missingDirectoryChain(path string) ([]string, error) {
 			return nil, errorValue
 		}
 		directories = append([]string{currentPath}, directories...)
-	}
-	if len(directories) == 0 {
-		directories = append(directories, cleanPath)
 	}
 	return directories, nil
 }

@@ -155,3 +155,37 @@ func containsString(values []string, target string) bool {
 	}
 	return false
 }
+
+func TestMkdirAllSkipsExistingDirectoryWithoutChmod(t *testing.T) {
+	existingDirectory := t.TempDir()
+	if errorValue := os.Chmod(existingDirectory, 0555); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := performFSOperation(fsOperationRequest{Operation: "mkdir_all", Path: existingDirectory, Mode: 02770}); errorValue != nil {
+		t.Fatalf("expected existing directory to be left untouched: %v", errorValue)
+	}
+	fileInformation, errorValue := os.Stat(existingDirectory)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if fileInformation.Mode().Perm() != 0555 {
+		t.Fatalf("expected existing directory mode to stay 0555, got %v", fileInformation.Mode().Perm())
+	}
+}
+
+func TestMkdirAllCreatesAndChmodsOnlyMissingDirectories(t *testing.T) {
+	rootDirectory := t.TempDir()
+	targetPath := filepath.Join(rootDirectory, "nested", "leaf")
+	if errorValue := performFSOperation(fsOperationRequest{Operation: "mkdir_all", Path: targetPath, Mode: 0770}); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	for _, createdPath := range []string{filepath.Join(rootDirectory, "nested"), targetPath} {
+		fileInformation, errorValue := os.Stat(createdPath)
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if fileInformation.Mode().Perm() != 0770 {
+			t.Fatalf("expected created directory %s mode 0770, got %v", createdPath, fileInformation.Mode().Perm())
+		}
+	}
+}
