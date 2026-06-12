@@ -550,6 +550,87 @@ func TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath string) Virtual
 	}
 }
 
+func MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "memory_explicit_tool_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "memory.remember"},
+		Turns: []VirtualTurn{
+			{
+				Prompt: "Please remember that my preferred language is Korean.",
+				ActionResponses: []string{
+					actionCallTool("memory.remember", `{"content":"preferred language is Korean"}`),
+					actionFinishMessage("Remembered: your preferred language is Korean.", "obs-001:memory.remember:0"),
+				},
+				ExpectedToolCalls: []string{"memory.remember"},
+				ExpectedToolCallCounts: map[string]int{
+					"memory.remember": 1,
+				},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.memory.remember.requested", BodyFragment: "Korean", Count: 1},
+				},
+				ExpectedReplyFragments: []string{"Korean"},
+			},
+			{
+				Prompt: "What language do I prefer?",
+				ActionResponses: []string{
+					actionSelectTools("memory.search"),
+					actionCallTool("memory.search", `{"query":"preferred language"}`),
+					actionFinishMessage("Your preferred language is Korean.", "obs-002:memory.search:0"),
+				},
+				ExpectedToolCalls: []string{"memory.search"},
+				ExpectedToolCallCounts: map[string]int{
+					"memory.search": 1,
+				},
+				ExpectedReplyFragments: []string{"Korean"},
+			},
+		},
+	}
+}
+
+func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "failure_explanation_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "task.history"},
+		TurnOptions: agent.TurnOptions{
+			RecoveryBudget: agent.RecoveryBudget{
+				CorrectedRetry: -1,
+				AlternateRoute: -1,
+				AdjacentTool:   -1,
+				NoToolFallback: -1,
+			},
+		},
+		Turns: []VirtualTurn{
+			{
+				Prompt: "Run the analysis.",
+				ActionResponses: []string{
+					actionSelectTools("terminal.run"),
+					actionCallTool("terminal.run", `{"command":"printf 'permission denied blocked_by_captcha' >&2; exit 126","workingDirectoryPath":"home","timeoutSecond":30}`),
+					actionFailMessage("terminal.run: permission denied"),
+				},
+				ExpectedToolCalls: []string{"terminal.run"},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.terminal.run.result", BodyFragment: "permission denied", Count: 1},
+				},
+			},
+			{
+				Prompt: "왜 실패했어?",
+				ActionResponses: []string{
+					actionSelectTools("task.history"),
+					actionCallTool("task.history", `{"status":"failed"}`),
+					actionFinishMessage("terminal.run 실행이 permission denied 때문에 실패했습니다.", "obs-002:task.history:0"),
+				},
+				ExpectedToolCalls: []string{"task.history"},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.task.history.result", BodyFragment: "terminal.run: permission denied", Count: 1},
+				},
+				ExpectedReplyFragments: []string{"permission denied"},
+			},
+		},
+	}
+}
+
 func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "one_time_schedule_acceptance",
@@ -656,6 +737,49 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 				"다시 한번",
 			},
 		}},
+	}
+}
+
+func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "site_edit_redeploy_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		RouterWorkKinds:       []string{agent.WorkKindSitePrototype},
+		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
+		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
+		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
+		Turns: []VirtualTurn{
+			{
+				Prompt: "Build and deploy a simple site.",
+				ActionResponses: []string{
+					actionCallTool("site.app.create", `{"slug":"demo","title":"Demo Website"}`),
+					actionCallTool("file.write", `{"path":"home/sites/site-1/app/index.html","content":"<!doctype html>\n<html>\n<body>\n<h1>Simple Site</h1>\n</body>\n</html>\n"}`),
+					actionCallTool("terminal.run", `{"command":"mkdir -p dist && cp index.html dist/index.html","workingDirectoryPath":"home/sites/site-1/app","timeoutSecond":30}`),
+					actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Initial simple site"}`),
+					actionFinishMessage("Deployed the simple site: https://demo.device.example.test", "obs-004:site.app.publish:0"),
+				},
+				ExpectedSelectedSkills: []string{"site-prototype"},
+				ExpectedToolCalls:      []string{"file.write", "terminal.run", "site.app.publish"},
+				ExpectedReplyFragments: []string{"https://demo.device.example.test"},
+			},
+			{
+				Prompt: "Update the heading to say Hello World.",
+				ActionResponses: []string{
+					actionSelectTools("file.edit", "terminal.run", "site.app.publish"),
+					actionCallTool("file.edit", `{"path":"home/sites/site-1/app/index.html","oldText":"Simple Site","newText":"Hello World"}`),
+					actionCallTool("terminal.run", `{"command":"mkdir -p dist && cp index.html dist/index.html","workingDirectoryPath":"home/sites/site-1/app","timeoutSecond":30}`),
+					actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Update heading to Hello World"}`),
+					actionFinishMessage("Updated and redeployed the site: https://demo.device.example.test", "obs-004:site.app.publish:0"),
+				},
+				ExpectedToolCalls: []string{"file.edit", "terminal.run", "site.app.publish"},
+				ExpectedToolCallCounts: map[string]int{
+					"file.edit":        1,
+					"terminal.run":     1,
+					"site.app.publish": 1,
+				},
+				ExpectedReplyFragments: []string{"https://demo.device.example.test"},
+			},
+		},
 	}
 }
 
