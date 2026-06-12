@@ -208,6 +208,10 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
+	siteNormalizationReports := []siteRequirementNormalizationReport{}
+	var activeGoalSiteReport siteRequirementNormalizationReport
+	request.ActiveGoal, activeGoalSiteReport = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, activeGoalSiteReport)
 	instructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle = selectInstructionBundleForRequestWithRetrieverAndRouter(
 		responseContext,
@@ -225,9 +229,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
+	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
-	request.WorkKinds = appendUniqueStrings(append([]string{}, intakeDecision.WorkKinds...), request.ActiveGoal.WorkKinds...)
-	intakeRequest.WorkKinds = request.WorkKinds
 	if turnDecision.Route == TurnRouteStartTask && !request.IsApprovalContinuation {
 		if strings.TrimSpace(request.ExistingTaskRunID) == strings.TrimSpace(request.ActiveGoal.TaskRunID) {
 			request.ExistingTaskRunID = ""
@@ -236,17 +239,23 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		request.ActiveGoal = ActiveGoal{}
 		intakeRequest.ActiveGoal = ActiveGoal{}
 	}
+	request.WorkKinds = appendUniqueStrings(append([]string{}, intakeDecision.WorkKinds...), request.ActiveGoal.WorkKinds...)
+	intakeRequest.WorkKinds = request.WorkKinds
 	if turnDecision.Route == TurnRouteConsume {
-		return agentKernel.completeConsumedRequest(intakeRequest, turnDecision)
+		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision)
+		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
+		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
 		result.TurnRoute = turnDecision.Route
+		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked)
 		result.TurnRoute = turnDecision.Route
+		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
 	}
 
@@ -316,6 +325,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
@@ -486,6 +496,24 @@ func (agentKernel *AgentKernel) appendGoalLifecycleEvent(taskRun task.TaskRun, a
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, taskRun.TaskRunID)
 	activeGoal.Status = activeGoalStatusForTaskStatus(taskRun.Status)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, activeGoalEventNameForTaskStatus(taskRun.Status), marshalEventBody(activeGoal))
+}
+
+func appendSiteRequirementNormalizationReport(reports []siteRequirementNormalizationReport, report siteRequirementNormalizationReport) []siteRequirementNormalizationReport {
+	if !report.HasDrops() {
+		return reports
+	}
+	return append(reports, report)
+}
+
+func (agentKernel *AgentKernel) appendSiteRequirementNormalizationReports(taskRunID string, reports []siteRequirementNormalizationReport) {
+	if strings.TrimSpace(taskRunID) == "" {
+		return
+	}
+	for _, report := range reports {
+		if report.HasDrops() {
+			agentKernel.AppendTaskEvent(taskRunID, siteRequirementNormalizationEventName, marshalEventBody(report))
+		}
+	}
 }
 
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {

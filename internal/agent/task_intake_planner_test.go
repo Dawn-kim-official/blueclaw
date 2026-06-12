@@ -81,6 +81,77 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerDropsQuoteLessHallucinatedSiteWorkKind(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","taskComplexity":"simple","effortLevel":"standard","requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":"","workKinds":["calendar","site_prototype"]}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스"})
+
+	if decision.HasWorkKind(WorkKindSitePrototype) {
+		t.Fatalf("expected hallucinated site work kind to be dropped, got %+v", decision.WorkKinds)
+	}
+	if expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected hallucinated link result to be dropped, got %+v", decision.ExpectedResults)
+	}
+	if strings.TrimSpace(decision.SiteRequestEvidence) != "" {
+		t.Fatalf("expected empty site evidence after drop, got %q", decision.SiteRequestEvidence)
+	}
+	if !decision.siteNormalizationReport.HasDrops() {
+		t.Fatalf("expected diagnostic normalization report, got %+v", decision.siteNormalizationReport)
+	}
+}
+
+func TestTaskIntakePlannerAcceptsVerbatimSiteEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"complex","effortLevel":"standard","requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"웹사이트 만들어서 배포","responseLanguage":"ko","reason":"site work","userFacingReply":"","workKinds":["site_prototype"]}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{Prompt: "포트폴리오 웹사이트 만들어서 배포해줘"})
+
+	if !decision.HasWorkKind(WorkKindSitePrototype) {
+		t.Fatalf("expected verified site work kind to remain, got %+v", decision.WorkKinds)
+	}
+	if !expectedResultsContain(decision.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected verified link result to remain, got %+v", decision.ExpectedResults)
+	}
+	if decision.SiteRequestEvidence != "웹사이트 만들어서 배포" {
+		t.Fatalf("expected verbatim evidence to remain, got %q", decision.SiteRequestEvidence)
+	}
+	if decision.siteNormalizationReport.HasDrops() {
+		t.Fatalf("expected no normalization drops, got %+v", decision.siteNormalizationReport)
+	}
+}
+
+func TestAgentKernelRecordsSiteRequirementNormalizationEvent(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","taskComplexity":"simple","effortLevel":"standard","requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":"","workKinds":["calendar","site_prototype"]}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finishMessageDocument("일정을 추가했습니다."),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스",
+	})
+	if errorValue != nil {
+		t.Fatalf("expected normalized intake to run: %v", errorValue)
+	}
+
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, siteRequirementNormalizationEventName, WorkKindSitePrototype) {
+		t.Fatalf("expected site normalization event, got %+v", taskEvents)
+	}
+	if taskEventsContain(taskEvents, "agent.intake", WorkKindSitePrototype) {
+		t.Fatalf("expected agent intake event not to include site work kind, got %+v", taskEvents)
+	}
+}
+
 func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 	noPendingSchema := turnRouterSchema(AgentRequest{})
 	if strings.Contains(noPendingSchema, `"approval"`) {
@@ -549,7 +620,7 @@ func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testi
 
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?","workKinds":["site_prototype"]}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"siteRequestEvidence":"웹사이트 하나 만들어서 배포","reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?","workKinds":["site_prototype"]}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"site.app.create", "site.app.publish"})
 	for _, toolName := range toolRegistry.ListToolNames() {
