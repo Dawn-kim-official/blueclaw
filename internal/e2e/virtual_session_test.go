@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"blueclaw/internal/agenttest"
 	"blueclaw/internal/capability"
 	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
@@ -102,6 +104,54 @@ func TestPlainQuestionAcceptance(t *testing.T) {
 	}
 	if failureEventCount(turnResult.Events) != 0 {
 		t.Fatalf("expected no failure events, got events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
+func TestLanguageModelCassetteRoundTripVirtualSession(t *testing.T) {
+	recordingLanguageModel := NewRecordingLanguageModel(agenttest.NewActionScriptedLanguageModel(
+		actionFinishMessage("cassette reply sequence"),
+	))
+	recordedScenario := cassetteRoundTripScenario(t.TempDir(), recordingLanguageModel)
+	recordedResult, errorValue := RunVirtualSession(context.Background(), recordedScenario)
+	if errorValue != nil {
+		t.Fatalf("expected recording session to pass: %v", errorValue)
+	}
+
+	cassettePath := filepath.Join(t.TempDir(), "model-cassette.json")
+	if errorValue := SaveLanguageModelCassette(cassettePath, recordingLanguageModel.Cassette()); errorValue != nil {
+		t.Fatalf("expected cassette save to pass: %v", errorValue)
+	}
+	cassette, errorValue := LoadLanguageModelCassette(cassettePath)
+	if errorValue != nil {
+		t.Fatalf("expected cassette load to pass: %v", errorValue)
+	}
+
+	replayingLanguageModel := NewReplayingLanguageModel(cassette)
+	replayedScenario := cassetteRoundTripScenario(t.TempDir(), replayingLanguageModel)
+	replayedResult, errorValue := RunVirtualSession(context.Background(), replayedScenario)
+	if errorValue != nil {
+		t.Fatalf("expected replay session to pass: %v", errorValue)
+	}
+
+	recordedReply := recordedResult.TurnResults[0].FinishMessage
+	replayedReply := replayedResult.TurnResults[0].FinishMessage
+	if recordedReply != replayedReply {
+		t.Fatalf("expected replayed reply %q to match recorded reply %q", replayedReply, recordedReply)
+	}
+	if !reflect.DeepEqual(cassette.Entries, replayingLanguageModel.ReturnedEntries()) {
+		t.Fatalf("expected replayed model response sequence to match cassette")
+	}
+}
+
+func cassetteRoundTripScenario(artifactDirectoryPath string, languageModel llm.LanguageModelProvider) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "cassette_round_trip",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		LanguageModel:         languageModel,
+		Turns: []VirtualTurn{{
+			Prompt:                 "도구 없이 짧게 답해줘.",
+			ExpectedReplyFragments: []string{"cassette reply sequence"},
+		}},
 	}
 }
 
