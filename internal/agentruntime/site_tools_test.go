@@ -455,6 +455,62 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	}
 }
 
+func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<!doctype html><html></html>")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{"status":"fresh"}`)
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"status":"ok","sites":[{"siteID":"site-1","slug":"demo","title":"Demo","status":"published","publishedURL":"https://demo.device.example.test","liveHTTPStatus":200,"updatedAt":"2026-06-12T00:00:00Z"},{"siteID":"site-2","slug":"draft","title":"Draft","status":"draft","publishedURL":"https://draft.device.example.test","updatedAt":"2026-06-12T00:00:00Z"}]}}`}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.status",
+		PolicyResource: "tool:site.app.status",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"scope":{"type":"string","enum":["conversation","mine"]},"checkLive":{"type":"boolean"}},"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+		},
+	})
+	toolDefinition, isFound := findToolDefinition(toolRegistry.ListToolDefinitions(), "site.app.status")
+	if !isFound {
+		t.Fatal("expected site.app.status definition")
+	}
+	if !strings.Contains(string(toolDefinition.InputSchema), `"scope"`) || !strings.Contains(string(toolDefinition.InputSchema), `"checkLive"`) {
+		t.Fatalf("expected owner-wide live fields in schema, got %s", string(toolDefinition.InputSchema))
+	}
+	if !strings.Contains(toolDefinition.Description, "scope=mine") || !strings.Contains(toolDefinition.Description, "checkLive=true") {
+		t.Fatalf("expected owner-wide live guidance in description, got %s", toolDefinition.Description)
+	}
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.status",
+		Input: agent.MarshalToolInput(map[string]any{
+			"scope":     "mine",
+			"checkLive": true,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(httpClient.requestBody, `"scope":"mine"`) || !strings.Contains(httpClient.requestBody, `"checkLive":true`) {
+		t.Fatalf("expected owner-wide live input to pass through, got %s", httpClient.requestBody)
+	}
+	if !strings.Contains(result.ContentText(), `"liveHTTPStatus":200`) || !strings.Contains(result.ContentText(), `"workspaceHealth":"ready"`) {
+		t.Fatalf("expected live status and workspace health annotation, got %s", result.ContentText())
+	}
+	if strings.Contains(result.ContentText(), `"sourceWorkspacePath"`) || strings.Contains(result.ContentText(), `"workspaceHealthDetails"`) {
+		t.Fatalf("expected compact owner-wide site records, got %s", result.ContentText())
+	}
+	if strings.Contains(result.ContentText(), `https://draft.device.example.test`) {
+		t.Fatalf("expected non-published site URL to be stripped, got %s", result.ContentText())
+	}
+}
+
 func TestSiteBuildRejectsSourceSubdirectoryCWD(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
