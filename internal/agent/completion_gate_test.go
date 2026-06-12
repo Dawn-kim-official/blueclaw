@@ -803,7 +803,7 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "site.app.publish")
-		return ToolSuccess(`{"siteID":"site-1","publishedURL":"https://portfolio.example"}`), nil
+		return ToolSuccess(`{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -848,7 +848,7 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"site.app.publish", "file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"publishedURL":"https://portfolio.example"}`), nil
+		return ToolSuccess(`{"status":"published","publishedURL":"https://portfolio.example"}`), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{

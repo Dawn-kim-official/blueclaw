@@ -421,7 +421,7 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","sourceWorkspacePath":"home/sites/site-1/draft","appWorkspacePath":"home/sites/site-1/draft/app","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"home/sites/site-1/draft","appWorkspacePath":"home/sites/site-1/draft/app","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -449,6 +449,9 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 		!strings.Contains(result.ContentText(), `"sourceWorkspacePath":"home/sites/site-1/draft"`) ||
 		!strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/draft/app"`) {
 		t.Fatalf("expected workspace health annotation, got %s", result.ContentText())
+	}
+	if strings.Contains(result.ContentText(), `"publishedURL"`) {
+		t.Fatalf("expected draft site status annotation to omit publishedURL, got %s", result.ContentText())
 	}
 }
 

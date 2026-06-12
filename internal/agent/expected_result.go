@@ -87,7 +87,7 @@ func observationCanDeliverLink(observation turnObservation, content string) bool
 	switch strings.TrimSpace(observation.Tool) {
 	case "site.app.create":
 		return false
-	case "site.app.status":
+	case "site.app.publish", "site.app.status":
 		return siteObservationHasPublishedStatus(content)
 	default:
 		return true
@@ -249,17 +249,17 @@ func normalizeResultVerificationItem(item ResultVerificationItem) ResultVerifica
 }
 
 func enforceObservedResultRequirements(expectedResults []ExpectedResult, observedResults []ObservedResult, finishMessage string, verification ResultVerification) ResultVerification {
-	hasLinkResult := observedResultsContainType(observedResults, ExpectedResultTypeLink)
 	hasFileResult := observedResultsContainType(observedResults, ExpectedResultTypeFile)
 	for index, item := range verification.Results {
 		expectedResult := expectedResultByID(expectedResults, item.ID)
 		if !expectedResult.Required {
 			continue
 		}
-		if expectedResult.Type == ExpectedResultTypeLink && !hasLinkResult {
+		linkResults := observedLinkResultsForExpectedResult(expectedResult, observedResults)
+		if expectedResult.Type == ExpectedResultTypeLink && len(linkResults) == 0 {
 			verification.Results[index] = missingObservedResultItem(item, "No link result was observed.")
 		}
-		if expectedResult.Type == ExpectedResultTypeLink && hasLinkResult && !finishMessageContainsObservedLink(finishMessage, observedResults) {
+		if expectedResult.Type == ExpectedResultTypeLink && len(linkResults) > 0 && !finishMessageContainsObservedLink(finishMessage, linkResults) {
 			verification.Results[index] = missingObservedResultItem(item, "Final message does not include an exact observed link URL.")
 		}
 		if expectedResult.Type == ExpectedResultTypeFile && !hasFileResult {
@@ -268,6 +268,52 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 	}
 	verification.OverallStatus = normalizeResultVerificationOverallStatus(verification.OverallStatus, verification.Results)
 	return verification
+}
+
+func observedLinkResultsForExpectedResult(expectedResult ExpectedResult, observedResults []ObservedResult) []ObservedResult {
+	linkResults := observedResultsByType(observedResults, ExpectedResultTypeLink)
+	if len(linkResults) == 0 {
+		return nil
+	}
+	if !expectedResultNeedsSitePublicURL(expectedResult) || !observedResultsContainSiteAppTool(observedResults) {
+		return linkResults
+	}
+	siteLinkResults := []ObservedResult{}
+	for _, observedResult := range linkResults {
+		if siteToolCanSatisfyLinkResult(observedResult.ToolName) {
+			siteLinkResults = append(siteLinkResults, observedResult)
+		}
+	}
+	return siteLinkResults
+}
+
+func expectedResultNeedsSitePublicURL(expectedResult ExpectedResult) bool {
+	values := append([]string{expectedResult.Description}, expectedResult.AcceptanceHints...)
+	text := strings.ToLower(strings.Join(values, " "))
+	if strings.Contains(text, "site.app") {
+		return true
+	}
+	hasSiteReference := strings.Contains(text, "site") || strings.Contains(text, "website") || strings.Contains(text, "웹사이트")
+	hasPublicReference := strings.Contains(text, "public") || strings.Contains(text, "published") || strings.Contains(text, "공개")
+	return hasSiteReference && hasPublicReference
+}
+
+func observedResultsContainSiteAppTool(observedResults []ObservedResult) bool {
+	for _, observedResult := range observedResults {
+		if strings.HasPrefix(strings.TrimSpace(observedResult.ToolName), "site.app.") {
+			return true
+		}
+	}
+	return false
+}
+
+func siteToolCanSatisfyLinkResult(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case "site.app.publish", "site.app.status":
+		return true
+	default:
+		return false
+	}
 }
 
 func finishMessageContainsObservedLink(finishMessage string, observedResults []ObservedResult) bool {
@@ -313,12 +359,17 @@ func expectedResultByID(expectedResults []ExpectedResult, id string) ExpectedRes
 }
 
 func observedResultsContainType(observedResults []ObservedResult, resultType string) bool {
+	return len(observedResultsByType(observedResults, resultType)) > 0
+}
+
+func observedResultsByType(observedResults []ObservedResult, resultType string) []ObservedResult {
+	results := []ObservedResult{}
 	for _, result := range observedResults {
 		if normalizeExpectedResultType(result.Type) == resultType {
-			return true
+			results = append(results, result)
 		}
 	}
-	return false
+	return results
 }
 
 func missingObservedResultItem(item ResultVerificationItem, reason string) ResultVerificationItem {

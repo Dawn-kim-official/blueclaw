@@ -33,6 +33,34 @@ func TestObservedResultsTreatPublishedSiteStatusAsDeliverableLink(t *testing.T) 
 	}
 }
 
+func TestObservedResultsTreatPublishedSitePublishAsDeliverableLink(t *testing.T) {
+	results := buildObservedResults([]turnObservation{{
+		ObservationID: "obs-001",
+		Tool:          "site.app.publish",
+		Output: ToolOutput{
+			Content: `{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example"}`,
+		},
+	}}, nil, "")
+
+	if !observedResultsContainType(results, ExpectedResultTypeLink) {
+		t.Fatalf("published site publish URL should count as delivered link: %+v", results)
+	}
+}
+
+func TestObservedResultsDoNotTreatDraftSitePublishURLAsDeliverableLink(t *testing.T) {
+	results := buildObservedResults([]turnObservation{{
+		ObservationID: "obs-001",
+		Tool:          "site.app.publish",
+		Output: ToolOutput{
+			Content: `{"siteID":"site-1","status":"draft","publishedURL":"https://portfolio.example"}`,
+		},
+	}}, nil, "배포했습니다: https://portfolio.example")
+
+	if observedResultsContainType(results, ExpectedResultTypeLink) {
+		t.Fatalf("draft site publish URL must not count as delivered link: %+v", results)
+	}
+}
+
 func TestObservedResultsDoNotTreatFailedSiteStatusURLAsDeliverableLink(t *testing.T) {
 	results := buildObservedResults([]turnObservation{{
 		ObservationID: "obs-001",
@@ -75,6 +103,74 @@ func TestRequiredLinkVerificationRequiresObservedLinkResult(t *testing.T) {
 	}
 	if verification.Results[0].Status != "missing" {
 		t.Fatalf("expected link result to be missing, got %+v", verification.Results[0])
+	}
+}
+
+func TestRequiredSiteLinkVerificationRejectsGenericURLWhenSiteToolWasUsed(t *testing.T) {
+	expectedResults := []ExpectedResult{{
+		ID:              "site-public-link",
+		Type:            ExpectedResultTypeLink,
+		Description:     "public website URL",
+		Required:        true,
+		AcceptanceHints: []string{"site public URL deliverable"},
+	}}
+	verification := ResultVerification{
+		OverallStatus: "satisfied",
+		Results: []ResultVerificationItem{{
+			ID:                  "site-public-link",
+			Status:              "satisfied",
+			Reason:              "A URL exists.",
+			CitedObservationIDs: []string{"obs-002"},
+		}},
+	}
+	observedResults := []ObservedResult{{
+		Type:          ExpectedResultTypeMessage,
+		Description:   "site.app.build result: build completed",
+		ObservationID: "obs-001",
+		ToolName:      "site.app.build",
+	}, {
+		Type:          ExpectedResultTypeLink,
+		Description:   "web.search result: URL: https://example.com/reference",
+		ObservationID: "obs-002",
+		ToolName:      "web.search",
+		URL:           "https://example.com/reference",
+	}}
+
+	verification = enforceObservedResultRequirements(expectedResults, observedResults, "https://example.com/reference", verification)
+
+	if verification.OverallStatus != "missing" {
+		t.Fatalf("expected generic URL to miss site public link result, got %+v", verification)
+	}
+}
+
+func TestRequiredGenericLinkVerificationAcceptsGenericURLWithoutSiteTool(t *testing.T) {
+	expectedResults := []ExpectedResult{{
+		ID:          "reference-link",
+		Type:        ExpectedResultTypeLink,
+		Description: "reference URL",
+		Required:    true,
+	}}
+	verification := ResultVerification{
+		OverallStatus: "satisfied",
+		Results: []ResultVerificationItem{{
+			ID:                  "reference-link",
+			Status:              "satisfied",
+			Reason:              "A URL exists.",
+			CitedObservationIDs: []string{"obs-001"},
+		}},
+	}
+	observedResults := []ObservedResult{{
+		Type:          ExpectedResultTypeLink,
+		Description:   "web.search result: URL: https://example.com/reference",
+		ObservationID: "obs-001",
+		ToolName:      "web.search",
+		URL:           "https://example.com/reference",
+	}}
+
+	verification = enforceObservedResultRequirements(expectedResults, observedResults, "https://example.com/reference", verification)
+
+	if verification.OverallStatus != "satisfied" {
+		t.Fatalf("expected generic URL to satisfy generic link result, got %+v", verification)
 	}
 }
 
