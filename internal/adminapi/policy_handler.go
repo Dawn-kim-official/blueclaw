@@ -129,7 +129,9 @@ func (policyHandler PolicyHandler) HandleRemovePerson(responseWriter http.Respon
 
 	policyHandler.PolicyWatcher.ReloadPolicyDocument(policyDocument)
 	policyHandler.notifyPolicyReload(policyDocument)
-	policyHandler.AuditHandler.RecordPolicySave(backupPath)
+	if backupPath != "" {
+		policyHandler.AuditHandler.RecordPolicySave(backupPath)
+	}
 	writeJSON(responseWriter, http.StatusOK, map[string]bool{"isRemoved": true})
 }
 
