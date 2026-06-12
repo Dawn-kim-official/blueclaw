@@ -646,6 +646,12 @@ func TestAgentTurnRunnerRejectsUnsatisfiedFinishMessage(t *testing.T) {
 	if result.FinishMessage != "now done" {
 		t.Fatalf("expected recovered final reply, got %q", result.FinishMessage)
 	}
+	if len(languageModel.requests) < 2 {
+		t.Fatalf("expected structured retry request after finish rejection, got %d requests", len(languageModel.requests))
+	}
+	if !messagesContain(languageModel.requests[1].Messages, "finish requires goalSatisfied=true") {
+		t.Fatalf("expected retry request to include finish rejection reason, got %+v", languageModel.requests[1].Messages)
+	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "goalSatisfied=true") {
 		t.Fatal("expected goalSatisfied completion gate event")
 	}
