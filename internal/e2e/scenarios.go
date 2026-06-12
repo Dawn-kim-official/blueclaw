@@ -454,7 +454,7 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 			ChannelID:        "town-square",
 			ChannelName:      "town-square",
 			ReplyTargetID:    "virtual-message-001",
-			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
+			Addressing:       connectors.AddressingMetadata{},
 			ActionResponses: []string{
 				actionCallTool("calendar.event.add", `{"title":"정기회의","startISO":"2026-06-12T17:00:00+09:00","endISO":"2026-06-12T18:00:00+09:00","timeZone":"Asia/Seoul","attendees":["최견본","이샘플"]}`),
 				actionFinishMessage("정기회의 일정을 추가했습니다.", "obs-001:calendar.event.add:0"),

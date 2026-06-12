@@ -801,7 +801,7 @@ func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testi
 	}
 }
 
-func TestConnectorRuntimeClassifiesOtherPersonMentionBeforeIgnoring(t *testing.T) {
+func TestConnectorRuntimeIgnoresOtherPersonMentionWithoutClassifying(t *testing.T) {
 	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "unused"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
@@ -812,8 +812,8 @@ func TestConnectorRuntimeClassifiesOtherPersonMentionBeforeIgnoring(t *testing.T
 		t.Fatalf("expected other mention to be ignored: %v", errorValue)
 	}
 
-	if !result.Ignored || result.Reason != "addressing_human dutyMatch=false" {
-		t.Fatalf("expected human addressing ignore, got %+v", result)
+	if !result.Ignored || result.Reason != "addressed_to_other_person" {
+		t.Fatalf("expected other-person mention ignore, got %+v", result)
 	}
 	if result.TaskRunID != "" || len(adapter.sentReplies) != 0 || len(adapter.progressStarts) != 0 {
 		t.Fatalf("expected no task/reply/progress, got result=%+v replies=%d progress=%d", result, len(adapter.sentReplies), len(adapter.progressStarts))
@@ -821,8 +821,8 @@ func TestConnectorRuntimeClassifiesOtherPersonMentionBeforeIgnoring(t *testing.T
 	if len(adapter.reactions) != 0 {
 		t.Fatalf("expected addressing ignored message not to receive reaction, got %+v", adapter.reactions)
 	}
-	if !connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
-		t.Fatalf("expected addressing classifier request, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
+	if connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+		t.Fatalf("expected other-person mention to skip addressing classifier, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
 	}
 }
 
