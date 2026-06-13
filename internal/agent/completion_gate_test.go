@@ -30,6 +30,78 @@ func TestCompletionGateRejectsFutureWorkPromiseWithoutScheduleEvidence(t *testin
 	}
 }
 
+func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T) {
+	goalSatisfied := true
+	result := validateCompletionGateForRequestWithRecoveryBudget(
+		AgentTurnRequest{WorkKinds: []string{WorkKindExternalSend}},
+		nil,
+		nil,
+		nil,
+		turnActionDocument{
+			Action:             "finish",
+			Message:            "완료했습니다.",
+			GoalStatus:         "satisfied",
+			GoalSatisfied:      &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{},
+		},
+		defaultRecoveryBudget(),
+	)
+
+	if result.IsSatisfied {
+		t.Fatal("expected external send finish without send evidence to be rejected")
+	}
+	if !strings.Contains(result.Message, "message send") {
+		t.Fatalf("expected send evidence guidance, got %q", result.Message)
+	}
+}
+
+func TestCompletionGateAcceptsExternalSendFinishWithSendEvidence(t *testing.T) {
+	goalSatisfied := true
+	result := validateCompletionGateForRequestWithRecoveryBudget(
+		AgentTurnRequest{WorkKinds: []string{WorkKindExternalSend}},
+		nil,
+		[]turnObservation{newContentObservation("obs-001", "continue", "platform.message.send", "sent")},
+		nil,
+		turnActionDocument{
+			Action:        "finish",
+			Message:       "전송했습니다.",
+			GoalStatus:    "satisfied",
+			GoalSatisfied: &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{{
+				ObservationID: "obs-001",
+				ToolName:      "platform.message.send",
+			}},
+		},
+		defaultRecoveryBudget(),
+	)
+
+	if !result.IsSatisfied {
+		t.Fatalf("expected external send finish with send evidence to pass, got %q", result.Message)
+	}
+}
+
+func TestCompletionGateLeavesNonSendFinishUnaffected(t *testing.T) {
+	goalSatisfied := true
+	result := validateCompletionGateForRequestWithRecoveryBudget(
+		AgentTurnRequest{},
+		nil,
+		nil,
+		nil,
+		turnActionDocument{
+			Action:             "finish",
+			Message:            "완료했습니다.",
+			GoalStatus:         "satisfied",
+			GoalSatisfied:      &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{},
+		},
+		defaultRecoveryBudget(),
+	)
+
+	if !result.IsSatisfied {
+		t.Fatalf("expected non-send finish to pass, got %q", result.Message)
+	}
+}
+
 func TestAgentTurnRunnerRejectsAttachmentClaimWithoutAttachmentEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("첨부된 파일들을 확인해 주세요."),

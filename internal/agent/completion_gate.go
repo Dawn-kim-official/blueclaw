@@ -319,6 +319,9 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
+	if sendCompletionEvidenceRequiredForTools(requirements) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
+		return completionGateResult{Message: "finish requires completionEvidence from a successful message send observation"}
+	}
 	finishMessage := finishActionMessage(actionDocument)
 	if FinishMessageClaimsAttachmentDelivery(finishMessage) && len(attachments) == 0 {
 		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
@@ -344,9 +347,18 @@ func finishMessagePromisesFutureWork(message string) bool {
 		"공유하겠습니다",
 		"다시 공유",
 		"조금만 기다",
+		"전송하겠",
+		"전송을 진행",
+		"보내겠",
+		"보낼게",
+		"발송하겠",
 		"i'll",
 		"i will",
 		"i’ll",
+		"will send",
+		"i'll send",
+		"i’ll send",
+		"go ahead and send",
 		"will update",
 		"will share",
 		"get started",
@@ -421,6 +433,9 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
+	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
+		return completionGateResult{Message: "finish requires completionEvidence from a successful message send observation"}
+	}
 	if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(attachments) == 0 {
 		return completionGateResult{
 			Message: "required file expected result must cite file.attach completionEvidence",
@@ -488,6 +503,40 @@ func expectedResultRequiresTool(contract OutcomeContract, toolName string) bool 
 	return false
 }
 
+func externalSendCompletionEvidenceRequired(request AgentTurnRequest) bool {
+	return workKindsContain(request.WorkKinds, WorkKindExternalSend) ||
+		contractRequiresSendTool(request.OutcomeContract) ||
+		sendToolNamesContain(request.RequiredEvidenceTools)
+}
+
+func sendCompletionEvidenceRequiredForTools(requirements []toolUseRequirement) bool {
+	for _, requirement := range requirements {
+		if isSendEvidenceTool(requirement.ToolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func sendToolNamesContain(toolNames []string) bool {
+	for _, toolName := range toolNames {
+		if isSendEvidenceTool(toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasSendCompletionEvidence(observations []turnObservation, references []completionEvidenceReference) bool {
+	for _, reference := range references {
+		observation, isFound := findSuccessfulObservation(observations, reference)
+		if isFound && isSendEvidenceTool(observation.Tool) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasSuccessfulToolObservationForTurn(observations []turnObservation, toolName string) bool {
 	normalizedToolName := strings.TrimSpace(toolName)
 	if normalizedToolName == "" {
@@ -505,6 +554,12 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 	requirements = requirementsWithFailureDebtWaiver(requirements, observations, actionDocument)
 	result := validateCompletionGate(requirements, observations, criteria, actionDocument)
 	if !result.IsSatisfied {
+		return result
+	}
+	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
+		result.IsSatisfied = false
+		result.Message = "finish requires completionEvidence from a successful message send observation"
+		result.Attachments = nil
 		return result
 	}
 	failureDebtResult := failureDebtFinalizationGate(observations, actionDocument, recoveryBudget)

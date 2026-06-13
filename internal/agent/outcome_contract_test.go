@@ -339,6 +339,25 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 	}
 }
 
+func TestOutcomeContractRequiresSendEvidenceForExternalSendWorkKind(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{
+			Prompt:    "동하에게 테스트라고 DM 보내줘",
+			ToolSet:   testToolSet([]string{"platform.message.send"}),
+			WorkKinds: []string{WorkKindExternalSend},
+		},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+
+	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "platform.message.send" {
+		t.Fatalf("expected external send work kind to require platform.message.send evidence, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
 func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "file.write", "file.attach", "site.app.create", "site.app.publish", "platform.message.send", "mail.message.send"})
 	contract := OutcomeContract{
