@@ -178,3 +178,25 @@ func TestDocumentReadRejectsImageMaterialID(t *testing.T) {
 		t.Fatalf("expected document.read material type error, got %s", result.ContentText())
 	}
 }
+
+func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
+	ctx := agent.WithObservationID(agent.WithTaskRunID(context.Background(), "run-1"), "obs-3")
+	sendKey := capabilityToolIdempotencyKey(ctx, "platform.message.send")
+	if sendKey == "" {
+		t.Fatal("expected idempotency key for send tool")
+	}
+	if again := capabilityToolIdempotencyKey(ctx, "platform.message.send"); again != sendKey {
+		t.Fatalf("idempotency key not deterministic: %q vs %q", sendKey, again)
+	}
+	differentObservation := agent.WithObservationID(agent.WithTaskRunID(context.Background(), "run-1"), "obs-4")
+	if other := capabilityToolIdempotencyKey(differentObservation, "platform.message.send"); other == sendKey {
+		t.Fatal("expected different observation to produce different key")
+	}
+	if nonSend := capabilityToolIdempotencyKey(ctx, "web.search"); nonSend != "" {
+		t.Fatalf("expected no key for non-send tool, got %q", nonSend)
+	}
+	missing := agent.WithTaskRunID(context.Background(), "run-1")
+	if noObservation := capabilityToolIdempotencyKey(missing, "platform.message.send"); noObservation != "" {
+		t.Fatalf("expected no key without observation id, got %q", noObservation)
+	}
+}

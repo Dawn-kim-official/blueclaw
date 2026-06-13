@@ -5,6 +5,7 @@ import "context"
 type toolContextKey string
 
 const taskRunIDContextKey toolContextKey = "taskRunID"
+const observationIDContextKey toolContextKey = "observationID"
 const responseLanguageContextKey toolContextKey = "responseLanguage"
 const workKindsContextKey toolContextKey = "workKinds"
 
@@ -18,6 +19,18 @@ func WithTaskRunID(ctx context.Context, taskRunID string) context.Context {
 func TaskRunIDFromContext(ctx context.Context) string {
 	taskRunID, _ := ctx.Value(taskRunIDContextKey).(string)
 	return taskRunID
+}
+
+func WithObservationID(ctx context.Context, observationID string) context.Context {
+	if observationID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, observationIDContextKey, observationID)
+}
+
+func ObservationIDFromContext(ctx context.Context) string {
+	observationID, _ := ctx.Value(observationIDContextKey).(string)
+	return observationID
 }
 
 func WithResponseLanguage(ctx context.Context, responseLanguage string) context.Context {
