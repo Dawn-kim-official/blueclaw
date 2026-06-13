@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"blueclaw/internal/policy"
 	"blueclaw/internal/security"
 )
 
@@ -29,6 +30,22 @@ func TestWorkspacePathResolverMapsVirtualHomeToRequesterPrivateRoot(t *testing.T
 	}
 	if resolvedPath.VirtualPath != "home/sites/site-1/DESIGN.md" {
 		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
+	}
+	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "DESIGN.md")
+	if resolvedPath.ConcretePath != expectedConcretePath {
+		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
+	}
+}
+
+func TestWorkspacePathResolverUsesPersonAccessWhenRequesterPersonIDIsEmpty(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{
+		PersonAccess: policy.PersonAccess{PersonID: "person-1"},
+	}, "task-1")
+	resolvedPath, errorValue := resolver.Resolve("home/sites/site-1/DESIGN.md", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
 	}
 	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "DESIGN.md")
 	if resolvedPath.ConcretePath != expectedConcretePath {

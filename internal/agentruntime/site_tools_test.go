@@ -272,6 +272,13 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 			Circles:  []string{"staff"},
 		},
 	})
+	privateRootPath := filepath.Join(workspacePath, "private", "people", "person-1")
+	if errorValue := os.MkdirAll(privateRootPath, 02770); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := os.Chmod(privateRootPath, 02770); errorValue != nil {
+		t.Fatal(errorValue)
+	}
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "site.app.create",
@@ -284,6 +291,13 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
 	}
 	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft")
+	sourceWorkspaceInformation, errorValue := os.Stat(sourceWorkspacePath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if sourceWorkspaceInformation.Mode().Perm() != 0770 {
+		t.Fatalf("expected source workspace permissions 0770, got %v", sourceWorkspaceInformation.Mode().Perm())
+	}
 	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
@@ -328,6 +342,53 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	}
 	if readResult.Failed() || !strings.Contains(readResult.ContentText(), "function App") {
 		t.Fatalf("expected file.read to inspect materialized site source, got %s", readResult.ContentText())
+	}
+	workspaceActor, errorValue := toolCatalogBuilder.workspaceActorFactory.Requester(context.Background(), security.WorkspaceActorRequest{
+		WorkspaceRootPath: workspacePath,
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	requesterWritePath := workspacepath.Path{
+		ConcretePath: filepath.Join(sourceWorkspacePath, "requester-write.txt"),
+		VirtualPath:  "home/sites/site-1/draft/requester-write.txt",
+	}
+	if errorValue := workspaceActor.WriteFile(context.Background(), requesterWritePath, []byte("ok"), 0660); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	assertTestFileContent(t, requesterWritePath.ConcretePath, "ok")
+}
+
+func TestSiteCreateWithoutRequesterPersonIDDoesNotTargetWorkspaceRoot(t *testing.T) {
+	workspacePath := t.TempDir()
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","sourceWorkspacePath":"home/sites/site-1/draft","workspacePath":"home/sites/site-1","status":"draft"}}`}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.create",
+		PolicyResource: "tool:site.app.create",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			Circles: []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.create",
+		Input:    agent.MarshalToolInput(map[string]string{"slug": "demo"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "requester personID is required") {
+		t.Fatalf("expected requester identity failure, got %s", result.ContentText())
+	}
+	if _, errorValue := os.Stat(filepath.Join(workspacePath, "sites", "site-1", "draft")); !os.IsNotExist(errorValue) {
+		t.Fatalf("site create must not fall back to workspace root, got %v", errorValue)
 	}
 }
 

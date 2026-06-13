@@ -43,7 +43,7 @@ type WorkspacePathResolver struct {
 
 func WorkspaceScopeForRequest(workspaceRootPath string, request ToolCatalogRequest, taskRunID string) WorkspaceScope {
 	conversationScope := ConversationScopeForRequest(workspaceRootPath, request)
-	personID := strings.TrimSpace(request.RequesterPersonID)
+	personID := workspaceScopePersonID(request)
 	requesterRootPath := workspaceRootPath
 	requesterTmpRootPath := filepath.Join(workspaceRootPath, "tmp")
 	requesterDraftRootPath := requesterTmpRootPath
@@ -75,6 +75,14 @@ func WorkspaceScopeForRequest(workspaceRootPath string, request ToolCatalogReque
 		ConversationResource:      conversationScope.Resource,
 		ConversationKind:          conversationScope.Kind,
 	}
+}
+
+func workspaceScopePersonID(request ToolCatalogRequest) string {
+	personID := strings.TrimSpace(request.RequesterPersonID)
+	if personID != "" {
+		return personID
+	}
+	return strings.TrimSpace(request.PersonAccess.PersonID)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) workspaceScopeForToolContext(toolContext context.Context, request ToolCatalogRequest) WorkspaceScope {
