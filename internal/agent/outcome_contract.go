@@ -536,6 +536,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHints...)
 		contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForRequestContinuation(request, contract, selectedEvidenceHints)...)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
 		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
@@ -547,6 +548,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		RequiredAttachmentSuffixes: append([]string{}, requiredAttachmentSuffixes...),
 	}
 	contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
+	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, "file.attach")
@@ -858,6 +860,46 @@ func outcomeEvidenceTools(request AgentRequest, intakeDecision IntakeDecision, e
 		if evidenceHintMatchesOutcome(toolName, request, intakeDecision, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes) {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
+	}
+	return toolNames
+}
+
+func requiredSendEvidenceToolsForRequest(request AgentRequest, contract OutcomeContract, evidenceHints []string) []string {
+	if contractRequiresSendTool(contract) {
+		return sendEvidenceToolsFromValues(outcomeContractRequiredToolNames(contract))
+	}
+	if !requestHasWorkKind(request, WorkKindExternalSend) {
+		return nil
+	}
+	toolNames := sendEvidenceToolsFromValues(evidenceHints)
+	if len(toolNames) > 0 {
+		return toolNames
+	}
+	return singleAvailableSendEvidenceTool(request.ToolSet)
+}
+
+func sendEvidenceToolsFromValues(values []string) []string {
+	toolNames := []string{}
+	for _, value := range values {
+		if isSendEvidenceTool(value) {
+			toolNames = appendUniqueStrings(toolNames, value)
+		}
+	}
+	return toolNames
+}
+
+func singleAvailableSendEvidenceTool(toolSet *ToolSet) []string {
+	if toolSet == nil {
+		return nil
+	}
+	toolNames := []string{}
+	for _, toolName := range toolSet.ListToolNames() {
+		if isSendEvidenceTool(toolName) {
+			toolNames = appendUniqueStrings(toolNames, toolName)
+		}
+	}
+	if len(toolNames) != 1 {
+		return nil
 	}
 	return toolNames
 }
