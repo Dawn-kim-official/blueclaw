@@ -582,6 +582,146 @@ func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerBudgetExhaustedContinueTriggersSingleTerminalNoToolsCall(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"2+2"}}`,
+		noToolFallbackFinishMessageDocument("I can still answer from the available context."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
+	toolCallCount := 0
+	toolRegistry := newTestToolSet([]string{"math.calculate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "calculate it",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected terminal fallback result: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_terminal_no_tools_action") != 1 {
+		t.Fatalf("expected exactly one terminal no-tools request, got %+v", structuredRequestNames(languageModel.requests))
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected denied recovery not to invoke a second tool call, got %d", toolCallCount)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if countTaskEvents(taskEvents, "agent.recovery_budget_exhausted") != 1 {
+		t.Fatalf("expected one recovery budget exhausted event, got %+v", taskEvents)
+	}
+	if taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "") {
+		t.Fatal("expected terminal no-tools path not to stop through watchdog")
+	}
+}
+
+func TestAgentTurnRunnerTerminalNoToolsAcceptsNoToolFallbackFinish(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"2+2"}}`,
+		noToolFallbackFinishMessageDocument("The available context is enough to answer without another tool."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
+	toolRegistry := newTestToolSet([]string{"math.calculate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "calculate it",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected terminal fallback result: %v", errorValue)
+	}
+	if result.FinishMessage != "The available context is enough to answer without another tool." {
+		t.Fatalf("expected terminal fallback finish, got %q", result.FinishMessage)
+	}
+	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
+}
+
+func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"2+2"}}`,
+		failureReportDocument("Calculator execution is blocked because bc_execution returned operation_failed.", "math.calculate", "1+2/4", FailureCodes.OperationFailed.String(), "bc_execution", "bc: command not found"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
+	toolRegistry := newTestToolSet([]string{"math.calculate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "calculate it",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected terminal failure report result: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
+	}
+	if !strings.Contains(result.UserNotice, "bc_execution") {
+		t.Fatalf("expected failure report reason to be delivered, got %q", result.UserNotice)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_report_facts_used", "bc_execution") {
+		t.Fatal("expected used failure facts event")
+	}
+	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
+}
+
+func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"2+2"}}`,
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"3+3"}}`,
+		noToolFallbackFinishMessageDocument("I repaired the terminal answer without another tool."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
+	toolCallCount := 0
+	toolRegistry := newTestToolSet([]string{"math.calculate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "calculate it",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected repaired terminal fallback result: %v", errorValue)
+	}
+	if result.FinishMessage != "I repaired the terminal answer without another tool." {
+		t.Fatalf("expected repaired terminal finish, got %q", result.FinishMessage)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected repair not to invoke tools, got %d calls", toolCallCount)
+	}
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_terminal_no_tools_action") != 2 {
+		t.Fatalf("expected one terminal repair request, got %+v", structuredRequestNames(languageModel.requests))
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.terminal_no_tools_rejected", "must be finish or fail") {
+		t.Fatal("expected terminal no-tools rejection event")
+	}
+	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
+}
+
 func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
@@ -1519,6 +1659,16 @@ func taskEventsContain(taskEvents []task.TaskEvent, name string, bodyFragment st
 	return false
 }
 
+func countTaskEvents(taskEvents []task.TaskEvent, name string) int {
+	count := 0
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name == name {
+			count++
+		}
+	}
+	return count
+}
+
 func messagesContain(messages []llm.Message, fragment string) bool {
 	for _, message := range messages {
 		if strings.Contains(message.Content, fragment) {
@@ -1526,6 +1676,39 @@ func messagesContain(messages []llm.Message, fragment string) bool {
 		}
 	}
 	return false
+}
+
+func countStructuredRequestsByName(requests []llm.StructuredResponseRequest, name string) int {
+	count := 0
+	for _, request := range requests {
+		if request.StructuredOutputSchema.Name == name {
+			count++
+		}
+	}
+	return count
+}
+
+func structuredRequestNames(requests []llm.StructuredResponseRequest) []string {
+	names := []string{}
+	for _, request := range requests {
+		names = append(names, request.StructuredOutputSchema.Name)
+	}
+	return names
+}
+
+func assertTerminalNoToolsSchemasExcludeToolActions(t *testing.T, requests []llm.StructuredResponseRequest) {
+	t.Helper()
+	for _, request := range requests {
+		if request.StructuredOutputSchema.Name != "blueclaw_agent_terminal_no_tools_action" {
+			continue
+		}
+		if actionSchemaHasVariant(t, request.StructuredOutputSchema.Document, "continue") {
+			t.Fatalf("terminal no-tools schema exposed continue: %s", request.StructuredOutputSchema.Document)
+		}
+		if actionSchemaHasVariant(t, request.StructuredOutputSchema.Document, "select_tools") {
+			t.Fatalf("terminal no-tools schema exposed select_tools: %s", request.StructuredOutputSchema.Document)
+		}
+	}
 }
 
 func structuredRequestsContain(requests []llm.StructuredResponseRequest, fragment string) bool {
@@ -1653,6 +1836,10 @@ func failureReportDocument(reason string, toolName string, inputSummary string, 
 
 func exhaustedRecoveryBudgetForTest() RecoveryBudget {
 	return RecoveryBudget{CorrectedRetry: -1, AlternateRoute: -1, AdjacentTool: -1, NoToolFallback: -1}
+}
+
+func terminalNoToolRecoveryBudgetForTest() RecoveryBudget {
+	return RecoveryBudget{CorrectedRetry: 0, AlternateRoute: 0, AdjacentTool: 0, NoToolFallback: 1}
 }
 
 func finishMessageWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {

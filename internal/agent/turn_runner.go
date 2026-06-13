@@ -352,14 +352,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				return result, true
 			}
 		}
-		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.no_progress_loop_stopped", marshalEventBody(map[string]any{
-			"reason":             reason,
-			"progressEvaluation": progressEvaluation,
-			"recoveryAllowance":  recoveryAllowance,
-		}))
-		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "no_progress_loop_stopped", reason)
-		result, _ := agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments, state.ExecutionState)
-		return result, true
+		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
+		return result, isBlocked
 	}
 	for iteration := 1; iteration <= agentTurnRunner.options.MaxIterationCount; iteration++ {
 		if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
@@ -573,7 +567,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectRepeatedToolCall(taskRunID, stepID, state, actionDocument, successfulToolCalls, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
-	recoveryStep, outcome := agentTurnRunner.prepareRecoveryAttempt(taskRunID, stepID, state, actionDocument, stopForNoProgress)
+	recoveryStep, outcome := agentTurnRunner.prepareRecoveryAttempt(ctx, taskRunID, stepID, request, state, actionDocument, stopForNoProgress)
 	if outcome.WasHandled {
 		return outcome
 	}
@@ -1150,6 +1144,29 @@ func (agentTurnRunner *AgentTurnRunner) pauseTurnForStall(taskRunID string, step
 	return AgentTurnResult{TaskRun: pausedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
 }
 
+func (agentTurnRunner *AgentTurnRunner) blockTurnForStall(taskRunID string, stepID string, request AgentTurnRequest, reason string, progressEvaluation actionProgressEvaluation, allowance recoveryAllowance, state agentTaskState) (AgentTurnResult, bool) {
+	notice, replyStatus, hasReply := agentTurnRunner.generateStallPauseNotice(taskRunID, request, reason, state.Observations, state.Attachments, state.ExecutionState)
+	agentTurnRunner.appendEvent(taskRunID, "agent.stall_blocked_reply", marshalEventBody(replyStatus))
+	blockedTaskRun, errorValue := agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusBlocked, reason)
+	if errorValue != nil {
+		return AgentTurnResult{}, false
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.no_progress_loop_stopped", marshalEventBody(map[string]any{
+		"reason":             reason,
+		"progressEvaluation": progressEvaluation,
+		"recoveryAllowance":  allowance,
+	}))
+	agentTurnRunner.appendEvent(taskRunID, "agent.goal.blocked", marshalEventBody(blockedGoal(taskRunID, request, reason)))
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusBlocked, "no_progress_loop_stopped", reason)
+	if !hasReply {
+		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "stall", reason, replyStatus)
+		return AgentTurnResult{TaskRun: blockedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
+	}
+	reply := notice.SendableMessage()
+	blockedTaskRun.Result = reply
+	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
+}
+
 func stalledWaitingGoal(taskRunID string, request AgentTurnRequest) ActiveGoal {
 	waitingGoal := request.ActiveGoal
 	waitingGoal.GoalID = firstNonEmptyString(waitingGoal.GoalID, taskRunID)
@@ -1157,6 +1174,16 @@ func stalledWaitingGoal(taskRunID string, request AgentTurnRequest) ActiveGoal {
 	waitingGoal.OriginalInstruction = firstNonEmptyString(waitingGoal.OriginalInstruction, request.Prompt)
 	waitingGoal.Status = ActiveGoalStatusWaitingUserInput
 	return waitingGoal
+}
+
+func blockedGoal(taskRunID string, request AgentTurnRequest, reason string) ActiveGoal {
+	blockedGoal := request.ActiveGoal
+	blockedGoal.GoalID = firstNonEmptyString(blockedGoal.GoalID, taskRunID)
+	blockedGoal.TaskRunID = firstNonEmptyString(blockedGoal.TaskRunID, taskRunID)
+	blockedGoal.OriginalInstruction = firstNonEmptyString(blockedGoal.OriginalInstruction, request.Prompt)
+	blockedGoal.CurrentObjective = firstNonEmptyString(blockedGoal.CurrentObjective, reason)
+	blockedGoal.Status = ActiveGoalStatusBlocked
+	return blockedGoal
 }
 
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
@@ -1305,6 +1332,143 @@ func (agentTurnRunner *AgentTurnRunner) finalizerAction(ctx context.Context, req
 		return turnActionDocument{}, errorValue
 	}
 	return ParseAgentActionResponse(structuredResponse)
+}
+
+func (agentTurnRunner *AgentTurnRunner) runTerminalNoToolsStep(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, reason string) AgentTurnResult {
+	rejectionReason := ""
+	for attempt := 1; attempt <= 3; attempt++ {
+		actionDocument, actionError := agentTurnRunner.terminalNoToolsAction(ctx, request, state.Observations, state.ExecutionState, rejectionReason)
+		if actionError != nil {
+			rejectionReason = "terminal no-tools action was invalid: " + actionError.Error()
+			agentTurnRunner.recordTerminalNoToolsRejection(taskRunID, stepID, state, rejectionReason)
+			continue
+		}
+		if !executionStateIsEmpty(actionDocument.ExecutionStateUpdate) {
+			state.ExecutionState = normalizeExecutionState(actionDocument.ExecutionStateUpdate)
+			agentTurnRunner.appendEvent(taskRunID, "agent.execution_state", marshalEventBody(state.ExecutionState))
+		}
+		agentTurnRunner.appendEvent(taskRunID, "agent.terminal_no_tools_action", marshalEventBody(actionDocument))
+		result, isComplete, validationMessage := agentTurnRunner.applyTerminalNoToolsAction(ctx, taskRunID, stepID, request, state, actionDocument)
+		if isComplete {
+			return result
+		}
+		rejectionReason = validationMessage
+		agentTurnRunner.recordTerminalNoToolsRejection(taskRunID, stepID, state, rejectionReason)
+	}
+	progressEvaluation := actionProgressEvaluation{Reason: "terminal no-tools action did not produce a valid finish or fail"}
+	allowance := recoveryAllowance{CanRecover: false, Reason: "tool recovery budget exhausted"}
+	result, _ := agentTurnRunner.blockTurnForStall(taskRunID, stepID, request, reason, progressEvaluation, allowance, *state)
+	return result
+}
+
+func (agentTurnRunner *AgentTurnRunner) terminalNoToolsAction(ctx context.Context, request AgentTurnRequest, observations []turnObservation, executionState ExecutionState, rejectionReason string) (turnActionDocument, error) {
+	messages := agentTurnRunner.buildTurnMessages(request, observations, executionState)
+	messages = append(messages, llm.Message{
+		Role:    "system",
+		Content: terminalNoToolsInstruction(observations, agentTurnRunner.options.RecoveryBudget, rejectionReason),
+	})
+	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+		Messages: messages,
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               "blueclaw_agent_terminal_no_tools_action",
+			Document:           terminalNoToolsActionSchema(),
+			IsStrictlyEnforced: true,
+		},
+		GenerationOptions: agentTurnRunner.options.GenerationOptions,
+	})
+	if errorValue != nil {
+		return turnActionDocument{}, errorValue
+	}
+	return ParseAgentActionResponse(structuredResponse)
+}
+
+func terminalNoToolsInstruction(observations []turnObservation, budget RecoveryBudget, rejectionReason string) string {
+	facts := buildFailureReportFacts(observations, budget)
+	parts := []string{
+		"Recovery tool budget is exhausted. Do not call tools and do not select tools.",
+		"Return exactly one terminal action.",
+		"Use finish only when you can answer from current context with failureResolution=no_tool_fallback.",
+		"Use fail only when completion is blocked, with failureResolution=failure_report and usedFailureFacts copied from FailureReportFacts.",
+		"FailureReportFacts:\n" + marshalEventBody(facts),
+	}
+	if strings.TrimSpace(rejectionReason) != "" {
+		parts = append(parts, "Previous terminal action was rejected: "+strings.TrimSpace(rejectionReason))
+	}
+	return strings.Join(parts, "\n")
+}
+
+func (agentTurnRunner *AgentTurnRunner) applyTerminalNoToolsAction(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) (AgentTurnResult, bool, string) {
+	switch strings.TrimSpace(actionDocument.Action) {
+	case "finish":
+		return agentTurnRunner.completeTerminalNoToolsFinish(ctx, taskRunID, stepID, request, state, actionDocument)
+	case "fail":
+		return agentTurnRunner.failTerminalNoToolsFailure(taskRunID, stepID, request, state, actionDocument)
+	default:
+		return AgentTurnResult{}, false, "terminal no-tools action must be finish or fail"
+	}
+}
+
+func (agentTurnRunner *AgentTurnRunner) completeTerminalNoToolsFinish(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) (AgentTurnResult, bool, string) {
+	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(ctx, taskRunID, request, state.Requirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
+	agentTurnRunner.appendValidityReview(taskRunID, "terminal_no_tools_finish", completionGateResult.ValidityState)
+	if !completionGateResult.IsSatisfied {
+		return AgentTurnResult{}, false, completionGateResult.Message
+	}
+	agentTurnRunner.appendQualityReview(taskRunID, state.QualityCriteria, actionDocument.QualityReview, state.Observations)
+	reply := finishActionMessage(actionDocument)
+	if strings.TrimSpace(reply) == "" {
+		return AgentTurnResult{}, false, "finish message is empty"
+	}
+	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_finish", reply)
+	completedTaskRun, errorValue := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	if errorValue != nil {
+		return agentTurnRunner.cancelledTaskResultOrCurrent(taskRunID, state.Attachments), true, ""
+	}
+	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true, ""
+}
+
+func (agentTurnRunner *AgentTurnRunner) failTerminalNoToolsFailure(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) (AgentTurnResult, bool, string) {
+	facts := buildFailureReportFacts(state.Observations, agentTurnRunner.options.RecoveryBudget)
+	failureReportResult := validateFailureReportAction(actionDocument, facts)
+	if !failureReportResult.IsSatisfied {
+		return AgentTurnResult{}, false, failureReportResult.Message
+	}
+	reason := strings.TrimSpace(firstNonEmptyString(actionDocument.Reason, "agent reported failure"))
+	notice, failureReport, validationMessage := failureNoticeFromTerminalAction(request, taskRunID, reason, state.Observations, state.Attachments, state.ExecutionState)
+	if validationMessage != "" {
+		return AgentTurnResult{}, false, validationMessage
+	}
+	failedTaskRun, _ := agentTurnRunner.taskRunService.FailTaskRun(taskRunID, reason)
+	agentTurnRunner.appendEvent(taskRunID, "agent.failure_report_facts_used", marshalEventBody(actionDocument.UsedFailureFacts))
+	agentTurnRunner.appendEvent(taskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody("terminal_no_tools", failureReport, FailureNoticeGenerationStatus{Source: notice.Source})))
+	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(FailureNoticeGenerationStatus{Source: notice.Source}))
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusFailed, "terminal_no_tools_fail", reason)
+	reply := notice.SendableMessage()
+	failedTaskRun.Result = reply
+	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true, ""
+}
+
+func failureNoticeFromTerminalAction(request AgentTurnRequest, taskRunID string, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, FailureReport, string) {
+	decision := recoveryDecision{
+		WhatFailed:      latestFailedOperation(observations),
+		WhatWasKnown:    buildLimitObservationSummary(observations),
+		NextAction:      strings.TrimSpace(reason),
+		UserReplyIntent: strings.TrimSpace(reason),
+	}
+	failureReport := buildFailureReport(request, taskRunID, "terminal_no_tools", reason, observations, attachments, executionState, decision)
+	notice := buildFailureNotice(reason, "terminal_no_tools", failureReport)
+	if notice.IsSendable {
+		return notice, failureReport, ""
+	}
+	return FailureNotice{}, failureReport, "fail.reason must be a safe user-facing explanation"
+}
+
+func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID string, stepID string, state *agentTaskState, reason string) {
+	observation := completionGateObservation(len(state.Observations)+1, strings.TrimSpace(reason))
+	state.Observations = append(state.Observations, observation)
+	agentTurnRunner.appendEvent(taskRunID, "agent.terminal_no_tools_rejected", marshalEventBody(observation))
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_rejected", observation.ContentText())
 }
 
 func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {

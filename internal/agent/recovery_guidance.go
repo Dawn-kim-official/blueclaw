@@ -1,12 +1,13 @@
 package agent
 
 import (
+	"context"
 	"strings"
 
 	"blueclaw/internal/task"
 )
 
-func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(taskRunID string, stepID string, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) (string, toolCallActionOutcome) {
+func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) (string, toolCallActionOutcome) {
 	failureDebt, hasFailureDebt := activeFailureDebt(state.Observations)
 	if !hasFailureDebt {
 		return "", toolCallActionOutcome{}
@@ -25,6 +26,10 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(taskRunID string,
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_budget_exhausted", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_budget_exhausted "+actionDocument.ToolName, observation.ContentText())
+		if recoveryToolBudgetExhaustedForRequest(state.Observations, request.ToolSet, agentTurnRunner.options.RecoveryBudget, failureDebt) {
+			result := agentTurnRunner.runTerminalNoToolsStep(ctx, taskRunID, stepID, request, state, "recovery_tool_budget_exhausted")
+			return "", toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
+		}
 		result, shouldStop := stopForNoProgress(stepID)
 		return "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}

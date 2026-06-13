@@ -273,14 +273,14 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
-		t.Fatalf("expected failed task on second stall, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task on second stall, got %s", result.TaskRun.Status)
 	}
 	if result.UserNotice != "요청을 처리하지 못했습니다." || result.ReplySuppressed {
 		t.Fatalf("expected safe degraded reply to be delivered, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
-		t.Fatal("expected generated failure reply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.stall_blocked_reply", "generated") {
+		t.Fatal("expected generated blocked stall reply event")
 	}
 }
 
