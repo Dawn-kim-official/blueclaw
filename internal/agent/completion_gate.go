@@ -320,7 +320,11 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 		return completionGateResult{Message: errorValue.Error()}
 	}
 	if sendCompletionEvidenceRequiredForTools(requirements) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
-		return completionGateResult{Message: "finish requires completionEvidence from a successful message send observation"}
+		requiredSendToolNames := requiredSendToolNamesForRequirements(requirements)
+		return completionGateResult{
+			Message:            sendCompletionEvidenceRequiredMessage(requiredSendToolNames),
+			SuggestedNextTools: requiredSendToolNames,
+		}
 	}
 	finishMessage := finishActionMessage(actionDocument)
 	if FinishMessageClaimsAttachmentDelivery(finishMessage) && len(attachments) == 0 {
@@ -434,7 +438,11 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 		return completionGateResult{Message: errorValue.Error()}
 	}
 	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
-		return completionGateResult{Message: "finish requires completionEvidence from a successful message send observation"}
+		requiredSendToolNames := requiredSendToolNamesForRequest(request)
+		return completionGateResult{
+			Message:            sendCompletionEvidenceRequiredMessage(requiredSendToolNames),
+			SuggestedNextTools: requiredSendToolNames,
+		}
 	}
 	if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(attachments) == 0 {
 		return completionGateResult{
@@ -527,6 +535,43 @@ func sendToolNamesContain(toolNames []string) bool {
 	return false
 }
 
+func requiredSendToolNamesForRequirements(requirements []toolUseRequirement) []string {
+	toolNames := []string{}
+	for _, requirement := range requirements {
+		if isSendEvidenceTool(requirement.ToolName) {
+			toolNames = appendUniqueStrings(toolNames, requirement.ToolName)
+		}
+	}
+	return toolNames
+}
+
+func requiredSendToolNamesForRequest(request AgentTurnRequest) []string {
+	toolNames := sendEvidenceToolsFromValues(request.RequiredEvidenceTools)
+	if len(toolNames) > 0 {
+		return toolNames
+	}
+	toolNames = sendEvidenceToolsFromValues(outcomeContractRequiredToolNames(request.OutcomeContract))
+	if len(toolNames) > 0 {
+		return toolNames
+	}
+	toolNames = sendEvidenceToolsFromValues(request.OutcomeContract.SelectedEvidenceHints)
+	if len(toolNames) > 0 {
+		return toolNames
+	}
+	toolNames = singleAvailableSendEvidenceTool(request.ToolSet)
+	if len(toolNames) > 0 {
+		return toolNames
+	}
+	return []string{"platform.message.send"}
+}
+
+func sendCompletionEvidenceRequiredMessage(toolNames []string) string {
+	if len(toolNames) == 0 {
+		return "finish requires completionEvidence from a successful send tool observation; call a send tool to perform the actual send, then cite that observation"
+	}
+	return "finish requires completionEvidence from a successful send tool observation; call one of these tools to perform the actual send, then cite that observation: " + strings.Join(toolNames, ", ")
+}
+
 func hasSendCompletionEvidence(observations []turnObservation, references []completionEvidenceReference) bool {
 	for _, reference := range references {
 		observation, isFound := findSuccessfulObservation(observations, reference)
@@ -558,7 +603,8 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 	}
 	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
 		result.IsSatisfied = false
-		result.Message = "finish requires completionEvidence from a successful message send observation"
+		result.SuggestedNextTools = requiredSendToolNamesForRequest(request)
+		result.Message = sendCompletionEvidenceRequiredMessage(result.SuggestedNextTools)
 		result.Attachments = nil
 		return result
 	}

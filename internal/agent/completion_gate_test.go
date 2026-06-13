@@ -33,7 +33,10 @@ func TestCompletionGateRejectsFutureWorkPromiseWithoutScheduleEvidence(t *testin
 func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGateForRequestWithRecoveryBudget(
-		AgentTurnRequest{WorkKinds: []string{WorkKindExternalSend}},
+		AgentTurnRequest{
+			WorkKinds:             []string{WorkKindExternalSend},
+			RequiredEvidenceTools: []string{"mail.message.send"},
+		},
 		nil,
 		nil,
 		nil,
@@ -50,8 +53,44 @@ func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T
 	if result.IsSatisfied {
 		t.Fatal("expected external send finish without send evidence to be rejected")
 	}
-	if !strings.Contains(result.Message, "message send") {
+	if !strings.Contains(result.Message, "call one of these tools to perform the actual send") {
 		t.Fatalf("expected send evidence guidance, got %q", result.Message)
+	}
+	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "mail.message.send" {
+		t.Fatalf("expected suggested send tool, got %+v", result.SuggestedNextTools)
+	}
+	observation := withCompletionGateRecoveryPacket(completionGateObservation(1, result.Message), result)
+	if observation.RecoveryPacket == nil {
+		t.Fatal("expected recovery packet")
+	}
+	if len(observation.RecoveryPacket.AllowedTools) != 1 || observation.RecoveryPacket.AllowedTools[0] != "mail.message.send" {
+		t.Fatalf("expected recovery packet allowed send tool, got %+v", observation.RecoveryPacket.AllowedTools)
+	}
+}
+
+func TestCompletionGateRejectsRequiredSendToolFinishWithSuggestedNextTools(t *testing.T) {
+	goalSatisfied := true
+	result := validateCompletionGate(
+		[]toolUseRequirement{{ToolName: "slack.message.send"}},
+		[]turnObservation{newContentObservation("obs-001", "continue", "slack.message.send", "sent")},
+		nil,
+		turnActionDocument{
+			Action:             "finish",
+			Message:            "완료했습니다.",
+			GoalStatus:         "satisfied",
+			GoalSatisfied:      &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{},
+		},
+	)
+
+	if result.IsSatisfied {
+		t.Fatal("expected required send tool finish without send evidence to be rejected")
+	}
+	if !strings.Contains(result.Message, "call one of these tools to perform the actual send") {
+		t.Fatalf("expected send evidence guidance, got %q", result.Message)
+	}
+	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "slack.message.send" {
+		t.Fatalf("expected suggested send tool, got %+v", result.SuggestedNextTools)
 	}
 }
 
