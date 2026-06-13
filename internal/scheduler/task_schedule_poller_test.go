@@ -65,6 +65,51 @@ func TestTaskSchedulePollerRunsDueScheduleAndEnqueuesReply(t *testing.T) {
 	}
 }
 
+func TestTaskSchedulePollerDoesNotClaimDueScheduleWhenQuiesced(t *testing.T) {
+	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
+	nextRunAt := runAt
+	claimCount := 0
+	repository := &pollerScheduleRepository{
+		taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:   "schedule-1",
+			CreatorPersonID:  "person-1",
+			Prompt:           "매일 업계 뉴스를 조사해서 알려줘.",
+			AgentProfileName: "default",
+			Platform:         "mattermost",
+			ConversationID:   "channel-1",
+			ReplyTargetID:    "reply-target-1",
+			TimeZone:         "Asia/Seoul",
+			Kind:             task.TaskScheduleKindInterval,
+			IntervalSecond:   60,
+			NextRunAt:        &nextRunAt,
+		}},
+		claimCallback: func() {
+			claimCount++
+		},
+	}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		DeliveryRepository:     &pollerDeliveryRepository{},
+		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		TaskIntakeGate:         pollerTaskIntakeGate{isQuiesced: true},
+	}
+
+	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runCount != 0 {
+		t.Fatalf("expected no runs, got %d", runCount)
+	}
+	if claimCount != 0 {
+		t.Fatalf("quiesced scheduler must not claim schedules, got %d claims", claimCount)
+	}
+	if repository.succeeded != nil || len(repository.failed) != 0 {
+		t.Fatalf("quiesced scheduler must not advance schedules, succeeded=%+v failed=%+v", repository.succeeded, repository.failed)
+	}
+}
+
 func TestTaskSchedulePollerDeliversMessageScheduleWithoutAgentRun(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
@@ -561,6 +606,14 @@ func (repository *pollerScheduleRepository) CancelTaskSchedules(task.TaskSchedul
 type pollerDeliveryRepository struct {
 	replies    []connectors.OutboundReply
 	errorValue error
+}
+
+type pollerTaskIntakeGate struct {
+	isQuiesced bool
+}
+
+func (gate pollerTaskIntakeGate) IsQuiesced() bool {
+	return gate.isQuiesced
 }
 
 func (repository *pollerDeliveryRepository) EnqueueScheduledConnectorReply(_ task.TaskSchedule, _ string, reply connectors.OutboundReply) (string, error) {

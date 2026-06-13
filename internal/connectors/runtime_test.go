@@ -60,6 +60,68 @@ func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeDefersNewTaskLaunchWhenQuiesced(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "should not run"})
+	repository := &testConnectorQueueRepository{}
+	connectorRuntime.UseEventRepository(repository)
+	connectorRuntime.UseTaskIntakeGate(testTaskIntakeGate{isQuiesced: true})
+	event := testInboundEvent("message-quiesced")
+	adapter.httpParseResult = HTTPParseResult{HasEvent: true, Event: event}
+	request, errorValue := http.NewRequest(http.MethodPost, "/connectors/test/events", strings.NewReader(`{}`))
+	if errorValue != nil {
+		t.Fatalf("expected request: %v", errorValue)
+	}
+
+	result, _, errorValue := connectorRuntime.HandleHTTPEvent(context.Background(), adapter.Name(), request)
+	if errorValue != nil {
+		t.Fatalf("expected http event to queue: %v", errorValue)
+	}
+	if result.Reason != "queued" {
+		t.Fatalf("expected queued result, got %+v", result)
+	}
+	if !connectorRuntime.processNextQueuedConnectorEvent(context.Background()) {
+		t.Fatal("expected queued connector event to be claimed")
+	}
+	if len(repository.succeededEvents) != 0 {
+		t.Fatalf("quiesced new task must not be marked succeeded, got %+v", repository.succeededEvents)
+	}
+	if len(repository.pendingReplies) != 0 || len(adapter.sentReplies) != 0 {
+		t.Fatalf("quiesced new task must not reply, pending=%+v sent=%+v", repository.pendingReplies, adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeAllowsWaitingTaskContinuationWhenQuiesced(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
+			},
+		},
+		ActionResponses: []string{connectorFinishMessage("continued while quiesced")},
+	})
+	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
+	connectorRuntime.UseTaskIntakeGate(testTaskIntakeGate{isQuiesced: true})
+	waitingTaskRun := createWaitingInputTaskRun(t, taskRunService, "single prompt", "single-interaction")
+	if errorValue := taskWaitRepository.InsertTaskWaitToken(waitRoutingTaskWaitToken(waitingTaskRun, "single-dispatch", "single-interaction")); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-continuation")
+	event.ReplyTargetID = "single-dispatch"
+	event.Prompt = "answer"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected continuation to process: %v", errorValue)
+	}
+
+	if result.TaskRunID != waitingTaskRun.TaskRunID {
+		t.Fatalf("expected waiting task %s, got %+v", waitingTaskRun.TaskRunID, result)
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "continued while quiesced" {
+		t.Fatalf("expected continuation reply, got %+v", adapter.sentReplies)
+	}
+}
+
 func TestOnlyExactStopCommandsBypassConversationLock(t *testing.T) {
 	stopEvent := testInboundEvent("message-stop")
 	stopEvent.Prompt = "/stop"
@@ -2834,6 +2896,14 @@ type testConnectorQueueRepository struct {
 	pendingReplies  []QueuedConnectorReply
 	sentReplies     []string
 	failedReplies   []string
+}
+
+type testTaskIntakeGate struct {
+	isQuiesced bool
+}
+
+func (gate testTaskIntakeGate) IsQuiesced() bool {
+	return gate.isQuiesced
 }
 
 type connectorTaskScheduleRepository struct {
