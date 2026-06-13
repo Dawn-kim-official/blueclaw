@@ -87,6 +87,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		canonicalPath := filepath.ToSlash(filepath.Dir(filepath.ToSlash(appWorkspacePath)))
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_build_workspace", "site builds must run from appWorkspacePath "+canonicalPath+", not app/src"), nil
 	}
+	if toolFailure := siteWorkspaceRequesterIdentityFailure(handlerContext.request, "site_build_workspace"); toolFailure != nil {
+		return *toolFailure, nil
+	}
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
 	if actorFailure != nil {
 		return *actorFailure, nil
@@ -639,6 +642,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext cont
 	if strings.TrimSpace(sourceWorkspacePath) == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_repair_workspace", "sourceWorkspacePath could not be resolved; call site.app.status first"), nil
 	}
+	if toolFailure := siteWorkspaceRequesterIdentityFailure(handlerContext.request, "site_repair_workspace"); toolFailure != nil {
+		return *toolFailure, nil
+	}
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
 	if actorFailure != nil {
 		return *actorFailure, nil
@@ -771,6 +777,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolCo
 	}
 	if strings.TrimSpace(site.SourceWorkspacePath) == "" {
 		site.SourceWorkspacePath = defaultSiteSourceWorkspacePath(map[string]any{"siteID": site.SiteID})
+	}
+	if toolFailure := siteWorkspaceRequesterIdentityFailure(request, "site_source_workspace"); toolFailure != nil {
+		return toolFailure, nil
 	}
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, request)
 	if actorFailure != nil {
@@ -1014,6 +1023,13 @@ func writeSiteStarterFiles(ctx context.Context, workspaceActor security.Workspac
 		}
 	}
 	return nil
+}
+
+func siteWorkspaceRequesterIdentityFailure(request ToolCatalogRequest, stage string) *agent.ToolResult {
+	if strings.TrimSpace(request.RequesterPersonID) != "" || strings.TrimSpace(request.PersonAccess.PersonID) != "" {
+		return nil
+	}
+	return toolResultPointer(agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "requester personID is required to provision a site workspace under home/sites"))
 }
 
 type siteStarterFile struct {

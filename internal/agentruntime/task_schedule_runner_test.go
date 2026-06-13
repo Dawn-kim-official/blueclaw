@@ -19,9 +19,12 @@ func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
 		"default": {"memory.search"},
 	}, nil)
+	provisioner := &recordingRequesterWorkspaceProvisioner{}
+	taskLauncher := NewTaskLauncher(agentKernel, toolCatalogBuilder)
+	taskLauncher.UseRequesterWorkspaceProvisioner(provisioner)
 	runAt := time.Date(2026, 5, 2, 9, 0, 0, 0, time.UTC)
 
-	result, errorValue := NewTaskScheduleRunner(NewTaskLauncher(agentKernel, toolCatalogBuilder)).RunIfDue(context.Background(), TaskScheduleRunRequest{
+	result, errorValue := NewTaskScheduleRunner(taskLauncher).RunIfDue(context.Background(), TaskScheduleRunRequest{
 		TaskSchedule: task.TaskSchedule{
 			TaskScheduleID:  "schedule-1",
 			CreatorPersonID: "person-1",
@@ -42,6 +45,9 @@ func TestTaskScheduleRunnerLaunchesDueSchedule(t *testing.T) {
 	}
 	if result.TaskSchedule.LastTaskRunID == "" {
 		t.Fatalf("expected last task run id, got %+v", result.TaskSchedule)
+	}
+	if provisioner.callCount != 1 {
+		t.Fatalf("expected scheduled launch to provision requester workspace, got %d calls", provisioner.callCount)
 	}
 	if result.TaskSchedule.LastRunAt == nil || !result.TaskSchedule.LastRunAt.Equal(runAt) {
 		t.Fatalf("expected last run time, got %+v", result.TaskSchedule.LastRunAt)

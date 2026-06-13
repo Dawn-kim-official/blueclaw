@@ -17,7 +17,10 @@ import (
 	"blueclaw/internal/mcp"
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
+	"blueclaw/internal/security"
+	"blueclaw/internal/security/actortest"
 	"blueclaw/internal/task"
+	"blueclaw/internal/workspacepath"
 )
 
 func TestTaskLauncherCreatesAuditedAgentRun(t *testing.T) {
@@ -213,6 +216,76 @@ func TestTaskLauncherAddsStaffToRequesterAccess(t *testing.T) {
 	}
 	if !containsString(personAccess.Circles, "staff") || !containsString(personAccess.Circles, "finance") {
 		t.Fatalf("expected task requester access to include staff and explicit circles, got %+v", personAccess.Circles)
+	}
+}
+
+func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	agentKernel := agent.NewAgentKernel(task.NewTaskRunService(taskEventService), task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(staticRuntimeLanguageModel{content: runtimeFinishMessage("done")})
+	workspacePath := t.TempDir()
+	requesterHomePath := filepath.Join(workspacePath, "private", "people", "person-1")
+	provisioner := &recordingRequesterWorkspaceProvisioner{
+		provision: func(personAccess policy.PersonAccess, workspaceRootPath string) error {
+			if personAccess.PersonID != "person-1" {
+				t.Fatalf("expected requester person access, got %+v", personAccess)
+			}
+			if workspaceRootPath != workspacePath {
+				t.Fatalf("expected workspace root %s, got %s", workspacePath, workspaceRootPath)
+			}
+			if _, errorValue := os.Stat(requesterHomePath); !os.IsNotExist(errorValue) {
+				t.Fatalf("expected requester home to be absent before provisioning, got %v", errorValue)
+			}
+			return os.MkdirAll(requesterHomePath, 02770)
+		},
+	}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
+		"default": {"memory.search"},
+	}, nil)
+	taskLauncher := NewTaskLauncher(agentKernel, toolCatalogBuilder)
+	taskLauncher.UseRequesterWorkspaceProvisioner(provisioner)
+
+	launchResult, errorValue := taskLauncher.Launch(context.Background(), TaskLaunchRequest{
+		Source:            TaskLaunchSourceConnector,
+		SourceReference:   "mattermost:post-1",
+		RequesterPersonID: "person-1",
+		ProfileName:       "default",
+		ConversationID:    "channel-1",
+		Prompt:            "prepare workspace",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", SecurityLevelRank: 100},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected launch to succeed: %v", errorValue)
+	}
+	if provisioner.callCount != 1 {
+		t.Fatalf("expected one requester provisioning call, got %d", provisioner.callCount)
+	}
+	workspaceActor, errorValue := actortest.NewDirectWorkspaceActorFactory().Requester(context.Background(), security.WorkspaceActorRequest{
+		WorkspaceRootPath: workspacePath,
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	requesterSitePath := workspacepath.Directory{
+		ConcretePath: filepath.Join(requesterHomePath, "sites", "site-1"),
+		VirtualPath:  "home/sites/site-1",
+	}
+	if errorValue := workspaceActor.MkdirAll(context.Background(), requesterSitePath, 02770); errorValue != nil {
+		t.Fatalf("expected requester actor mkdir to succeed after launch provisioning: %v", errorValue)
+	}
+	taskEvents := taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID)
+	launchStepBodies := launchStepResultBodies(taskEvents)
+	if len(launchStepBodies) < 2 {
+		t.Fatalf("expected launch step results, got %+v", taskEvents)
+	}
+	if !strings.Contains(launchStepBodies[0], `"stepName":"provision_requester_workspace"`) {
+		t.Fatalf("expected requester provisioning before toolset build, got %+v", launchStepBodies)
+	}
+	if !strings.Contains(launchStepBodies[1], `"stepName":"build_tool_set"`) {
+		t.Fatalf("expected toolset build after requester provisioning, got %+v", launchStepBodies)
 	}
 }
 
@@ -1191,6 +1264,24 @@ func (historyProvider staticHistoryProvider) FetchHistory(context.Context, strin
 	return agent.VisibleContext{}, nil
 }
 
+type recordingRequesterWorkspaceProvisioner struct {
+	callCount  int
+	provision  func(policy.PersonAccess, string) error
+	errorValue error
+}
+
+func (provisioner *recordingRequesterWorkspaceProvisioner) ProvisionRequesterWorkspace(ctx context.Context, personAccess policy.PersonAccess, workspaceRootPath string) error {
+	_ = ctx
+	provisioner.callCount++
+	if provisioner.errorValue != nil {
+		return provisioner.errorValue
+	}
+	if provisioner.provision == nil {
+		return nil
+	}
+	return provisioner.provision(personAccess, workspaceRootPath)
+}
+
 type failingGraphMemoryStore struct {
 	errorValue error
 }
@@ -1228,6 +1319,16 @@ func countTaskEvents(taskEvents []task.TaskEvent, name string) int {
 		}
 	}
 	return count
+}
+
+func launchStepResultBodies(taskEvents []task.TaskEvent) []string {
+	bodies := []string{}
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name == "agent.launch_step.result" {
+			bodies = append(bodies, taskEvent.Body)
+		}
+	}
+	return bodies
 }
 
 func findTaskEvent(taskEvents []task.TaskEvent, name string) task.TaskEvent {

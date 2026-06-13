@@ -19,8 +19,13 @@ const (
 )
 
 type TaskLauncher struct {
-	agentKernel        *agent.AgentKernel
-	toolCatalogBuilder *ToolCatalogBuilder
+	agentKernel                   *agent.AgentKernel
+	toolCatalogBuilder            *ToolCatalogBuilder
+	requesterWorkspaceProvisioner RequesterWorkspaceProvisioner
+}
+
+type RequesterWorkspaceProvisioner interface {
+	ProvisionRequesterWorkspace(context.Context, policy.PersonAccess, string) error
 }
 
 type TaskLaunchRequest struct {
@@ -115,6 +120,10 @@ func NewTaskLauncher(agentKernel *agent.AgentKernel, toolCatalogBuilder *ToolCat
 	}
 }
 
+func (taskLauncher *TaskLauncher) UseRequesterWorkspaceProvisioner(provisioner RequesterWorkspaceProvisioner) {
+	taskLauncher.requesterWorkspaceProvisioner = provisioner
+}
+
 func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunchRequest) (TaskLaunchResult, error) {
 	request.PersonAccess = requesterPersonAccessForTaskLaunch(request)
 	normalizedProfileName := normalizeProfileName(request.ProfileName)
@@ -133,6 +142,11 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		NormalizedProfileName: normalizedProfileName,
 	}
 	launchRecords := []launchStepRecord{}
+	_, record := runLaunchStep(ctx, execution, provisionRequesterWorkspaceLaunchStep{})
+	launchRecords = append(launchRecords, record)
+	if record.Error != "" {
+		return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, nil, record.StepName, launchRecords, errorFromStepRecord(record)), nil
+	}
 	toolSet, record := runLaunchStep(ctx, execution, buildToolSetLaunchStep{})
 	launchRecords = append(launchRecords, record)
 	toolNames := toolSet.ListToolNames()
@@ -183,6 +197,20 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		ToolNames:             launchedToolNames,
 		NormalizedProfileName: normalizedProfileName,
 	}, nil
+}
+
+type provisionRequesterWorkspaceLaunchStep struct{}
+
+func (provisionRequesterWorkspaceLaunchStep) Name() string {
+	return "provision_requester_workspace"
+}
+
+func (provisionRequesterWorkspaceLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (struct{}, error) {
+	provisioner := execution.Launcher.requesterWorkspaceProvisioner
+	if provisioner == nil {
+		return struct{}{}, nil
+	}
+	return struct{}{}, provisioner.ProvisionRequesterWorkspace(ctx, execution.Request.PersonAccess, execution.Launcher.toolCatalogBuilder.WorkspaceRootPath())
 }
 
 type buildToolSetLaunchStep struct{}
