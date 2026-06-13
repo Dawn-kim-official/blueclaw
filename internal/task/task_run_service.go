@@ -418,6 +418,33 @@ func failTaskRunFromStates() []TaskStatus {
 	return pauseTaskRunFromStates()
 }
 
+func completeTaskRunFromStates() []TaskStatus {
+	return []TaskStatus{
+		TaskStatusPlanned,
+		TaskStatusRunning,
+		TaskStatusWaitingUserInput,
+		TaskStatusWaitingApproval,
+		TaskStatusBlocked,
+	}
+}
+
+func cancelTaskRunFromStates() []TaskStatus {
+	return []TaskStatus{
+		TaskStatusPlanned,
+		TaskStatusRunning,
+		TaskStatusWaitingUserInput,
+		TaskStatusWaitingApproval,
+		TaskStatusBlocked,
+	}
+}
+
+func interruptInactiveTaskRunFromStates() []TaskStatus {
+	return []TaskStatus{
+		TaskStatusPlanned,
+		TaskStatusRunning,
+	}
+}
+
 func (taskRunService *TaskRunService) ResumeTaskRun(taskRunID string) (TaskRun, error) {
 	return taskRunService.AdvanceTaskRun(taskRunID, "planner")
 }
@@ -480,25 +507,30 @@ func (taskRunService *TaskRunService) InterruptOrphanedRuntimeTaskRuns(reason st
 }
 
 func (taskRunService *TaskRunService) InterruptInactiveTaskRun(taskRunID string, reason string) (TaskRun, bool) {
-	taskRunService.mutex.Lock()
-	defer taskRunService.mutex.Unlock()
+	taskRun, isFound := taskRunService.FindTaskRun(taskRunID)
+	if !isFound {
+		return TaskRun{}, false
+	}
+	if taskRun.Status == TaskStatusRunning && taskRunService.IsTaskRunActuallyRunning(taskRun) {
+		return TaskRun{}, false
+	}
 
-	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
-	if !isFound || !taskRunIsRuntimeOwned(taskRun) {
+	now := time.Now()
+	interruptedTaskRun, errorValue := taskRunService.TransitionTaskRun(TaskRunTransition{
+		TaskRunID:             taskRunID,
+		FromStates:            interruptInactiveTaskRunFromStates(),
+		ToState:               TaskStatusInterrupted,
+		FailureReason:         reason,
+		FinishCurrentAttempt:  true,
+		FinishedAttemptStatus: TaskAttemptStatusInterrupted,
+		RunnerID:              taskRunService.runnerID,
+		Event:                 newTaskRunTransitionEvent(taskRunID, "task.interrupted", reason, now),
+		UpdatedAt:             now,
+	})
+	if errorValue != nil {
 		return TaskRun{}, false
 	}
-	if taskRun.Status == TaskStatusRunning && taskRunService.taskRunHasActiveAttemptLocked(taskRun) {
-		return TaskRun{}, false
-	}
-	taskRun.Status = TaskStatusInterrupted
-	taskRun.FailureReason = reason
-	taskRun.UpdatedAt = time.Now()
-	if _, errorValue := taskRunService.finishCurrentAttemptLocked(taskRun, TaskAttemptStatusInterrupted, reason); errorValue != nil {
-		return TaskRun{}, false
-	}
-	taskRunService.taskRuns[taskRunID] = taskRun
-	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.interrupted", reason)
-	return taskRun, true
+	return interruptedTaskRun, true
 }
 
 func (taskRunService *TaskRunService) SelectInterruptedTaskRunsForAutoResume(now time.Time, limit int) InterruptedTaskResumeSelection {
@@ -685,26 +717,18 @@ func containsTrimmedString(values []string, expectedValue string) bool {
 }
 
 func (taskRunService *TaskRunService) CompleteTaskRun(taskRunID string, result string) (TaskRun, error) {
-	taskRunService.mutex.Lock()
-	defer taskRunService.mutex.Unlock()
-
-	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
-	if !isFound {
-		return TaskRun{}, errors.New("task run not found")
-	}
-	if taskRun.Status == TaskStatusCancelled {
-		return taskRun, errors.New("task run was cancelled")
-	}
-
-	taskRun.Status = TaskStatusCompleted
-	taskRun.Result = result
-	taskRun.UpdatedAt = time.Now()
-	if _, errorValue := taskRunService.finishCurrentAttemptLocked(taskRun, TaskAttemptStatusCompleted, ""); errorValue != nil {
-		return TaskRun{}, errorValue
-	}
-	taskRunService.taskRuns[taskRunID] = taskRun
-	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.completed", result)
-	return taskRun, nil
+	now := time.Now()
+	return taskRunService.TransitionTaskRun(TaskRunTransition{
+		TaskRunID:             taskRunID,
+		FromStates:            completeTaskRunFromStates(),
+		ToState:               TaskStatusCompleted,
+		Result:                result,
+		FinishCurrentAttempt:  true,
+		FinishedAttemptStatus: TaskAttemptStatusCompleted,
+		RunnerID:              taskRunService.runnerID,
+		Event:                 newTaskRunTransitionEvent(taskRunID, "task.completed", result, now),
+		UpdatedAt:             now,
+	})
 }
 
 func (taskRunService *TaskRunService) FindTaskRun(taskRunID string) (TaskRun, bool) {
@@ -763,33 +787,44 @@ func (taskRunService *TaskRunService) saveTaskRun(taskRun TaskRun) error {
 }
 
 func (taskRunService *TaskRunService) cancelTaskRun(taskRunID string, requesterPersonID string, reason string) (TaskRun, error) {
-	taskRunService.mutex.Lock()
-	defer taskRunService.mutex.Unlock()
-
-	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
+	taskRun, isFound := taskRunService.FindTaskRun(taskRunID)
 	if !isFound {
 		return TaskRun{}, errors.New("task run not found")
 	}
 	if requesterPersonID != "" && taskRun.RequesterPersonID != requesterPersonID {
 		return TaskRun{}, errors.New("task run access denied")
 	}
-	if !taskRunIsActive(taskRun) {
-		return TaskRun{}, errors.New("task run cannot be cancelled")
-	}
 
-	taskRun.Status = TaskStatusCancelled
-	taskRun.FailureReason = strings.TrimSpace(reason)
-	taskRun.UpdatedAt = time.Now()
-	cancelFunction, errorValue := taskRunService.finishCurrentAttemptLocked(taskRun, TaskAttemptStatusCancelled, reason)
+	cancelFunction := taskRunService.cancelFunctionForTaskRun(taskRun)
+	now := time.Now()
+	cancelledTaskRun, errorValue := taskRunService.TransitionTaskRun(TaskRunTransition{
+		TaskRunID:             taskRunID,
+		FromStates:            cancelTaskRunFromStates(),
+		ToState:               TaskStatusCancelled,
+		FailureReason:         strings.TrimSpace(reason),
+		FinishCurrentAttempt:  true,
+		FinishedAttemptStatus: TaskAttemptStatusCancelled,
+		RunnerID:              taskRunService.runnerID,
+		Event:                 newTaskRunTransitionEvent(taskRunID, "task.cancelled", firstNonEmptyTaskRunString(reason, requesterPersonID), now),
+		UpdatedAt:             now,
+	})
 	if errorValue != nil {
 		return TaskRun{}, errorValue
 	}
-	taskRunService.taskRuns[taskRunID] = taskRun
-	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.cancelled", firstNonEmptyTaskRunString(reason, requesterPersonID))
 	if cancelFunction != nil {
 		cancelFunction()
 	}
-	return taskRun, nil
+	return cancelledTaskRun, nil
+}
+
+func (taskRunService *TaskRunService) cancelFunctionForTaskRun(taskRun TaskRun) context.CancelFunc {
+	taskRunService.mutex.RLock()
+	defer taskRunService.mutex.RUnlock()
+	if !taskRunService.taskRunHasActiveAttemptLocked(taskRun) {
+		return nil
+	}
+	activeAttempt := taskRunService.activeAttempts[taskRun.CurrentAttemptID]
+	return activeAttempt.CancelFunction
 }
 
 func (taskRunService *TaskRunService) startTaskRunAttempt(taskRun TaskRun, taskAttempt TaskAttempt) error {
