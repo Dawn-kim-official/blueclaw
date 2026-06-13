@@ -22,6 +22,10 @@ type TaskScheduleDeliveryRepository interface {
 	EnqueueScheduledConnectorReply(task.TaskSchedule, string, connectors.OutboundReply) (string, error)
 }
 
+type TaskScheduleTransactionalDeliveryRepository interface {
+	MarkTaskScheduleSucceededAndEnqueueDelivery(task.TaskSchedule, string, string, connectors.OutboundReply) (string, error)
+}
+
 type PersonAccessResolver interface {
 	ResolvePersonAccess(string) policy.PersonAccess
 }
@@ -134,10 +138,7 @@ func (taskSchedulePoller TaskSchedulePoller) runTaskSchedule(ctx context.Context
 	if !result.DidRun {
 		return taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleSucceeded(result.TaskSchedule)
 	}
-	if errorValue := taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleSucceeded(result.TaskSchedule); errorValue != nil {
-		return errorValue
-	}
-	if errorValue := taskSchedulePoller.enqueueTaskScheduleReply(result); errorValue != nil {
+	if errorValue := taskSchedulePoller.markTaskScheduleSucceededAndEnqueueReply(taskSchedule, result); errorValue != nil {
 		taskSchedulePoller.logger().Error(
 			"task_schedule.reply.enqueue_failed",
 			"taskScheduleID",
@@ -147,15 +148,8 @@ func (taskSchedulePoller TaskSchedulePoller) runTaskSchedule(ctx context.Context
 			"error",
 			errorValue.Error(),
 		)
-		return nil
+		return errorValue
 	}
-	taskSchedulePoller.logger().Info(
-		"task_schedule.reply.enqueued",
-		"taskScheduleID",
-		result.TaskSchedule.TaskScheduleID,
-		"taskRunID",
-		result.TaskRunID,
-	)
 	return nil
 }
 
@@ -223,14 +217,39 @@ func (taskSchedulePoller TaskSchedulePoller) executeMessageTaskSchedule(taskSche
 	}, nil
 }
 
-func (taskSchedulePoller TaskSchedulePoller) enqueueTaskScheduleReply(result taskScheduleExecutionResult) error {
-	if taskSchedulePoller.DeliveryRepository == nil {
-		return errors.New("task schedule delivery repository is unavailable")
+func (taskSchedulePoller TaskSchedulePoller) markTaskScheduleSucceededAndEnqueueReply(claimedTaskSchedule task.TaskSchedule, result taskScheduleExecutionResult) error {
+	reply := normalizedTaskScheduleReply(result)
+	deliveryDeduplicationKey := taskScheduleDeliveryDeduplicationKey(claimedTaskSchedule)
+	if transactionalRepository, ok := taskSchedulePoller.TaskScheduleRepository.(TaskScheduleTransactionalDeliveryRepository); ok {
+		outboxID, errorValue := transactionalRepository.MarkTaskScheduleSucceededAndEnqueueDelivery(result.TaskSchedule, result.TaskRunID, deliveryDeduplicationKey, reply)
+		taskSchedulePoller.recordTaskScheduleDeliveryEvent(result, reply, outboxID, errorValue)
+		if errorValue != nil {
+			return errorValue
+		}
+		taskSchedulePoller.logTaskScheduleReplyEnqueued(result, outboxID)
+		return nil
 	}
-	reply := result.Reply
-	reply.TaskRunID = firstNonEmptyString(reply.TaskRunID, result.TaskRunID)
-	reply.ReplyKind = firstNonEmptyString(reply.ReplyKind, "success")
+	outboxID, errorValue := taskSchedulePoller.enqueuePreparedTaskScheduleReply(result, reply)
+	if errorValue != nil {
+		return errorValue
+	}
+	if errorValue := taskSchedulePoller.TaskScheduleRepository.MarkTaskScheduleSucceeded(result.TaskSchedule); errorValue != nil {
+		return errorValue
+	}
+	taskSchedulePoller.logTaskScheduleReplyEnqueued(result, outboxID)
+	return nil
+}
+
+func (taskSchedulePoller TaskSchedulePoller) enqueuePreparedTaskScheduleReply(result taskScheduleExecutionResult, reply connectors.OutboundReply) (string, error) {
+	if taskSchedulePoller.DeliveryRepository == nil {
+		return "", errors.New("task schedule delivery repository is unavailable")
+	}
 	outboxID, errorValue := taskSchedulePoller.DeliveryRepository.EnqueueScheduledConnectorReply(result.TaskSchedule, result.TaskRunID, reply)
+	taskSchedulePoller.recordTaskScheduleDeliveryEvent(result, reply, outboxID, errorValue)
+	return outboxID, errorValue
+}
+
+func (taskSchedulePoller TaskSchedulePoller) recordTaskScheduleDeliveryEvent(result taskScheduleExecutionResult, reply connectors.OutboundReply, outboxID string, errorValue error) {
 	if taskSchedulePoller.TaskRunService != nil && strings.TrimSpace(result.TaskRunID) != "" {
 		eventName := "task_schedule.delivery.enqueued"
 		eventBody := map[string]string{
@@ -245,7 +264,33 @@ func (taskSchedulePoller TaskSchedulePoller) enqueueTaskScheduleReply(result tas
 		}
 		taskSchedulePoller.TaskRunService.AppendTaskEvent(result.TaskRunID, eventName, marshalScheduleEventBody(eventBody))
 	}
-	return errorValue
+}
+
+func (taskSchedulePoller TaskSchedulePoller) logTaskScheduleReplyEnqueued(result taskScheduleExecutionResult, outboxID string) {
+	taskSchedulePoller.logger().Info(
+		"task_schedule.reply.enqueued",
+		"taskScheduleID",
+		result.TaskSchedule.TaskScheduleID,
+		"taskRunID",
+		result.TaskRunID,
+		"outboxID",
+		outboxID,
+	)
+}
+
+func normalizedTaskScheduleReply(result taskScheduleExecutionResult) connectors.OutboundReply {
+	reply := result.Reply
+	reply.TaskRunID = firstNonEmptyString(reply.TaskRunID, result.TaskRunID)
+	reply.ReplyKind = firstNonEmptyString(reply.ReplyKind, "success")
+	return reply
+}
+
+func taskScheduleDeliveryDeduplicationKey(taskSchedule task.TaskSchedule) string {
+	occurrenceTime := time.Time{}
+	if taskSchedule.NextRunAt != nil {
+		occurrenceTime = taskSchedule.NextRunAt.UTC()
+	}
+	return "schedule:" + strings.TrimSpace(taskSchedule.TaskScheduleID) + ":occurrence:" + occurrenceTime.Format(time.RFC3339Nano)
 }
 
 func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.OutboundReply, error) {
