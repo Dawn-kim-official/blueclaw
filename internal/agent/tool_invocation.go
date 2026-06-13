@@ -46,7 +46,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	}))
 	unregisterTool := agentTurnRunner.taskRunService.RegisterTaskRunTool(taskRunID, observationID, trimmedToolName)
 	defer unregisterTool()
-	toolContext := WithWorkKinds(WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage), workKinds)
+	toolContext := WithObservationID(WithWorkKinds(WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage), workKinds), observationID)
 	invocationStartedAt := time.Now()
 	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {

@@ -2,6 +2,8 @@ package agentruntime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
@@ -12,6 +14,26 @@ import (
 	"blueclaw/internal/agent"
 	"blueclaw/internal/mcp"
 )
+
+var idempotentCapabilityToolNames = map[string]bool{
+	"platform.message.send": true,
+	"mail.message.send":     true,
+	"google.gmail.send":     true,
+	"slack.message.send":    true,
+}
+
+func capabilityToolIdempotencyKey(toolContext context.Context, toolName string) string {
+	if !idempotentCapabilityToolNames[strings.TrimSpace(toolName)] {
+		return ""
+	}
+	taskRunID := strings.TrimSpace(agent.TaskRunIDFromContext(toolContext))
+	observationID := strings.TrimSpace(agent.ObservationIDFromContext(toolContext))
+	if taskRunID == "" || observationID == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte(taskRunID + ":" + observationID + ":" + strings.TrimSpace(toolName)))
+	return hex.EncodeToString(digest[:])
+}
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerMCPTools(toolRegistry *agent.ToolSet) {
 	if toolCatalogBuilder.mcpRegistry == nil {
@@ -212,8 +234,9 @@ func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest)
 
 func capabilityToolRequest(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {
 	requestDocument := map[string]any{
-		"toolName": toolName,
-		"input":    toolInput,
+		"toolName":       toolName,
+		"input":          toolInput,
+		"idempotencyKey": capabilityToolIdempotencyKey(toolContext, toolName),
 		"context": map[string]any{
 			"requesterPersonID":       request.RequesterPersonID,
 			"requesterEmail":          request.RequesterEmail,

@@ -290,6 +290,9 @@ func satisfiedOneShotEvidenceRequirementsCanFinalize(requirements []toolUseRequi
 		if requirement.RequiresAttachment || strings.TrimSpace(requirement.ToolPrefix) != "" || !isOneShotCompletionEvidenceTool(requirement.ToolName) {
 			return false
 		}
+		if isSendEvidenceTool(requirement.ToolName) {
+			return false
+		}
 	}
 	return true
 }
