@@ -112,7 +112,7 @@ func TestTaskSchedulePollerDeliversMessageScheduleWithoutAgentRun(t *testing.T) 
 	}
 }
 
-func TestTaskSchedulePollerAdvancesWhenDeliveryFailsWithoutRetrying(t *testing.T) {
+func TestTaskSchedulePollerDoesNotAdvanceWhenDeliveryFails(t *testing.T) {
 	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
 	nextRunAt := runAt
 	generatedResponseCount := 0
@@ -137,20 +137,51 @@ func TestTaskSchedulePollerAdvancesWhenDeliveryFailsWithoutRetrying(t *testing.T
 		PersonAccessResolver:   staticPersonAccessResolver{},
 	}
 
-	runCount, errorValue := poller.RunDue(context.Background(), runAt, 1)
-	secondRunCount, secondErrorValue := poller.RunDue(context.Background(), runAt, 1)
+	errorValue := poller.runTaskSchedule(context.Background(), repository.taskSchedules[0], runAt)
+
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "outbox unavailable") {
+		t.Fatalf("expected delivery error to surface, got %v", errorValue)
+	}
+	if repository.succeeded != nil {
+		t.Fatalf("expected delivery failure not to advance schedule, got %+v", repository.succeeded)
+	}
+	if len(repository.failed) != 0 {
+		t.Fatalf("expected direct run not to record poller failure, got %+v", repository.failed)
+	}
+	if generatedResponseCount != 1 {
+		t.Fatalf("expected task executor to run once, got %d", generatedResponseCount)
+	}
+}
+
+func TestTaskSchedulePollerAtomicSuccessAdvancesOnceAndEnqueuesOnce(t *testing.T) {
+	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
+	nextRunAt := runAt
+	repository := &pollerAtomicScheduleRepository{
+		pollerScheduleRepository: &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:   "schedule-1",
+			CreatorPersonID:  "person-1",
+			Prompt:           "매일 업계 뉴스를 조사해서 알려줘.",
+			AgentProfileName: "default",
+			Platform:         "mattermost",
+			ConversationID:   "channel-1",
+			ReplyTargetID:    "reply-target-1",
+			TimeZone:         "Asia/Seoul",
+			Kind:             task.TaskScheduleKindInterval,
+			IntervalSecond:   60,
+			MaxRunCount:      10,
+			NextRunAt:        &nextRunAt,
+		}}},
+	}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		PersonAccessResolver:   staticPersonAccessResolver{},
+	}
+
+	errorValue := poller.runTaskSchedule(context.Background(), repository.taskSchedules[0], runAt)
 
 	if errorValue != nil {
 		t.Fatal(errorValue)
-	}
-	if secondErrorValue != nil {
-		t.Fatal(secondErrorValue)
-	}
-	if runCount != 1 {
-		t.Fatalf("expected delivery failure to count as completed run, got %d", runCount)
-	}
-	if secondRunCount != 0 {
-		t.Fatalf("expected advanced schedule not to run again, got %d", secondRunCount)
 	}
 	if repository.succeeded == nil || repository.succeeded.CompletedRunCount != 1 {
 		t.Fatalf("expected schedule to advance once, got %+v", repository.succeeded)
@@ -158,11 +189,49 @@ func TestTaskSchedulePollerAdvancesWhenDeliveryFailsWithoutRetrying(t *testing.T
 	if repository.succeeded.NextRunAt == nil || !repository.succeeded.NextRunAt.Equal(runAt.Add(time.Minute)) {
 		t.Fatalf("expected next run to advance by one minute, got %+v", repository.succeeded.NextRunAt)
 	}
-	if len(repository.failed) != 0 {
-		t.Fatalf("expected delivery failure not to mark schedule failed, got %+v", repository.failed)
+	if len(repository.deliveryDeduplicationKeys) != 1 {
+		t.Fatalf("expected one delivery enqueue, got %+v", repository.deliveryDeduplicationKeys)
 	}
-	if generatedResponseCount != 1 {
-		t.Fatalf("expected task executor to run once, got %d", generatedResponseCount)
+	expectedDeliveryDeduplicationKey := "schedule:schedule-1:occurrence:" + runAt.Format(time.RFC3339Nano)
+	if repository.deliveryDeduplicationKeys[0] != expectedDeliveryDeduplicationKey {
+		t.Fatalf("expected occurrence deduplication key %q, got %+v", expectedDeliveryDeduplicationKey, repository.deliveryDeduplicationKeys)
+	}
+}
+
+func TestTaskSchedulePollerRetriedOccurrenceDoesNotDoubleEnqueue(t *testing.T) {
+	runAt := time.Date(2026, 5, 6, 7, 0, 0, 0, time.UTC)
+	nextRunAt := runAt
+	repository := &pollerAtomicScheduleRepository{
+		pollerScheduleRepository: &pollerScheduleRepository{taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:   "schedule-1",
+			CreatorPersonID:  "person-1",
+			Prompt:           "매일 업계 뉴스를 조사해서 알려줘.",
+			AgentProfileName: "default",
+			Platform:         "mattermost",
+			ConversationID:   "channel-1",
+			ReplyTargetID:    "reply-target-1",
+			TimeZone:         "Asia/Seoul",
+			Kind:             task.TaskScheduleKindInterval,
+			IntervalSecond:   60,
+			MaxRunCount:      10,
+			NextRunAt:        &nextRunAt,
+		}}},
+	}
+	poller := TaskSchedulePoller{
+		TaskScheduleRepository: repository,
+		TaskScheduleRunner:     testTaskScheduleRunner("오늘의 조사 결과입니다."),
+		PersonAccessResolver:   staticPersonAccessResolver{},
+	}
+	claimedTaskSchedule := repository.taskSchedules[0]
+
+	firstError := poller.runTaskSchedule(context.Background(), claimedTaskSchedule, runAt)
+	secondError := poller.runTaskSchedule(context.Background(), claimedTaskSchedule, runAt)
+
+	if firstError != nil || secondError != nil {
+		t.Fatalf("expected retry to be idempotent, first=%v second=%v", firstError, secondError)
+	}
+	if len(repository.deliveryDeduplicationKeys) != 1 {
+		t.Fatalf("expected retried occurrence not to double-enqueue, got %+v", repository.deliveryDeduplicationKeys)
 	}
 }
 
@@ -247,8 +316,14 @@ func TestTaskSchedulePollerLogsDeliveryFailures(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if runCount != 1 {
-		t.Fatalf("expected delivery failure to count as completed run, got %d", runCount)
+	if runCount != 0 {
+		t.Fatalf("expected delivery failure not to count as completed run, got %d", runCount)
+	}
+	if repository.succeeded != nil {
+		t.Fatalf("expected delivery failure not to advance schedule, got %+v", repository.succeeded)
+	}
+	if len(repository.failed) != 1 || !strings.Contains(repository.failed[0], "outbox unavailable") {
+		t.Fatalf("expected delivery failure to mark schedule failed, got %+v", repository.failed)
 	}
 	logDocument := logBuffer.String()
 	if !strings.Contains(logDocument, "task_schedule.reply.enqueue_failed") || !strings.Contains(logDocument, "schedule-1") || !strings.Contains(logDocument, "outbox unavailable") {
@@ -494,6 +569,34 @@ func (repository *pollerDeliveryRepository) EnqueueScheduledConnectorReply(_ tas
 	}
 	repository.replies = append(repository.replies, reply)
 	return "outbox-1", nil
+}
+
+type pollerAtomicScheduleRepository struct {
+	*pollerScheduleRepository
+	deliveryDeduplicationKeys []string
+	deliveryError             error
+}
+
+func (repository *pollerAtomicScheduleRepository) MarkTaskScheduleSucceededAndEnqueueDelivery(taskSchedule task.TaskSchedule, _ string, deliveryDeduplicationKey string, _ connectors.OutboundReply) (string, error) {
+	if repository.deliveryError != nil {
+		return "", repository.deliveryError
+	}
+	if !repository.hasDeliveryDeduplicationKey(deliveryDeduplicationKey) {
+		repository.deliveryDeduplicationKeys = append(repository.deliveryDeduplicationKeys, deliveryDeduplicationKey)
+	}
+	if errorValue := repository.MarkTaskScheduleSucceeded(taskSchedule); errorValue != nil {
+		return "", errorValue
+	}
+	return deliveryDeduplicationKey, nil
+}
+
+func (repository *pollerAtomicScheduleRepository) hasDeliveryDeduplicationKey(deliveryDeduplicationKey string) bool {
+	for _, existingDeliveryDeduplicationKey := range repository.deliveryDeduplicationKeys {
+		if existingDeliveryDeduplicationKey == deliveryDeduplicationKey {
+			return true
+		}
+	}
+	return false
 }
 
 type staticPersonAccessResolver struct{}

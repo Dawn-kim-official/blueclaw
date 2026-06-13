@@ -2,12 +2,15 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
 	"time"
 
+	"blueclaw/internal/connectors"
 	"blueclaw/internal/task"
 )
 
@@ -179,6 +182,135 @@ RETURNING `+taskScheduleReturningColumns(),
 func (taskScheduleRepository TaskScheduleRepository) MarkTaskScheduleSucceeded(taskSchedule task.TaskSchedule) error {
 	now := time.Now().UTC()
 	_, errorValue := taskScheduleRepository.database.SQL.ExecContext(context.Background(), `
+UPDATE task_schedule
+SET next_run_at = $2,
+  last_run_at = $3,
+  last_task_run_id = $4,
+  lease_owner = '',
+  leased_until = NULL,
+  failure_count = 0,
+  last_error = '',
+  next_attempt_at = $1,
+  completed_run_count = $6,
+  updated_at = $1
+WHERE task_schedule_id = $5`,
+		now,
+		taskSchedule.NextRunAt,
+		taskSchedule.LastRunAt,
+		emptyStringAsNil(taskSchedule.LastTaskRunID),
+		taskSchedule.TaskScheduleID,
+		taskSchedule.CompletedRunCount,
+	)
+	return errorValue
+}
+
+func (taskScheduleRepository TaskScheduleRepository) MarkTaskScheduleSucceededAndEnqueueDelivery(taskSchedule task.TaskSchedule, taskRunID string, deliveryDeduplicationKey string, reply connectors.OutboundReply) (string, error) {
+	deliveryDeduplicationKey = strings.TrimSpace(deliveryDeduplicationKey)
+	if deliveryDeduplicationKey == "" {
+		return "", errors.New("scheduled task delivery deduplication key is required")
+	}
+	now := time.Now().UTC()
+	transaction, errorValue := taskScheduleRepository.database.SQL.BeginTx(context.Background(), nil)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	defer transaction.Rollback()
+	conversationID, errorValue := ensureConversationWithTransaction(transaction, taskSchedule.Platform, taskSchedule.ConversationID, now)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	if errorValue := enqueueScheduledConnectorReplyWithTransaction(transaction, taskSchedule, taskRunID, deliveryDeduplicationKey, conversationID, reply, now); errorValue != nil {
+		return "", errorValue
+	}
+	if errorValue := markTaskScheduleSucceededWithTransaction(transaction, taskSchedule, now); errorValue != nil {
+		return "", errorValue
+	}
+	if errorValue := transaction.Commit(); errorValue != nil {
+		return "", errorValue
+	}
+	return deliveryDeduplicationKey, nil
+}
+
+func ensureConversationWithTransaction(transaction *sql.Tx, platform string, externalConversationID string, now time.Time) (string, error) {
+	conversationID := platform + ":" + externalConversationID
+	_, errorValue := transaction.ExecContext(context.Background(), `
+INSERT INTO conversation (
+  conversation_id, platform, external_conversation_id, conversation_type, display_name,
+  last_seen_at, created_at, updated_at
+) VALUES ($1,$2,$3,'opaque',$3,$4,$4,$4)
+ON CONFLICT (platform, external_conversation_id) DO UPDATE SET
+  last_seen_at = EXCLUDED.last_seen_at,
+  updated_at = EXCLUDED.updated_at`,
+		conversationID,
+		platform,
+		externalConversationID,
+		now,
+	)
+	return conversationID, errorValue
+}
+
+func enqueueScheduledConnectorReplyWithTransaction(transaction *sql.Tx, taskSchedule task.TaskSchedule, taskRunID string, deliveryDeduplicationKey string, conversationID string, reply connectors.OutboundReply, now time.Time) error {
+	reply = scheduledConnectorReply(taskRunID, deliveryDeduplicationKey, reply)
+	replyTarget := connectors.ReplyTarget{
+		ConversationID: taskSchedule.ConversationID,
+		ReplyTargetID:  taskSchedule.ReplyTargetID,
+		DedupeKey:      deliveryDeduplicationKey,
+	}
+	replyTargetDocument, errorValue := json.Marshal(replyTarget)
+	if errorValue != nil {
+		return errorValue
+	}
+	replyDocument, errorValue := json.Marshal(reply)
+	if errorValue != nil {
+		return errorValue
+	}
+	contentHash := sha256.Sum256([]byte(taskSchedule.Prompt))
+	_, errorValue = transaction.ExecContext(context.Background(), `
+INSERT INTO raw_event (
+  raw_event_id, platform, conversation_id, external_message_id, event_type,
+  content_ciphertext, encryption_key_version, content_sha256, security_level_rank,
+  required_classes, occurred_at, ingested_at, expires_at,
+  reply_target_id, visible_context_ciphertext, visible_context_sha256, has_more_before, history_cursor
+) VALUES ($1,$2,$3,$1,'scheduled_task',$4,1,$5,0,'{}',$6,$6,$7,$8,$9,$10,false,NULL)
+ON CONFLICT (raw_event_id) DO NOTHING`,
+		deliveryDeduplicationKey,
+		taskSchedule.Platform,
+		conversationID,
+		[]byte(taskSchedule.Prompt),
+		contentHash[:],
+		now,
+		now.AddDate(0, 0, 60),
+		taskSchedule.ReplyTargetID,
+		mustJSON(connectors.VisibleContext{}),
+		hashJSON(connectors.VisibleContext{}),
+	)
+	if errorValue != nil {
+		return errorValue
+	}
+	_, errorValue = transaction.ExecContext(context.Background(), `
+INSERT INTO connector_outbox (
+  outbox_id, raw_event_id, platform, reply_target_id, reply_target_json, reply_json
+) VALUES ($1,$1,$2,$3,$4,$5)
+ON CONFLICT (outbox_id) DO NOTHING`,
+		deliveryDeduplicationKey,
+		taskSchedule.Platform,
+		taskSchedule.ReplyTargetID,
+		replyTargetDocument,
+		replyDocument,
+	)
+	return errorValue
+}
+
+func scheduledConnectorReply(taskRunID string, deliveryDeduplicationKey string, reply connectors.OutboundReply) connectors.OutboundReply {
+	reply.RawEventID = deliveryDeduplicationKey
+	reply.OutboxID = deliveryDeduplicationKey
+	reply.TaskRunID = firstNonEmptyPostgresString(reply.TaskRunID, taskRunID)
+	reply.ReplyKind = firstNonEmptyPostgresString(reply.ReplyKind, "success")
+	return reply
+}
+
+func markTaskScheduleSucceededWithTransaction(transaction *sql.Tx, taskSchedule task.TaskSchedule, now time.Time) error {
+	_, errorValue := transaction.ExecContext(context.Background(), `
 UPDATE task_schedule
 SET next_run_at = $2,
   last_run_at = $3,
