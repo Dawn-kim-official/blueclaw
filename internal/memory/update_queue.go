@@ -21,11 +21,18 @@ type MemoryUpdateJob struct {
 	SenderPersonID  string
 	SourceReference string
 	OccurredAt      time.Time
+	SkipMarkdown    bool
 }
 
 type MemoryUpdateAccepted struct {
-	Accepted bool   `json:"accepted"`
-	JobID    string `json:"jobID"`
+	Accepted         bool   `json:"accepted"`
+	JobID            string `json:"jobID,omitempty"`
+	Status           string `json:"status"`
+	Durability       string `json:"durability"`
+	GraphitiStatus   string `json:"graphitiStatus,omitempty"`
+	MarkdownUpdated  bool   `json:"markdownUpdated,omitempty"`
+	FailureCode      string `json:"failureCode,omitempty"`
+	FailureComponent string `json:"failureComponent,omitempty"`
 }
 
 type MemoryUpdateEnqueuer interface {
@@ -77,9 +84,16 @@ func (queue *BackgroundMemoryUpdateQueue) Enqueue(job MemoryUpdateJob) (MemoryUp
 		return MemoryUpdateAccepted{}, errors.New("memory update queue is unavailable")
 	}
 	normalizedJob := normalizeMemoryUpdateJob(job)
+	// TODO: Replace the volatile in-process memory update queue with a durable queue.
 	select {
 	case queue.jobs <- normalizedJob:
-		return MemoryUpdateAccepted{Accepted: true, JobID: normalizedJob.JobID}, nil
+		return MemoryUpdateAccepted{
+			Accepted:       true,
+			JobID:          normalizedJob.JobID,
+			Status:         "queued_volatile",
+			Durability:     "volatile",
+			GraphitiStatus: "queued",
+		}, nil
 	default:
 		return MemoryUpdateAccepted{}, errors.New("memory update queue is full")
 	}
@@ -120,7 +134,7 @@ func (processor MemoryUpdateProcessor) Process(ctx context.Context, job MemoryUp
 			result.GraphitiSucceeded = true
 		}
 	}
-	if processor.markdownStore != nil && normalizedJob.Namespace.ScopeType == ScopeTypeUser {
+	if processor.markdownStore != nil && normalizedJob.Namespace.ScopeType == ScopeTypeUser && !normalizedJob.SkipMarkdown {
 		isUpdated, errorValue := processor.markdownStore.MergePersonMemory(ctx, normalizedJob.Namespace.ScopePersonID, normalizedJob.Content)
 		if errorValue != nil {
 			result.MarkdownError = errorValue.Error()
@@ -129,6 +143,10 @@ func (processor MemoryUpdateProcessor) Process(ctx context.Context, job MemoryUp
 		}
 	}
 	return result
+}
+
+func PrepareMemoryUpdateJob(job MemoryUpdateJob) MemoryUpdateJob {
+	return normalizeMemoryUpdateJob(job)
 }
 
 func memoryEpisodeFromUpdateJob(job MemoryUpdateJob) MemoryEpisode {

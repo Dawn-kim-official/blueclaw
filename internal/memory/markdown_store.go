@@ -65,11 +65,22 @@ func (store *MarkdownStore) LoadPinnedMemory(ctx context.Context, personID strin
 	if store == nil {
 		return nil, nil
 	}
+	return store.LoadPinnedMemoryForNamespaces(ctx, []MemoryNamespace{UserNamespace(personID)})
+}
+
+func (store *MarkdownStore) LoadPinnedMemoryForNamespaces(ctx context.Context, namespaces []MemoryNamespace) ([]MemoryFact, error) {
+	if store == nil {
+		return nil, nil
+	}
 	memoryFacts := []MemoryFact{}
-	if memoryFact, isFound, errorValue := store.readNamespaceMemory(ctx, UserNamespace(personID)); errorValue != nil {
-		return nil, errorValue
-	} else if isFound {
-		memoryFacts = append(memoryFacts, memoryFact)
+	for _, namespace := range namespaces {
+		memoryFact, isFound, errorValue := store.readNamespaceMemory(ctx, namespace)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		if isFound {
+			memoryFacts = append(memoryFacts, memoryFact)
+		}
 	}
 	return memoryFacts, nil
 }

@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -45,6 +46,9 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 	}
 	if !strings.Contains(result.ContentText(), `"accepted":true`) {
 		t.Fatalf("expected accepted result, got %s", result.ContentText())
+	}
+	if !strings.Contains(result.ContentText(), `"status":"queued_volatile"`) {
+		t.Fatalf("expected queued volatile result, got %s", result.ContentText())
 	}
 }
 
@@ -228,4 +232,184 @@ func TestMemorySearchReturnsRecoverableToolErrorWhenGraphitiFails(t *testing.T) 
 	if strings.Contains(result.ContentText(), "127.0.0.1") || strings.Contains(result.UserSafeFailureSummary(), "127.0.0.1") {
 		t.Fatalf("expected internal Graphiti details to be hidden, got %+v", result)
 	}
+}
+
+func TestMemorySearchDegradedWithPinnedFallback(t *testing.T) {
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("graphiti unavailable")})
+	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "The requester prefers terse release notes."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.search",
+		Input:    agent.MarshalToolInput(map[string]string{"query": "release notes"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected degraded memory.search success, got %s", result.ContentText())
+	}
+	document := decodeMemorySearchToolOutput(t, result.ContentText())
+	if document.SearchStatus != "degraded" || !document.Degraded {
+		t.Fatalf("expected degraded search status, got %+v", document)
+	}
+	if !containsMemoryFact(document.Facts, "# Memory\n- The requester prefers terse release notes.") {
+		t.Fatalf("expected pinned fallback fact, got %+v", document.Facts)
+	}
+}
+
+func TestMemorySearchReturnsUnavailableWhenFallbackEmpty(t *testing.T) {
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("graphiti unavailable")})
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UsePinnedMemoryStore(memory.NewMarkdownStore(t.TempDir(), 1200))
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.search",
+		Input:    agent.MarshalToolInput(map[string]string{"query": "missing"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected unavailable memory.search result, got %s", result.ContentText())
+	}
+	if result.FailureCode() != agent.FailureCodes.Unavailable.String() {
+		t.Fatalf("expected unavailable failure code, got %+v", result.Failure)
+	}
+}
+
+func TestMemorySearchPinnedFallbackScopesRequesterNamespace(t *testing.T) {
+	memoryService := &memory.MemoryService{}
+	memoryService.UseGraphStore(failingGraphMemoryStore{errorValue: errors.New("graphiti unavailable")})
+	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-1", "Person one likes weekly summaries."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if _, errorValue := pinnedMemoryStore.MergePersonMemory(context.Background(), "person-2", "Person two has private launch plans."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryService(memoryService)
+	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.search"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+		MemoryNamespaces: []memory.MemoryNamespace{
+			memory.UserNamespace("person-1"),
+			memory.UserNamespace("person-2"),
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.search",
+		Input:    agent.MarshalToolInput(map[string]string{"query": "plans"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected scoped fallback success, got %s", result.ContentText())
+	}
+	if strings.Contains(result.ContentText(), "Person two") {
+		t.Fatalf("expected person two memory to be excluded, got %s", result.ContentText())
+	}
+	if !strings.Contains(result.ContentText(), "Person one") {
+		t.Fatalf("expected person one memory, got %s", result.ContentText())
+	}
+}
+
+func TestMemoryRememberToolPersistsMarkdownBeforeQueue(t *testing.T) {
+	queue := &recordingMemoryUpdateQueue{}
+	pinnedMemoryStore := memory.NewMarkdownStore(t.TempDir(), 1200)
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
+	toolCatalogBuilder.UsePinnedMemoryStore(pinnedMemoryStore)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		Platform:          "mattermost",
+		ConversationID:    "channel-1",
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.remember",
+		Input:    agent.MarshalToolInput(map[string]string{"content": "The user prefers markdown memory."}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected memory.remember success, got %s", result.ContentText())
+	}
+	document := decodeMemoryUpdateAccepted(t, result.ContentText())
+	if document.Status != "persisted" || document.Durability != "durable" {
+		t.Fatalf("expected persisted durable status, got %+v", document)
+	}
+	if len(queue.jobs) != 1 || !queue.jobs[0].SkipMarkdown {
+		t.Fatalf("expected graphiti enrichment job without markdown rewrite, got %+v", queue.jobs)
+	}
+	memoryFacts, errorValue := pinnedMemoryStore.LoadPinnedMemory(context.Background(), "person-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(memoryFacts) != 1 || !strings.Contains(memoryFacts[0].Content, "markdown memory") {
+		t.Fatalf("expected synchronous markdown memory, got %+v", memoryFacts)
+	}
+}
+
+func decodeMemorySearchToolOutput(t *testing.T, content string) memorySearchToolOutput {
+	t.Helper()
+	document := memorySearchToolOutput{}
+	if errorValue := json.Unmarshal([]byte(content), &document); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return document
+}
+
+func containsMemoryFact(memoryFacts []memory.MemoryFact, content string) bool {
+	for _, memoryFact := range memoryFacts {
+		if memoryFact.Content == content {
+			return true
+		}
+	}
+	return false
+}
+
+func decodeMemoryUpdateAccepted(t *testing.T, content string) memory.MemoryUpdateAccepted {
+	t.Helper()
+	document := memory.MemoryUpdateAccepted{}
+	if errorValue := json.Unmarshal([]byte(content), &document); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return document
 }
