@@ -85,6 +85,176 @@ func TestOnlyExactStopCommandsBypassConversationLock(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeReplyTargetWaitResolvesOlderWaitingTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
+			},
+		},
+		ActionResponses: []string{connectorFinishMessage("older continued")},
+	})
+	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
+	olderTaskRun := createWaitingInputTaskRun(t, taskRunService, "older prompt", "old-interaction")
+	if errorValue := taskWaitRepository.InsertTaskWaitToken(waitRoutingTaskWaitToken(olderTaskRun, "old-dispatch", "old-interaction")); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	time.Sleep(time.Millisecond)
+	newerTaskRun := createWaitingInputTaskRun(t, taskRunService, "newer prompt", "new-interaction")
+	if errorValue := taskWaitRepository.InsertTaskWaitToken(waitRoutingTaskWaitToken(newerTaskRun, "new-dispatch", "new-interaction")); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-old-reply")
+	event.ReplyTargetID = "old-dispatch"
+	event.Prompt = "older answer"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected old wait reply to process: %v", errorValue)
+	}
+
+	if result.TaskRunID != olderTaskRun.TaskRunID {
+		t.Fatalf("expected older task run %s, got %+v", olderTaskRun.TaskRunID, result)
+	}
+	olderTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(olderTaskRun.TaskRunID)
+	newerTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(newerTaskRun.TaskRunID)
+	if olderTaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected older task completed, got %+v", olderTaskRun)
+	}
+	if newerTaskRun.Status != task.TaskStatusWaitingUserInput {
+		t.Fatalf("expected newer task to remain waiting, got %+v", newerTaskRun)
+	}
+	openWaits, errorValue := taskWaitRepository.FindOpenByPersonAndConversation("person-1", "test", "direct-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(openWaits) != 1 || openWaits[0].TaskRunID != newerTaskRun.TaskRunID {
+		t.Fatalf("expected only newer wait open, got %+v", openWaits)
+	}
+}
+
+func TestConnectorRuntimeAmbiguousWaitDoesNotSelectNewest(t *testing.T) {
+	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "어느 작업에 답하셨나요?"})
+	olderTaskRun := createWaitingInputTaskRun(t, taskRunService, "older prompt", "old-interaction")
+	newerTaskRun := createWaitingInputTaskRun(t, taskRunService, "newer prompt", "new-interaction")
+	for _, taskWaitToken := range []task.TaskWaitToken{
+		waitRoutingTaskWaitToken(olderTaskRun, "old-dispatch", "old-interaction"),
+		waitRoutingTaskWaitToken(newerTaskRun, "new-dispatch", "new-interaction"),
+	} {
+		if errorValue := taskWaitRepository.InsertTaskWaitToken(taskWaitToken); errorValue != nil {
+			t.Fatal(errorValue)
+		}
+	}
+	event := testInboundEvent("message-ambiguous")
+	event.ReplyTargetID = "unmatched-reply-target"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected ambiguous wait to process: %v", errorValue)
+	}
+
+	if result.TaskRunID == olderTaskRun.TaskRunID || result.TaskRunID == newerTaskRun.TaskRunID {
+		t.Fatalf("expected disambiguation task, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].taskRunID != result.TaskRunID {
+		t.Fatalf("expected disambiguation reply, got %+v result=%+v", adapter.sentReplies, result)
+	}
+	olderTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(olderTaskRun.TaskRunID)
+	newerTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(newerTaskRun.TaskRunID)
+	if olderTaskRun.Status != task.TaskStatusWaitingUserInput || newerTaskRun.Status != task.TaskStatusWaitingUserInput {
+		t.Fatalf("ambiguous reply must not continue waits, older=%s newer=%s", olderTaskRun.Status, newerTaskRun.Status)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, result.TaskRunID, "ask.requested", `"choice_single"`) {
+		t.Fatalf("expected disambiguation ask.choice, taskRunID=%s", result.TaskRunID)
+	}
+}
+
+func TestConnectorRuntimeSingleOpenWaitFallbackContinuesTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"input reply","userFacingReply":""}`,
+			},
+		},
+		ActionResponses: []string{connectorFinishMessage("single continued")},
+	})
+	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
+	waitingTaskRun := createWaitingInputTaskRun(t, taskRunService, "single prompt", "single-interaction")
+	if errorValue := taskWaitRepository.InsertTaskWaitToken(waitRoutingTaskWaitToken(waitingTaskRun, "single-dispatch", "single-interaction")); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-single")
+	event.ReplyTargetID = "unmatched-reply-target"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected single wait fallback to process: %v", errorValue)
+	}
+
+	if result.TaskRunID != waitingTaskRun.TaskRunID {
+		t.Fatalf("expected waiting task %s, got %+v", waitingTaskRun.TaskRunID, result)
+	}
+	waitingTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(waitingTaskRun.TaskRunID)
+	if waitingTaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected waiting task completed, got %+v", waitingTaskRun)
+	}
+}
+
+func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		ActionResponses: []string{
+			`{"action":"continue","toolName":"ask.input","toolInput":{"question":"추가 정보가 필요합니다."},"nextStepPlan":{"objective":"wait","expectedTools":[],"expectedNextResults":["user replies"],"doneCriteria":["reply received"],"risk":"none","workingSetReason":"ask.input waits for the user"}}`,
+		},
+	})
+	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
+	event := testInboundEvent("message-send-wait")
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected ask input send to process: %v", errorValue)
+	}
+	openWaits, errorValue := taskWaitRepository.FindOpenByPersonAndConversation("person-1", "test", "direct-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(openWaits) != 1 {
+		t.Fatalf("expected one open wait, got %+v", openWaits)
+	}
+	if openWaits[0].TaskRunID != result.TaskRunID || openWaits[0].ReplyTargetID != "dispatch-1" || openWaits[0].DispatchID != "dispatch-1" || openWaits[0].Kind != "input" {
+		t.Fatalf("unexpected persisted wait: %+v result=%+v", openWaits[0], result)
+	}
+	if errorValue := taskWaitRepository.ResolveTaskWait(openWaits[0].WaitID, time.Now().UTC()); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	openWaits, errorValue = taskWaitRepository.FindOpenByPersonAndConversation("person-1", "test", "direct-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(openWaits) != 0 {
+		t.Fatalf("expected resolved wait closed, got %+v", openWaits)
+	}
+	expiringTaskRun := createWaitingInputTaskRun(t, taskRunService, "expire prompt", "expire-interaction")
+	expiringWait := waitRoutingTaskWaitToken(expiringTaskRun, "expire-dispatch", "expire-interaction")
+	expiringWait.ExpiresAt = time.Now().Add(-time.Minute)
+	if errorValue := taskWaitRepository.InsertTaskWaitToken(expiringWait); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	expiredTaskRunIDs, errorValue := taskWaitRepository.ExpireOldTaskWaits(time.Now().UTC())
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(expiredTaskRunIDs) != 1 || expiredTaskRunIDs[0] != expiringTaskRun.TaskRunID {
+		t.Fatalf("expected expired task run id, got %+v", expiredTaskRunIDs)
+	}
+	openWaits, errorValue = taskWaitRepository.FindOpenByPersonAndConversation("person-1", "test", "direct-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(openWaits) != 0 {
+		t.Fatalf("expected expired wait closed, got %+v", openWaits)
+	}
+}
+
 func TestConnectorRuntimeStopCommandCancelsCurrentConversationTask(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ignored"})
 	taskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "long task")
@@ -3149,6 +3319,68 @@ func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvid
 	adapter := &testAdapter{senderEmail: "invited@example.com"}
 	connectorRuntime.RegisterAdapter(adapter)
 	return connectorRuntime, adapter
+}
+
+func newWaitRoutingTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter, *task.TaskRunService, *task.InMemoryTaskWaitTokenRepository) {
+	t.Helper()
+
+	identityService := identity.NewIdentityService(policy.PolicyProjection{
+		PersonIDByEmail: map[string]string{"invited@example.com": "person-1"},
+		PersonAccessByPersonID: map[string]policy.PersonAccess{
+			"person-1": {PersonID: "person-1", SecurityLevelRank: 100, GrantedClasses: []string{"internal", "finance"}},
+		},
+	})
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	agentKernel := agent.NewAgentKernel(taskRunService, task.NewTaskStepService())
+	agentKernel.UseLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	taskWaitRepository := task.NewInMemoryTaskWaitTokenRepository()
+
+	connectorRuntime := NewConnectorRuntime(identityService, agentKernel, nil)
+	connectorRuntime.UseTaskRunService(taskRunService)
+	connectorRuntime.UseTaskWaitTokenRepository(taskWaitRepository)
+	adapter := &testAdapter{senderEmail: "invited@example.com"}
+	connectorRuntime.RegisterAdapter(adapter)
+	return connectorRuntime, adapter, taskRunService, taskWaitRepository
+}
+
+func createWaitingInputTaskRun(t *testing.T, taskRunService *task.TaskRunService, prompt string, interactionID string) task.TaskRun {
+	t.Helper()
+
+	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, prompt)
+	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingUserInput, prompt)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalConnectorEventBody(map[string]string{
+		"interactionID":    interactionID,
+		"kind":             "input",
+		"question":         prompt,
+		"message":          prompt,
+		"responseLanguage": "ko",
+	}))
+	return waitingTaskRun
+}
+
+func waitRoutingTaskWaitToken(taskRun task.TaskRun, dispatchID string, interactionID string) task.TaskWaitToken {
+	now := time.Now().UTC()
+	return task.TaskWaitToken{
+		WaitID:         "wait-" + dispatchID,
+		TaskRunID:      taskRun.TaskRunID,
+		PersonID:       taskRun.RequesterPersonID,
+		Platform:       "test",
+		ConversationID: taskRun.OriginConversationID,
+		ReplyTargetID:  dispatchID,
+		ThreadRootID:   taskRun.OriginReplyTargetID,
+		DispatchID:     dispatchID,
+		InteractionID:  interactionID,
+		Kind:           "input",
+		State:          "open",
+		ExpiresAt:      now.Add(time.Hour),
+		CreatedAt:      now,
+	}
 }
 
 func newRepositoryBackedTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider, taskRunRepository *testTaskRunRepository) (*ConnectorRuntime, *testAdapter, *task.TaskEventService) {
