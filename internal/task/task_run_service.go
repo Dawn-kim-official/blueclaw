@@ -16,11 +16,38 @@ type TaskRunRepository interface {
 	SaveTaskRun(TaskRun) error
 	StartTaskRunAttempt(TaskRun, TaskAttempt) error
 	FinishTaskRunAttempt(TaskRun, TaskAttempt) error
+	TransitionTaskRun(TaskRunTransition) (TaskRun, error)
 	FindTaskRun(string) (TaskRun, bool, error)
 	FindTaskAttempt(string) (TaskAttempt, bool, error)
 	ListTaskRun() ([]TaskRun, error)
 	ListTaskRunByPersonID(string) ([]TaskRun, error)
 	DeleteTaskRunsBefore(time.Time, []string) ([]string, error)
+}
+
+type ErrIllegalTransition struct {
+	TaskRunID     string
+	CurrentStatus TaskStatus
+	FromStates    []TaskStatus
+	ToState       TaskStatus
+}
+
+func (transitionError ErrIllegalTransition) Error() string {
+	return "illegal task run transition from " + string(transitionError.CurrentStatus) + " to " + string(transitionError.ToState) + " for task run " + transitionError.TaskRunID
+}
+
+type TaskRunTransition struct {
+	TaskRunID               string
+	FromStates              []TaskStatus
+	ToState                 TaskStatus
+	CurrentAgentProfileName string
+	Result                  string
+	FailureReason           string
+	StartedAttempt          *TaskAttempt
+	FinishCurrentAttempt    bool
+	FinishedAttemptStatus   TaskAttemptStatus
+	RunnerID                string
+	Event                   *TaskEvent
+	UpdatedAt               time.Time
 }
 
 type TaskRunService struct {
@@ -188,14 +215,6 @@ func (taskRunService *TaskRunService) ListTaskEvent(taskRunID string) []TaskEven
 }
 
 func (taskRunService *TaskRunService) AdvanceTaskRun(taskRunID string, currentAgentProfileName string) (TaskRun, error) {
-	taskRunService.mutex.Lock()
-	defer taskRunService.mutex.Unlock()
-
-	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
-	if !isFound {
-		return TaskRun{}, errors.New("task run not found")
-	}
-
 	now := time.Now()
 	taskAttempt := TaskAttempt{
 		TaskAttemptID: newIdentifier(),
@@ -204,42 +223,199 @@ func (taskRunService *TaskRunService) AdvanceTaskRun(taskRunID string, currentAg
 		Status:        TaskAttemptStatusRunning,
 		StartedAt:     now,
 	}
-	taskRun.Status = TaskStatusRunning
-	taskRun.CurrentAttemptID = taskAttempt.TaskAttemptID
-	taskRun.CurrentAgentProfileName = currentAgentProfileName
-	taskRun.UpdatedAt = now
-	if errorValue := taskRunService.startTaskRunAttempt(taskRun, taskAttempt); errorValue != nil {
-		return TaskRun{}, errorValue
-	}
-	taskRunService.taskRuns[taskRunID] = taskRun
-	taskRunService.taskAttempts[taskAttempt.TaskAttemptID] = taskAttempt
-	taskRunService.activeAttempts[taskAttempt.TaskAttemptID] = activeTaskAttempt{TaskRunID: taskRunID}
-	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.running", currentAgentProfileName)
-	return taskRun, nil
+	return taskRunService.TransitionTaskRun(TaskRunTransition{
+		TaskRunID:               taskRunID,
+		FromStates:              advanceTaskRunFromStates(),
+		ToState:                 TaskStatusRunning,
+		CurrentAgentProfileName: currentAgentProfileName,
+		StartedAttempt:          &taskAttempt,
+		Event:                   newTaskRunTransitionEvent(taskRunID, "task.running", currentAgentProfileName, now),
+		UpdatedAt:               now,
+	})
 }
 
 func (taskRunService *TaskRunService) PauseTaskRun(taskRunID string, status TaskStatus, reason string) (TaskRun, error) {
-	taskRunService.mutex.Lock()
-	defer taskRunService.mutex.Unlock()
-
-	taskRun, isFound := taskRunService.findTaskRunForMutation(taskRunID)
-	if !isFound {
-		return TaskRun{}, errors.New("task run not found")
-	}
-
-	taskRun.Status = status
-	taskRun.FailureReason = reason
-	taskRun.UpdatedAt = time.Now()
-	if _, errorValue := taskRunService.finishCurrentAttemptLocked(taskRun, taskAttemptStatusForTaskStatus(status), reason); errorValue != nil {
-		return TaskRun{}, errorValue
-	}
-	taskRunService.taskRuns[taskRunID] = taskRun
-	taskRunService.taskEventService.AppendTaskEvent(taskRunID, "task.paused", reason)
-	return taskRun, nil
+	now := time.Now()
+	return taskRunService.TransitionTaskRun(TaskRunTransition{
+		TaskRunID:             taskRunID,
+		FromStates:            pauseTaskRunFromStates(),
+		ToState:               status,
+		FailureReason:         reason,
+		FinishCurrentAttempt:  true,
+		FinishedAttemptStatus: taskAttemptStatusForTaskStatus(status),
+		RunnerID:              taskRunService.runnerID,
+		Event:                 newTaskRunTransitionEvent(taskRunID, "task.paused", reason, now),
+		UpdatedAt:             now,
+	})
 }
 
 func (taskRunService *TaskRunService) FailTaskRun(taskRunID string, reason string) (TaskRun, error) {
-	return taskRunService.PauseTaskRun(taskRunID, TaskStatusFailed, reason)
+	now := time.Now()
+	return taskRunService.TransitionTaskRun(TaskRunTransition{
+		TaskRunID:             taskRunID,
+		FromStates:            failTaskRunFromStates(),
+		ToState:               TaskStatusFailed,
+		FailureReason:         reason,
+		FinishCurrentAttempt:  true,
+		FinishedAttemptStatus: TaskAttemptStatusFailed,
+		RunnerID:              taskRunService.runnerID,
+		Event:                 newTaskRunTransitionEvent(taskRunID, "task.paused", reason, now),
+		UpdatedAt:             now,
+	})
+}
+
+func (taskRunService *TaskRunService) TransitionTaskRun(transition TaskRunTransition) (TaskRun, error) {
+	taskRunService.mutex.Lock()
+	defer taskRunService.mutex.Unlock()
+
+	normalizedTransition := taskRunService.normalizeTaskRunTransition(transition)
+	if taskRunService.repository != nil {
+		taskRun, errorValue := taskRunService.repository.TransitionTaskRun(normalizedTransition)
+		if errorValue != nil {
+			return TaskRun{}, errorValue
+		}
+		taskRunService.applyTransitionCacheLocked(normalizedTransition, taskRun)
+		return taskRun, nil
+	}
+	return taskRunService.transitionTaskRunInMemoryLocked(normalizedTransition)
+}
+
+func (taskRunService *TaskRunService) normalizeTaskRunTransition(transition TaskRunTransition) TaskRunTransition {
+	if transition.UpdatedAt.IsZero() {
+		transition.UpdatedAt = time.Now()
+	}
+	if transition.StartedAttempt != nil && transition.StartedAttempt.StartedAt.IsZero() {
+		startedAttempt := *transition.StartedAttempt
+		startedAttempt.StartedAt = transition.UpdatedAt
+		transition.StartedAttempt = &startedAttempt
+	}
+	if transition.Event != nil && transition.Event.CreatedAt.IsZero() {
+		taskEvent := *transition.Event
+		taskEvent.CreatedAt = transition.UpdatedAt
+		transition.Event = &taskEvent
+	}
+	if transition.Event != nil && strings.TrimSpace(transition.Event.TaskEventID) == "" {
+		taskEvent := *transition.Event
+		taskEvent.TaskEventID = newIdentifier()
+		transition.Event = &taskEvent
+	}
+	return transition
+}
+
+func (taskRunService *TaskRunService) transitionTaskRunInMemoryLocked(transition TaskRunTransition) (TaskRun, error) {
+	taskRun, isFound := taskRunService.findTaskRunForMutation(transition.TaskRunID)
+	if !isFound {
+		return TaskRun{}, errors.New("task run not found")
+	}
+	if !taskStatusAllowed(taskRun.Status, transition.FromStates) {
+		return TaskRun{}, ErrIllegalTransition{
+			TaskRunID:     transition.TaskRunID,
+			CurrentStatus: taskRun.Status,
+			FromStates:    append([]TaskStatus{}, transition.FromStates...),
+			ToState:       transition.ToState,
+		}
+	}
+
+	taskRun = applyTaskRunTransition(taskRun, transition)
+	taskRunService.taskRuns[transition.TaskRunID] = taskRun
+	taskRunService.applyTransitionAttemptCacheLocked(transition, taskRun)
+	taskRunService.recordTransitionEvent(transition)
+	return taskRun, nil
+}
+
+func (taskRunService *TaskRunService) applyTransitionCacheLocked(transition TaskRunTransition, taskRun TaskRun) {
+	taskRunService.taskRuns[taskRun.TaskRunID] = taskRun
+	taskRunService.applyTransitionAttemptCacheLocked(transition, taskRun)
+	taskRunService.recordTransitionEvent(transition)
+}
+
+func (taskRunService *TaskRunService) applyTransitionAttemptCacheLocked(transition TaskRunTransition, taskRun TaskRun) {
+	if transition.StartedAttempt != nil {
+		taskRunService.taskAttempts[transition.StartedAttempt.TaskAttemptID] = *transition.StartedAttempt
+		taskRunService.activeAttempts[transition.StartedAttempt.TaskAttemptID] = activeTaskAttempt{TaskRunID: taskRun.TaskRunID}
+	}
+	if !transition.FinishCurrentAttempt {
+		return
+	}
+	taskAttemptID := strings.TrimSpace(taskRun.CurrentAttemptID)
+	if taskAttemptID == "" {
+		taskRunService.closeOpenToolRequests(taskRun.TaskRunID, "", "cancelled_by_attempt_end")
+		return
+	}
+	taskAttempt := taskRunService.findTaskAttemptForMutation(taskAttemptID, taskRun.TaskRunID)
+	taskAttempt.Status = transition.FinishedAttemptStatus
+	taskAttempt.FinishedAt = &transition.UpdatedAt
+	taskAttempt.FailureReason = strings.TrimSpace(transition.FailureReason)
+	taskRunService.taskAttempts[taskAttemptID] = taskAttempt
+	delete(taskRunService.activeAttempts, taskAttemptID)
+	taskRunService.closeOpenToolRequests(taskRun.TaskRunID, taskAttemptID, "cancelled_by_attempt_end")
+}
+
+func (taskRunService *TaskRunService) recordTransitionEvent(transition TaskRunTransition) {
+	if transition.Event == nil {
+		return
+	}
+	taskRunService.taskEventService.RecordTaskEvent(*transition.Event)
+}
+
+func applyTaskRunTransition(taskRun TaskRun, transition TaskRunTransition) TaskRun {
+	taskRun.Status = transition.ToState
+	taskRun.UpdatedAt = transition.UpdatedAt
+	if transition.StartedAttempt != nil {
+		taskRun.CurrentAttemptID = transition.StartedAttempt.TaskAttemptID
+		taskRun.CurrentAgentProfileName = transition.CurrentAgentProfileName
+	}
+	if transition.Result != "" {
+		taskRun.Result = transition.Result
+	}
+	if transition.FailureReason != "" || transition.FinishCurrentAttempt {
+		taskRun.FailureReason = transition.FailureReason
+	}
+	return taskRun
+}
+
+func taskStatusAllowed(status TaskStatus, allowedStatuses []TaskStatus) bool {
+	for _, allowedStatus := range allowedStatuses {
+		if status == allowedStatus {
+			return true
+		}
+	}
+	return false
+}
+
+func newTaskRunTransitionEvent(taskRunID string, name string, body string, createdAt time.Time) *TaskEvent {
+	return &TaskEvent{
+		TaskEventID: newIdentifier(),
+		TaskRunID:   taskRunID,
+		Name:        name,
+		Body:        body,
+		CreatedAt:   createdAt,
+	}
+}
+
+func advanceTaskRunFromStates() []TaskStatus {
+	return []TaskStatus{
+		TaskStatusPlanned,
+		TaskStatusRunning,
+		TaskStatusWaitingUserInput,
+		TaskStatusWaitingApproval,
+		TaskStatusInterrupted,
+	}
+}
+
+func pauseTaskRunFromStates() []TaskStatus {
+	return []TaskStatus{
+		TaskStatusPlanned,
+		TaskStatusRunning,
+		TaskStatusWaitingUserInput,
+		TaskStatusWaitingApproval,
+		TaskStatusBlocked,
+		TaskStatusInterrupted,
+	}
+}
+
+func failTaskRunFromStates() []TaskStatus {
+	return pauseTaskRunFromStates()
 }
 
 func (taskRunService *TaskRunService) ResumeTaskRun(taskRunID string) (TaskRun, error) {

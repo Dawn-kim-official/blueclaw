@@ -3204,6 +3204,49 @@ func (repository *testTaskRunRepository) FinishTaskRunAttempt(taskRun task.TaskR
 	return nil
 }
 
+func (repository *testTaskRunRepository) TransitionTaskRun(transition task.TaskRunTransition) (task.TaskRun, error) {
+	taskRun, isFound := repository.taskRuns[transition.TaskRunID]
+	if !isFound {
+		return task.TaskRun{}, errors.New("task run not found")
+	}
+	if !testTaskRunStatusAllowed(taskRun.Status, transition.FromStates) {
+		return task.TaskRun{}, task.ErrIllegalTransition{
+			TaskRunID:     transition.TaskRunID,
+			CurrentStatus: taskRun.Status,
+			FromStates:    append([]task.TaskStatus{}, transition.FromStates...),
+			ToState:       transition.ToState,
+		}
+	}
+	taskRun.Status = transition.ToState
+	taskRun.UpdatedAt = transition.UpdatedAt
+	if transition.StartedAttempt != nil {
+		taskRun.CurrentAttemptID = transition.StartedAttempt.TaskAttemptID
+		taskRun.CurrentAgentProfileName = transition.CurrentAgentProfileName
+		repository.taskAttempts[transition.StartedAttempt.TaskAttemptID] = *transition.StartedAttempt
+	}
+	if transition.FailureReason != "" || transition.FinishCurrentAttempt {
+		taskRun.FailureReason = transition.FailureReason
+	}
+	if transition.FinishCurrentAttempt && strings.TrimSpace(taskRun.CurrentAttemptID) != "" {
+		taskAttempt := repository.taskAttempts[taskRun.CurrentAttemptID]
+		taskAttempt.Status = transition.FinishedAttemptStatus
+		taskAttempt.FinishedAt = &transition.UpdatedAt
+		taskAttempt.FailureReason = strings.TrimSpace(transition.FailureReason)
+		repository.taskAttempts[taskRun.CurrentAttemptID] = taskAttempt
+	}
+	repository.taskRuns[taskRun.TaskRunID] = taskRun
+	return taskRun, nil
+}
+
+func testTaskRunStatusAllowed(status task.TaskStatus, allowedStatuses []task.TaskStatus) bool {
+	for _, allowedStatus := range allowedStatuses {
+		if status == allowedStatus {
+			return true
+		}
+	}
+	return false
+}
+
 func (repository *testTaskRunRepository) FindTaskRun(taskRunID string) (task.TaskRun, bool, error) {
 	taskRun, isFound := repository.taskRuns[taskRunID]
 	return taskRun, isFound, nil

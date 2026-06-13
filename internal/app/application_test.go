@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -283,6 +284,36 @@ func (repository *applicationAutoResumeRepository) StartTaskRunAttempt(task.Task
 
 func (repository *applicationAutoResumeRepository) FinishTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
 	return nil
+}
+
+func (repository *applicationAutoResumeRepository) TransitionTaskRun(transition task.TaskRunTransition) (task.TaskRun, error) {
+	for index, taskRun := range repository.taskRuns {
+		if taskRun.TaskRunID != transition.TaskRunID {
+			continue
+		}
+		if !applicationTaskRunStatusAllowed(taskRun.Status, transition.FromStates) {
+			return task.TaskRun{}, task.ErrIllegalTransition{
+				TaskRunID:     transition.TaskRunID,
+				CurrentStatus: taskRun.Status,
+				FromStates:    append([]task.TaskStatus{}, transition.FromStates...),
+				ToState:       transition.ToState,
+			}
+		}
+		taskRun.Status = transition.ToState
+		taskRun.UpdatedAt = transition.UpdatedAt
+		repository.taskRuns[index] = taskRun
+		return taskRun, nil
+	}
+	return task.TaskRun{}, errors.New("task run not found")
+}
+
+func applicationTaskRunStatusAllowed(status task.TaskStatus, allowedStatuses []task.TaskStatus) bool {
+	for _, allowedStatus := range allowedStatuses {
+		if status == allowedStatus {
+			return true
+		}
+	}
+	return false
 }
 
 func (repository *applicationAutoResumeRepository) FindTaskRun(taskRunID string) (task.TaskRun, bool, error) {

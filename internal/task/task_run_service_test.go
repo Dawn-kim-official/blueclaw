@@ -1,6 +1,7 @@
 package task
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -81,6 +82,122 @@ func TestAdvanceTaskRunCreatesCurrentAttempt(t *testing.T) {
 	}
 	if !taskRunService.IsTaskRunActuallyRunning(runningTaskRun) {
 		t.Fatal("expected active attempt registry to own running task")
+	}
+}
+
+func TestAdvanceTaskRunRejectsTerminalStatuses(t *testing.T) {
+	testCases := []struct {
+		name      string
+		terminate func(*TaskRunService, string) (TaskRun, error)
+	}{
+		{
+			name: "completed",
+			terminate: func(taskRunService *TaskRunService, taskRunID string) (TaskRun, error) {
+				return taskRunService.CompleteTaskRun(taskRunID, "done")
+			},
+		},
+		{
+			name: "failed",
+			terminate: func(taskRunService *TaskRunService, taskRunID string) (TaskRun, error) {
+				return taskRunService.FailTaskRun(taskRunID, "failed")
+			},
+		},
+		{
+			name: "cancelled",
+			terminate: func(taskRunService *TaskRunService, taskRunID string) (TaskRun, error) {
+				return taskRunService.CancelTaskRunWithReason(taskRunID, "person-1", "cancelled")
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			taskRunService := NewTaskRunService(NewTaskEventService())
+			taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "long task")
+			terminalTaskRun, errorValue := testCase.terminate(taskRunService, taskRun.TaskRunID)
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+
+			advancedTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
+
+			var transitionError ErrIllegalTransition
+			if !errors.As(errorValue, &transitionError) {
+				t.Fatalf("error = %v, want ErrIllegalTransition", errorValue)
+			}
+			if advancedTaskRun.TaskRunID != "" {
+				t.Fatalf("advanced task run = %+v, want zero value", advancedTaskRun)
+			}
+			storedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+			if !isFound || storedTaskRun.Status != terminalTaskRun.Status {
+				t.Fatalf("stored status = %s, found = %v, want %s", storedTaskRun.Status, isFound, terminalTaskRun.Status)
+			}
+			if taskEventsContain(taskRunService.ListTaskEvent(taskRun.TaskRunID), "task.running", "assistant") {
+				t.Fatal("did not expect task.running event for rejected transition")
+			}
+		})
+	}
+}
+
+func TestAdvanceTaskRunAllowsPlannedAndWaitingTaskRuns(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	plannedTaskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "planned")
+
+	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(plannedTaskRun.TaskRunID, "assistant")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runningTaskRun.Status != TaskStatusRunning {
+		t.Fatalf("status = %s, want running", runningTaskRun.Status)
+	}
+	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(plannedTaskRun.TaskRunID, TaskStatusWaitingUserInput, "ask input")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	resumedTaskRun, errorValue := taskRunService.AdvanceTaskRun(waitingTaskRun.TaskRunID, "assistant")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if resumedTaskRun.Status != TaskStatusRunning {
+		t.Fatalf("status = %s, want running", resumedTaskRun.Status)
+	}
+	if resumedTaskRun.CurrentAttemptID == runningTaskRun.CurrentAttemptID {
+		t.Fatal("expected resumed task run to start a new attempt")
+	}
+}
+
+func TestPauseTaskRunTransitionKeepsTaskAttemptAndEventConsistent(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "long task")
+	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(taskRun.TaskRunID, TaskStatusWaitingUserInput, "ask input")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if waitingTaskRun.Status != TaskStatusWaitingUserInput {
+		t.Fatalf("status = %s, want waiting_user_input", waitingTaskRun.Status)
+	}
+	storedTaskRun := taskRunService.taskRuns[taskRun.TaskRunID]
+	if storedTaskRun.Status != waitingTaskRun.Status || storedTaskRun.UpdatedAt.IsZero() {
+		t.Fatalf("stored task run = %+v, want waiting task run", storedTaskRun)
+	}
+	taskAttempt := taskRunService.taskAttempts[runningTaskRun.CurrentAttemptID]
+	if taskAttempt.Status != TaskAttemptStatusInterrupted || taskAttempt.FinishedAt == nil {
+		t.Fatalf("attempt = %+v, want interrupted finished attempt", taskAttempt)
+	}
+	if taskRunService.IsTaskRunActuallyRunning(waitingTaskRun) {
+		t.Fatal("expected waiting task run to leave active attempt registry")
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(taskRun.TaskRunID), "task.paused", "ask input") {
+		t.Fatal("expected task.paused event")
 	}
 }
 
