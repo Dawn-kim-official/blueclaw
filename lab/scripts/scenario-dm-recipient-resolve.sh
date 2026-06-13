@@ -165,7 +165,7 @@ phase "wait for Blueclaw"
 wait_for_blueclaw_health
 
 phase "admin login"
-admin_password="$(cat /root/.internkim/secrets/mm-admin-pass)"
+admin_password="$(printf '%s\n' "$sudo_password" | sudo -S cat /root/.internkim/secrets/mm-admin-pass)"
 login_headers="$(mktemp)"
 login_body="$(jq -cn --arg login_id admin --arg password "$admin_password" '{login_id:$login_id,password:$password}')"
 curl --silent --show-error --fail -D "$login_headers" -o /tmp/internkim-dm-recipient-resolve-admin-login.json \
