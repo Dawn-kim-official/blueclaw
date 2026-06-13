@@ -60,6 +60,15 @@ func (memoryService *MemoryService) UseMirror(mirror GraphMemoryMirror) {
 	memoryService.mirror = mirror
 }
 
+func (memoryService *MemoryService) HasGraphStore() bool {
+	if memoryService == nil {
+		return false
+	}
+	memoryService.mutex.RLock()
+	defer memoryService.mutex.RUnlock()
+	return memoryService.store != nil
+}
+
 func (memoryService *MemoryService) StoreMemoryFact(memoryFact MemoryFact) {
 	memoryService.mutex.Lock()
 	defer memoryService.mutex.Unlock()
@@ -115,6 +124,20 @@ func (memoryService *MemoryService) SearchMemory(ctx context.Context, request Me
 		return limitMemoryFacts(rankMemoryFacts(deduplicateMemoryFacts(filterReadableMemoryFacts(request, memoryFacts)), request.Query), request.Limit), nil
 	}
 
+	return memoryService.SearchLocalMemory(ctx, request)
+}
+
+func (memoryService *MemoryService) SearchLocalMemory(ctx context.Context, request MemorySearchRequest) ([]MemoryFact, error) {
+	if memoryService == nil {
+		return nil, nil
+	}
+	if errorValue := ctx.Err(); errorValue != nil {
+		return nil, errorValue
+	}
+	if request.Limit <= 0 {
+		request.Limit = 12
+	}
+	request.Namespaces = memoryService.resolveAccessibleNamespaces(ctx, request)
 	memoryService.mutex.RLock()
 	defer memoryService.mutex.RUnlock()
 
