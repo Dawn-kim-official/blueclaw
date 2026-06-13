@@ -27,6 +27,7 @@ import (
 	"blueclaw/internal/memory"
 	"blueclaw/internal/policy"
 	runtimelogging "blueclaw/internal/runtime"
+	"blueclaw/internal/runtimecontrol"
 	"blueclaw/internal/scheduler"
 	"blueclaw/internal/security"
 	"blueclaw/internal/skill"
@@ -175,6 +176,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	memoryUpdateProcessor := memory.NewMemoryUpdateProcessor(memoryService, pinnedMemoryStore)
 	memoryUpdateQueue := memory.NewBackgroundMemoryUpdateQueue(memoryUpdateProcessor, logger)
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
+	taskIntakeController := runtimecontrol.NewTaskIntakeController()
 	mcpRegistry := mcp.NewMcpRegistry()
 	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
@@ -203,6 +205,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskScheduleRunner:     agentruntime.NewTaskScheduleRunner(taskLauncher),
 			TaskRunService:         taskRunService,
 			PersonAccessResolver:   identityService,
+			TaskIntakeGate:         taskIntakeController,
 			WorkspaceID:            runtimeConfiguration.Memory.WorkspaceID,
 			WorkerID:               "blueclaw-app",
 			Logger:                 logger,
@@ -228,6 +231,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.UseWorkspaceID(runtimeConfiguration.Memory.WorkspaceID)
 	connectorRuntime.UseAdminTaskLinkBaseURL(runtimeConfiguration.Agent.AdminTaskLinkBaseURL)
 	connectorRuntime.UseIngressGate(backupCoordinator)
+	connectorRuntime.UseTaskIntakeGate(taskIntakeController)
 	if database.SQL != nil {
 		connectorRuntime.UseEventRepository(postgres.NewRawEventRepository(database))
 	}
@@ -277,6 +281,11 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			IdentityService: identityService,
 			WorkspaceID:     runtimeConfiguration.Memory.WorkspaceID,
 			TaskRunService:  taskRunService,
+			TaskIntakeGate:  taskIntakeController,
+		},
+		QuiesceHandler: adminapi.QuiesceHandler{
+			Controller:     taskIntakeController,
+			TaskRunService: taskRunService,
 		},
 		TaskScheduleHandler: adminapi.TaskScheduleHandler{
 			SummaryRepository: taskScheduleSummaryRepository,

@@ -16,8 +16,17 @@ import (
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/llm"
+	"blueclaw/internal/runtimecontrol"
 	"blueclaw/internal/task"
 )
+
+func TestTaskIntakeControllerStartsUnquiesced(t *testing.T) {
+	controller := runtimecontrol.NewTaskIntakeController()
+
+	if controller.IsQuiesced() {
+		t.Fatal("fresh task intake controller must start unquiesced")
+	}
+}
 
 func TestResolveLanguageModelProviderDefaultsToCapabilityLLM(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "must-not-be-read")

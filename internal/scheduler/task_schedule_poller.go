@@ -30,12 +30,17 @@ type PersonAccessResolver interface {
 	ResolvePersonAccess(string) policy.PersonAccess
 }
 
+type TaskIntakeGate interface {
+	IsQuiesced() bool
+}
+
 type TaskSchedulePoller struct {
 	TaskScheduleRepository task.TaskScheduleRepository
 	DeliveryRepository     TaskScheduleDeliveryRepository
 	TaskScheduleRunner     agentruntime.TaskScheduleRunner
 	TaskRunService         *task.TaskRunService
 	PersonAccessResolver   PersonAccessResolver
+	TaskIntakeGate         TaskIntakeGate
 	WorkspaceID            string
 	WorkerID               string
 	Logger                 *slog.Logger
@@ -81,6 +86,9 @@ func (taskSchedulePoller TaskSchedulePoller) Start(ctx context.Context, interval
 func (taskSchedulePoller TaskSchedulePoller) RunDue(ctx context.Context, referenceTime time.Time, limit int) (int, error) {
 	if taskSchedulePoller.TaskScheduleRepository == nil {
 		return 0, errors.New("task schedule repository is unavailable")
+	}
+	if taskSchedulePoller.TaskIntakeGate != nil && taskSchedulePoller.TaskIntakeGate.IsQuiesced() {
+		return 0, nil
 	}
 	taskSchedulePoller.cancelStaleScheduledTaskRuns(referenceTime)
 	taskSchedules, errorValue := taskSchedulePoller.TaskScheduleRepository.ClaimDueTaskSchedules(limit, taskScheduleLeaseDuration, referenceTime, taskSchedulePoller.workerID())

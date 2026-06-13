@@ -20,6 +20,7 @@ type TaskRunHandler struct {
 	IdentityService *identity.IdentityService
 	WorkspaceID     string
 	TaskRunService  *task.TaskRunService
+	TaskIntakeGate  TaskIntakeGate
 }
 
 type taskRunRequest struct {
@@ -49,6 +50,10 @@ type taskRunCancelRequest struct {
 func (taskRunHandler TaskRunHandler) HandleRunTask(responseWriter http.ResponseWriter, request *http.Request) {
 	if taskRunHandler.TaskLauncher == nil || taskRunHandler.IdentityService == nil {
 		http.Error(responseWriter, "task launcher is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if taskRunHandler.TaskIntakeGate != nil && taskRunHandler.TaskIntakeGate.IsQuiesced() {
+		http.Error(responseWriter, "task intake is quiesced", http.StatusServiceUnavailable)
 		return
 	}
 	var runRequest taskRunRequest

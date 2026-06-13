@@ -26,6 +26,10 @@ type IngressGate interface {
 	IsPaused() bool
 }
 
+type TaskIntakeGate interface {
+	IsQuiesced() bool
+}
+
 type ConnectorEventRepository interface {
 	TryInsertConnectorEvent(PlatformInboundEvent) (bool, ConnectorRuntimeResult, error)
 	SaveConnectorResult(PlatformInboundEvent, ConnectorRuntimeResult) error
@@ -356,6 +360,7 @@ type ConnectorRuntime struct {
 	processedResults        map[string]ConnectorRuntimeResult
 	eventRepository         ConnectorEventRepository
 	ingressGate             IngressGate
+	taskIntakeGate          TaskIntakeGate
 	taskWaitTokenRepository task.TaskWaitTokenRepository
 	conversationLocks       map[string]*sync.Mutex
 	started                 bool
@@ -469,6 +474,10 @@ func (connectorRuntime *ConnectorRuntime) UseEventRepository(eventRepository Con
 
 func (connectorRuntime *ConnectorRuntime) UseIngressGate(ingressGate IngressGate) {
 	connectorRuntime.ingressGate = ingressGate
+}
+
+func (connectorRuntime *ConnectorRuntime) UseTaskIntakeGate(taskIntakeGate TaskIntakeGate) {
+	connectorRuntime.taskIntakeGate = taskIntakeGate
 }
 
 func (connectorRuntime *ConnectorRuntime) UseMCPRegistry(mcpRegistry *mcp.McpRegistry) {
@@ -742,6 +751,10 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorEventWithAdapter
 		connectorRuntime.markQueuedConnectorEventFailed(queuedEvent, errorValue)
 		return
 	}
+	if shouldDeferQueuedConnectorEvent(result) {
+		connectorRuntime.logger.Info("connector."+event.Platform+".inbox.deferred", slog.String("messageID", event.MessageID), slog.String("reason", result.Reason))
+		return
+	}
 	if errorValue := connectorRuntime.queueRepository().MarkConnectorEventSucceeded(event, result); errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+event.Platform+".inbox.mark_succeeded_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
 	}
@@ -942,6 +955,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", addressingLaunch.IgnoreReason))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: addressingLaunch.IgnoreReason}, nil
 	}
+	if connectorRuntime.shouldDeferNewTaskLaunch(isApprovalContinuation, hasPendingAskInteraction, hasActiveGoal) {
+		connectorRuntime.logger.Info("connector."+platform+".ingress.deferred", slog.String("messageID", event.MessageID), slog.String("reason", "task_intake_quiesced"))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "task_intake_quiesced"}, nil
+	}
 	if !isApprovalContinuation && !hasPendingAskInteraction {
 		busyResult, errorValue := connectorRuntime.handleBusyMessageIfNeeded(ctx, platform, event, replyTarget, personID, sendReply)
 		if errorValue != nil {
@@ -991,6 +1008,17 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int64("duration_ms", taskDuration.Milliseconds()))
 	connectorRuntime.appendTaskExecutionDuration(taskRunID, taskDuration)
 	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, turnResult, sendReply)
+}
+
+func (connectorRuntime *ConnectorRuntime) shouldDeferNewTaskLaunch(isApprovalContinuation bool, hasPendingAskInteraction bool, hasActiveGoal bool) bool {
+	if connectorRuntime.taskIntakeGate == nil || !connectorRuntime.taskIntakeGate.IsQuiesced() {
+		return false
+	}
+	return !isApprovalContinuation && !hasPendingAskInteraction && !hasActiveGoal
+}
+
+func shouldDeferQueuedConnectorEvent(result ConnectorRuntimeResult) bool {
+	return result.Ignored && result.Reason == "task_intake_quiesced"
 }
 
 func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, reactionEmojiName string) string {
