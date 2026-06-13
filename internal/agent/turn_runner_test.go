@@ -1476,6 +1476,19 @@ func (repository failingAttemptStartRepository) FinishTaskRunAttempt(task.TaskRu
 	return nil
 }
 
+func (repository failingAttemptStartRepository) TransitionTaskRun(transition task.TaskRunTransition) (task.TaskRun, error) {
+	if transition.StartedAttempt != nil {
+		return task.TaskRun{}, repository.errorValue
+	}
+	return task.TaskRun{
+		TaskRunID:        transition.TaskRunID,
+		Status:           transition.ToState,
+		FailureReason:    transition.FailureReason,
+		UpdatedAt:        transition.UpdatedAt,
+		CurrentAttemptID: "",
+	}, nil
+}
+
 func (repository failingAttemptStartRepository) FindTaskRun(string) (task.TaskRun, bool, error) {
 	return task.TaskRun{}, false, nil
 }

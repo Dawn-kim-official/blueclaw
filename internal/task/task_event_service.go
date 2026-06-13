@@ -46,6 +46,12 @@ func (taskEventService *TaskEventService) AppendTaskEventWithError(taskRunID str
 	return taskEvent, taskEventService.saveTaskEvent(taskEvent)
 }
 
+func (taskEventService *TaskEventService) RecordTaskEvent(taskEvent TaskEvent) {
+	taskEventService.mutex.Lock()
+	defer taskEventService.mutex.Unlock()
+	taskEventService.taskEvents[taskEvent.TaskRunID] = append(taskEventService.taskEvents[taskEvent.TaskRunID], taskEvent)
+}
+
 func (taskEventService *TaskEventService) ListTaskEvent(taskRunID string) []TaskEvent {
 	if taskEventService.repository != nil {
 		taskEvents, errorValue := taskEventService.repository.ListTaskEvent(taskRunID)
