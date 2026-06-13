@@ -341,8 +341,8 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusFailed {
-		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.no_progress_loop_stopped", "3 consecutive") {
 		t.Fatal("expected no-progress loop stop event")

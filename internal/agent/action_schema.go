@@ -346,6 +346,14 @@ func finalizerActionSchema() string {
 	return string(document)
 }
 
+func terminalNoToolsActionSchema() string {
+	document, errorValue := json.Marshal(map[string]any{"oneOf": []any{finishActionSchema(true), failActionSchema(true)}})
+	if errorValue != nil {
+		return fallbackActionSchema()
+	}
+	return string(document)
+}
+
 func recoveryDecisionSchema() string {
 	document, errorValue := json.Marshal(map[string]any{
 		"type": "object",
