@@ -94,11 +94,20 @@ type TaskArtifact struct {
 }
 
 type TaskWaitToken struct {
-	TaskWaitTokenID string    `json:"taskWaitTokenID"`
-	PersonID        string    `json:"personID"`
-	TaskRunID       string    `json:"taskRunID"`
-	TokenHash       string    `json:"tokenHash"`
-	ExpiresAt       time.Time `json:"expiresAt"`
+	WaitID         string     `json:"waitID"`
+	TaskRunID      string     `json:"taskRunID"`
+	PersonID       string     `json:"personID"`
+	Platform       string     `json:"platform"`
+	ConversationID string     `json:"conversationID"`
+	ReplyTargetID  string     `json:"replyTargetID"`
+	ThreadRootID   string     `json:"threadRootID"`
+	DispatchID     string     `json:"dispatchID"`
+	InteractionID  string     `json:"interactionID"`
+	Kind           string     `json:"kind"`
+	State          string     `json:"state"`
+	ExpiresAt      time.Time  `json:"expiresAt"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ResolvedAt     *time.Time `json:"resolvedAt,omitempty"`
 }
 
 type TaskSession struct {

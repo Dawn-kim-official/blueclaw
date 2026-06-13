@@ -82,5 +82,14 @@ type TaskScheduleRepository interface {
 }
 
 type TaskWaitTokenRepository interface {
+	InsertTaskWaitToken(TaskWaitToken) error
+	FindOpenByWaitID(string) (TaskWaitToken, bool, error)
+	FindOpenByPersonConversationAndReplyTarget(string, string, string, string) (TaskWaitToken, bool, error)
+	FindOpenByPersonConversationAndThreadRoot(string, string, string, string) (TaskWaitToken, bool, error)
+	FindOpenByPersonConversationAndDispatchID(string, string, string, string) (TaskWaitToken, bool, error)
+	FindOpenByPersonTaskRunAndInteraction(string, string, string) (TaskWaitToken, bool, error)
+	FindOpenByPersonAndConversation(string, string, string) ([]TaskWaitToken, error)
+	ResolveTaskWait(string, time.Time) error
+	ExpireOldTaskWaits(time.Time) ([]string, error)
 	ExpireTaskWaitTokensForPerson(string, time.Time) ([]string, error)
 }
