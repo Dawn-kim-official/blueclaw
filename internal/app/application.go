@@ -81,7 +81,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	policyLoader := policy.PolicyLoader{}
 	policyDocument, _ := policyLoader.LoadPolicyDocument(policyPath)
 	posixSynchronizer := security.NewPOSIXSynchronizer(runtimeConfiguration.Terminal, policyPath)
-	if errorValue := posixSynchronizer.Synchronize(); errorValue != nil && startupError == nil {
+	if errorValue := posixSynchronizer.Synchronize(context.Background()); errorValue != nil && startupError == nil {
 		startupError = errorValue
 	}
 	if database.SQL != nil {
@@ -261,7 +261,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 					_ = personRepository.UpsertPeople(policyDocument)
 				}
 				identityService.ReloadPolicyProjection(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
-				_ = posixSynchronizer.Synchronize()
+				_ = posixSynchronizer.Synchronize(context.Background())
 			},
 		},
 		IdentityResolve: adminapi.IdentityResolveHandler{

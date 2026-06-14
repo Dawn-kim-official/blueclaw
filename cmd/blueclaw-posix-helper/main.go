@@ -607,7 +607,18 @@ func parseFileMode(value string) (os.FileMode, error) {
 }
 
 func modeBits(mode os.FileMode) os.FileMode {
-	return os.FileMode(uint32(mode) & 07777)
+	rawBits := uint32(mode) & 07777
+	permission := os.FileMode(rawBits & 0777)
+	if rawBits&04000 != 0 {
+		permission |= os.ModeSetuid
+	}
+	if rawBits&02000 != 0 {
+		permission |= os.ModeSetgid
+	}
+	if rawBits&01000 != 0 {
+		permission |= os.ModeSticky
+	}
+	return permission
 }
 
 func exitWithError(errorValue error) {
