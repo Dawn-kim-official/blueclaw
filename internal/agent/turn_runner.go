@@ -17,6 +17,7 @@ type TurnOptions struct {
 	MaxIterationCount    int
 	MaxToolCallCount     int
 	MaxElapsedSecond     int
+	ContextWindowTokens  int
 	RecoveryAttemptLimit int
 	RecoveryBudget       RecoveryBudget
 	EffortLevel          EffortLevel

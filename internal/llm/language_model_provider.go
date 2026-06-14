@@ -24,6 +24,7 @@ type StructuredOutputSchema struct {
 type GenerationOptions struct {
 	Seed        *int64   `json:"seed,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
+	MaxTokens   *int     `json:"maxTokens,omitempty"`
 }
 
 type StructuredResponseRequest struct {

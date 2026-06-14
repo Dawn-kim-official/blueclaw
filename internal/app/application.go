@@ -352,11 +352,12 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
 	effortProfile := agent.EffortLimitProfileForLevel(agent.EffortLevel(runtimeConfiguration.Agent.DefaultEffortLevel))
 	return agent.TurnOptions{
-		MaxIterationCount:  effortProfile.MaxIterationCount,
-		MaxToolCallCount:   effortProfile.MaxToolCallCount,
-		MaxElapsedSecond:   int(effortProfile.Duration.Seconds()),
-		EffortLevel:        effortProfile.EffortLevel,
-		ToolResultMaxBytes: runtimeConfiguration.Agent.ToolResultMaxBytes,
+		MaxIterationCount:   effortProfile.MaxIterationCount,
+		MaxToolCallCount:    effortProfile.MaxToolCallCount,
+		MaxElapsedSecond:    int(effortProfile.Duration.Seconds()),
+		ContextWindowTokens: runtimeConfiguration.LanguageModel.Capability.ContextWindowTokens,
+		EffortLevel:         effortProfile.EffortLevel,
+		ToolResultMaxBytes:  runtimeConfiguration.Agent.ToolResultMaxBytes,
 		RecoveryBudget: agent.RecoveryBudget{
 			CorrectedRetry: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.CorrectedRetry,
 			AlternateRoute: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AlternateRoute,

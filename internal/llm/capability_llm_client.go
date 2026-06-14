@@ -163,7 +163,7 @@ func (capabilityLLMClient CapabilityLLMClient) buildStructuredRequestDocument(re
 }
 
 func generationOptionsPointer(options GenerationOptions) *GenerationOptions {
-	if options.Seed == nil && options.Temperature == nil {
+	if options.Seed == nil && options.Temperature == nil && options.MaxTokens == nil {
 		return nil
 	}
 	return &options

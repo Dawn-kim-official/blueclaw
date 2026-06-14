@@ -64,6 +64,17 @@ func TestResolveIntakeLanguageModelProviderUsesAutomaticCapabilityModel(t *testi
 	}
 }
 
+func TestDeriveAgentTurnOptionsWiresContextWindowTokens(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.Capability.ContextWindowTokens = 128000
+
+	options := deriveAgentTurnOptions(runtimeConfiguration)
+
+	if options.ContextWindowTokens != 128000 {
+		t.Fatalf("expected context window tokens to be wired, got %d", options.ContextWindowTokens)
+	}
+}
+
 func TestLoadAgentInstructionPromptUsesAgentsAndSkills(t *testing.T) {
 	workspacePath := t.TempDir()
 	skillDirectoryPath := filepath.Join(workspacePath, ".agents", "skills", "browser")
