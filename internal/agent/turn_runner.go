@@ -338,12 +338,16 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	limitPressureWarnings := map[string]bool{}
 	progressTracker := newActionProgressTracker(state.Observations)
 	appliedSteerEventIDs := appliedSteerEventIDsFromTaskEvents(agentTurnRunner.taskRunService.ListTaskEvent(taskRun.TaskRunID))
-	stopForNoProgress := func(stepID string) (AgentTurnResult, bool) {
+	noProgressStopEvaluation := func() (actionProgressEvaluation, bool) {
 		progressEvaluation := progressTracker.evaluate(state.Observations)
 		if progressEvaluation.HasProgress {
-			return AgentTurnResult{}, false
+			return progressEvaluation, false
 		}
-		if !progressEvaluation.shouldStop() {
+		return progressEvaluation, progressEvaluation.shouldStop()
+	}
+	stopForNoProgress := func(stepID string) (AgentTurnResult, bool) {
+		progressEvaluation, shouldStop := noProgressStopEvaluation()
+		if !shouldStop {
 			return AgentTurnResult{}, false
 		}
 		recoveryAllowance := evaluateRecoveryAllowance(state.Observations, agentTurnRunner.options.RecoveryBudget)
@@ -352,6 +356,20 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			if result, isPaused := agentTurnRunner.pauseTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state); isPaused {
 				return result, true
 			}
+		}
+		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
+		return result, isBlocked
+	}
+	stopForSelectToolsNoProgress := func(stepID string) (AgentTurnResult, bool) {
+		progressEvaluation, shouldStop := noProgressStopEvaluation()
+		if !shouldStop {
+			return AgentTurnResult{}, false
+		}
+		recoveryAllowance := evaluateRecoveryAllowance(state.Observations, agentTurnRunner.options.RecoveryBudget)
+		reason := "stopped after 3 consecutive model actions without workspace, tool, artifact, attachment, or new failure progress"
+		if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt && !recoveryAllowance.CanRecover {
+			result := agentTurnRunner.runTerminalNoToolsStep(taskContext, taskRun.TaskRunID, stepID, request, &state, "recovery_tool_budget_exhausted")
+			return result, true
 		}
 		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
 		return result, isBlocked
@@ -434,6 +452,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				"source":  "model_action",
 			}))
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "select_tools", observation.ContentText())
+			if result, shouldStop := stopForSelectToolsNoProgress(stepID); shouldStop {
+				return result, nil
+			}
 			continue
 		case "set_quality_criteria":
 			state.QualityCriteria = normalizeQualityCriteria(actionDocument.QualityCriteria)
