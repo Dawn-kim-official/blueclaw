@@ -455,6 +455,87 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerStopsRepeatedSelectToolsWithoutToolProgress(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still need site creation"}`,
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"should not be requested"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10})
+	toolRegistry := NewToolSet([]string{"skill.search"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"skills":[]}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"siteID":"site-1"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "create website",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to stop cleanly: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
+	}
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_turn_action") != 3 {
+		t.Fatalf("expected no-progress stop after three select_tools actions, got %+v", structuredRequestNames(languageModel.requests))
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "3 consecutive") {
+		t.Fatalf("expected no-progress stop event, got %+v", taskEvents)
+	}
+	if taskEventsContain(taskEvents, "max_iterations", "") {
+		t.Fatal("expected select_tools loop breaker before max_iterations")
+	}
+}
+
+func TestAgentTurnRunnerSelectToolsWithExhaustedFailureDebtRunsTerminalNoTools(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"try another tool"}`,
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still trying"}`,
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
+		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"terminal fallback should run after this"}`,
+		noToolFallbackFinishMessageDocument("I can answer from the failure context."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
+	toolRegistry := NewToolSet([]string{"math.calculate", "skill.search"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"skills":[]}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"siteID":"site-1"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "calculate it",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected terminal no-tools result: %v", errorValue)
+	}
+	if result.FinishMessage != "I can answer from the failure context." {
+		t.Fatalf("expected terminal no-tools finish, got %q", result.FinishMessage)
+	}
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_terminal_no_tools_action") != 1 {
+		t.Fatalf("expected one terminal no-tools request, got %+v", structuredRequestNames(languageModel.requests))
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "max_iterations", "") {
+		t.Fatal("expected terminal no-tools route before max_iterations")
+	}
+}
+
 func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("done"),

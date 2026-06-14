@@ -10,11 +10,11 @@ type progressEvent struct {
 func progressEvents(observations []turnObservation) []progressEvent {
 	events := []progressEvent{}
 	seenFailures := map[string]bool{}
-	for _, observation := range observations {
+	for index, observation := range observations {
 		if observation.Action == "set_quality_criteria" {
 			events = append(events, progressEvent{Kind: "quality_criteria", Key: observation.ObservationID})
 		}
-		if observation.Action == "select_tools" && !observation.Failed() {
+		if observation.Action == "select_tools" && !observation.Failed() && hasSuccessfulToolCallAfter(observations, index) {
 			events = append(events, progressEvent{Kind: "tool_palette_selected", Key: observation.ObservationID + ":" + observation.ContentText()})
 		}
 		if observation.Action == "continue" && !observation.Failed() {
@@ -37,6 +37,15 @@ func progressEvents(observations []turnObservation) []progressEvent {
 		}
 	}
 	return events
+}
+
+func hasSuccessfulToolCallAfter(observations []turnObservation, index int) bool {
+	for _, observation := range observations[index+1:] {
+		if observation.Action == "continue" && strings.TrimSpace(observation.Tool) != "" && !observation.Failed() {
+			return true
+		}
+	}
+	return false
 }
 
 func progressEventCount(observations []turnObservation) int {
