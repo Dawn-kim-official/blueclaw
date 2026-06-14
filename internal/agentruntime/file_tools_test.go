@@ -1163,7 +1163,7 @@ func TestFileWriteThroughWorkspaceActorTreatsContentAsData(t *testing.T) {
 	}
 }
 
-func TestFileWriteRepairsGroupWriteBitsForTerminalFlow(t *testing.T) {
+func TestFileWriteUsesPrivateModesForTerminalFlow(t *testing.T) {
 	workspacePath := t.TempDir()
 	previousMask := syscall.Umask(0027)
 	defer syscall.Umask(previousMask)
@@ -1198,15 +1198,15 @@ func TestFileWriteRepairsGroupWriteBitsForTerminalFlow(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if directoryInformation.Mode().Perm()&0020 == 0 {
-		t.Fatalf("expected group-writable deck directory, got mode %v", directoryInformation.Mode().Perm())
+	if directoryInformation.Mode().Perm() != 0700 {
+		t.Fatalf("expected private deck directory mode 0700, got mode %v", directoryInformation.Mode().Perm())
 	}
 	fileInformation, errorValue := os.Stat(filepath.Join(deckDirectoryPath, "input.txt"))
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if fileInformation.Mode().Perm()&0020 == 0 {
-		t.Fatalf("expected group-writable file for requester terminal flow, got mode %v", fileInformation.Mode().Perm())
+	if fileInformation.Mode().Perm() != 0600 {
+		t.Fatalf("expected private file mode 0600 for requester terminal flow, got mode %v", fileInformation.Mode().Perm())
 	}
 }
 

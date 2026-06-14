@@ -273,10 +273,10 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 		},
 	})
 	privateRootPath := filepath.Join(workspacePath, "private", "people", "person-1")
-	if errorValue := os.MkdirAll(privateRootPath, 02770); errorValue != nil {
+	if errorValue := os.MkdirAll(privateRootPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if errorValue := os.Chmod(privateRootPath, 02770); errorValue != nil {
+	if errorValue := os.Chmod(privateRootPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 
@@ -295,8 +295,8 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if sourceWorkspaceInformation.Mode().Perm() != 0770 {
-		t.Fatalf("expected source workspace permissions 0770, got %v", sourceWorkspaceInformation.Mode().Perm())
+	if sourceWorkspaceInformation.Mode().Perm() != 0700 {
+		t.Fatalf("expected source workspace permissions 0700, got %v", sourceWorkspaceInformation.Mode().Perm())
 	}
 	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
@@ -354,7 +354,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 		ConcretePath: filepath.Join(sourceWorkspacePath, "requester-write.txt"),
 		VirtualPath:  "home/sites/site-1/draft/requester-write.txt",
 	}
-	if errorValue := workspaceActor.WriteFile(context.Background(), requesterWritePath, []byte("ok"), 0660); errorValue != nil {
+	if errorValue := workspaceActor.WriteFile(context.Background(), requesterWritePath, []byte("ok"), 0600); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	assertTestFileContent(t, requesterWritePath.ConcretePath, "ok")

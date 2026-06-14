@@ -72,7 +72,7 @@ func TestSiteSourceCreation_RealPOSIX(t *testing.T) {
 		if toolFailure != nil {
 			t.Fatalf("expected site source creation to pass after provisioning, got %s", toolFailure.ContentText())
 		}
-		assertDraftDirectoryPOSIXGroupAndMode(t, fixture, sourceWorkspace.ConcretePath)
+		assertDraftDirectoryRequesterOwnershipAndPrivateMode(t, fixture, sourceWorkspace.ConcretePath)
 		assertRequesterCanWriteDraftDirectory(t, fixture, sourceWorkspace)
 	})
 
@@ -89,7 +89,7 @@ func TestSiteSourceCreation_RealPOSIX(t *testing.T) {
 		if toolFailure != nil {
 			t.Fatalf("expected site source creation to pass after drift repair, got %s", toolFailure.ContentText())
 		}
-		assertDraftDirectoryPOSIXGroupAndMode(t, fixture, sourceWorkspace.ConcretePath)
+		assertDraftDirectoryRequesterOwnershipAndPrivateMode(t, fixture, sourceWorkspace.ConcretePath)
 		assertRequesterCanWriteDraftDirectory(t, fixture, sourceWorkspace)
 	})
 
@@ -99,12 +99,14 @@ func TestSiteSourceCreation_RealPOSIX(t *testing.T) {
 		pinnedGroupID := recordGroupID(t, personUserName)
 		legacyDraftPath := createOrphanedHomeContent(t, fixture)
 		runTestCommand(t, "", "groupmod", "--gid", "64999", personUserName)
-		synchronizePOSIXWorkspace(t, fixture)
+		provisionRequesterWorkspace(t, fixture)
 
 		if repinnedGroupID := recordGroupID(t, personUserName); repinnedGroupID != pinnedGroupID {
 			t.Fatalf("expected group %s repinned to %s, got %s", personUserName, pinnedGroupID, repinnedGroupID)
 		}
 		assertPathGroupID(t, legacyDraftPath, pinnedGroupID)
+		assertPathUserID(t, legacyDraftPath, pinnedGroupID)
+		assertDirectoryMode(t, legacyDraftPath, 0700)
 
 		sourceWorkspace, toolFailure, errorValue := runRealPOSIXSiteSourceCreation(t, fixture, siteCreationRequest(personID), testSiteCreateResult("site-healed"))
 		if errorValue != nil {
@@ -114,6 +116,15 @@ func TestSiteSourceCreation_RealPOSIX(t *testing.T) {
 			t.Fatalf("expected site source creation to pass after group heal, got %s", toolFailure.ContentText())
 		}
 		assertRequesterCanWriteDraftDirectory(t, fixture, sourceWorkspace)
+	})
+
+	t.Run("Fix/OrphanedSitesTreeReconciled", func(t *testing.T) {
+		fixture := newPOSIXSiteSourceFixture(t, helperPath, personID)
+		synchronizePOSIXWorkspace(t, fixture)
+		orphanedSitesPath := createOrphanedSitesTree(t, fixture)
+		provisionRequesterWorkspace(t, fixture)
+		assertDirectoryMode(t, orphanedSitesPath, 0700)
+		assertRequesterCanCreateUnderSites(t, fixture)
 	})
 
 	t.Run("EdgeCase/EmptyPersonID", func(t *testing.T) {
@@ -395,6 +406,21 @@ func createOrphanedHomeContent(t *testing.T, fixture posixSiteSourceFixture) str
 	return legacyDraftPath
 }
 
+func createOrphanedSitesTree(t *testing.T, fixture posixSiteSourceFixture) string {
+	t.Helper()
+	sitesPath := filepath.Join(requesterHomePath(fixture), "sites")
+	if errorValue := os.MkdirAll(filepath.Join(sitesPath, "legacy"), 0770); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	foreignGroup, errorValue := osuser.LookupGroup("nogroup")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	runTestCommand(t, "", "chmod", "-R", "2770", sitesPath)
+	runTestCommand(t, "", "chgrp", "-R", foreignGroup.Gid, sitesPath)
+	return sitesPath
+}
+
 func assertPathGroupID(t *testing.T, path string, expectedGroupID string) {
 	t.Helper()
 	fileInformation, errorValue := os.Stat(path)
@@ -408,6 +434,22 @@ func assertPathGroupID(t *testing.T, path string, expectedGroupID string) {
 	actualGroupID := strconv.FormatUint(uint64(systemInformation.Gid), 10)
 	if actualGroupID != expectedGroupID {
 		t.Fatalf("expected group %s on %s, got %s", expectedGroupID, path, actualGroupID)
+	}
+}
+
+func assertPathUserID(t *testing.T, path string, expectedUserID string) {
+	t.Helper()
+	fileInformation, errorValue := os.Stat(path)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	systemInformation, isStatType := fileInformation.Sys().(*syscall.Stat_t)
+	if !isStatType {
+		t.Fatalf("unexpected file information type for %s", path)
+	}
+	actualUserID := strconv.FormatUint(uint64(systemInformation.Uid), 10)
+	if actualUserID != expectedUserID {
+		t.Fatalf("expected user %s on %s, got %s", expectedUserID, path, actualUserID)
 	}
 }
 
@@ -514,7 +556,7 @@ func assertPathDoesNotExist(t *testing.T, path string) {
 	t.Fatalf("expected %s not to exist", path)
 }
 
-func assertDraftDirectoryPOSIXGroupAndMode(t *testing.T, fixture posixSiteSourceFixture, draftPath string) {
+func assertDraftDirectoryRequesterOwnershipAndPrivateMode(t *testing.T, fixture posixSiteSourceFixture, draftPath string) {
 	t.Helper()
 	fileInformation, errorValue := os.Stat(draftPath)
 	if errorValue != nil {
@@ -523,16 +565,21 @@ func assertDraftDirectoryPOSIXGroupAndMode(t *testing.T, fixture posixSiteSource
 	if !fileInformation.IsDir() {
 		t.Fatalf("expected %s to be a directory", draftPath)
 	}
+	actualUserID := fileUserID(t, fileInformation)
+	expectedUserID := linuxUserID(t, security.LinuxPersonUserName(fixture.PersonID))
+	if actualUserID != expectedUserID {
+		t.Fatalf("expected %s owner %d, got %d", draftPath, expectedUserID, actualUserID)
+	}
 	actualGroupID := fileGroupID(t, fileInformation)
 	expectedGroupID := linuxGroupID(t, security.LinuxPersonUserName(fixture.PersonID))
 	if actualGroupID != expectedGroupID {
 		t.Fatalf("expected %s group %d, got %d", draftPath, expectedGroupID, actualGroupID)
 	}
-	if fileInformation.Mode()&os.ModeSetgid == 0 {
-		t.Fatalf("expected %s to have setgid bit, got %v", draftPath, fileInformation.Mode())
+	if fileInformation.Mode()&os.ModeSetgid != 0 {
+		t.Fatalf("expected %s not to have setgid bit, got %v", draftPath, fileInformation.Mode())
 	}
-	if fileInformation.Mode().Perm()&0020 == 0 {
-		t.Fatalf("expected %s to be group-writable, got %04o", draftPath, fileInformation.Mode().Perm())
+	if fileInformation.Mode().Perm() != 0700 {
+		t.Fatalf("expected %s mode 0700, got %04o", draftPath, fileInformation.Mode().Perm())
 	}
 }
 
@@ -550,9 +597,37 @@ func assertRequesterCanWriteDraftDirectory(t *testing.T, fixture posixSiteSource
 		VirtualPath:  filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, "requester-write.txt")),
 		Kind:         sourceWorkspace.Kind,
 	}
-	if errorValue := workspaceActor.WriteFile(context.Background(), requesterWritePath, []byte("ok\n"), 0660); errorValue != nil {
+	if errorValue := workspaceActor.WriteFile(context.Background(), requesterWritePath, []byte("ok\n"), 0600); errorValue != nil {
 		t.Fatalf("expected requester to write in draft directory: %v", errorValue)
 	}
+}
+
+func assertRequesterCanCreateUnderSites(t *testing.T, fixture posixSiteSourceFixture) {
+	t.Helper()
+	workspaceActor, errorValue := security.NewTerminalSessionService(fixture.TerminalConfiguration).WorkspaceActorFactory().Requester(context.Background(), security.WorkspaceActorRequest{
+		PersonAccess:      siteCreationPersonAccess(fixture.PersonID),
+		WorkspaceRootPath: fixture.WorkspaceRootPath,
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	requesterWritePath := workspacepath.Path{
+		ConcretePath: filepath.Join(requesterHomePath(fixture), "sites", "reconciled-write.txt"),
+		VirtualPath:  "home/sites/reconciled-write.txt",
+		Kind:         workspacepath.KindWorkspace,
+	}
+	if errorValue := workspaceActor.WriteFile(context.Background(), requesterWritePath, []byte("ok\n"), 0600); errorValue != nil {
+		t.Fatalf("expected requester ownership to allow writing under orphaned sites tree: %v", errorValue)
+	}
+}
+
+func fileUserID(t *testing.T, fileInformation os.FileInfo) uint32 {
+	t.Helper()
+	systemStat, isStat := fileInformation.Sys().(*syscall.Stat_t)
+	if !isStat {
+		t.Fatalf("expected linux stat information for %s", fileInformation.Name())
+	}
+	return systemStat.Uid
 }
 
 func fileGroupID(t *testing.T, fileInformation os.FileInfo) uint32 {
@@ -562,6 +637,19 @@ func fileGroupID(t *testing.T, fileInformation os.FileInfo) uint32 {
 		t.Fatalf("expected linux stat information for %s", fileInformation.Name())
 	}
 	return systemStat.Gid
+}
+
+func linuxUserID(t *testing.T, userName string) uint32 {
+	t.Helper()
+	user, errorValue := osuser.Lookup(userName)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	userID, errorValue := strconv.ParseUint(user.Uid, 10, 32)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return uint32(userID)
 }
 
 func linuxGroupID(t *testing.T, groupName string) uint32 {

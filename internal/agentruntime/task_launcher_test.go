@@ -236,7 +236,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 			if _, errorValue := os.Stat(requesterHomePath); !os.IsNotExist(errorValue) {
 				t.Fatalf("expected requester home to be absent before provisioning, got %v", errorValue)
 			}
-			return os.MkdirAll(requesterHomePath, 02770)
+			return os.MkdirAll(requesterHomePath, 0700)
 		},
 	}
 	toolCatalogBuilder := NewToolCatalogBuilder()
@@ -273,7 +273,7 @@ func TestTaskLauncherProvisionsRequesterWorkspaceBeforeToolSet(t *testing.T) {
 		ConcretePath: filepath.Join(requesterHomePath, "sites", "site-1"),
 		VirtualPath:  "home/sites/site-1",
 	}
-	if errorValue := workspaceActor.MkdirAll(context.Background(), requesterSitePath, 02770); errorValue != nil {
+	if errorValue := workspaceActor.MkdirAll(context.Background(), requesterSitePath, 0700); errorValue != nil {
 		t.Fatalf("expected requester actor mkdir to succeed after launch provisioning: %v", errorValue)
 	}
 	taskEvents := taskEventService.ListTaskEvent(launchResult.TurnResult.TaskRun.TaskRunID)

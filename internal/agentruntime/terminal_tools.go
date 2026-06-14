@@ -75,7 +75,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
-	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), 02770); errorValue != nil {
+	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), workspaceDirectoryCreateMode(workspacepath.Directory(workingDirectory))); errorValue != nil {
 		return actorToolFailure("mkdir_all", "terminal_working_directory", workingDirectory.VirtualPath, errorValue), nil
 	}
 	if toolFailure := toolCatalogBuilder.materializeTerminalRuntimeDirectories(toolContext, workspaceActor, scope, input.EnvironmentVariables); toolFailure != nil {
@@ -295,7 +295,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(toolContext c
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
-	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), 02770); errorValue != nil {
+	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), workspaceDirectoryCreateMode(workspacepath.Directory(workingDirectory))); errorValue != nil {
 		return actorToolFailure("mkdir_all", "terminal_session", workingDirectory.VirtualPath, errorValue), nil
 	}
 	environmentVariables := toolCatalogBuilder.resolveAgentWorkspaceEnvironment(mergeWorkspaceEnvironment(input.EnvironmentVariables, scope.EnvironmentVariables()))
@@ -352,7 +352,7 @@ func preflightNodePackageBuild(ctx context.Context, workspaceActor security.Work
 
 func (toolCatalogBuilder *ToolCatalogBuilder) materializeTerminalRuntimeDirectories(ctx context.Context, workspaceActor security.WorkspaceActor, scope WorkspaceScope, environmentVariables map[string]string) *agent.ToolResult {
 	for _, directory := range terminalRuntimeDirectories(scope, environmentVariables) {
-		if errorValue := workspaceActor.MkdirAll(ctx, directory, 02770); errorValue != nil {
+		if errorValue := workspaceActor.MkdirAll(ctx, directory, workspaceDirectoryCreateMode(directory)); errorValue != nil {
 			result := actorToolFailure("mkdir_all", "terminal_runtime_environment", directory.VirtualPath, errorValue)
 			return &result
 		}

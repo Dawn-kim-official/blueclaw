@@ -34,6 +34,9 @@ func TestRunCapabilitiesReportsFilesystemSupport(t *testing.T) {
 	if capabilities.Version != 2 || !containsString(capabilities.Capabilities, "fs") {
 		t.Fatalf("expected helper fs capability, got %+v", capabilities)
 	}
+	if !containsString(capabilities.Capabilities, "reconcile-home") {
+		t.Fatalf("expected helper reconcile-home capability, got %+v", capabilities)
+	}
 }
 
 func TestHelperCallerAuthorizationAllowsRootAndBlueclawOnly(t *testing.T) {
@@ -186,6 +189,21 @@ func TestMkdirAllCreatesAndChmodsOnlyMissingDirectories(t *testing.T) {
 		}
 		if fileInformation.Mode().Perm() != 0770 {
 			t.Fatalf("expected created directory %s mode 0770, got %v", createdPath, fileInformation.Mode().Perm())
+		}
+	}
+}
+
+func TestReconcileHomePathScopesToOnePrivateHome(t *testing.T) {
+	homePath, errorValue := reconcileHomePath("/workspace", "person-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if homePath != filepath.Join("/workspace", "private", "people", "person-1") {
+		t.Fatalf("unexpected home path: %s", homePath)
+	}
+	for _, personID := range []string{"", "../person-1", "person-1/sites"} {
+		if _, errorValue := reconcileHomePath("/workspace", personID); errorValue == nil {
+			t.Fatalf("expected person id %q to be rejected", personID)
 		}
 	}
 }
