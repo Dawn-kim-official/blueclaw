@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	osuser "os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"blueclaw/internal/config"
 	"blueclaw/internal/policy"
@@ -34,7 +36,6 @@ func NewPOSIXRequesterWorkspaceProvisioner(synchronizer POSIXSynchronizer) POSIX
 }
 
 func (provisioner POSIXRequesterWorkspaceProvisioner) ProvisionRequesterWorkspace(ctx context.Context, personAccess policy.PersonAccess, workspaceRootPath string) error {
-	_ = ctx
 	personID := strings.TrimSpace(personAccess.PersonID)
 	if personID == "" || strings.TrimSpace(provisioner.synchronizer.terminalConfiguration.POSIXHelperPath) == "" {
 		return nil
@@ -42,19 +43,19 @@ func (provisioner POSIXRequesterWorkspaceProvisioner) ProvisionRequesterWorkspac
 	if requesterPOSIXWorkspaceIsProvisioned(personID, workspaceRootPath) {
 		return nil
 	}
-	if errorValue := provisioner.synchronizer.Synchronize(); errorValue != nil {
+	if errorValue := provisioner.synchronizer.Synchronize(ctx); errorValue != nil {
 		if requesterPOSIXWorkspaceIsProvisioned(personID, workspaceRootPath) {
 			return nil
 		}
 		return errors.New("requester POSIX workspace provisioning failed for " + personID + ": " + errorValue.Error())
 	}
 	if !requesterPOSIXWorkspaceIsProvisioned(personID, workspaceRootPath) {
-		return errors.New("requester POSIX workspace provisioning did not create user and home for " + personID)
+		return errors.New("requester POSIX workspace provisioning did not repair home for " + personID)
 	}
 	return nil
 }
 
-func (synchronizer POSIXSynchronizer) Synchronize() error {
+func (synchronizer POSIXSynchronizer) Synchronize(ctx context.Context) error {
 	helperPath := strings.TrimSpace(synchronizer.terminalConfiguration.POSIXHelperPath)
 	if helperPath == "" {
 		return nil
@@ -66,7 +67,7 @@ func (synchronizer POSIXSynchronizer) Synchronize() error {
 	if workspaceRootPath == "" {
 		workspaceRootPath = "/workspace"
 	}
-	command := exec.Command(helperPath, "sync", "--policy", synchronizer.policyPath, "--workspace", workspaceRootPath)
+	command := exec.CommandContext(ctx, helperPath, "sync", "--policy", synchronizer.policyPath, "--workspace", workspaceRootPath)
 	output, errorValue := command.CombinedOutput()
 	if errorValue != nil {
 		return errors.New("POSIX synchronization failed: " + strings.TrimSpace(string(output)))
@@ -75,11 +76,52 @@ func (synchronizer POSIXSynchronizer) Synchronize() error {
 }
 
 func requesterPOSIXWorkspaceIsProvisioned(personID string, workspaceRootPath string) bool {
-	if _, errorValue := osuser.Lookup(LinuxPersonUserName(personID)); errorValue != nil {
+	identityName := LinuxPersonUserName(personID)
+	if _, errorValue := osuser.Lookup(identityName); errorValue != nil {
 		return false
 	}
-	fileInformation, errorValue := os.Stat(requesterWorkspaceHomePath(personID, workspaceRootPath))
-	return errorValue == nil && fileInformation.IsDir()
+	homePath := requesterWorkspaceHomePath(personID, workspaceRootPath)
+	requesterDirectoryPaths := []string{
+		homePath,
+		filepath.Join(homePath, "tmp"),
+		filepath.Join(homePath, "artifacts"),
+	}
+	for _, directoryPath := range requesterDirectoryPaths {
+		if !requesterDirectoryIsGroupAccessible(directoryPath, identityName) {
+			return false
+		}
+	}
+	return true
+}
+
+func requesterDirectoryIsGroupAccessible(directoryPath string, groupName string) bool {
+	fileInformation, errorValue := os.Stat(directoryPath)
+	if errorValue != nil || !fileInformation.IsDir() {
+		return false
+	}
+	if fileInformation.Mode()&os.ModeSetgid == 0 {
+		return false
+	}
+	if fileInformation.Mode().Perm()&0770 != 0770 {
+		return false
+	}
+	return directoryBelongsToGroup(fileInformation, groupName)
+}
+
+func directoryBelongsToGroup(fileInformation os.FileInfo, groupName string) bool {
+	systemInformation, isStatType := fileInformation.Sys().(*syscall.Stat_t)
+	if !isStatType {
+		return false
+	}
+	resolvedGroup, errorValue := osuser.LookupGroup(groupName)
+	if errorValue != nil {
+		return false
+	}
+	expectedGroupID, errorValue := strconv.ParseUint(resolvedGroup.Gid, 10, 32)
+	if errorValue != nil {
+		return false
+	}
+	return uint64(systemInformation.Gid) == expectedGroupID
 }
 
 func requesterWorkspaceHomePath(personID string, workspaceRootPath string) string {
