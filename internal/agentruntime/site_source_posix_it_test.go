@@ -93,6 +93,29 @@ func TestSiteSourceCreation_RealPOSIX(t *testing.T) {
 		assertRequesterCanWriteDraftDirectory(t, fixture, sourceWorkspace)
 	})
 
+	t.Run("Fix/DriftedGroupRepinnedAndContentHealed", func(t *testing.T) {
+		fixture := newPOSIXSiteSourceFixture(t, helperPath, personID)
+		synchronizePOSIXWorkspace(t, fixture)
+		pinnedGroupID := recordGroupID(t, personUserName)
+		legacyDraftPath := createOrphanedHomeContent(t, fixture)
+		runTestCommand(t, "", "groupmod", "--gid", "64999", personUserName)
+		synchronizePOSIXWorkspace(t, fixture)
+
+		if repinnedGroupID := recordGroupID(t, personUserName); repinnedGroupID != pinnedGroupID {
+			t.Fatalf("expected group %s repinned to %s, got %s", personUserName, pinnedGroupID, repinnedGroupID)
+		}
+		assertPathGroupID(t, legacyDraftPath, pinnedGroupID)
+
+		sourceWorkspace, toolFailure, errorValue := runRealPOSIXSiteSourceCreation(t, fixture, siteCreationRequest(personID), testSiteCreateResult("site-healed"))
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if toolFailure != nil {
+			t.Fatalf("expected site source creation to pass after group heal, got %s", toolFailure.ContentText())
+		}
+		assertRequesterCanWriteDraftDirectory(t, fixture, sourceWorkspace)
+	})
+
 	t.Run("EdgeCase/EmptyPersonID", func(t *testing.T) {
 		fixture := newPOSIXSiteSourceFixture(t, helperPath, personID)
 		_, toolFailure, errorValue := runRealPOSIXSiteSourceCreation(t, fixture, ToolCatalogRequest{}, testSiteCreateResult("site-empty-person"))
@@ -345,6 +368,47 @@ func driftRequesterHomeGroup(t *testing.T, fixture posixSiteSourceFixture) {
 
 func requesterHomePath(fixture posixSiteSourceFixture) string {
 	return filepath.Join(fixture.WorkspaceRootPath, "private", "people", fixture.PersonID)
+}
+
+func recordGroupID(t *testing.T, groupName string) string {
+	t.Helper()
+	resolvedGroup, errorValue := osuser.LookupGroup(groupName)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	return resolvedGroup.Gid
+}
+
+func createOrphanedHomeContent(t *testing.T, fixture posixSiteSourceFixture) string {
+	t.Helper()
+	sitesPath := filepath.Join(requesterHomePath(fixture), "sites")
+	legacyDraftPath := filepath.Join(sitesPath, "legacy", "draft")
+	if errorValue := os.MkdirAll(legacyDraftPath, 0770); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	foreignGroup, errorValue := osuser.LookupGroup("nogroup")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	runTestCommand(t, "", "chmod", "-R", "2770", sitesPath)
+	runTestCommand(t, "", "chgrp", "-R", foreignGroup.Gid, sitesPath)
+	return legacyDraftPath
+}
+
+func assertPathGroupID(t *testing.T, path string, expectedGroupID string) {
+	t.Helper()
+	fileInformation, errorValue := os.Stat(path)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	systemInformation, isStatType := fileInformation.Sys().(*syscall.Stat_t)
+	if !isStatType {
+		t.Fatalf("unexpected file information type for %s", path)
+	}
+	actualGroupID := strconv.FormatUint(uint64(systemInformation.Gid), 10)
+	if actualGroupID != expectedGroupID {
+		t.Fatalf("expected group %s on %s, got %s", expectedGroupID, path, actualGroupID)
+	}
 }
 
 func siteCreationRequest(personID string) ToolCatalogRequest {
