@@ -103,7 +103,7 @@ func runSync(arguments []string) error {
 		return errorValue
 	}
 
-	return applyPOSIXState(security.POSIXStateForPolicy(policyDocument, *workspacePath))
+	return applyPOSIXState(security.POSIXStateForPolicy(policyDocument, *workspacePath), *workspacePath)
 }
 
 func runExec(arguments []string) error {
@@ -477,19 +477,152 @@ func splitCommaSeparatedNames(document string) []string {
 	return names
 }
 
-func applyPOSIXState(state security.POSIXState) error {
+const posixIdentityBaseID = 100000
+
+type identityAllocationTable struct {
+	filePath    string
+	allocations map[string]uint32
+	reserved    map[uint32]bool
+	dirty       bool
+}
+
+func loadIdentityAllocationTable(workspacePath string) (*identityAllocationTable, error) {
+	table := &identityAllocationTable{
+		filePath:    filepath.Join(workspacePath, ".blueclaw", "identity-map.json"),
+		allocations: map[string]uint32{},
+		reserved:    map[uint32]bool{},
+	}
+	document, errorValue := os.ReadFile(table.filePath)
+	if errorValue != nil && !errors.Is(errorValue, os.ErrNotExist) {
+		return nil, errorValue
+	}
+	if errorValue == nil {
+		if errorValue := json.Unmarshal(document, &table.allocations); errorValue != nil {
+			return nil, errorValue
+		}
+	}
+	if errorValue := table.reserveSystemIdentities(); errorValue != nil {
+		return nil, errorValue
+	}
+	return table, nil
+}
+
+func (table *identityAllocationTable) reserveSystemIdentities() error {
+	groupRecords, errorValue := readColonRecords("/etc/group")
+	if errorValue != nil {
+		return errorValue
+	}
+	for _, fields := range groupRecords {
+		groupID, isValid := parseColonIdentityID(fields, 2)
+		if !isValid {
+			continue
+		}
+		table.reserved[groupID] = true
+		if groupID >= posixIdentityBaseID && strings.HasPrefix(fields[0], "bc_") {
+			if _, isAllocated := table.allocations[fields[0]]; !isAllocated {
+				table.allocations[fields[0]] = groupID
+				table.dirty = true
+			}
+		}
+	}
+	userRecords, errorValue := readColonRecords("/etc/passwd")
+	if errorValue != nil {
+		return errorValue
+	}
+	for _, fields := range userRecords {
+		if userID, isValid := parseColonIdentityID(fields, 2); isValid {
+			table.reserved[userID] = true
+		}
+	}
+	return nil
+}
+
+func (table *identityAllocationTable) idFor(name string) uint32 {
+	if identityID, isAllocated := table.allocations[name]; isAllocated {
+		return identityID
+	}
+	identityID := table.nextFreeID()
+	table.allocations[name] = identityID
+	table.reserved[identityID] = true
+	table.dirty = true
+	return identityID
+}
+
+func (table *identityAllocationTable) nextFreeID() uint32 {
+	candidate := uint32(posixIdentityBaseID)
+	for _, identityID := range table.allocations {
+		if identityID >= candidate {
+			candidate = identityID + 1
+		}
+	}
+	for table.reserved[candidate] {
+		candidate++
+	}
+	return candidate
+}
+
+func readColonRecords(path string) ([][]string, error) {
+	document, errorValue := os.ReadFile(path)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	records := [][]string{}
+	for _, line := range strings.Split(string(document), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		records = append(records, strings.Split(line, ":"))
+	}
+	return records, nil
+}
+
+func parseColonIdentityID(fields []string, index int) (uint32, bool) {
+	if len(fields) <= index {
+		return 0, false
+	}
+	identityID, errorValue := strconv.ParseUint(fields[index], 10, 32)
+	if errorValue != nil {
+		return 0, false
+	}
+	return uint32(identityID), true
+}
+
+func (table *identityAllocationTable) persist() error {
+	if !table.dirty {
+		return nil
+	}
+	if errorValue := os.MkdirAll(filepath.Dir(table.filePath), 0700); errorValue != nil {
+		return errorValue
+	}
+	document, errorValue := json.MarshalIndent(table.allocations, "", "  ")
+	if errorValue != nil {
+		return errorValue
+	}
+	return os.WriteFile(table.filePath, document, 0600)
+}
+
+func applyPOSIXState(state security.POSIXState, workspacePath string) error {
+	allocations, errorValue := loadIdentityAllocationTable(workspacePath)
+	if errorValue != nil {
+		return errorValue
+	}
+	changedGroups := map[string]bool{}
 	for _, group := range state.Groups {
-		if errorValue := ensureGroup(group.Name); errorValue != nil {
+		changed, errorValue := ensureGroup(group.Name, allocations.idFor(group.Name))
+		if errorValue != nil {
+			return errorValue
+		}
+		if changed {
+			changedGroups[group.Name] = true
+		}
+	}
+	for _, posixUser := range state.Users {
+		if errorValue := ensureUser(posixUser, allocations.idFor(posixUser.Name), allocations.idFor(posixUser.GroupName)); errorValue != nil {
 			return errorValue
 		}
 	}
-	for _, user := range state.Users {
-		if errorValue := ensureUser(user); errorValue != nil {
-			return errorValue
-		}
-	}
-	for _, user := range state.Users {
-		if errorValue := ensureUserGroups(user.Name, user.Groups); errorValue != nil {
+	for _, posixUser := range state.Users {
+		if errorValue := ensureUserGroups(posixUser.Name, posixUser.Groups); errorValue != nil {
 			return errorValue
 		}
 	}
@@ -503,7 +636,10 @@ func applyPOSIXState(state security.POSIXState) error {
 			return errorValue
 		}
 	}
-	return nil
+	if errorValue := healChangedGroupContent(state.Directories, changedGroups); errorValue != nil {
+		return errorValue
+	}
+	return allocations.persist()
 }
 
 func groupNames(groups []security.POSIXGroup) []string {
@@ -514,29 +650,83 @@ func groupNames(groups []security.POSIXGroup) []string {
 	return names
 }
 
-func ensureGroup(name string) error {
-	if strings.TrimSpace(name) == "" {
-		return nil
+func healChangedGroupContent(directories []security.POSIXDirectory, changedGroups map[string]bool) error {
+	for _, directory := range directories {
+		if !changedGroups[directory.Group] {
+			continue
+		}
+		if directoryIsCoveredByAncestor(directory, directories) {
+			continue
+		}
+		if errorValue := runCommand("chgrp", "-R", directory.Group, directory.Path); errorValue != nil {
+			return errorValue
+		}
 	}
-	if commandSucceeds("getent", "group", name) {
-		return nil
-	}
-	return runCommand("groupadd", "--system", name)
+	return nil
 }
 
-func ensureUser(user security.POSIXUser) error {
-	if commandSucceeds("id", "-u", user.Name) {
-		return nil
+func directoryIsCoveredByAncestor(directory security.POSIXDirectory, directories []security.POSIXDirectory) bool {
+	for _, candidate := range directories {
+		if candidate.Path == directory.Path || candidate.Group != directory.Group {
+			continue
+		}
+		if strings.HasPrefix(directory.Path, candidate.Path+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func ensureGroup(name string, groupID uint32) (bool, error) {
+	if strings.TrimSpace(name) == "" {
+		return false, nil
+	}
+	existingGroup, errorValue := user.LookupGroup(name)
+	if errorValue != nil {
+		return true, runCommand("groupadd", "--system", "--gid", formatID(groupID), name)
+	}
+	if existingGroup.Gid == formatID(groupID) {
+		return false, nil
+	}
+	return true, runCommand("groupmod", "--gid", formatID(groupID), name)
+}
+
+func ensureUser(posixUser security.POSIXUser, userID uint32, groupID uint32) error {
+	if commandSucceeds("id", "-u", posixUser.Name) {
+		return reconcileUserIdentity(posixUser.Name, userID, groupID)
 	}
 	return runCommand(
 		"useradd",
 		"--system",
+		"--uid", formatID(userID),
+		"--gid", formatID(groupID),
 		"--no-create-home",
-		"--home-dir", user.HomePath,
-		"--gid", user.GroupName,
+		"--home-dir", posixUser.HomePath,
 		"--shell", "/usr/sbin/nologin",
-		user.Name,
+		posixUser.Name,
 	)
+}
+
+func reconcileUserIdentity(name string, userID uint32, groupID uint32) error {
+	resolvedUser, errorValue := user.Lookup(name)
+	if errorValue != nil {
+		return errorValue
+	}
+	if resolvedUser.Uid != formatID(userID) {
+		if errorValue := runCommand("usermod", "--uid", formatID(userID), name); errorValue != nil {
+			return errorValue
+		}
+	}
+	if resolvedUser.Gid != formatID(groupID) {
+		if errorValue := runCommand("usermod", "--gid", formatID(groupID), name); errorValue != nil {
+			return errorValue
+		}
+	}
+	return nil
+}
+
+func formatID(identityID uint32) string {
+	return strconv.FormatUint(uint64(identityID), 10)
 }
 
 func ensureUserGroups(userName string, groupNames []string) error {
