@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -149,6 +150,47 @@ func TestOpenRouterClientReturnsErrorWhenStructuredRetryIsProse(t *testing.T) {
 	}
 	if !strings.Contains(errorText, "code=200") || !strings.Contains(errorText, "first prose response") || !strings.Contains(errorText, "second prose response") {
 		t.Fatalf("expected status and prose summaries in error, got %q", errorText)
+	}
+}
+
+func TestOpenRouterClientReturnsTruncationErrorWithoutGrowingRetry(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		requestCount++
+		_ = decodeOpenRouterTestRequest(t, request)
+		responseWriter.Header().Set("Content-Type", "application/json")
+		responseDocument := map[string]any{
+			"choices": []map[string]any{
+				{"message": map[string]string{"content": `{"reply":"this got cut o`}, "finish_reason": "length"},
+			},
+			"usage": map[string]int64{"prompt_tokens": 99000, "completion_tokens": 8000, "total_tokens": 107000},
+		}
+		if errorValue := json.NewEncoder(responseWriter).Encode(responseDocument); errorValue != nil {
+			t.Fatalf("expected response document to encode: %v", errorValue)
+		}
+	}))
+	defer server.Close()
+
+	client := OpenRouterClient{
+		APIKey:    "sk-test",
+		BaseURL:   server.URL,
+		ModelName: "test-model",
+	}
+
+	_, errorValue := client.GenerateStructuredResponse(context.Background(), buildOpenRouterStructuredResponseTestRequest())
+
+	if errorValue == nil {
+		t.Fatal("expected truncated structured output to error")
+	}
+	var truncatedError StructuredOutputTruncatedError
+	if !errors.As(errorValue, &truncatedError) {
+		t.Fatalf("expected StructuredOutputTruncatedError, got %v", errorValue)
+	}
+	if requestCount != 1 {
+		t.Fatalf("expected no prompt-growing retry on truncation, got %d requests", requestCount)
+	}
+	if !strings.Contains(errorValue.Error(), "truncated") || !strings.Contains(errorValue.Error(), "compact context") {
+		t.Fatalf("expected clear truncation message, got %q", errorValue.Error())
 	}
 }
 

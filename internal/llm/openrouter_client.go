@@ -63,8 +63,22 @@ type openRouterResponse struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage openRouterUsage `json:"usage"`
+}
+
+type StructuredOutputTruncatedError struct {
+	FinishReason string
+	ContentBytes int
+}
+
+func (errorValue StructuredOutputTruncatedError) Error() string {
+	return "structured output truncated before valid json (finish_reason=" + errorValue.FinishReason + ", " + strconv.Itoa(errorValue.ContentBytes) + " bytes); prompt too large, compact context and retry"
+}
+
+func openRouterResponseWasTruncated(response openRouterResponse) bool {
+	return len(response.Choices) > 0 && response.Choices[0].FinishReason == "length"
 }
 
 type OpenRouterRateLimitError struct {
@@ -118,6 +132,9 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 	if firstContentError == nil {
 		return openRouterStructuredResponse(modelName, response, content), nil
 	}
+	if openRouterResponseWasTruncated(response) {
+		return StructuredResponse{}, StructuredOutputTruncatedError{FinishReason: response.Choices[0].FinishReason, ContentBytes: len(content)}
+	}
 	retryRequest := openRouterStructuredRetryRequest(openRouterStructuredRequest, openRouterResponseContent(response), modelName, schemaDocument)
 	retryResponse, errorValue := client.send(responseContext, retryRequest)
 	if errorValue != nil {
@@ -126,6 +143,9 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 	retryContent := openRouterStructuredResponseContent(retryResponse)
 	retryContentError := validateOpenRouterStructuredResponseContent(retryContent)
 	if retryContentError != nil {
+		if openRouterResponseWasTruncated(retryResponse) {
+			return StructuredResponse{}, StructuredOutputTruncatedError{FinishReason: retryResponse.Choices[0].FinishReason, ContentBytes: len(retryContent)}
+		}
 		return StructuredResponse{}, errors.New("openrouter structured response was not valid json after retry: first " + openRouterStructuredResponseErrorSummary(response, content, firstContentError) + "; retry " + openRouterStructuredResponseErrorSummary(retryResponse, retryContent, retryContentError))
 	}
 	return openRouterStructuredResponse(modelName, retryResponse, retryContent), nil
