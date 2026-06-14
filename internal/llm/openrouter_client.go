@@ -33,6 +33,7 @@ type openRouterRequest struct {
 	ResponseFormat *openRouterJSONSchema `json:"response_format,omitempty"`
 	Seed           *int64                `json:"seed,omitempty"`
 	Temperature    *float64              `json:"temperature,omitempty"`
+	MaxTokens      *int                  `json:"max_tokens,omitempty"`
 }
 
 type openRouterMessage struct {
@@ -114,6 +115,7 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 		Stream:      false,
 		Seed:        request.GenerationOptions.Seed,
 		Temperature: request.GenerationOptions.Temperature,
+		MaxTokens:   request.GenerationOptions.MaxTokens,
 		ResponseFormat: &openRouterJSONSchema{
 			Type: "json_schema",
 			JSONSchema: openRouterJSONSchemaPayload{

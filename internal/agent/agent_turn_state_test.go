@@ -115,6 +115,35 @@ func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T)
 	}
 }
 
+func TestRestoreAgentTaskStateRestoresTaskContextSummary(t *testing.T) {
+	events := []task.TaskEvent{{
+		Name: taskContextSummaryEventName,
+		Body: marshalEventBody(TaskContextSummary{
+			ObservationID:                 "context-summary-001",
+			CompactedThroughObservationID: "obs-007",
+			Goal:                          "finish the site",
+			CompletedSteps:                []string{"created the app"},
+			Artifacts:                     []string{"/workspace/site/index.html"},
+			NextPlan:                      []string{"run verification"},
+		}),
+	}}
+
+	state, errorValue := restoreAgentTaskState(AgentTurnRequest{Prompt: "continue"}, TurnOptions{}, task.TaskRun{
+		TaskRunID: "task-1",
+		Status:    task.TaskStatusRunning,
+	}, events)
+
+	if errorValue != nil {
+		t.Fatalf("expected restore to succeed: %v", errorValue)
+	}
+	if state.ContextSummary.CompactedThroughObservationID != "obs-007" {
+		t.Fatalf("expected context summary to be restored, got %+v", state.ContextSummary)
+	}
+	if len(state.ContextSummary.Artifacts) != 1 || state.ContextSummary.Artifacts[0] != "/workspace/site/index.html" {
+		t.Fatalf("expected artifact path to be preserved, got %+v", state.ContextSummary.Artifacts)
+	}
+}
+
 func TestBuildAgentActionRequestIncludesApprovalUserFacingContract(t *testing.T) {
 	toolSet := NewToolSet([]string{"ask.confirm"})
 	toolSet.RegisterTool(ToolDefinition{
