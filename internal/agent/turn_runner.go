@@ -391,7 +391,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			"step":     iteration,
 			"exposure": iterationRequest.ToolExposure,
 		}))
-		actionDocument, actionError := agentTurnRunner.nextAction(taskContext, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, len(state.QualityCriteria) == 0)
+		actionDocument, actionError := agentTurnRunner.nextAction(taskContext, taskRun.TaskRunID, iterationRequest, toolUseRequirements, state.Observations, state.ExecutionState, state.ContextSummary, len(state.QualityCriteria) == 0)
 		if actionError != nil {
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "agent turn iteration", actionError.Error())
 			if errors.Is(actionError, context.Canceled) {
@@ -826,15 +826,17 @@ func approvalObservationUserFacingMessage(observation turnObservation) string {
 	return firstNonEmptyString(document.UserFacingMessage, document.Message)
 }
 
-func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, executionState ExecutionState, allowQualityCriteria bool) (turnActionDocument, error) {
+func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, executionState ExecutionState, contextSummary TaskContextSummary, allowQualityCriteria bool) (turnActionDocument, error) {
 	state := agentTaskState{
 		Request:         request,
 		Options:         agentTurnRunner.options,
 		Observations:    append([]turnObservation{}, observations...),
 		ExecutionState:  executionState,
+		ContextSummary:  contextSummary,
 		QualityCriteria: qualityCriteriaForActionRequest(allowQualityCriteria),
 		Requirements:    append([]toolUseRequirement{}, requirements...),
 	}
+	state.Observations = agentTurnRunner.promptVisibleObservationsForAction(ctx, taskRunID, state)
 	actionDocument, errorValue := DecideAgentAction(ctx, agentTurnRunner.languageModel, state)
 	if errorValue != nil {
 		return turnActionDocument{}, errorValue
