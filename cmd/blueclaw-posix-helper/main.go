@@ -24,7 +24,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		exitWithError(errors.New("blueclaw-posix-helper requires sync, exec, fs, or capabilities"))
+		exitWithError(errors.New("blueclaw-posix-helper requires sync, reconcile-home, exec, fs, or capabilities"))
 	}
 
 	var errorValue error
@@ -33,6 +33,8 @@ func main() {
 		errorValue = runCapabilities()
 	case "sync":
 		errorValue = runAuthorized(runSync, os.Args[2:])
+	case "reconcile-home":
+		errorValue = runAuthorized(runReconcileHome, os.Args[2:])
 	case "exec":
 		errorValue = runAuthorized(runExec, os.Args[2:])
 	case "fs":
@@ -55,7 +57,7 @@ func runAuthorized(run func([]string) error, arguments []string) error {
 func runCapabilities() error {
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{
 		"version":      2,
-		"capabilities": []string{"exec", "fs"},
+		"capabilities": []string{"exec", "fs", "reconcile-home"},
 	})
 }
 
@@ -104,6 +106,16 @@ func runSync(arguments []string) error {
 	}
 
 	return applyPOSIXState(security.POSIXStateForPolicy(policyDocument, *workspacePath), *workspacePath)
+}
+
+func runReconcileHome(arguments []string) error {
+	flags := flag.NewFlagSet("reconcile-home", flag.ContinueOnError)
+	personID := flags.String("person-id", "", "person id")
+	workspacePath := flags.String("workspace", "/workspace", "workspace root path")
+	if errorValue := flags.Parse(arguments); errorValue != nil {
+		return errorValue
+	}
+	return reconcileHome(*workspacePath, *personID)
 }
 
 func runExec(arguments []string) error {
@@ -601,6 +613,82 @@ func (table *identityAllocationTable) persist() error {
 	return os.WriteFile(table.filePath, document, 0600)
 }
 
+func reconcileHome(workspacePath string, personID string) error {
+	homePath, errorValue := reconcileHomePath(workspacePath, personID)
+	if errorValue != nil {
+		return errorValue
+	}
+	userName := security.LinuxPersonUserName(personID)
+	allocations, errorValue := loadIdentityAllocationTable(workspacePath)
+	if errorValue != nil {
+		return errorValue
+	}
+	userID := allocations.idFor(userName)
+	groupID := allocations.idFor(userName)
+	if errorValue := createPrivateHomeDirectories(homePath); errorValue != nil {
+		return errorValue
+	}
+	if errorValue := reconcilePrivateHomeTree(homePath, userID, groupID); errorValue != nil {
+		return errorValue
+	}
+	return allocations.persist()
+}
+
+func reconcileHomePath(workspacePath string, personID string) (string, error) {
+	trimmedPersonID := strings.TrimSpace(personID)
+	if trimmedPersonID == "" {
+		return "", errors.New("person-id is required")
+	}
+	if trimmedPersonID == "." || trimmedPersonID == ".." || strings.Contains(trimmedPersonID, "/") {
+		return "", errors.New("person-id must identify one private home")
+	}
+	rootPath := strings.TrimSpace(workspacePath)
+	if rootPath == "" {
+		rootPath = "/workspace"
+	}
+	privatePeoplePath := filepath.Join(rootPath, "private", "people")
+	homePath := filepath.Join(privatePeoplePath, trimmedPersonID)
+	relativePath, errorValue := filepath.Rel(privatePeoplePath, homePath)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	if relativePath != trimmedPersonID {
+		return "", errors.New("reconcile-home scope must be exactly one private home")
+	}
+	return homePath, nil
+}
+
+func createPrivateHomeDirectories(homePath string) error {
+	for _, directoryPath := range []string{homePath, filepath.Join(homePath, "tmp"), filepath.Join(homePath, "artifacts")} {
+		if errorValue := os.MkdirAll(directoryPath, 0700); errorValue != nil {
+			return errorValue
+		}
+	}
+	return nil
+}
+
+func reconcilePrivateHomeTree(homePath string, userID uint32, groupID uint32) error {
+	return filepath.WalkDir(homePath, func(path string, directoryEntry os.DirEntry, walkError error) error {
+		if walkError != nil {
+			return walkError
+		}
+		if errorValue := os.Lchown(path, int(userID), int(groupID)); errorValue != nil {
+			return errorValue
+		}
+		if directoryEntry.IsDir() {
+			return os.Chmod(path, 0700)
+		}
+		fileInformation, errorValue := directoryEntry.Info()
+		if errorValue != nil {
+			return errorValue
+		}
+		if fileInformation.Mode().IsRegular() {
+			return os.Chmod(path, 0600)
+		}
+		return nil
+	})
+}
+
 func applyPOSIXState(state security.POSIXState, workspacePath string) error {
 	allocations, errorValue := loadIdentityAllocationTable(workspacePath)
 	if errorValue != nil {
@@ -746,7 +834,7 @@ func ensureDirectory(directory security.POSIXDirectory) error {
 		return errorValue
 	}
 	if !modeTextIncludesSetGID(directory.ModeText) {
-		return nil
+		return runCommand("chmod", "g-s", directory.Path)
 	}
 	if errorValue := runCommand("chmod", "g+s", directory.Path); errorValue != nil {
 		return errorValue

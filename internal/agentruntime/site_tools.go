@@ -373,7 +373,7 @@ func ensureManagedSiteBuildScript(ctx context.Context, workspaceActor security.W
 		VirtualPath:  filepath.ToSlash(filepath.Join(appWorkspace.VirtualPath, "scripts", "build.ts")),
 		Kind:         appWorkspace.Kind,
 	}
-	if errorValue := workspaceActor.WriteFile(ctx, buildScriptPath, buildScriptContent, 0660); errorValue != nil {
+	if errorValue := workspaceActor.WriteFile(ctx, buildScriptPath, buildScriptContent, workspaceFileCreateMode(buildScriptPath)); errorValue != nil {
 		result := actorToolFailure("write_file", "site_build_scaffold", buildScriptPath.VirtualPath, errorValue)
 		return &result
 	}
@@ -618,11 +618,11 @@ func writeSuccessfulSiteBuildQuality(ctx context.Context, workspaceActor securit
 	if errorValue != nil {
 		return toolResultPointer(agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "site_build_quality", errorValue.Error()))
 	}
-	if errorValue := workspaceActor.MkdirAll(ctx, qualityPath.Parent(), 02770); errorValue != nil {
+	if errorValue := workspaceActor.MkdirAll(ctx, qualityPath.Parent(), workspaceDirectoryCreateMode(qualityPath.Parent())); errorValue != nil {
 		toolFailure := actorToolFailure("mkdir_all", "site_build_quality", qualityPath.VirtualPath, errorValue)
 		return &toolFailure
 	}
-	if errorValue := workspaceActor.WriteFile(ctx, qualityPath, append(qualityDocument, '\n'), 0660); errorValue != nil {
+	if errorValue := workspaceActor.WriteFile(ctx, qualityPath, append(qualityDocument, '\n'), workspaceFileCreateMode(qualityPath)); errorValue != nil {
 		toolFailure := actorToolFailure("write_file", "site_build_quality", qualityPath.VirtualPath, errorValue)
 		return &toolFailure
 	}
@@ -659,7 +659,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext cont
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, sourceWorkspace.ConcretePath) {
 		return terminalWorkspaceAccessFailure(sourceWorkspace.ConcretePath), nil
 	}
-	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(sourceWorkspace), 02770); errorValue != nil {
+	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(sourceWorkspace), workspaceDirectoryCreateMode(workspacepath.Directory(sourceWorkspace))); errorValue != nil {
 		return actorToolFailure("mkdir_all", "site_repair_workspace", sourceWorkspace.VirtualPath, errorValue), nil
 	}
 	site.SourceWorkspacePath = sourceWorkspace.VirtualPath
@@ -1007,17 +1007,17 @@ func decodeSiteCreateResult(document json.RawMessage) (siteCreateResult, error) 
 }
 
 func writeSiteStarterFiles(ctx context.Context, workspaceActor security.WorkspaceActor, sourceWorkspace workspacepath.Directory, site siteCreateResult) *agent.ToolResult {
-	if errorValue := workspaceActor.MkdirAll(ctx, sourceWorkspace, 02770); errorValue != nil {
+	if errorValue := workspaceActor.MkdirAll(ctx, sourceWorkspace, workspaceDirectoryCreateMode(sourceWorkspace)); errorValue != nil {
 		toolFailure := actorToolFailure("mkdir_all", "site_create", sourceWorkspace.VirtualPath, errorValue)
 		return &toolFailure
 	}
 	for _, siteFile := range siteStarterFiles(site) {
 		path := workspacePathForSiteStarterFile(sourceWorkspace, siteFile.Path)
-		if errorValue := workspaceActor.MkdirAll(ctx, path.Parent(), 02770); errorValue != nil {
+		if errorValue := workspaceActor.MkdirAll(ctx, path.Parent(), workspaceDirectoryCreateMode(path.Parent())); errorValue != nil {
 			toolFailure := actorToolFailure("mkdir_all", "site_create", path.VirtualPath, errorValue)
 			return &toolFailure
 		}
-		if errorValue := workspaceActor.WriteFile(ctx, path, []byte(siteFile.Content), 0660); errorValue != nil {
+		if errorValue := workspaceActor.WriteFile(ctx, path, []byte(siteFile.Content), workspaceFileCreateMode(path)); errorValue != nil {
 			toolFailure := actorToolFailure("write_file", "site_create", path.VirtualPath, errorValue)
 			return &toolFailure
 		}

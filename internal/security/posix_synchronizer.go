@@ -3,13 +3,8 @@ package security
 import (
 	"context"
 	"errors"
-	"os"
 	"os/exec"
-	osuser "os/user"
-	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 
 	"blueclaw/internal/config"
 	"blueclaw/internal/policy"
@@ -40,17 +35,11 @@ func (provisioner POSIXRequesterWorkspaceProvisioner) ProvisionRequesterWorkspac
 	if personID == "" || strings.TrimSpace(provisioner.synchronizer.terminalConfiguration.POSIXHelperPath) == "" {
 		return nil
 	}
-	if requesterPOSIXWorkspaceIsProvisioned(personID, workspaceRootPath) {
-		return nil
-	}
 	if errorValue := provisioner.synchronizer.Synchronize(ctx); errorValue != nil {
-		if requesterPOSIXWorkspaceIsProvisioned(personID, workspaceRootPath) {
-			return nil
-		}
 		return errors.New("requester POSIX workspace provisioning failed for " + personID + ": " + errorValue.Error())
 	}
-	if !requesterPOSIXWorkspaceIsProvisioned(personID, workspaceRootPath) {
-		return errors.New("requester POSIX workspace provisioning did not repair home for " + personID)
+	if errorValue := provisioner.synchronizer.ReconcileHome(ctx, personID, workspaceRootPath); errorValue != nil {
+		return errors.New("requester POSIX home reconciliation failed for " + personID + ": " + errorValue.Error())
 	}
 	return nil
 }
@@ -75,59 +64,22 @@ func (synchronizer POSIXSynchronizer) Synchronize(ctx context.Context) error {
 	return nil
 }
 
-func requesterPOSIXWorkspaceIsProvisioned(personID string, workspaceRootPath string) bool {
-	identityName := LinuxPersonUserName(personID)
-	if _, errorValue := osuser.Lookup(identityName); errorValue != nil {
-		return false
+func (synchronizer POSIXSynchronizer) ReconcileHome(ctx context.Context, personID string, workspaceRootPath string) error {
+	helperPath := strings.TrimSpace(synchronizer.terminalConfiguration.POSIXHelperPath)
+	if helperPath == "" {
+		return nil
 	}
-	homePath := requesterWorkspaceHomePath(personID, workspaceRootPath)
-	requesterDirectoryPaths := []string{
-		homePath,
-		filepath.Join(homePath, "tmp"),
-		filepath.Join(homePath, "artifacts"),
-	}
-	for _, directoryPath := range requesterDirectoryPaths {
-		if !requesterDirectoryIsGroupAccessible(directoryPath, identityName) {
-			return false
-		}
-	}
-	return true
-}
-
-func requesterDirectoryIsGroupAccessible(directoryPath string, groupName string) bool {
-	fileInformation, errorValue := os.Stat(directoryPath)
-	if errorValue != nil || !fileInformation.IsDir() {
-		return false
-	}
-	if fileInformation.Mode()&os.ModeSetgid == 0 {
-		return false
-	}
-	if fileInformation.Mode().Perm()&0770 != 0770 {
-		return false
-	}
-	return directoryBelongsToGroup(fileInformation, groupName)
-}
-
-func directoryBelongsToGroup(fileInformation os.FileInfo, groupName string) bool {
-	systemInformation, isStatType := fileInformation.Sys().(*syscall.Stat_t)
-	if !isStatType {
-		return false
-	}
-	resolvedGroup, errorValue := osuser.LookupGroup(groupName)
-	if errorValue != nil {
-		return false
-	}
-	expectedGroupID, errorValue := strconv.ParseUint(resolvedGroup.Gid, 10, 32)
-	if errorValue != nil {
-		return false
-	}
-	return uint64(systemInformation.Gid) == expectedGroupID
-}
-
-func requesterWorkspaceHomePath(personID string, workspaceRootPath string) string {
 	rootPath := strings.TrimSpace(workspaceRootPath)
+	if rootPath == "" {
+		rootPath = strings.TrimSpace(synchronizer.terminalConfiguration.WorkspaceRootPath)
+	}
 	if rootPath == "" {
 		rootPath = "/workspace"
 	}
-	return filepath.Join(rootPath, "private", "people", strings.TrimSpace(personID))
+	command := exec.CommandContext(ctx, helperPath, "reconcile-home", "--person-id", strings.TrimSpace(personID), "--workspace", rootPath)
+	output, errorValue := command.CombinedOutput()
+	if errorValue != nil {
+		return errors.New("POSIX home reconciliation failed: " + strings.TrimSpace(string(output)))
+	}
+	return nil
 }

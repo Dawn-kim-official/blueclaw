@@ -206,21 +206,21 @@ func POSIXStateForPolicy(policyDocument policy.PolicyDocument, workspaceRootPath
 		})
 		state.Directories = append(state.Directories, POSIXDirectory{
 			Path:     workspaceRootPath + "/private/people/" + personID,
-			Owner:    blueclawServiceUserName,
+			Owner:    userName,
 			Group:    userName,
-			ModeText: "2770",
+			ModeText: "0700",
 		})
 		state.Directories = append(state.Directories, POSIXDirectory{
 			Path:     workspaceRootPath + "/private/people/" + personID + "/tmp",
-			Owner:    blueclawServiceUserName,
+			Owner:    userName,
 			Group:    userName,
-			ModeText: "2770",
+			ModeText: "0700",
 		})
 		state.Directories = append(state.Directories, POSIXDirectory{
 			Path:     workspaceRootPath + "/private/people/" + personID + "/artifacts",
-			Owner:    blueclawServiceUserName,
+			Owner:    userName,
 			Group:    userName,
-			ModeText: "2770",
+			ModeText: "0700",
 		})
 	}
 

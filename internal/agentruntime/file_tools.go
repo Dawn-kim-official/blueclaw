@@ -221,7 +221,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_write", "current account cannot write this file"), nil
 	}
-	fileMode := os.FileMode(0660)
+	fileMode := workspaceFileCreateMode(resolvedPath)
 	if input.Mode != 0 {
 		fileMode = os.FileMode(input.Mode)
 	}
@@ -229,7 +229,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
-	if errorValue := workspaceActor.MkdirAll(toolContext, resolvedPath.Parent(), 02770); errorValue != nil {
+	if errorValue := workspaceActor.MkdirAll(toolContext, resolvedPath.Parent(), workspaceDirectoryCreateMode(resolvedPath.Parent())); errorValue != nil {
 		return actorToolFailure("mkdir_all", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
 	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), fileMode); errorValue != nil {
@@ -963,7 +963,7 @@ func writePatchState(toolContext context.Context, workspaceActor security.Worksp
 	writtenKeys := []string{}
 	for _, key := range patchState.pathOrder {
 		resolvedPath := patchState.resolvedPaths[key]
-		if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(patchState.currentContents[key]), 0660); errorValue != nil {
+		if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(patchState.currentContents[key]), workspaceFileCreateMode(resolvedPath)); errorValue != nil {
 			rollbackPatchWrites(toolContext, workspaceActor, patchState, writtenKeys)
 			result := actorToolFailure("write_file", "file_patch", resolvedPath.VirtualPath, errorValue)
 			return &result
@@ -976,7 +976,7 @@ func writePatchState(toolContext context.Context, workspaceActor security.Worksp
 func rollbackPatchWrites(toolContext context.Context, workspaceActor security.WorkspaceActor, patchState *filePatchState, writtenKeys []string) {
 	for _, key := range writtenKeys {
 		resolvedPath := patchState.resolvedPaths[key]
-		_ = workspaceActor.WriteFile(toolContext, resolvedPath, []byte(patchState.originalContents[key]), 0660)
+		_ = workspaceActor.WriteFile(toolContext, resolvedPath, []byte(patchState.originalContents[key]), workspaceFileCreateMode(resolvedPath))
 	}
 }
 
@@ -1081,7 +1081,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) promoteFileTool(toolContext contex
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
-	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(destinationDirectory), 02770); errorValue != nil {
+	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(destinationDirectory), workspaceDirectoryCreateMode(workspacepath.Directory(destinationDirectory))); errorValue != nil {
 		return actorToolFailure("mkdir_all", "file_promote", destinationDirectory.VirtualPath, errorValue), nil
 	}
 	source, errorValue := resolver.Resolve(sourcePath, scope)
@@ -1109,7 +1109,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) promoteFileTool(toolContext contex
 			return actorToolFailure("stat", "file_promote", destination.VirtualPath, errorValue), nil
 		}
 	}
-	if errorValue := workspaceActor.CopyFile(toolContext, source, destination, 0660, input.Overwrite); errorValue != nil {
+	if errorValue := workspaceActor.CopyFile(toolContext, source, destination, workspaceFileCreateMode(destination), input.Overwrite); errorValue != nil {
 		return actorToolFailure("copy_file", "file_promote", destination.VirtualPath, errorValue), nil
 	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
