@@ -199,5 +199,10 @@ func platformFromSourceReference(sourceReference string) string {
 	if !isFound {
 		return ""
 	}
-	return strings.TrimSpace(platform)
+	platform = strings.TrimSpace(platform)
+	switch platform {
+	case "auto_resume", "user_steer", "steer":
+		return ""
+	}
+	return platform
 }
