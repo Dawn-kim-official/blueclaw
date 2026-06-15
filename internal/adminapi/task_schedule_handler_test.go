@@ -116,6 +116,59 @@ func TestTaskScheduleHandlerCancelsOwnedSchedule(t *testing.T) {
 	}
 }
 
+func TestTaskScheduleHandlerDeletesOwnedSchedule(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &taskScheduleListRepositoryStub{
+		taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:  "schedule-1",
+			CreatorPersonID: "person-1",
+			Kind:            task.TaskScheduleKindInterval,
+			IntervalSecond:  3600,
+			NextRunAt:       &nextRunAt,
+		}},
+	}
+	handler := TaskScheduleHandler{ListRepository: repository}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/delete", strings.NewReader(`{"taskScheduleID":"schedule-1","creatorPersonID":"person-1"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleDelete(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("expected ok response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if repository.deleteRequest.TaskScheduleID != "schedule-1" || repository.deleteRequest.RequesterPersonID != "person-1" {
+		t.Fatalf("expected delete request, got %+v", repository.deleteRequest)
+	}
+	if len(repository.taskSchedules) != 0 {
+		t.Fatalf("expected schedule to be removed, got %+v", repository.taskSchedules)
+	}
+}
+
+func TestTaskScheduleHandlerRejectsDeleteCreatorMismatch(t *testing.T) {
+	nextRunAt := time.Now().UTC().Add(time.Hour)
+	repository := &taskScheduleListRepositoryStub{
+		taskSchedules: []task.TaskSchedule{{
+			TaskScheduleID:  "schedule-1",
+			CreatorPersonID: "person-1",
+			Kind:            task.TaskScheduleKindInterval,
+			IntervalSecond:  3600,
+			NextRunAt:       &nextRunAt,
+		}},
+	}
+	handler := TaskScheduleHandler{ListRepository: repository}
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task-schedules/delete", strings.NewReader(`{"taskScheduleID":"schedule-1","creatorPersonID":"person-2"}`))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleDelete(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusForbidden {
+		t.Fatalf("expected forbidden response, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if repository.deleteRequest.RequesterPersonID != "" {
+		t.Fatalf("expected no delete request, got %+v", repository.deleteRequest)
+	}
+}
+
 func TestTaskScheduleHandlerRejectsCancelCreatorMismatch(t *testing.T) {
 	nextRunAt := time.Now().UTC().Add(time.Hour)
 	repository := &taskScheduleListRepositoryStub{
@@ -227,6 +280,7 @@ func (repository taskScheduleSummaryRepositoryStub) SummarizeActiveTaskSchedules
 type taskScheduleListRepositoryStub struct {
 	request       task.TaskScheduleListRequest
 	updateRequest task.TaskScheduleUpdateRequest
+	deleteRequest task.TaskScheduleDeleteRequest
 	cancelRequest task.TaskScheduleCancelRequest
 	taskSchedules []task.TaskSchedule
 }
@@ -254,6 +308,18 @@ func (repository *taskScheduleListRepositoryStub) UpdateTaskSchedule(request tas
 		return task.TaskScheduleUpdateResult{TaskSchedule: updatedTaskSchedule, IsFound: true}, nil
 	}
 	return task.TaskScheduleUpdateResult{}, nil
+}
+
+func (repository *taskScheduleListRepositoryStub) DeleteTaskSchedule(request task.TaskScheduleDeleteRequest) (task.TaskScheduleDeleteResult, error) {
+	repository.deleteRequest = request
+	for index, taskSchedule := range repository.taskSchedules {
+		if taskSchedule.TaskScheduleID != request.TaskScheduleID || taskSchedule.CreatorPersonID != request.RequesterPersonID {
+			continue
+		}
+		repository.taskSchedules = append(repository.taskSchedules[:index], repository.taskSchedules[index+1:]...)
+		return task.TaskScheduleDeleteResult{TaskSchedule: taskSchedule, IsFound: true}, nil
+	}
+	return task.TaskScheduleDeleteResult{}, nil
 }
 
 func (repository *taskScheduleListRepositoryStub) CancelTaskSchedules(request task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error) {

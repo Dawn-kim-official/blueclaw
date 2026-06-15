@@ -48,6 +48,7 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer.HandleFunc("POST /admin/api/quiesce", routerDependencies.QuiesceHandler.HandlePost)
 	multiplexer.HandleFunc("GET /admin/api/task-schedules", routerDependencies.TaskScheduleHandler.HandleList)
 	multiplexer.HandleFunc("POST /admin/api/task-schedules/cancel", routerDependencies.TaskScheduleHandler.HandleCancel)
+	multiplexer.HandleFunc("POST /admin/api/task-schedules/delete", routerDependencies.TaskScheduleHandler.HandleDelete)
 	multiplexer.HandleFunc("POST /admin/api/task-schedules/update", routerDependencies.TaskScheduleHandler.HandleUpdate)
 	multiplexer.HandleFunc("POST /admin/api/task-schedules/repair-creator", routerDependencies.TaskScheduleHandler.HandleRepairCreator)
 	multiplexer.HandleFunc("GET /admin/api/task-schedules/summary", routerDependencies.TaskScheduleHandler.HandleSummary)

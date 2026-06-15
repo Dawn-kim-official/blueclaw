@@ -33,6 +33,16 @@ type TaskScheduleUpdateResult struct {
 	IsFound      bool         `json:"isFound"`
 }
 
+type TaskScheduleDeleteRequest struct {
+	TaskScheduleID    string
+	RequesterPersonID string
+}
+
+type TaskScheduleDeleteResult struct {
+	TaskSchedule TaskSchedule `json:"taskSchedule"`
+	IsFound      bool         `json:"isFound"`
+}
+
 type TaskScheduleSummary struct {
 	ActiveCount       int        `json:"activeCount"`
 	UnboundedCount    int        `json:"unboundedCount"`
