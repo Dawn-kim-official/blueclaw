@@ -248,3 +248,25 @@ func TestNonStalledResumeRestoresNormally(t *testing.T) {
 		t.Fatalf("normal resume should restore observations, got %+v", state.Observations)
 	}
 }
+
+func TestCleanRestartScrubsPoisonedGoalContext(t *testing.T) {
+	events := []task.TaskEvent{
+		toolResultTestEvent("tool.browser.open.result", "obs-001", "browser.open", "garbage", true),
+		{Name: "agent.no_progress_loop_stopped", Body: "{}"},
+		{Name: "task.steer.requested", Body: "{}"},
+	}
+	request := AgentTurnRequest{
+		IsRuntimeRestartResume: true,
+		ActiveGoal: ActiveGoal{
+			KnownContext: []string{"Assess prior progress from the task event ledger and restored observations."},
+		},
+	}
+	state, errorValue := agentTaskStateForTurn(request, TurnOptions{}, task.TaskRun{TaskRunID: "task-1"}, events)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	joined := strings.Join(state.Request.ActiveGoal.KnownContext, " ")
+	if strings.Contains(joined, "restored observations") || !strings.Contains(joined, "re-ground") {
+		t.Fatalf("clean restart must scrub the poisoned goal context, got %q", joined)
+	}
+}
