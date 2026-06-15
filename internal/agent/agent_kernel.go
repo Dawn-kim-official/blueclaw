@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -132,6 +133,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		RequesterHandle:         request.RequesterHandle,
 		RequesterCircles:        append([]string{}, request.RequesterCircles...),
 		IsApprovalContinuation:  request.IsApprovalContinuation,
+		IsRuntimeRestartResume:  request.IsRuntimeRestartResume,
 		ExistingTaskRunID:       request.ExistingTaskRunID,
 		OriginReplyTargetID:     request.OriginReplyTargetID,
 		OriginIsThread:          request.OriginIsThread,
@@ -229,16 +231,20 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
+	intakeDecision = promoteSitePrototypeEffort(intakeRequest, intakeDecision)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
 	if turnDecision.Route == TurnRouteStartTask && !request.IsApprovalContinuation {
 		if strings.TrimSpace(request.ExistingTaskRunID) == strings.TrimSpace(request.ActiveGoal.TaskRunID) {
 			request.ExistingTaskRunID = ""
+			request.IsRuntimeRestartResume = false
 			intakeRequest.ExistingTaskRunID = ""
+			intakeRequest.IsRuntimeRestartResume = false
 		}
 		request.ActiveGoal = ActiveGoal{}
 		intakeRequest.ActiveGoal = ActiveGoal{}
 	}
+	intakeDecision = agentKernel.restoreEscalatedEffortForContinuation(intakeRequest, intakeDecision)
 	request.WorkKinds = appendUniqueStrings(append([]string{}, intakeDecision.WorkKinds...), request.ActiveGoal.WorkKinds...)
 	intakeRequest.WorkKinds = request.WorkKinds
 	if turnDecision.Route == TurnRouteConsume {
@@ -278,6 +284,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequesterHandle:            request.RequesterHandle,
 		RequesterCircles:           append([]string{}, request.RequesterCircles...),
 		IsApprovalContinuation:     request.IsApprovalContinuation,
+		IsRuntimeRestartResume:     request.IsRuntimeRestartResume,
 		ExistingTaskRunID:          request.ExistingTaskRunID,
 		OriginReplyTargetID:        request.OriginReplyTargetID,
 		OriginIsThread:             request.OriginIsThread,
@@ -524,4 +531,62 @@ func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision Inta
 	baseOptions.MaxToolCallCount = effortProfile.MaxToolCallCount
 	baseOptions.MaxElapsedSecond = int(effortProfile.Duration.Seconds())
 	return baseOptions
+}
+
+func (agentKernel *AgentKernel) restoreEscalatedEffortForContinuation(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
+	taskRunID := strings.TrimSpace(request.ExistingTaskRunID)
+	if taskRunID == "" {
+		return intakeDecision
+	}
+	restoredEffortLevel := highestEscalatedEffortLevel(agentKernel.taskRunService.ListTaskEvent(taskRunID))
+	if restoredEffortLevel == "" {
+		return intakeDecision
+	}
+	intakeDecision.EffortLevel = LargerEffortLevel(intakeDecision.EffortLevel, restoredEffortLevel)
+	return intakeDecision
+}
+
+func promoteSitePrototypeEffort(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
+	if !intakeDecisionHasSitePrototypeEvidence(request, intakeDecision) {
+		return intakeDecision
+	}
+	intakeDecision.EffortLevel = LargerEffortLevel(intakeDecision.EffortLevel, EffortLevelDeep)
+	return intakeDecision
+}
+
+func intakeDecisionHasSitePrototypeEvidence(request AgentRequest, intakeDecision IntakeDecision) bool {
+	if intakeDecision.HasWorkKind(WorkKindSitePrototype) {
+		return true
+	}
+	if strings.TrimSpace(intakeDecision.SiteRequestEvidence) != "" {
+		return true
+	}
+	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.")
+}
+
+type budgetEscalatedEventBody struct {
+	PreviousEffortLevel EffortLevel `json:"previousEffortLevel,omitempty"`
+	NewEffortLevel      EffortLevel `json:"newEffortLevel"`
+	UsedIterationCount  int         `json:"usedIterationCount,omitempty"`
+	UsedToolCallCount   int         `json:"usedToolCallCount,omitempty"`
+	QualifyingEventIDs  []string    `json:"qualifyingEventIDs,omitempty"`
+}
+
+func highestEscalatedEffortLevel(taskEvents []task.TaskEvent) EffortLevel {
+	highestEffortLevel := EffortLevel("")
+	for _, taskEvent := range taskEvents {
+		if taskEvent.Name != "agent.budget_escalated" {
+			continue
+		}
+		var eventBody budgetEscalatedEventBody
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &eventBody); errorValue != nil {
+			continue
+		}
+		normalizedEffortLevel := NormalizeEffortLevel(string(eventBody.NewEffortLevel))
+		if normalizedEffortLevel == "" {
+			continue
+		}
+		highestEffortLevel = LargerEffortLevel(highestEffortLevel, normalizedEffortLevel)
+	}
+	return highestEffortLevel
 }

@@ -90,6 +90,26 @@ func TestAdvanceTaskRunCreatesCurrentAttempt(t *testing.T) {
 	}
 }
 
+func TestAdvanceTaskRunAllowsBlockedResume(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	blockedTaskRun := pausedTaskRunForTest(t, taskRunService, TaskStatusBlocked, "max_iterations")
+
+	resumedTaskRun, errorValue := taskRunService.AdvanceTaskRun(blockedTaskRun.TaskRunID, "assistant")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if resumedTaskRun.Status != TaskStatusRunning {
+		t.Fatalf("status = %s, want running", resumedTaskRun.Status)
+	}
+	if resumedTaskRun.CurrentAttemptID == blockedTaskRun.CurrentAttemptID {
+		t.Fatal("expected resume to create a new attempt")
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(blockedTaskRun.TaskRunID), "task.running", "assistant") {
+		t.Fatal("expected running transition event")
+	}
+}
+
 func TestAdvanceTaskRunRejectsTerminalStatuses(t *testing.T) {
 	testCases := []struct {
 		name      string

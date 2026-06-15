@@ -63,6 +63,14 @@ func LargerEffortLevel(first EffortLevel, second EffortLevel) EffortLevel {
 	return first
 }
 
+func nextEffortLevel(effortLevel EffortLevel) (EffortLevel, bool) {
+	currentRank := effortLevelRank(EffortLimitProfileForLevel(effortLevel).EffortLevel)
+	if currentRank < 0 || currentRank+1 >= len(effortLimitProfiles) {
+		return "", false
+	}
+	return effortLimitProfiles[currentRank+1].EffortLevel, true
+}
+
 func effortLevelRank(effortLevel EffortLevel) int {
 	normalizedEffortLevel := NormalizeEffortLevel(string(effortLevel))
 	for index, effortLimitProfile := range effortLimitProfiles {

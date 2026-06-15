@@ -399,6 +399,7 @@ func advanceTaskRunFromStates() []TaskStatus {
 		TaskStatusRunning,
 		TaskStatusWaitingUserInput,
 		TaskStatusWaitingApproval,
+		TaskStatusBlocked,
 		TaskStatusInterrupted,
 	}
 }
