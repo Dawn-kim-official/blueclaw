@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -172,5 +173,78 @@ func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
 	nonBrowser := newFailureObservation("obs-002", "continue", "terminal.run", "boom", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
 	if strings.Contains(recoveryGuidanceContent(nonBrowser), "browser tools run on the user's Companion") {
 		t.Fatal("expected non-browser failures not to get browser guidance")
+	}
+}
+
+func toolResultTestEvent(name string, observationID string, tool string, content string, failed bool) task.TaskEvent {
+	observation := map[string]any{
+		"observationID": observationID,
+		"action":        "continue",
+		"tool":          tool,
+		"output":        map[string]any{"content": content},
+	}
+	if failed {
+		observation["failure"] = map[string]any{"kind": "external_service", "code": "operation_failed", "stage": "tool"}
+	}
+	body, _ := json.Marshal(observation)
+	return task.TaskEvent{Name: name, Body: string(body)}
+}
+
+func TestCleanRestartDiscardsPoisonedContextOnReSteerAfterStall(t *testing.T) {
+	poisoned := []task.TaskEvent{
+		toolResultTestEvent("tool.browser.open.result", "obs-001", "browser.open", "browser URL must be absolute", true),
+		{Name: "agent.no_progress_loop_stopped", Body: "{}"},
+		{Name: "task.steer.requested", Body: "{}"},
+	}
+	if !shouldCleanRestartRestoredTask(poisoned) {
+		t.Fatal("a user steer after a stall should trigger a clean restart")
+	}
+
+	state, errorValue := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-1"}, poisoned)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	for _, observation := range state.Observations {
+		if observation.Tool == "browser.open" {
+			t.Fatalf("clean restart must discard the poisoned browser.open observation, got %+v", state.Observations)
+		}
+	}
+	if len(state.Observations) == 0 || !strings.Contains(state.Observations[len(state.Observations)-1].Summary, "stalled") {
+		t.Fatalf("expected a re-grounding observation, got %+v", state.Observations)
+	}
+}
+
+func TestCleanRestartPreservesDurablePublishEvidence(t *testing.T) {
+	events := []task.TaskEvent{
+		toolResultTestEvent("tool.site.app.publish.result", "obs-010", "site.app.publish", `{"publishedURL":"https://x.example.test"}`, false),
+		toolResultTestEvent("tool.browser.open.result", "obs-011", "browser.open", "garbage", true),
+		{Name: "agent.limit_stop", Body: "{}"},
+		{Name: "task.steer.requested", Body: "{}"},
+	}
+	state, _ := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-2"}, events)
+	hasPublish := false
+	for _, observation := range state.Observations {
+		if observation.Tool == "site.app.publish" {
+			hasPublish = true
+		}
+		if observation.Tool == "browser.open" {
+			t.Fatal("clean restart must drop the poisoned browser observation while keeping durable publish")
+		}
+	}
+	if !hasPublish {
+		t.Fatalf("clean restart must preserve the successful publish observation, got %+v", state.Observations)
+	}
+}
+
+func TestNonStalledResumeRestoresNormally(t *testing.T) {
+	events := []task.TaskEvent{
+		toolResultTestEvent("tool.file.read.result", "obs-001", "file.read", "content", false),
+	}
+	if shouldCleanRestartRestoredTask(events) {
+		t.Fatal("a resume without a prior stall must not clean-restart")
+	}
+	state, _ := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-3"}, events)
+	if len(state.Observations) != 1 || state.Observations[0].Tool != "file.read" {
+		t.Fatalf("normal resume should restore observations, got %+v", state.Observations)
 	}
 }
