@@ -380,7 +380,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 	for iteration := 1; ; iteration++ {
 		if iteration > agentTurnRunner.options.MaxIterationCount {
-			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForIterationLimit(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
+			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
 			if errorValue != nil || !shouldContinue {
 				return result, errorValue
 			}
@@ -609,9 +609,11 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	}
 	state.ToolCallCount++
 	if state.ToolCallCount > maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations) {
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
-		result, _ := agentTurnRunner.finalizeOrStopForLimit(ctx, taskRunID, request, "max_tool_calls", requirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration, maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations))
-		return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
+		result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(ctx, taskRunID, request, "max_tool_calls", requirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration, state.ToolCallCount)
+		if errorValue != nil || !shouldContinue {
+			agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusBlocked, "limit stop", "max_tool_calls")
+			return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
+		}
 	}
 	state.Observations = agentTurnRunner.sendCheckpointMessage(ctx, taskRunID, request, actionDocument, state.Observations)
 	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, request.WorkKinds)
@@ -1379,7 +1381,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Cont
 	return limitFinalizationResult{Observations: observations, Attachments: attachments}
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForIterationLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, bool, error) {
+func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, bool, error) {
 	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
 	if finalization.IsCompleted {
 		return finalization.Result, false, nil
@@ -1389,11 +1391,11 @@ func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForIterationLimit(
 	qualifyingEvents := qualifyingDurableProgressEventsSinceTierStart(agentTurnRunner.taskRunService.ListTaskEvent(taskRunID), observations)
 	if agentTurnRunner.options.EffortLevel == EffortLevelExtended {
 		agentTurnRunner.appendLimitCheckpoint(taskRunID, qualifyingEvents)
-		result, errorValue := agentTurnRunner.stopForLimit(taskRunID, request, "max_iterations", observations, attachments, executionState, usedIterationCount, usedToolCallCount)
+		result, errorValue := agentTurnRunner.stopForLimit(taskRunID, request, reason, observations, attachments, executionState, usedIterationCount, usedToolCallCount)
 		return result, false, errorValue
 	}
 	if len(qualifyingEvents) < 2 {
-		result, errorValue := agentTurnRunner.stopForLimit(taskRunID, request, "max_iterations", observations, attachments, executionState, usedIterationCount, usedToolCallCount)
+		result, errorValue := agentTurnRunner.stopForLimit(taskRunID, request, reason, observations, attachments, executionState, usedIterationCount, usedToolCallCount)
 		return result, false, errorValue
 	}
 	agentTurnRunner.escalateBudgetTier(taskRunID, qualifyingEvents, usedIterationCount, usedToolCallCount)
