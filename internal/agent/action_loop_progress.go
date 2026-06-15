@@ -10,6 +10,7 @@ type actionProgressEvaluation struct {
 type actionProgressTracker struct {
 	lastProgressEventCount           int
 	consecutiveNoProgressActionCount int
+	stallRecoveryDirectiveCount      int
 }
 
 type recoveryAllowance struct {
@@ -28,6 +29,7 @@ func (tracker *actionProgressTracker) evaluate(observations []turnObservation) a
 	if currentProgressEventCount > tracker.lastProgressEventCount {
 		tracker.lastProgressEventCount = currentProgressEventCount
 		tracker.consecutiveNoProgressActionCount = 0
+		tracker.stallRecoveryDirectiveCount = 0
 		return actionProgressEvaluation{
 			HasProgress:        true,
 			Reason:             "new progress event recorded",
@@ -45,6 +47,12 @@ func (tracker *actionProgressTracker) evaluate(observations []turnObservation) a
 
 func (evaluation actionProgressEvaluation) shouldStop() bool {
 	return !evaluation.HasProgress && evaluation.ConsecutiveNoProgressActionCount >= 3
+}
+
+func (tracker *actionProgressTracker) noteStallRecoveryDirective(observations []turnObservation) {
+	tracker.lastProgressEventCount = progressEventCount(observations)
+	tracker.consecutiveNoProgressActionCount = 0
+	tracker.stallRecoveryDirectiveCount++
 }
 
 func evaluateRecoveryAllowance(observations []turnObservation, budget RecoveryBudget) recoveryAllowance {

@@ -352,6 +352,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			return AgentTurnResult{}, false
 		}
 		recoveryAllowance := evaluateRecoveryAllowance(state.Observations, agentTurnRunner.options.RecoveryBudget)
+		if agentTurnRunner.continueStalledRecoveryIfAllowed(taskRun.TaskRunID, &state, &progressTracker, recoveryAllowance) {
+			return AgentTurnResult{}, false
+		}
 		reason := "stopped after 3 consecutive model actions without workspace, tool, artifact, attachment, or new failure progress"
 		if agentTurnRunner.shouldPauseForStalledRecovery(taskRun.TaskRunID, state.Observations) {
 			if result, isPaused := agentTurnRunner.pauseTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state); isPaused {
@@ -1140,6 +1143,49 @@ func (agentTurnRunner *AgentTurnRunner) appendQualityReview(taskRunID string, cr
 	}
 	qualityState := buildQualityState(criteria, review, observations)
 	agentTurnRunner.appendEvent(taskRunID, "agent.quality_review", marshalEventBody(qualityState))
+}
+
+const maxStallRecoveryDirectivesPerEpisode = 4
+
+func (agentTurnRunner *AgentTurnRunner) continueStalledRecoveryIfAllowed(taskRunID string, state *agentTaskState, tracker *actionProgressTracker, allowance recoveryAllowance) bool {
+	if !allowance.CanRecover {
+		return false
+	}
+	failureDebt, hasFailureDebt := activeFailureDebt(state.Observations)
+	if !hasFailureDebt {
+		return false
+	}
+	if !stalledOnRedundantInspection(state.Observations) {
+		return false
+	}
+	if tracker.stallRecoveryDirectiveCount >= maxStallRecoveryDirectivesPerEpisode {
+		return false
+	}
+	directive := stalledRecoveryDirectiveObservation(nextObservationID(len(state.Observations)+1), failureDebt)
+	state.Observations = append(state.Observations, directive)
+	agentTurnRunner.appendEvent(taskRunID, "agent.stall_recovery_directive", marshalEventBody(directive))
+	tracker.noteStallRecoveryDirective(state.Observations)
+	return true
+}
+
+func stalledOnRedundantInspection(observations []turnObservation) bool {
+	if len(observations) == 0 {
+		return false
+	}
+	lastObservation := observations[len(observations)-1]
+	return strings.HasPrefix(strings.TrimSpace(lastObservation.Summary), "file.read cache hit")
+}
+
+func stalledRecoveryDirectiveObservation(observationID string, failureDebt FailureDebt) turnObservation {
+	failedTool := strings.TrimSpace(failureDebt.LatestFailure.Tool)
+	message := "You are repeating actions without progress while " + failedTool + " is still failing. You already have the information you need. Make one concrete fix now by editing the offending file with file.edit, then re-run " + failedTool + ". Do not read the same content again and do not ask the user how to proceed."
+	observation := newContentObservation(observationID, "policy", "", marshalEventBody(map[string]string{
+		"directive":           message,
+		"failedTool":          failedTool,
+		"failedObservationID": failureDebt.LatestFailure.ObservationID,
+	}))
+	observation.Summary = message
+	return observation
 }
 
 func (agentTurnRunner *AgentTurnRunner) shouldPauseForStalledRecovery(taskRunID string, observations []turnObservation) bool {
