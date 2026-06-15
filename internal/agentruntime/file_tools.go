@@ -910,7 +910,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) validatePatchEdit(toolContext cont
 	currentContent := patchState.currentContents[key]
 	matchCount := strings.Count(currentContent, edit.OldText)
 	if matchCount != 1 {
-		result := fileExactEditFailure("file_patch", resolvedPath.VirtualPath, editIndex, matchCount, "oldText must match exactly once; read the file and retry with a more specific snippet")
+		result := fileExactEditFailure("file_patch", resolvedPath.VirtualPath, editIndex, matchCount, "oldText did not match the file exactly once; rewrite the whole file with file.write using the full corrected content instead of retrying file.edit")
 		return &result
 	}
 	patchState.currentContents[key] = strings.Replace(currentContent, edit.OldText, edit.NewText, 1)
@@ -991,6 +991,14 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	result.Failure.RetryPolicy = "different_input"
+	if editIndex >= 0 && matchCount != 1 {
+		result.Failure.RecoveryHints = []agent.RecoveryHint{{
+			Action:    "rewrite_text",
+			ToolNames: []string{"file.write", "file.read"},
+			Reason:    "oldText did not match the file exactly once, so snippet editing is unreliable here. Rewrite the entire file with file.write using the full corrected content you already read, instead of retrying file.edit with another snippet.",
+		}}
+		return result
+	}
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
 		Action:    "inspect_or_edit_text",
 		ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
