@@ -260,7 +260,7 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 			verification.Results[index] = missingObservedResultItem(item, "No link result was observed.")
 		}
 		if expectedResult.Type == ExpectedResultTypeLink && len(linkResults) > 0 && !finishMessageContainsObservedLink(finishMessage, linkResults) {
-			verification.Results[index] = missingObservedResultItem(item, "Final message does not include an exact observed link URL.")
+			verification.Results[index] = missingObservedResultItem(item, missingObservedLinkReason(linkResults))
 		}
 		if expectedResult.Type == ExpectedResultTypeFile && !hasFileResult {
 			verification.Results[index] = missingObservedResultItem(item, "No file result was observed.")
@@ -314,6 +314,20 @@ func siteToolCanSatisfyLinkResult(toolName string) bool {
 	default:
 		return false
 	}
+}
+
+func missingObservedLinkReason(linkResults []ObservedResult) string {
+	observedURLs := []string{}
+	for _, observedResult := range linkResults {
+		observedURL := normalizeObservedURL(observedResult.URL)
+		if observedURL != "" {
+			observedURLs = appendUniqueStrings(observedURLs, observedURL)
+		}
+	}
+	if len(observedURLs) == 0 {
+		return "Final message does not include an exact observed link URL."
+	}
+	return "Final message must include the published link verbatim. Copy this exact URL into your reply, character for character: " + strings.Join(observedURLs, " ")
 }
 
 func finishMessageContainsObservedLink(finishMessage string, observedResults []ObservedResult) bool {

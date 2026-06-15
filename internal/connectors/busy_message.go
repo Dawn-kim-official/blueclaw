@@ -126,6 +126,9 @@ func (connectorRuntime *ConnectorRuntime) handleBusySteerMessage(
 		"instruction": instruction,
 		"reason":      strings.TrimSpace(decision.Reason),
 	}))
+	if !connectorRuntime.agentKernel.IsTaskRunActuallyRunning(activeTaskRun) {
+		return connectorRuntime.resumePausedTaskForSteer(ctx, platform, event, replyTarget, activeTaskRun, sendReply)
+	}
 	reply, errorValue := connectorRuntime.generateBusyReply(ctx, event, activeTaskRun, "steer", decision)
 	if errorValue != nil {
 		return busyMessageResult{}, errorValue
@@ -135,6 +138,35 @@ func (connectorRuntime *ConnectorRuntime) handleBusySteerMessage(
 		return busyMessageResult{}, errorValue
 	}
 	return busyMessageResult{connectorResult: ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: activeTaskRun.TaskRunID, Reason: "busy_steer", ReplyDispatchID: dispatchID}, isHandled: true}, nil
+}
+
+func (connectorRuntime *ConnectorRuntime) resumePausedTaskForSteer(
+	ctx context.Context,
+	platform string,
+	event PlatformInboundEvent,
+	replyTarget ReplyTarget,
+	activeTaskRun task.TaskRun,
+	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
+) (busyMessageResult, error) {
+	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(activeTaskRun.TaskRunID)
+	launchContext, isFound := interruptedTaskLaunchContextFromEvents(activeTaskRun, taskEvents)
+	if !isFound {
+		return busyMessageResult{}, nil
+	}
+	adapter, errorValue := connectorRuntime.findAdapter(firstNonEmptyString(launchContext.Platform, platform))
+	if errorValue != nil {
+		return busyMessageResult{}, errorValue
+	}
+	launchRequest := connectorRuntime.interruptedTaskLaunchRequest(activeTaskRun, taskEvents, launchContext, event, userSteerTaskProfile(platform, activeTaskRun.TaskRunID), sendReply)
+	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, launchRequest)
+	if errorValue != nil {
+		return busyMessageResult{}, errorValue
+	}
+	connectorResult, errorValue := connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, sendReply)
+	if errorValue != nil {
+		return busyMessageResult{}, errorValue
+	}
+	return busyMessageResult{connectorResult: connectorResult, isHandled: true}, nil
 }
 
 func (connectorRuntime *ConnectorRuntime) replaceBusyTask(event PlatformInboundEvent, activeTaskRun task.TaskRun, decision agent.TurnDecision) {

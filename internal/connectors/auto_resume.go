@@ -53,7 +53,7 @@ func (connectorRuntime *ConnectorRuntime) ResumeInterruptedTaskRun(ctx context.C
 	sendReply := func(replyContext context.Context, target ReplyTarget, reply OutboundReply) (string, error) {
 		return connectorRuntime.enqueueConnectorReply(withConnectorEvent(replyContext, event), target, reply)
 	}
-	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.interruptedTaskLaunchRequest(taskRun, taskEvents, launchContext, event, sendReply))
+	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.interruptedTaskLaunchRequest(taskRun, taskEvents, launchContext, event, autoResumeTaskProfile(taskRun.TaskRunID), sendReply))
 	if errorValue != nil {
 		return connectorRuntime.completeInterruptedTaskResumeLaunchFailure(ctx, taskRun, launchContext, event, replyTarget, adapter, sendReply, errorValue)
 	}
@@ -74,17 +74,17 @@ func (connectorRuntime *ConnectorRuntime) completeInterruptedTaskResumeLaunchFai
 		Prompt:                 taskRun.Prompt,
 		ResponseLanguage:       event.Context.ResponseLanguage,
 		VisibleContext:         event.Context.ToAgentVisibleContext(),
-		ActiveGoal:             interruptedTaskActiveGoal(taskRun, connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)),
+		ActiveGoal:             interruptedTaskActiveGoal(taskRun, connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID), autoResumeTaskProfile(taskRun.TaskRunID).guidanceNote),
 	}, "launch", "auto_resume", errorValue)
 	return connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, turnResult, sendReply)
 }
 
-func (connectorRuntime *ConnectorRuntime) interruptedTaskLaunchRequest(taskRun task.TaskRun, taskEvents []task.TaskEvent, launchContext interruptedTaskLaunchContext, event PlatformInboundEvent, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) agentruntime.TaskLaunchRequest {
+func (connectorRuntime *ConnectorRuntime) interruptedTaskLaunchRequest(taskRun task.TaskRun, taskEvents []task.TaskEvent, launchContext interruptedTaskLaunchContext, event PlatformInboundEvent, profile taskResumeProfile, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) agentruntime.TaskLaunchRequest {
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(taskRun.RequesterPersonID)
 	conversationID := firstNonEmptyString(taskRun.OriginConversationID, launchContext.ConversationID)
 	return agentruntime.TaskLaunchRequest{
 		Source:                    agentruntime.TaskLaunchSourceConnector,
-		SourceReference:           "auto_resume:" + taskRun.TaskRunID,
+		SourceReference:           profile.sourceReference,
 		RequesterPersonID:         taskRun.RequesterPersonID,
 		RequesterEmail:            connectorRuntime.identityService.ResolvePersonPrimaryEmail(taskRun.RequesterPersonID),
 		IsApprovalContinuation:    true,
@@ -102,7 +102,7 @@ func (connectorRuntime *ConnectorRuntime) interruptedTaskLaunchRequest(taskRun t
 		Prompt:                    taskRun.Prompt,
 		ResponseLanguage:          event.Context.ResponseLanguage,
 		VisibleContext:            event.Context.ToAgentVisibleContext(),
-		ActiveGoal:                interruptedTaskActiveGoal(taskRun, taskEvents),
+		ActiveGoal:                interruptedTaskActiveGoal(taskRun, taskEvents, profile.guidanceNote),
 		PrecomputedTurnDecision:   interruptedTaskTurnDecision(event.Context.ResponseLanguage),
 		PersonAccess:              personAccess,
 		MemoryNamespaces:          connectorRuntime.accessibleNamespaces(taskRun.RequesterPersonID, personAccess, event),
@@ -152,15 +152,34 @@ func interruptedTaskResumeEvent(taskRun task.TaskRun, launchContext interruptedT
 	}
 }
 
-func interruptedTaskActiveGoal(taskRun task.TaskRun, taskEvents []task.TaskEvent) agent.ActiveGoal {
+func interruptedTaskActiveGoal(taskRun task.TaskRun, taskEvents []task.TaskEvent, guidanceNote string) agent.ActiveGoal {
 	activeGoal := latestActiveGoal(taskEvents)
 	activeGoal.GoalID = firstNonEmptyString(activeGoal.GoalID, taskRun.TaskRunID)
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, taskRun.TaskRunID)
 	activeGoal.OriginalInstruction = firstNonEmptyString(activeGoal.OriginalInstruction, taskRun.Prompt)
 	activeGoal.CurrentObjective = firstNonEmptyString(activeGoal.CurrentObjective, taskRun.Prompt)
-	activeGoal.KnownContext = append(activeGoal.KnownContext, interruptedTaskRuntimeContext())
+	activeGoal.KnownContext = append(activeGoal.KnownContext, guidanceNote)
 	activeGoal.Status = agent.ActiveGoalStatusActive
 	return activeGoal
+}
+
+type taskResumeProfile struct {
+	sourceReference string
+	guidanceNote    string
+}
+
+func autoResumeTaskProfile(taskRunID string) taskResumeProfile {
+	return taskResumeProfile{
+		sourceReference: "auto_resume:" + taskRunID,
+		guidanceNote:    "Runtime restarted mid-task before the prior attempt completed. Assess prior progress from the task event ledger and restored observations, then continue or redo only the work that is still missing.",
+	}
+}
+
+func userSteerTaskProfile(platform string, taskRunID string) taskResumeProfile {
+	return taskResumeProfile{
+		sourceReference: platform + ":steer:" + taskRunID,
+		guidanceNote:    "The user asked to continue this paused task. Assess prior progress from the task event ledger and restored observations, follow the latest steering instruction, and finish only the work that is still missing.",
+	}
 }
 
 func interruptedTaskTurnDecision(responseLanguage string) *agent.TurnDecision {
@@ -173,10 +192,6 @@ func interruptedTaskTurnDecision(responseLanguage string) *agent.TurnDecision {
 		ResponseLanguage: responseLanguage,
 		Reason:           "runtime_restart_auto_resume",
 	}
-}
-
-func interruptedTaskRuntimeContext() string {
-	return "Runtime restarted mid-task before the prior attempt completed. Assess prior progress from the task event ledger and restored observations, then continue or redo only the work that is still missing."
 }
 
 func platformFromSourceReference(sourceReference string) string {
