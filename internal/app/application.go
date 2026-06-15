@@ -141,9 +141,12 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
-	languageModelProvider := resolveLanguageModelProvider(runtimeConfiguration)
-	if languageModelProvider != nil {
-		agentKernel.UseLanguageModelProvider(languageModelProvider)
+	taskTierLanguageModels := resolveTaskTierLanguageModelProviders(runtimeConfiguration)
+	languageModelProvider := taskTierLanguageModels.High
+	lowTierLanguageModelProvider := taskTierLanguageModels.Low
+	if lowTierLanguageModelProvider != nil {
+		agentKernel.UseLanguageModelProvider(lowTierLanguageModelProvider)
+		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.High, taskTierLanguageModels.Medium)
 	}
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	skillRetriever := agent.NewEmbeddingSkillRetriever(
@@ -172,7 +175,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		memoryGraphReporter = graphitiMemoryRepository
 	}
 	pinnedMemoryStore := memory.NewMarkdownStore(pinnedMemoryRootPath(runtimeConfiguration), pinnedMemoryHardLimitCharacterCount(runtimeConfiguration))
-	pinnedMemoryStore.UseCompressor(memory.NewLLMMarkdownMemoryCompressor(languageModelProvider), pinnedMemoryCompressionTargetCharacterCount(runtimeConfiguration))
+	pinnedMemoryStore.UseCompressor(memory.NewLLMMarkdownMemoryCompressor(lowTierLanguageModelProvider), pinnedMemoryCompressionTargetCharacterCount(runtimeConfiguration))
 	memoryUpdateProcessor := memory.NewMemoryUpdateProcessor(memoryService, pinnedMemoryStore)
 	memoryUpdateQueue := memory.NewBackgroundMemoryUpdateQueue(memoryUpdateProcessor, logger)
 	backupCoordinator := backup.NewCoordinator(buildBackupManifest(runtimeConfiguration, database))
@@ -801,18 +804,36 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 	return languageModelProvider
 }
 
+type taskTierLanguageModelProviders struct {
+	Low    llm.LanguageModelProvider
+	Medium llm.LanguageModelProvider
+	High   llm.LanguageModelProvider
+}
+
+func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration) taskTierLanguageModelProviders {
+	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
+	if strings.TrimSpace(languageModelConfiguration.LanguageModel.DefaultProvider) == "" {
+		return taskTierLanguageModelProviders{}
+	}
+	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
+	return taskTierLanguageModelProviders{
+		Low:    llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Low),
+		Medium: llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium),
+		High:   llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High),
+	}
+}
+
 func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client) llm.LanguageModelProvider {
 	if !runtimeConfiguration.Agent.Intake.Enabled {
 		return nil
 	}
-	modelName := strings.TrimSpace(runtimeConfiguration.Agent.Intake.Model)
 	executionMode := strings.TrimSpace(runtimeConfiguration.Agent.Intake.ExecutionMode)
 	if executionMode == "" {
 		executionMode = "auto"
 	}
 	return llm.CapabilityLLMClient{
 		CapabilityClient: capabilityClient,
-		ModelName:        modelName,
+		ModelName:        llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)).Low,
 		ExecutionMode:    executionMode,
 	}
 }

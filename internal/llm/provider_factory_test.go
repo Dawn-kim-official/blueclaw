@@ -48,6 +48,48 @@ func TestConfiguredProviderLeavesCapabilityModelUnsetByDefault(t *testing.T) {
 	}
 }
 
+func TestResolveModelTierNamesUsesBuiltInDefaults(t *testing.T) {
+	tierNames := ResolveModelTierNames(config.RuntimeConfiguration{})
+	if tierNames.High != defaultHighModelName {
+		t.Fatalf("expected high default, got %q", tierNames.High)
+	}
+	if tierNames.Medium != defaultMediumModelName {
+		t.Fatalf("expected medium default, got %q", tierNames.Medium)
+	}
+	if tierNames.Low != defaultLowModelName {
+		t.Fatalf("expected low default, got %q", tierNames.Low)
+	}
+}
+
+func TestResolveModelTierNamesHighFallsBackToCapabilityModel(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.Capability.Model = "google/custom-base"
+
+	tierNames := ResolveModelTierNames(runtimeConfiguration)
+	if tierNames.High != "google/custom-base" {
+		t.Fatalf("expected high to fall back to capability model, got %q", tierNames.High)
+	}
+	if tierNames.Medium != defaultMediumModelName {
+		t.Fatalf("expected medium default unaffected by capability model, got %q", tierNames.Medium)
+	}
+	if tierNames.Low != defaultLowModelName {
+		t.Fatalf("expected low default unaffected by capability model, got %q", tierNames.Low)
+	}
+}
+
+func TestResolveModelTierNamesHonorsExplicitTierOverrides(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.Capability.Model = "google/custom-base"
+	runtimeConfiguration.LanguageModel.Capability.HighModel = "vendor/high"
+	runtimeConfiguration.LanguageModel.Capability.MediumModel = "vendor/medium"
+	runtimeConfiguration.LanguageModel.Capability.LowModel = "vendor/low"
+
+	tierNames := ResolveModelTierNames(runtimeConfiguration)
+	if tierNames.High != "vendor/high" || tierNames.Medium != "vendor/medium" || tierNames.Low != "vendor/low" {
+		t.Fatalf("expected explicit tier overrides, got %+v", tierNames)
+	}
+}
+
 func TestConfiguredProviderRejectsDirectOpenRouterProductPath(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.LanguageModel.DefaultProvider = "openRouter"

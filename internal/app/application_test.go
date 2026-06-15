@@ -46,7 +46,7 @@ func TestResolveLanguageModelProviderDefaultsToCapabilityLLM(t *testing.T) {
 	}
 }
 
-func TestResolveIntakeLanguageModelProviderUsesAutomaticCapabilityModel(t *testing.T) {
+func TestResolveIntakeLanguageModelProviderUsesLowTierModel(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.ExecutionMode = "auto"
@@ -56,8 +56,9 @@ func TestResolveIntakeLanguageModelProviderUsesAutomaticCapabilityModel(t *testi
 	if !isCapabilityProvider {
 		t.Fatalf("expected capability intake provider, got %T", languageModelProvider)
 	}
-	if capabilityLLMClient.ModelName != "" {
-		t.Fatalf("expected provider-neutral intake model, got %q", capabilityLLMClient.ModelName)
+	expectedLowModel := llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)).Low
+	if capabilityLLMClient.ModelName != expectedLowModel {
+		t.Fatalf("expected low tier intake model %q, got %q", expectedLowModel, capabilityLLMClient.ModelName)
 	}
 	if capabilityLLMClient.ExecutionMode != "auto" {
 		t.Fatalf("expected automatic intake execution mode, got %q", capabilityLLMClient.ExecutionMode)

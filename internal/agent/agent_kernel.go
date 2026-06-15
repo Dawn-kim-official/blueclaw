@@ -16,9 +16,11 @@ type AgentKernel struct {
 	taskRunService      *task.TaskRunService
 	taskStepService     *task.TaskStepService
 	taskArtifactService *task.TaskArtifactService
-	languageModel       llm.LanguageModelProvider
-	intakeLanguageModel llm.LanguageModelProvider
-	turnOptions         TurnOptions
+	languageModel           llm.LanguageModelProvider
+	highTaskLanguageModel   llm.LanguageModelProvider
+	mediumTaskLanguageModel llm.LanguageModelProvider
+	intakeLanguageModel     llm.LanguageModelProvider
+	turnOptions             TurnOptions
 	intakeOptions       IntakeOptions
 	instructionPrompt   string
 	instructionSources  []InstructionSource
@@ -38,6 +40,11 @@ func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.T
 
 func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel llm.LanguageModelProvider) {
 	agentKernel.languageModel = languageModel
+}
+
+func (agentKernel *AgentKernel) UseTaskTierLanguageModels(highTaskLanguageModel llm.LanguageModelProvider, mediumTaskLanguageModel llm.LanguageModelProvider) {
+	agentKernel.highTaskLanguageModel = highTaskLanguageModel
+	agentKernel.mediumTaskLanguageModel = mediumTaskLanguageModel
 }
 
 func (agentKernel *AgentKernel) UseTaskArtifactService(taskArtifactService *task.TaskArtifactService) {
@@ -326,7 +333,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
 		agentKernel.taskArtifactService,
-		agentKernel.languageModel,
+		agentKernel.taskLanguageModelForEffortLevel(turnOptions.EffortLevel),
 		turnOptions,
 	)
 	result, errorValue := agentTurnRunner.RunTurn(responseContext, turnRequest)
@@ -533,6 +540,39 @@ func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision Inta
 	baseOptions.MaxToolCallCount = effortProfile.MaxToolCallCount
 	baseOptions.MaxElapsedSecond = int(effortProfile.Duration.Seconds())
 	return baseOptions
+}
+
+type modelTier string
+
+const (
+	modelTierLow    modelTier = "low"
+	modelTierMedium modelTier = "medium"
+	modelTierHigh   modelTier = "high"
+)
+
+func taskModelTierForEffortLevel(effortLevel EffortLevel) modelTier {
+	switch effortLevel {
+	case EffortLevelDeep, EffortLevelExtended:
+		return modelTierHigh
+	case EffortLevelStandard:
+		return modelTierMedium
+	default:
+		return modelTierLow
+	}
+}
+
+func (agentKernel *AgentKernel) taskLanguageModelForEffortLevel(effortLevel EffortLevel) llm.LanguageModelProvider {
+	switch taskModelTierForEffortLevel(effortLevel) {
+	case modelTierHigh:
+		if agentKernel.highTaskLanguageModel != nil {
+			return agentKernel.highTaskLanguageModel
+		}
+	case modelTierMedium:
+		if agentKernel.mediumTaskLanguageModel != nil {
+			return agentKernel.mediumTaskLanguageModel
+		}
+	}
+	return agentKernel.languageModel
 }
 
 func (agentKernel *AgentKernel) restoreEscalatedEffortForContinuation(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
