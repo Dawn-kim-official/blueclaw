@@ -118,6 +118,9 @@ func agentTaskStateForTurn(request AgentTurnRequest, options TurnOptions, taskRu
 }
 
 func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) (agentTaskState, error) {
+	if shouldCleanRestartRestoredTask(events) {
+		return cleanRestartedAgentTaskState(request, options, taskRun, events), nil
+	}
 	state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
 	state.Status = taskRun.Status
 	state.Observations = observationsFromTaskEvents(events)
@@ -128,6 +131,69 @@ func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRu
 	state.ToolCallCount = successfulToolCallCount(state.Observations)
 	state.IterationCount = len(state.Observations)
 	return state, nil
+}
+
+func shouldCleanRestartRestoredTask(events []task.TaskEvent) bool {
+	lastStallIndex := -1
+	for index, event := range events {
+		switch event.Name {
+		case "agent.no_progress_loop_stopped", "agent.no_progress_loop_paused", "agent.limit_stop":
+			lastStallIndex = index
+		}
+	}
+	if lastStallIndex == -1 {
+		return false
+	}
+	for index := lastStallIndex + 1; index < len(events); index++ {
+		if events[index].Name == "task.steer.requested" {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanRestartedAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) agentTaskState {
+	state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
+	state.Status = taskRun.Status
+	durableObservations := durableDeliveryObservations(events)
+	state.Observations = append(durableObservations, regroundingObservation(len(durableObservations)+1))
+	state.Attachments = attachmentsFromObservations(state.Observations)
+	return state
+}
+
+func durableDeliveryObservations(events []task.TaskEvent) []turnObservation {
+	durable := []turnObservation{}
+	for _, observation := range observationsFromTaskEvents(events) {
+		if observation.Failed() {
+			continue
+		}
+		if isDurableDeliveryObservation(observation) {
+			durable = append(durable, observation)
+		}
+	}
+	return durable
+}
+
+func isDurableDeliveryObservation(observation turnObservation) bool {
+	if len(observation.Attachments) > 0 {
+		return true
+	}
+	switch strings.TrimSpace(observation.Tool) {
+	case "site.app.publish", "site.app.promote":
+		return true
+	default:
+		return false
+	}
+}
+
+func regroundingObservation(index int) turnObservation {
+	message := "The previous attempt on this task stalled without finishing, and its working notes were cleared to avoid repeating the same mistakes. Your file edits on disk are preserved. Re-ground before acting: resolve the current site with site.app.status (empty input resolves the conversation's site), read the current source from disk, and continue from there. Do not trust earlier tool outputs; verify the current state first."
+	observation := newContentObservation(nextObservationID(index), "policy", "", marshalEventBody(map[string]string{
+		"regrounded": "true",
+		"directive":  message,
+	}))
+	observation.Summary = message
+	return observation
 }
 
 func advanceAgentTask(state agentTaskState) agentTransition {
