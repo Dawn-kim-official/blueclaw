@@ -67,7 +67,7 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryDecision(request AgentTu
 		Role:    "user",
 		Content: buildRecoveryDecisionPrompt(request, failureReason, observations, attachments, executionState, phase),
 	}}
-	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(recoveryContext, llm.StructuredResponseRequest{
+	structuredResponse, errorValue := agentTurnRunner.recoveryLanguageModel.GenerateStructuredResponse(recoveryContext, llm.StructuredResponseRequest{
 		Messages: messages,
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_recovery_decision",
@@ -105,7 +105,7 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureNotice(taskRunID string, 
 	if decisionError != nil {
 		status.StructuredRecoveryError = decisionError.Error()
 	}
-	notice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.languageModel}).Generate(context.Background(), failureReport)
+	notice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.recoveryLanguageModel}).Generate(context.Background(), failureReport)
 	status.Source = noticeStatus.Source
 	status.FirstInvalid = noticeStatus.FirstInvalid
 	status.RepairCount = noticeStatus.RepairCount
@@ -131,7 +131,7 @@ func (agentTurnRunner *AgentTurnRunner) generateStallPauseNotice(taskRunID strin
 	if decisionError != nil {
 		status.StructuredRecoveryError = decisionError.Error()
 	}
-	notice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.languageModel}).Generate(context.Background(), failureReport)
+	notice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.recoveryLanguageModel}).Generate(context.Background(), failureReport)
 	status.Source = noticeStatus.Source
 	status.FirstInvalid = noticeStatus.FirstInvalid
 	status.RepairCount = noticeStatus.RepairCount
@@ -150,7 +150,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID str
 	if decisionError != nil {
 		status.StructuredRecoveryError = decisionError.Error()
 	}
-	notice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.languageModel}).Generate(context.Background(), failureReport)
+	notice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.recoveryLanguageModel}).Generate(context.Background(), failureReport)
 	status.Source = noticeStatus.Source
 	status.FirstInvalid = noticeStatus.FirstInvalid
 	status.RepairCount = noticeStatus.RepairCount
@@ -294,9 +294,6 @@ func (agentTurnRunner *AgentTurnRunner) generateFailureReply(request AgentTurnRe
 }
 
 func degradedFailureReplyCanBeDelivered(reply string, request AgentTurnRequest, attachments []FileAttachment) bool {
-	if requiredArtifactWithoutAttachment(request, attachments) {
-		return false
-	}
 	return strings.TrimSpace(reply) != "" && !failureReplyIsInvalid(reply, attachments)
 }
 
@@ -397,7 +394,7 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedReply(request AgentT
 func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (string, error) {
 	finalizationContext, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	recoveryProvider, isRecoveryProvider := agentTurnRunner.languageModel.(llm.RecoveryResponder)
+	recoveryProvider, isRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.RecoveryResponder)
 	if isRecoveryProvider {
 		recoveryReply, recoveryError := recoveryProvider.GenerateRecoveryResponse(finalizationContext, prompt)
 		recoveryReply = strings.TrimSpace(recoveryReply)
@@ -406,12 +403,12 @@ func (agentTurnRunner *AgentTurnRunner) generateRecoveryText(prompt string) (str
 		}
 		return recoveryReply, recoveryError
 	}
-	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(finalizationContext, prompt)
+	reply, errorValue := agentTurnRunner.recoveryLanguageModel.GenerateResponse(finalizationContext, prompt)
 	return strings.TrimSpace(reply), errorValue
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLocalRecoveryText(prompt string) (string, error) {
-	localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.languageModel.(llm.LocalRecoveryResponder)
+	localRecoveryProvider, isLocalRecoveryProvider := agentTurnRunner.recoveryLanguageModel.(llm.LocalRecoveryResponder)
 	if !isLocalRecoveryProvider {
 		return "", errors.New("local recovery provider unavailable")
 	}

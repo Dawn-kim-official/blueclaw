@@ -28,9 +28,6 @@ func ValidateUserNoticeDelivery(notice string) error {
 	if FinishMessageClaimsAttachmentDelivery(notice) {
 		return errors.New("user_notice claims unavailable attachment delivery")
 	}
-	if filename := finishMessageUnattachedArtifactFilename(notice, nil); filename != "" {
-		return errors.New("user_notice mentions unavailable artifact filename " + filename)
-	}
 	return nil
 }
 
