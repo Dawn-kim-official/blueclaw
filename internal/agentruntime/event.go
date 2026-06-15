@@ -5,6 +5,7 @@ import "encoding/json"
 type taskLaunchEvent struct {
 	Source                            TaskLaunchSource `json:"source"`
 	SourceReference                   string           `json:"sourceReference"`
+	Platform                          string           `json:"platform,omitempty"`
 	ProfileName                       string           `json:"profileName"`
 	RequesterPersonID                 string           `json:"requesterPersonID"`
 	ConversationID                    string           `json:"conversationID"`
@@ -34,6 +35,7 @@ func marshalTaskLaunchEvent(request TaskLaunchRequest, profileName string, toolN
 	document, errorValue := json.Marshal(taskLaunchEvent{
 		Source:                            request.Source,
 		SourceReference:                   request.SourceReference,
+		Platform:                          request.Platform,
 		ProfileName:                       profileName,
 		RequesterPersonID:                 request.RequesterPersonID,
 		ConversationID:                    request.ConversationID,

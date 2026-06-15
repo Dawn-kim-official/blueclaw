@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"blueclaw/internal/agent"
 	"blueclaw/internal/agenttest"
 )
 
@@ -14,9 +15,24 @@ func TestUserSteerTaskProfileSourceReferenceResolvesRealPlatform(t *testing.T) {
 	}
 }
 
-func TestResumePausedTaskForSteerWithoutLaunchContextFallsThrough(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{})
-	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+func TestPlatformFromSourceReferenceRejectsResumePrefixes(t *testing.T) {
+	for _, sourceReference := range []string{"auto_resume:task-1", "user_steer:task-1", "steer:task-1"} {
+		if platform := platformFromSourceReference(sourceReference); platform != "" {
+			t.Fatalf("non-adapter resume prefix must not resolve as a platform, %q gave %q", sourceReference, platform)
+		}
+	}
+	if platformFromSourceReference("mattermost:thread:abc") != "mattermost" {
+		t.Fatal("a real platform prefix must still resolve")
+	}
+}
+
+func TestResumePausedTaskForSteerWithoutLaunchContextSendsNoticeWithoutOrphan(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {`{"reply":"저장된 컨텍스트에서 이 작업을 재개할 수 없습니다."}`},
+		},
+	})
+	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
 	pausedTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "사이트 만들어")
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -26,15 +42,18 @@ func TestResumePausedTaskForSteerWithoutLaunchContextFallsThrough(t *testing.T) 
 		return "dispatch-1", nil
 	}
 
-	result, errorValue := connectorRuntime.resumePausedTaskForSteer(context.Background(), "test", event, ReplyTarget{}, pausedTaskRun, sendReply)
+	result, errorValue := connectorRuntime.resumePausedTaskForSteer(context.Background(), "test", event, ReplyTarget{}, pausedTaskRun, "이어서 해", agent.TurnDecision{}, sendReply)
 
 	if errorValue != nil {
-		t.Fatalf("missing launch context must fall through without error, got %v", errorValue)
+		t.Fatalf("missing launch context must be handled with a notice, got error %v", errorValue)
 	}
-	if result.isHandled {
-		t.Fatal("missing launch context must fall through to the normal launch path")
+	if !result.isHandled {
+		t.Fatal("missing launch context must be handled, not silently dropped")
 	}
-	if len(adapter.sentReplies) != 0 {
-		t.Fatalf("fall-through must not send a reply, got %+v", adapter.sentReplies)
+	if connectorTaskEventsContain(connectorRuntime, pausedTaskRun.TaskRunID, "task.steer.requested", "") {
+		t.Fatal("must not write an orphan task.steer.requested when resume is unavailable")
+	}
+	if !connectorTaskEventsContain(connectorRuntime, pausedTaskRun.TaskRunID, "task.steer.resume_unavailable", "") {
+		t.Fatal("expected a task.steer.resume_unavailable diagnostic event")
 	}
 }
