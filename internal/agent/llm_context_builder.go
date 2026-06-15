@@ -21,6 +21,7 @@ type LLMContextInput struct {
 	MemoryFacts       []memory.MemoryFact
 	MemoryContext     string
 	ActiveGoal        ActiveGoal
+	ScheduledRun      ScheduledRunContext
 	ActiveTask        ActiveTaskContext
 	PendingInput      PendingInputContext
 	CurrentStepPlan   NextStepPlan
@@ -104,8 +105,11 @@ func (builder LLMContextBuilder) conversationContext(visibleContext VisibleConte
 
 func (builder LLMContextBuilder) taskContext(input LLMContextInput) string {
 	sections := []string{}
+	if scheduledRun := builder.scheduledRunContext(input.ScheduledRun); scheduledRun != "" {
+		sections = append(sections, scheduledRun)
+	}
 	if prompt := strings.TrimSpace(input.UserPrompt); prompt != "" {
-		sections = append(sections, "Original user request:\n"+prompt)
+		sections = append(sections, builder.userPromptContext(input.ScheduledRun, prompt))
 	}
 	if activeGoal := activeGoalDescription(input.ActiveGoal); activeGoal != "" {
 		sections = append(sections, activeGoal)
@@ -123,6 +127,20 @@ func (builder LLMContextBuilder) taskContext(input LLMContextInput) string {
 		return ""
 	}
 	return "Task:\n" + strings.Join(sections, "\n\n")
+}
+
+func (builder LLMContextBuilder) userPromptContext(scheduledRun ScheduledRunContext, prompt string) string {
+	if !scheduledRun.IsEmpty() {
+		return "Scheduled task instruction:\n" + prompt
+	}
+	return "Original user request:\n" + prompt
+}
+
+func (builder LLMContextBuilder) scheduledRunContext(scheduledRun ScheduledRunContext) string {
+	if scheduledRun.IsEmpty() {
+		return ""
+	}
+	return "Scheduled run:\n" + marshalEventBody(scheduledRun)
 }
 
 func (builder LLMContextBuilder) activeTaskContext(activeTask ActiveTaskContext) string {
@@ -222,6 +240,7 @@ func agentTurnRequestForContext(input LLMContextInput) AgentTurnRequest {
 		VisibleContext:        input.VisibleContext,
 		InputParts:            append([]AgentPart{}, input.InputParts...),
 		ActiveGoal:            input.ActiveGoal,
+		ScheduledRun:          input.ScheduledRun,
 		RequiredEvidenceTools: nil,
 	}
 }

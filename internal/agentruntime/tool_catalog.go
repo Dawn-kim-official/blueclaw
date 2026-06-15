@@ -78,6 +78,7 @@ type ToolCatalogRequest struct {
 	MemoryNamespaces           []memory.MemoryNamespace
 	AccessibleConversationIDs  []string
 	InputParts                 []agent.AgentPart
+	ScheduledRun               agent.ScheduledRunContext
 }
 
 type CapabilityToolDescriptor struct {
