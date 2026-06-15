@@ -60,6 +60,66 @@ func TestConnectorRuntimeProcessesInvitedMessageAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimeSuppressesStaleRetryWhileOriginalTaskIsRunning(t *testing.T) {
+	languageModel := &blockingTestLanguageModel{
+		reply:   "done",
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	event := testInboundEvent("message-stale-retry")
+	firstResultChannel := make(chan ConnectorRuntimeResult, 1)
+	firstErrorChannel := make(chan error, 1)
+
+	go func() {
+		result, errorValue := connectorRuntime.processInboundEventWithReplySender(context.Background(), adapter, event, adapter.SendReply)
+		firstResultChannel <- result
+		firstErrorChannel <- errorValue
+	}()
+
+	select {
+	case <-languageModel.started:
+	case <-time.After(time.Second):
+		t.Fatal("expected original task to start")
+	}
+
+	retryContext, cancelRetry := context.WithTimeout(context.Background(), time.Second)
+	defer cancelRetry()
+	duplicateResult, errorValue := connectorRuntime.processInboundEventWithReplySender(retryContext, adapter, event, adapter.SendReply)
+	if errorValue != nil {
+		t.Fatalf("expected stale retry to suppress cleanly: %v", errorValue)
+	}
+	if !duplicateResult.Duplicate || duplicateResult.Reason != "duplicate_source_reference" {
+		t.Fatalf("expected duplicate source suppression, got %+v", duplicateResult)
+	}
+	if duplicateResult.TaskRunID == "" {
+		t.Fatal("expected duplicate result to point at original task")
+	}
+	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected one task run, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	}
+	if !connectorTaskEventsContain(connectorRuntime, duplicateResult.TaskRunID, "connector.duplicate_source_suppressed", event.MessageID) {
+		t.Fatal("expected duplicate suppression event")
+	}
+
+	close(languageModel.release)
+	select {
+	case errorValue := <-firstErrorChannel:
+		if errorValue != nil {
+			t.Fatalf("expected original task to finish: %v", errorValue)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected original task to finish")
+	}
+	firstResult := <-firstResultChannel
+	if firstResult.TaskRunID != duplicateResult.TaskRunID {
+		t.Fatalf("expected duplicate to reuse %s, got %+v", firstResult.TaskRunID, duplicateResult)
+	}
+	if len(adapter.sentReplies) != 1 {
+		t.Fatalf("expected only original reply, got %+v", adapter.sentReplies)
+	}
+}
+
 func TestConnectorRuntimeDefersNewTaskLaunchWhenQuiesced(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "should not run"})
 	repository := &testConnectorQueueRepository{}
@@ -3160,6 +3220,31 @@ func (languageModel testLanguageModel) GenerateStructuredResponse(context.Contex
 		return llm.StructuredResponse{}, languageModel.errorValue
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
+}
+
+type blockingTestLanguageModel struct {
+	reply   string
+	started chan struct{}
+	release chan struct{}
+}
+
+func (languageModel *blockingTestLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return languageModel.reply, nil
+}
+
+func (languageModel *blockingTestLanguageModel) GenerateStructuredResponse(ctx context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	_ = request
+	select {
+	case <-languageModel.started:
+	default:
+		close(languageModel.started)
+	}
+	select {
+	case <-languageModel.release:
+		return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
+	case <-ctx.Done():
+		return llm.StructuredResponse{}, ctx.Err()
+	}
 }
 
 type addressingTestLanguageModel struct {

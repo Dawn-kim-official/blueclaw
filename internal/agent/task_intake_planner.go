@@ -104,6 +104,7 @@ type AgentRequest struct {
 	RequesterCallingName    string
 	RequesterHandle         string
 	RequesterCircles        []string
+	SourceReference         string
 	IsApprovalContinuation  bool
 	IsRuntimeRestartResume  bool
 	ExistingTaskRunID       string
