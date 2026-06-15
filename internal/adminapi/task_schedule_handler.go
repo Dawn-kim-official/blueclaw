@@ -18,6 +18,7 @@ type TaskScheduleSummaryRepository interface {
 type TaskScheduleListRepository interface {
 	ListTaskSchedules(task.TaskScheduleListRequest) (task.TaskScheduleListResult, error)
 	UpdateTaskSchedule(task.TaskScheduleUpdateRequest) (task.TaskScheduleUpdateResult, error)
+	DeleteTaskSchedule(task.TaskScheduleDeleteRequest) (task.TaskScheduleDeleteResult, error)
 	CancelTaskSchedules(task.TaskScheduleCancelRequest) (task.TaskScheduleCancelResult, error)
 }
 
@@ -45,6 +46,11 @@ type taskScheduleCreatorRepairRequest struct {
 }
 
 type taskScheduleCancelRequest struct {
+	TaskScheduleID  string `json:"taskScheduleID"`
+	CreatorPersonID string `json:"creatorPersonID"`
+}
+
+type taskScheduleDeleteRequest struct {
 	TaskScheduleID  string `json:"taskScheduleID"`
 	CreatorPersonID string `json:"creatorPersonID"`
 }
@@ -133,6 +139,50 @@ func (taskScheduleHandler TaskScheduleHandler) HandleCancel(responseWriter http.
 	})
 	if errorValue != nil {
 		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, result)
+}
+
+func (taskScheduleHandler TaskScheduleHandler) HandleDelete(responseWriter http.ResponseWriter, request *http.Request) {
+	if taskScheduleHandler.ListRepository == nil {
+		http.Error(responseWriter, "task schedule repository is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var deleteRequest taskScheduleDeleteRequest
+	if errorValue := json.NewDecoder(request.Body).Decode(&deleteRequest); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	taskScheduleID := strings.TrimSpace(deleteRequest.TaskScheduleID)
+	creatorPersonID := strings.TrimSpace(deleteRequest.CreatorPersonID)
+	if taskScheduleID == "" || creatorPersonID == "" {
+		http.Error(responseWriter, "taskScheduleID and creatorPersonID are required", http.StatusBadRequest)
+		return
+	}
+	taskSchedule, found, errorValue := taskScheduleHandler.findTaskSchedule(taskScheduleID)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(responseWriter, "task schedule not found", http.StatusNotFound)
+		return
+	}
+	if taskSchedule.CreatorPersonID != creatorPersonID {
+		http.Error(responseWriter, "task schedule creator mismatch", http.StatusForbidden)
+		return
+	}
+	result, errorValue := taskScheduleHandler.ListRepository.DeleteTaskSchedule(task.TaskScheduleDeleteRequest{
+		TaskScheduleID:    taskScheduleID,
+		RequesterPersonID: creatorPersonID,
+	})
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !result.IsFound {
+		http.Error(responseWriter, "task schedule not found", http.StatusNotFound)
 		return
 	}
 	writeJSON(responseWriter, http.StatusOK, result)

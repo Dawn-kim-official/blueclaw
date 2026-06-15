@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"testing"
 	"time"
+
+	"blueclaw/internal/task"
 )
 
 type taskScheduleScannerStub struct {
@@ -75,4 +77,29 @@ func TestScanTaskScheduleIncludesRunLimit(t *testing.T) {
 	if taskSchedule.CronExpression != "" {
 		t.Fatalf("expected nullable cron expression to scan as empty, got %q", taskSchedule.CronExpression)
 	}
+}
+
+func TestTaskScheduleListFilterIncludesExpiredRowsWithoutNextRun(t *testing.T) {
+	conditions, _ := taskScheduleListFilter(task.TaskScheduleListRequest{IncludeExpired: true})
+	for _, condition := range conditions {
+		if condition == "next_run_at IS NOT NULL" {
+			t.Fatalf("expected includeExpired to allow schedules without next_run_at, got %+v", conditions)
+		}
+	}
+}
+
+func TestTaskScheduleListFilterExcludesExpiredRowsByDefault(t *testing.T) {
+	conditions, _ := taskScheduleListFilter(task.TaskScheduleListRequest{})
+	if !containsTaskScheduleListCondition(conditions, "next_run_at IS NOT NULL") || !containsTaskScheduleListCondition(conditions, "(expires_at IS NULL OR expires_at > $1)") {
+		t.Fatalf("expected default list filter to require active schedules, got %+v", conditions)
+	}
+}
+
+func containsTaskScheduleListCondition(conditions []string, expectedCondition string) bool {
+	for _, condition := range conditions {
+		if condition == expectedCondition {
+			return true
+		}
+	}
+	return false
 }

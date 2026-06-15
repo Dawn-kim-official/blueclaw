@@ -138,6 +138,27 @@ FOR UPDATE`, taskScheduleID, requesterPersonID)
 	return task.TaskScheduleUpdateResult{TaskSchedule: taskSchedule, IsFound: true}, nil
 }
 
+func (taskScheduleRepository TaskScheduleRepository) DeleteTaskSchedule(request task.TaskScheduleDeleteRequest) (task.TaskScheduleDeleteResult, error) {
+	taskScheduleID := strings.TrimSpace(request.TaskScheduleID)
+	requesterPersonID := strings.TrimSpace(request.RequesterPersonID)
+	if taskScheduleID == "" || requesterPersonID == "" {
+		return task.TaskScheduleDeleteResult{}, nil
+	}
+	row := taskScheduleRepository.database.SQL.QueryRowContext(context.Background(), `
+DELETE FROM task_schedule
+WHERE task_schedule_id = $1
+  AND creator_person_id = $2
+RETURNING `+taskScheduleReturningColumns(), taskScheduleID, requesterPersonID)
+	taskSchedule, errorValue := scanTaskSchedule(row)
+	if errors.Is(errorValue, sql.ErrNoRows) {
+		return task.TaskScheduleDeleteResult{}, nil
+	}
+	if errorValue != nil {
+		return task.TaskScheduleDeleteResult{}, errorValue
+	}
+	return task.TaskScheduleDeleteResult{TaskSchedule: taskSchedule, IsFound: true}, nil
+}
+
 func (taskScheduleRepository TaskScheduleRepository) ClaimDueTaskSchedules(limit int, leaseDuration time.Duration, referenceTime time.Time, leaseOwner string) ([]task.TaskSchedule, error) {
 	if limit <= 0 {
 		limit = 1
@@ -591,11 +612,11 @@ func taskScheduleListFilter(request task.TaskScheduleListRequest) ([]string, []a
 	if referenceTime.IsZero() {
 		referenceTime = time.Now().UTC()
 	}
-	conditions := []string{"next_run_at IS NOT NULL"}
+	conditions := []string{"TRUE"}
 	arguments := []any{}
 	if !request.IncludeExpired {
 		arguments = append(arguments, referenceTime)
-		conditions = append(conditions, "(expires_at IS NULL OR expires_at > $1)")
+		conditions = append(conditions, "next_run_at IS NOT NULL", "(expires_at IS NULL OR expires_at > $1)")
 	}
 	if strings.TrimSpace(request.ConversationID) != "" {
 		conditions = append(conditions, "delivery_conversation_id = $"+strconv.Itoa(len(arguments)+1))
