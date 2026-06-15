@@ -124,6 +124,7 @@ type AgentRequest struct {
 	ActivePaths             []string
 	InstructionPrompt       string
 	ActiveGoal              ActiveGoal
+	ScheduledRun            ScheduledRunContext
 	ActiveTask              ActiveTaskContext
 	PendingConfirmation     PendingConfirmationContext
 	PendingChoice           PendingChoiceContext
@@ -331,6 +332,9 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	}
 	if goalDescription := activeGoalDescription(request.ActiveGoal); goalDescription != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: goalDescription})
+	}
+	if scheduledRunDescription := (LLMContextBuilder{}).scheduledRunContext(request.ScheduledRun); scheduledRunDescription != "" {
+		messages = append(messages, llm.Message{Role: "system", Content: scheduledRunDescription})
 	}
 	if routingContext := turnRoutingContextDescription(request); routingContext != "" {
 		messages = append(messages, llm.Message{Role: "system", Content: routingContext})

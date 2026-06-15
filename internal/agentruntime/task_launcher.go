@@ -56,6 +56,7 @@ type TaskLaunchRequest struct {
 	ResponseLanguage           string
 	VisibleContext             agent.VisibleContext
 	ActiveGoal                 agent.ActiveGoal
+	ScheduledRun               agent.ScheduledRunContext
 	PrecomputedTurnDecision    *agent.TurnDecision
 	AmbientDuty                agent.AmbientDutyContext
 	PinnedToolNames            []string
@@ -321,6 +322,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		ResponseLanguage:        request.ResponseLanguage,
 		VisibleContext:          request.VisibleContext,
 		ActiveGoal:              request.ActiveGoal,
+		ScheduledRun:            request.ScheduledRun,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
 		AmbientDuty:             request.AmbientDuty,
 		MemoryFacts:             memoryFacts,
@@ -378,6 +380,7 @@ func (taskLauncher *TaskLauncher) toolCatalogRequestForLaunch(request TaskLaunch
 		MemoryNamespaces:           request.MemoryNamespaces,
 		AccessibleConversationIDs:  request.AccessibleConversationIDs,
 		InputParts:                 append([]agent.AgentPart{}, request.InputParts...),
+		ScheduledRun:               request.ScheduledRun,
 	}
 }
 

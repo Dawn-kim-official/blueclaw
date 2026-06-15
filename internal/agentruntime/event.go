@@ -1,34 +1,39 @@
 package agentruntime
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"blueclaw/internal/agent"
+)
 
 type taskLaunchEvent struct {
-	Source                            TaskLaunchSource `json:"source"`
-	SourceReference                   string           `json:"sourceReference"`
-	Platform                          string           `json:"platform,omitempty"`
-	ProfileName                       string           `json:"profileName"`
-	RequesterPersonID                 string           `json:"requesterPersonID"`
-	ConversationID                    string           `json:"conversationID"`
-	ReplyTargetID                     string           `json:"replyTargetID,omitempty"`
-	IsThread                          bool             `json:"isThread,omitempty"`
-	ConversationType                  string           `json:"conversationType,omitempty"`
-	ChannelID                         string           `json:"channelID,omitempty"`
-	ChannelName                       string           `json:"channelName,omitempty"`
-	ToolNames                         []string         `json:"toolNames"`
-	ToolRegistryVersion               string           `json:"toolRegistryVersion,omitempty"`
-	CapabilityDescriptorHash          string           `json:"capabilityDescriptorHash,omitempty"`
-	LiveCapabilityHash                string           `json:"liveCapabilityHash,omitempty"`
-	PlatformMessageDescriptorHash     string           `json:"platformMessageDescriptorHash,omitempty"`
-	LivePlatformMessageDescriptorHash string           `json:"livePlatformMessageDescriptorHash,omitempty"`
-	AllowedToolHash                   string           `json:"allowedToolHash,omitempty"`
-	HasScheduleUpdate                 bool             `json:"hasScheduleUpdate"`
-	HasPlatformMessageDelete          bool             `json:"hasPlatformMessageDelete"`
-	HasOldMattermostPostDelete        bool             `json:"hasOldMattermostPostDelete"`
-	HasOldPlatformDMInspect           bool             `json:"hasOldPlatformDMInspect"`
-	LiveHasPlatformMessageDelete      bool             `json:"liveHasPlatformMessageDelete"`
-	LiveHasOldMattermostPostDelete    bool             `json:"liveHasOldMattermostPostDelete"`
-	LiveHasOldPlatformDMInspect       bool             `json:"liveHasOldPlatformDMInspect"`
-	MemoryFactCount                   int              `json:"memoryFactCount"`
+	Source                            TaskLaunchSource           `json:"source"`
+	SourceReference                   string                     `json:"sourceReference"`
+	Platform                          string                     `json:"platform,omitempty"`
+	ProfileName                       string                     `json:"profileName"`
+	RequesterPersonID                 string                     `json:"requesterPersonID"`
+	ConversationID                    string                     `json:"conversationID"`
+	ReplyTargetID                     string                     `json:"replyTargetID,omitempty"`
+	IsThread                          bool                       `json:"isThread,omitempty"`
+	ConversationType                  string                     `json:"conversationType,omitempty"`
+	ChannelID                         string                     `json:"channelID,omitempty"`
+	ChannelName                       string                     `json:"channelName,omitempty"`
+	ToolNames                         []string                   `json:"toolNames"`
+	ToolRegistryVersion               string                     `json:"toolRegistryVersion,omitempty"`
+	CapabilityDescriptorHash          string                     `json:"capabilityDescriptorHash,omitempty"`
+	LiveCapabilityHash                string                     `json:"liveCapabilityHash,omitempty"`
+	PlatformMessageDescriptorHash     string                     `json:"platformMessageDescriptorHash,omitempty"`
+	LivePlatformMessageDescriptorHash string                     `json:"livePlatformMessageDescriptorHash,omitempty"`
+	AllowedToolHash                   string                     `json:"allowedToolHash,omitempty"`
+	HasScheduleUpdate                 bool                       `json:"hasScheduleUpdate"`
+	HasPlatformMessageDelete          bool                       `json:"hasPlatformMessageDelete"`
+	HasOldMattermostPostDelete        bool                       `json:"hasOldMattermostPostDelete"`
+	HasOldPlatformDMInspect           bool                       `json:"hasOldPlatformDMInspect"`
+	LiveHasPlatformMessageDelete      bool                       `json:"liveHasPlatformMessageDelete"`
+	LiveHasOldMattermostPostDelete    bool                       `json:"liveHasOldMattermostPostDelete"`
+	LiveHasOldPlatformDMInspect       bool                       `json:"liveHasOldPlatformDMInspect"`
+	MemoryFactCount                   int                        `json:"memoryFactCount"`
+	ScheduledRun                      *agent.ScheduledRunContext `json:"scheduledRun,omitempty"`
 }
 
 func marshalTaskLaunchEvent(request TaskLaunchRequest, profileName string, toolNames []string, registryAudit ToolRegistryAudit, memoryFactCount int) string {
@@ -59,9 +64,18 @@ func marshalTaskLaunchEvent(request TaskLaunchRequest, profileName string, toolN
 		LiveHasOldMattermostPostDelete:    registryAudit.LiveHasOldMattermostPostDelete,
 		LiveHasOldPlatformDMInspect:       registryAudit.LiveHasOldPlatformDMInspect,
 		MemoryFactCount:                   memoryFactCount,
+		ScheduledRun:                      taskLaunchScheduledRunEvent(request),
 	})
 	if errorValue != nil {
 		return "{}"
 	}
 	return string(document)
+}
+
+func taskLaunchScheduledRunEvent(request TaskLaunchRequest) *agent.ScheduledRunContext {
+	if request.ScheduledRun.IsEmpty() {
+		return nil
+	}
+	scheduledRun := request.ScheduledRun
+	return &scheduledRun
 }
