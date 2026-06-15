@@ -94,10 +94,20 @@ func recoveryGuidanceContent(observation turnObservation) string {
 	if terminalDependencyGuidance := terminalPythonDependencyRecoveryGuidance(observation); terminalDependencyGuidance != "" {
 		parts = append(parts, terminalDependencyGuidance)
 	}
+	if browserGuidance := browserPublicFetchRecoveryGuidance(observation); browserGuidance != "" {
+		parts = append(parts, browserGuidance)
+	}
 	for _, recoveryRoute := range recoveryRoutesForObservation(observation) {
 		parts = append(parts, recoveryRoute.Guidance())
 	}
 	return strings.Join(parts, " ")
+}
+
+func browserPublicFetchRecoveryGuidance(observation turnObservation) string {
+	if !strings.HasPrefix(strings.TrimSpace(observation.Tool), "browser.") {
+		return ""
+	}
+	return "Recovery route: browser tools run on the user's Companion and are only for sign-in, page interaction, screenshots, or pages that block fetching. To read or copy public web page content, use web.fetch (or web.search) instead of a browser; only fall back to the browser handoff when fetching fails or the user explicitly asks for a visible browser. Do not pass a tool name or a localhost address as the browser URL."
 }
 
 func terminalPathRecoveryGuidance(observation turnObservation) string {
