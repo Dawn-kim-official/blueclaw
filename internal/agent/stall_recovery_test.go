@@ -162,3 +162,15 @@ func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
 		t.Fatalf("expected a use-them-now directive, got %q", observation.Summary)
 	}
 }
+
+func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
+	failedBrowser := newFailureObservation("obs-001", "continue", "browser.open", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureDependencyUnavailable, FailureCodes.Unavailable, "browser_open")
+	guidance := recoveryGuidanceContent(failedBrowser)
+	if !strings.Contains(guidance, "web.fetch") {
+		t.Fatalf("expected browser failure to steer toward web.fetch, got %q", guidance)
+	}
+	nonBrowser := newFailureObservation("obs-002", "continue", "terminal.run", "boom", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
+	if strings.Contains(recoveryGuidanceContent(nonBrowser), "browser tools run on the user's Companion") {
+		t.Fatal("expected non-browser failures not to get browser guidance")
+	}
+}
