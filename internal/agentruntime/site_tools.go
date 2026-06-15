@@ -175,7 +175,7 @@ func siteBuildCommandFailureResult(buildResult agent.ToolResult, appWorkspace wo
 			RecoveryHints: []agent.RecoveryHint{{
 				Action:    "edit_resource",
 				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
-				Reason:    "Inspect the source file named in the build error, fix the syntax or content, then run site.app.build again.",
+				Reason:    "Inspect the source file named in the build error and fix it with file.edit or file.write, then run site.app.build again. If your own edit introduced the error, rewrite the file back to the last version you read. git, package managers, and other system executables are not available in this workspace, so do not call terminal.run to revert; restore the file content directly with file.write.",
 			}},
 			AffectedResources: siteBuildFailureAffectedResources(buildResult.ContentText(), appWorkspace),
 		}
