@@ -117,6 +117,7 @@ func repeatedFileReadObservation(observations []turnObservation, actionDocument 
 	if !ok {
 		return turnObservation{}, false
 	}
+	recoveryDirective := stalledReadRecoveryDirective(observations)
 	for _, observation := range observations {
 		fileContext, isFileRead := progressFileContextFromObservation(observation)
 		if !isFileRead || fileContext.Path != requestedRange.Path {
@@ -128,14 +129,26 @@ func repeatedFileReadObservation(observations []turnObservation, actionDocument 
 				continue
 			}
 			if coveredRange.StartLine <= requestedRange.StartLine && coveredRange.EndLine >= requestedRange.EndLine {
-				return cachedFileReadObservation(observationID, observation, "Already read "+requestedRange.Path+" lines "+readRange+" as "+observation.ObservationID+". Reuse the cached content below instead of spending another file.read call."), true
+				return cachedFileReadObservation(observationID, observation, "Already read "+requestedRange.Path+" lines "+readRange+" as "+observation.ObservationID+". Reuse the cached content below instead of spending another file.read call."+recoveryDirective), true
 			}
 			if fileReadRangesOverlap(coveredRange, requestedRange) {
-				return cachedFileReadObservation(observationID, observation, "Already read overlapping lines "+readRange+" from "+requestedRange.Path+" as "+observation.ObservationID+". Reuse cached content and request only an uncovered range such as "+uncoveredFileReadHint(coveredRange, requestedRange)+" if more text is needed."), true
+				return cachedFileReadObservation(observationID, observation, "Already read overlapping lines "+readRange+" from "+requestedRange.Path+" as "+observation.ObservationID+". Reuse cached content and request only an uncovered range such as "+uncoveredFileReadHint(coveredRange, requestedRange)+" if more text is needed."+recoveryDirective), true
 			}
 		}
 	}
 	return turnObservation{}, false
+}
+
+func stalledReadRecoveryDirective(observations []turnObservation) string {
+	failureDebt, hasFailureDebt := activeFailureDebt(observations)
+	if !hasFailureDebt {
+		return ""
+	}
+	failedTool := strings.TrimSpace(failureDebt.LatestFailure.Tool)
+	if failedTool == "" {
+		return ""
+	}
+	return " You already have the file content and an unresolved " + failedTool + " failure. Stop re-reading: edit the file with file.edit to fix the cause, then re-run " + failedTool + "."
 }
 
 func cachedFileReadObservation(observationID string, previousObservation turnObservation, message string) turnObservation {
