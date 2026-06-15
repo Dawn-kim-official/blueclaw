@@ -54,9 +54,14 @@ func RequestContextFromContext(ctx context.Context) RequestContext {
 }
 
 type Usage struct {
-	PromptTokens     int64 `json:"promptTokens"`
-	CompletionTokens int64 `json:"completionTokens"`
-	TotalTokens      int64 `json:"totalTokens"`
+	PromptTokens          int64   `json:"promptTokens"`
+	CompletionTokens      int64   `json:"completionTokens"`
+	TotalTokens           int64   `json:"totalTokens"`
+	CachedPromptTokens    int64   `json:"cachedPromptTokens,omitempty"`
+	CacheWriteTokens      int64   `json:"cacheWriteTokens,omitempty"`
+	ReasoningTokens       int64   `json:"reasoningTokens,omitempty"`
+	CostUSD               float64 `json:"costUSD,omitempty"`
+	UpstreamInferenceCost float64 `json:"upstreamInferenceCostUSD,omitempty"`
 }
 
 type StructuredResponse struct {
