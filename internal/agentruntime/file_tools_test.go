@@ -1304,3 +1304,37 @@ func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestFileEditMatchFailureRecoveryHintLeadsWithFileWrite(t *testing.T) {
+	workspacePath := t.TempDir()
+	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "source.ts")
+	writeTestFile(t, filePath, "same\nsame\n")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	editResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.edit",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":    "tmp/source.ts",
+			"oldText": "same",
+			"newText": "changed",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !editResult.Failed() || editResult.Failure == nil || len(editResult.Failure.RecoveryHints) == 0 {
+		t.Fatalf("expected match failure with recovery hint, got %+v", editResult.Failure)
+	}
+	hint := editResult.Failure.RecoveryHints[0]
+	if len(hint.ToolNames) == 0 || hint.ToolNames[0] != "file.write" {
+		t.Fatalf("expected match-failure recovery to lead with file.write, got %+v", hint.ToolNames)
+	}
+	if !strings.Contains(hint.Reason, "file.write") {
+		t.Fatalf("expected recovery reason to direct a full file.write rewrite, got %q", hint.Reason)
+	}
+}
