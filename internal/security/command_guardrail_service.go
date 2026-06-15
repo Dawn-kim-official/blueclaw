@@ -286,6 +286,10 @@ func (commandGuardrailService CommandGuardrailService) validateArgumentPaths(arg
 			return errorValue
 		}
 
+		if isAllowedStandardDevicePath(resolvedPath) {
+			continue
+		}
+
 		if !isWithinRootPath(workspaceRootPath, resolvedPath) {
 			return newCommandGuardrailError("path argument escapes workspace root", argument, resolvedPath, workspaceRootPath, workingDirectoryPath)
 		}
@@ -311,6 +315,9 @@ func (commandGuardrailService CommandGuardrailService) validateCommandString(com
 		resolvedPath, errorValue := resolvePathArgument(token, workingDirectoryPath)
 		if errorValue != nil {
 			return errorValue
+		}
+		if isAllowedStandardDevicePath(resolvedPath) {
+			continue
 		}
 		if !isWithinRootPath(workspaceRootPath, resolvedPath) {
 			return newCommandGuardrailError("command path escapes workspace root", token, resolvedPath, workspaceRootPath, workingDirectoryPath)
@@ -495,6 +502,22 @@ func isWithinRootPath(rootPath string, targetPath string) bool {
 		return false
 	}
 	return relativePath == "." || (!strings.HasPrefix(relativePath, "..") && relativePath != "..")
+}
+
+var allowedStandardDevicePaths = map[string]bool{
+	"/dev/null":    true,
+	"/dev/zero":    true,
+	"/dev/full":    true,
+	"/dev/random":  true,
+	"/dev/urandom": true,
+	"/dev/stdin":   true,
+	"/dev/stdout":  true,
+	"/dev/stderr":  true,
+	"/dev/tty":     true,
+}
+
+func isAllowedStandardDevicePath(resolvedPath string) bool {
+	return allowedStandardDevicePaths[resolvedPath]
 }
 
 func sanitizeEnvironmentVariables(environmentVariables map[string]string, workspaceRootPath string) map[string]string {

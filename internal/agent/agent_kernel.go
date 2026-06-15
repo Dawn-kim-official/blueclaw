@@ -331,11 +331,12 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 
-	agentTurnRunner := NewAgentTurnRunner(
+	agentTurnRunner := NewAgentTurnRunnerWithRecoveryModel(
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
 		agentKernel.taskArtifactService,
 		agentKernel.taskLanguageModelForTier(taskModelTier(intakeDecision.TaskComplexity, turnOptions.EffortLevel)),
+		agentKernel.languageModel,
 		turnOptions,
 	)
 	result, errorValue := agentTurnRunner.RunTurn(responseContext, turnRequest)
