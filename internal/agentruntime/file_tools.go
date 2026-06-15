@@ -9,6 +9,8 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -908,13 +910,239 @@ func (toolCatalogBuilder *ToolCatalogBuilder) validatePatchEdit(toolContext cont
 	}
 	key := resolvedPath.ConcretePath
 	currentContent := patchState.currentContents[key]
-	matchCount := strings.Count(currentContent, edit.OldText)
-	if matchCount != 1 {
-		result := fileExactEditFailure("file_patch", resolvedPath.VirtualPath, editIndex, matchCount, "oldText did not match the file exactly once; rewrite the whole file with file.write using the full corrected content instead of retrying file.edit")
+	updatedContent, matchCount, applied := applyExactOrTolerantEdit(currentContent, edit.OldText, edit.NewText)
+	if !applied {
+		result := fileExactEditFailure("file_patch", resolvedPath.VirtualPath, editIndex, matchCount, fileEditMatchFailureGuidance(currentContent, edit.OldText, matchCount))
 		return &result
 	}
-	patchState.currentContents[key] = strings.Replace(currentContent, edit.OldText, edit.NewText, 1)
+	patchState.currentContents[key] = updatedContent
 	return nil
+}
+
+func applyExactOrTolerantEdit(content string, oldText string, newText string) (string, int, bool) {
+	if oldText == "" {
+		return "", 0, false
+	}
+	if count := strings.Count(content, oldText); count > 1 {
+		return "", count, false
+	} else if count == 1 {
+		return strings.Replace(content, oldText, newText, 1), 1, true
+	}
+	if updated, ok := replacePartWithMissingLeadingWhitespace(content, oldText, newText); ok {
+		return updated, 1, true
+	}
+	if updated, count, ok := applyUnicodeNormalizedEdit(content, oldText, newText); ok {
+		return updated, count, true
+	} else if count > 1 {
+		return "", count, false
+	}
+	return "", 0, false
+}
+
+func replacePartWithMissingLeadingWhitespace(content string, oldText string, newText string) (string, bool) {
+	fileLines := strings.Split(content, "\n")
+	partLines := strings.Split(oldText, "\n")
+	replaceLines := strings.Split(newText, "\n")
+	if len(partLines) == 0 || len(partLines) > len(fileLines) {
+		return "", false
+	}
+	if minLead := minCommonLeadingWhitespace(append(append([]string{}, partLines...), replaceLines...)); minLead > 0 {
+		partLines = outdentLines(partLines, minLead)
+		replaceLines = outdentLines(replaceLines, minLead)
+	}
+	patternLength := len(partLines)
+	matchStartIndexes := []int{}
+	addedPrefix := ""
+	for index := 0; index+patternLength <= len(fileLines); index++ {
+		if prefix, ok := matchButForLeadingWhitespace(fileLines[index:index+patternLength], partLines); ok {
+			matchStartIndexes = append(matchStartIndexes, index)
+			addedPrefix = prefix
+		}
+	}
+	if len(matchStartIndexes) != 1 {
+		return "", false
+	}
+	matchStart := matchStartIndexes[0]
+	reindentedReplacement := make([]string, len(replaceLines))
+	for index, line := range replaceLines {
+		if strings.TrimSpace(line) == "" {
+			reindentedReplacement[index] = line
+		} else {
+			reindentedReplacement[index] = addedPrefix + line
+		}
+	}
+	updatedLines := append(append(append([]string{}, fileLines[:matchStart]...), reindentedReplacement...), fileLines[matchStart+patternLength:]...)
+	return strings.Join(updatedLines, "\n"), true
+}
+
+func matchButForLeadingWhitespace(windowLines []string, patternLines []string) (string, bool) {
+	if len(windowLines) != len(patternLines) {
+		return "", false
+	}
+	window := rightTrimLines(windowLines)
+	pattern := rightTrimLines(patternLines)
+	for index := range window {
+		if strings.TrimLeft(window[index], " \t") != strings.TrimLeft(pattern[index], " \t") {
+			return "", false
+		}
+	}
+	prefixes := map[string]bool{}
+	for index := range window {
+		if strings.TrimSpace(window[index]) == "" {
+			continue
+		}
+		if len(window[index]) < len(pattern[index]) {
+			return "", false
+		}
+		prefixes[window[index][:len(window[index])-len(pattern[index])]] = true
+	}
+	if len(prefixes) > 1 {
+		return "", false
+	}
+	for prefix := range prefixes {
+		return prefix, true
+	}
+	return "", true
+}
+
+func rightTrimLines(lines []string) []string {
+	trimmed := make([]string, len(lines))
+	for index, line := range lines {
+		trimmed[index] = strings.TrimRight(line, " \t")
+	}
+	return trimmed
+}
+
+func applyUnicodeNormalizedEdit(content string, oldText string, newText string) (string, int, bool) {
+	normalizedContent := normalizeEditLookalikes(content)
+	normalizedOldText := normalizeEditLookalikes(oldText)
+	count := strings.Count(normalizedContent, normalizedOldText)
+	if count != 1 {
+		return "", count, false
+	}
+	byteIndex := strings.Index(normalizedContent, normalizedOldText)
+	runeIndex := utf8.RuneCountInString(normalizedContent[:byteIndex])
+	oldTextRuneLength := utf8.RuneCountInString(normalizedOldText)
+	contentRunes := []rune(content)
+	updated := string(contentRunes[:runeIndex]) + newText + string(contentRunes[runeIndex+oldTextRuneLength:])
+	return updated, 1, true
+}
+
+func normalizeEditLookalikes(value string) string {
+	return strings.Map(func(character rune) rune {
+		switch character {
+		case '\u2018', '\u2019', '\u201A', '\u201B':
+			return '\''
+		case '\u201C', '\u201D', '\u201E', '\u201F':
+			return '"'
+		case '\u2010', '\u2011', '\u2012', '\u2013', '\u2014', '\u2015', '\u2212':
+			return '-'
+		case '\u00A0', '\u2002', '\u2003', '\u2004', '\u2005', '\u2006', '\u2007', '\u2008', '\u2009', '\u200A', '\u202F', '\u205F', '\u3000':
+			return ' '
+		}
+		return character
+	}, value)
+}
+
+func minCommonLeadingWhitespace(lines []string) int {
+	minimum := -1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		leading := len(line) - len(strings.TrimLeft(line, " \t"))
+		if minimum == -1 || leading < minimum {
+			minimum = leading
+		}
+	}
+	if minimum < 0 {
+		return 0
+	}
+	return minimum
+}
+
+func outdentLines(lines []string, amount int) []string {
+	outdented := make([]string, len(lines))
+	for index, line := range lines {
+		if strings.TrimSpace(line) == "" || len(line) < amount {
+			outdented[index] = line
+			continue
+		}
+		outdented[index] = line[amount:]
+	}
+	return outdented
+}
+
+func fileEditMatchFailureGuidance(content string, oldText string, matchCount int) string {
+	if matchCount > 1 {
+		return "oldText matched " + strconv.Itoa(matchCount) + " places; include more surrounding lines so oldText identifies exactly one location."
+	}
+	if similar := closestFileLines(content, oldText); similar != "" {
+		return "oldText was not found, even after allowing whitespace and quote differences. The closest existing lines are:\n" + similar + "\nRead the file for the exact current text, or rewrite the whole file with file.write."
+	}
+	return "oldText was not found, even after allowing whitespace and quote differences. Read the file for the exact current text, or rewrite the whole file with file.write."
+}
+
+func closestFileLines(content string, oldText string) string {
+	target := ""
+	for _, line := range strings.Split(oldText, "\n") {
+		if strings.TrimSpace(line) != "" {
+			target = strings.TrimSpace(line)
+			break
+		}
+	}
+	if target == "" {
+		return ""
+	}
+	type scoredLine struct {
+		line  string
+		score float64
+	}
+	scored := []scoredLine{}
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if score := lineSimilarity(trimmed, target); score >= 0.6 {
+			scored = append(scored, scoredLine{line: line, score: score})
+		}
+	}
+	sort.SliceStable(scored, func(first int, second int) bool {
+		return scored[first].score > scored[second].score
+	})
+	closest := []string{}
+	for _, candidate := range scored {
+		closest = append(closest, candidate.line)
+		if len(closest) == 3 {
+			break
+		}
+	}
+	return strings.Join(closest, "\n")
+}
+
+func lineSimilarity(first string, second string) float64 {
+	firstBigrams := characterBigrams(first)
+	secondBigrams := characterBigrams(second)
+	if len(firstBigrams) == 0 || len(secondBigrams) == 0 {
+		return 0
+	}
+	shared := 0
+	for bigram := range firstBigrams {
+		if secondBigrams[bigram] {
+			shared++
+		}
+	}
+	return 2 * float64(shared) / float64(len(firstBigrams)+len(secondBigrams))
+}
+
+func characterBigrams(value string) map[string]bool {
+	runes := []rune(value)
+	bigrams := map[string]bool{}
+	for index := 0; index+1 < len(runes); index++ {
+		bigrams[string(runes[index:index+2])] = true
+	}
+	return bigrams
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveEditableFilePath(toolContext context.Context, handlerContext toolHandlerContext, workspaceActor security.WorkspaceActor, path string, patchState *filePatchState) (ResolvedWorkspacePath, *agent.ToolResult) {
@@ -991,18 +1219,10 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	result.Failure.RetryPolicy = "different_input"
-	if editIndex >= 0 && matchCount != 1 {
-		result.Failure.RecoveryHints = []agent.RecoveryHint{{
-			Action:    "rewrite_text",
-			ToolNames: []string{"file.write", "file.read"},
-			Reason:    "oldText did not match the file exactly once, so snippet editing is unreliable here. Rewrite the entire file with file.write using the full corrected content you already read, instead of retrying file.edit with another snippet.",
-		}}
-		return result
-	}
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
 		Action:    "inspect_or_edit_text",
 		ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
-		Reason:    "Read the current file content, then retry with an exact oldText snippet or rewrite the full file.",
+		Reason:    "Read the current file content, then retry with an exact oldText snippet or rewrite the full file with file.write.",
 	}}
 	return result
 }
