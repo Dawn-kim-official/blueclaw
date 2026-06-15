@@ -153,12 +153,17 @@ func shouldCleanRestartRestoredTask(events []task.TaskEvent) bool {
 }
 
 func cleanRestartedAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRun task.TaskRun, events []task.TaskEvent) agentTaskState {
-	state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
+	state := buildInitialAgentTaskState(scrubRestoredGoalContext(request), options, taskRun.TaskRunID)
 	state.Status = taskRun.Status
 	durableObservations := durableDeliveryObservations(events)
 	state.Observations = append(durableObservations, regroundingObservation(len(durableObservations)+1))
 	state.Attachments = attachmentsFromObservations(state.Observations)
 	return state
+}
+
+func scrubRestoredGoalContext(request AgentTurnRequest) AgentTurnRequest {
+	request.ActiveGoal.KnownContext = []string{"The prior attempt on this task stalled and its working notes were cleared. Ignore the earlier trajectory and earlier tool outputs; re-ground from the current workspace state via site.app.status and the source on disk before acting."}
+	return request
 }
 
 func durableDeliveryObservations(events []task.TaskEvent) []turnObservation {
