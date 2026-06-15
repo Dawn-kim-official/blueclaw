@@ -451,12 +451,20 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				Reason:     actionDocument.Reason,
 			}
 			nextRequest, selectionResult := applyToolSelectionRequest(request, selectionRequest)
+			addedNothing := toolSelectionAddedNothing(request, nextRequest, selectionResult)
 			request = nextRequest
 			state.Request = nextRequest
-			observation := toolSelectionObservation(len(state.Observations)+1, selectionRequest, selectionResult)
+			var observation turnObservation
+			if addedNothing {
+				observation = redundantToolSelectionObservation(len(state.Observations)+1, selectionRequest, selectionResult)
+			} else {
+				observation = toolSelectionObservation(len(state.Observations)+1, selectionRequest, selectionResult)
+			}
 			state.Observations = append(state.Observations, observation)
 			eventName := "agent.tool_palette.applied"
-			if toolSelectionResultFailed(selectionResult) {
+			if addedNothing {
+				eventName = "agent.tool_palette.redundant"
+			} else if toolSelectionResultFailed(selectionResult) {
 				eventName = "agent.tool_palette.failed"
 			}
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, eventName, marshalEventBody(map[string]any{

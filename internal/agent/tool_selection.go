@@ -234,6 +234,28 @@ func toolSelectionObservation(index int, selectionRequest selectToolsRequest, re
 	return observation
 }
 
+func toolSelectionAddedNothing(before AgentTurnRequest, after AgentTurnRequest, result toolSelectionResult) bool {
+	if toolSelectionResultFailed(result) {
+		return false
+	}
+	return len(after.PinnedToolNames) == len(before.PinnedToolNames) &&
+		len(after.PinnedSkillNames) == len(before.PinnedSkillNames)
+}
+
+func redundantToolSelectionObservation(index int, selectionRequest selectToolsRequest, result toolSelectionResult) turnObservation {
+	requested := appendUniqueStrings(append(append([]string{}, selectionRequest.ToolNames...), selectionRequest.SkillNames...))
+	directive := "These tools and skills are already available in your palette: " + strings.Join(requested, ", ") + ". Do not call select_tools again for tools you already have; call one of them now to make progress, or finish."
+	content := marshalEventBody(map[string]any{
+		"request":   selectionRequest,
+		"result":    result,
+		"redundant": true,
+		"directive": directive,
+	})
+	observation := newContentObservation(nextObservationID(index), "select_tools", "", content)
+	observation.Summary = directive
+	return observation
+}
+
 func toolSelectionResultFailed(result toolSelectionResult) bool {
 	return len(result.UnknownToolNames) > 0 ||
 		len(result.UnavailableToolNames) > 0 ||
