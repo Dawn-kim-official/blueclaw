@@ -45,6 +45,7 @@ type AgentTurnRequest struct {
 	RequesterEmail             string
 	RequesterName              string
 	RequesterPlatformUserID    string
+	SourceReference            string
 	IsApprovalContinuation     bool
 	IsRuntimeRestartResume     bool
 	ExistingTaskRunID          string
@@ -316,6 +317,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	})
 
 	taskRun := agentTurnRunner.taskRunForRequest(request)
+	agentTurnRunner.appendTaskSourceEvent(taskRun.TaskRunID, request.SourceReference)
 	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, func(record llmCallRecord) {
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))
 	})
@@ -698,6 +700,16 @@ func (agentTurnRunner *AgentTurnRunner) taskRunForRequest(request AgentTurnReque
 		ReplyTargetID:  request.OriginReplyTargetID,
 		IsThread:       request.OriginIsThread,
 	}, request.Prompt)
+}
+
+func (agentTurnRunner *AgentTurnRunner) appendTaskSourceEvent(taskRunID string, sourceReference string) {
+	trimmedSourceReference := strings.TrimSpace(sourceReference)
+	if trimmedSourceReference == "" {
+		return
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.task_source", marshalEventBody(map[string]string{
+		"sourceReference": trimmedSourceReference,
+	}))
 }
 
 func (agentTurnRunner *AgentTurnRunner) pausedTaskResult(taskRunID string, observation turnObservation, attachments []FileAttachment) (AgentTurnResult, bool) {

@@ -889,6 +889,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 
 	connectorRuntime.logger.Info("connector."+platform+".auth.allowed", slog.String("messageID", event.MessageID), slog.String("personID", personID))
+	if result, isHandled := connectorRuntime.suppressDuplicateSourceTaskIfNeeded(platform, event, personID); isHandled {
+		return result, nil
+	}
 	if result, isHandled := connectorRuntime.handleTaskControlIfRequested(ctx, platform, adapter, event, replyTarget, personID, sendReply); isHandled {
 		return result, nil
 	}
@@ -3253,6 +3256,62 @@ func (event PlatformInboundEvent) DedupeKey() string {
 	messageID := strings.TrimSpace(event.MessageID)
 	conversationID := strings.TrimSpace(event.ConversationID)
 	return event.Platform + ":" + conversationID + ":" + messageID
+}
+
+func (connectorRuntime *ConnectorRuntime) suppressDuplicateSourceTaskIfNeeded(platform string, event PlatformInboundEvent, personID string) (ConnectorRuntimeResult, bool) {
+	sourceReference := event.DedupeKey()
+	taskRun, isFound := connectorRuntime.findTaskRunBySourceReference(personID, sourceReference)
+	if !isFound {
+		return ConnectorRuntimeResult{}, false
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "connector.duplicate_source_suppressed", marshalConnectorEventBody(map[string]string{
+		"messageID":       event.MessageID,
+		"sourceReference": sourceReference,
+	}))
+	connectorRuntime.logger.Info("connector."+platform+".event.suppressed", slog.String("source", event.Source), slog.String("reason", "duplicate_source_reference"), slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRun.TaskRunID))
+	return ConnectorRuntimeResult{Handled: true, Platform: platform, Duplicate: true, Reason: "duplicate_source_reference", TaskRunID: taskRun.TaskRunID}, true
+}
+
+func (connectorRuntime *ConnectorRuntime) findTaskRunBySourceReference(personID string, sourceReference string) (task.TaskRun, bool) {
+	trimmedSourceReference := strings.TrimSpace(sourceReference)
+	if trimmedSourceReference == "" {
+		return task.TaskRun{}, false
+	}
+	var selectedTaskRun task.TaskRun
+	isFound := false
+	for _, taskRun := range connectorRuntime.agentKernel.ListTaskRunByPersonID(personID) {
+		if !connectorRuntime.taskRunHasSourceReference(taskRun.TaskRunID, trimmedSourceReference) {
+			continue
+		}
+		if isFound && !taskRun.UpdatedAt.After(selectedTaskRun.UpdatedAt) {
+			continue
+		}
+		selectedTaskRun = taskRun
+		isFound = true
+	}
+	return selectedTaskRun, isFound
+}
+
+func (connectorRuntime *ConnectorRuntime) taskRunHasSourceReference(taskRunID string, sourceReference string) bool {
+	for _, taskEvent := range connectorRuntime.agentKernel.ListTaskEvent(taskRunID) {
+		if taskEvent.Name != "agent.task_source" && taskEvent.Name != "agent.task_launched" {
+			continue
+		}
+		if taskEventSourceReference(taskEvent) == sourceReference {
+			return true
+		}
+	}
+	return false
+}
+
+func taskEventSourceReference(taskEvent task.TaskEvent) string {
+	var document struct {
+		SourceReference string `json:"sourceReference"`
+	}
+	if json.Unmarshal([]byte(taskEvent.Body), &document) != nil {
+		return ""
+	}
+	return strings.TrimSpace(document.SourceReference)
 }
 
 func (event *PlatformInboundEvent) UnmarshalJSON(document []byte) error {

@@ -304,6 +304,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		RequesterEmail:          request.RequesterEmail,
 		RequesterName:           request.RequesterName,
 		RequesterPlatformUserID: request.RequesterPlatformUserID,
+		SourceReference:         request.SourceReference,
 		IsApprovalContinuation:  request.IsApprovalContinuation,
 		IsRuntimeRestartResume:  request.IsRuntimeRestartResume,
 		ExistingTaskRunID:       request.ExistingTaskRunID,
