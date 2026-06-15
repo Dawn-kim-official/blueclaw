@@ -1305,36 +1305,61 @@ func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 	}
 }
 
-func TestFileEditMatchFailureRecoveryHintLeadsWithFileWrite(t *testing.T) {
-	workspacePath := t.TempDir()
-	filePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "source.ts")
-	writeTestFile(t, filePath, "same\nsame\n")
-	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:       "default",
-		RequesterPersonID: "person-1",
-		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-	})
 
-	editResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.edit",
-		Input: agent.MarshalToolInput(map[string]any{
-			"path":    "tmp/source.ts",
-			"oldText": "same",
-			"newText": "changed",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
+func TestApplyExactOrTolerantEditExactMatch(t *testing.T) {
+	updated, count, applied := applyExactOrTolerantEdit("alpha\nbeta\ngamma\n", "beta", "BETA")
+	if !applied || count != 1 || updated != "alpha\nBETA\ngamma\n" {
+		t.Fatalf("expected exact replace, got applied=%v count=%d %q", applied, count, updated)
 	}
-	if !editResult.Failed() || editResult.Failure == nil || len(editResult.Failure.RecoveryHints) == 0 {
-		t.Fatalf("expected match failure with recovery hint, got %+v", editResult.Failure)
+}
+
+func TestApplyExactOrTolerantEditRejectsAmbiguous(t *testing.T) {
+	_, count, applied := applyExactOrTolerantEdit("same\nsame\n", "same", "changed")
+	if applied || count != 2 {
+		t.Fatalf("expected ambiguous rejection with count 2, got applied=%v count=%d", applied, count)
 	}
-	hint := editResult.Failure.RecoveryHints[0]
-	if len(hint.ToolNames) == 0 || hint.ToolNames[0] != "file.write" {
-		t.Fatalf("expected match-failure recovery to lead with file.write, got %+v", hint.ToolNames)
+}
+
+func TestApplyExactOrTolerantEditToleratesLeadingWhitespace(t *testing.T) {
+	content := "func main() {\n        callDeep()\n}\n"
+	// model wrote the block with 4-space indent; file has 8 spaces
+	updated, _, applied := applyExactOrTolerantEdit(content, "    callDeep()", "    callShallow()")
+	if !applied {
+		t.Fatal("expected leading-whitespace-tolerant match to apply")
 	}
-	if !strings.Contains(hint.Reason, "file.write") {
-		t.Fatalf("expected recovery reason to direct a full file.write rewrite, got %q", hint.Reason)
+	if updated != "func main() {\n        callShallow()\n}\n" {
+		t.Fatalf("expected replacement re-indented to file's 8 spaces, got %q", updated)
+	}
+}
+
+func TestApplyExactOrTolerantEditToleratesTrailingWhitespace(t *testing.T) {
+	// File lines carry trailing whitespace the model omitted, so the exact
+	// multi-line substring does not match and the tolerant tier must apply.
+	content := "alpha  \nbeta\n"
+	updated, _, applied := applyExactOrTolerantEdit(content, "alpha\nbeta", "ALPHA\nBETA")
+	if !applied || updated != "ALPHA\nBETA\n" {
+		t.Fatalf("expected trailing-whitespace-tolerant match, got applied=%v %q", applied, updated)
+	}
+}
+
+func TestApplyExactOrTolerantEditNormalizesSmartQuotes(t *testing.T) {
+	content := "const greeting = ‘hello’;\n"
+	updated, _, applied := applyExactOrTolerantEdit(content, "const greeting = 'hello';", "const greeting = 'hi';")
+	if !applied || updated != "const greeting = 'hi';\n" {
+		t.Fatalf("expected smart-quote normalized match, got applied=%v %q", applied, updated)
+	}
+}
+
+func TestApplyExactOrTolerantEditFailsWhenAbsent(t *testing.T) {
+	_, count, applied := applyExactOrTolerantEdit("alpha\nbeta\n", "totally-different-line", "x")
+	if applied || count != 0 {
+		t.Fatalf("expected absent oldText to fail, got applied=%v count=%d", applied, count)
+	}
+}
+
+func TestFileEditMatchFailureGuidanceSuggestsClosestLines(t *testing.T) {
+	guidance := fileEditMatchFailureGuidance("export const Button = () => null;\n", "export const Buttons = () => null;", 0)
+	if !strings.Contains(guidance, "closest existing lines") || !strings.Contains(guidance, "export const Button") {
+		t.Fatalf("expected closest-line suggestion, got %q", guidance)
 	}
 }
