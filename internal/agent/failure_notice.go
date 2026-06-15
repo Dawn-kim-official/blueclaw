@@ -105,8 +105,15 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 		status.Reason = "language_model_unavailable"
 		return buildRawErrorFailureNotice(report), status
 	}
+	safetyDraft := ""
+	rememberSafetyDraft := func(candidate string) {
+		if safetyDraft == "" && failureNoticeMessagePassesSafety(candidate, report) {
+			safetyDraft = strings.TrimSpace(candidate)
+		}
+	}
 	reply, errorValue := generator.generateRecoveryText(generationContext, buildFailureNoticePrompt(report))
 	if errorValue == nil {
+		rememberSafetyDraft(reply)
 		if notice, source, hasNotice := prepareFailureNoticeWithGenerator(generator, generationContext, reply, "generated", report); hasNotice {
 			status.Source = source
 			return notice, status
@@ -117,21 +124,11 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 		for repairCount := 1; repairCount <= 2; repairCount++ {
 			repairedReply, repairError := generator.generateRecoveryText(generationContext, buildFailureNoticeRepairPrompt(report, reply, repairCount))
 			if repairError != nil || strings.TrimSpace(repairedReply) == "" {
-				if notice, localError, hasNotice := generator.generateLocalFailureNotice(generationContext, report, reply); hasNotice {
-					status.Source = notice.Source
-					status.RepairCount = repairCount
-					status.Reason = "local_recovery_after_repair_failed"
-					status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
-					return notice, status
-				} else if localError != "" {
-					status.LocalRecoveryError = localError
-				}
-				status.Source = "raw_error"
 				status.RepairCount = repairCount
-				status.Reason = "repair_failed"
 				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
-				return buildRawErrorFailureNotice(report), status
+				break
 			}
+			rememberSafetyDraft(repairedReply)
 			notice, source, hasNotice := prepareFailureNoticeWithGenerator(generator, generationContext, repairedReply, "generated_repair", report)
 			if hasNotice {
 				status.Source = source
@@ -140,20 +137,55 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 			}
 			reply = repairedReply
 		}
-		status.RepairCount = 2
+		if status.RepairCount == 0 {
+			status.RepairCount = 2
+		}
 	}
 	if notice, localError, hasNotice := generator.generateLocalFailureNotice(generationContext, report, reply); hasNotice {
 		status.Source = notice.Source
 		status.Reason = "local_recovery_after_text_failure"
-		status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
+		status.TextRecoveryError = firstNonEmptyString(status.TextRecoveryError, errorString(errorValue), "invalid_generated_reply")
 		return notice, status
 	} else if localError != "" {
 		status.LocalRecoveryError = localError
 	}
+	if safetyDraft != "" {
+		status.Source = "generated_degraded"
+		status.Reason = firstNonEmptyString(status.Reason, "style_check_failed_safe_draft_delivered")
+		status.TextRecoveryError = firstNonEmptyString(status.TextRecoveryError, errorString(errorValue), "invalid_generated_reply")
+		return buildSafeFailureNotice(safetyDraft, "generated_degraded", report), status
+	}
 	status.Source = "raw_error"
 	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
-	status.TextRecoveryError = firstNonEmptyString(errorString(errorValue), "invalid_generated_reply")
+	status.TextRecoveryError = firstNonEmptyString(status.TextRecoveryError, errorString(errorValue), "invalid_generated_reply")
 	return buildRawErrorFailureNotice(report), status
+}
+
+func failureNoticeMessagePassesSafety(message string, report FailureReport) bool {
+	trimmedMessage := strings.TrimSpace(message)
+	if trimmedMessage == "" || len([]rune(trimmedMessage)) > failureNoticeMaximumCharacters {
+		return false
+	}
+	if containsInternalDiagnosticLeak(trimmedMessage) {
+		return false
+	}
+	if finishMessageNonDeliverableArtifactLocator(trimmedMessage) != "" {
+		return false
+	}
+	if !report.HasAttachments && FinishMessageClaimsAttachmentDelivery(trimmedMessage) {
+		return false
+	}
+	return true
+}
+
+func buildSafeFailureNotice(message string, source string, report FailureReport) FailureNotice {
+	return FailureNotice{
+		Message:           strings.TrimSpace(message),
+		Source:            strings.TrimSpace(source),
+		Language:          strings.TrimSpace(report.ResponseLanguage),
+		DiagnosticEventID: strings.TrimSpace(report.DiagnosticEventID),
+		IsSendable:        true,
+	}
 }
 
 func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context, report IntakeReport) FailureNotice {

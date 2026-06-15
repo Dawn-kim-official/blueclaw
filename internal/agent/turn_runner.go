@@ -33,11 +33,12 @@ type RecoveryBudget struct {
 }
 
 type AgentTurnRunner struct {
-	taskRunService      *task.TaskRunService
-	taskStepService     *task.TaskStepService
-	taskArtifactService *task.TaskArtifactService
-	languageModel       llm.LanguageModelProvider
-	options             TurnOptions
+	taskRunService        *task.TaskRunService
+	taskStepService       *task.TaskStepService
+	taskArtifactService   *task.TaskArtifactService
+	languageModel         llm.LanguageModelProvider
+	recoveryLanguageModel llm.LanguageModelProvider
+	options               TurnOptions
 }
 
 type AgentTurnRequest struct {
@@ -248,15 +249,23 @@ func withObservationContent(observation turnObservation, content string) turnObs
 }
 
 func NewAgentTurnRunner(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel llm.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
+	return NewAgentTurnRunnerWithRecoveryModel(taskRunService, taskStepService, taskArtifactService, languageModel, languageModel, options)
+}
+
+func NewAgentTurnRunnerWithRecoveryModel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService, taskArtifactService *task.TaskArtifactService, languageModel llm.LanguageModelProvider, recoveryLanguageModel llm.LanguageModelProvider, options TurnOptions) *AgentTurnRunner {
 	if taskArtifactService == nil {
 		taskArtifactService = task.NewTaskArtifactService()
 	}
+	if recoveryLanguageModel == nil {
+		recoveryLanguageModel = languageModel
+	}
 	return &AgentTurnRunner{
-		taskRunService:      taskRunService,
-		taskStepService:     taskStepService,
-		taskArtifactService: taskArtifactService,
-		languageModel:       languageModel,
-		options:             normalizeTurnOptions(options),
+		taskRunService:        taskRunService,
+		taskStepService:       taskStepService,
+		taskArtifactService:   taskArtifactService,
+		languageModel:         languageModel,
+		recoveryLanguageModel: recoveryLanguageModel,
+		options:               normalizeTurnOptions(options),
 	}
 }
 
@@ -318,9 +327,15 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 
 	taskRun := agentTurnRunner.taskRunForRequest(request)
 	agentTurnRunner.appendTaskSourceEvent(taskRun.TaskRunID, request.SourceReference)
-	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, func(record llmCallRecord) {
+	observeRecord := func(record llmCallRecord) {
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))
-	})
+	}
+	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, observeRecord)
+	if agentTurnRunner.recoveryLanguageModel == nil {
+		agentTurnRunner.recoveryLanguageModel = agentTurnRunner.languageModel
+	} else {
+		agentTurnRunner.recoveryLanguageModel = observeLanguageModel(agentTurnRunner.recoveryLanguageModel, observeRecord)
+	}
 	runningTaskRun, errorValue := agentTurnRunner.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
 	if errorValue != nil {
 		return agentTurnRunner.failLaunchStep(context.Background(), taskRun, request, "start_attempt", errorValue), nil
@@ -588,7 +603,7 @@ func (agentTurnRunner *AgentTurnRunner) failLaunchStep(ctx context.Context, task
 		taskRun.FailureReason = firstNonEmptyString(reason, failError.Error())
 		failedTaskRun = taskRun
 	}
-	failureNotice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.languageModel}).Generate(ctx, FailureReport{
+	failureNotice, noticeStatus := (FailureNoticeGenerator{LanguageModel: agentTurnRunner.recoveryLanguageModel}).Generate(ctx, FailureReport{
 		Phase:              "launch",
 		StepName:           stepName,
 		StopReason:         reason,
