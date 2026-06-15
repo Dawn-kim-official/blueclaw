@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestObservedResultsDoNotTreatDraftSiteCreateURLAsDeliverableLink(t *testing.T) {
 	results := buildObservedResults([]turnObservation{{
@@ -203,8 +206,8 @@ func TestRequiredLinkVerificationRequiresFinalMessageToUseObservedURL(t *testing
 	if verification.OverallStatus != "missing" {
 		t.Fatalf("expected missing verification with wrong final URL, got %+v", verification)
 	}
-	if verification.Results[0].Reason != "Final message does not include an exact observed link URL." {
-		t.Fatalf("unexpected missing reason: %+v", verification.Results[0])
+	if !strings.Contains(verification.Results[0].Reason, "https://portfolio-probe.device.example.test") {
+		t.Fatalf("missing reason must name the exact observed URL: %+v", verification.Results[0])
 	}
 }
 
