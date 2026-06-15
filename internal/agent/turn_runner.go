@@ -395,7 +395,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		state.Observations = agentTurnRunner.applyPendingSteeringEvents(taskRun.TaskRunID, state.Observations, appliedSteerEventIDs)
 		state.IterationCount = iteration - 1
-		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, state.ToolCallCount, len(state.Observations)+1, limitPressureWarnings); warning != nil {
+		if warning := agentTurnRunner.nextLimitPressureWarning(iteration-1, state.ToolCallCount, agentTurnRunner.turnElapsed(request.TurnStartedAt), len(state.Observations)+1, limitPressureWarnings); warning != nil {
 			state.Observations = append(state.Observations, warning.Observation)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.limit_pressure", marshalEventBody(warning.EventBody))
 			limitPressureWarnings[warning.Level] = true
@@ -1305,19 +1305,20 @@ type limitPressureWarning struct {
 	EventBody   map[string]any
 }
 
-func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCount int, usedToolCallCount int, observationIndex int, sentWarnings map[string]bool) *limitPressureWarning {
+func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCount int, usedToolCallCount int, elapsed time.Duration, observationIndex int, sentWarnings map[string]bool) *limitPressureWarning {
 	if sentWarnings["finalize"] {
 		return nil
 	}
 	if agentTurnRunner.options.MaxIterationCount < 10 && agentTurnRunner.options.MaxToolCallCount < 5 {
 		return nil
 	}
-	level := agentTurnRunner.limitPressureLevel(usedIterationCount, usedToolCallCount)
+	level := agentTurnRunner.limitPressureLevel(usedIterationCount, usedToolCallCount, elapsed)
 	if level == "" || sentWarnings[level] {
 		return nil
 	}
 	maxToolCallCount := maxToolCallCountWithRecovery(agentTurnRunner.options, nil)
-	message := limitPressureMessage(level, usedToolCallCount, maxToolCallCount, usedIterationCount, agentTurnRunner.options.MaxIterationCount)
+	maxElapsed := time.Duration(agentTurnRunner.options.MaxElapsedSecond) * time.Second
+	message := limitPressureMessage(level, usedToolCallCount, maxToolCallCount, usedIterationCount, agentTurnRunner.options.MaxIterationCount, elapsed, maxElapsed)
 	return &limitPressureWarning{
 		Level:       level,
 		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
@@ -1328,21 +1329,35 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 			"usedToolCallCount":  usedToolCallCount,
 			"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
 			"maxToolCallCount":   maxToolCallCount,
+			"elapsedSeconds":     int(elapsed.Seconds()),
+			"maxElapsedSeconds":  agentTurnRunner.options.MaxElapsedSecond,
 		},
 	}
 }
 
-func (agentTurnRunner *AgentTurnRunner) limitPressureLevel(usedIterationCount int, usedToolCallCount int) string {
-	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 90) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 90) {
+func (agentTurnRunner *AgentTurnRunner) limitPressureLevel(usedIterationCount int, usedToolCallCount int, elapsed time.Duration) string {
+	maxElapsed := time.Duration(agentTurnRunner.options.MaxElapsedSecond) * time.Second
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 90) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 90) || elapsedUsageReached(elapsed, maxElapsed, 90) {
 		return "finalize"
 	}
-	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 75) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 75) {
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 75) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 75) || elapsedUsageReached(elapsed, maxElapsed, 75) {
 		return "consolidate"
 	}
-	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 50) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 50) {
+	if limitUsageReached(usedIterationCount, agentTurnRunner.options.MaxIterationCount, 50) || limitUsageReached(usedToolCallCount, agentTurnRunner.options.MaxToolCallCount, 50) || elapsedUsageReached(elapsed, maxElapsed, 50) {
 		return "budget"
 	}
 	return ""
+}
+
+func elapsedUsageReached(elapsed time.Duration, maxElapsed time.Duration, thresholdPercent int) bool {
+	if maxElapsed <= 0 || elapsed <= 0 {
+		return false
+	}
+	return elapsed*100 >= maxElapsed*time.Duration(thresholdPercent)
+}
+
+func roundedSeconds(duration time.Duration) string {
+	return duration.Round(time.Second).String()
 }
 
 func limitUsageReached(usedCount int, maxCount int, thresholdPercent int) bool {
@@ -1352,8 +1367,11 @@ func limitUsageReached(usedCount int, maxCount int, thresholdPercent int) bool {
 	return usedCount*100 >= maxCount*thresholdPercent
 }
 
-func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount int, usedIterationCount int, maxIterationCount int) string {
+func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount int, usedIterationCount int, maxIterationCount int, elapsed time.Duration, maxElapsed time.Duration) string {
 	budgetLine := fmt.Sprintf("Budget status: %d/%d tool calls used and %d/%d steps used.", usedToolCallCount, maxToolCallCount, usedIterationCount, maxIterationCount)
+	if maxElapsed > 0 {
+		budgetLine += fmt.Sprintf(" Time: %s/%s elapsed.", roundedSeconds(elapsed), roundedSeconds(maxElapsed))
+	}
 	if level == "finalize" {
 		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish/promote/attach, then final. Do not inspect more unless delivery is impossible without it."
 	}
@@ -1455,6 +1473,13 @@ func (agentTurnRunner *AgentTurnRunner) currentEffortElapsed(turnStartedAt time.
 		return false
 	}
 	return time.Since(turnStartedAt) >= time.Duration(agentTurnRunner.options.MaxElapsedSecond)*time.Second
+}
+
+func (agentTurnRunner *AgentTurnRunner) turnElapsed(turnStartedAt time.Time) time.Duration {
+	if turnStartedAt.IsZero() {
+		return 0
+	}
+	return time.Since(turnStartedAt)
 }
 
 func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, executionState ExecutionState) (AgentTurnResult, bool) {
