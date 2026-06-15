@@ -220,6 +220,39 @@ func TestCommandPathGuardrailIgnoresHereDocumentContentPaths(t *testing.T) {
 	}
 }
 
+func TestCommandGuardrailAllowsStandardDeviceRedirects(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root cannot build terminal command plans")
+	}
+
+	workspaceRootPath := t.TempDir()
+	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
+		Mode:                  "firecrackerGuest",
+		WorkspaceRootPath:     workspaceRootPath,
+		AllowNetwork:          true,
+		AllowInteractiveShell: true,
+		TimeoutSecond:         3,
+	})
+
+	_, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
+		Command:              `find . -name "*.html" 2>/dev/null`,
+		WorkingDirectoryPath: workspaceRootPath,
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected standard device redirect to be allowed, got %v", errorValue)
+	}
+}
+
+func TestStandardDeviceWhitelistRejectsBlockDevices(t *testing.T) {
+	if !isAllowedStandardDevicePath("/dev/null") {
+		t.Fatal("expected /dev/null to be allowed")
+	}
+	if isAllowedStandardDevicePath("/dev/sda") {
+		t.Fatal("expected /dev/sda to remain blocked")
+	}
+}
+
 func TestCommandPathGuardrailRejectsEscapingPathBeforeHereDocument(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root cannot build terminal command plans")
