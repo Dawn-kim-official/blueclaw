@@ -128,6 +128,22 @@ func TestPOSIXStateForPolicyGivesEveryPersonStaffAccess(t *testing.T) {
 	}
 }
 
+func TestPOSIXStateForPolicyKeepsSharedRootReadOnlyButPublicAndCacheWritable(t *testing.T) {
+	state := POSIXStateForPolicy(policy.PolicyDocument{
+		People: []policy.PersonPolicy{{PersonID: "person-1"}},
+	}, "/workspace")
+
+	if !hasPOSIXDirectory(state, "/workspace/shared", "blueclaw", "bc_shared", "2755") {
+		t.Fatalf("expected shared root to be group read-only (2755), got %+v", state.Directories)
+	}
+	if !hasPOSIXDirectory(state, "/workspace/shared/public", "blueclaw", "bc_shared", "2775") {
+		t.Fatalf("expected shared public to be group writable (2775), got %+v", state.Directories)
+	}
+	if !hasPOSIXDirectory(state, "/workspace/shared/cache/dependencies", "blueclaw", "bc_shared", "2775") {
+		t.Fatalf("expected dependency cache to be group writable (2775), got %+v", state.Directories)
+	}
+}
+
 func hasPOSIXDirectory(state POSIXState, path string, owner string, group string, modeText string) bool {
 	for _, directory := range state.Directories {
 		if directory.Path == path && directory.Owner == owner && directory.Group == group && directory.ModeText == modeText {
