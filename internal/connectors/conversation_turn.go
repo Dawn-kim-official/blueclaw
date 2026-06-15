@@ -23,6 +23,7 @@ type ConversationTurn struct {
 	AmbientDuty               agent.AmbientDutyContext
 	CheckpointSender          agent.AgentCheckpointSender
 	AccessibleConversationIDs []string
+	IsBlockedContinuation     bool
 }
 
 func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn ConversationTurn) agentruntime.TaskLaunchRequest {
@@ -42,6 +43,7 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		RequesterEmail:             turn.RequesterEmail,
 		RequesterPlatformUserID:    event.SenderID,
 		IsApprovalContinuation:     turn.IsApprovalContinuation,
+		IsRuntimeRestartResume:     turn.IsBlockedContinuation,
 		ExistingTaskRunID:          existingGoalTaskRunIDFromTurn(turn),
 		OriginReplyTargetID:        event.ReplyTargetID,
 		OriginIsThread:             eventIsThreadReply(event),

@@ -996,6 +996,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		AmbientDuty:               addressingLaunch.AmbientDuty,
 		CheckpointSender:          connectorRuntime.checkpointSenderForTurn(platform, event, replyTarget, sendReply),
 		AccessibleConversationIDs: []string{event.ConversationID},
+		IsBlockedContinuation:     activeGoal.Status == agent.ActiveGoalStatusBlocked && hasActiveGoal,
 	}
 	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.buildTaskLaunchRequest(conversationTurn))
 	if errorValue != nil {
@@ -1763,7 +1764,8 @@ func (connectorRuntime *ConnectorRuntime) findActiveGoal(personID string, _ stri
 	var selectedTaskRun task.TaskRun
 	isSelected := false
 	for _, taskRun := range taskRuns {
-		if !taskRunCanContinueGoal(taskRun) {
+		taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+		if !taskRunCanContinueGoal(taskRun, taskEvents) {
 			continue
 		}
 		if taskRun.OriginConversationID != event.ConversationID {
@@ -1786,7 +1788,11 @@ func (connectorRuntime *ConnectorRuntime) findActiveGoal(personID string, _ stri
 
 func (connectorRuntime *ConnectorRuntime) findActiveGoalByTaskRunID(taskRunID string) (agent.ActiveGoal, bool) {
 	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRunID)
-	if !isFound || !taskRunCanContinueGoal(taskRun) {
+	if !isFound {
+		return agent.ActiveGoal{}, false
+	}
+	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+	if !taskRunCanContinueGoal(taskRun, taskEvents) {
 		return agent.ActiveGoal{}, false
 	}
 	return connectorRuntime.activeGoalForTaskRun(taskRun), true
@@ -1810,13 +1816,25 @@ func (connectorRuntime *ConnectorRuntime) activeGoalForTaskRun(selectedTaskRun t
 	return activeGoal
 }
 
-func taskRunCanContinueGoal(taskRun task.TaskRun) bool {
+func taskRunCanContinueGoal(taskRun task.TaskRun, taskEvents []task.TaskEvent) bool {
 	switch taskRun.Status {
 	case task.TaskStatusWaitingUserInput, task.TaskStatusWaitingApproval:
 		return true
+	case task.TaskStatusBlocked:
+		return taskRunHasLimitStop(taskEvents)
 	default:
 		return false
 	}
+}
+
+func taskRunHasLimitStop(taskEvents []task.TaskEvent) bool {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name == "agent.limit_stop" {
+			return true
+		}
+	}
+	return false
 }
 
 func latestActiveGoal(taskEvents []task.TaskEvent) agent.ActiveGoal {
@@ -1860,6 +1878,8 @@ func activeGoalStatusForTaskRun(taskRun task.TaskRun) agent.ActiveGoalStatus {
 		return agent.ActiveGoalStatusWaitingApproval
 	case task.TaskStatusWaitingUserInput:
 		return agent.ActiveGoalStatusWaitingUserInput
+	case task.TaskStatusBlocked:
+		return agent.ActiveGoalStatusBlocked
 	default:
 		return agent.ActiveGoalStatusActive
 	}
@@ -2193,7 +2213,7 @@ func (connectorRuntime *ConnectorRuntime) recordTaskWaitTokenForReply(platform s
 		return
 	}
 	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(taskRunID)
-	if !isFound || !taskRunCanContinueGoal(taskRun) {
+	if !isFound || !taskRunCanContinueGoal(taskRun, connectorRuntime.agentKernel.ListTaskEvent(taskRunID)) {
 		return
 	}
 	taskWaitToken := connectorRuntime.taskWaitTokenForReply(platform, event, replyTarget, reply, dispatchID, taskRun)

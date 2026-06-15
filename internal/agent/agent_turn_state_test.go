@@ -383,6 +383,41 @@ func TestRestoreAgentTaskStateRestoresToolProgressOnly(t *testing.T) {
 	}
 }
 
+func TestBlockedResumeRestoresPriorObservations(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "build site")
+	runningTaskRun, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	taskRunService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.file.write.result", `{"observationID":"obs-001","action":"continue","tool":"file.write","content":"wrote app","isError":false}`)
+	blockedTaskRun, errorValue := taskRunService.PauseTaskRun(runningTaskRun.TaskRunID, task.TaskStatusBlocked, "max_iterations")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	resumedTaskRun, errorValue := taskRunService.AdvanceTaskRun(blockedTaskRun.TaskRunID, "assistant")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	state, errorValue := agentTaskStateForTurn(AgentTurnRequest{
+		Prompt:                 "continue",
+		ExistingTaskRunID:      resumedTaskRun.TaskRunID,
+		IsRuntimeRestartResume: true,
+	}, TurnOptions{}, resumedTaskRun, taskRunService.ListTaskEvent(resumedTaskRun.TaskRunID))
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(state.Observations) != 1 || state.Observations[0].Tool != "file.write" {
+		t.Fatalf("expected prior file.write observation to be restored, got %+v", state.Observations)
+	}
+	if state.ToolCallCount != 1 {
+		t.Fatalf("expected restored tool call count, got %d", state.ToolCallCount)
+	}
+}
+
 func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) {
 	observation, errorValue := decodeTurnObservation([]byte(`{"observationID":"obs-001","action":"continue","tool":"memory.search","content":"memory failed","isError":true,"errorCode":"memory_search_unavailable","failureStage":"graphiti_search","message":"memory failed"}`))
 	if errorValue != nil {

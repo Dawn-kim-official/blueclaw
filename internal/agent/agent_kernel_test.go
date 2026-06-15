@@ -188,6 +188,27 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 	}
 }
 
+func TestSitePrototypeIntakePromotesToDeepLimits(t *testing.T) {
+	agentKernel, _ := newKernelTestServices()
+	intakeDecision := promoteSitePrototypeEffort(AgentRequest{}, IntakeDecision{
+		EffortLevel: EffortLevelStandard,
+		WorkKinds:   []string{WorkKindSitePrototype},
+	})
+
+	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
+	deepProfile := EffortLimitProfileForLevel(EffortLevelDeep)
+
+	if effortLevelRank(turnOptions.EffortLevel) < effortLevelRank(EffortLevelDeep) {
+		t.Fatalf("expected at least deep effort, got %q", turnOptions.EffortLevel)
+	}
+	if turnOptions.MaxIterationCount < deepProfile.MaxIterationCount {
+		t.Fatalf("expected deep iteration limit, got %d", turnOptions.MaxIterationCount)
+	}
+	if turnOptions.MaxToolCallCount < deepProfile.MaxToolCallCount {
+		t.Fatalf("expected deep tool call limit, got %d", turnOptions.MaxToolCallCount)
+	}
+}
+
 func TestAgentKernelCompleteLaunchFailureRedactsRawError(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseLanguageModelProvider(failingLanguageModel{})

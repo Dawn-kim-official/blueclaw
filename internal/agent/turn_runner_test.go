@@ -1501,6 +1501,180 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"one"}}`,
+			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+			finishMessageDocument("continued after escalation"),
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		EffortLevel:       EffortLevelQuick,
+		MaxIterationCount: 2,
+		MaxToolCallCount:  10,
+	})
+	toolRegistry := newTestToolSet([]string{"file.write", "site.app.build"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"path":"tmp/app/index.html"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"status":"built"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "build the site",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"file.write", "site.app.build"},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected escalation run, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task after escalation, got %s", result.TaskRun.Status)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"newEffortLevel":"standard"`) {
+		t.Fatalf("expected budget escalation event, got %+v", taskEvents)
+	}
+	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"qualifyingEventIDs":["obs-001","obs-003"]`) {
+		t.Fatalf("expected qualifying event IDs, got %+v", taskEvents)
+	}
+}
+
+func TestAgentTurnRunnerDoesNotEscalateIterationLimitForInspectionOnlyProgress(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"continue","toolName":"file.read","toolInput":{"path":"tmp/app/index.html"}}`,
+			`{"action":"continue","toolName":"site.app.status","toolInput":{"siteID":"site-1"}}`,
+		},
+		textResponses: []string{"progress saved"},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		EffortLevel:       EffortLevelQuick,
+		MaxIterationCount: 2,
+		MaxToolCallCount:  10,
+	})
+	toolRegistry := newTestToolSet([]string{"file.read", "site.app.status"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.read"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"path":"tmp/app/index.html","content":"one"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"status":"draft"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "inspect the site",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"file.read", "site.app.status"},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected blocked limit result, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.budget_escalated", "") {
+		t.Fatal("did not expect inspection-only progress to escalate")
+	}
+}
+
+func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/a","content":"one"}}`,
+			`{"action":"continue","toolName":"file.patch","toolInput":{"path":"tmp/app/a","patch":"two"}}`,
+			`{"action":"continue","toolName":"file.edit","toolInput":{"path":"tmp/app/a","oldText":"one","newText":"two"}}`,
+			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+			finishMessageDocument("done"),
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		EffortLevel:       EffortLevelQuick,
+		MaxIterationCount: 2,
+		MaxToolCallCount:  10,
+	})
+	toolRegistry := newTestToolSet([]string{"file.write", "file.patch", "file.edit", "site.app.build"})
+	for _, toolName := range []string{"file.write", "file.patch", "file.edit", "site.app.build"} {
+		toolRegistry.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess(`{"ok":true}`), nil
+		})
+	}
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "keep building",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"file.write", "file.patch", "file.edit", "site.app.build"},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected completed run, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if countTaskEvents(taskEvents, "agent.budget_escalated") != 1 {
+		t.Fatalf("expected exactly one persisted escalation, got %+v", taskEvents)
+	}
+	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"previousEffortLevel":"quick"`) ||
+		!taskEventsContain(taskEvents, "agent.budget_escalated", `"newEffortLevel":"standard"`) {
+		t.Fatalf("expected quick to standard escalation, got %+v", taskEvents)
+	}
+}
+
+func TestAgentTurnRunnerCheckpointsAtExtendedIterationCeiling(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/a","content":"one"}}`,
+			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+		},
+		textResponses: []string{"progress saved"},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		EffortLevel:       EffortLevelExtended,
+		MaxIterationCount: 2,
+		MaxToolCallCount:  10,
+	})
+	toolRegistry := newTestToolSet([]string{"file.write", "site.app.build"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"path":"tmp/app/a"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"status":"built"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "finish extended work",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"file.write", "site.app.build"},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected checkpoint result, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked checkpoint task, got %s", result.TaskRun.Status)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventsContain(taskEvents, "agent.budget_escalated", "") {
+		t.Fatal("did not expect escalation past extended")
+	}
+	if !taskEventsContain(taskEvents, "agent.limit_checkpoint", `"qualifyingEventIDs":["obs-001","obs-003"]`) {
+		t.Fatalf("expected limit checkpoint event, got %+v", taskEvents)
+	}
+}
+
 func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{

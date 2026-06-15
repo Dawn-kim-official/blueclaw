@@ -145,6 +145,7 @@ func (agentTurnRunner *AgentTurnRunner) generateStallPauseNotice(taskRunID strin
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
 	decision, decisionError := agentTurnRunner.generateRecoveryDecision(request, stopReason, observations, attachments, executionState, "limit")
 	failureReport := buildFailureReport(request, taskRunID, "limit", stopReason, observations, attachments, executionState, decision)
+	failureReport = limitFailureReportWithCheckpointContext(failureReport, stopReason)
 	status := limitReplyStatus{Decision: decision, FailureReportFacts: buildFailureReportFacts(observations, agentTurnRunner.options.RecoveryBudget)}
 	if decisionError != nil {
 		status.StructuredRecoveryError = decisionError.Error()
@@ -158,6 +159,16 @@ func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID str
 	status.LocalRecoveryError = noticeStatus.LocalRecoveryError
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody("limit", failureReport, noticeStatus)))
 	return notice, status, notice.SendableMessage() != ""
+}
+
+func limitFailureReportWithCheckpointContext(report FailureReport, stopReason string) FailureReport {
+	if strings.TrimSpace(stopReason) != "max_iterations" {
+		return report
+	}
+	report.SafeFailureSummary = "The run reached its iteration ceiling after preserving progress."
+	report.RawError = "Progress was saved and the same task run can be continued."
+	report.NextAction = firstNonEmptyString(report.NextAction, "Continue the saved task run from its checkpoint.")
+	return report
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLocalFailureNotice(report FailureReport, rejectedReply string) (FailureNotice, string, string, bool) {
