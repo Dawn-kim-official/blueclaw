@@ -590,6 +590,65 @@ func TestAgentTurnRunnerRejectsUnnecessaryAcknowledgementApproval(t *testing.T) 
 	}
 }
 
+func TestShouldRejectApprovalContinuationReconfirmReturnsTrueForAskConfirm(t *testing.T) {
+	if !shouldRejectApprovalContinuationReconfirm(AgentTurnRequest{IsApprovalContinuation: true}, "ask.confirm") {
+		t.Fatal("expected ask.confirm on an approval continuation to be rejected")
+	}
+}
+
+func TestShouldRejectApprovalContinuationReconfirmReturnsFalseWithoutContinuation(t *testing.T) {
+	if shouldRejectApprovalContinuationReconfirm(AgentTurnRequest{}, "ask.confirm") {
+		t.Fatal("expected a first-time ask.confirm not to be rejected")
+	}
+}
+
+func TestShouldRejectApprovalContinuationReconfirmReturnsFalseForOtherTools(t *testing.T) {
+	if shouldRejectApprovalContinuationReconfirm(AgentTurnRequest{IsApprovalContinuation: true}, "platform.message.send") {
+		t.Fatal("expected a non-ask.confirm tool not to be rejected")
+	}
+}
+
+func TestAgentTurnRunnerRejectsAskConfirmReConfirmOnApprovalContinuation(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"민수에게 메시지를 보낼까요?","reasonCode":"external_send"}}`,
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"민수"},"message":"회의 시작합니다"}}`,
+		finishMessageWithEvidence("민수에게 메시지를 보냈습니다.", "obs-002", "platform.message.send", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 4})
+	sendCallCount := 0
+	toolRegistry := newTestToolSet([]string{"ask.confirm", "platform.message.send"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		t.Fatal("ask.confirm must be rejected on an approval continuation instead of re-asking the user")
+		return ToolResult{}, nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		sendCallCount++
+		return ToolSuccess("sent"), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:      "person-1",
+		ConversationID:         "conversation-1",
+		Prompt:                 "approved",
+		ToolSet:                toolRegistry,
+		IsApprovalContinuation: true,
+		RequiredEvidenceTools:  []string{"platform.message.send"},
+		OutcomeContract:        OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected approval continuation to complete the approved send: %v", errorValue)
+	}
+	if sendCallCount != 1 {
+		t.Fatalf("expected the approved send to run exactly once, got %d", sendCallCount)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "already approved") {
+		t.Fatal("expected ask.confirm on an approval continuation to be rejected")
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
