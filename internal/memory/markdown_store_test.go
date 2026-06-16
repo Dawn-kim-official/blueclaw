@@ -151,7 +151,7 @@ func TestRenamePersonDirectorySkipsMissingSource(t *testing.T) {
 	}
 }
 
-func TestRenamePersonDirectoryReportsConflict(t *testing.T) {
+func TestRenamePersonDirectoryMergesOnConflict(t *testing.T) {
 	store := NewMarkdownStore(t.TempDir(), 1200)
 	if _, errorValue := store.MergePersonMemory(context.Background(), "person-old", "Old memory."); errorValue != nil {
 		t.Fatal(errorValue)
@@ -165,11 +165,26 @@ func TestRenamePersonDirectoryReportsConflict(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if renamed {
-		t.Fatal("expected renamed=false on conflict")
+	if !renamed {
+		t.Fatal("expected renamed=true after merge")
 	}
-	if !conflict {
-		t.Fatal("expected conflict=true")
+	if conflict {
+		t.Fatal("expected conflict=false after merge")
+	}
+
+	mergedFacts, errorValue := store.LoadPinnedMemory(context.Background(), "person-new")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(mergedFacts) != 1 {
+		t.Fatalf("expected 1 merged fact, got %d", len(mergedFacts))
+	}
+	if !strings.Contains(mergedFacts[0].Content, "Old memory.") || !strings.Contains(mergedFacts[0].Content, "New memory.") {
+		t.Fatalf("expected merged content to contain both memories, got %q", mergedFacts[0].Content)
+	}
+
+	if _, statError := os.Stat(filepath.Join(store.rootPath, "people", "person-old")); !os.IsNotExist(statError) {
+		t.Fatal("expected source directory removed after merge")
 	}
 }
 

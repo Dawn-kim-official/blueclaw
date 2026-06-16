@@ -177,13 +177,56 @@ func (store *MarkdownStore) RenamePersonDirectory(oldPersonID string, newPersonI
 	if _, errorValue := os.Stat(oldPath); os.IsNotExist(errorValue) {
 		return false, false, nil
 	}
-	if _, errorValue := os.Stat(newPath); errorValue == nil {
-		return false, true, nil
+	if _, statError := os.Stat(newPath); os.IsNotExist(statError) {
+		if errorValue := os.Rename(oldPath, newPath); errorValue != nil {
+			return false, false, errorValue
+		}
+		return true, false, nil
 	}
-	if errorValue := os.Rename(oldPath, newPath); errorValue != nil {
+	if errorValue := mergePersonMemoryFiles(oldPath, newPath); errorValue != nil {
+		return false, false, errorValue
+	}
+	if errorValue := os.RemoveAll(oldPath); errorValue != nil {
 		return false, false, errorValue
 	}
 	return true, false, nil
+}
+
+func mergePersonMemoryFiles(sourceDirectory string, destinationDirectory string) error {
+	sourceContent, errorValue := readOptionalFile(filepath.Join(sourceDirectory, "MEMORY.md"))
+	if errorValue != nil {
+		return errorValue
+	}
+	if strings.TrimSpace(sourceContent) == "" {
+		return nil
+	}
+	destinationPath := filepath.Join(destinationDirectory, "MEMORY.md")
+	destinationContent, errorValue := readOptionalFile(destinationPath)
+	if errorValue != nil {
+		return errorValue
+	}
+	mergedContent := appendUniqueMemoryLines(destinationContent, sourceContent)
+	if mergedContent == strings.TrimSpace(destinationContent) {
+		return nil
+	}
+	return writeFileAtomically(destinationPath, mergedContent+"\n")
+}
+
+func appendUniqueMemoryLines(destinationContent string, sourceContent string) string {
+	existingLines := map[string]bool{}
+	for _, line := range strings.Split(destinationContent, "\n") {
+		existingLines[strings.TrimSpace(line)] = true
+	}
+	mergedContent := strings.TrimRight(destinationContent, "\n")
+	for _, line := range strings.Split(sourceContent, "\n") {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" || trimmedLine == "# Memory" || existingLines[trimmedLine] {
+			continue
+		}
+		existingLines[trimmedLine] = true
+		mergedContent += "\n" + line
+	}
+	return strings.TrimSpace(mergedContent)
 }
 
 func (store *MarkdownStore) namespacePath(namespace MemoryNamespace) (string, bool) {
