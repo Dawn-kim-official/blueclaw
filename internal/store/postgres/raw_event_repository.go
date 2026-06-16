@@ -352,7 +352,7 @@ WHERE platform = $1 AND conversation_id = $2 AND external_message_id = $3`,
 func (rawEventRepository RawEventRepository) EnqueueConnectorReply(event connectors.PlatformInboundEvent, replyTarget connectors.ReplyTarget, reply connectors.OutboundReply) (string, error) {
 	rawEventID := event.DedupeKey()
 	outboxID := connectorReplyOutboxID(rawEventID, reply)
-	reply.RawEventID = event.DedupeKey()
+	reply.RawEventID = rawEventID
 	reply.OutboxID = outboxID
 	replyTargetDocument, errorValue := json.Marshal(replyTarget)
 	if errorValue != nil {
@@ -362,7 +362,19 @@ func (rawEventRepository RawEventRepository) EnqueueConnectorReply(event connect
 	if errorValue != nil {
 		return "", errorValue
 	}
-	execResult, errorValue := rawEventRepository.database.SQL.ExecContext(context.Background(), `
+	conversationID, errorValue := NewConversationRepository(rawEventRepository.database).EnsureConversation(event.Platform, event.ConversationID)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	transaction, errorValue := rawEventRepository.database.SQL.BeginTx(context.Background(), nil)
+	if errorValue != nil {
+		return "", errorValue
+	}
+	defer transaction.Rollback()
+	if errorValue := ensureSyntheticRawEvent(transaction, event, rawEventID, conversationID); errorValue != nil {
+		return "", errorValue
+	}
+	_, errorValue = transaction.ExecContext(context.Background(), `
 INSERT INTO connector_outbox (
   outbox_id, raw_event_id, platform, reply_target_id, reply_target_json, reply_json
 ) VALUES ($1,$2,$3,$4,$5,$6)
@@ -377,11 +389,42 @@ ON CONFLICT (outbox_id) DO NOTHING`,
 	if errorValue != nil {
 		return "", errorValue
 	}
-	affectedRows, errorValue := execResult.RowsAffected()
-	if errorValue == nil && affectedRows == 1 {
-		return outboxID, nil
+	if errorValue = transaction.Commit(); errorValue != nil {
+		return "", errorValue
 	}
 	return outboxID, nil
+}
+
+func ensureSyntheticRawEvent(transaction *sql.Tx, event connectors.PlatformInboundEvent, rawEventID string, conversationID string) error {
+	externalMessageID := strings.TrimSpace(event.MessageID)
+	if externalMessageID == "" {
+		externalMessageID = rawEventID
+	}
+	contentHash := sha256.Sum256([]byte(event.Prompt))
+	now := time.Now().UTC()
+	_, errorValue := transaction.ExecContext(context.Background(), `
+INSERT INTO raw_event (
+  raw_event_id, platform, conversation_id, external_message_id, event_type,
+  content_ciphertext, encryption_key_version, content_sha256, security_level_rank,
+  required_classes, occurred_at, ingested_at, expires_at,
+  reply_target_id, visible_context_ciphertext, visible_context_sha256, has_more_before, history_cursor
+) VALUES ($1,$2,$3,$4,'message',$5,1,$6,0,'{}',$7,$7,$8,$9,$10,$11,$12,$13)
+ON CONFLICT (raw_event_id) DO NOTHING`,
+		rawEventID,
+		event.Platform,
+		conversationID,
+		externalMessageID,
+		[]byte(event.Prompt),
+		contentHash[:],
+		now,
+		now.AddDate(0, 0, 60),
+		event.ReplyTargetID,
+		mustJSON(event.Context),
+		hashJSON(event.Context),
+		event.Context.HasMoreBefore,
+		emptyStringAsNil(event.Context.HistoryCursor),
+	)
+	return errorValue
 }
 
 func connectorReplyOutboxID(rawEventID string, reply connectors.OutboundReply) string {
