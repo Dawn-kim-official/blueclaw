@@ -199,10 +199,18 @@ WHERE scope_person_id = $1
 }
 
 func migrateEpisodeIdentity(ctx context.Context, transaction *sql.Tx, oldPersonID string, newPersonID string) (int64, error) {
-	result, errorValue := transaction.ExecContext(ctx, `
+	if _, errorValue := transaction.ExecContext(ctx, `
 UPDATE graphiti_episode
 SET sender_person_id = $2
 WHERE sender_person_id = $1`,
+		oldPersonID, newPersonID,
+	); errorValue != nil {
+		return 0, errorValue
+	}
+	result, errorValue := transaction.ExecContext(ctx, `
+UPDATE graphiti_episode
+SET namespace_document = replace(namespace_document, $1, $2)
+WHERE namespace_document LIKE '%' || $1 || '%'`,
 		oldPersonID, newPersonID,
 	)
 	if errorValue != nil {
