@@ -516,6 +516,80 @@ func TestRepeatedFileReadObservationReturnsCachedOverlappingRange(t *testing.T) 
 	}
 }
 
+func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsTrueForMemoryConfirm(t *testing.T) {
+	toolInput := json.RawMessage(`{"userFacingMessage":"안젤라 바보라는 내용을 기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}`)
+
+	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
+
+	if !result {
+		t.Fatal("expected acknowledgement confirm wrapping a memory note to be rejected")
+	}
+}
+
+func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForExternalSend(t *testing.T) {
+	toolInput := json.RawMessage(`{"userFacingMessage":"이 메시지를 외부로 전송할까요?","reasonCode":"external_send"}`)
+
+	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
+
+	if result {
+		t.Fatal("expected external send confirm not to be rejected")
+	}
+}
+
+func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForNonAskConfirmTool(t *testing.T) {
+	toolInput := json.RawMessage(`{"userFacingMessage":"기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}`)
+
+	result := shouldRejectUnnecessaryAcknowledgementApproval("memory.remember", toolInput)
+
+	if result {
+		t.Fatal("expected non-ask.confirm tool not to be rejected")
+	}
+}
+
+func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForUnrelatedConfirm(t *testing.T) {
+	toolInput := json.RawMessage(`{"userFacingMessage":"계속 진행할까요?","reasonCode":"paid_action"}`)
+
+	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
+
+	if result {
+		t.Fatal("expected unrelated paid action confirm not to be rejected")
+	}
+}
+
+func TestAgentTurnRunnerRejectsUnnecessaryAcknowledgementApproval(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"안젤라 바보라는 내용을 기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}}`,
+		`{"action":"continue","toolName":"memory.remember","toolInput":{"content":"안젤라 바보"}}`,
+		finishMessageWithEvidence("기억했습니다.", "obs-002", "memory.remember", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 4})
+	rememberCallCount := 0
+	toolRegistry := newTestToolSet([]string{"ask.confirm", "memory.remember"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.remember"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		rememberCallCount++
+		return ToolSuccess(`{"remembered":true}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "안젤라 바보라는 것 기억해줘",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if rememberCallCount != 1 {
+		t.Fatalf("expected memory.remember to run once, got %d", rememberCallCount)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "memory.remember") {
+		t.Fatal("expected unnecessary acknowledgement approval rejection event")
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
