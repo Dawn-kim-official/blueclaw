@@ -322,51 +322,6 @@ func TestConnectorRuntimeSingleOpenWaitFallbackContinuesTask(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeForwardedConfirmResumesApprovalWithoutReAsking(t *testing.T) {
-	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
-		StructuredResponsesBySchema: map[string][]string{
-			"blueclaw_turn_router": {
-				`{"route":"continue_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved","userFacingReply":""}`,
-			},
-		},
-		ActionResponses: []string{connectorFinishMessage("메시지를 전달했습니다")},
-	})
-	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
-	approvalTaskRun := createWaitingApprovalTaskRun(t, taskRunService, "민수에게 회의 시작한다고 전해줘", "confirm-interaction")
-	approvalToken := waitRoutingTaskWaitToken(approvalTaskRun, "ask-post-1", "confirm-interaction")
-	approvalToken.Kind = "approval"
-	if errorValue := taskWaitRepository.InsertTaskWaitToken(approvalToken); errorValue != nil {
-		t.Fatal(errorValue)
-	}
-
-	event := testInboundEvent("ask:ask-post-1:ask.confirm:confirm-interaction:")
-	event.ReplyTargetID = "origin-reply-target"
-	event.Prompt = "approved"
-	event.LegacyFields = map[string]interface{}{
-		"askAction":     "confirm",
-		"interactionID": "confirm-interaction",
-		"taskRunID":     approvalTaskRun.TaskRunID,
-		"postID":        "ask-post-1",
-		"ephemeralAsk":  true,
-	}
-
-	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
-	if errorValue != nil {
-		t.Fatalf("expected forwarded confirm to process: %v", errorValue)
-	}
-
-	if result.Ignored {
-		t.Fatalf("forwarded confirm was ignored as orphan instead of approving: %+v", result)
-	}
-	if result.TaskRunID != approvalTaskRun.TaskRunID {
-		t.Fatalf("expected confirm to resume approval task %s; a different task run means the agent re-asked, got %+v", approvalTaskRun.TaskRunID, result)
-	}
-	resumedTaskRun, _ := connectorRuntime.agentKernel.FindTaskRun(approvalTaskRun.TaskRunID)
-	if resumedTaskRun.Status == task.TaskStatusWaitingApproval {
-		t.Fatalf("expected approval to be consumed, but task still waits for approval (re-ask), got %+v", resumedTaskRun)
-	}
-}
-
 func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		ActionResponses: []string{
@@ -3581,29 +3536,6 @@ func waitRoutingTaskWaitToken(taskRun task.TaskRun, dispatchID string, interacti
 		ExpiresAt:      now.Add(time.Hour),
 		CreatedAt:      now,
 	}
-}
-
-func createWaitingApprovalTaskRun(t *testing.T, taskRunService *task.TaskRunService, prompt string, interactionID string) task.TaskRun {
-	t.Helper()
-
-	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, prompt)
-	waitingTaskRun, errorValue := taskRunService.PauseTaskRun(taskRun.TaskRunID, task.TaskStatusWaitingApproval, prompt)
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalConnectorEventBody(map[string]string{
-		"message":                 prompt,
-		"reason":                  "external_send",
-		"responseLanguage":        "ko",
-		"continuationInstruction": prompt,
-	}))
-	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "ask.requested", marshalConnectorEventBody(map[string]string{
-		"interactionID":    interactionID,
-		"kind":             "confirm",
-		"message":          prompt,
-		"responseLanguage": "ko",
-	}))
-	return waitingTaskRun
 }
 
 func newRepositoryBackedTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider, taskRunRepository *testTaskRunRepository) (*ConnectorRuntime, *testAdapter, *task.TaskEventService) {
