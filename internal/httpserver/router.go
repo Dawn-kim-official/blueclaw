@@ -55,6 +55,7 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer.HandleFunc("GET /admin/api/connector/events", routerDependencies.ConnectorDiagnostics.HandleList)
 	multiplexer.HandleFunc("GET /admin/api/memory/graph", routerDependencies.MemoryGraphHandler.HandleGetMemoryGraph)
 	multiplexer.HandleFunc("POST /admin/api/memory/migrate-identity", routerDependencies.MemoryGraphHandler.HandleMigrateIdentity)
+	multiplexer.HandleFunc("GET /admin/api/memory/pinned-people", routerDependencies.MemoryGraphHandler.HandleListPinnedPeople)
 	multiplexer.HandleFunc("GET /admin/api/backup/manifest", routerDependencies.BackupHandler.HandleManifest)
 	multiplexer.HandleFunc("POST /admin/api/backup/prepare", routerDependencies.BackupHandler.HandlePrepare)
 	multiplexer.HandleFunc("POST /admin/api/backup/complete", routerDependencies.BackupHandler.HandleComplete)
