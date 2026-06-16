@@ -81,6 +81,7 @@ type AgentTurnRequest struct {
 	RequiredAttachmentSuffixes []string
 	OutcomeContract            OutcomeContract
 	ActiveGoal                 ActiveGoal
+	ScheduledRun               ScheduledRunContext
 	ToolExposure               ToolExposureEvent
 	CurrentStepPlan            NextStepPlan
 	QualityAcceptanceGuidance  []string

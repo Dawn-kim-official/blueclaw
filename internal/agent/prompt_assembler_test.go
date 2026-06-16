@@ -52,6 +52,35 @@ func TestPromptAssemblerIncludesStepBudgetContext(t *testing.T) {
 	}
 }
 
+func TestPromptAssemblerIncludesScheduledRunContext(t *testing.T) {
+	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
+		Prompt: "오늘의 주요 일정, 날씨, 할 일을 브리핑한다.",
+		ScheduledRun: ScheduledRunContext{
+			ScheduleID:     "schedule-1",
+			Kind:           "cron",
+			Cadence:        "daily at 08:00 Asia/Seoul",
+			CronExpression: "0 8 * * *",
+			TimeZone:       "Asia/Seoul",
+			OccurrenceAt:   "2026-06-16T08:00:00+09:00",
+		},
+	}, nil, "base", "")
+	body := joinMessageContent(messages)
+
+	for _, expected := range []string{
+		"Scheduled run:",
+		"Scheduled task instruction:",
+		`"scheduleID":"schedule-1"`,
+		`"kind":"cron"`,
+		`"cadence":"daily at 08:00 Asia/Seoul"`,
+		`"cronExpression":"0 8 * * *"`,
+		`"occurrenceAt":"2026-06-16T08:00:00+09:00"`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected scheduled run context %q, got %s", expected, body)
+		}
+	}
+}
+
 func TestPromptAssemblerIncludesInputImagePart(t *testing.T) {
 	messages := (PromptAssembler{}).BuildTurnMessages(AgentTurnRequest{
 		Prompt: "이거 뭔지 알아?",
