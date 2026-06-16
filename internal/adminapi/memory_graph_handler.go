@@ -93,17 +93,11 @@ func (memoryGraphHandler MemoryGraphHandler) attachPinnedFacts(request *http.Req
 	if memoryGraphHandler.MarkdownStore == nil {
 		return graph
 	}
-	if strings.TrimSpace(request.URL.Query().Get("readerPersonID")) == "" {
+	readerPersonID := strings.TrimSpace(request.URL.Query().Get("readerPersonID"))
+	if readerPersonID == "" {
 		return graph
 	}
-	namespaces := []memory.MemoryNamespace{}
-	for _, namespace := range graph.Namespaces {
-		namespaces = append(namespaces, memoryNamespaceFromGraphNamespace(namespace))
-	}
-	if len(namespaces) == 0 {
-		return graph
-	}
-	pinnedFacts, errorValue := memoryGraphHandler.MarkdownStore.LoadPinnedMemoryForNamespaces(request.Context(), namespaces)
+	pinnedFacts, errorValue := memoryGraphHandler.MarkdownStore.LoadPinnedMemory(request.Context(), readerPersonID)
 	if errorValue != nil {
 		return graph
 	}
