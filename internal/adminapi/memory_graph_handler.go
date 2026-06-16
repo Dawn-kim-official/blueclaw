@@ -42,6 +42,19 @@ func (memoryGraphHandler MemoryGraphHandler) HandleGetMemoryGraph(responseWriter
 	writeJSON(responseWriter, http.StatusOK, reportGraph)
 }
 
+func (memoryGraphHandler MemoryGraphHandler) HandleListPinnedPeople(responseWriter http.ResponseWriter, request *http.Request) {
+	if memoryGraphHandler.MarkdownStore == nil {
+		writeJSON(responseWriter, http.StatusOK, map[string]any{"pinned": []memory.MemoryFact{}})
+		return
+	}
+	pinnedFacts, errorValue := memoryGraphHandler.MarkdownStore.ListPinnedMemories(request.Context())
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, map[string]any{"pinned": pinnedFacts})
+}
+
 func (memoryGraphHandler MemoryGraphHandler) HandleMigrateIdentity(responseWriter http.ResponseWriter, request *http.Request) {
 	var body struct {
 		Mappings []memory.MemoryIdentityMapping `json:"mappings"`

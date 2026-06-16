@@ -143,6 +143,34 @@ func (store *MarkdownStore) readNamespaceMemory(ctx context.Context, namespace M
 	}, true, nil
 }
 
+func (store *MarkdownStore) ListPinnedMemories(ctx context.Context) ([]MemoryFact, error) {
+	if store == nil {
+		return nil, nil
+	}
+	peopleRoot := filepath.Join(store.rootPath, "people")
+	entries, errorValue := os.ReadDir(peopleRoot)
+	if errorValue != nil {
+		if os.IsNotExist(errorValue) {
+			return []MemoryFact{}, nil
+		}
+		return nil, errorValue
+	}
+	memoryFacts := []MemoryFact{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		memoryFact, isFound, readError := store.readNamespaceMemory(ctx, UserNamespace(entry.Name()))
+		if readError != nil {
+			return nil, readError
+		}
+		if isFound {
+			memoryFacts = append(memoryFacts, memoryFact)
+		}
+	}
+	return memoryFacts, nil
+}
+
 func (store *MarkdownStore) RenamePersonDirectory(oldPersonID string, newPersonID string) (bool, bool, error) {
 	oldPath := filepath.Join(store.rootPath, "people", safeMemoryPathSegment(oldPersonID))
 	newPath := filepath.Join(store.rootPath, "people", safeMemoryPathSegment(newPersonID))
