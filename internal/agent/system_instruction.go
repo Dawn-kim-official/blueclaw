@@ -29,6 +29,9 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction += " If a tool call fails, it creates FailureDebt. Do not finish until a later different recovery succeeds, or you can answer from current context without tools and set failureResolution=no_tool_fallback, or recovery budget is exhausted and you use fail. Never repeat the same failed tool input fingerprint; recovery must change the input, route/provider, tool, or fall back without tools."
 	instruction += " Maintain executionStateUpdate on every structured action as compact working memory: goal, workspace, knownFacts, triedAndFailed, currentBlocker, and nextPlan. Keep it short and update it from the latest observation instead of copying raw logs."
 	instruction += " For artifact work, set_quality_criteria and qualityReview are useful for your own acceptance criteria, but they are guidance and evidence, not a reason to withhold a usable artifact."
+	if request.IsApprovalContinuation {
+		instruction += " The user just approved the pending sensitive action in their latest message. Perform that already-approved action now and then finish. Do not call ask.confirm again for the same action — re-asking is a loop, not a safeguard."
+	}
 	if len(request.QualityAcceptanceGuidance) > 0 {
 		instruction += " Quality guidance: " + strings.Join(request.QualityAcceptanceGuidance, " ")
 	}

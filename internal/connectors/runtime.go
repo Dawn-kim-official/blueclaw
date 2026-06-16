@@ -1898,9 +1898,11 @@ func pendingApprovalActiveGoal(approval pendingApproval, approvalReply string) a
 	activeGoal.GoalID = firstNonEmptyString(activeGoal.GoalID, approval.TaskRun.TaskRunID)
 	activeGoal.TaskRunID = firstNonEmptyString(activeGoal.TaskRunID, approval.TaskRun.TaskRunID)
 	activeGoal.OriginalInstruction = firstNonEmptyString(activeGoal.OriginalInstruction, approval.IntentPrompt)
-	activeGoal.CurrentObjective = firstNonEmptyString(activeGoal.CurrentObjective, approval.ContinuationInstruction)
+	approvedAction := firstNonEmptyString(activeGoal.CurrentObjective, approval.ContinuationInstruction, approval.IntentPrompt)
+	executionDirective := "The user already approved this action; perform it now and do not call ask.confirm again."
+	activeGoal.CurrentObjective = strings.TrimSpace(approvedAction + " " + executionDirective)
 	activeGoal.KnownContext = append(activeGoal.KnownContext, "The user approved the pending action in the latest message: "+strings.TrimSpace(approvalReply))
-	activeGoal.Status = agent.ActiveGoalStatusWaitingApproval
+	activeGoal.Status = agent.ActiveGoalStatusActive
 	return activeGoal
 }
 
