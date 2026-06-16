@@ -37,6 +37,7 @@ func (memoryGraphHandler MemoryGraphHandler) HandleGetMemoryGraph(responseWriter
 	reportGraph.Health = graph.Health
 	reportGraph = memoryGraphHandler.filterGraphForReader(request, reportGraph)
 	reportGraph = memoryGraphHandler.attachSearchFacts(request, reportGraph)
+	reportGraph = memoryGraphHandler.attachPinnedFacts(request, reportGraph)
 	reportGraph = rebuildMemoryGraphTopology(reportGraph)
 	writeJSON(responseWriter, http.StatusOK, reportGraph)
 }
@@ -86,6 +87,44 @@ func (memoryGraphHandler MemoryGraphHandler) HandleMigrateIdentity(responseWrite
 	}
 
 	writeJSON(responseWriter, http.StatusOK, map[string]any{"results": results})
+}
+
+func (memoryGraphHandler MemoryGraphHandler) attachPinnedFacts(request *http.Request, graph memory.MemoryGraph) memory.MemoryGraph {
+	if memoryGraphHandler.MarkdownStore == nil {
+		return graph
+	}
+	if strings.TrimSpace(request.URL.Query().Get("readerPersonID")) == "" {
+		return graph
+	}
+	namespaces := []memory.MemoryNamespace{}
+	for _, namespace := range graph.Namespaces {
+		namespaces = append(namespaces, memoryNamespaceFromGraphNamespace(namespace))
+	}
+	if len(namespaces) == 0 {
+		return graph
+	}
+	pinnedFacts, errorValue := memoryGraphHandler.MarkdownStore.LoadPinnedMemoryForNamespaces(request.Context(), namespaces)
+	if errorValue != nil {
+		return graph
+	}
+	graph.Facts = appendUniqueFacts(graph.Facts, pinnedFacts)
+	return graph
+}
+
+func appendUniqueFacts(facts []memory.MemoryFact, additions []memory.MemoryFact) []memory.MemoryFact {
+	seenFactKeys := map[string]bool{}
+	for _, fact := range facts {
+		seenFactKeys[fact.NamespaceID+":"+fact.FactID+":"+fact.Content] = true
+	}
+	for _, fact := range additions {
+		key := fact.NamespaceID + ":" + fact.FactID + ":" + fact.Content
+		if seenFactKeys[key] {
+			continue
+		}
+		seenFactKeys[key] = true
+		facts = append(facts, fact)
+	}
+	return facts
 }
 
 func (memoryGraphHandler MemoryGraphHandler) filterGraphForReader(request *http.Request, graph memory.MemoryGraph) memory.MemoryGraph {
