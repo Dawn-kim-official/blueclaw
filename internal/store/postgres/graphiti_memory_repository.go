@@ -184,6 +184,18 @@ func (repository GraphitiMemoryRepository) migrateOneIdentity(ctx context.Contex
 }
 
 func migrateNamespaceIdentity(ctx context.Context, transaction *sql.Tx, oldPersonID string, newPersonID string) (int64, error) {
+	if _, errorValue := transaction.ExecContext(ctx, `
+DELETE FROM graphiti_namespace source
+WHERE source.scope_person_id = $1
+  AND source.scope_type IN ('user', 'private')
+  AND EXISTS (
+    SELECT 1 FROM graphiti_namespace target
+    WHERE target.namespace_id = replace(source.namespace_id, $1, $2)
+  )`,
+		oldPersonID, newPersonID,
+	); errorValue != nil {
+		return 0, errorValue
+	}
 	result, errorValue := transaction.ExecContext(ctx, `
 UPDATE graphiti_namespace
 SET namespace_id = replace(namespace_id, $1, $2),
