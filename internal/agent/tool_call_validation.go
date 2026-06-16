@@ -27,6 +27,14 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
+	if shouldRejectUnnecessaryAcknowledgementApproval(actionDocument.ToolName, actionDocument.ToolInput) {
+		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessaryAcknowledgementApprovalMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
+		state.Observations = append(state.Observations, observation)
+		agentTurnRunner.appendEvent(taskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
+		result, shouldStop := stopForNoProgress(stepID)
+		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	}
 	return toolCallActionOutcome{}
 }
 
@@ -540,6 +548,45 @@ func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName s
 
 func unnecessarySiteApprovalMessage() string {
 	return "Approval is not required for site.app.create, terminal.run builds, or site.app.publish. Continue with the site tools directly. Ask approval only for site.app.rollback, site.app.unpublish, or site.app.delete."
+}
+
+func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput json.RawMessage) bool {
+	if strings.TrimSpace(toolName) != "ask.confirm" {
+		return false
+	}
+	var inputFields struct {
+		UserFacingMessage string `json:"userFacingMessage"`
+		ReasonDetail      string `json:"reasonDetail"`
+	}
+	if errorValue := json.Unmarshal(toolInput, &inputFields); errorValue != nil {
+		return false
+	}
+	combinedText := strings.ToLower(strings.TrimSpace(inputFields.UserFacingMessage) + " " + strings.TrimSpace(inputFields.ReasonDetail))
+	sensitivemarkers := []string{
+		"send", "전송", "보내", "dm",
+		"delete", "삭제", "지우", "remove", "제거",
+		"deploy", "배포", "publish", "게시",
+		"external", "외부",
+		"payment", "결제", "구매", "charge",
+		"credential", "api key", "apikey", "토큰", "token", "secret", "비밀", "password",
+		"grant", "권한", "unlock", "install", "설치",
+		"schedule", "예약",
+	}
+	if containsAny(combinedText, sensitivemarkers) {
+		return false
+	}
+	acknowledgementMarkers := []string{
+		"기억", "remember", "memor",
+		"맞나요", "맞아요", "맞죠",
+		"이해했", "알겠", "확인차",
+		"저장할까", "저장하면", "기록할까",
+		"note this", "just confirming", "let me know if",
+	}
+	return containsAny(combinedText, acknowledgementMarkers)
+}
+
+func unnecessaryAcknowledgementApprovalMessage() string {
+	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write such as saving a memory the user asked you to remember. Perform the action directly (e.g. call memory.remember) and then finish."
 }
 
 func isTerminalExecutionTool(toolName string) bool {
