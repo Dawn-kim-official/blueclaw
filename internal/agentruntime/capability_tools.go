@@ -233,25 +233,29 @@ func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest)
 }
 
 func capabilityToolRequest(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) map[string]any {
+	contextDocument := map[string]any{
+		"requesterPersonID":       request.RequesterPersonID,
+		"requesterEmail":          request.RequesterEmail,
+		"requesterName":           request.RequesterName,
+		"requesterPlatformUserID": request.RequesterPlatformUserID,
+		"taskSource":              string(request.TaskSource),
+		"isScheduledRun":          request.IsScheduledRun,
+		"isApprovalContinuation":  request.IsApprovalContinuation,
+		"conversationID":          request.ConversationID,
+		"conversationType":        request.ConversationType,
+		"channelID":               request.ConversationChannelID,
+		"channelName":             request.ConversationChannelName,
+		"replyTargetID":           request.ReplyTargetID,
+		"platform":                request.Platform,
+	}
+	if !request.ScheduledRun.IsEmpty() {
+		contextDocument["scheduledRun"] = request.ScheduledRun
+	}
 	requestDocument := map[string]any{
 		"toolName":       toolName,
 		"input":          toolInput,
 		"idempotencyKey": capabilityToolIdempotencyKey(toolContext, toolName),
-		"context": map[string]any{
-			"requesterPersonID":       request.RequesterPersonID,
-			"requesterEmail":          request.RequesterEmail,
-			"requesterName":           request.RequesterName,
-			"requesterPlatformUserID": request.RequesterPlatformUserID,
-			"taskSource":              string(request.TaskSource),
-			"isScheduledRun":          request.IsScheduledRun,
-			"isApprovalContinuation":  request.IsApprovalContinuation,
-			"conversationID":          request.ConversationID,
-			"conversationType":        request.ConversationType,
-			"channelID":               request.ConversationChannelID,
-			"channelName":             request.ConversationChannelName,
-			"replyTargetID":           request.ReplyTargetID,
-			"platform":                request.Platform,
-		},
+		"context":        contextDocument,
 	}
 	if shouldRequireCompanionBrowser(toolContext, toolName, toolInput) {
 		requestDocument["executionMode"] = "companion"
