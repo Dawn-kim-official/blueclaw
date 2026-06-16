@@ -209,8 +209,8 @@ WHERE sender_person_id = $1`,
 	}
 	result, errorValue := transaction.ExecContext(ctx, `
 UPDATE graphiti_episode
-SET namespace_document = replace(namespace_document, $1, $2)
-WHERE namespace_document LIKE '%' || $1 || '%'`,
+SET namespace_document = replace(namespace_document::text, $1, $2)::jsonb
+WHERE namespace_document::text LIKE '%' || $1 || '%'`,
 		oldPersonID, newPersonID,
 	)
 	if errorValue != nil {
