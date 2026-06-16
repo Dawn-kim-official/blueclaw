@@ -21,7 +21,7 @@ Blueclaw is the daemon that runs inside `InternKim`, a dedicated hardware applia
 - `Blueclaw` may ask the user's main computer to open a browser instance when a flow requires direct user login or approval
 - `Blueclaw` is configured and operated from the user's main computer through `SSH` and `HTTP API`
 - the primary deployment model is `Blueclaw inside a long-lived Firecracker guest with only workspace mounted from the host`
-- the primary development lab uses `macOS host -> Tart ARM Linux VM -> Firecracker -> Blueclaw`
+- the primary development lab uses `macOS host -> Apple container Ubuntu VM -> Firecracker -> Blueclaw`
 
 ## Architecture Picture
 
@@ -104,22 +104,21 @@ Runtime connector configuration is secretless. Blueclaw does not read Mattermost
 ```json
 {
   "capabilities": {
-    "endpoint": "http://127.0.0.1:7781",
-    "unixSocketPath": "/run/internkim/capability.sock",
+    "transport": "vsock",
+    "endpoint": "http://internkim-capability",
+    "unixSocketPath": "",
+    "vsockCID": 2,
+    "vsockPort": 7000,
     "timeoutSecond": 15
   },
   "connectors": {
-    "mattermost": {},
-    "slack": {
-      "enabled": false
-    },
-    "signal": {
-      "enabled": false
-    }
+    "mattermost": {}
   }
 }
 ```
 
+- the product runtime config reaches the InternKim capability layer over `vsock` from inside the Firecracker guest; a Unix-socket transport is only used in non-guest/dev layouts
+- Slack and Signal are capabilityd sidecars activated by the presence of their credential/config files (Slack token, Signal JSON-RPC config) on the host, not by an `enabled` flag in Blueclaw runtime config
 - `/connectors/mattermost/events` accepts the primary normalized event stream from the self-hosted Mattermost sidecar
 - `/connectors/slack/events` and `/connectors/signal/events` accept optional external normalized events when those adapters are configured
 - platform request signatures, bot tokens, WebSocket credentials, Signal session secrets, and platform reply credentials stay in InternKim sidecars
@@ -127,6 +126,8 @@ Runtime connector configuration is secretless. Blueclaw does not read Mattermost
 - inbound bodies use opaque `conversationID`, `messageID`, `senderID`, `replyTargetID`, `prompt`, and recent `context.messages`
 - connector logs use `connector.<platform>.<stage>` event names
 - persistent logs default to `/workspace/.blueclaw/logs` and are retained for 7 days unless configured otherwise
+
+Connector delivery is durable, not fire-and-forget. Inbound events are persisted in `raw_event` with a `pending`/`running`/`succeeded`/`failed` connector status; replies are enqueued into `connector_outbox` referencing the originating `raw_event`. Synthetic resume sources (auto-resume after a runtime restart, ask-choice resolution, steer) also ensure a backing `raw_event` row so the outbox foreign key holds. Background workers claim stale rows with retry/backoff, duplicate inbound events return the stored connector result instead of re-running, and the health check fails on missing connector schema or excessive backlog.
 
 ## Workspace, Tools, and Actor Boundary
 
@@ -160,7 +161,7 @@ Supported model-facing workspace path prefixes are virtual:
 | `/workspace/shared/public/...` | explicitly public shared location |
 | `/workspace/skills/...` | built-in skill source, read/execute only |
 
-Disallowed model-facing paths include `/workspace/.blueclaw`, `/tmp`, `~`, `/opt`, `/usr`, concrete private person paths, another person's private path, and ambiguous relative `tmp`, `home`, or `artifacts` from an unknown cwd.
+Disallowed model-facing paths include `/workspace/.blueclaw`, `/tmp`, `~`, `/opt`, `/usr`, concrete private person paths, another person's private path, and ambiguous relative `tmp`, `home`, or `artifacts` from an unknown cwd. The terminal command guardrail blocks paths that escape the workspace root, but it allows the standard safe device streams (`/dev/null`, `/dev/zero`, `/dev/full`, `/dev/random`, `/dev/urandom`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr`, `/dev/tty`) so ordinary shell redirection like `find . 2>/dev/null` works; block devices and other system `/dev` paths stay blocked.
 
 Artifact work follows the same flow for document, spreadsheet, slide, and PDF skills:
 
@@ -174,7 +175,7 @@ flowchart TD
 
 Required artifact tasks are not complete until `file.attach` evidence points to promoted durable artifacts. A draft file under `tmp/<slug>`, a local path string, or a markdown link is not completion evidence.
 
-Runtime failure recovery receives compact execution state plus the latest observation tail. Tool failures should surface concrete actor/path/stage details instead of generic "system limitation" text. If all LLM reply generation paths fail, Blueclaw records admin diagnostics and suppresses the outbound reply rather than using a deterministic canned sentence.
+Runtime failure recovery receives compact execution state plus the latest observation tail. Tool failures should surface concrete actor/path/stage details instead of generic "system limitation" text. For a real task failure the failure-reply path validates a draft against two gates: only safety/fact checks (no secret or diagnostic leak, no false delivery claim) can block a draft, while style/intent issues only trigger repair. Blueclaw tries generated wording, then repair, then local recovery wording, then delivers the best safety-passing draft, and only as a last resort sends a compact redacted raw-error notice — it never composes a deterministic canned sentence. Full suppression is reserved for intentionally ignored cases such as duplicates, cancellations, and self/bot messages.
 
 Minimal normalized event body:
 
@@ -204,23 +205,24 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 
 ```json
 {
-  "capabilities": {
-    "endpoint": "http://127.0.0.1:7781",
-    "unixSocketPath": "/run/internkim/capability.sock",
-    "timeoutSecond": 15
-  },
   "languageModel": {
     "defaultProvider": "capabilityLLM",
     "capability": {
-      "executionMode": "auto"
+      "model": "google/gemini-3.5-flash",
+      "highModel": "",
+      "mediumModel": "",
+      "lowModel": "",
+      "executionMode": "auto",
+      "contextWindowTokens": 1048576
     }
   }
 }
 ```
 
-- Blueclaw sends `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`; `model` is an optional override, not a default runtime requirement
+- Blueclaw sends `model`, `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`; product configs set `model` to `google/gemini-3.5-flash` and `contextWindowTokens` to `1048576`
+- Blueclaw routes per task complexity across three optional model tiers. High = `highModel` or `model` or `google/gemini-3.5-flash`; medium = `mediumModel` or `x-ai/grok-4.3`; low = `lowModel` or `google/gemini-3.1-flash-lite`. Quick effort and simple/normal tasks use low, complex tasks use medium, deep/extended effort uses high; intake routing and failure/recovery wording always use low
 - Blueclaw never adds an `Authorization` header for LLM capability calls
-- `executionMode` is `local`, `remote`, or `auto`; InternKim decides whether that maps to OpenRouter, LiteRT-LM, Jetson GPU, or another provider
+- `executionMode` is `device`, `companion`, `remote`, or `auto`; InternKim decides whether that maps to OpenRouter, a local model runtime, a companion model, or another provider
 - `tools/blueclaw-litert-wrapper` is kept as an InternKim-side reference utility, not as a Blueclaw product runtime dependency
 - user-facing replies, approval wording, recovery direction, and failure reports are generated through the LLM path
 - if remote failure wording cannot be generated, Blueclaw tries local LLM wording and then falls back to a compact raw error summary for real task failures; full suppression is reserved for intentionally ignored runtime cases such as duplicates, cancellations, and self/bot messages
@@ -295,9 +297,14 @@ Blueclaw uses Graphiti as the product memory engine through the `graphiti-memory
 
 ## Open Decisions
 
-- how the main computer bridge authenticates to `InternKim`
-- whether browser handoff uses a local bridge app, a local web UI, or both
-- whether `Jetson Orin Nano Super` has a reliable enough `KVM` path for the primary guest runtime
+Earlier open questions are now resolved in shipped code:
+
+- the main computer bridge authenticates with one-time pairing codes, stored token hashes, and Ed25519 signed companion requests
+- browser handoff runs through the companion app plus a local loopback control bridge, not a hosted web UI
+- `Jetson Orin Nano Super` is the production guest-runtime host (Firecracker + supervisor); it is no longer an open question
+
+Still open:
+
 - whether to add a `task.context.describe` meta tool that exposes compact current task status, pending state, recent failures, and available next actions to meta-answer turns
 
 ## Agent Task And Step Runtime
@@ -318,10 +325,10 @@ Blueclaw uses Graphiti as the product memory engine through the `graphiti-memory
 
 ## Development Lab
 
-- the default development lane uses a single `M4 + macOS 15+` host
+- the default development lane uses a single `Apple Silicon + macOS 15+` host
 - the host acts as the main computer for companion, browser, and operator access
-- `Tart` provides the ARM Linux virtual machine that simulates `InternKim`
+- `Apple container` provides the ARM Ubuntu Linux VM that simulates `InternKim` (the older `Tart` VM lane was removed)
 - `Firecracker` runs inside that Linux virtual machine
 - `Blueclaw` runs only inside the `Firecracker` guest
 - `Mattermost` stays outside the guest and inside the Linux virtual machine
-- `Docker` and `Apple container` are not part of this lab topology
+- the Linux/runtime gate runs through `./internkim dev replay --target container` and the Local Fleet (`./internkim dev fleet ...`); `Docker` is not part of this lab topology
