@@ -19,6 +19,14 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
+	if shouldRejectApprovalContinuationReconfirm(request, actionDocument.ToolName) {
+		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, approvalContinuationReconfirmMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
+		state.Observations = append(state.Observations, observation)
+		agentTurnRunner.appendEvent(taskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
+		result, shouldStop := stopForNoProgress(stepID)
+		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	}
 	if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
 		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessarySiteApprovalMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
 		state.Observations = append(state.Observations, observation)
@@ -587,6 +595,17 @@ func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput j
 
 func unnecessaryAcknowledgementApprovalMessage() string {
 	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write such as saving a memory the user asked you to remember. Perform the action directly (e.g. call memory.remember) and then finish."
+}
+
+func shouldRejectApprovalContinuationReconfirm(request AgentTurnRequest, toolName string) bool {
+	if strings.TrimSpace(toolName) != "ask.confirm" {
+		return false
+	}
+	return request.IsApprovalContinuation
+}
+
+func approvalContinuationReconfirmMessage() string {
+	return "The user already approved this action in the current task. Do not call ask.confirm again for the same approved action — perform it now and finish."
 }
 
 func isTerminalExecutionTool(toolName string) bool {
