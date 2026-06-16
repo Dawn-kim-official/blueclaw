@@ -143,6 +143,21 @@ func (store *MarkdownStore) readNamespaceMemory(ctx context.Context, namespace M
 	}, true, nil
 }
 
+func (store *MarkdownStore) RenamePersonDirectory(oldPersonID string, newPersonID string) (bool, bool, error) {
+	oldPath := filepath.Join(store.rootPath, "people", safeMemoryPathSegment(oldPersonID))
+	newPath := filepath.Join(store.rootPath, "people", safeMemoryPathSegment(newPersonID))
+	if _, errorValue := os.Stat(oldPath); os.IsNotExist(errorValue) {
+		return false, false, nil
+	}
+	if _, errorValue := os.Stat(newPath); errorValue == nil {
+		return false, true, nil
+	}
+	if errorValue := os.Rename(oldPath, newPath); errorValue != nil {
+		return false, false, errorValue
+	}
+	return true, false, nil
+}
+
 func (store *MarkdownStore) namespacePath(namespace MemoryNamespace) (string, bool) {
 	switch namespace.ScopeType {
 	case ScopeTypeUser:
