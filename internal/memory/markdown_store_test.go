@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -103,6 +105,71 @@ func TestMemoryUpdateProcessorSkipsMarkdownForCircleMemory(t *testing.T) {
 	}
 	if result.MarkdownUpdated || result.MarkdownError != "" {
 		t.Fatalf("expected markdown to be skipped, got %+v", result)
+	}
+}
+
+func TestRenamePersonDirectoryHappyPath(t *testing.T) {
+	store := NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := store.MergePersonMemory(context.Background(), "person-old", "Some memory content."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	renamed, conflict, errorValue := store.RenamePersonDirectory("person-old", "person-new")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !renamed {
+		t.Fatal("expected renamed=true")
+	}
+	if conflict {
+		t.Fatal("expected conflict=false")
+	}
+	newPath := filepath.Join(store.rootPath, "people", safeMemoryPathSegment("person-new"), "MEMORY.md")
+	if _, errorValue := os.Stat(newPath); errorValue != nil {
+		t.Fatalf("expected renamed directory at %s: %v", newPath, errorValue)
+	}
+	oldPath := filepath.Join(store.rootPath, "people", safeMemoryPathSegment("person-old"))
+	if _, errorValue := os.Stat(oldPath); !os.IsNotExist(errorValue) {
+		t.Fatalf("expected old directory to be gone at %s", oldPath)
+	}
+}
+
+func TestRenamePersonDirectorySkipsMissingSource(t *testing.T) {
+	store := NewMarkdownStore(t.TempDir(), 1200)
+
+	renamed, conflict, errorValue := store.RenamePersonDirectory("person-nonexistent", "person-new")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if renamed {
+		t.Fatal("expected renamed=false for missing source")
+	}
+	if conflict {
+		t.Fatal("expected conflict=false for missing source")
+	}
+}
+
+func TestRenamePersonDirectoryReportsConflict(t *testing.T) {
+	store := NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := store.MergePersonMemory(context.Background(), "person-old", "Old memory."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if _, errorValue := store.MergePersonMemory(context.Background(), "person-new", "New memory."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	renamed, conflict, errorValue := store.RenamePersonDirectory("person-old", "person-new")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if renamed {
+		t.Fatal("expected renamed=false on conflict")
+	}
+	if !conflict {
+		t.Fatal("expected conflict=true")
 	}
 }
 
