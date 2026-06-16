@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -139,6 +140,75 @@ ORDER BY scope_type, namespace_id`,
 		namespaces = append(namespaces, namespace)
 	}
 	return namespaces, rows.Err()
+}
+
+func (repository GraphitiMemoryRepository) MigrateMemoryIdentities(ctx context.Context, mappings []memory.MemoryIdentityMapping) ([]memory.MemoryIdentityMigrationResult, error) {
+	if repository.database.SQL == nil {
+		return nil, errors.New("postgres database is not open")
+	}
+	results := make([]memory.MemoryIdentityMigrationResult, 0, len(mappings))
+	for _, mapping := range mappings {
+		result, errorValue := repository.migrateOneIdentity(ctx, mapping)
+		if errorValue != nil {
+			return nil, errorValue
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+func (repository GraphitiMemoryRepository) migrateOneIdentity(ctx context.Context, mapping memory.MemoryIdentityMapping) (memory.MemoryIdentityMigrationResult, error) {
+	transaction, errorValue := repository.database.SQL.BeginTx(ctx, nil)
+	if errorValue != nil {
+		return memory.MemoryIdentityMigrationResult{}, errorValue
+	}
+	namespacesUpdated, errorValue := migrateNamespaceIdentity(ctx, transaction, mapping.OldPersonID, mapping.NewPersonID)
+	if errorValue != nil {
+		_ = transaction.Rollback()
+		return memory.MemoryIdentityMigrationResult{}, errorValue
+	}
+	episodesUpdated, errorValue := migrateEpisodeIdentity(ctx, transaction, mapping.OldPersonID, mapping.NewPersonID)
+	if errorValue != nil {
+		_ = transaction.Rollback()
+		return memory.MemoryIdentityMigrationResult{}, errorValue
+	}
+	if errorValue := transaction.Commit(); errorValue != nil {
+		return memory.MemoryIdentityMigrationResult{}, errorValue
+	}
+	return memory.MemoryIdentityMigrationResult{
+		OldPersonID:       mapping.OldPersonID,
+		NewPersonID:       mapping.NewPersonID,
+		NamespacesUpdated: namespacesUpdated,
+		EpisodesUpdated:   episodesUpdated,
+	}, nil
+}
+
+func migrateNamespaceIdentity(ctx context.Context, transaction *sql.Tx, oldPersonID string, newPersonID string) (int64, error) {
+	result, errorValue := transaction.ExecContext(ctx, `
+UPDATE graphiti_namespace
+SET namespace_id = replace(namespace_id, $1, $2),
+    scope_person_id = $2
+WHERE scope_person_id = $1
+  AND scope_type IN ('user', 'private')`,
+		oldPersonID, newPersonID,
+	)
+	if errorValue != nil {
+		return 0, errorValue
+	}
+	return result.RowsAffected()
+}
+
+func migrateEpisodeIdentity(ctx context.Context, transaction *sql.Tx, oldPersonID string, newPersonID string) (int64, error) {
+	result, errorValue := transaction.ExecContext(ctx, `
+UPDATE graphiti_episode
+SET sender_person_id = $2
+WHERE sender_person_id = $1`,
+		oldPersonID, newPersonID,
+	)
+	if errorValue != nil {
+		return 0, errorValue
+	}
+	return result.RowsAffected()
 }
 
 func (repository GraphitiMemoryRepository) ListMemoryGraph(ctx context.Context, limit int) (memory.MemoryGraph, error) {

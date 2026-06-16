@@ -29,6 +29,10 @@ type GraphMemoryReporter interface {
 	ListMemoryGraph(context.Context, int) (MemoryGraph, error)
 }
 
+type GraphMemoryMigrator interface {
+	MigrateMemoryIdentities(context.Context, []MemoryIdentityMapping) ([]MemoryIdentityMigrationResult, error)
+}
+
 type MemorySearchRequest struct {
 	Query                     string   `json:"query"`
 	ReaderPersonID            string   `json:"readerPersonID"`

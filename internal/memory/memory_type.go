@@ -114,3 +114,17 @@ type MemoryGraph struct {
 	Nodes      []MemoryGraphNode      `json:"nodes"`
 	Edges      []MemoryGraphEdge      `json:"edges"`
 }
+
+type MemoryIdentityMapping struct {
+	OldPersonID string `json:"oldPersonID"`
+	NewPersonID string `json:"newPersonID"`
+}
+
+type MemoryIdentityMigrationResult struct {
+	OldPersonID       string `json:"oldPersonID"`
+	NewPersonID       string `json:"newPersonID"`
+	NamespacesUpdated int64  `json:"namespacesUpdated"`
+	EpisodesUpdated   int64  `json:"episodesUpdated"`
+	MarkdownRenamed   bool   `json:"markdownRenamed"`
+	MarkdownConflict  bool   `json:"markdownConflict"`
+}

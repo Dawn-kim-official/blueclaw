@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +14,8 @@ import (
 type MemoryGraphHandler struct {
 	MemoryService *memory.MemoryService
 	Reporter      memory.GraphMemoryReporter
+	Migrator      memory.GraphMemoryMigrator
+	MarkdownStore *memory.MarkdownStore
 	Identity      *identity.IdentityService
 }
 
@@ -36,6 +39,53 @@ func (memoryGraphHandler MemoryGraphHandler) HandleGetMemoryGraph(responseWriter
 	reportGraph = memoryGraphHandler.attachSearchFacts(request, reportGraph)
 	reportGraph = rebuildMemoryGraphTopology(reportGraph)
 	writeJSON(responseWriter, http.StatusOK, reportGraph)
+}
+
+func (memoryGraphHandler MemoryGraphHandler) HandleMigrateIdentity(responseWriter http.ResponseWriter, request *http.Request) {
+	var body struct {
+		Mappings []memory.MemoryIdentityMapping `json:"mappings"`
+	}
+	if errorValue := json.NewDecoder(request.Body).Decode(&body); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body.Mappings) == 0 {
+		http.Error(responseWriter, "mappings must not be empty", http.StatusBadRequest)
+		return
+	}
+	for _, mapping := range body.Mappings {
+		if strings.TrimSpace(mapping.OldPersonID) == "" || strings.TrimSpace(mapping.NewPersonID) == "" {
+			http.Error(responseWriter, "oldPersonID and newPersonID must not be blank", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(mapping.OldPersonID) == strings.TrimSpace(mapping.NewPersonID) {
+			http.Error(responseWriter, "oldPersonID and newPersonID must differ", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if memoryGraphHandler.Migrator == nil {
+		http.Error(responseWriter, "memory migrator is not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	results, errorValue := memoryGraphHandler.Migrator.MigrateMemoryIdentities(request.Context(), body.Mappings)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	for index, mapping := range body.Mappings {
+		renamed, conflict, renameError := memoryGraphHandler.MarkdownStore.RenamePersonDirectory(mapping.OldPersonID, mapping.NewPersonID)
+		if renameError != nil {
+			http.Error(responseWriter, renameError.Error(), http.StatusInternalServerError)
+			return
+		}
+		results[index].MarkdownRenamed = renamed
+		results[index].MarkdownConflict = conflict
+	}
+
+	writeJSON(responseWriter, http.StatusOK, map[string]any{"results": results})
 }
 
 func (memoryGraphHandler MemoryGraphHandler) filterGraphForReader(request *http.Request, graph memory.MemoryGraph) memory.MemoryGraph {
