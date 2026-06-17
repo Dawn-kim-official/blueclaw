@@ -37,7 +37,7 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		Source:                     agentruntime.TaskLaunchSourceConnector,
 		SourceReference:            event.DedupeKey(),
 		RequesterPersonID:          turn.RequesterPersonID,
-		RequesterName:              event.Context.Sender.Name,
+		RequesterName:              connectorRuntime.requesterNameForEvent(turn.RequesterPersonID, event),
 		RequesterCallingName:       event.Context.Sender.CallingName,
 		RequesterHandle:            event.Context.Sender.Handle,
 		RequesterEmail:             turn.RequesterEmail,

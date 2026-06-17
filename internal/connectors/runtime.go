@@ -2918,7 +2918,7 @@ func (connectorRuntime *ConnectorRuntime) buildTurnToolSet(adapter PlatformAdapt
 		ProfileName:                "default",
 		Prompt:                     event.Prompt,
 		RequesterPersonID:          personID,
-		RequesterName:              event.Context.Sender.Name,
+		RequesterName:              connectorRuntime.requesterNameForEvent(personID, event),
 		RequesterEmail:             requesterEmail,
 		RequesterPlatformUserID:    event.SenderID,
 		ConversationID:             event.ConversationID,
@@ -2943,6 +2943,13 @@ func (connectorRuntime *ConnectorRuntime) requesterEmailForEvent(personID string
 		return email
 	}
 	return strings.ToLower(strings.TrimSpace(event.Context.Sender.Email))
+}
+
+func (connectorRuntime *ConnectorRuntime) requesterNameForEvent(personID string, event PlatformInboundEvent) string {
+	if name := strings.TrimSpace(event.Context.Sender.Name); name != "" {
+		return name
+	}
+	return strings.TrimSpace(connectorRuntime.identityService.ResolvePersonDisplayName(personID))
 }
 
 func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.TaskLauncher {
