@@ -53,7 +53,7 @@ func (connectorRuntime *ConnectorRuntime) ResumeInterruptedTaskRun(ctx context.C
 	sendReply := func(replyContext context.Context, target ReplyTarget, reply OutboundReply) (string, error) {
 		return connectorRuntime.enqueueConnectorReply(withConnectorEvent(replyContext, event), target, reply)
 	}
-	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.interruptedTaskLaunchRequest(taskRun, taskEvents, launchContext, event, autoResumeTaskProfile(taskRun.TaskRunID), sendReply))
+	launchResult, errorValue := connectorRuntime.currentTaskLauncher().Launch(ctx, connectorRuntime.interruptedTaskLaunchRequest(taskRun, taskEvents, launchContext, event, adapter, autoResumeTaskProfile(taskRun.TaskRunID), sendReply))
 	if errorValue != nil {
 		return connectorRuntime.completeInterruptedTaskResumeLaunchFailure(ctx, taskRun, launchContext, event, replyTarget, adapter, sendReply, errorValue)
 	}
@@ -79,35 +79,38 @@ func (connectorRuntime *ConnectorRuntime) completeInterruptedTaskResumeLaunchFai
 	return connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, turnResult, sendReply)
 }
 
-func (connectorRuntime *ConnectorRuntime) interruptedTaskLaunchRequest(taskRun task.TaskRun, taskEvents []task.TaskEvent, launchContext interruptedTaskLaunchContext, event PlatformInboundEvent, profile taskResumeProfile, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) agentruntime.TaskLaunchRequest {
+func (connectorRuntime *ConnectorRuntime) interruptedTaskLaunchRequest(taskRun task.TaskRun, taskEvents []task.TaskEvent, launchContext interruptedTaskLaunchContext, event PlatformInboundEvent, adapter PlatformAdapter, profile taskResumeProfile, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) agentruntime.TaskLaunchRequest {
 	personAccess := connectorRuntime.identityService.ResolvePersonAccess(taskRun.RequesterPersonID)
 	conversationID := firstNonEmptyString(taskRun.OriginConversationID, launchContext.ConversationID)
 	return agentruntime.TaskLaunchRequest{
-		Source:                    agentruntime.TaskLaunchSourceConnector,
-		SourceReference:           profile.sourceReference,
-		RequesterPersonID:         taskRun.RequesterPersonID,
-		RequesterEmail:            connectorRuntime.identityService.ResolvePersonPrimaryEmail(taskRun.RequesterPersonID),
-		IsApprovalContinuation:    true,
-		IsRuntimeRestartResume:    true,
-		ExistingTaskRunID:         taskRun.TaskRunID,
-		OriginReplyTargetID:       firstNonEmptyString(taskRun.OriginReplyTargetID, launchContext.ReplyTargetID),
-		OriginIsThread:            taskRun.OriginIsThread || launchContext.IsThread,
-		ProfileName:               launchContext.ProfileName,
-		Platform:                  launchContext.Platform,
-		ConversationID:            conversationID,
-		ConversationType:          launchContext.ConversationType,
-		ConversationChannelID:     launchContext.ChannelID,
-		ConversationChannelName:   launchContext.ChannelName,
-		ReplyTargetID:             firstNonEmptyString(taskRun.OriginReplyTargetID, launchContext.ReplyTargetID),
-		Prompt:                    taskRun.Prompt,
-		ResponseLanguage:          event.Context.ResponseLanguage,
-		VisibleContext:            event.Context.ToAgentVisibleContext(),
-		ActiveGoal:                interruptedTaskActiveGoal(taskRun, taskEvents, profile.guidanceNote),
-		PrecomputedTurnDecision:   interruptedTaskTurnDecision(event.Context.ResponseLanguage),
-		PersonAccess:              personAccess,
-		MemoryNamespaces:          connectorRuntime.accessibleNamespaces(taskRun.RequesterPersonID, personAccess, event),
-		AccessibleConversationIDs: []string{conversationID},
-		CheckpointSender:          connectorRuntime.checkpointSenderForTurn(launchContext.Platform, event, ReplyTarget{ConversationID: conversationID, ReplyTargetID: event.ReplyTargetID, DedupeKey: event.DedupeKey()}, sendReply),
+		Source:                     agentruntime.TaskLaunchSourceConnector,
+		SourceReference:            profile.sourceReference,
+		RequesterPersonID:          taskRun.RequesterPersonID,
+		RequesterName:              connectorRuntime.identityService.ResolvePersonDisplayName(taskRun.RequesterPersonID),
+		RequesterEmail:             connectorRuntime.identityService.ResolvePersonPrimaryEmail(taskRun.RequesterPersonID),
+		IsApprovalContinuation:     true,
+		IsRuntimeRestartResume:     true,
+		ExistingTaskRunID:          taskRun.TaskRunID,
+		OriginReplyTargetID:        firstNonEmptyString(taskRun.OriginReplyTargetID, launchContext.ReplyTargetID),
+		OriginIsThread:             taskRun.OriginIsThread || launchContext.IsThread,
+		ProfileName:                launchContext.ProfileName,
+		Platform:                   launchContext.Platform,
+		ConversationID:             conversationID,
+		ConversationType:           launchContext.ConversationType,
+		ConversationChannelID:      launchContext.ChannelID,
+		ConversationChannelName:    launchContext.ChannelName,
+		ReplyTargetID:              firstNonEmptyString(taskRun.OriginReplyTargetID, launchContext.ReplyTargetID),
+		Prompt:                     taskRun.Prompt,
+		ResponseLanguage:           event.Context.ResponseLanguage,
+		VisibleContext:             event.Context.ToAgentVisibleContext(),
+		ActiveGoal:                 interruptedTaskActiveGoal(taskRun, taskEvents, profile.guidanceNote),
+		PrecomputedTurnDecision:    interruptedTaskTurnDecision(event.Context.ResponseLanguage),
+		PersonAccess:               personAccess,
+		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(taskRun.RequesterPersonID, personAccess, event),
+		AccessibleConversationIDs:  []string{conversationID},
+		HistoryProvider:            connectorHistoryProvider{adapter: adapter},
+		AttachmentMaterialResolver: connectorAttachmentMaterialResolver{adapter: adapter, personID: taskRun.RequesterPersonID, event: event},
+		CheckpointSender:           connectorRuntime.checkpointSenderForTurn(launchContext.Platform, event, ReplyTarget{ConversationID: conversationID, ReplyTargetID: event.ReplyTargetID, DedupeKey: event.DedupeKey()}, sendReply),
 	}
 }
 
@@ -148,6 +151,7 @@ func interruptedTaskResumeEvent(taskRun task.TaskRun, launchContext interruptedT
 			ConversationType: launchContext.ConversationType,
 			ChannelID:        launchContext.ChannelID,
 			ChannelName:      launchContext.ChannelName,
+			HistoryCursor:    conversationID,
 		},
 	}
 }

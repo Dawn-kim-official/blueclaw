@@ -373,7 +373,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMate
 	}
 	resolvedMaterial, errorValue := resolveReadableAttachmentMaterial(toolContext, handlerContext.request, materialID)
 	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", errorValue.Error()), nil, true
+		return attachmentResolutionFailure("file_read", errorValue), nil, true
 	}
 	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "attachment material is an image; use image.read"), nil, true
@@ -590,7 +590,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewResolvedMaterial(toolCo
 	}
 	material, errorValue := resolveReadableAttachmentMaterial(toolContext, request, input.MaterialID)
 	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", errorValue.Error()), true
+		return attachmentResolutionFailure("file_preview", errorValue), true
 	}
 	if attachmentMaterialLooksLikeImage(material) {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", "attachment material is an image; use image.read"), true
@@ -623,7 +623,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewFallbackPath(toolContex
 	}
 	resolvedMaterial, errorValue := resolveReadableAttachmentMaterial(toolContext, request, materialID)
 	if errorValue != nil {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", errorValue.Error())
+		result := attachmentResolutionFailure("file_preview", errorValue)
 		return "", &result, true
 	}
 	if attachmentMaterialLooksLikeImage(resolvedMaterial) {
@@ -716,7 +716,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) filePreviewPath(toolContext contex
 	}
 	material, errorValue := resolveReadableAttachmentMaterial(toolContext, request, materialID)
 	if errorValue != nil {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_preview", errorValue.Error())
+		result := attachmentResolutionFailure("file_preview", errorValue)
 		return "", &result
 	}
 	if attachmentMaterialLooksLikeImage(material) {
@@ -1486,6 +1486,14 @@ func attachmentFilename(input fileAttachFileInput, resolvedPath string) string {
 		return strings.TrimSpace(input.Filename)
 	}
 	return filepath.Base(resolvedPath)
+}
+
+func attachmentResolutionFailure(stage string, errorValue error) agent.ToolResult {
+	summary := strings.TrimSpace(errorValue.Error()) + ". This attachment cannot be opened here; do not retry file.preview or file.read on it. Summarize from the conversation if you can, otherwise tell the user the file could not be opened."
+	result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, summary)
+	result.Failure.RetryPolicy = "no_retry"
+	result.Failure.FailureClass = "permanent"
+	return result
 }
 
 func resolveReadableAttachmentMaterial(toolContext context.Context, request ToolCatalogRequest, materialID string) (agent.VisibleContextMaterial, error) {
