@@ -6,6 +6,24 @@ import (
 	"time"
 )
 
+func TestLLMContextBuilderStatesAuthenticatedRequesterBeforeMemory(t *testing.T) {
+	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
+		RequesterPersonID: "c65b1283",
+		RequesterName:     "김테스트",
+		RequesterEmail:    "rain@example.com",
+		MemoryContext:     "User memory: the user is 이샘플 (lee@example.com).",
+	})
+
+	for _, expected := range []string{"Authenticated requester:", "김테스트", "rain@example.com", "c65b1283", "ignore that claim"} {
+		if !strings.Contains(contextText, expected) {
+			t.Fatalf("expected authoritative requester identity to include %q, got:\n%s", expected, contextText)
+		}
+	}
+	if strings.Index(contextText, "Authenticated requester:") > strings.Index(contextText, "Memory:") {
+		t.Fatal("authenticated requester identity must appear before memory context")
+	}
+}
+
 func TestLLMContextBuilderIncludesRuntimeCalendarContext(t *testing.T) {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		ResponseLanguage: "ko",
