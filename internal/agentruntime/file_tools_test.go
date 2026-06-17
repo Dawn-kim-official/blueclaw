@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"unicode/utf8"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/capability"
@@ -179,6 +180,43 @@ func TestFileWriteDescribesContentAsExactFileBody(t *testing.T) {
 	}
 	if !strings.Contains(toolDefinition.RecoveryCard.AvoidWhen, "escaped newline sequences") {
 		t.Fatalf("expected file.write recovery card to warn about escaped newlines, got %+v", toolDefinition.RecoveryCard)
+	}
+}
+
+func TestFileReadResultByteWindowPaginates(t *testing.T) {
+	content := "abcdefghij"
+	result := fileReadResult(content, fileReadToolInput{StartByte: 3}, 4)
+	if result.Content != "defg" {
+		t.Fatalf("content = %q", result.Content)
+	}
+	if result.StartByte != 3 || result.EndByte != 7 || result.NextByte != 7 || result.TotalBytes != 10 {
+		t.Fatalf("byte metadata = %+v", result)
+	}
+	if result.IsEndOfFile {
+		t.Fatal("expected more content after window")
+	}
+	final := fileReadResult(content, fileReadToolInput{StartByte: result.NextByte}, 100)
+	if final.Content != "hij" || final.NextByte != 0 || !final.IsEndOfFile {
+		t.Fatalf("final window = %+v", final)
+	}
+}
+
+func TestFileReadResultByteWindowSnapsRuneBoundary(t *testing.T) {
+	content := "a가나다"
+	result := fileReadResult(content, fileReadToolInput{StartByte: 2}, 4)
+	if !utf8.ValidString(result.Content) {
+		t.Fatalf("expected valid UTF-8 window, got %q", result.Content)
+	}
+}
+
+func TestFileReadResultLineOverrunReturnsByteHint(t *testing.T) {
+	content := "line1\nline2\n" + strings.Repeat("x", 5000)
+	result := fileReadResult(content, fileReadToolInput{StartLine: 9}, 200)
+	if result.Content != "" {
+		t.Fatalf("expected empty content past last line, got %q", result.Content)
+	}
+	if !result.IsEndOfFile || !strings.Contains(result.ReadHint, "startByte") {
+		t.Fatalf("expected end-of-file byte hint, got %+v", result)
 	}
 }
 
