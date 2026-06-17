@@ -145,6 +145,10 @@ func (taskRunService *TaskRunService) AppendTaskEventWithError(taskRunID string,
 	return taskRunService.taskEventService.AppendTaskEventWithError(taskRunID, name, body)
 }
 
+func (taskRunService *TaskRunService) RegisterTaskRunObserver(taskRunID string, observer func(RawTurnEvent)) func() {
+	return taskRunService.taskEventService.RegisterTaskRunObserver(taskRunID, observer)
+}
+
 func (taskRunService *TaskRunService) RegisterTaskRunCancel(taskRunID string, cancelFunction context.CancelFunc) func() {
 	trimmedTaskRunID := strings.TrimSpace(taskRunID)
 	if trimmedTaskRunID == "" || cancelFunction == nil {

@@ -10,15 +10,44 @@ type TaskEventRepository interface {
 	ListTaskEvent(string) ([]TaskEvent, error)
 }
 
+type RawTurnEvent struct {
+	TaskRunID string
+	Name      string
+	Body      string
+}
+
 type TaskEventService struct {
-	mutex      sync.RWMutex
-	taskEvents map[string][]TaskEvent
-	repository TaskEventRepository
+	mutex         sync.RWMutex
+	taskEvents    map[string][]TaskEvent
+	repository    TaskEventRepository
+	observerMutex sync.RWMutex
+	observers     map[string]func(RawTurnEvent)
 }
 
 func NewTaskEventService() *TaskEventService {
 	return &TaskEventService{
 		taskEvents: map[string][]TaskEvent{},
+		observers:  map[string]func(RawTurnEvent){},
+	}
+}
+
+func (taskEventService *TaskEventService) RegisterTaskRunObserver(taskRunID string, observer func(RawTurnEvent)) func() {
+	taskEventService.observerMutex.Lock()
+	taskEventService.observers[taskRunID] = observer
+	taskEventService.observerMutex.Unlock()
+	return func() {
+		taskEventService.observerMutex.Lock()
+		delete(taskEventService.observers, taskRunID)
+		taskEventService.observerMutex.Unlock()
+	}
+}
+
+func (taskEventService *TaskEventService) notifyTaskRunObserver(rawTurnEvent RawTurnEvent) {
+	taskEventService.observerMutex.RLock()
+	defer taskEventService.observerMutex.RUnlock()
+	observer := taskEventService.observers[rawTurnEvent.TaskRunID]
+	if observer != nil {
+		observer(rawTurnEvent)
 	}
 }
 
@@ -41,9 +70,12 @@ func (taskEventService *TaskEventService) AppendTaskEventWithError(taskRunID str
 	}
 
 	taskEventService.mutex.Lock()
-	defer taskEventService.mutex.Unlock()
 	taskEventService.taskEvents[taskRunID] = append(taskEventService.taskEvents[taskRunID], taskEvent)
-	return taskEvent, taskEventService.saveTaskEvent(taskEvent)
+	saveError := taskEventService.saveTaskEvent(taskEvent)
+	taskEventService.mutex.Unlock()
+
+	taskEventService.notifyTaskRunObserver(RawTurnEvent{TaskRunID: taskRunID, Name: name, Body: body})
+	return taskEvent, saveError
 }
 
 func (taskEventService *TaskEventService) RecordTaskEvent(taskEvent TaskEvent) {
