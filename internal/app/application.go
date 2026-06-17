@@ -281,6 +281,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskRunService:   taskRunService,
 			TaskStepService:  taskStepService,
 			TaskEventService: taskEventService,
+			IdentityService:  identityService,
 		},
 		TaskRunHandler: adminapi.TaskRunHandler{
 			TaskLauncher:    taskLauncher,
