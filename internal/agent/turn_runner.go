@@ -811,6 +811,7 @@ func (agentTurnRunner *AgentTurnRunner) sendCheckpointMessage(ctx context.Contex
 		})
 		agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.sent", marshalEventBody(map[string]any{
 			"toolName": actionDocument.ToolName,
+			"message":  message,
 		}))
 		return append(observations, observation)
 	}
