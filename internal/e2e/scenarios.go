@@ -194,7 +194,7 @@ func AttachmentHTMLPreviewRecoveryScenario(artifactDirectoryPath string) Virtual
 			Prompt:           "이거 파일 내용 보고 어떻게 개선하면 좋을지 말해줘봐",
 			InputAttachments: []connectors.InputAttachment{attachment},
 			ActionResponses: []string{
-				actionCallTool("file.preview", `{"path":"home/inbox/mattermost/thread-1/message-html/kim-intern-automation.html"}`),
+				actionCallTool("file.preview", `{"path":"home/inbox/mattermost/thread-1/kim-intern-automation.html"}`),
 				actionFinishMessage("첨부 HTML을 확인했습니다. 자동화 섹션의 정보 구조와 CTA를 더 선명하게 다듬으면 좋겠습니다.", "obs-001:file.preview:0"),
 			},
 			ExpectedToolCalls: []string{"file.preview"},
@@ -203,7 +203,7 @@ func AttachmentHTMLPreviewRecoveryScenario(artifactDirectoryPath string) Virtual
 				"file.read":    0,
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.file.preview.requested", BodyFragment: `"path":"home/inbox/mattermost/thread-1/message-html/kim-intern-automation.html"`, Count: 1},
+				{Name: "tool.file.preview.requested", BodyFragment: `"path":"home/inbox/mattermost/thread-1/kim-intern-automation.html"`, Count: 1},
 				{Name: "tool.file.preview.result", BodyFragment: "Virtual HTML Title", Count: 1},
 			},
 			ExpectedModelContexts: []string{
@@ -239,7 +239,7 @@ func AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath string)
 			}},
 			ContextMaterials: []connectors.InputAttachment{attachment},
 			ActionResponses: []string{
-				actionCallTool("file.preview", `{"path":"home/inbox/mattermost/thread-1/root-message/kim-intern-automation.html"}`),
+				actionCallTool("file.preview", `{"path":"home/inbox/mattermost/thread-1/kim-intern-automation.html"}`),
 				actionFinishMessage("이전 첨부 HTML을 확인했습니다. 자동화 흐름의 핵심 CTA와 섹션 우선순위를 더 명확히 잡으면 좋겠습니다.", "obs-001:file.preview:0"),
 			},
 			ExpectedToolCalls: []string{"file.preview"},
@@ -248,7 +248,7 @@ func AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath string)
 				"file.read":    0,
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.file.preview.requested", BodyFragment: `"path":"home/inbox/mattermost/thread-1/root-message/kim-intern-automation.html"`, Count: 1},
+				{Name: "tool.file.preview.requested", BodyFragment: `"path":"home/inbox/mattermost/thread-1/kim-intern-automation.html"`, Count: 1},
 				{Name: "tool.file.preview.result", BodyFragment: "Virtual HTML Title", Count: 1},
 			},
 			ExpectedModelContexts: []string{

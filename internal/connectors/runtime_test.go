@@ -1846,7 +1846,7 @@ func TestConnectorAttachmentMaterialResolverImportsHistoryMaterial(t *testing.T)
 				Filename:    "mascot.png",
 				ContentType: "image/png",
 				SizeBytes:   5,
-				Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/root-message/mascot.png",
+				Path:        "/workspace/circles/staff/inbox/mattermost/thread-1/mascot.png",
 				IsAvailable: true,
 			}},
 		},
@@ -1864,7 +1864,7 @@ func TestConnectorAttachmentMaterialResolverImportsHistoryMaterial(t *testing.T)
 	if errorValue != nil {
 		t.Fatalf("expected history material to resolve: %v", errorValue)
 	}
-	if material.MaterialID != "mattermost:file-1" || material.Path != "/workspace/circles/staff/inbox/mattermost/thread-1/root-message/mascot.png" {
+	if material.MaterialID != "mattermost:file-1" || material.Path != "/workspace/circles/staff/inbox/mattermost/thread-1/mascot.png" {
 		t.Fatalf("expected imported history material, got %+v", material)
 	}
 	if len(adapter.historyCursors) != 1 || adapter.historyCursors[0] != "history-cursor" {
@@ -1874,8 +1874,11 @@ func TestConnectorAttachmentMaterialResolverImportsHistoryMaterial(t *testing.T)
 		t.Fatalf("expected one import request, got %+v", adapter.inputAttachmentImportRequests)
 	}
 	importRequest := adapter.inputAttachmentImportRequests[0]
-	if importRequest.MessageID != "root-message" || !strings.Contains(importRequest.TargetDirectoryPath, "/root-message") {
-		t.Fatalf("expected import to use source message directory, got %+v", importRequest)
+	if importRequest.MessageID != "root-message" {
+		t.Fatalf("expected import to carry the source message id, got %+v", importRequest)
+	}
+	if !strings.Contains(importRequest.TargetDirectoryPath, "/inbox/mattermost/thread-1") || strings.Contains(importRequest.TargetDirectoryPath, "/root-message") {
+		t.Fatalf("expected import to use the conversation directory without a per-message folder, got %+v", importRequest)
 	}
 }
 

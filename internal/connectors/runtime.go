@@ -2584,14 +2584,20 @@ func connectorInputAttachmentScope(personID string, event PlatformInboundEvent) 
 }
 
 func connectorInputAttachmentDirectory(scope agentruntime.ConversationResourceScope, event PlatformInboundEvent) string {
-	return connectorInputAttachmentDirectoryForMessage(scope, event, event.MessageID)
+	platform := connectorSafePathSegment(firstNonEmptyString(event.Platform, "platform"))
+	conversationLabel := connectorAttachmentConversationLabel(event)
+	return strings.TrimRight(scope.DefaultDirectoryPath, "/") + "/inbox/" + platform + "/" + conversationLabel
 }
 
-func connectorInputAttachmentDirectoryForMessage(scope agentruntime.ConversationResourceScope, event PlatformInboundEvent, messageID string) string {
-	platform := connectorSafePathSegment(firstNonEmptyString(event.Platform, "platform"))
-	conversationID := connectorSafePathSegment(firstNonEmptyString(event.ConversationID, "conversation"))
-	sourceMessageID := connectorSafePathSegment(firstNonEmptyString(messageID, event.MessageID, "message"))
-	return strings.TrimRight(scope.DefaultDirectoryPath, "/") + "/inbox/" + platform + "/" + conversationID + "/" + sourceMessageID
+func connectorAttachmentConversationLabel(event PlatformInboundEvent) string {
+	if channelName := strings.TrimSpace(event.Context.ChannelName); channelName != "" {
+		return connectorSafePathSegment(channelName)
+	}
+	conversationID := strings.TrimSpace(event.ConversationID)
+	if strings.HasPrefix(strings.ToLower(conversationID), "dm:") {
+		return "dm"
+	}
+	return connectorSafePathSegment(firstNonEmptyString(conversationID, "conversation"))
 }
 
 func connectorReadableInputAttachments(attachments []InputAttachment, personID string, scope agentruntime.ConversationResourceScope) []InputAttachment {
@@ -2737,7 +2743,7 @@ func (resolver connectorAttachmentMaterialResolver) importAttachmentWithAdapter(
 	messageID := firstNonEmptyString(attachment.MessageID, resolver.event.MessageID)
 	result, errorValue := importingAdapter.ImportInputAttachments(ctx, InputAttachmentImportRequest{
 		MessageID:           messageID,
-		TargetDirectoryPath: connectorInputAttachmentDirectoryForMessage(scope, resolver.event, messageID),
+		TargetDirectoryPath: connectorInputAttachmentDirectory(scope, resolver.event),
 		InputAttachments:    []InputAttachment{attachment},
 	})
 	if errorValue != nil {
