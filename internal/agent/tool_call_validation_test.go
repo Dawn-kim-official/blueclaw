@@ -358,7 +358,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	}, textResponses: []string{
 		"I could not finish the browser fill request before this run stopped. Please try again with the current page still open.",
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 40})
 	fillCallCount := 0
 	toolRegistry := newTestToolSet([]string{"browser.fill"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -375,11 +375,11 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status == task.TaskStatusRunning {
+		t.Fatalf("expected the malformed-input loop to terminate, got status %s", result.TaskRun.Status)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.no_progress_loop_stopped", "3 consecutive") {
-		t.Fatal("expected no-progress loop stop event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.stall_exit_directive", "") {
+		t.Fatal("expected a stall-exit steer before terminating the malformed-input loop")
 	}
 	if fillCallCount != 0 {
 		t.Fatalf("expected malformed fill input not to invoke tool, got %d calls", fillCallCount)

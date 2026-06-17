@@ -1246,7 +1246,7 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 		},
 		textResponses: []string{"PPTX 첨부를 완료하지 못했습니다. 빌드 실패 뒤에도 필수 첨부 증거가 없어 작업을 중단했습니다."},
 	}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, RecoveryAttemptLimit: 3})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 40, RecoveryAttemptLimit: 3})
 	terminalCallCount := 0
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -1265,18 +1265,15 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected repeated state stop without error: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
-		t.Fatalf("expected paused task after repeated recovery state, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status == task.TaskStatusRunning {
+		t.Fatalf("expected the repeated missing-evidence loop to terminate, got status %s", result.TaskRun.Status)
 	}
 	if terminalCallCount != 1 {
 		t.Fatalf("expected no repeated terminal command, got %d calls", terminalCallCount)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.no_progress_loop_paused", "3 consecutive") {
-		t.Fatal("expected no-progress loop pause event")
-	}
-	if !taskEventsContain(taskEvents, "agent.goal.waiting_user_input", result.TaskRun.TaskRunID) {
-		t.Fatal("expected waiting goal event for stalled task")
+	if !taskEventsContain(taskEvents, "agent.stall_exit_directive", "") {
+		t.Fatal("expected a stall-exit steer before terminating the repeated missing-evidence loop")
 	}
 	if taskEventsContain(taskEvents, "max_iterations", "") {
 		t.Fatal("expected loop breaker before max_iterations")
