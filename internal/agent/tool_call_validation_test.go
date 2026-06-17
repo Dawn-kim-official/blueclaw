@@ -88,6 +88,40 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+		finishMessageWithEvidence("동하와 정국에게 DM을 보냈습니다.", "obs-001", "platform.message.send", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
+	toolRegistry := newTestToolSet([]string{"platform.message.send"})
+	sendCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		sendCallCount++
+		return ToolSuccess("sent"), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "동하와 정국에게 DM 보내줘",
+		ToolSet:               toolRegistry,
+		RequiredEvidenceTools: []string{"platform.message.send"},
+		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected fan-out turn to complete: %v", errorValue)
+	}
+	if sendCallCount != 2 {
+		t.Fatalf("expected two DM sends to different recipients, got %d", sendCallCount)
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.external_send_repeat_rejected", "") {
+		t.Fatal("send to a different recipient must not be rejected as a repeat")
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,

@@ -70,13 +70,13 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if sentObservation, wasSent := previousSuccessfulExternalSend(state.Observations, actionDocument.ToolName); wasSent {
+	if sentObservation, wasSent := previousSuccessfulExternalSend(state.Observations, actionDocument.ToolName, actionDocument.ToolInput); wasSent {
 		observation := turnObservation{
 			ObservationID: nextObservationID(len(state.Observations) + 1),
 			Action:        "policy",
 			Tool:          strings.TrimSpace(actionDocument.ToolName),
-			Output:        ToolOutput{Content: "This task already completed an external send as " + sentObservation.ObservationID + ". Do not send another message in the same task. Use that observation for completionEvidence and finish."},
-			Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: FailureCodes.PolicyBlocked.String(), Stage: "policy", UserSafeSummary: "This task already completed an external send."},
+			Output:        ToolOutput{Content: "This task already sent to that recipient as " + sentObservation.ObservationID + ". Do not send to the same recipient again. Send to a different recipient or use that observation for completionEvidence and finish."},
+			Failure:       &ToolFailure{Kind: FailurePolicyBlocked, Code: FailureCodes.PolicyBlocked.String(), Stage: "policy", UserSafeSummary: "This task already sent to that recipient."},
 		}
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.external_send_repeat_rejected", marshalEventBody(observation))
@@ -481,20 +481,52 @@ func handlesDuplicateSuccessfulToolCall(toolName string) bool {
 	return isOneShotCompletionEvidenceTool(toolName)
 }
 
-func previousSuccessfulExternalSend(observations []turnObservation, toolName string) (turnObservation, bool) {
+func previousSuccessfulExternalSend(observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
 	if !isUnsafeRepeatSensitiveTool(toolName) {
 		return turnObservation{}, false
 	}
+	currentRecipient := sendRecipientKey(toolInput)
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
 		if observation.Action != "continue" || observation.Failed() {
 			continue
 		}
-		if strings.TrimSpace(observation.Tool) == strings.TrimSpace(toolName) {
+		if strings.TrimSpace(observation.Tool) != strings.TrimSpace(toolName) {
+			continue
+		}
+		if currentRecipient == "" || currentRecipient == observationSendRecipientKey(observation) {
 			return observation, true
 		}
 	}
 	return turnObservation{}, false
+}
+
+func sendRecipientKey(toolInput json.RawMessage) string {
+	var document struct {
+		DeliveryTarget struct {
+			Type           string `json:"type"`
+			PersonHint     string `json:"personHint"`
+			ChannelName    string `json:"channelName"`
+			ConversationID string `json:"conversationID"`
+		} `json:"deliveryTarget"`
+	}
+	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
+		return ""
+	}
+	target := document.DeliveryTarget
+	key := strings.ToLower(strings.TrimSpace(strings.Join([]string{target.Type, target.PersonHint, target.ChannelName, target.ConversationID}, "|")))
+	if strings.Trim(key, "|") == "" {
+		return ""
+	}
+	return key
+}
+
+func observationSendRecipientKey(observation turnObservation) string {
+	_, canonicalInput, found := strings.Cut(observation.ToolInputKey, "\x00")
+	if !found {
+		return ""
+	}
+	return sendRecipientKey(json.RawMessage(canonicalInput))
 }
 
 func isUnsafeRepeatSensitiveTool(toolName string) bool {
