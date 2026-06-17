@@ -261,7 +261,7 @@ func specificToolInputSchema(toolName string) json.RawMessage {
 	case "flow.task.add":
 		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"]}`)
 	case "flow.task.list":
-		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"status":{"type":"string"},"limit":{"type":"number"}}}`)
+		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string","description":"Only set to look up ANOTHER specific person's tasks. Leave empty for the requester's own tasks."},"allPeople":{"type":"boolean","description":"Only set true for an explicit organization-wide request across everyone. Leave false for own or single-person queries."},"weekCode":{"type":"string"},"status":{"type":"string"},"limit":{"type":"number"}}}`)
 	case "flow.task.update":
 		return json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"content":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"number"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}}}`)
 	default:

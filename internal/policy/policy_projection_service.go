@@ -10,6 +10,7 @@ const (
 type PolicyProjection struct {
 	ApprovedEmailByPersonID map[string][]string
 	PersonIDByEmail         map[string]string
+	DisplayNameByPersonID   map[string]string
 	PersonAccessByPersonID  map[string]PersonAccess
 	ChannelByCompositeKey   map[string]ChannelPolicy
 	ResourceAccessRules     []ResourceAccessPolicy
@@ -29,6 +30,7 @@ func (policyProjectionService PolicyProjectionService) ReplacePolicyProjectionTr
 	policyProjection := PolicyProjection{
 		ApprovedEmailByPersonID: map[string][]string{},
 		PersonIDByEmail:         map[string]string{},
+		DisplayNameByPersonID:   map[string]string{},
 		PersonAccessByPersonID:  map[string]PersonAccess{},
 		ChannelByCompositeKey:   map[string]ChannelPolicy{},
 		ResourceAccessRules:     append([]ResourceAccessPolicy{}, policyDocument.ResourceAccess...),
@@ -36,6 +38,9 @@ func (policyProjectionService PolicyProjectionService) ReplacePolicyProjectionTr
 
 	for _, personPolicy := range policyDocument.People {
 		policyProjection.ApprovedEmailByPersonID[personPolicy.PersonID] = append([]string{}, personPolicy.Emails...)
+		if displayName := strings.TrimSpace(personPolicy.DisplayName); displayName != "" {
+			policyProjection.DisplayNameByPersonID[personPolicy.PersonID] = displayName
+		}
 		policyProjection.PersonAccessByPersonID[personPolicy.PersonID] = PersonAccess{
 			PersonID:            personPolicy.PersonID,
 			Circles:             effectivePersonCircles(personPolicy),

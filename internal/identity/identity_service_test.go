@@ -18,6 +18,27 @@ func (repository testPlatformAccountRepository) ListPlatformAccount() ([]Platfor
 	return append([]PlatformAccountIdentity{}, repository.platformAccounts...), nil
 }
 
+func TestIdentityServiceResolvesPersonDisplayNameByPersonID(t *testing.T) {
+	identityService := NewIdentityService(policy.PolicyProjection{
+		DisplayNameByPersonID: map[string]string{"person-rain": "신우경"},
+	})
+	if name := identityService.ResolvePersonDisplayName("person-rain"); name != "신우경" {
+		t.Fatalf("display name = %q, want 신우경", name)
+	}
+	if name := identityService.ResolvePersonDisplayName("person-unknown"); name != "" {
+		t.Fatalf("unknown person display name = %q, want empty", name)
+	}
+}
+
+func TestIdentityServiceProjectionServiceCarriesDisplayName(t *testing.T) {
+	projection := policy.PolicyProjectionService{}.ReplacePolicyProjectionTransactionally(policy.PolicyDocument{
+		People: []policy.PersonPolicy{{PersonID: "person-rain", DisplayName: "신우경", Emails: []string{"rain@dawn.kim"}}},
+	})
+	if projection.DisplayNameByPersonID["person-rain"] != "신우경" {
+		t.Fatalf("projection display name = %q", projection.DisplayNameByPersonID["person-rain"])
+	}
+}
+
 func TestIdentityServiceReloadsPlatformAccountToCurrentPolicyPersonByEmail(t *testing.T) {
 	identityService := NewIdentityService(policy.PolicyProjection{
 		PersonIDByEmail: map[string]string{
