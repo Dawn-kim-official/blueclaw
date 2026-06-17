@@ -1,7 +1,9 @@
 package e2e
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
 	"testing"
 
 	"blueclaw/internal/task"
@@ -66,6 +68,24 @@ func TestAssertTurnResultGateFields(t *testing.T) {
 	stalledResult.Events = append([]task.TaskEvent{gateNamedEvent("agent.no_progress_loop_stopped")}, passingResult.Events...)
 	if assertTurnResult("", VirtualTurn{ForbiddenEvents: []string{"agent.no_progress_loop_stopped"}}, stalledResult) == nil {
 		t.Fatal("expected forbidden no-progress event to fail the gate")
+	}
+}
+
+func TestStreamProgressObserverFormatsReplyAndTool(t *testing.T) {
+	buffer := &bytes.Buffer{}
+	observe := streamProgressObserver(buffer)
+	observe(task.RawTurnEvent{Name: "agent.checkpoint.sent", Body: `{"toolName":"alpha","message":"진행 중"}`})
+	observe(task.RawTurnEvent{Name: "tool.web.search.requested", Body: "{}"})
+	observe(task.RawTurnEvent{Name: "tool.web.search.result", Body: "{}"})
+	output := buffer.String()
+	if !strings.Contains(output, "reply: 진행 중") {
+		t.Fatalf("expected reply line, got %q", output)
+	}
+	if !strings.Contains(output, "tool: web.search") {
+		t.Fatalf("expected tool line, got %q", output)
+	}
+	if strings.Count(output, "\n") != 2 {
+		t.Fatalf("expected 2 progress lines (tool result ignored), got %q", output)
 	}
 }
 

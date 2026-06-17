@@ -17,17 +17,33 @@ type RawTurnEvent struct {
 }
 
 type TaskEventService struct {
-	mutex         sync.RWMutex
-	taskEvents    map[string][]TaskEvent
-	repository    TaskEventRepository
-	observerMutex sync.RWMutex
-	observers     map[string]func(RawTurnEvent)
+	mutex                sync.RWMutex
+	taskEvents           map[string][]TaskEvent
+	repository           TaskEventRepository
+	observerMutex        sync.RWMutex
+	observers            map[string]func(RawTurnEvent)
+	globalObservers      map[int]func(RawTurnEvent)
+	nextGlobalObserverID int
 }
 
 func NewTaskEventService() *TaskEventService {
 	return &TaskEventService{
-		taskEvents: map[string][]TaskEvent{},
-		observers:  map[string]func(RawTurnEvent){},
+		taskEvents:      map[string][]TaskEvent{},
+		observers:       map[string]func(RawTurnEvent){},
+		globalObservers: map[int]func(RawTurnEvent){},
+	}
+}
+
+func (taskEventService *TaskEventService) RegisterTurnObserver(observer func(RawTurnEvent)) func() {
+	taskEventService.observerMutex.Lock()
+	observerID := taskEventService.nextGlobalObserverID
+	taskEventService.nextGlobalObserverID++
+	taskEventService.globalObservers[observerID] = observer
+	taskEventService.observerMutex.Unlock()
+	return func() {
+		taskEventService.observerMutex.Lock()
+		delete(taskEventService.globalObservers, observerID)
+		taskEventService.observerMutex.Unlock()
 	}
 }
 
@@ -45,9 +61,11 @@ func (taskEventService *TaskEventService) RegisterTaskRunObserver(taskRunID stri
 func (taskEventService *TaskEventService) notifyTaskRunObserver(rawTurnEvent RawTurnEvent) {
 	taskEventService.observerMutex.RLock()
 	defer taskEventService.observerMutex.RUnlock()
-	observer := taskEventService.observers[rawTurnEvent.TaskRunID]
-	if observer != nil {
+	if observer := taskEventService.observers[rawTurnEvent.TaskRunID]; observer != nil {
 		observer(rawTurnEvent)
+	}
+	for _, globalObserver := range taskEventService.globalObservers {
+		globalObserver(rawTurnEvent)
 	}
 }
 
