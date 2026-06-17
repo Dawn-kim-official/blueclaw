@@ -29,6 +29,21 @@ func TestTaskRunObserverConcurrentAppendUnregisterNoPanic(t *testing.T) {
 	}
 }
 
+func TestRegisterTurnObserverGlobalReceivesUntilUnregister(t *testing.T) {
+	taskEventService := NewTaskEventService()
+	received := []string{}
+	unregister := taskEventService.RegisterTurnObserver(func(rawTurnEvent RawTurnEvent) {
+		received = append(received, rawTurnEvent.Name)
+	})
+	taskEventService.AppendTaskEvent("run-1", "tool.x.requested", "{}")
+	taskEventService.AppendTaskEvent("run-2", "tool.y.requested", "{}")
+	unregister()
+	taskEventService.AppendTaskEvent("run-3", "tool.z.requested", "{}")
+	if len(received) != 2 || received[0] != "tool.x.requested" || received[1] != "tool.y.requested" {
+		t.Fatalf("expected events from any task run before unregister only, got %v", received)
+	}
+}
+
 func TestTaskRunObserverWithoutRegistrationPersistsIdentically(t *testing.T) {
 	taskEventService := NewTaskEventService()
 	taskEventService.AppendTaskEvent("run-1", "tool.x.result", "body")

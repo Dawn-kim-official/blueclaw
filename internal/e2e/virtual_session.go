@@ -50,6 +50,7 @@ type VirtualSessionScenario struct {
 	AddressingResponse    string
 	RouterSiteEvidence    string
 	TurnOptions           agent.TurnOptions
+	ProgressWriter        io.Writer
 	Turns                 []VirtualTurn
 }
 
@@ -767,9 +768,24 @@ func virtualCapabilityResponse(toolName string) string {
 	}
 }
 
+func streamProgressObserver(writer io.Writer) func(task.RawTurnEvent) {
+	return func(rawTurnEvent task.RawTurnEvent) {
+		switch {
+		case rawTurnEvent.Name == "agent.checkpoint.sent":
+			fmt.Fprintf(writer, "  ↳ reply: %s\n", agent.CheckpointReplyMessage(rawTurnEvent.Body))
+		case strings.HasPrefix(rawTurnEvent.Name, "tool.") && strings.HasSuffix(rawTurnEvent.Name, ".requested"):
+			fmt.Fprintf(writer, "  ↳ tool: %s\n", strings.TrimSuffix(strings.TrimPrefix(rawTurnEvent.Name, "tool."), ".requested"))
+		}
+	}
+}
+
 func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionResult, error) {
 	if harness.cleanup != nil {
 		defer harness.cleanup()
+	}
+	if harness.scenario.ProgressWriter != nil {
+		unregisterProgress := harness.taskEventService.RegisterTurnObserver(streamProgressObserver(harness.scenario.ProgressWriter))
+		defer unregisterProgress()
 	}
 	result := VirtualSessionResult{
 		ScenarioName:          harness.scenario.Name,

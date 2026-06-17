@@ -195,6 +195,7 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		}
 		scenario.DisableScriptedModel = true
 		scenario.UseLooseAssertions = true
+		scenario.ProgressWriter = os.Stderr
 		delayLiveVirtualSession()
 	} else if isLiveVirtualScenario(scenario) {
 		return errors.New("virtual-session scenario needs live LLM calls; pass --live-llm or set BLUECLAW_E2E_LIVE=1")
