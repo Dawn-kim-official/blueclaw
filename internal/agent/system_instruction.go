@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"sort"
 	"strings"
 )
 
@@ -22,6 +23,13 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction += " If a steer observation appears, treat it as the latest user correction for the current task and update the plan before continuing."
 	instruction += " Treat retrieved skills as available capability references, not mandatory workflows. The current user message, ActiveGoal, and OutcomeContract decide the output type. Do not turn a document, plan, or text request into a website, DM, email, schedule, or other workflow just because a related skill or tool is listed."
 	instruction += " If you know a needed hidden tool or skill by name but it is missing from the current action schema, use select_tools with exact toolNames or skillNames; use tool.describe to inspect available tool schemas and skill.search to find skill names. Never run a Blueclaw tool name as a shell command in terminal.run."
+	instruction += " The action schema lists only a subset of your tools each turn, so a tool being absent is not proof you cannot do the task."
+	if capabilityPhrase := capabilityDomainPhrase(request.AvailableSkills); capabilityPhrase != "" {
+		instruction += " Your available capabilities span " + capabilityPhrase + ", and you can expand your own toolset on demand."
+	} else {
+		instruction += " You can expand your own toolset on demand."
+	}
+	instruction += " Before you tell the user you lack the capability, permission, access, or data — or before you ask them to provide a system, account, or roster you might already reach — first use skill.search and select_tools to discover and load the relevant capability, then actually try it. Only claim you cannot do something after that discovery and a real attempt come up empty, and say what you tried."
 	instruction += " When the user asks about you — what you can do, what you worked on earlier, how you operate, or why something failed — answer from real data instead of guessing: skill.search with no queries lists every skill, skill.search by name returns full skill instructions, tool.describe lists tools, task.history returns your recent task runs with status, result, and failure reason, and schedule.list returns your active schedules. You run inside InternKim: an intake router classifies each message before this loop, risky actions require user approval through ask.confirm, and schedules re-run tasks later."
 	instruction += " Ask the user only when their confirmation, choice, or free-form input is required. Use ask.confirm before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Never use ask.confirm to check whether the user understood a report, to acknowledge information, or before safe reversible work. If no sensitive action is pending, call finish or proceed directly. Do not ask for confirmation before ordinary non-destructive writes. When retrying an already-approved action within the same task, do not ask for confirmation again. For example, when the user explicitly asks you to remember something, call memory.remember and finish — never wrap a memory save or an acknowledgement in ask.confirm."
 	instruction += " When calling ask.confirm, set userFacingMessage to the exact confirmation question shown to the user, written in the same language as the original user request. reasonCode and reasonDetail are internal only and must not contain user-facing prose. When calling ask.choice, include a recommendedOptionKey except for ask.confirm, and provide explicit options. 옵션 label은 본문 설명용으로 충분히, shortLabel은 버튼용 단답으로."
@@ -44,6 +52,50 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	instruction += " Artifact workflow: write source under tmp/<slug>, run builds with terminal.run workingDirectoryPath tmp/<slug>, create outputs under build/, promote final outputs with file.promote to artifacts/<slug> or an allowed circle/shared destination, then attach all requested promoted files in one file.attach call with a files array. finish.message may describe platform-attached filenames from completionEvidence, but must not expose sandbox URLs, file URLs, device paths, or local filesystem paths. finish.message must not promise future work such as starting now, waiting, or sharing later unless schedule.create succeeded and is cited as evidence."
 	instruction += " When the user asks to change a previously delivered artifact, locate its source through the artifact manifest or workspace, edit the existing source in place, rebuild, and re-deliver the same artifact slug. Do not create a new artifact slug for a revision."
 	return instruction
+}
+
+func capabilityDomainPhrase(skills []SkillInstruction) string {
+	friendlyByDomain := map[string]string{
+		"flow":     "tasks",
+		"task":     "tasks",
+		"schedule": "schedules",
+		"platform": "messages",
+		"slack":    "messages",
+		"calendar": "calendar",
+		"mail":     "mail",
+		"google":   "Google Workspace",
+		"memory":   "memory",
+		"file":     "files",
+		"artifact": "artifacts",
+		"site":     "websites",
+		"terminal": "the terminal",
+		"browser":  "the browser",
+		"web":      "the web",
+	}
+	seenLabels := map[string]bool{}
+	labels := []string{}
+	for _, skill := range skills {
+		for _, toolName := range skill.AllowedTools {
+			domain := strings.ToLower(strings.TrimSpace(toolName))
+			if separatorIndex := strings.Index(domain, "."); separatorIndex > 0 {
+				domain = domain[:separatorIndex]
+			}
+			if domain == "" {
+				continue
+			}
+			label, isKnown := friendlyByDomain[domain]
+			if !isKnown {
+				label = domain
+			}
+			if seenLabels[label] {
+				continue
+			}
+			seenLabels[label] = true
+			labels = append(labels, label)
+		}
+	}
+	sort.Strings(labels)
+	return strings.Join(labels, ", ")
 }
 
 func buildAmbientDutyInstruction(ambientDuty AmbientDutyContext) string {
