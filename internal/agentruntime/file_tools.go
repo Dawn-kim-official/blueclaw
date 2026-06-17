@@ -36,6 +36,7 @@ type fileReadToolInput struct {
 	MaxOutputBytes int    `json:"maxOutputBytes"`
 	StartLine      int    `json:"startLine"`
 	LineCount      int    `json:"lineCount"`
+	StartByte      int    `json:"startByte"`
 }
 
 type filePreviewToolInput struct {
@@ -116,7 +117,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "You need current file content before file.edit, file.patch, or file.write.",
 				AvoidWhen:  "The file is binary, an attached document needing conversion, or you already have the exact current text needed for an edit.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace text file path to read."},"materialID":{"type":"string","description":"Attachment materialID from Current attachments or Previous attachments. Use file.preview first; file.read returns cached preview text if no exact workspace file is available."},"startLine":{"type":"integer","description":"Optional 1-based first line to return. Avoid for minified or few-line files; use startByte instead."},"lineCount":{"type":"integer","description":"Optional number of lines to return from startLine."},"startByte":{"type":"integer","description":"Optional 0-based byte offset for byte-range reads. Use this for minified or single-line files; continue from the nextByte value of the previous read until isEndOfFile is true."}}}`),
 		},
 		Handler: func(toolContext context.Context, input fileReadToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.readFileTool(toolContext, input, handlerContext)
@@ -301,19 +302,34 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	if !utf8.Valid(content) || bytes.IndexByte(content, 0) >= 0 {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "file.read supports UTF-8 text files; use file.preview or a specialized document tool for binary files"), nil
 	}
-	readResult := fileReadResult(string(content), input.StartLine, input.LineCount, maxOutputBytes)
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
+	readResult := fileReadResult(string(content), input, maxOutputBytes)
+	return agent.ToolSuccess(marshalToolResult(fileReadResultMap(map[string]any{
 		"path":              resolvedPath.VirtualPath,
-		"content":           readResult.Content,
-		"startLine":         readResult.StartLine,
-		"endLine":           readResult.EndLine,
-		"totalLines":        readResult.TotalLines,
 		"totalLinesKnown":   !isFileTruncated,
 		"originalSizeBytes": fileInformation.SizeBytes,
-		"returnedBytes":     len([]byte(readResult.Content)),
 		"sizeBytes":         fileInformation.SizeBytes,
 		"isTruncated":       isFileTruncated || readResult.IsTruncated,
-	})), nil
+	}, readResult))), nil
+}
+
+func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[string]any {
+	base["content"] = readResult.Content
+	base["startLine"] = readResult.StartLine
+	base["endLine"] = readResult.EndLine
+	base["totalLines"] = readResult.TotalLines
+	base["returnedBytes"] = len([]byte(readResult.Content))
+	base["startByte"] = readResult.StartByte
+	base["endByte"] = readResult.EndByte
+	base["nextByte"] = readResult.NextByte
+	base["totalBytes"] = readResult.TotalBytes
+	base["isEndOfFile"] = readResult.IsEndOfFile
+	if _, hasTruncated := base["isTruncated"]; !hasTruncated {
+		base["isTruncated"] = readResult.IsTruncated
+	}
+	if strings.TrimSpace(readResult.ReadHint) != "" {
+		base["readHint"] = readResult.ReadHint
+	}
+	return base
 }
 
 func cachedFileReadResultByMaterialID(parts []agent.AgentPart, materialID string, input fileReadToolInput) (agent.ToolResult, bool) {
@@ -334,21 +350,16 @@ func cachedFileReadResult(parts []agent.AgentPart, path string, input fileReadTo
 
 func cachedFileReadResultFromPreview(preview map[string]any, input fileReadToolInput) agent.ToolResult {
 	content := stringMapValue(preview, "markdownPreview")
-	readResult := fileReadResult(content, input.StartLine, input.LineCount, defaultFileReadMaximumBytes)
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
+	readResult := fileReadResult(content, input, defaultFileReadMaximumBytes)
+	return agent.ToolSuccess(marshalToolResult(fileReadResultMap(map[string]any{
 		"path":              stringMapValue(preview, "path"),
-		"content":           readResult.Content,
-		"startLine":         readResult.StartLine,
-		"endLine":           readResult.EndLine,
-		"totalLines":        readResult.TotalLines,
 		"totalLinesKnown":   true,
 		"originalSizeBytes": int64MapValue(preview, "sizeBytes"),
-		"returnedBytes":     len([]byte(readResult.Content)),
 		"sizeBytes":         int64MapValue(preview, "sizeBytes"),
 		"isTruncated":       readResult.IsTruncated,
 		"source":            "attachmentPreview",
 		"isExactFileRead":   false,
-	}))
+	}, readResult)))
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) fileReadFallbackFromAttachmentMaterial(toolContext context.Context, path string, input fileReadToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error, bool) {
@@ -405,46 +416,111 @@ type fileReadOutput struct {
 	EndLine     int
 	TotalLines  int
 	IsTruncated bool
+	StartByte   int
+	EndByte     int
+	NextByte    int
+	TotalBytes  int
+	IsEndOfFile bool
+	ReadHint    string
 }
 
-func fileReadResult(content string, startLine int, lineCount int, maxOutputBytes int) fileReadOutput {
+func fileReadResult(content string, input fileReadToolInput, maxOutputBytes int) fileReadOutput {
+	totalBytes := len(content)
+	if input.StartByte > 0 {
+		return byteWindowReadResult(content, input.StartByte, maxOutputBytes, totalBytes)
+	}
 	lines := splitFileLines(content)
 	totalLines := len(lines)
 	if totalLines == 0 {
-		return fileReadOutput{}
+		return fileReadOutput{TotalBytes: totalBytes, IsEndOfFile: true}
 	}
-	if startLine <= 0 {
-		content, isTruncated := truncateTextByBytes(content, maxOutputBytes)
+	if input.StartLine <= 0 {
+		windowedContent, isTruncated := truncateTextByBytes(content, maxOutputBytes)
+		nextByte := 0
+		if isTruncated {
+			nextByte = len(windowedContent)
+		}
 		return fileReadOutput{
-			Content:     content,
+			Content:     windowedContent,
 			StartLine:   1,
 			EndLine:     totalLines,
 			TotalLines:  totalLines,
 			IsTruncated: isTruncated,
+			EndByte:     len(windowedContent),
+			NextByte:    nextByte,
+			TotalBytes:  totalBytes,
+			IsEndOfFile: !isTruncated,
 		}
 	}
-	if startLine > totalLines {
+	if input.StartLine > totalLines {
 		return fileReadOutput{
-			StartLine:  startLine,
-			EndLine:    startLine - 1,
-			TotalLines: totalLines,
+			StartLine:   input.StartLine,
+			EndLine:     input.StartLine - 1,
+			TotalLines:  totalLines,
+			TotalBytes:  totalBytes,
+			IsEndOfFile: true,
+			ReadHint:    "startLine " + strconv.Itoa(input.StartLine) + " is past totalLines " + strconv.Itoa(totalLines) + "; this file has few lines but " + strconv.Itoa(totalBytes) + " bytes. Re-read with startByte for byte-range reads instead of paginating by line.",
 		}
 	}
+	lineCount := input.LineCount
 	if lineCount <= 0 {
 		lineCount = 200
 	}
-	endLine := startLine + lineCount - 1
+	endLine := input.StartLine + lineCount - 1
 	if endLine > totalLines {
 		endLine = totalLines
 	}
-	content, isTruncated := truncateTextByBytes(strings.Join(lines[startLine-1:endLine], "\n"), maxOutputBytes)
+	windowedContent, isTruncated := truncateTextByBytes(strings.Join(lines[input.StartLine-1:endLine], "\n"), maxOutputBytes)
 	return fileReadOutput{
-		Content:     content,
-		StartLine:   startLine,
+		Content:     windowedContent,
+		StartLine:   input.StartLine,
 		EndLine:     endLine,
 		TotalLines:  totalLines,
 		IsTruncated: isTruncated,
+		TotalBytes:  totalBytes,
+		IsEndOfFile: endLine >= totalLines && !isTruncated,
 	}
+}
+
+func byteWindowReadResult(content string, startByte int, maxOutputBytes int, totalBytes int) fileReadOutput {
+	start := startByte
+	if start > totalBytes {
+		start = totalBytes
+	}
+	start = snapForwardToRuneBoundary(content, start)
+	end := start + maxOutputBytes
+	if end > totalBytes {
+		end = totalBytes
+	}
+	end = snapBackToRuneBoundary(content, end, start)
+	windowedContent := content[start:end]
+	nextByte := 0
+	if end < totalBytes {
+		nextByte = end
+	}
+	return fileReadOutput{
+		Content:     windowedContent,
+		StartByte:   start,
+		EndByte:     end,
+		NextByte:    nextByte,
+		TotalBytes:  totalBytes,
+		IsTruncated: nextByte > 0,
+		IsEndOfFile: nextByte == 0,
+	}
+}
+
+func snapForwardToRuneBoundary(content string, index int) int {
+	for index < len(content) && !utf8.RuneStart(content[index]) {
+		index++
+	}
+	return index
+}
+
+func snapBackToRuneBoundary(content string, index int, minimum int) int {
+	for index > minimum && index < len(content) && !utf8.RuneStart(content[index]) {
+		index--
+	}
+	return index
 }
 
 func splitFileLines(content string) []string {

@@ -202,6 +202,9 @@ func fileReadRequestedRange(toolInput json.RawMessage) (fileReadRange, bool) {
 	if path == "" {
 		return fileReadRange{}, false
 	}
+	if intField(document, "startByte") > 0 {
+		return fileReadRange{}, false
+	}
 	startLine := intField(document, "startLine")
 	if startLine <= 0 {
 		startLine = 1
