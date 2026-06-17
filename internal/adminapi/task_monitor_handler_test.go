@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"blueclaw/internal/identity"
+	"blueclaw/internal/policy"
 	"blueclaw/internal/task"
 )
 
@@ -56,5 +58,70 @@ func TestTaskMonitorHandlerListsAllTaskRunsWithoutQuery(t *testing.T) {
 	}
 	if strings.Count(responseRecorder.Body.String(), `"taskRunID"`) != 2 {
 		t.Fatalf("expected both task runs, got %s", responseRecorder.Body.String())
+	}
+}
+
+func newTestIdentityService() *identity.IdentityService {
+	return identity.NewIdentityService(policy.PolicyProjection{
+		PersonIDByEmail: map[string]string{
+			"alice@example.com": "person-1",
+			"bob@example.com":   "person-2",
+		},
+		DisplayNameByPersonID: map[string]string{
+			"person-1": "Alice",
+			"person-2": "Bob",
+		},
+	})
+}
+
+func TestTaskMonitorHandlerScopesNonAdminViewerToOwnTaskRuns(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	aliceTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "alice task")
+	bobTaskRun := taskRunService.CreateTaskRun("person-2", "conversation-2", "bob task")
+	handler := TaskMonitorHandler{TaskRunService: taskRunService, IdentityService: newTestIdentityService()}
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task?viewerEmail=alice@example.com", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleListTaskRun(responseRecorder, request)
+
+	responseBody := responseRecorder.Body.String()
+	if !strings.Contains(responseBody, aliceTaskRun.TaskRunID) {
+		t.Fatalf("expected alice task run, got %s", responseBody)
+	}
+	if strings.Contains(responseBody, bobTaskRun.TaskRunID) {
+		t.Fatalf("expected bob task run to be scoped out, got %s", responseBody)
+	}
+}
+
+func TestTaskMonitorHandlerAdminViewerSeesAllWithDisplayName(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRunService.CreateTaskRun("person-1", "conversation-1", "alice task")
+	taskRunService.CreateTaskRun("person-2", "conversation-2", "bob task")
+	handler := TaskMonitorHandler{TaskRunService: taskRunService, IdentityService: newTestIdentityService()}
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task?viewerEmail=alice@example.com&viewerIsAdmin=true", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleListTaskRun(responseRecorder, request)
+
+	responseBody := responseRecorder.Body.String()
+	if strings.Count(responseBody, `"taskRunID"`) != 2 {
+		t.Fatalf("expected both task runs for admin viewer, got %s", responseBody)
+	}
+	if !strings.Contains(responseBody, `"requesterDisplayName":"Alice"`) {
+		t.Fatalf("expected requester display name, got %s", responseBody)
+	}
+}
+
+func TestTaskMonitorHandlerUnknownViewerSeesNoTaskRuns(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRunService.CreateTaskRun("person-1", "conversation-1", "alice task")
+	handler := TaskMonitorHandler{TaskRunService: taskRunService, IdentityService: newTestIdentityService()}
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task?viewerEmail=stranger@example.com", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleListTaskRun(responseRecorder, request)
+
+	if strings.Contains(responseRecorder.Body.String(), `"taskRunID"`) {
+		t.Fatalf("expected no task runs for unknown viewer, got %s", responseRecorder.Body.String())
 	}
 }
