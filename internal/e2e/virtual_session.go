@@ -54,29 +54,33 @@ type VirtualSessionScenario struct {
 }
 
 type VirtualTurn struct {
-	Prompt                  string
-	ConversationType        string
-	ChannelID               string
-	ChannelName             string
-	ReplyTargetID           string
-	Addressing              connectors.AddressingMetadata
-	InputAttachments        []connectors.InputAttachment
-	ContextMessages         []connectors.VisibleContextMessage
-	ContextMaterials        []connectors.InputAttachment
-	ActionResponses         []string
-	ExpectedSelectedSkills  []string
-	ExpectedToolCalls       []string
-	ExpectedEvents          []string
-	ExpectedToolCallCounts  map[string]int
-	ExpectedEventCounts     []VirtualEventCount
-	ExpectedAttachments     []string
-	ExpectedWorkspaceFiles  []VirtualWorkspaceFileExpectation
-	ExpectedModelContexts   []string
-	ForbiddenModelContexts  []string
-	ExpectedReplyTargetID   string
-	ExpectedReplyFragments  []string
-	ForbiddenReplyFragments []string
-	MinimumReplyLength      int
+	Prompt                    string
+	ConversationType          string
+	ChannelID                 string
+	ChannelName               string
+	ReplyTargetID             string
+	Addressing                connectors.AddressingMetadata
+	InputAttachments          []connectors.InputAttachment
+	ContextMessages           []connectors.VisibleContextMessage
+	ContextMaterials          []connectors.InputAttachment
+	ActionResponses           []string
+	ExpectedSelectedSkills    []string
+	ExpectedToolCalls         []string
+	ExpectedEvents            []string
+	ExpectedToolCallCounts    map[string]int
+	ExpectedEventCounts       []VirtualEventCount
+	ExpectedAttachments       []string
+	ExpectedWorkspaceFiles    []VirtualWorkspaceFileExpectation
+	ExpectedModelContexts     []string
+	ForbiddenModelContexts    []string
+	ExpectedReplyTargetID     string
+	ExpectedReplyFragments    []string
+	ForbiddenReplyFragments   []string
+	MinimumReplyLength        int
+	ExpectedSequence          []string
+	ExpectedCheckpointReplies []string
+	ForbiddenEvents           []string
+	ExpectedTaskStatus        task.TaskStatus
 }
 
 type VirtualEventCount struct {
@@ -989,21 +993,20 @@ func (harness *VirtualSessionHarness) modelCallsSince(startIndex int) []VirtualL
 
 func (harness *VirtualSessionHarness) assertTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
 	if harness.scenario.UseLooseAssertions {
-		return assertLooseTurnResult(turnResult)
+		return assertLooseTurnResult(virtualTurn, turnResult)
 	}
 	return assertTurnResult(harness.workspacePath, virtualTurn, turnResult)
 }
 
-func assertLooseTurnResult(turnResult VirtualTurnResult) error {
+func assertLooseTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
 	if strings.TrimSpace(turnResult.FinishMessage) == "" {
 		return errors.New("expected non-empty final reply")
 	}
 	switch turnResult.TaskStatus {
 	case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusInterrupted:
 		return fmt.Errorf("expected terminal or waiting task status, got %s", turnResult.TaskStatus)
-	default:
-		return nil
 	}
+	return assertStructuralTurnExpectations(virtualTurn, turnResult)
 }
 
 func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTurnResult) []VirtualInformationalAssertion {
@@ -1093,7 +1096,66 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 	if virtualTurn.MinimumReplyLength > 0 && len([]rune(turnResult.FinishMessage)) < virtualTurn.MinimumReplyLength {
 		return fmt.Errorf("expected reply length >= %d, got %d: %q", virtualTurn.MinimumReplyLength, len([]rune(turnResult.FinishMessage)), turnResult.FinishMessage)
 	}
+	return assertStructuralTurnExpectations(virtualTurn, turnResult)
+}
+
+func assertStructuralTurnExpectations(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	if errorValue := assertEventSubsequence(turnResult.Events, virtualTurn.ExpectedSequence); errorValue != nil {
+		return errorValue
+	}
+	for _, forbiddenEvent := range virtualTurn.ForbiddenEvents {
+		if eventsContain(turnResult.Events, forbiddenEvent, "") {
+			return fmt.Errorf("forbidden event %q present; events: %s", forbiddenEvent, summarizeEvents(turnResult.Events))
+		}
+	}
+	for _, fragment := range virtualTurn.ExpectedCheckpointReplies {
+		if !checkpointRepliesContain(turnResult.Events, fragment) {
+			return fmt.Errorf("expected checkpoint reply fragment %q; checkpoint replies: %v", fragment, checkpointReplyMessages(turnResult.Events))
+		}
+	}
+	if strings.TrimSpace(string(virtualTurn.ExpectedTaskStatus)) != "" && turnResult.TaskStatus != virtualTurn.ExpectedTaskStatus {
+		return fmt.Errorf("expected task status %q, got %q", virtualTurn.ExpectedTaskStatus, turnResult.TaskStatus)
+	}
 	return nil
+}
+
+func assertEventSubsequence(events []task.TaskEvent, expectedNames []string) error {
+	if len(expectedNames) == 0 {
+		return nil
+	}
+	matchIndex := 0
+	for _, event := range events {
+		if matchIndex < len(expectedNames) && event.Name == expectedNames[matchIndex] {
+			matchIndex++
+		}
+	}
+	if matchIndex < len(expectedNames) {
+		return fmt.Errorf("expected event subsequence %v, matched %d; events: %s", expectedNames, matchIndex, summarizeEvents(events))
+	}
+	return nil
+}
+
+func checkpointReplyMessages(events []task.TaskEvent) []string {
+	messages := []string{}
+	for _, event := range events {
+		if event.Name != "agent.checkpoint.sent" {
+			continue
+		}
+		message := agent.CheckpointReplyMessage(event.Body)
+		if message != "" {
+			messages = append(messages, message)
+		}
+	}
+	return messages
+}
+
+func checkpointRepliesContain(events []task.TaskEvent, fragment string) bool {
+	for _, message := range checkpointReplyMessages(events) {
+		if strings.Contains(message, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateExpectedWorkspaceFile(workspacePath string, expectation VirtualWorkspaceFileExpectation) error {

@@ -3,6 +3,7 @@ package e2e
 import (
 	"blueclaw/internal/agent"
 	"blueclaw/internal/connectors"
+	"blueclaw/internal/task"
 )
 
 func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSessionScenario {
@@ -104,7 +105,10 @@ func WebSearchAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 				actionFinishMessage("검색 결과 BlueclawSearchStubToken 정보를 확인했습니다.", "obs-002:web.search:0"),
 			},
 			ExpectedToolCalls:      []string{"web.search"},
+			ExpectedSequence:       []string{"tool.web.search.requested", "tool.web.search.result"},
+			ForbiddenEvents:        []string{"agent.no_progress_loop_stopped"},
 			ExpectedReplyFragments: []string{"BlueclawSearchStubToken"},
+			ExpectedTaskStatus:     task.TaskStatusCompleted,
 		}},
 	}
 }
