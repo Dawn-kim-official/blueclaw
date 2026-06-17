@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,6 +181,21 @@ func TestFileWriteDescribesContentAsExactFileBody(t *testing.T) {
 	}
 	if !strings.Contains(toolDefinition.RecoveryCard.AvoidWhen, "escaped newline sequences") {
 		t.Fatalf("expected file.write recovery card to warn about escaped newlines, got %+v", toolDefinition.RecoveryCard)
+	}
+}
+
+func TestAttachmentResolutionFailureIsTerminalAndGuidesGracefulExit(t *testing.T) {
+	result := attachmentResolutionFailure("file_preview", errors.New("attachment material is not visible in this conversation"))
+	if result.Failure == nil {
+		t.Fatal("expected a failure result")
+	}
+	if result.Failure.RetryPolicy != "no_retry" {
+		t.Fatalf("expected no_retry policy, got %q", result.Failure.RetryPolicy)
+	}
+	for _, expected := range []string{"do not retry", "could not be opened"} {
+		if !strings.Contains(result.Failure.UserSafeSummary, expected) {
+			t.Fatalf("expected guidance %q in summary, got %q", expected, result.Failure.UserSafeSummary)
+		}
 	}
 }
 
