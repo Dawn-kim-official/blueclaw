@@ -373,7 +373,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		if agentTurnRunner.continueStalledRecoveryIfAllowed(taskRun.TaskRunID, &state, &progressTracker, recoveryAllowance) {
 			return AgentTurnResult{}, false
 		}
-		reason := "stopped after 3 consecutive model actions without workspace, tool, artifact, attachment, or new failure progress"
+		if agentTurnRunner.steerStalledTurnTowardExit(taskRun.TaskRunID, &state, &progressTracker) {
+			return AgentTurnResult{}, false
+		}
+		reason := "stopped after repeated model actions without workspace, tool, artifact, attachment, or new failure progress, including after stall guidance"
 		if agentTurnRunner.shouldPauseForStalledRecovery(taskRun.TaskRunID, state.Observations) {
 			if result, isPaused := agentTurnRunner.pauseTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state); isPaused {
 				return result, true
@@ -1205,6 +1208,31 @@ func (agentTurnRunner *AgentTurnRunner) continueStalledRecoveryIfAllowed(taskRun
 	agentTurnRunner.appendEvent(taskRunID, "agent.stall_recovery_directive", marshalEventBody(directive))
 	tracker.noteStallRecoveryDirective(state.Observations)
 	return true
+}
+
+func (agentTurnRunner *AgentTurnRunner) steerStalledTurnTowardExit(taskRunID string, state *agentTaskState, tracker *actionProgressTracker) bool {
+	if tracker.stallRecoveryDirectiveCount >= maxStallRecoveryDirectivesPerEpisode {
+		return false
+	}
+	directive := stalledExitDirectiveObservation(nextObservationID(len(state.Observations)+1), state.Observations)
+	state.Observations = append(state.Observations, directive)
+	agentTurnRunner.appendEvent(taskRunID, "agent.stall_exit_directive", marshalEventBody(directive))
+	tracker.noteStallRecoveryDirective(state.Observations)
+	return true
+}
+
+func stalledExitDirectiveObservation(observationID string, observations []turnObservation) turnObservation {
+	failedTool := ""
+	if failureDebt, hasFailureDebt := activeFailureDebt(observations); hasFailureDebt {
+		failedTool = strings.TrimSpace(failureDebt.LatestFailure.Tool)
+	}
+	message := "You are repeating actions without making progress. Stop retrying the same thing and stop re-emitting a finish that keeps getting rejected. Take one of two exits now: either take a genuinely different action that changes workspace, tool, or evidence state; or, if you cannot obtain what you need because a tool keeps failing or the required evidence is unavailable, end immediately with fail and failureResolution=failure_report, giving the user a short honest explanation of what you could not do. Do not loop and do not ask the user how to proceed."
+	observation := newContentObservation(observationID, "policy", "", marshalEventBody(map[string]string{
+		"directive":  message,
+		"failedTool": failedTool,
+	}))
+	observation.Summary = message
+	return observation
 }
 
 func stalledOnRedundantInspection(observations []turnObservation) bool {

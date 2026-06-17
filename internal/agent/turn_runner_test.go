@@ -1330,11 +1330,11 @@ func TestAgentTurnRunnerWaitingApprovalUsesOnlyUserFacingMessage(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerAddsModelFacingLimitPressureWarnings(t *testing.T) {
+func TestAgentTurnRunnerSteersStalledTurnBeforeStopping(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"unknown"}`,
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, MaxToolCallCount: 8})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 40, MaxToolCallCount: 40})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
@@ -1342,10 +1342,14 @@ func TestAgentTurnRunnerAddsModelFacingLimitPressureWarnings(t *testing.T) {
 		Prompt:            "do it",
 	})
 	if errorValue != nil {
-		t.Fatalf("expected limit result, got error: %v", errorValue)
+		t.Fatalf("expected terminal result, got error: %v", errorValue)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.no_progress_loop_stopped", "3 consecutive") {
-		t.Fatal("expected no-progress loop stop event")
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.stall_exit_directive", "") {
+		t.Fatal("expected a stall-exit steer before terminating the no-progress loop")
+	}
+	if result.TaskRun.Status == task.TaskStatusRunning {
+		t.Fatalf("expected the stalled turn to terminate, got status %s", result.TaskRun.Status)
 	}
 }
 
