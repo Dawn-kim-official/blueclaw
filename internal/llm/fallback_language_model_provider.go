@@ -3,11 +3,15 @@ package llm
 import (
 	"context"
 	"errors"
+	"log/slog"
 )
 
 type FallbackLanguageModelProvider struct {
 	PrimaryProvider  LanguageModelProvider
 	FallbackProvider LanguageModelProvider
+	PrimaryLabel     string
+	FallbackLabel    string
+	Logger           *slog.Logger
 }
 
 func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
@@ -20,6 +24,7 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateRespo
 		return response, errorValue
 	}
 
+	fallbackLanguageModelProvider.logFallback("text", errorValue)
 	return fallbackLanguageModelProvider.FallbackProvider.GenerateResponse(responseContext, prompt)
 }
 
@@ -33,6 +38,7 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateStruc
 		return structuredResponse, errorValue
 	}
 
+	fallbackLanguageModelProvider.logFallback("structured", errorValue)
 	structuredResponse, errorValue = fallbackLanguageModelProvider.FallbackProvider.GenerateStructuredResponse(responseContext, structuredResponseRequest)
 	if errorValue != nil {
 		return StructuredResponse{}, errorValue
@@ -40,4 +46,17 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) GenerateStruc
 
 	structuredResponse.UsedFallback = true
 	return structuredResponse, nil
+}
+
+func (fallbackLanguageModelProvider FallbackLanguageModelProvider) logFallback(callKind string, primaryError error) {
+	if fallbackLanguageModelProvider.Logger == nil {
+		return
+	}
+	fallbackLanguageModelProvider.Logger.Warn(
+		"language model call failed; falling back to lower tier",
+		"callKind", callKind,
+		"failedTier", fallbackLanguageModelProvider.PrimaryLabel,
+		"fallbackTier", fallbackLanguageModelProvider.FallbackLabel,
+		"error", primaryError.Error(),
+	)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -141,7 +142,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	}
 	agentKernel.UseInstructionBundleLoader(instructionBundleLoader)
 	languageModelRuntimeConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
-	taskTierLanguageModels := resolveTaskTierLanguageModelProviders(runtimeConfiguration)
+	taskTierLanguageModels := resolveTaskTierLanguageModelProviders(runtimeConfiguration, logger)
 	languageModelProvider := taskTierLanguageModels.High
 	lowTierLanguageModelProvider := taskTierLanguageModels.Low
 	if lowTierLanguageModelProvider != nil {
@@ -816,21 +817,46 @@ type taskTierLanguageModelProviders struct {
 	Coding llm.LanguageModelProvider
 }
 
-func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration) taskTierLanguageModelProviders {
+func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) taskTierLanguageModelProviders {
 	languageModelConfiguration := deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)
 	if strings.TrimSpace(languageModelConfiguration.LanguageModel.DefaultProvider) == "" {
 		return taskTierLanguageModelProviders{}
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
+	lowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Low)
+	mediumModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium)
 	highModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High)
-	return taskTierLanguageModelProviders{
-		Low:    llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Low),
-		Medium: llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium),
-		High:   highModel,
-		Coding: llm.VisionFallbackProvider{
-			TextOnlyModel: llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Coding),
-			VisionModel:   highModel,
+	codingModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Coding)
+
+	mediumWithFallback := llm.FallbackLanguageModelProvider{
+		PrimaryProvider:  mediumModel,
+		FallbackProvider: lowModel,
+		PrimaryLabel:     "medium",
+		FallbackLabel:    "low",
+		Logger:           logger,
+	}
+	highWithFallback := llm.FallbackLanguageModelProvider{
+		PrimaryProvider:  highModel,
+		FallbackProvider: mediumWithFallback,
+		PrimaryLabel:     "high",
+		FallbackLabel:    "medium",
+		Logger:           logger,
+	}
+	codingWithFallback := llm.FallbackLanguageModelProvider{
+		PrimaryProvider: llm.VisionFallbackProvider{
+			TextOnlyModel: codingModel,
+			VisionModel:   highWithFallback,
 		},
+		FallbackProvider: mediumWithFallback,
+		PrimaryLabel:     "coding",
+		FallbackLabel:    "medium",
+		Logger:           logger,
+	}
+	return taskTierLanguageModelProviders{
+		Low:    lowModel,
+		Medium: mediumWithFallback,
+		High:   highWithFallback,
+		Coding: codingWithFallback,
 	}
 }
 
