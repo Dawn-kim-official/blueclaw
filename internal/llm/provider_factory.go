@@ -58,12 +58,14 @@ const (
 	defaultHighModelName   = "google/gemini-3.5-flash"
 	defaultMediumModelName = "x-ai/grok-4.3"
 	defaultLowModelName    = "google/gemini-3.1-flash-lite"
+	defaultCodingModelName = "z-ai/glm-5.2"
 )
 
 type ModelTierNames struct {
 	High   string
 	Medium string
 	Low    string
+	Coding string
 }
 
 func ResolveModelTierNames(runtimeConfiguration config.RuntimeConfiguration) ModelTierNames {
@@ -72,6 +74,7 @@ func ResolveModelTierNames(runtimeConfiguration config.RuntimeConfiguration) Mod
 		High:   firstNonEmptyModelName(capabilityConfiguration.HighModel, capabilityConfiguration.Model, defaultHighModelName),
 		Medium: firstNonEmptyModelName(capabilityConfiguration.MediumModel, defaultMediumModelName),
 		Low:    firstNonEmptyModelName(capabilityConfiguration.LowModel, defaultLowModelName),
+		Coding: firstNonEmptyModelName(capabilityConfiguration.CodingModel, defaultCodingModelName),
 	}
 }
 

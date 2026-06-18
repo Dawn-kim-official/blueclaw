@@ -19,6 +19,7 @@ type AgentKernel struct {
 	languageModel           llm.LanguageModelProvider
 	highTaskLanguageModel   llm.LanguageModelProvider
 	mediumTaskLanguageModel llm.LanguageModelProvider
+	codingTaskLanguageModel llm.LanguageModelProvider
 	intakeLanguageModel     llm.LanguageModelProvider
 	turnOptions             TurnOptions
 	intakeOptions           IntakeOptions
@@ -42,9 +43,10 @@ func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel llm.Langu
 	agentKernel.languageModel = languageModel
 }
 
-func (agentKernel *AgentKernel) UseTaskTierLanguageModels(highTaskLanguageModel llm.LanguageModelProvider, mediumTaskLanguageModel llm.LanguageModelProvider) {
+func (agentKernel *AgentKernel) UseTaskTierLanguageModels(highTaskLanguageModel llm.LanguageModelProvider, mediumTaskLanguageModel llm.LanguageModelProvider, codingTaskLanguageModel llm.LanguageModelProvider) {
 	agentKernel.highTaskLanguageModel = highTaskLanguageModel
 	agentKernel.mediumTaskLanguageModel = mediumTaskLanguageModel
+	agentKernel.codingTaskLanguageModel = codingTaskLanguageModel
 }
 
 func (agentKernel *AgentKernel) UseTaskArtifactService(taskArtifactService *task.TaskArtifactService) {
@@ -335,7 +337,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
 		agentKernel.taskArtifactService,
-		agentKernel.taskLanguageModelForTier(taskModelTier(intakeDecision.TaskComplexity, turnOptions.EffortLevel)),
+		agentKernel.taskLanguageModelForTier(resolvedTaskModelTier(intakeDecision.TaskComplexity, turnOptions.EffortLevel, turnRequest.WorkKinds)),
 		agentKernel.languageModel,
 		turnOptions,
 	)
@@ -551,6 +553,7 @@ const (
 	modelTierLow    modelTier = "low"
 	modelTierMedium modelTier = "medium"
 	modelTierHigh   modelTier = "high"
+	modelTierCoding modelTier = "coding"
 )
 
 func taskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) modelTier {
@@ -566,6 +569,14 @@ func taskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) model
 	return modelTierLow
 }
 
+func resolvedTaskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel, workKinds []string) modelTier {
+	tier := taskModelTier(taskComplexity, effortLevel)
+	if tier == modelTierHigh && workKindsContain(workKinds, WorkKindCoding) {
+		return modelTierCoding
+	}
+	return tier
+}
+
 func (agentKernel *AgentKernel) taskLanguageModelForTier(tier modelTier) llm.LanguageModelProvider {
 	switch tier {
 	case modelTierHigh:
@@ -575,6 +586,10 @@ func (agentKernel *AgentKernel) taskLanguageModelForTier(tier modelTier) llm.Lan
 	case modelTierMedium:
 		if agentKernel.mediumTaskLanguageModel != nil {
 			return agentKernel.mediumTaskLanguageModel
+		}
+	case modelTierCoding:
+		if agentKernel.codingTaskLanguageModel != nil {
+			return agentKernel.codingTaskLanguageModel
 		}
 	}
 	return agentKernel.languageModel

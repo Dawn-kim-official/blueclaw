@@ -146,7 +146,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	lowTierLanguageModelProvider := taskTierLanguageModels.Low
 	if lowTierLanguageModelProvider != nil {
 		agentKernel.UseLanguageModelProvider(lowTierLanguageModelProvider)
-		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.High, taskTierLanguageModels.Medium)
+		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.High, taskTierLanguageModels.Medium, taskTierLanguageModels.Coding)
 	}
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	skillRetriever := agent.NewEmbeddingSkillRetriever(
@@ -813,6 +813,7 @@ type taskTierLanguageModelProviders struct {
 	Low    llm.LanguageModelProvider
 	Medium llm.LanguageModelProvider
 	High   llm.LanguageModelProvider
+	Coding llm.LanguageModelProvider
 }
 
 func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeConfiguration) taskTierLanguageModelProviders {
@@ -821,10 +822,15 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		return taskTierLanguageModelProviders{}
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
+	highModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High)
 	return taskTierLanguageModelProviders{
 		Low:    llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Low),
 		Medium: llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium),
-		High:   llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High),
+		High:   highModel,
+		Coding: llm.VisionFallbackProvider{
+			TextOnlyModel: llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Coding),
+			VisionModel:   highModel,
+		},
 	}
 }
 
