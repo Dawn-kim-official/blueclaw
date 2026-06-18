@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,6 +59,70 @@ func TestTaskMonitorHandlerListsAllTaskRunsWithoutQuery(t *testing.T) {
 	}
 	if strings.Count(responseRecorder.Body.String(), `"taskRunID"`) != 2 {
 		t.Fatalf("expected both task runs, got %s", responseRecorder.Body.String())
+	}
+}
+
+func TestTaskMonitorHandlerOffsetSkipsNewestTaskRuns(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRunService.CreateTaskRun("person-1", "conversation-1", "oldest task")
+	taskRunService.CreateTaskRun("person-1", "conversation-1", "middle task")
+	newestTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "newest task")
+	handler := TaskMonitorHandler{TaskRunService: taskRunService}
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task?offset=1", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleListTaskRun(responseRecorder, request)
+
+	responseBody := responseRecorder.Body.String()
+	if strings.Contains(responseBody, newestTaskRun.TaskRunID) {
+		t.Fatalf("expected newest task run to be skipped by offset, got %s", responseBody)
+	}
+	if strings.Count(responseBody, `"taskRunID"`) != 2 {
+		t.Fatalf("expected two task runs after offset, got %s", responseBody)
+	}
+}
+
+func TestTaskMonitorHandlerIncludeTotalReturnsCountAfterFilter(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRunService.CreateTaskRun("person-1", "conversation-1", "first task")
+	taskRunService.CreateTaskRun("person-1", "conversation-1", "second task")
+	taskRunService.CreateTaskRun("person-1", "conversation-1", "third task")
+	handler := TaskMonitorHandler{TaskRunService: taskRunService}
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task?limit=1&includeTotal=true", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleListTaskRun(responseRecorder, request)
+
+	var response struct {
+		TaskRuns   []map[string]any `json:"taskRuns"`
+		TotalCount int              `json:"totalCount"`
+	}
+	if errorValue := json.Unmarshal(responseRecorder.Body.Bytes(), &response); errorValue != nil {
+		t.Fatalf("expected object response, got %s", responseRecorder.Body.String())
+	}
+	if response.TotalCount != 3 {
+		t.Fatalf("expected total count 3, got %d", response.TotalCount)
+	}
+	if len(response.TaskRuns) != 1 {
+		t.Fatalf("expected a single page item, got %d", len(response.TaskRuns))
+	}
+}
+
+func TestTaskMonitorHandlerWithoutIncludeTotalReturnsBareArray(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRunService.CreateTaskRun("person-1", "conversation-1", "only task")
+	handler := TaskMonitorHandler{TaskRunService: taskRunService}
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleListTaskRun(responseRecorder, request)
+
+	var taskRuns []map[string]any
+	if errorValue := json.Unmarshal(responseRecorder.Body.Bytes(), &taskRuns); errorValue != nil {
+		t.Fatalf("expected bare array response, got %s", responseRecorder.Body.String())
+	}
+	if len(taskRuns) != 1 {
+		t.Fatalf("expected one task run, got %d", len(taskRuns))
 	}
 }
 
