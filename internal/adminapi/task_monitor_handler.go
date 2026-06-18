@@ -28,13 +28,24 @@ func (taskMonitorHandler TaskMonitorHandler) HandleListTaskRun(responseWriter ht
 		writeJSON(responseWriter, http.StatusOK, []taskRunListItem{})
 		return
 	}
-	taskRuns := selectTaskRunList(
+	query := request.URL.Query()
+	filteredTaskRuns := selectTaskRunList(
 		taskMonitorHandler.TaskRunService.ListTaskRun(),
-		request.URL.Query().Get("status"),
+		query.Get("status"),
 		requesterPersonID,
-		request.URL.Query().Get("limit"),
 	)
-	writeJSON(responseWriter, http.StatusOK, taskMonitorHandler.decorateTaskRunList(taskRuns))
+	pagedTaskRuns := taskMonitorHandler.decorateTaskRunList(
+		pageTaskRunList(filteredTaskRuns, query.Get("offset"), query.Get("limit")),
+	)
+
+	if !isTotalRequested(query.Get("includeTotal")) {
+		writeJSON(responseWriter, http.StatusOK, pagedTaskRuns)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, map[string]any{
+		"taskRuns":   pagedTaskRuns,
+		"totalCount": len(filteredTaskRuns),
+	})
 }
 
 func (taskMonitorHandler TaskMonitorHandler) HandleGetTaskRun(responseWriter http.ResponseWriter, request *http.Request) {
@@ -97,13 +108,13 @@ func (taskMonitorHandler TaskMonitorHandler) resolveRequesterDisplayName(request
 	return taskMonitorHandler.IdentityService.ResolvePersonDisplayName(requesterPersonID)
 }
 
-func selectTaskRunList(taskRuns []task.TaskRun, status string, requesterPersonID string, limitValue string) []task.TaskRun {
+func selectTaskRunList(taskRuns []task.TaskRun, status string, requesterPersonID string) []task.TaskRun {
 	selectedTaskRuns := filterTaskRunListByStatus(taskRuns, strings.TrimSpace(status))
 	selectedTaskRuns = filterTaskRunListByRequester(selectedTaskRuns, strings.TrimSpace(requesterPersonID))
 	sort.Slice(selectedTaskRuns, func(leftIndex int, rightIndex int) bool {
 		return selectedTaskRuns[leftIndex].CreatedAt.After(selectedTaskRuns[rightIndex].CreatedAt)
 	})
-	return limitTaskRunList(selectedTaskRuns, limitValue)
+	return selectedTaskRuns
 }
 
 func filterTaskRunListByStatus(taskRuns []task.TaskRun, status string) []task.TaskRun {
@@ -132,10 +143,28 @@ func filterTaskRunListByRequester(taskRuns []task.TaskRun, requesterPersonID str
 	return filteredTaskRuns
 }
 
-func limitTaskRunList(taskRuns []task.TaskRun, limitValue string) []task.TaskRun {
-	limit, errorValue := strconv.Atoi(strings.TrimSpace(limitValue))
-	if errorValue != nil || limit <= 0 || len(taskRuns) <= limit {
-		return taskRuns
+func pageTaskRunList(taskRuns []task.TaskRun, offsetValue string, limitValue string) []task.TaskRun {
+	offset := parseNonNegativeInteger(offsetValue)
+	if offset >= len(taskRuns) {
+		return []task.TaskRun{}
 	}
-	return taskRuns[:limit]
+	windowedTaskRuns := taskRuns[offset:]
+
+	limit := parseNonNegativeInteger(limitValue)
+	if limit <= 0 || len(windowedTaskRuns) <= limit {
+		return windowedTaskRuns
+	}
+	return windowedTaskRuns[:limit]
+}
+
+func parseNonNegativeInteger(value string) int {
+	parsed, errorValue := strconv.Atoi(strings.TrimSpace(value))
+	if errorValue != nil || parsed < 0 {
+		return 0
+	}
+	return parsed
+}
+
+func isTotalRequested(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "true")
 }
