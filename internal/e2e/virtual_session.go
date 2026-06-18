@@ -35,23 +35,25 @@ import (
 )
 
 type VirtualSessionScenario struct {
-	Name                  string
-	ProfileName           string
-	ArtifactDirectoryPath string
-	LanguageModel         llm.LanguageModelProvider
-	DisableScriptedModel  bool
-	UseLooseAssertions    bool
-	SkillDirectoryPaths   []string
-	Skills                []agent.SkillInstruction
-	AllowedTools          []string
-	CapabilityToolNames   []string
-	InitialMemory         []memory.MemoryFact
-	RouterWorkKinds       []string
-	AddressingResponse    string
-	RouterSiteEvidence    string
-	TurnOptions           agent.TurnOptions
-	ProgressWriter        io.Writer
-	Turns                 []VirtualTurn
+	Name                     string
+	ProfileName              string
+	ArtifactDirectoryPath    string
+	LanguageModel            llm.LanguageModelProvider
+	DisableScriptedModel     bool
+	UseLooseAssertions       bool
+	SkillDirectoryPaths      []string
+	Skills                   []agent.SkillInstruction
+	AllowedTools             []string
+	CapabilityToolNames      []string
+	InitialMemory            []memory.MemoryFact
+	RouterWorkKinds          []string
+	RouterEffortLevel        string
+	CodingTierVisionFallback bool
+	AddressingResponse       string
+	RouterSiteEvidence       string
+	TurnOptions              agent.TurnOptions
+	ProgressWriter           io.Writer
+	Turns                    []VirtualTurn
 }
 
 type VirtualTurn struct {
@@ -297,6 +299,25 @@ func (languageModel *virtualObservedLanguageModel) appendCall(callEvent VirtualL
 	languageModel.calls = append(languageModel.calls, callEvent)
 }
 
+type imageRejectingLanguageModel struct {
+	delegate llm.LanguageModelProvider
+}
+
+func (model imageRejectingLanguageModel) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	return model.delegate.GenerateResponse(responseContext, prompt)
+}
+
+func (model imageRejectingLanguageModel) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	for _, message := range request.Messages {
+		for _, part := range message.Parts {
+			if part.Type == "image" {
+				return llm.StructuredResponse{}, errors.New("text-only coding model received an image part")
+			}
+		}
+	}
+	return model.delegate.GenerateStructuredResponse(responseContext, request)
+}
+
 func virtualStructuredCallEvent(request llm.StructuredResponseRequest, response llm.StructuredResponse, startedAt time.Time, errorValue error) VirtualLanguageModelCallEvent {
 	callEvent := VirtualLanguageModelCallEvent{
 		Kind:             "structured",
@@ -410,6 +431,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return AttachmentHTMLPreviousPreviewRecoveryScenario(artifactDirectoryPath), nil
 	case "attachment_current_image_input":
 		return AttachmentCurrentImageInputScenario(artifactDirectoryPath), nil
+	case "coding_image_vision_fallback":
+		return CodingImageVisionFallbackScenario(artifactDirectoryPath), nil
 	default:
 		return VirtualSessionScenario{}, fmt.Errorf("unknown virtual session scenario: %s", name)
 	}
@@ -457,6 +480,13 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
+	if scenario.CodingTierVisionFallback {
+		codingTaskLanguageModel := llm.VisionFallbackProvider{
+			TextOnlyModel: imageRejectingLanguageModel{delegate: languageModel},
+			VisionModel:   languageModel,
+		}
+		agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, codingTaskLanguageModel)
+	}
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultEffortLevel: agent.EffortLevelStandard})
 	agentKernel.UseTurnOptions(virtualTurnOptions(scenario.TurnOptions))
@@ -835,11 +865,15 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if len(scenario.RouterWorkKinds) == 0 {
 		return defaultResponses
 	}
+	effortLevel := strings.TrimSpace(scenario.RouterEffortLevel)
+	if effortLevel == "" {
+		effortLevel = "standard"
+	}
 	routerDocument := map[string]any{
 		"route":                  "start_task",
 		"classification":         "bounded_task",
 		"taskShape":              "maintenance_task",
-		"effortLevel":            "standard",
+		"effortLevel":            effortLevel,
 		"requestedOutputFormats": nil,
 		"siteRequestEvidence":    scenario.RouterSiteEvidence,
 		"responseLanguage":       "ko",

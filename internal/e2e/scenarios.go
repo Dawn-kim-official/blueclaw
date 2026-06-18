@@ -303,6 +303,39 @@ func AttachmentCurrentImageInputScenario(artifactDirectoryPath string) VirtualSe
 	}
 }
 
+func CodingImageVisionFallbackScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	attachment := connectors.InputAttachment{
+		Platform:    "mattermost",
+		FileID:      "file-code-shot",
+		MessageID:   "virtual-message-001",
+		Filename:    "login_handler.png",
+		ContentType: "image/png",
+		SizeBytes:   13,
+	}
+	return VirtualSessionScenario{
+		Name:                     "coding_image_vision_fallback",
+		ArtifactDirectoryPath:    artifactDirectoryPath,
+		RouterWorkKinds:          []string{agent.WorkKindCoding},
+		RouterEffortLevel:        "deep",
+		CodingTierVisionFallback: true,
+		AllowedTools:             []string{"conversation.history", "memory.search"},
+		Turns: []VirtualTurn{{
+			Prompt:           "이 스크린샷에 있는 로그인 핸들러 코드 리뷰하고 리팩터링 방향 알려줘.",
+			InputAttachments: []connectors.InputAttachment{attachment},
+			ActionResponses: []string{
+				actionFinishMessage("스크린샷의 로그인 핸들러는 비밀번호를 평문 비교하고 에러를 한꺼번에 삼키고 있습니다. 비밀번호 검증은 상수 시간 해시 비교로 바꾸고, 인증 실패와 입력 검증 실패를 분리해 각각의 에러로 올려보내며, 토큰 발급 로직을 별도 함수로 추출해 핸들러는 흐름만 조율하도록 리팩터링하시길 권합니다."),
+			},
+			ExpectedModelContexts: []string{
+				"materialID=mattermost:file-code-shot",
+				"login_handler.png",
+			},
+			ExpectedReplyFragments: []string{"리팩터링", "비밀번호"},
+			MinimumReplyLength:     80,
+			ExpectedTaskStatus:     task.TaskStatusCompleted,
+		}},
+	}
+}
+
 func GWSDisabledScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "gws_disabled",
