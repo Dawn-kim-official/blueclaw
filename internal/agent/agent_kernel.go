@@ -559,17 +559,41 @@ const (
 	modelTierCoding modelTier = "coding"
 )
 
-func taskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) modelTier {
-	if effortLevel == EffortLevelQuick {
+var modelTierRank = map[modelTier]int{
+	modelTierXLow:   0,
+	modelTierLow:    1,
+	modelTierMedium: 2,
+	modelTierHigh:   3,
+	modelTierCoding: 4,
+}
+
+func complexityModelTier(taskComplexity TaskComplexity) modelTier {
+	switch taskComplexity {
+	case TaskComplexityComplex:
+		return modelTierMedium
+	case TaskComplexityNormal:
+		return modelTierLow
+	default:
 		return modelTierXLow
 	}
+}
+
+func effortModelTierFloor(effortLevel EffortLevel) modelTier {
 	if effortLevel == EffortLevelDeep || effortLevel == EffortLevelExtended {
 		return modelTierHigh
 	}
-	if taskComplexity == TaskComplexityComplex {
-		return modelTierMedium
+	return modelTierXLow
+}
+
+func higherModelTier(first modelTier, second modelTier) modelTier {
+	if modelTierRank[second] > modelTierRank[first] {
+		return second
 	}
-	return modelTierLow
+	return first
+}
+
+func taskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) modelTier {
+	return higherModelTier(complexityModelTier(taskComplexity), effortModelTierFloor(effortLevel))
 }
 
 func resolvedTaskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel, workKinds []string) modelTier {
