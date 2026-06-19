@@ -570,6 +570,25 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			ForbiddenEvents:        []string{"tool.terminal.run.requested"},
 			ExpectedReplyTargetID:  "virtual-message-010",
 			ExpectedReplyFragments: []string{"추가"},
+		}, {
+			Prompt:           "예시 님 그거 마감 수요일로 변경해주세요",
+			ConversationType: "channel",
+			ChannelID:        "town-square",
+			ChannelName:      "town-square",
+			ReplyTargetID:    "virtual-message-011",
+			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
+			ActionResponses: []string{
+				actionCallTool("flow.task.list", `{"targetPersonHint":"예시"}`),
+				actionCallTool("flow.task.update", `{"query":"신규 가입 플로우 점검","targetPersonHint":"예시","endDate":"2026-06-24"}`),
+				actionFinishMessage("예시 님 업무 마감을 수요일로 변경했습니다.", "obs-002:flow.task.update:0"),
+			},
+			ExpectedToolCalls: []string{"flow.task.list", "flow.task.update"},
+			ExpectedToolCallCounts: map[string]int{
+				"flow.task.add":    0,
+				"flow.task.update": 1,
+			},
+			ExpectedReplyTargetID:  "virtual-message-011",
+			ExpectedReplyFragments: []string{"변경"},
 		}},
 	}
 }

@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"context"
+	"strings"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/task"
@@ -21,6 +22,13 @@ const (
 type taskReplyDecision struct {
 	Kind   taskReplyDecisionKind
 	Reason string
+}
+
+func ambientCaptureEphemeralUserID(isAmbientCapture bool, event PlatformInboundEvent) string {
+	if !isAmbientCapture {
+		return ""
+	}
+	return strings.TrimSpace(event.SenderID)
 }
 
 func decideTaskReply(turnResult agent.AgentTurnResult, isCancelledBeforeSend bool) taskReplyDecision {
@@ -49,6 +57,7 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 	event PlatformInboundEvent,
 	replyTarget ReplyTarget,
 	turnResult agent.AgentTurnResult,
+	isAmbientCapture bool,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, error) {
 	taskRunID := turnResult.TaskRun.TaskRunID
@@ -78,7 +87,7 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", "messageID", event.MessageID, "taskRunID", taskRunID, "reason", decision.Reason)
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
 	default:
-		return connectorRuntime.sendCompletedTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, sendReply)
+		return connectorRuntime.sendCompletedTaskReply(ctx, platform, event, taskRunID, replyTarget, turnResult, isAmbientCapture, sendReply)
 	}
 }
 
@@ -89,12 +98,14 @@ func (connectorRuntime *ConnectorRuntime) sendCompletedTaskReply(
 	taskRunID string,
 	replyTarget ReplyTarget,
 	turnResult agent.AgentTurnResult,
+	isAmbientCapture bool,
 	sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error),
 ) (ConnectorRuntimeResult, error) {
 	dispatchID, errorValue := sendReply(ctx, replyTarget, OutboundReply{
 		Message:         turnResult.FinishMessage,
 		TaskRunID:       taskRunID,
 		ReplyKind:       connectorReplyKindSuccess,
+		EphemeralUserID: ambientCaptureEphemeralUserID(isAmbientCapture, event),
 		Attachments:     turnResult.Attachments,
 		RecoveryActions: recoveryActionsForEvent(turnResult.RecoveryActions, event),
 	})
