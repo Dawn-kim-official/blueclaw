@@ -10,7 +10,7 @@ import (
 
 const ambientDutyLaunchConfidenceThreshold = 0.7
 
-type addressingLaunchDecision struct {
+type inboundEngagementDecision struct {
 	ShouldLaunch bool
 	IgnoreReason string
 	AmbientDuty  agent.AmbientDutyContext
@@ -20,12 +20,12 @@ func shouldIgnoreUninvitedAddressing(event PlatformInboundEvent) bool {
 	return isMultiPersonConversation(event) && !event.Context.Addressing.BotMentioned
 }
 
-func (connectorRuntime *ConnectorRuntime) shouldLaunchForAddressing(ctx context.Context, platform string, event PlatformInboundEvent) addressingLaunchDecision {
+func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.Context, platform string, event PlatformInboundEvent) inboundEngagementDecision {
 	if !isMultiPersonConversation(event) {
-		return addressingLaunchDecision{ShouldLaunch: true}
+		return inboundEngagementDecision{ShouldLaunch: true}
 	}
 	if event.Context.Addressing.BotMentioned {
-		return addressingLaunchDecision{ShouldLaunch: true}
+		return inboundEngagementDecision{ShouldLaunch: true}
 	}
 	addressingDecision, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, agent.AddressingClassificationRequest{
 		Prompt:           event.Prompt,
@@ -36,16 +36,16 @@ func (connectorRuntime *ConnectorRuntime) shouldLaunchForAddressing(ctx context.
 	})
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".addressing.classifier_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
-		return addressingLaunchDecision{IgnoreReason: "addressing_classifier_failed dutyMatch=false"}
+		return inboundEngagementDecision{IgnoreReason: "addressing_classifier_failed dutyMatch=false"}
 	}
 	if addressingDecision.Target == agent.AddressingTargetBot {
-		return addressingLaunchDecision{ShouldLaunch: true}
+		return inboundEngagementDecision{ShouldLaunch: true}
 	}
 	ambientDuty := ambientDutyContextFromAddressingDecision(addressingDecision)
 	if ambientDuty.IsMatch {
-		return addressingLaunchDecision{ShouldLaunch: true, AmbientDuty: ambientDuty}
+		return inboundEngagementDecision{ShouldLaunch: true, AmbientDuty: ambientDuty}
 	}
-	return addressingLaunchDecision{IgnoreReason: "addressing_" + string(addressingDecision.Target) + " dutyMatch=false"}
+	return inboundEngagementDecision{IgnoreReason: "addressing_" + string(addressingDecision.Target) + " dutyMatch=false"}
 }
 
 func isMultiPersonConversation(event PlatformInboundEvent) bool {
@@ -58,6 +58,26 @@ func isMultiPersonConversation(event PlatformInboundEvent) bool {
 		return false
 	}
 	return true
+}
+
+func ambientCaptureTurnDecision(dutyName string, responseLanguage string) *agent.TurnDecision {
+	return &agent.TurnDecision{
+		Route:            agent.TurnRouteStartTask,
+		Classification:   agent.IntakeClassificationBoundedTask,
+		TaskShape:        agent.TaskShapeMaintenanceTask,
+		TaskComplexity:   agent.TaskComplexitySimple,
+		EffortLevel:      agent.EffortLevelStandard,
+		WorkKinds:        ambientCaptureWorkKinds(dutyName),
+		ResponseLanguage: responseLanguage,
+		Reason:           "ambient_duty_capture",
+	}
+}
+
+func ambientCaptureWorkKinds(dutyName string) []string {
+	if strings.TrimSpace(dutyName) == "calendar_upkeep" {
+		return []string{agent.WorkKindCalendar}
+	}
+	return nil
 }
 
 func ambientDutyContextFromAddressingDecision(decision agent.AddressingDecision) agent.AmbientDutyContext {

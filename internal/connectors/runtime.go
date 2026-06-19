@@ -948,7 +948,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		hasActiveGoal = true
 	}
 	event = connectorRuntime.withInitialVisibleContext(ctx, adapter, event)
-	addressingLaunch := connectorRuntime.shouldLaunchForAddressing(ctx, platform, event)
+	addressingLaunch := connectorRuntime.resolveInboundEngagement(ctx, platform, event)
 	if !addressingLaunch.ShouldLaunch {
 		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", addressingLaunch.IgnoreReason))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: addressingLaunch.IgnoreReason}, nil
@@ -978,6 +978,9 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	precomputedTurnDecision := precomputedTurnDecisionForLaunch(turnDecision, hasPendingConfirmation, askTurnDecision, hasAskTurnDecision)
+	if precomputedTurnDecision == nil && addressingLaunch.AmbientDuty.IsMatch && !isApprovalContinuation && !hasActiveGoal {
+		precomputedTurnDecision = ambientCaptureTurnDecision(addressingLaunch.AmbientDuty.Name, responseLanguageForEvent(event))
+	}
 	taskStartedAt := time.Now()
 	conversationTurn := ConversationTurn{
 		Platform:                  platform,
