@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const maxSchemaCallableToolCount = 8
+const maxSchemaCallableToolCount = 15
 
 type toolExposureGroup struct {
 	Name    string
@@ -391,6 +391,9 @@ func selectedAndPinnedSkillToolNames(instructionBundle InstructionBundle, pinned
 func activeGoalCandidateToolNames(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) []string {
 	toolNames := append([]string{}, outcomeContractToolNames(outcomeContract)...)
 	toolNames = appendUniqueStrings(toolNames, outcomeContractToolNames(request.ActiveGoal.OutcomeContract)...)
+	if requestHasWorkKind(request, WorkKindExternalSend) {
+		toolNames = appendUniqueStrings(toolNames, availableSendEvidenceToolNames(request.ToolSet)...)
+	}
 	if requestLooksLikeCalendarWork(request) {
 		toolNames = appendUniqueStrings(toolNames,
 			"calendar.event.add",

@@ -1807,7 +1807,7 @@ func actionSelectTools(toolNames ...string) string {
 	for _, toolName := range toolNames {
 		encodedToolNames = append(encodedToolNames, quote(toolName))
 	}
-	return `{"action":"select_tools","toolNames":[` + strings.Join(encodedToolNames, ",") + `],"skillNames":[],"reason":"required for the requested task"}`
+	return `{"action":"request_tools","toolNames":[` + strings.Join(encodedToolNames, ",") + `],"skillNames":[],"reason":"required for the requested task"}`
 }
 
 func actionCallTool(toolName string, input string) string {

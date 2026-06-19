@@ -289,7 +289,7 @@ type terminalToolNameError struct {
 }
 
 func (errorValue terminalToolNameError) Error() string {
-	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use select_tools if the tool is hidden, then call " + errorValue.toolName + " directly with its tool schema."
+	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use request_tools if the tool is hidden, then call " + errorValue.toolName + " directly with its tool schema."
 }
 
 func isTerminalToolNameError(errorValue error) bool {

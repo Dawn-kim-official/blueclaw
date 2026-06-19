@@ -47,35 +47,35 @@ func TestSelectToolsWithoutToolCallDoesNotCountAsProgress(t *testing.T) {
 	tracker := newActionProgressTracker(nil)
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "select_tools",
+		Action:        "request_tools",
 		Output:        ToolOutput{Content: "selected"},
 	}}
 
 	first := tracker.evaluate(observations)
 	second := tracker.evaluate(append(observations, turnObservation{
 		ObservationID: "obs-002",
-		Action:        "select_tools",
+		Action:        "request_tools",
 		Output:        ToolOutput{Content: "selected again"},
 	}))
 	third := tracker.evaluate(append(observations, turnObservation{
 		ObservationID: "obs-002",
-		Action:        "select_tools",
+		Action:        "request_tools",
 		Output:        ToolOutput{Content: "selected again"},
 	}, turnObservation{
 		ObservationID: "obs-003",
-		Action:        "select_tools",
+		Action:        "request_tools",
 		Output:        ToolOutput{Content: "selected a third time"},
 	}))
 
 	if first.HasProgress || second.HasProgress || !third.shouldStop() {
-		t.Fatalf("expected bare select_tools loop to stop without progress, got first=%+v second=%+v third=%+v", first, second, third)
+		t.Fatalf("expected bare request_tools loop to stop without progress, got first=%+v second=%+v third=%+v", first, second, third)
 	}
 }
 
 func TestSelectToolsCountsAsProgressAfterSuccessfulToolCall(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "select_tools",
+		Action:        "request_tools",
 		Output:        ToolOutput{Content: "selected"},
 	}, {
 		ObservationID: "obs-002",
@@ -85,7 +85,7 @@ func TestSelectToolsCountsAsProgressAfterSuccessfulToolCall(t *testing.T) {
 	}}
 
 	if progressEventCount(observations) != 2 {
-		t.Fatalf("expected select_tools and successful tool call to count, got %+v", progressEvents(observations))
+		t.Fatalf("expected request_tools and successful tool call to count, got %+v", progressEvents(observations))
 	}
 }
 

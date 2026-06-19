@@ -321,7 +321,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		request.TurnStartedAt = time.Now().Add(-2 * time.Second)
 	}
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage)
-	request, _ = applyToolSelectionRequest(request, selectToolsRequest{
+	request, _ = applyToolRequest(request, requestToolsArguments{
 		ToolNames:  request.PinnedToolNames,
 		SkillNames: request.PinnedSkillNames,
 	})
@@ -385,7 +385,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
 		return result, isBlocked
 	}
-	stopForSelectToolsNoProgress := func(stepID string) (AgentTurnResult, bool) {
+	stopForRequestToolsNoProgress := func(stepID string) (AgentTurnResult, bool) {
 		progressEvaluation, shouldStop := noProgressStopEvaluation()
 		if !shouldStop {
 			return AgentTurnResult{}, false
@@ -465,36 +465,36 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
-		case "select_tools":
-			selectionRequest := selectToolsRequest{
+		case "request_tools":
+			requestArguments := requestToolsArguments{
 				ToolNames:  append([]string{}, actionDocument.ToolNames...),
 				SkillNames: append([]string{}, actionDocument.SkillNames...),
 				Reason:     actionDocument.Reason,
 			}
-			nextRequest, selectionResult := applyToolSelectionRequest(request, selectionRequest)
-			addedNothing := toolSelectionAddedNothing(request, nextRequest, selectionResult)
+			nextRequest, selectionResult := applyToolRequest(request, requestArguments)
+			addedNothing := toolRequestAddedNothing(request, nextRequest, selectionResult)
 			request = nextRequest
 			state.Request = nextRequest
 			var observation turnObservation
 			if addedNothing {
-				observation = redundantToolSelectionObservation(len(state.Observations)+1, selectionRequest, selectionResult)
+				observation = redundantToolSelectionObservation(len(state.Observations)+1, requestArguments, selectionResult)
 			} else {
-				observation = toolSelectionObservation(len(state.Observations)+1, selectionRequest, selectionResult)
+				observation = toolRequestObservation(len(state.Observations)+1, requestArguments, selectionResult)
 			}
 			state.Observations = append(state.Observations, observation)
 			eventName := "agent.tool_palette.applied"
 			if addedNothing {
 				eventName = "agent.tool_palette.redundant"
-			} else if toolSelectionResultFailed(selectionResult) {
+			} else if toolRequestResultFailed(selectionResult) {
 				eventName = "agent.tool_palette.failed"
 			}
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, eventName, marshalEventBody(map[string]any{
-				"request": selectionRequest,
+				"request": requestArguments,
 				"result":  selectionResult,
 				"source":  "model_action",
 			}))
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "select_tools", observation.ContentText())
-			if result, shouldStop := stopForSelectToolsNoProgress(stepID); shouldStop {
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "request_tools", observation.ContentText())
+			if result, shouldStop := stopForRequestToolsNoProgress(stepID); shouldStop {
 				return result, nil
 			}
 			continue
@@ -920,7 +920,7 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunI
 
 func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
 	plannedRequest := requestWithStepWorkingSetTools(request, state.NextStepPlan, state.Observations)
-	selectionRequest := buildToolSelectionRequest(
+	requestArguments := buildToolSelectionRequest(
 		plannedRequest.ToolSet,
 		instructionBundleFromTurnRequest(plannedRequest),
 		agentRequestFromTurnRequest(plannedRequest),
@@ -930,7 +930,7 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, reques
 		state.Observations,
 	)
 	selectionDecision, exposureEvent := ToolSelectionDecision{}, ToolExposureEvent{}
-	if deterministicDecision, deterministicEvent, isDeterministic := deterministicToolSelectionDecision(selectionRequest); isDeterministic {
+	if deterministicDecision, deterministicEvent, isDeterministic := deterministicToolSelectionDecision(requestArguments); isDeterministic {
 		selectionDecision = deterministicDecision
 		exposureEvent = deterministicEvent
 	} else {
