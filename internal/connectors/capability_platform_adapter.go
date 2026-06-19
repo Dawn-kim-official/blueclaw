@@ -195,6 +195,10 @@ func (adapter CapabilityPlatformAdapter) ImportInputAttachments(ctx context.Cont
 }
 
 func (adapter CapabilityPlatformAdapter) parseNormalizedEvent(payload []byte, source string) (PlatformInboundEvent, bool, error) {
+	return ParseNormalizedInboundEvent(payload, adapter.Name(), source)
+}
+
+func ParseNormalizedInboundEvent(payload []byte, platform string, source string) (PlatformInboundEvent, bool, error) {
 	if len(strings.TrimSpace(string(payload))) == 0 {
 		return PlatformInboundEvent{}, false, nil
 	}
@@ -218,7 +222,7 @@ func (adapter CapabilityPlatformAdapter) parseNormalizedEvent(payload []byte, so
 		return PlatformInboundEvent{}, false, nil
 	}
 
-	event.Platform = adapter.Name()
+	event.Platform = platform
 	if strings.TrimSpace(event.Source) == "" {
 		event.Source = source
 	}
