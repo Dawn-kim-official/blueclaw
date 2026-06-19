@@ -221,9 +221,22 @@ func (buildToolSetLaunchStep) Name() string {
 }
 
 func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecution) (*agent.ToolSet, error) {
-	return execution.Launcher.toolCatalogBuilder.BuildToolSet(
+	toolSet := execution.Launcher.toolCatalogBuilder.BuildToolSet(
 		execution.Launcher.toolCatalogRequestForLaunch(execution.Request, execution.NormalizedProfileName),
-	), nil
+	)
+	if execution.Request.AmbientDuty.IsMatch {
+		return toolSet.WithAllowedToolNames(ambientCaptureAllowedToolNames()), nil
+	}
+	return toolSet, nil
+}
+
+func ambientCaptureAllowedToolNames() []string {
+	return []string{
+		"flow.task.add", "flow.task.list", "flow.task.update",
+		"calendar.event.add", "calendar.event.update", "calendar.event.list",
+		"ask.confirm", "ask.choice", "ask.input",
+		"conversation.history", "tool.describe",
+	}
 }
 
 type auditToolRegistryLaunchStep struct {
