@@ -863,11 +863,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if errorValue != nil {
 		return ConnectorRuntimeResult{}, errorValue
 	}
-	if shouldIgnoreBeforeAuthorization(event) {
-		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "addressed_to_other_person"))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "addressed_to_other_person"}, nil
-	}
-
 	personID, isAllowed, errorValue := connectorRuntime.authorizeSender(ctx, adapter, event)
 	if errorValue != nil {
 		connectorRuntime.logger.Error("connector."+platform+".auth.failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))

@@ -16,10 +16,6 @@ type addressingLaunchDecision struct {
 	AmbientDuty  agent.AmbientDutyContext
 }
 
-func shouldIgnoreBeforeAuthorization(event PlatformInboundEvent) bool {
-	return isMultiPersonConversation(event) && !event.Context.Addressing.BotMentioned && event.Context.Addressing.OtherPersonMentioned
-}
-
 func shouldIgnoreUninvitedAddressing(event PlatformInboundEvent) bool {
 	return isMultiPersonConversation(event) && !event.Context.Addressing.BotMentioned
 }
@@ -30,9 +26,6 @@ func (connectorRuntime *ConnectorRuntime) shouldLaunchForAddressing(ctx context.
 	}
 	if event.Context.Addressing.BotMentioned {
 		return addressingLaunchDecision{ShouldLaunch: true}
-	}
-	if event.Context.Addressing.OtherPersonMentioned {
-		return addressingLaunchDecision{IgnoreReason: "addressed_to_other_person"}
 	}
 	addressingDecision, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, agent.AddressingClassificationRequest{
 		Prompt:           event.Prompt,
