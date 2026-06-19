@@ -515,6 +515,65 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 	}
 }
 
+func flowTaskSkill() agent.SkillInstruction {
+	return agent.SkillInstruction{
+		Name:         "flow",
+		Description:  "Add, update, and complete team work tasks.",
+		WhenToUse:    "Use for task assignment, 업무, 할 일, status changes, and deadlines tracked in team flow.",
+		Prompt:       "Use flow.task.add to add a task for a person, flow.task.list to find an existing task, and flow.task.update to change status, details, or mark it complete.",
+		Category:     "flow",
+		Tags:         []string{"flow", "task"},
+		AllowedTools: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+		TriggerHints: []string{"task", "업무", "할 일", "마감", "deadline"},
+		Source: agent.InstructionSource{
+			Path:      "skills/flow/SKILL.md",
+			SkillName: "flow",
+		},
+	}
+}
+
+func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "ambient_task_capture_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AddressingResponse:    `{"target":"human","shouldReply":false,"dutyMatch":true,"dutyName":"team_flow_update","dutyConfidence":0.9}`,
+		Skills:                []agent.SkillInstruction{flowTaskSkill()},
+		AllowedTools:          []string{"conversation.history", "flow.task.add", "flow.task.list", "flow.task.update"},
+		CapabilityToolNames:   []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+		Turns: []VirtualTurn{{
+			Prompt:           "예시 님 신규 가입 플로우 점검 월요일까지 부탁해요",
+			ConversationType: "channel",
+			ChannelID:        "town-square",
+			ChannelName:      "town-square",
+			ReplyTargetID:    "virtual-message-010",
+			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
+			ActionResponses: []string{
+				actionSelectTools("terminal.run"),
+				actionCallTool("flow.task.add", `{"prompt":"예시 님 신규 가입 플로우 점검 월요일까지","targetPersonHint":"예시"}`),
+				actionFinishMessage("예시 님 업무로 추가했습니다.", "obs-002:flow.task.add:0"),
+			},
+			ExpectedToolCalls: []string{"flow.task.add"},
+			ExpectedToolCallCounts: map[string]int{
+				"flow.task.add": 1,
+				"terminal.run":  0,
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "agent.ambient_duty_launch", BodyFragment: `"dutyName":"team_flow_update"`, Count: 1},
+				{Name: "agent.tool_palette.fixed", BodyFragment: "ambient_capture", Count: 1},
+				{Name: "tool.flow.task.add.requested", BodyFragment: "예시", Count: 1},
+			},
+			ExpectedModelContexts: []string{
+				"Ambient duty context",
+				"not addressed to you",
+				"Reply only in the source message thread",
+			},
+			ForbiddenEvents:        []string{"tool.terminal.run.requested"},
+			ExpectedReplyTargetID:  "virtual-message-010",
+			ExpectedReplyFragments: []string{"추가"},
+		}},
+	}
+}
+
 func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	skillName := "memo-helper"
 	skillContent := userManagedSkillDocument(skillName)

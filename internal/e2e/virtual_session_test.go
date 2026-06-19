@@ -183,6 +183,23 @@ func TestToolPermissionScenarioReturnsPlannedFallback(t *testing.T) {
 	}
 }
 
+func TestAmbientTaskCaptureAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), AmbientTaskCaptureAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected ambient task capture scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"team_flow_update"`) {
+		t.Fatalf("expected ambient duty launch for an other-person-mentioned task assignment; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !eventsContain(turnResult.Events, "agent.tool_palette.fixed", "ambient_capture") {
+		t.Fatalf("expected request_tools to be blocked by the fixed ambient palette; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "") {
+		t.Fatalf("ambient capture must not reach terminal.run; events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
 func TestGWSDisabled(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), GWSDisabledScenario(t.TempDir()))
 	if errorValue != nil {
