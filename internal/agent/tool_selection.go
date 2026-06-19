@@ -282,6 +282,18 @@ func redundantToolSelectionObservation(index int, requestArguments requestToolsA
 	return observation
 }
 
+func ambientFixedPaletteObservation(index int, requestArguments requestToolsArguments) turnObservation {
+	directive := "This ambient capture has a fixed tool palette: use only the already-available task and calendar tools, then finish. Do not request other tools."
+	content := marshalEventBody(map[string]any{
+		"request":      requestArguments,
+		"fixedPalette": true,
+		"directive":    directive,
+	})
+	observation := newContentObservation(nextObservationID(index), "request_tools", "", content)
+	observation.Summary = directive
+	return observation
+}
+
 func toolRequestResultFailed(result toolRequestResult) bool {
 	return len(result.UnknownToolNames) > 0 ||
 		len(result.UnavailableToolNames) > 0 ||

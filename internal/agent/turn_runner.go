@@ -471,6 +471,16 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				SkillNames: append([]string{}, actionDocument.SkillNames...),
 				Reason:     actionDocument.Reason,
 			}
+			if request.AmbientDuty.IsMatch {
+				observation := ambientFixedPaletteObservation(len(state.Observations)+1, requestArguments)
+				state.Observations = append(state.Observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_palette.fixed", marshalEventBody(map[string]any{
+					"request": requestArguments,
+					"source":  "ambient_capture",
+				}))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "request_tools", observation.ContentText())
+				continue
+			}
 			nextRequest, selectionResult := applyToolRequest(request, requestArguments)
 			addedNothing := toolRequestAddedNothing(request, nextRequest, selectionResult)
 			request = nextRequest
