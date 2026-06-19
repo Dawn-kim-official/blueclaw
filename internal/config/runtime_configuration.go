@@ -106,6 +106,7 @@ type LanguageModelCapabilityConfiguration struct {
 	HighModel           string `json:"highModel"`
 	MediumModel         string `json:"mediumModel"`
 	LowModel            string `json:"lowModel"`
+	XLowModel           string `json:"xlowModel"`
 	CodingModel         string `json:"codingModel"`
 	ExecutionMode       string `json:"executionMode"`
 	ContextWindowTokens int    `json:"contextWindowTokens"`

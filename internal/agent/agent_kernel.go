@@ -19,6 +19,7 @@ type AgentKernel struct {
 	languageModel           llm.LanguageModelProvider
 	highTaskLanguageModel   llm.LanguageModelProvider
 	mediumTaskLanguageModel llm.LanguageModelProvider
+	xLowTaskLanguageModel   llm.LanguageModelProvider
 	codingTaskLanguageModel llm.LanguageModelProvider
 	intakeLanguageModel     llm.LanguageModelProvider
 	turnOptions             TurnOptions
@@ -43,9 +44,10 @@ func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel llm.Langu
 	agentKernel.languageModel = languageModel
 }
 
-func (agentKernel *AgentKernel) UseTaskTierLanguageModels(highTaskLanguageModel llm.LanguageModelProvider, mediumTaskLanguageModel llm.LanguageModelProvider, codingTaskLanguageModel llm.LanguageModelProvider) {
+func (agentKernel *AgentKernel) UseTaskTierLanguageModels(highTaskLanguageModel llm.LanguageModelProvider, mediumTaskLanguageModel llm.LanguageModelProvider, xLowTaskLanguageModel llm.LanguageModelProvider, codingTaskLanguageModel llm.LanguageModelProvider) {
 	agentKernel.highTaskLanguageModel = highTaskLanguageModel
 	agentKernel.mediumTaskLanguageModel = mediumTaskLanguageModel
+	agentKernel.xLowTaskLanguageModel = xLowTaskLanguageModel
 	agentKernel.codingTaskLanguageModel = codingTaskLanguageModel
 }
 
@@ -550,6 +552,7 @@ func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision Inta
 type modelTier string
 
 const (
+	modelTierXLow   modelTier = "xlow"
 	modelTierLow    modelTier = "low"
 	modelTierMedium modelTier = "medium"
 	modelTierHigh   modelTier = "high"
@@ -558,7 +561,7 @@ const (
 
 func taskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) modelTier {
 	if effortLevel == EffortLevelQuick {
-		return modelTierLow
+		return modelTierXLow
 	}
 	if effortLevel == EffortLevelDeep || effortLevel == EffortLevelExtended {
 		return modelTierHigh
@@ -586,6 +589,10 @@ func (agentKernel *AgentKernel) taskLanguageModelForTier(tier modelTier) llm.Lan
 	case modelTierMedium:
 		if agentKernel.mediumTaskLanguageModel != nil {
 			return agentKernel.mediumTaskLanguageModel
+		}
+	case modelTierXLow:
+		if agentKernel.xLowTaskLanguageModel != nil {
+			return agentKernel.xLowTaskLanguageModel
 		}
 	case modelTierCoding:
 		if agentKernel.codingTaskLanguageModel != nil {

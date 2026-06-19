@@ -161,10 +161,11 @@ func (agentKernel *AgentKernel) generateConfirmationUserMessage(responseContext 
 }
 
 func (agentKernel *AgentKernel) ClassifyConfirmationReply(responseContext context.Context, pendingPrompt string, confirmationQuestion string, reply string) (ConfirmationReplyDecision, error) {
-	if agentKernel.languageModel == nil {
+	classificationLanguageModel := agentKernel.addressingLanguageModel()
+	if classificationLanguageModel == nil {
 		return ConfirmationReplyDecision{}, errors.New("language model provider is not configured")
 	}
-	structuredResponse, errorValue := agentKernel.languageModel.GenerateStructuredResponse(
+	structuredResponse, errorValue := classificationLanguageModel.GenerateStructuredResponse(
 		responseContext,
 		llm.StructuredResponseRequest{
 			Messages: confirmationReplyMessages(pendingPrompt, confirmationQuestion, reply),
