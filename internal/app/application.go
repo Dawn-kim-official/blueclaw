@@ -21,6 +21,7 @@ import (
 	"blueclaw/internal/capability"
 	"blueclaw/internal/config"
 	"blueclaw/internal/connectors"
+	apiconnector "blueclaw/internal/connectors/api"
 	"blueclaw/internal/httpserver"
 	"blueclaw/internal/identity"
 	"blueclaw/internal/llm"
@@ -245,6 +246,8 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("mattermost", capabilityClient))
 	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("slack", capabilityClient))
 	connectorRuntime.RegisterAdapter(connectors.NewCapabilityPlatformAdapter("signal", capabilityClient))
+	agentReplyStore := apiconnector.NewReplyStore()
+	connectorRuntime.RegisterAdapter(apiconnector.NewAdapter(identityService, agentReplyStore))
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
@@ -326,6 +329,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			TaskEventService: taskEventService,
 		},
 		ConnectorEventHandler: connectorEventHandler,
+		AgentReplyHandler: httpserver.AgentReplyHandler{
+			ReplyStore: agentReplyStore,
+		},
 	})
 
 	connectorTransports := []connectors.ConnectorTransport{
