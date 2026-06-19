@@ -51,9 +51,8 @@ type StandingDutySeed struct {
 }
 
 var AddressingStandingDutySeeds = []StandingDutySeed{
-	{Name: "calendar_upkeep", Description: "meeting and schedule announcements that should become or update calendar events"},
-	{Name: "attendance_notice", Description: "attendance additions, removals, absences, or participant changes"},
-	{Name: "team_flow_update", Description: "team task, project flow, handoff, or operating updates that should be tracked"},
+	{Name: "calendar_upkeep", Description: "a specific meeting, deadline, or scheduled event that should be created or updated as a calendar event right now"},
+	{Name: "team_flow_update", Description: "a specific work task assigned to a person that should be added, or whose status or details should be updated or completed right now"},
 }
 
 func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request AddressingClassificationRequest) (AddressingDecision, error) {
@@ -126,7 +125,8 @@ func addressingClassificationPrompt(request AddressingClassificationRequest) str
 		lines = append(lines, "- "+duty.Name+": "+duty.Description)
 	}
 	lines = append(lines,
-		"Set dutyMatch=true when the latest message carries actionable work matching one standing duty, even when it is not addressed to the assistant.",
+		"Set dutyMatch=true only when the latest message specifies a concrete task or calendar item that should be added, updated, or completed right now, with enough detail to act such as a named assignee, a clear deliverable, or a date, even when it is not addressed to the assistant.",
+		"Do not set dutyMatch for vague mentions, opinions, questions, hypotheticals, or chit-chat that does not call for adding or changing a task or schedule.",
 		"Set dutyName to the exact standing duty name, or empty string when there is no match.",
 		"Set dutyConfidence from 0 to 1 using the evidence in the latest message and context.",
 		"If the latest message is a short acknowledgement such as \"네\", \"확인해볼게요\", \"좋아요\", or \"고마워\" and recent context shows it follows a human-directed message, choose target=human and shouldReply=false.",
