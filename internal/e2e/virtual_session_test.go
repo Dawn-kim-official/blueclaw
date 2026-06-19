@@ -198,6 +198,13 @@ func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "") {
 		t.Fatalf("ambient capture must not reach terminal.run; events: %s", summarizeEvents(turnResult.Events))
 	}
+	reviseResult := result.TurnResults[1]
+	if !eventsContain(reviseResult.Events, "tool.flow.task.update.requested", "flow.task.update") {
+		t.Fatalf("expected a same-thread follow-up to update the existing task; events: %s", summarizeEvents(reviseResult.Events))
+	}
+	if eventsContain(reviseResult.Events, "tool.flow.task.add.requested", "flow.task.add") {
+		t.Fatalf("same-thread revision must update, not add a duplicate task; events: %s", summarizeEvents(reviseResult.Events))
+	}
 }
 
 func TestGWSDisabled(t *testing.T) {

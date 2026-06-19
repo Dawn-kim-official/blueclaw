@@ -104,7 +104,7 @@ func buildAmbientDutyInstruction(ambientDuty AmbientDutyContext) string {
 	if !ambientDuty.IsMatch {
 		return ""
 	}
-	return "Ambient duty context: the latest message was not addressed to you, but it matched standing duty " + ambientDuty.Name + ". Perform only that matched duty quietly. Reply only in the source message thread with one short confirmation after completion. If required details are insufficient, ask one clarifying question in that thread. Never post outside the thread. Do not perform external sends beyond the thread reply."
+	return "Ambient duty context: the latest message was not addressed to you, but it matched standing duty " + ambientDuty.Name + ". Perform only that matched duty quietly. Before adding anything, check whether this conversation already produced a task or event for the same subject and person using flow.task.list or calendar.event.list, and update that existing item instead of creating a duplicate. Reply only in the source message thread with one short confirmation after completion. If required details are insufficient, ask one clarifying question in that thread. Never post outside the thread. Do not perform external sends beyond the thread reply."
 }
 
 func (agentTurnRunner *AgentTurnRunner) buildToolDescription(toolRegistry *ToolSet) string {
