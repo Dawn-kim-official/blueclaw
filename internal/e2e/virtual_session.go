@@ -485,7 +485,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 			TextOnlyModel: imageRejectingLanguageModel{delegate: languageModel},
 			VisionModel:   languageModel,
 		}
-		agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, codingTaskLanguageModel)
+		agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, codingTaskLanguageModel)
 	}
 	agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true, DefaultEffortLevel: agent.EffortLevelStandard})

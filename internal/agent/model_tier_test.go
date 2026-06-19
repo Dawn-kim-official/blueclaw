@@ -27,8 +27,8 @@ func TestTaskModelTierKeepsSimpleAndNormalCheap(t *testing.T) {
 	}{
 		{TaskComplexitySimple, EffortLevelStandard, modelTierLow},
 		{TaskComplexityNormal, EffortLevelStandard, modelTierLow},
-		{TaskComplexitySimple, EffortLevelQuick, modelTierLow},
-		{TaskComplexityComplex, EffortLevelQuick, modelTierLow},
+		{TaskComplexitySimple, EffortLevelQuick, modelTierXLow},
+		{TaskComplexityComplex, EffortLevelQuick, modelTierXLow},
 		{TaskComplexityComplex, EffortLevelStandard, modelTierMedium},
 		{TaskComplexityComplex, EffortLevelDeep, modelTierHigh},
 		{TaskComplexitySimple, EffortLevelDeep, modelTierHigh},
@@ -53,7 +53,7 @@ func TestResolvedTaskModelTierRoutesCodingHighToCoding(t *testing.T) {
 		{TaskComplexitySimple, EffortLevelDeep, codingKinds, modelTierCoding},
 		{TaskComplexityComplex, EffortLevelDeep, nil, modelTierHigh},
 		{TaskComplexityComplex, EffortLevelStandard, codingKinds, modelTierMedium},
-		{TaskComplexitySimple, EffortLevelQuick, codingKinds, modelTierLow},
+		{TaskComplexitySimple, EffortLevelQuick, codingKinds, modelTierXLow},
 	}
 	for _, testCase := range cases {
 		if tier := resolvedTaskModelTier(testCase.complexity, testCase.effort, testCase.workKinds); tier != testCase.want {
@@ -67,12 +67,14 @@ func TestTaskLanguageModelForTierSelectsClient(t *testing.T) {
 		languageModel:           labeledLanguageModel{label: "low"},
 		mediumTaskLanguageModel: labeledLanguageModel{label: "medium"},
 		highTaskLanguageModel:   labeledLanguageModel{label: "high"},
+		xLowTaskLanguageModel:   labeledLanguageModel{label: "xlow"},
 		codingTaskLanguageModel: labeledLanguageModel{label: "coding"},
 	}
 	cases := map[modelTier]string{
 		modelTierLow:    "low",
 		modelTierMedium: "medium",
 		modelTierHigh:   "high",
+		modelTierXLow:   "xlow",
 		modelTierCoding: "coding",
 	}
 	for tier, expectedLabel := range cases {

@@ -148,7 +148,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	lowTierLanguageModelProvider := taskTierLanguageModels.Low
 	if lowTierLanguageModelProvider != nil {
 		agentKernel.UseLanguageModelProvider(lowTierLanguageModelProvider)
-		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.High, taskTierLanguageModels.Medium, taskTierLanguageModels.Coding)
+		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.High, taskTierLanguageModels.Medium, taskTierLanguageModels.XLow, taskTierLanguageModels.Coding)
 	}
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	skillRetriever := agent.NewEmbeddingSkillRetriever(
@@ -160,7 +160,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	)
 	agentKernel.UseSkillRetriever(skillRetriever)
 	go agentKernel.RefreshSkillIndex(context.Background(), instructionBundleLoader())
-	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, capabilityClient)
+	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, capabilityClient, logger)
 	if intakeLanguageModelProvider != nil {
 		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
 	}
@@ -818,6 +818,7 @@ func resolveLanguageModelProvider(runtimeConfiguration config.RuntimeConfigurati
 
 type taskTierLanguageModelProviders struct {
 	Low    llm.LanguageModelProvider
+	XLow   llm.LanguageModelProvider
 	Medium llm.LanguageModelProvider
 	High   llm.LanguageModelProvider
 	Coding llm.LanguageModelProvider
@@ -830,10 +831,18 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
 	lowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Low)
+	xLowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.XLow)
 	mediumModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium)
 	highModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High)
 	codingModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Coding)
 
+	xLowWithFallback := llm.FallbackLanguageModelProvider{
+		PrimaryProvider:  xLowModel,
+		FallbackProvider: lowModel,
+		PrimaryLabel:     "xlow",
+		FallbackLabel:    "low",
+		Logger:           logger,
+	}
 	mediumWithFallback := llm.FallbackLanguageModelProvider{
 		PrimaryProvider:  mediumModel,
 		FallbackProvider: lowModel,
@@ -860,13 +869,14 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	}
 	return taskTierLanguageModelProviders{
 		Low:    lowModel,
+		XLow:   xLowWithFallback,
 		Medium: mediumWithFallback,
 		High:   highWithFallback,
 		Coding: codingWithFallback,
 	}
 }
 
-func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client) llm.LanguageModelProvider {
+func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfiguration, capabilityClient capability.Client, logger *slog.Logger) llm.LanguageModelProvider {
 	if !runtimeConfiguration.Agent.Intake.Enabled {
 		return nil
 	}
@@ -874,10 +884,21 @@ func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 	if executionMode == "" {
 		executionMode = "auto"
 	}
-	return llm.CapabilityLLMClient{
-		CapabilityClient: capabilityClient,
-		ModelName:        llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)).Low,
-		ExecutionMode:    executionMode,
+	tierNames := llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration))
+	return llm.FallbackLanguageModelProvider{
+		PrimaryProvider: llm.CapabilityLLMClient{
+			CapabilityClient: capabilityClient,
+			ModelName:        tierNames.XLow,
+			ExecutionMode:    executionMode,
+		},
+		FallbackProvider: llm.CapabilityLLMClient{
+			CapabilityClient: capabilityClient,
+			ModelName:        tierNames.Low,
+			ExecutionMode:    executionMode,
+		},
+		PrimaryLabel:  "xlow",
+		FallbackLabel: "low",
+		Logger:        logger,
 	}
 }
 
