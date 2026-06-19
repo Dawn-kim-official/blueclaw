@@ -100,7 +100,7 @@ func WebSearchAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 		Turns: []VirtualTurn{{
 			Prompt: "오늘 기준으로 외부 검색이 필요한 정보를 찾아서 핵심만 알려줘",
 			ActionResponses: []string{
-				`{"action":"select_tools","toolNames":["web.search"],"skillNames":[],"reason":"외부 최신 정보 검색이 필요합니다."}`,
+				`{"action":"request_tools","toolNames":["web.search"],"skillNames":[],"reason":"외부 최신 정보 검색이 필요합니다."}`,
 				actionCallTool("web.search", `{"query":"current external information acceptance test","limit":1}`),
 				actionFinishMessage("검색 결과 BlueclawSearchStubToken 정보를 확인했습니다.", "obs-002:web.search:0"),
 			},
@@ -919,7 +919,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		Turns: []VirtualTurn{{
 			Prompt: "우경이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
 			ActionResponses: []string{
-				`{"action":"select_tools","toolNames":["ask.confirm"],"skillNames":[],"reason":"외부 DM 전송에는 확인이 필요합니다."}`,
+				`{"action":"request_tools","toolNames":["ask.confirm"],"skillNames":[],"reason":"외부 DM 전송에는 확인이 필요합니다."}`,
 				actionCallTool("ask.confirm", `{"userFacingMessage":"우경이에게 DM을 보낼까요?","reasonCode":"external_send","reasonDetail":"우경이에게 오늘 오후 3시에 확인하자는 DM을 보냅니다."}`),
 			},
 			ExpectedToolCalls: []string{"ask.confirm"},
@@ -931,7 +931,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		}, {
 			Prompt: "확인",
 			ActionResponses: []string{
-				`{"action":"select_tools","toolNames":["platform.message.send"],"skillNames":[],"reason":"승인 후 DM 전송 도구를 호출합니다."}`,
+				`{"action":"request_tools","toolNames":["platform.message.send"],"skillNames":[],"reason":"승인 후 DM 전송 도구를 호출합니다."}`,
 				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"directMessage","personHint":"우경"},"message":"오늘 오후 3시에 확인하자"}`),
 				actionFinishMessage("우경이에게 DM을 보냈습니다.", "obs-002:platform.message.send:0"),
 			},
@@ -956,7 +956,7 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 		Turns: []VirtualTurn{{
 			Prompt: "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
 			ActionResponses: []string{
-				`{"action":"select_tools","toolNames":["platform.message.send"],"skillNames":[],"reason":"채널 공지를 게시하려면 플랫폼 메시지 전송 도구가 필요합니다."}`,
+				`{"action":"request_tools","toolNames":["platform.message.send"],"skillNames":[],"reason":"채널 공지를 게시하려면 플랫폼 메시지 전송 도구가 필요합니다."}`,
 				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"channel","channelName":"announcements"},"message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
 				actionFinishMessage("announcements 채널에 공지를 올렸습니다.", "obs-002:platform.message.send:0"),
 			},
@@ -980,7 +980,7 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 		Turns: []VirtualTurn{{
 			Prompt: "방금 올린 공지 message virtual-platform-message-001 문구를 '오늘 오후 6시에 전체 공지 회의가 있습니다.'로 바꿔줘",
 			ActionResponses: []string{
-				`{"action":"select_tools","toolNames":["platform.message.update"],"skillNames":[],"reason":"최근 공지 메시지를 수정하려면 플랫폼 메시지 업데이트 도구가 필요합니다."}`,
+				`{"action":"request_tools","toolNames":["platform.message.update"],"skillNames":[],"reason":"최근 공지 메시지를 수정하려면 플랫폼 메시지 업데이트 도구가 필요합니다."}`,
 				actionCallTool("platform.message.update", `{"messageID":"virtual-platform-message-001","text":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
 				actionFinishMessage("공지 메시지 문구를 수정했습니다.", "obs-002:platform.message.update:0"),
 			},

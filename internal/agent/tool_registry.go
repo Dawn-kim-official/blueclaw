@@ -556,7 +556,7 @@ func (toolSet *ToolSet) Descriptions() string {
 	if len(toolDefinitions) == 0 {
 		return ""
 	}
-	lines := []string{"Available tool catalog. These tools are known to Blueclaw; exposed tools can be called now, hidden tools require select_tools before calling. Tool availability does not make tool use mandatory:"}
+	lines := []string{"Available tool catalog. These tools are known to Blueclaw; exposed tools can be called now, hidden tools require request_tools before calling. Tool availability does not make tool use mandatory:"}
 	for _, toolDefinition := range toolDefinitions {
 		toolName := strings.TrimSpace(toolDefinition.Name)
 		lines = append(lines, "- "+toolCatalogLine(toolName, toolDefinition, toolSet))

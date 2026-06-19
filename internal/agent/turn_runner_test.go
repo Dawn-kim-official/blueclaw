@@ -336,7 +336,7 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 
 func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
 		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
 		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
@@ -376,8 +376,8 @@ func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 
 func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"select_tools","toolNames":["image.analyze"],"skillNames":[],"reason":"need image analysis"}`,
-		`{"action":"select_tools","toolNames":["image.read"],"skillNames":[],"reason":"use the matching registered image tool"}`,
+		`{"action":"request_tools","toolNames":["image.analyze"],"skillNames":[],"reason":"need image analysis"}`,
+		`{"action":"request_tools","toolNames":["image.read"],"skillNames":[],"reason":"use the matching registered image tool"}`,
 		`{"action":"continue","toolName":"image.read","toolInput":{"materialID":"mattermost:file-1"}}`,
 		finishMessageWithEvidence("image described", "obs-003", "image.read", 0),
 	}}
@@ -419,7 +419,7 @@ func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T)
 
 func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"select_tools","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
+		`{"action":"request_tools","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
 		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"},"nextStepPlan":{"objective":"finish after creating the site","expectedTools":[],"expectedNextResults":["site created"],"doneCriteria":["site created"],"risk":"none","workingSetReason":"site.app.create should satisfy this test"}}`,
 		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
@@ -457,10 +457,10 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 
 func TestAgentTurnRunnerStopsRepeatedSelectToolsWithoutToolProgress(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still need site creation"}`,
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"should not be requested"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still need site creation"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"should not be requested"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10})
 	toolRegistry := NewToolSet([]string{"skill.search"})
@@ -484,24 +484,24 @@ func TestAgentTurnRunnerStopsRepeatedSelectToolsWithoutToolProgress(t *testing.T
 		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
 	}
 	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_turn_action") != 3 {
-		t.Fatalf("expected no-progress stop after three select_tools actions, got %+v", structuredRequestNames(languageModel.requests))
+		t.Fatalf("expected no-progress stop after three request_tools actions, got %+v", structuredRequestNames(languageModel.requests))
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "3 consecutive") {
 		t.Fatalf("expected no-progress stop event, got %+v", taskEvents)
 	}
 	if taskEventsContain(taskEvents, "max_iterations", "") {
-		t.Fatal("expected select_tools loop breaker before max_iterations")
+		t.Fatal("expected request_tools loop breaker before max_iterations")
 	}
 }
 
 func TestAgentTurnRunnerSelectToolsWithExhaustedFailureDebtRunsTerminalNoTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"try another tool"}`,
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still trying"}`,
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
-		`{"action":"select_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"terminal fallback should run after this"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"try another tool"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still trying"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
+		`{"action":"request_tools","toolNames":["site.app.create"],"skillNames":[],"reason":"terminal fallback should run after this"}`,
 		noToolFallbackFinishMessageDocument("I can answer from the failure context."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
@@ -1977,8 +1977,8 @@ func assertTerminalNoToolsSchemasExcludeToolActions(t *testing.T, requests []llm
 		if actionSchemaHasVariant(t, request.StructuredOutputSchema.Document, "continue") {
 			t.Fatalf("terminal no-tools schema exposed continue: %s", request.StructuredOutputSchema.Document)
 		}
-		if actionSchemaHasVariant(t, request.StructuredOutputSchema.Document, "select_tools") {
-			t.Fatalf("terminal no-tools schema exposed select_tools: %s", request.StructuredOutputSchema.Document)
+		if actionSchemaHasVariant(t, request.StructuredOutputSchema.Document, "request_tools") {
+			t.Fatalf("terminal no-tools schema exposed request_tools: %s", request.StructuredOutputSchema.Document)
 		}
 	}
 }

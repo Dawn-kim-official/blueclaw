@@ -30,8 +30,8 @@ func TestToolExposureKeepsSelectedToolsBeforeCore(t *testing.T) {
 			t.Fatalf("expected core tool %s to remain exposed, got %+v", toolID, filteredToolSet.ListToolNames())
 		}
 	}
-	if filteredToolSet.IsAllowed("tool.describe") {
-		t.Fatalf("expected low-priority tool.describe to be dropped under cap pressure, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("tool.describe") {
+		t.Fatalf("expected selected tool plus core groups to fit within the cap, got %+v", filteredToolSet.ListToolNames())
 	}
 	if event.UsedFallbackGroups {
 		t.Fatalf("expected valid model selection to avoid fallback groups: %+v", event)
@@ -275,12 +275,12 @@ func TestDeterministicPaletteTruncatesSelectedSkillToolsByOrder(t *testing.T) {
 	if len(event.ExposedToolIDs) > maxSchemaCallableToolCount {
 		t.Fatalf("expected exposed tools to stay within cap, got %+v", event.ExposedToolIDs)
 	}
-	for _, toolID := range []string{"site.app.status", "site.app.create", "file.read", "file.write", "terminal.run", "site.app.build", "browser.open", "browser.snapshot"} {
+	for _, toolID := range []string{"site.app.status", "site.app.create", "file.read", "file.write", "terminal.run", "site.app.build", "browser.open", "browser.snapshot", "browser.screenshot", "artifact.review", "site.app.publish", "site.app.repair"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected deterministic skill tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
 		}
 	}
-	for _, toolID := range []string{"browser.screenshot", "artifact.review", "site.app.publish", "site.app.repair"} {
+	for _, toolID := range []string{"site.extra.03", "site.extra.09", "site.extra.14"} {
 		if filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected lower-priority site tool %s to stay out of the capped palette, got %+v", toolID, event.ExposedToolIDs)
 		}

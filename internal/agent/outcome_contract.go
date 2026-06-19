@@ -331,8 +331,9 @@ func selectedSkillToolShouldExpose(toolName string, selectedSkillToolNames map[s
 	return true
 }
 
-func outcomeAllowsExternalSendTools(_ AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
+func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
 	return contractRequiresSendTool(outcomeContract) ||
+		requestHasWorkKind(request, WorkKindExternalSend) ||
 		(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend))
 }
 
@@ -888,7 +889,7 @@ func sendEvidenceToolsFromValues(values []string) []string {
 	return toolNames
 }
 
-func singleAvailableSendEvidenceTool(toolSet *ToolSet) []string {
+func availableSendEvidenceToolNames(toolSet *ToolSet) []string {
 	if toolSet == nil {
 		return nil
 	}
@@ -898,6 +899,11 @@ func singleAvailableSendEvidenceTool(toolSet *ToolSet) []string {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
 	}
+	return toolNames
+}
+
+func singleAvailableSendEvidenceTool(toolSet *ToolSet) []string {
+	toolNames := availableSendEvidenceToolNames(toolSet)
 	if len(toolNames) != 1 {
 		return nil
 	}
