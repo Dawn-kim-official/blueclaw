@@ -25,10 +25,10 @@ func TestTaskModelTierKeepsSimpleAndNormalCheap(t *testing.T) {
 		effort     EffortLevel
 		want       modelTier
 	}{
-		{TaskComplexitySimple, EffortLevelStandard, modelTierLow},
+		{TaskComplexitySimple, EffortLevelStandard, modelTierXLow},
 		{TaskComplexityNormal, EffortLevelStandard, modelTierLow},
 		{TaskComplexitySimple, EffortLevelQuick, modelTierXLow},
-		{TaskComplexityComplex, EffortLevelQuick, modelTierXLow},
+		{TaskComplexityComplex, EffortLevelQuick, modelTierMedium},
 		{TaskComplexityComplex, EffortLevelStandard, modelTierMedium},
 		{TaskComplexityComplex, EffortLevelDeep, modelTierHigh},
 		{TaskComplexitySimple, EffortLevelDeep, modelTierHigh},
