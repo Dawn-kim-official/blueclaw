@@ -564,63 +564,6 @@ WHERE outbox_id = $3`,
 	return errorValue
 }
 
-func (rawEventRepository RawEventRepository) SwapLiveReplyPost(taskRunID string, conversationID string, newPostID string, outboxID string) (string, error) {
-	transaction, errorValue := rawEventRepository.database.SQL.BeginTx(context.Background(), nil)
-	if errorValue != nil {
-		return "", errorValue
-	}
-	defer transaction.Rollback()
-
-	if _, errorValue := transaction.Exec(`SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))`, taskRunID, conversationID); errorValue != nil {
-		return "", errorValue
-	}
-
-	var incomingSeq time.Time
-	if errorValue := transaction.QueryRow(`SELECT created_at FROM connector_outbox WHERE outbox_id = $1`, outboxID).Scan(&incomingSeq); errorValue != nil {
-		return "", errorValue
-	}
-
-	var previousPostID string
-	var previousSeq time.Time
-	hasPrevious := true
-	scanError := transaction.QueryRow(`
-SELECT post_id, last_seq FROM live_reply_post
-WHERE task_run_id = $1 AND conversation_id = $2`, taskRunID, conversationID).Scan(&previousPostID, &previousSeq)
-	if errors.Is(scanError, sql.ErrNoRows) {
-		hasPrevious = false
-	} else if scanError != nil {
-		return "", scanError
-	}
-
-	if hasPrevious && !incomingSeq.After(previousSeq) {
-		if errorValue := transaction.Commit(); errorValue != nil {
-			return "", errorValue
-		}
-		return newPostID, nil
-	}
-
-	if hasPrevious {
-		_, errorValue = transaction.Exec(`
-UPDATE live_reply_post
-SET post_id = $1, last_seq = $2, outbox_id = $3, updated_at = now()
-WHERE task_run_id = $4 AND conversation_id = $5`, newPostID, incomingSeq, outboxID, taskRunID, conversationID)
-	} else {
-		_, errorValue = transaction.Exec(`
-INSERT INTO live_reply_post (task_run_id, conversation_id, post_id, last_seq, outbox_id, updated_at)
-VALUES ($1, $2, $3, $4, $5, now())`, taskRunID, conversationID, newPostID, incomingSeq, outboxID)
-	}
-	if errorValue != nil {
-		return "", errorValue
-	}
-	if errorValue := transaction.Commit(); errorValue != nil {
-		return "", errorValue
-	}
-	if hasPrevious {
-		return previousPostID, nil
-	}
-	return "", nil
-}
-
 func (rawEventRepository RawEventRepository) MarkConnectorReplyFailed(queuedReply connectors.QueuedConnectorReply, errorValue error, nextAttemptAt time.Time) error {
 	status := "failed"
 	if !nextAttemptAt.IsZero() {

@@ -47,7 +47,6 @@ type ConnectorOutboxRepository interface {
 	ClaimPendingConnectorReplies(int, time.Duration) ([]QueuedConnectorReply, error)
 	MarkConnectorReplySent(QueuedConnectorReply, string) error
 	MarkConnectorReplyFailed(QueuedConnectorReply, error, time.Time) error
-	SwapLiveReplyPost(taskRunID string, conversationID string, newPostID string, outboxID string) (string, error)
 }
 
 type PlatformInboundEvent struct {
@@ -298,10 +297,6 @@ type PlatformAdapter interface {
 
 type InteractionResolvingAdapter interface {
 	ResolveInteraction(context.Context, InteractionResolution) error
-}
-
-type ReplyDeletingAdapter interface {
-	DeleteReply(context.Context, ReplyTarget, string) error
 }
 
 type InputAttachmentImportingAdapter interface {
@@ -845,68 +840,6 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorReply(ctx contex
 		queuedReply.Reply,
 		dispatchID,
 	)
-	connectorRuntime.collapseLiveReplyPost(ctx, adapter, queuedReply, dispatchID)
-}
-
-func isCollapsibleInformationalReply(reply OutboundReply) bool {
-	if reply.Interaction != nil {
-		return false
-	}
-	switch reply.ReplyKind {
-	case connectorReplyKindSuccess, connectorReplyKindCheckpoint, connectorReplyKindUserNotice:
-		return true
-	default:
-		return false
-	}
-}
-
-func (connectorRuntime *ConnectorRuntime) collapseLiveReplyPost(ctx context.Context, adapter PlatformAdapter, queuedReply QueuedConnectorReply, dispatchID string) {
-	taskRunID := strings.TrimSpace(queuedReply.Reply.TaskRunID)
-	if strings.TrimSpace(dispatchID) == "" || !isCollapsibleInformationalReply(queuedReply.Reply) {
-		return
-	}
-	conversationKey := firstNonEmptyString(queuedReply.ReplyTarget.ConversationID, queuedReply.ReplyTarget.ReplyTargetID)
-	if taskRunID == "" || conversationKey == "" {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.collapse_skipped", map[string]string{
-			"reason":         "missing_task_or_conversation",
-			"conversationID": queuedReply.ReplyTarget.ConversationID,
-			"replyTargetID":  queuedReply.ReplyTarget.ReplyTargetID,
-		})
-		return
-	}
-	displacedPostID, errorValue := connectorRuntime.outboxRepository().SwapLiveReplyPost(taskRunID, conversationKey, dispatchID, queuedReply.OutboxID)
-	if errorValue != nil {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.collapse_failed", map[string]string{
-			"stage": "swap",
-			"error": errorValue.Error(),
-		})
-		return
-	}
-	if displacedPostID == "" {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.collapse_first", map[string]string{
-			"currentDispatchID": dispatchID,
-			"replyKind":         queuedReply.Reply.ReplyKind,
-		})
-		return
-	}
-	deleter, supportsDelete := adapter.(ReplyDeletingAdapter)
-	if !supportsDelete {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.collapse_skipped", map[string]string{"reason": "adapter_no_delete"})
-		return
-	}
-	if errorValue := deleter.DeleteReply(ctx, queuedReply.ReplyTarget, displacedPostID); errorValue != nil {
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.collapse_failed", map[string]string{
-			"stage":              "delete",
-			"replacedDispatchID": displacedPostID,
-			"error":              errorValue.Error(),
-		})
-		return
-	}
-	connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.replaced", map[string]string{
-		"replacedDispatchID": displacedPostID,
-		"currentDispatchID":  dispatchID,
-		"replyKind":          queuedReply.Reply.ReplyKind,
-	})
 }
 
 func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (ConnectorRuntimeResult, error) {
@@ -2365,9 +2298,10 @@ func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Contex
 	message := strings.TrimSpace(checkpoint.Message)
 	taskRunID := strings.TrimSpace(checkpoint.TaskRunID)
 	reply := OutboundReply{
-		Message:   message,
-		TaskRunID: taskRunID,
-		ReplyKind: connectorReplyKindCheckpoint,
+		Message:         message,
+		TaskRunID:       taskRunID,
+		ReplyKind:       connectorReplyKindCheckpoint,
+		EphemeralUserID: strings.TrimSpace(event.SenderID),
 	}
 	if message == "" {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, reply, "", "", "missing_checkpoint_message"))
