@@ -1487,12 +1487,24 @@ func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx conte
 		result, errorValue := agentTurnRunner.stopForLimit(taskRunID, request, reason, observations, attachments, executionState, usedIterationCount, usedToolCallCount)
 		return result, false, errorValue
 	}
-	if len(qualifyingEvents) < 2 {
+	if len(qualifyingEvents) < 2 || agentTurnRunner.budgetEscalationCount(taskRunID) >= maxBudgetEscalationCount {
 		result, errorValue := agentTurnRunner.stopForLimit(taskRunID, request, reason, observations, attachments, executionState, usedIterationCount, usedToolCallCount)
 		return result, false, errorValue
 	}
 	agentTurnRunner.escalateBudgetTier(taskRunID, qualifyingEvents, usedIterationCount, usedToolCallCount)
 	return AgentTurnResult{}, true, nil
+}
+
+const maxBudgetEscalationCount = 2
+
+func (agentTurnRunner *AgentTurnRunner) budgetEscalationCount(taskRunID string) int {
+	count := 0
+	for _, taskEvent := range agentTurnRunner.taskRunService.ListTaskEvent(taskRunID) {
+		if taskEvent.Name == "agent.budget_escalated" {
+			count++
+		}
+	}
+	return count
 }
 
 func (agentTurnRunner *AgentTurnRunner) escalateBudgetTier(taskRunID string, qualifyingEvents []qualifyingProgressEvent, usedIterationCount int, usedToolCallCount int) {
