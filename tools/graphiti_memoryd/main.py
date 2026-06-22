@@ -16,11 +16,12 @@ from graphiti_core import Graphiti
 from graphiti_core.cross_encoder.client import CrossEncoderClient
 from graphiti_core.driver.kuzu_driver import KuzuDriver
 from graphiti_core.driver.driver import GraphProvider
+from graphiti_core.edges import EntityEdge
 from graphiti_core.embedder.client import EmbedderClient, EmbedderConfig
 from graphiti_core.graph_queries import get_fulltext_indices
 from graphiti_core.llm_client.client import LLMClient
 from graphiti_core.llm_client.config import LLMConfig, ModelSize
-from graphiti_core.nodes import EpisodeType
+from graphiti_core.nodes import EntityNode, EpisodeType
 from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_RRF
 import requests_unixsocket
 
@@ -163,6 +164,10 @@ class GraphitiMemoryService:
         with self.operation_lock:
             return await self.search_locked(request_document)
 
+    async def list_facts(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        with self.operation_lock:
+            return await self.list_facts_locked(request_document)
+
     async def add_episode_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
         episode_id = request_document["episodeID"]
         prompt = request_document["prompt"]
@@ -216,6 +221,40 @@ class GraphitiMemoryService:
                 namespace_facts.extend(facts_from_search_results(search_results, namespace, limit-len(namespace_facts)))
             facts.extend(namespace_facts)
         return {"facts": facts}
+
+    async def list_facts_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        limit = int(request_document.get("Limit") or request_document.get("limit") or 50)
+        namespaces = request_document.get("Namespaces") or request_document.get("namespaces") or []
+        facts: list[dict[str, Any]] = []
+        for namespace in namespaces:
+            namespace_id = namespace["namespaceID"]
+            group_id = graphiti_group_id(namespace_id)
+            facts.extend(await self.list_namespace_facts(namespace, namespace_id, group_id, limit))
+        return {"facts": facts}
+
+    async def list_namespace_facts(self, namespace: dict[str, Any], namespace_id: str, group_id: str, limit: int) -> list[dict[str, Any]]:
+        facts: list[dict[str, Any]] = []
+        try:
+            edges = await EntityEdge.get_by_group_ids(self.graphiti.driver, [group_id], limit=limit)
+        except Exception:
+            edges = []
+        for edge in edges:
+            content = str(getattr(edge, "fact", "") or "").strip()
+            if content == "":
+                continue
+            facts.append(memory_fact(namespace, namespace_id, getattr(edge, "uuid", ""), content, "fact"))
+        try:
+            nodes = await EntityNode.get_by_group_ids(self.graphiti.driver, [group_id], limit=limit)
+        except Exception:
+            nodes = []
+        for node in nodes:
+            name = str(getattr(node, "name", "") or "").strip()
+            summary = str(getattr(node, "summary", "") or "").strip()
+            content = " ".join(value for value in [name, summary] if value)
+            if content == "":
+                continue
+            facts.append(memory_fact(namespace, namespace_id, getattr(node, "uuid", ""), content, "node"))
+        return facts
 
 
 def graphiti_group_id(namespace_id: str) -> str:
@@ -372,6 +411,8 @@ class RequestHandler(BaseHTTPRequestHandler):
                 response_document = asyncio.run(self.service.add_episode(request_document))
             elif self.path == "/v1/search":
                 response_document = asyncio.run(self.service.search(request_document))
+            elif self.path == "/v1/list":
+                response_document = asyncio.run(self.service.list_facts(request_document))
             else:
                 self.write_json(404, {"error": "not found"})
                 return

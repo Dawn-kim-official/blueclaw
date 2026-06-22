@@ -157,21 +157,19 @@ func (memoryGraphHandler MemoryGraphHandler) filterGraphForReader(request *http.
 }
 
 func (memoryGraphHandler MemoryGraphHandler) attachSearchFacts(request *http.Request, graph memory.MemoryGraph) memory.MemoryGraph {
-	query := strings.TrimSpace(request.URL.Query().Get("query"))
-	if query == "" || memoryGraphHandler.MemoryService == nil {
+	if memoryGraphHandler.MemoryService == nil {
 		return graph
 	}
-
-	facts := memoryGraphHandler.searchNamespaceFacts(request, graph.Namespaces, query, memoryGraphLimit(request))
-	graph.Facts = facts
+	query := strings.TrimSpace(request.URL.Query().Get("query"))
+	graph.Facts = memoryGraphHandler.collectNamespaceFacts(request, graph.Namespaces, query, memoryGraphLimit(request))
 	return graph
 }
 
-func (memoryGraphHandler MemoryGraphHandler) searchNamespaceFacts(request *http.Request, namespaces []memory.MemoryGraphNamespace, query string, limit int) []memory.MemoryFact {
+func (memoryGraphHandler MemoryGraphHandler) collectNamespaceFacts(request *http.Request, namespaces []memory.MemoryGraphNamespace, query string, limit int) []memory.MemoryFact {
 	facts := []memory.MemoryFact{}
 	seenFactKeys := map[string]bool{}
 	for _, namespace := range namespaces {
-		namespaceFacts, errorValue := memoryGraphHandler.MemoryService.SearchMemory(request.Context(), memory.MemorySearchRequest{
+		searchRequest := memory.MemorySearchRequest{
 			Query:                   query,
 			ReaderPersonID:          namespace.ScopePersonID,
 			ReaderCircles:           namespaceReaderCircles(namespace),
@@ -180,7 +178,8 @@ func (memoryGraphHandler MemoryGraphHandler) searchNamespaceFacts(request *http.
 			Namespaces:              []memory.MemoryNamespace{memoryNamespaceFromGraphNamespace(namespace)},
 			ExplicitNamespacesOnly:  true,
 			Limit:                   limit,
-		})
+		}
+		namespaceFacts, errorValue := memoryGraphHandler.namespaceFacts(request, query, searchRequest)
 		if errorValue != nil {
 			continue
 		}
@@ -197,6 +196,13 @@ func (memoryGraphHandler MemoryGraphHandler) searchNamespaceFacts(request *http.
 		}
 	}
 	return facts
+}
+
+func (memoryGraphHandler MemoryGraphHandler) namespaceFacts(request *http.Request, query string, searchRequest memory.MemorySearchRequest) ([]memory.MemoryFact, error) {
+	if query == "" {
+		return memoryGraphHandler.MemoryService.ListMemory(request.Context(), searchRequest)
+	}
+	return memoryGraphHandler.MemoryService.SearchMemory(request.Context(), searchRequest)
 }
 
 func filterReaderNamespaces(namespaces []memory.MemoryGraphNamespace, readerPersonID string, personAccess policy.PersonAccess) []memory.MemoryGraphNamespace {
