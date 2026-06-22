@@ -1155,7 +1155,7 @@ func canonicalSiteProjectWorkspacePath(siteID string) string {
 	if strings.TrimSpace(siteID) == "" {
 		return ""
 	}
-	return filepath.ToSlash(filepath.Join("home", "sites", strings.TrimSpace(siteID)))
+	return filepath.ToSlash(filepath.Join("/workspace", "circles", "staff", "sites", strings.TrimSpace(siteID)))
 }
 
 func sourceWorkspacePathFromSiteAppWorkspacePath(appWorkspacePath string) string {
@@ -1171,7 +1171,7 @@ func sourceWorkspacePathFromSiteAppWorkspacePath(appWorkspacePath string) string
 
 func siteProjectIDFromPath(path string) string {
 	cleanPath := strings.Trim(strings.TrimSpace(filepath.ToSlash(path)), "/")
-	for _, prefix := range []string{"home/sites/", "workspace/sites/", "sites/"} {
+	for _, prefix := range []string{"workspace/circles/staff/sites/", "home/sites/", "workspace/sites/", "sites/"} {
 		if siteID := pathSegmentAfterPrefix(cleanPath, prefix); siteID != "" {
 			return siteID
 		}
@@ -1212,6 +1212,7 @@ func siteWorkspacePathCandidates(sourceWorkspacePath string, siteID string) []st
 func shouldPreferCanonicalSiteWorkspacePath(path string) bool {
 	cleanPath := strings.Trim(strings.TrimSpace(filepath.ToSlash(path)), "/")
 	return cleanPath == "" ||
+		strings.HasPrefix(cleanPath, "workspace/circles/staff/sites/") ||
 		strings.HasPrefix(cleanPath, "home/sites/") ||
 		strings.HasPrefix(cleanPath, "workspace/sites/") ||
 		strings.HasPrefix(cleanPath, "workspace/private/people/") ||
