@@ -171,10 +171,10 @@ func TestRunCommandValidatesRewrittenCommandWithGuardrails(t *testing.T) {
 		Command: "printf original",
 	})
 
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "escapes workspace root") {
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "targets a denied system path") {
 		t.Fatalf("expected rewritten command guardrail denial, got %v", errorValue)
 	}
-	if !strings.Contains(commandResult.Stderr, "escapes workspace root") {
+	if !strings.Contains(commandResult.Stderr, "targets a denied system path") {
 		t.Fatalf("expected command result to include guardrail error, got %+v", commandResult)
 	}
 }
@@ -197,18 +197,30 @@ func TestRunCommandRequiresPreparedWorkspaceWorkingDirectoryInFirecrackerGuestMo
 	}
 }
 
-func TestRunCommandDeniesWorkspaceEscape(t *testing.T) {
+func TestRunCommandDeniesDeniedSystemPath(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
 	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
 		Command: "cat /etc/passwd",
 	})
 
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "escapes workspace root") {
-		t.Fatalf("expected workspace escape denial, got %v", errorValue)
+	if errorValue == nil || !strings.Contains(errorValue.Error(), "targets a denied system path") {
+		t.Fatalf("expected denied system path denial, got %v", errorValue)
 	}
-	if !strings.Contains(commandResult.Stderr, "escapes workspace root") {
+	if !strings.Contains(commandResult.Stderr, "targets a denied system path") {
 		t.Fatalf("expected command result to include guardrail error, got %+v", commandResult)
+	}
+}
+
+func TestRunCommandAllowsNonDeniedPathOutsideWorkspace(t *testing.T) {
+	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
+
+	_, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
+		Command: "ls -d /tmp",
+	})
+
+	if errorValue != nil && IsCommandPathGuardrailError(errorValue) {
+		t.Fatalf("expected non-denied path outside workspace to pass the path guardrail, got %v", errorValue)
 	}
 }
 

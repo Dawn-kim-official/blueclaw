@@ -290,10 +290,6 @@ func (commandGuardrailService CommandGuardrailService) validateArgumentPaths(arg
 			continue
 		}
 
-		if !isWithinRootPath(workspaceRootPath, resolvedPath) {
-			return newCommandGuardrailError("path argument escapes workspace root", argument, resolvedPath, workspaceRootPath, workingDirectoryPath)
-		}
-
 		for _, deniedPathPrefix := range commandGuardrailService.terminalConfiguration.DeniedPathPrefixes {
 			if strings.HasPrefix(resolvedPath, deniedPathPrefix) {
 				return newCommandGuardrailError("path argument targets a denied system path", argument, resolvedPath, workspaceRootPath, workingDirectoryPath)
@@ -318,9 +314,6 @@ func (commandGuardrailService CommandGuardrailService) validateCommandString(com
 		}
 		if isAllowedStandardDevicePath(resolvedPath) {
 			continue
-		}
-		if !isWithinRootPath(workspaceRootPath, resolvedPath) {
-			return newCommandGuardrailError("command path escapes workspace root", token, resolvedPath, workspaceRootPath, workingDirectoryPath)
 		}
 		for _, deniedPathPrefix := range commandGuardrailService.terminalConfiguration.DeniedPathPrefixes {
 			if strings.HasPrefix(resolvedPath, deniedPathPrefix) {
