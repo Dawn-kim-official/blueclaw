@@ -68,6 +68,12 @@ type capabilityReplyResponse struct {
 	DispatchID string `json:"dispatchID"`
 }
 
+type capabilityReplyDeleteRequest struct {
+	ReplyTargetID  string `json:"replyTargetID,omitempty"`
+	ConversationID string `json:"conversationID,omitempty"`
+	DispatchID     string `json:"dispatchID"`
+}
+
 type normalizedEventEnvelope struct {
 	Event PlatformInboundEvent `json:"event"`
 }
@@ -149,6 +155,14 @@ func (adapter CapabilityPlatformAdapter) SendReply(ctx context.Context, replyTar
 		return "", errorValue
 	}
 	return strings.TrimSpace(response.DispatchID), nil
+}
+
+func (adapter CapabilityPlatformAdapter) DeleteReply(ctx context.Context, replyTarget ReplyTarget, dispatchID string) error {
+	return adapter.post(ctx, "reply.delete", capabilityReplyDeleteRequest{
+		ReplyTargetID:  replyTarget.ReplyTargetID,
+		ConversationID: replyTarget.ConversationID,
+		DispatchID:     strings.TrimSpace(dispatchID),
+	}, nil)
 }
 
 func (adapter CapabilityPlatformAdapter) ResolveInteraction(ctx context.Context, resolution InteractionResolution) error {
