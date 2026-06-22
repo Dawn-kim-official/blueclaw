@@ -18,7 +18,7 @@ import (
 
 func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	workspacePath := t.TempDir()
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft")
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<html>ok</html>")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "node_modules", "ignored.js"), "ignored")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "DESIGN.md"), "custom design")
@@ -27,7 +27,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-	}, agent.MarshalToolInput(map[string]any{"siteID": "site-1", "sourceWorkspacePath": "home/sites/site-1"}))
+	}, agent.MarshalToolInput(map[string]any{"siteID": "site-1", "sourceWorkspacePath": "/workspace/circles/staff/sites/site-1"}))
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -35,7 +35,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if inputDocument["sourceWorkspacePath"] != "home/sites/site-1/draft" {
+	if inputDocument["sourceWorkspacePath"] != "/workspace/circles/staff/sites/site-1/draft" {
 		t.Fatalf("unexpected source workspace path: %+v", inputDocument)
 	}
 	if inputDocument["sourceBundleFormat"] != "tar.gz" {
@@ -235,7 +235,7 @@ func TestSiteDeliveryBlockedBuildResultCreatesRecoveryFailure(t *testing.T) {
 
 func TestSiteBuildCommandFailureClassifiesSourceSyntaxErrors(t *testing.T) {
 	result := siteBuildCommandFailureResult(agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", `/workspace/private/people/person/sites/site-1/draft/app/src/App.tsx:1:27: ERROR: Syntax error "n"`), workspacepath.Path{
-		VirtualPath: "home/sites/site-1/draft/app",
+		VirtualPath: "/workspace/circles/staff/sites/site-1/draft/app",
 	})
 	if result.Failure == nil {
 		t.Fatal("expected source syntax failure")
@@ -249,14 +249,14 @@ func TestSiteBuildCommandFailureClassifiesSourceSyntaxErrors(t *testing.T) {
 	if len(result.Failure.RecoveryHints) == 0 || !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "file.write") {
 		t.Fatalf("expected file.write recovery hint, got %+v", result.Failure.RecoveryHints)
 	}
-	if len(result.Failure.AffectedResources) != 1 || result.Failure.AffectedResources[0].Path != "home/sites/site-1/draft/app/src/App.tsx" {
+	if len(result.Failure.AffectedResources) != 1 || result.Failure.AffectedResources[0].Path != "/workspace/circles/staff/sites/site-1/draft/app/src/App.tsx" {
 		t.Fatalf("expected App.tsx affected resource, got %+v", result.Failure.AffectedResources)
 	}
 }
 
 func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	workspacePath := t.TempDir()
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site description","idea":"Demo site idea","purpose":"portfolio","audience":"buyers","archetype":"portfolio","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"home/sites/site-1/draft","workspacePath":"home/sites/site-1","status":"draft","ownerIdentity":{"personID":"person-1","displayName":"Owner"}}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site description","idea":"Demo site idea","purpose":"portfolio","audience":"buyers","archetype":"portfolio","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft","ownerIdentity":{"personID":"person-1","displayName":"Owner"}}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "file.read"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -290,13 +290,13 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
 	}
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft")
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
 	sourceWorkspaceInformation, errorValue := os.Stat(sourceWorkspacePath)
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if sourceWorkspaceInformation.Mode().Perm() != 0700 {
-		t.Fatalf("expected source workspace permissions 0700, got %v", sourceWorkspaceInformation.Mode().Perm())
+	if sourceWorkspaceInformation.Mode().Perm() != 0770 {
+		t.Fatalf("expected staff-circle source workspace permissions 0770, got %v", sourceWorkspaceInformation.Mode().Perm())
 	}
 	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
@@ -327,14 +327,14 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if !strings.Contains(string(ideaDocument), "Demo site idea") {
 		t.Fatalf("expected site idea mirror, got %s", string(ideaDocument))
 	}
-	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"home/sites/site-1/draft"`) ||
-		!strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/draft/app"`) {
+	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"`) ||
+		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app"`) {
 		t.Fatalf("expected virtual source workspace in result, got %s", result.ContentText())
 	}
 	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "home/sites/site-1/draft/app/src/App.tsx",
+			"path": "/workspace/circles/staff/sites/site-1/draft/app/src/App.tsx",
 		}),
 	})
 	if errorValue != nil {
@@ -352,7 +352,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	}
 	requesterWritePath := workspacepath.Path{
 		ConcretePath: filepath.Join(sourceWorkspacePath, "requester-write.txt"),
-		VirtualPath:  "home/sites/site-1/draft/requester-write.txt",
+		VirtualPath:  "/workspace/circles/staff/sites/site-1/draft/requester-write.txt",
 	}
 	if errorValue := workspaceActor.WriteFile(context.Background(), requesterWritePath, []byte("ok"), 0600); errorValue != nil {
 		t.Fatal(errorValue)
@@ -362,7 +362,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 
 func TestSiteCreateWithoutRequesterPersonIDDoesNotTargetWorkspaceRoot(t *testing.T) {
 	workspacePath := t.TempDir()
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","sourceWorkspacePath":"home/sites/site-1/draft","workspacePath":"home/sites/site-1","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -394,7 +394,7 @@ func TestSiteCreateWithoutRequesterPersonIDDoesNotTargetWorkspaceRoot(t *testing
 
 func TestSiteCreateAppWorkspaceSupportsBunLikeBuildRuntime(t *testing.T) {
 	workspacePath := t.TempDir()
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"home/sites/site-1/draft","workspacePath":"home/sites/site-1","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "terminal.run"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -468,7 +468,7 @@ bun run build
 	if buildResult.Failed() {
 		t.Fatalf("expected Bun-like build to succeed with requester runtime dirs, got %s", buildResult.ContentText())
 	}
-	distPath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft", "app", "dist", "index.html")
+	distPath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft", "app", "dist", "index.html")
 	distDocument, errorValue := os.ReadFile(distPath)
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -480,9 +480,9 @@ bun run build
 
 func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	workspacePath := t.TempDir()
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft")
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"home/sites/site-1/draft","appWorkspacePath":"home/sites/site-1/draft/app","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -495,6 +495,7 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
+			Circles:  []string{"staff"},
 		},
 	})
 
@@ -507,8 +508,8 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	}
 	if !strings.Contains(result.ContentText(), `"workspaceHealth":"stale_build"`) ||
 		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.build"`) ||
-		!strings.Contains(result.ContentText(), `"sourceWorkspacePath":"home/sites/site-1/draft"`) ||
-		!strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/draft/app"`) {
+		!strings.Contains(result.ContentText(), `"sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"`) ||
+		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app"`) {
 		t.Fatalf("expected workspace health annotation, got %s", result.ContentText())
 	}
 	if strings.Contains(result.ContentText(), `"publishedURL"`) {
@@ -518,7 +519,7 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 
 func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
 	workspacePath := t.TempDir()
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft")
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<!doctype html><html></html>")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{"status":"fresh"}`)
@@ -535,6 +536,7 @@ func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
 		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
+			Circles:  []string{"staff"},
 		},
 	})
 	toolDefinition, isFound := findToolDefinition(toolRegistry.ListToolDefinitions(), "site.app.status")
@@ -581,26 +583,27 @@ func TestSiteBuildRejectsSourceSubdirectoryCWD(t *testing.T) {
 		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
+			Circles:  []string{"staff"},
 		},
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "site.app.build",
 		Input: agent.MarshalToolInput(map[string]string{
-			"appWorkspacePath": "home/sites/site-1/app/src",
+			"appWorkspacePath": "/workspace/circles/staff/sites/site-1/app/src",
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "not app/src") || !strings.Contains(result.ContentText(), "home/sites/site-1/app") {
+	if !result.Failed() || !strings.Contains(result.ContentText(), "not app/src") || !strings.Contains(result.ContentText(), "/workspace/circles/staff/sites/site-1/app") {
 		t.Fatalf("expected canonical cwd failure, got %s", result.ContentText())
 	}
 }
 
 func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 	workspacePath := t.TempDir()
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"home/sites/site-1/draft","appWorkspacePath":"home/sites/site-1/draft/app","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"draft"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.repair"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -613,6 +616,7 @@ func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 		RequesterPersonID: "person-1",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
+			Circles:  []string{"staff"},
 		},
 	})
 
@@ -626,7 +630,7 @@ func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected repair success, got %s", result.ContentText())
 	}
-	sourceWorkspacePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft")
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
 	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected repaired file %s: %v", relativePath, errorValue)
@@ -639,7 +643,7 @@ func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 
 func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T) {
 	workspacePath := t.TempDir()
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"home/sites/site-1/draft","appWorkspacePath":"home/sites/site-1/draft/app","status":"failed"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"failed"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.repair"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -654,6 +658,7 @@ func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T)
 		ConversationID:    "thread:channel:post",
 		PersonAccess: policy.PersonAccess{
 			PersonID: "person-1",
+			Circles:  []string{"staff"},
 		},
 	})
 
@@ -670,7 +675,7 @@ func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T)
 	if !strings.Contains(httpClient.requestBody, `"conversationID":"thread:channel:post"`) {
 		t.Fatalf("expected site.app.status request to include conversation context, got %s", httpClient.requestBody)
 	}
-	if !strings.Contains(result.ContentText(), `"appWorkspacePath":"home/sites/site-1/draft/app"`) {
+	if !strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app"`) {
 		t.Fatalf("expected repaired app workspace path from resolved site, got %s", result.ContentText())
 	}
 }
@@ -680,7 +685,7 @@ func TestSiteCreateAppWorkspaceBuildsOfflineWithBun(t *testing.T) {
 		t.Skip("bun is not installed")
 	}
 	workspacePath := t.TempDir()
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"home/sites/site-1/draft","workspacePath":"home/sites/site-1","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "terminal.run"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -727,7 +732,7 @@ func TestSiteCreateAppWorkspaceBuildsOfflineWithBun(t *testing.T) {
 	if buildResult.Failed() {
 		t.Fatalf("expected offline Bun build to succeed, got %s", buildResult.ContentText())
 	}
-	distPath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "draft", "app", "dist", "index.html")
+	distPath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft", "app", "dist", "index.html")
 	distDocument, errorValue := os.ReadFile(distPath)
 	if errorValue != nil {
 		t.Fatal(errorValue)
