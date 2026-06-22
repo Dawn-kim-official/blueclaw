@@ -2660,6 +2660,20 @@ func TestConnectorRuntimeDetachesHTTPEventFromCanceledRequestContext(t *testing.
 	}
 }
 
+func TestIsCollapsibleInformationalReply(t *testing.T) {
+	for _, replyKind := range []string{connectorReplyKindSuccess, connectorReplyKindCheckpoint, connectorReplyKindUserNotice} {
+		if !isCollapsibleInformationalReply(OutboundReply{TaskRunID: "task-1", ReplyKind: replyKind}) {
+			t.Fatalf("expected %s reply to collapse", replyKind)
+		}
+	}
+	if isCollapsibleInformationalReply(OutboundReply{TaskRunID: "task-1", ReplyKind: connectorReplyKindPermissionNotice}) {
+		t.Fatal("expected permission notice to never collapse")
+	}
+	if isCollapsibleInformationalReply(OutboundReply{TaskRunID: "task-1", ReplyKind: connectorReplyKindSuccess, Interaction: &AskInteraction{InteractionID: "ask-1"}}) {
+		t.Fatal("expected interaction reply to never collapse")
+	}
+}
+
 func TestConnectorRuntimeQueuesHTTPEventAndSendsReplyThroughOutbox(t *testing.T) {
 	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "queued reply"})
 	repository := &testConnectorQueueRepository{}
@@ -3094,6 +3108,10 @@ func (repository *testConnectorQueueRepository) MarkConnectorReplySent(_ QueuedC
 func (repository *testConnectorQueueRepository) MarkConnectorReplyFailed(_ QueuedConnectorReply, errorValue error, _ time.Time) error {
 	repository.failedReplies = append(repository.failedReplies, errorValue.Error())
 	return nil
+}
+
+func (repository *testConnectorQueueRepository) SwapLiveReplyPost(_ string, _ string, _ string, _ string) (string, error) {
+	return "", nil
 }
 
 func (adapter *testAdapter) Name() string {

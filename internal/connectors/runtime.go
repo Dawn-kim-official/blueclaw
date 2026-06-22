@@ -47,6 +47,7 @@ type ConnectorOutboxRepository interface {
 	ClaimPendingConnectorReplies(int, time.Duration) ([]QueuedConnectorReply, error)
 	MarkConnectorReplySent(QueuedConnectorReply, string) error
 	MarkConnectorReplyFailed(QueuedConnectorReply, error, time.Time) error
+	SwapLiveReplyPost(taskRunID string, conversationID string, newPostID string, outboxID string) (string, error)
 }
 
 type PlatformInboundEvent struct {
@@ -297,6 +298,10 @@ type PlatformAdapter interface {
 
 type InteractionResolvingAdapter interface {
 	ResolveInteraction(context.Context, InteractionResolution) error
+}
+
+type ReplyDeletingAdapter interface {
+	DeleteReply(context.Context, ReplyTarget, string) error
 }
 
 type InputAttachmentImportingAdapter interface {
@@ -840,6 +845,51 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorReply(ctx contex
 		queuedReply.Reply,
 		dispatchID,
 	)
+	connectorRuntime.collapseLiveReplyPost(ctx, adapter, queuedReply, dispatchID)
+}
+
+func isCollapsibleInformationalReply(reply OutboundReply) bool {
+	if reply.Interaction != nil {
+		return false
+	}
+	switch reply.ReplyKind {
+	case connectorReplyKindSuccess, connectorReplyKindCheckpoint, connectorReplyKindUserNotice:
+		return true
+	default:
+		return false
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) collapseLiveReplyPost(ctx context.Context, adapter PlatformAdapter, queuedReply QueuedConnectorReply, dispatchID string) {
+	if strings.TrimSpace(dispatchID) == "" || !isCollapsibleInformationalReply(queuedReply.Reply) {
+		return
+	}
+	taskRunID := strings.TrimSpace(queuedReply.Reply.TaskRunID)
+	conversationID := strings.TrimSpace(queuedReply.ReplyTarget.ConversationID)
+	if taskRunID == "" || conversationID == "" {
+		return
+	}
+	displacedPostID, errorValue := connectorRuntime.outboxRepository().SwapLiveReplyPost(taskRunID, conversationID, dispatchID, queuedReply.OutboxID)
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+queuedReply.Platform+".reply.collapse_failed", slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		return
+	}
+	if displacedPostID == "" {
+		return
+	}
+	deleter, supportsDelete := adapter.(ReplyDeletingAdapter)
+	if !supportsDelete {
+		return
+	}
+	if errorValue := deleter.DeleteReply(ctx, queuedReply.ReplyTarget, displacedPostID); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+queuedReply.Platform+".reply.delete_failed", slog.String("taskRunID", taskRunID), slog.String("dispatchID", displacedPostID), slog.String("error", errorValue.Error()))
+		return
+	}
+	connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.replaced", map[string]string{
+		"replacedDispatchID": displacedPostID,
+		"currentDispatchID":  dispatchID,
+		"replyKind":          queuedReply.Reply.ReplyKind,
+	})
 }
 
 func (connectorRuntime *ConnectorRuntime) processInboundEvent(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) (ConnectorRuntimeResult, error) {
