@@ -2,6 +2,40 @@ package agent
 
 import "testing"
 
+func TestProgressEventsCapsFailureProgressWithoutSuccess(t *testing.T) {
+	fingerprints := []string{"fp-a", "fp-b", "fp-c", "fp-d", "fp-e", "fp-f"}
+	observations := []turnObservation{}
+	for _, fingerprint := range fingerprints {
+		observations = append(observations, turnObservation{
+			ObservationID:      fingerprint,
+			Action:             "continue",
+			Tool:               fingerprint,
+			Failure:            &ToolFailure{},
+			AttemptFingerprint: fingerprint,
+		})
+	}
+	if got := countFailureProgress(progressEvents(observations)); got != maxFailureProgressSinceSuccess {
+		t.Fatalf("expected failure progress capped at %d, got %d", maxFailureProgressSinceSuccess, got)
+	}
+
+	withSuccess := append([]turnObservation{}, observations[:4]...)
+	withSuccess = append(withSuccess, turnObservation{ObservationID: "ok", Action: "continue", Tool: "file.write", Output: ToolOutput{Content: "wrote"}})
+	withSuccess = append(withSuccess, observations[4:]...)
+	if got := countFailureProgress(progressEvents(withSuccess)); got != len(fingerprints) {
+		t.Fatalf("expected a success to reset the failure-progress cap, got %d", got)
+	}
+}
+
+func countFailureProgress(events []progressEvent) int {
+	count := 0
+	for _, event := range events {
+		if event.Kind == "failure_fingerprint" {
+			count++
+		}
+	}
+	return count
+}
+
 func TestActionProgressTrackerStopsAfterThreeActionsWithoutProgress(t *testing.T) {
 	tracker := newActionProgressTracker(nil)
 

@@ -18,33 +18,43 @@ type qualifyingProgressEvent struct {
 	Tool          string `json:"tool"`
 }
 
+const maxFailureProgressSinceSuccess = 4
+
 func progressEvents(observations []turnObservation) []progressEvent {
 	events := []progressEvent{}
 	seenFailures := map[string]bool{}
+	failureProgressSinceSuccess := 0
 	for index, observation := range observations {
+		recordSuccess := func(event progressEvent) {
+			events = append(events, event)
+			failureProgressSinceSuccess = 0
+		}
 		if observation.Action == "set_quality_criteria" {
-			events = append(events, progressEvent{Kind: "quality_criteria", Key: observation.ObservationID})
+			recordSuccess(progressEvent{Kind: "quality_criteria", Key: observation.ObservationID})
 		}
 		if observation.Action == "request_tools" && !observation.Failed() && hasSuccessfulToolCallAfter(observations, index) {
-			events = append(events, progressEvent{Kind: "tool_palette_selected", Key: observation.ObservationID + ":" + observation.ContentText()})
+			recordSuccess(progressEvent{Kind: "tool_palette_selected", Key: observation.ObservationID + ":" + observation.ContentText()})
 		}
 		if observation.Action == "continue" && !observation.Failed() {
-			events = append(events, progressEvent{Kind: "tool_success", Key: observation.ObservationID + ":" + observation.Tool})
+			recordSuccess(progressEvent{Kind: "tool_success", Key: observation.ObservationID + ":" + observation.Tool})
 		}
 		if observation.Failed() && strings.TrimSpace(observation.AttemptFingerprint) != "" && !seenFailures[observation.AttemptFingerprint] {
 			seenFailures[observation.AttemptFingerprint] = true
-			events = append(events, progressEvent{Kind: "failure_fingerprint", Key: observation.AttemptFingerprint})
+			if failureProgressSinceSuccess < maxFailureProgressSinceSuccess {
+				events = append(events, progressEvent{Kind: "failure_fingerprint", Key: observation.AttemptFingerprint})
+				failureProgressSinceSuccess++
+			}
 		}
 		for _, attachment := range observation.Attachments {
 			if strings.TrimSpace(attachment.DevicePath) != "" {
-				events = append(events, progressEvent{Kind: "attachment", Key: attachment.DevicePath})
+				recordSuccess(progressEvent{Kind: "attachment", Key: attachment.DevicePath})
 			}
 		}
 		if observation.Action == "continue" && observation.Tool == "file.promote" && !observation.Failed() {
-			events = append(events, progressEvent{Kind: "artifact_promoted", Key: observation.Output.Content})
+			recordSuccess(progressEvent{Kind: "artifact_promoted", Key: observation.Output.Content})
 		}
 		if observation.Action == "continue" && (observation.Tool == "file.write" || observation.Tool == "file.edit" || observation.Tool == "file.patch") && !observation.Failed() {
-			events = append(events, progressEvent{Kind: "file_rewrite", Key: observation.ToolInputKey + ":" + observation.Output.Content})
+			recordSuccess(progressEvent{Kind: "file_rewrite", Key: observation.ToolInputKey + ":" + observation.Output.Content})
 		}
 	}
 	return events

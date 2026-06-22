@@ -23,9 +23,9 @@ type EffortLimitProfile struct {
 
 var effortLimitProfiles = []EffortLimitProfile{
 	{EffortLevel: EffortLevelQuick, Duration: time.Minute, MaxIterationCount: 4, MaxToolCallCount: 1},
-	{EffortLevel: EffortLevelStandard, Duration: 10 * time.Minute, MaxIterationCount: 18, MaxToolCallCount: 14},
-	{EffortLevel: EffortLevelDeep, Duration: 40 * time.Minute, MaxIterationCount: 72, MaxToolCallCount: 30},
-	{EffortLevel: EffortLevelExtended, Duration: 2 * time.Hour, MaxIterationCount: 180, MaxToolCallCount: 96},
+	{EffortLevel: EffortLevelStandard, Duration: 10 * time.Minute, MaxIterationCount: 40, MaxToolCallCount: 30},
+	{EffortLevel: EffortLevelDeep, Duration: 40 * time.Minute, MaxIterationCount: 180, MaxToolCallCount: 100},
+	{EffortLevel: EffortLevelExtended, Duration: 2 * time.Hour, MaxIterationCount: 400, MaxToolCallCount: 220},
 }
 
 func NormalizeEffortLevel(value string) EffortLevel {
