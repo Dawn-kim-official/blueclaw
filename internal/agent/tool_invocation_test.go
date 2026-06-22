@@ -39,7 +39,6 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"unstable","toolInput":{}}`,
 		finishMessageDocument("handled failure"),
-		noToolFallbackFinishMessageDocument("handled failure"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"unstable"})
@@ -59,8 +58,8 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	if result.FinishMessage != "handled failure" {
 		t.Fatalf("expected final reply after failure, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "FailureDebt") {
-		t.Fatal("expected final reply to be locked until fallback resolution")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.unstable.result", "tool failed") {
+		t.Fatal("expected the tool failure to be recorded as an observation the model can answer from")
 	}
 }
 

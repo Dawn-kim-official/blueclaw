@@ -308,26 +308,6 @@ func attemptLedger(observations []turnObservation) []attemptLedgerEntry {
 	return entries
 }
 
-func failureDebtFinalizationGate(observations []turnObservation, actionDocument turnActionDocument, budget RecoveryBudget) completionGateResult {
-	failureDebt, hasFailureDebt := activeFailureDebt(observations)
-	if !hasFailureDebt {
-		return completionGateResult{IsSatisfied: true}
-	}
-	switch strings.TrimSpace(actionDocument.FailureResolution) {
-	case failureResolutionNoToolFallback:
-		if normalizeRecoveryBudget(budget).NoToolFallback > 0 {
-			return completionGateResult{IsSatisfied: true}
-		}
-		return completionGateResult{Message: "FailureDebt is active and no-tool fallback budget is disabled"}
-	case failureResolutionRecoveredWithSuccess:
-		return completionGateResult{Message: "FailureDebt is active because no later successful tool call resolved the latest failure"}
-	case failureResolutionFailureReport:
-		return completionGateResult{Message: "FailureDebt failure reports must use the fail action, not finish"}
-	default:
-		return completionGateResult{Message: failureDebtFinalizationMessage(failureDebt)}
-	}
-}
-
 func buildFailureReportFacts(observations []turnObservation, budget RecoveryBudget) failureReportFacts {
 	facts := failureReportFacts{BudgetState: failureReportBudgetState(observations, budget)}
 	for _, observation := range observations {
@@ -439,25 +419,6 @@ func usedFailureFactsContainAttempt(attempts []failureReportAttempt, expectedAtt
 		return true
 	}
 	return false
-}
-
-func failureDebtFinalizationMessage(failureDebt FailureDebt) string {
-	latestFailure := failureDebt.LatestFailure
-	parts := []string{"A failed tool call created FailureDebt, so finish is locked."}
-	if strings.TrimSpace(latestFailure.Tool) != "" {
-		parts = append(parts, "tool="+strings.TrimSpace(latestFailure.Tool))
-	}
-	if latestFailure.FailureStage() != "" {
-		parts = append(parts, "failureStage="+latestFailure.FailureStage())
-	}
-	if latestFailure.FailureCode() != "" {
-		parts = append(parts, "errorCode="+latestFailure.FailureCode())
-	}
-	if strings.TrimSpace(latestFailure.AttemptFingerprint) != "" {
-		parts = append(parts, "attemptFingerprint="+strings.TrimSpace(latestFailure.AttemptFingerprint))
-	}
-	parts = append(parts, "Recover with a different successful tool call, use failureResolution=no_tool_fallback when answering from current context without tools, or use fail after recovery budget is exhausted.")
-	return strings.Join(parts, " ")
 }
 
 func recoveryToolBudgetExhaustedForRequest(observations []turnObservation, toolSet *ToolSet, budget RecoveryBudget, failureDebt FailureDebt) bool {
