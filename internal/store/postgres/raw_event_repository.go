@@ -571,7 +571,7 @@ func (rawEventRepository RawEventRepository) SwapLiveReplyPost(taskRunID string,
 	}
 	defer transaction.Rollback()
 
-	if _, errorValue := transaction.Exec(`SELECT pg_advisory_xact_lock(hashtext($1)::bigint)`, taskRunID+"\x00"+conversationID); errorValue != nil {
+	if _, errorValue := transaction.Exec(`SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))`, taskRunID, conversationID); errorValue != nil {
 		return "", errorValue
 	}
 
