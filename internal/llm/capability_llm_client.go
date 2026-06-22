@@ -82,13 +82,46 @@ func recoveryAttemptContext(responseContext context.Context) (context.Context, c
 	return context.WithTimeout(baseContext, 8*time.Second)
 }
 
+const llmTransientRetryCount = 4
+
+func isTransientLLMTransportError(errorValue error) bool {
+	if errorValue == nil {
+		return false
+	}
+	message := strings.ToLower(errorValue.Error())
+	for _, marker := range []string{"eof", "connection refused", "connection reset", "broken pipe", "no such host", "i/o timeout", "server closed", "connection closed", "no route to host"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func (capabilityLLMClient CapabilityLLMClient) postJSONWithRetry(responseContext context.Context, path string, requestDocument any, responseDocument any) error {
+	var errorValue error
+	for attempt := 0; attempt < llmTransientRetryCount; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-responseContext.Done():
+				return responseContext.Err()
+			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+			}
+		}
+		errorValue = capabilityLLMClient.CapabilityClient.PostJSON(responseContext, path, requestDocument, responseDocument)
+		if errorValue == nil || !isTransientLLMTransportError(errorValue) {
+			return errorValue
+		}
+	}
+	return errorValue
+}
+
 func (capabilityLLMClient CapabilityLLMClient) generateResponse(responseContext context.Context, prompt string, executionMode string) (string, error) {
 	if capabilityLLMClient.CapabilityClient.HTTPClient == nil {
 		return "", errors.New("capability llm http client is not configured")
 	}
 
 	var responseDocument capabilityStructuredResponseDocument
-	errorValue := capabilityLLMClient.CapabilityClient.PostJSON(
+	errorValue := capabilityLLMClient.postJSONWithRetry(
 		responseContext,
 		"/v1/llm/text",
 		capabilityTextResponseRequestDocument{
@@ -120,7 +153,7 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 	}
 
 	var responseDocument capabilityStructuredResponseDocument
-	errorValue = capabilityLLMClient.CapabilityClient.PostJSON(responseContext, "/v1/llm/structured", requestDocument, &responseDocument)
+	errorValue = capabilityLLMClient.postJSONWithRetry(responseContext, "/v1/llm/structured", requestDocument, &responseDocument)
 	if errorValue != nil {
 		return StructuredResponse{}, errorValue
 	}
