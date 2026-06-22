@@ -184,6 +184,118 @@ func TestCapabilityLLMClientGenerateResponseUsesTextEndpoint(t *testing.T) {
 	}
 }
 
+func TestCapabilityLLMClientGenerateChatCompletionSendsNativeToolRequest(t *testing.T) {
+	var receivedDocument map[string]any
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/v1/llm/chat" {
+			t.Fatalf("expected chat llm path, got %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "" {
+			t.Fatalf("expected no authorization header, got %q", request.Header.Get("Authorization"))
+		}
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected request document to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"tool_calls","provider":"capabilityLLM","model":"gemma","message":{"role":"assistant","content":"","toolCalls":[{"id":"call-1","type":"function","function":{"name":"lookup","arguments":"{\"query\":\"status\"}"}}]},"usage":{"promptTokens":4,"completionTokens":2,"totalTokens":6}}`), nil
+	}}
+
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName:     "gemma",
+		ExecutionMode: "remote",
+	}
+
+	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{
+		Messages: []ChatCompletionMessage{{Role: "user", Content: "check"}},
+		Tools: []ChatCompletionTool{{
+			Type: "function",
+			Function: ChatCompletionFunction{
+				Name:        "lookup",
+				Description: "Lookup status",
+				Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}`),
+			},
+		}},
+		ToolChoice:        json.RawMessage(`{"type":"function","function":{"name":"lookup"}}`),
+		ParallelToolCalls: true,
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected chat completion response: %v", errorValue)
+	}
+	if receivedDocument["model"] != "gemma" || receivedDocument["executionMode"] != "remote" {
+		t.Fatalf("expected model and execution mode, got %+v", receivedDocument)
+	}
+	tools := receivedDocument["tools"].([]any)
+	tool := tools[0].(map[string]any)
+	function := tool["function"].(map[string]any)
+	if tool["type"] != "function" || function["name"] != "lookup" {
+		t.Fatalf("expected function tool, got %+v", tool)
+	}
+	toolChoice := receivedDocument["toolChoice"].(map[string]any)
+	toolChoiceFunction := toolChoice["function"].(map[string]any)
+	if toolChoice["type"] != "function" || toolChoiceFunction["name"] != "lookup" {
+		t.Fatalf("expected object tool choice, got %+v", toolChoice)
+	}
+	if receivedDocument["parallelToolCalls"] != true {
+		t.Fatalf("expected parallel tool calls to be forwarded, got %+v", receivedDocument)
+	}
+	if response.FinishReason != "tool_calls" {
+		t.Fatalf("expected tool_calls finish reason, got %q", response.FinishReason)
+	}
+	if len(response.Message.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %+v", response.Message.ToolCalls)
+	}
+	toolCall := response.Message.ToolCalls[0]
+	if toolCall.Function.Name != "lookup" || toolCall.Function.Arguments != `{"query":"status"}` {
+		t.Fatalf("expected JSON string arguments, got %+v", toolCall)
+	}
+	if response.Usage.TotalTokens != 6 {
+		t.Fatalf("expected usage to round trip, got %+v", response.Usage)
+	}
+}
+
+func TestCapabilityLLMClientGenerateChatCompletionForwardsStringToolChoice(t *testing.T) {
+	var receivedDocument map[string]any
+	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+		if errorValue := json.NewDecoder(request.Body).Decode(&receivedDocument); errorValue != nil {
+			t.Fatalf("expected request document to decode: %v", errorValue)
+		}
+		return jsonCapabilityResponse(http.StatusOK, `{"finishReason":"stop","message":{"role":"assistant","content":"done","toolCalls":[]}}`), nil
+	}}
+	client := CapabilityLLMClient{
+		CapabilityClient: capability.Client{
+			Endpoint:   "http://internkim-capability",
+			HTTPClient: httpClient,
+		},
+		ModelName: "gemma",
+	}
+
+	response, errorValue := client.GenerateChatCompletion(context.Background(), ChatCompletionRequest{
+		Messages:          []ChatCompletionMessage{{Role: "user", Content: "hello"}},
+		ToolChoice:        json.RawMessage(`"auto"`),
+		ParallelToolCalls: false,
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected chat completion response: %v", errorValue)
+	}
+	if receivedDocument["toolChoice"] != "auto" {
+		t.Fatalf("expected string tool choice, got %+v", receivedDocument)
+	}
+	if receivedDocument["parallelToolCalls"] != false {
+		t.Fatalf("expected parallel tool calls false, got %+v", receivedDocument)
+	}
+	if response.ProviderName != "capabilityLLM" || response.ModelName != "gemma" {
+		t.Fatalf("expected default provider and model, got %+v", response)
+	}
+	if response.Message.Content != "done" {
+		t.Fatalf("expected assistant content, got %q", response.Message.Content)
+	}
+}
+
 func TestCapabilityLLMClientSendsRequesterContext(t *testing.T) {
 	var receivedDocument capabilityStructuredResponseRequestDocument
 	httpClient := fakeCapabilityHTTPClient{handler: func(request *http.Request) (*http.Response, error) {

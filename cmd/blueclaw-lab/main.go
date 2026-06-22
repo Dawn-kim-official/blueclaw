@@ -112,6 +112,8 @@ type virtualSessionArguments struct {
 	LanguageModelName     string
 	ExecutionMode         string
 	SkillDirectoryPath    string
+	Seed                  *int64
+	Temperature           *float64
 	LiveLanguageModel     bool
 	RecordCassettePath    string
 	CassettePath          string
@@ -132,6 +134,8 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	languageModelSocket := flagSet.String("llm-unix-socket", os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"), "live LLM capability unix socket path")
 	languageModelName := flagSet.String("llm-model", firstNonEmptyString(os.Getenv("INTERNKIM_E2E_MODEL"), os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "google/gemma-4-31b-it:free"), "live LLM model name")
 	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
+	seed := flagSet.Int64("seed", 0, "generation seed for live LLM calls")
+	temperature := flagSet.Float64("temperature", 0, "generation temperature for live LLM calls")
 	skillDirectoryPath := flagSet.String("skill-dir", "", "skill directory to load into the virtual workspace")
 	liveLanguageModel := flagSet.Bool("live-llm", truthyEnvironmentValue(os.Getenv("BLUECLAW_E2E_LIVE")), "explicitly allow costed live LLM calls for unscripted scenarios")
 	recordCassettePath := flagSet.String("record-cassette", "", "record live LLM responses to a cassette JSON file")
@@ -156,6 +160,8 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 		LanguageModelName:     *languageModelName,
 		ExecutionMode:         *executionMode,
 		SkillDirectoryPath:    *skillDirectoryPath,
+		Seed:                  virtualSessionInt64FlagPointer(arguments, "seed", *seed),
+		Temperature:           virtualSessionFloat64FlagPointer(arguments, "temperature", *temperature),
 		LiveLanguageModel:     *liveLanguageModel,
 		RecordCassettePath:    *recordCassettePath,
 		CassettePath:          *cassettePath,
@@ -187,6 +193,10 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 			ModelName:      firstNonEmptyString(arguments.LanguageModelName, "google/gemma-4-31b-it:free"),
 			AttemptCount:   3,
 			InitialBackoff: 750 * time.Millisecond,
+			GenerationOptions: llm.GenerationOptions{
+				Seed:        arguments.Seed,
+				Temperature: arguments.Temperature,
+			},
 		}
 		scenario.LanguageModel = languageModel
 		if strings.TrimSpace(arguments.RecordCassettePath) != "" {
@@ -268,6 +278,22 @@ func hasVirtualSessionFlag(arguments []string, name string) bool {
 		}
 	}
 	return false
+}
+
+func virtualSessionInt64FlagPointer(arguments []string, name string, value int64) *int64 {
+	if !hasVirtualSessionFlag(arguments, name) {
+		return nil
+	}
+	result := value
+	return &result
+}
+
+func virtualSessionFloat64FlagPointer(arguments []string, name string, value float64) *float64 {
+	if !hasVirtualSessionFlag(arguments, name) {
+		return nil
+	}
+	result := value
+	return &result
 }
 
 func resolveOpenRouterAPIKey() (string, error) {
