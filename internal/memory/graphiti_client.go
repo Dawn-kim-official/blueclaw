@@ -58,6 +58,15 @@ func (client GraphitiClient) SearchFacts(ctx context.Context, request MemorySear
 	return response.Facts, nil
 }
 
+func (client GraphitiClient) ListFacts(ctx context.Context, request MemorySearchRequest) ([]MemoryFact, error) {
+	var response graphitiSearchResponse
+	errorValue := client.post(ctx, "/v1/list", request, &response)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	return response.Facts, nil
+}
+
 func (client GraphitiClient) post(ctx context.Context, path string, requestDocument any, responseDocument any) error {
 	if client.HTTPClient == nil {
 		return errors.New("graphiti http client is not configured")
