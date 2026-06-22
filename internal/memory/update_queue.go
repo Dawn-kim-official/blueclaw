@@ -166,6 +166,7 @@ func memoryEpisodeFromUpdateJob(job MemoryUpdateJob) MemoryEpisode {
 	return MemoryEpisode{
 		EpisodeID:       job.JobID,
 		Platform:        job.Platform,
+		MessageID:       job.JobID,
 		ConversationID:  job.ConversationID,
 		SenderPersonID:  job.SenderPersonID,
 		Prompt:          job.Content,
