@@ -34,6 +34,16 @@ type capabilityTextResponseRequestDocument struct {
 	EnableResponseHealing bool            `json:"enableResponseHealing"`
 }
 
+type capabilityChatCompletionRequestDocument struct {
+	Model             string                  `json:"model,omitempty"`
+	ExecutionMode     string                  `json:"executionMode"`
+	Context           *RequestContext         `json:"context,omitempty"`
+	Messages          []ChatCompletionMessage `json:"messages"`
+	Tools             []ChatCompletionTool    `json:"tools,omitempty"`
+	ToolChoice        json.RawMessage         `json:"toolChoice,omitempty"`
+	ParallelToolCalls bool                    `json:"parallelToolCalls"`
+}
+
 type capabilityStructuredOutputSchema struct {
 	Name               string          `json:"name"`
 	Document           json.RawMessage `json:"document"`
@@ -173,6 +183,38 @@ func (capabilityLLMClient CapabilityLLMClient) GenerateStructuredResponse(respon
 		Content:      responseDocument.Content,
 		Usage:        responseDocument.Usage,
 	}, nil
+}
+
+func (capabilityLLMClient CapabilityLLMClient) GenerateChatCompletion(responseContext context.Context, request ChatCompletionRequest) (ChatCompletionResponse, error) {
+	if capabilityLLMClient.CapabilityClient.HTTPClient == nil {
+		return ChatCompletionResponse{}, errors.New("capability llm http client is not configured")
+	}
+
+	requestDocument := capabilityChatCompletionRequestDocument{
+		Model:             capabilityLLMClient.ModelName,
+		ExecutionMode:     capabilityLLMClient.executionMode(),
+		Context:           requestContextPointer(responseContext),
+		Messages:          append([]ChatCompletionMessage{}, request.Messages...),
+		Tools:             append([]ChatCompletionTool{}, request.Tools...),
+		ToolChoice:        append(json.RawMessage{}, request.ToolChoice...),
+		ParallelToolCalls: request.ParallelToolCalls,
+	}
+
+	var response ChatCompletionResponse
+	errorValue := capabilityLLMClient.postJSONWithRetry(responseContext, "/v1/llm/chat", requestDocument, &response)
+	if errorValue != nil {
+		return ChatCompletionResponse{}, errorValue
+	}
+	if strings.TrimSpace(response.ProviderName) == "" {
+		response.ProviderName = "capabilityLLM"
+	}
+	if strings.TrimSpace(response.ModelName) == "" {
+		response.ModelName = capabilityLLMClient.ModelName
+	}
+	if response.Message.ToolCalls == nil {
+		response.Message.ToolCalls = []ChatCompletionToolCall{}
+	}
+	return response, nil
 }
 
 func (capabilityLLMClient CapabilityLLMClient) buildStructuredRequestDocument(responseContext context.Context, structuredResponseRequest StructuredResponseRequest) (capabilityStructuredResponseRequestDocument, error) {

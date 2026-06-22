@@ -18,12 +18,13 @@ const openRouterStructuredResponseRetryInstruction = "respond with ONLY a single
 const openRouterStructuredSchemaInstructionPrefix = "Respond with ONLY a single JSON object that validates against this JSON Schema (no prose, no markdown): "
 
 type OpenRouterClient struct {
-	APIKey         string
-	BaseURL        string
-	ModelName      string
-	HTTPClient     *http.Client
-	AttemptCount   int
-	InitialBackoff time.Duration
+	APIKey            string
+	BaseURL           string
+	ModelName         string
+	HTTPClient        *http.Client
+	AttemptCount      int
+	InitialBackoff    time.Duration
+	GenerationOptions GenerationOptions
 }
 
 type openRouterRequest struct {
@@ -91,10 +92,13 @@ func (errorValue OpenRouterRateLimitError) Error() string {
 }
 
 func (client OpenRouterClient) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	generationOptions := client.GenerationOptions
 	response, errorValue := client.send(responseContext, openRouterRequest{
-		Model:    client.modelName(),
-		Messages: []openRouterMessage{{Role: "user", Content: prompt}},
-		Stream:   false,
+		Model:       client.modelName(),
+		Messages:    []openRouterMessage{{Role: "user", Content: prompt}},
+		Stream:      false,
+		Seed:        generationOptions.Seed,
+		Temperature: generationOptions.Temperature,
 	})
 	if errorValue != nil {
 		return "", errorValue
@@ -109,13 +113,14 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 	}
 	modelName := client.modelName()
 	messages := appendOpenRouterStructuredSchemaInstruction(openRouterMessages(modelName, request.Messages), modelName, schemaDocument)
+	generationOptions := mergeGenerationOptions(client.GenerationOptions, request.GenerationOptions)
 	openRouterStructuredRequest := openRouterRequest{
 		Model:       modelName,
 		Messages:    messages,
 		Stream:      false,
-		Seed:        request.GenerationOptions.Seed,
-		Temperature: request.GenerationOptions.Temperature,
-		MaxTokens:   request.GenerationOptions.MaxTokens,
+		Seed:        generationOptions.Seed,
+		Temperature: generationOptions.Temperature,
+		MaxTokens:   generationOptions.MaxTokens,
 		ResponseFormat: &openRouterJSONSchema{
 			Type: "json_schema",
 			JSONSchema: openRouterJSONSchemaPayload{
@@ -151,6 +156,20 @@ func (client OpenRouterClient) GenerateStructuredResponse(responseContext contex
 		return StructuredResponse{}, errors.New("openrouter structured response was not valid json after retry: first " + openRouterStructuredResponseErrorSummary(response, content, firstContentError) + "; retry " + openRouterStructuredResponseErrorSummary(retryResponse, retryContent, retryContentError))
 	}
 	return openRouterStructuredResponse(modelName, retryResponse, retryContent), nil
+}
+
+func mergeGenerationOptions(defaultOptions GenerationOptions, requestOptions GenerationOptions) GenerationOptions {
+	result := defaultOptions
+	if requestOptions.Seed != nil {
+		result.Seed = requestOptions.Seed
+	}
+	if requestOptions.Temperature != nil {
+		result.Temperature = requestOptions.Temperature
+	}
+	if requestOptions.MaxTokens != nil {
+		result.MaxTokens = requestOptions.MaxTokens
+	}
+	return result
 }
 
 func (client OpenRouterClient) send(ctx context.Context, request openRouterRequest) (openRouterResponse, error) {
