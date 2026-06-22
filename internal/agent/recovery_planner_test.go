@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRecoveryPacketDoesNotHardCodeToolAllowedList(t *testing.T) {
 	observation := turnObservation{
@@ -23,5 +26,30 @@ func TestRecoveryPacketDoesNotHardCodeToolAllowedList(t *testing.T) {
 	}
 	if packet.WhatFailed == "" || packet.WhyLikely == "" || len(packet.MustDoNext) == 0 {
 		t.Fatalf("expected factual recovery context, got %+v", packet)
+	}
+}
+
+func TestRecoveryPacketSchemaFailureRetriesSameToolWithFixedInput(t *testing.T) {
+	observation := turnObservation{
+		ObservationID: "obs-002",
+		Action:        "continue",
+		Tool:          "ask.confirm",
+		ToolInputKey:  "ask.confirm\x00{}",
+		Failure: &ToolFailure{
+			Kind:            FailureInvalidInput,
+			Code:            FailureCodes.InvalidInput.String(),
+			Stage:           "ask_confirm",
+			UserSafeSummary: "ask.confirm requires userFacingMessage",
+		},
+	}
+
+	packet := buildRecoveryPacket(observation)
+
+	if packet.RetryPolicy == retryPolicyDoNotRetry {
+		t.Fatalf("expected a missing-field schema failure to be retryable with corrected input, got %q", packet.RetryPolicy)
+	}
+	joined := strings.Join(packet.MustDoNext, " ")
+	if !strings.Contains(joined, "same tool") {
+		t.Fatalf("expected guidance to retry the same tool with corrected input, got %+v", packet.MustDoNext)
 	}
 }

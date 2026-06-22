@@ -83,6 +83,10 @@ func retryPolicyForObservation(observation turnObservation) string {
 	if len(requiredPreconditionsForObservation(observation)) > 0 {
 		return retryPolicyAfterPrecondition
 	}
+	switch failureClassForObservation(observation) {
+	case failureClassSchema, failureClassUserInput:
+		return retryPolicyDifferentInput
+	}
 	if observation.Failure != nil && !observation.Failure.Retryable {
 		return retryPolicyDoNotRetry
 	}
@@ -162,6 +166,8 @@ func recoveryMustDoNext(observation turnObservation, failureClass string) []stri
 		return []string{"Inspect the workspace facts.", "Change or repair the inaccessible path before retrying.", "Retry only after workspace_changed evidence exists."}
 	case failureClassDependency:
 		return []string{"Inspect the dependency failure.", "Change runtime setup, command, cache, or route before retrying.", "Retry only after dependency_changed evidence exists."}
+	case failureClassSchema, failureClassUserInput:
+		return []string{"Provide the missing or corrected input fields named above, then call the same tool again."}
 	default:
 		return []string{"Change tool input, route, or use an adjacent tool before retrying."}
 	}
