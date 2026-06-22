@@ -49,8 +49,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerAskTools(toolRegistry *age
 		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askConfirmToolInput, agent.ToolResult]{
 			Definition: agent.ToolDefinition{
 				Name:        "ask.confirm",
-				Description: "Pause the current task while waiting for explicit user confirmation. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. userFacingMessage is shown directly to the user and must use the same language as the original user request. reasonCode and reasonDetail are internal only.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"userFacingMessage":{"type":"string","description":"User-facing approval question shown directly to the user, written in the same language as the original user request."},"reasonCode":{"type":"string","description":"Internal reason code reserved for sensitive actions only. Allowed values: external_send, destructive_action, credential_access, paid_action, permission_change, capability_unlock, other_sensitive_action.","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."}},"required":["userFacingMessage","reasonCode"]}`),
+				Description: "Pause the current task while waiting for explicit user confirmation. Use only before destructive, high-risk, external-send, credential, paid-service, or capability-unlock actions. Put the confirmation question shown to the user in the action message field, in the same language as the original user request. reasonCode and reasonDetail are internal only.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"reasonCode":{"type":"string","description":"Internal reason code reserved for sensitive actions only. Allowed values: external_send, destructive_action, credential_access, paid_action, permission_change, capability_unlock, other_sensitive_action.","enum":["external_send","destructive_action","credential_access","paid_action","permission_change","capability_unlock","other_sensitive_action"]},"reasonDetail":{"type":"string","description":"Optional internal diagnostic detail. Never write user-facing prose here."}},"required":["reasonCode"]}`),
 			},
 			Handler: toolCatalogBuilder.askConfirmTool,
 			Result:  agent.IdentityToolResult,
@@ -58,8 +58,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerAskTools(toolRegistry *age
 		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askChoiceToolInput, agent.ToolResult]{
 			Definition: agent.ToolDefinition{
 				Name:        "ask.choice",
-				Description: "Pause the current task and ask the user to choose from explicit options. Always include exactly one recommendedOptionKey. Use selectionMode single or multiple.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"shortLabel":{"type":"string","description":"버튼에 표시할 1~3단어 단답; label은 본문에 길게 설명 가능"}},"required":["key","label"]}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["question","options","recommendedOptionKey"]}`),
+				Description: "Pause the current task and ask the user to choose from explicit options. Put the question shown to the user in the action message field. Always include exactly one recommendedOptionKey. Use selectionMode single or multiple.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{"options":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"label":{"type":"string"},"shortLabel":{"type":"string","description":"버튼에 표시할 1~3단어 단답; label은 본문에 길게 설명 가능"}},"required":["key","label"]}},"recommendedOptionKey":{"type":"string"},"selectionMode":{"type":"string","enum":["single","multiple"]}},"required":["options","recommendedOptionKey"]}`),
 			},
 			Handler: toolCatalogBuilder.askChoiceTool,
 			Result:  agent.IdentityToolResult,
@@ -67,8 +67,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerAskTools(toolRegistry *age
 		agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[askInputToolInput, agent.ToolResult]{
 			Definition: agent.ToolDefinition{
 				Name:        "ask.input",
-				Description: "Pause the current task and ask the user for free-form input needed to continue.",
-				InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"}},"required":["question"]}`),
+				Description: "Pause the current task and ask the user for free-form input needed to continue. Put the question shown to the user in the action message field.",
+				InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 			},
 			Handler: toolCatalogBuilder.askInputTool,
 			Result:  agent.IdentityToolResult,
@@ -81,9 +81,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires an active task run"), nil
 	}
-	userFacingMessage := askConfirmUserFacingMessage(input)
+	userFacingMessage := strings.TrimSpace(agent.UserFacingMessageFromContext(toolContext))
 	if userFacingMessage == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires userFacingMessage"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires a confirmation question in the action message"), nil
 	}
 	reasonCode := strings.TrimSpace(input.ReasonCode)
 	if !isAllowedApprovalReasonCode(reasonCode) {
@@ -119,7 +119,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askChoiceTool(toolContext context.
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_choice", "ask.choice requires an active task run"), nil
 	}
-	choiceRequest, errorValue := normalizeAskChoiceRequest(input, agent.ResponseLanguageFromContext(toolContext))
+	choiceRequest, errorValue := normalizeAskChoiceRequest(input, strings.TrimSpace(agent.UserFacingMessageFromContext(toolContext)), agent.ResponseLanguageFromContext(toolContext))
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_choice", errorValue.Error()), nil
 	}
@@ -136,9 +136,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.C
 	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_input", "ask.input requires an active task run"), nil
 	}
-	question := strings.TrimSpace(input.Question)
+	question := strings.TrimSpace(agent.UserFacingMessageFromContext(toolContext))
 	if question == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_input", "ask.input requires question"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_input", "ask.input requires a question in the action message"), nil
 	}
 	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingUserInput, question)
 	if errorValue != nil {
@@ -254,10 +254,10 @@ type normalizedAskChoiceRequest struct {
 	ResponseLanguage     string            `json:"responseLanguage"`
 }
 
-func normalizeAskChoiceRequest(input askChoiceToolInput, responseLanguage string) (normalizedAskChoiceRequest, error) {
-	question := strings.TrimSpace(input.Question)
+func normalizeAskChoiceRequest(input askChoiceToolInput, question string, responseLanguage string) (normalizedAskChoiceRequest, error) {
+	question = strings.TrimSpace(question)
 	if question == "" {
-		return normalizedAskChoiceRequest{}, errors.New("ask.choice requires question")
+		return normalizedAskChoiceRequest{}, errors.New("ask.choice requires a question in the action message")
 	}
 	selectionMode := strings.TrimSpace(input.SelectionMode)
 	if selectionMode == "" {
