@@ -164,6 +164,7 @@ func TestCommandPathGuardrailErrorIncludesRecoveryDetails(t *testing.T) {
 	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
 		Mode:                  "firecrackerGuest",
 		WorkspaceRootPath:     workspaceRootPath,
+		DeniedPathPrefixes:    []string{"/opt"},
 		AllowNetwork:          true,
 		AllowInteractiveShell: true,
 		TimeoutSecond:         3,
@@ -179,7 +180,7 @@ func TestCommandPathGuardrailErrorIncludesRecoveryDetails(t *testing.T) {
 		t.Fatalf("expected command guardrail error, got %v", errorValue)
 	}
 	for _, expectedText := range []string{
-		"command path escapes workspace root",
+		"command path targets a denied system path",
 		"/opt/blueclaw/builtin-skills-venv/bin/python",
 		workspaceRootPath,
 		"/workspace/skills/<skill>/scripts/skill_runtime.py",
@@ -262,6 +263,7 @@ func TestCommandPathGuardrailRejectsEscapingPathBeforeHereDocument(t *testing.T)
 	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
 		Mode:                  "firecrackerGuest",
 		WorkspaceRootPath:     workspaceRootPath,
+		DeniedPathPrefixes:    []string{"/opt"},
 		AllowNetwork:          true,
 		AllowInteractiveShell: true,
 		TimeoutSecond:         3,
