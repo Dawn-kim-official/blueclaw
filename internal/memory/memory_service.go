@@ -101,7 +101,10 @@ func (memoryService *MemoryService) AddEpisode(ctx context.Context, episode Memo
 			status = "failed"
 			errorMessage = errorValue.Error()
 		}
-		_ = memoryService.mirror.SaveGraphEpisode(ctx, episode, status, errorMessage)
+		if mirrorError := memoryService.mirror.SaveGraphEpisode(ctx, episode, status, errorMessage); mirrorError != nil {
+			memoryService.recordIngestionError("graph mirror write failed: " + mirrorError.Error())
+			return MemoryIngestionResult{}, mirrorError
+		}
 	}
 	if errorValue != nil {
 		memoryService.recordIngestionError(errorValue.Error())

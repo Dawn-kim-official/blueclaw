@@ -105,10 +105,19 @@ func (queue *BackgroundMemoryUpdateQueue) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case job := <-queue.jobs:
-			result := queue.processor.Process(context.WithoutCancel(ctx), job)
-			queue.logResult(job, result)
+			queue.processJob(ctx, job)
 		}
 	}
+}
+
+func (queue *BackgroundMemoryUpdateQueue) processJob(ctx context.Context, job MemoryUpdateJob) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			queue.logger.Error("memory.update_panic", slog.String("jobID", job.JobID), slog.Any("panic", recovered))
+		}
+	}()
+	result := queue.processor.Process(context.WithoutCancel(ctx), job)
+	queue.logResult(job, result)
 }
 
 func (queue *BackgroundMemoryUpdateQueue) logResult(job MemoryUpdateJob, result MemoryUpdateResult) {
