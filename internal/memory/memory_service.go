@@ -19,6 +19,10 @@ type GraphMemoryHealthChecker interface {
 	CheckHealth(context.Context) error
 }
 
+type GraphMemoryLister interface {
+	ListFacts(context.Context, MemorySearchRequest) ([]MemoryFact, error)
+}
+
 type GraphMemoryMirror interface {
 	SaveGraphNamespaces(context.Context, []MemoryNamespace) error
 	SaveGraphEpisode(context.Context, MemoryEpisode, string, string) error
@@ -129,6 +133,24 @@ func (memoryService *MemoryService) SearchMemory(ctx context.Context, request Me
 	}
 
 	return memoryService.SearchLocalMemory(ctx, request)
+}
+
+func (memoryService *MemoryService) ListMemory(ctx context.Context, request MemorySearchRequest) ([]MemoryFact, error) {
+	if request.Limit <= 0 {
+		request.Limit = 50
+	}
+	request.Namespaces = memoryService.resolveAccessibleNamespaces(ctx, request)
+	lister, hasLister := memoryService.store.(GraphMemoryLister)
+	if memoryService.store == nil || !hasLister {
+		return nil, nil
+	}
+	memoryFacts, errorValue := lister.ListFacts(ctx, request)
+	if errorValue != nil {
+		memoryService.recordSearchError(errorValue.Error())
+		return nil, errorValue
+	}
+	memoryService.recordSearchError("")
+	return limitMemoryFacts(rankMemoryFacts(deduplicateMemoryFacts(filterReadableMemoryFacts(request, memoryFacts)), ""), request.Limit), nil
 }
 
 func (memoryService *MemoryService) SearchLocalMemory(ctx context.Context, request MemorySearchRequest) ([]MemoryFact, error) {
