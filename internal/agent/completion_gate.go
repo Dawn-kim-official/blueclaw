@@ -429,10 +429,6 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	if finishMessagePromisesFutureWork(finishActionMessage(actionDocument)) && !hasScheduleCreateEvidence(observations, actionDocument.CompletionEvidence) {
 		return completionGateResult{Message: "finish.message promises future work without successful schedule.create evidence"}
 	}
-	failureDebtResult := failureDebtFinalizationGate(observations, actionDocument, recoveryBudget)
-	if !failureDebtResult.IsSatisfied {
-		return completionGateResult{Message: failureDebtResult.Message}
-	}
 	attachments, errorValue := validateCompletionEvidence(nil, observations, actionDocument.CompletionEvidence)
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
@@ -605,13 +601,6 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 		result.IsSatisfied = false
 		result.SuggestedNextTools = requiredSendToolNamesForRequest(request)
 		result.Message = sendCompletionEvidenceRequiredMessage(result.SuggestedNextTools)
-		result.Attachments = nil
-		return result
-	}
-	failureDebtResult := failureDebtFinalizationGate(observations, actionDocument, recoveryBudget)
-	if !failureDebtResult.IsSatisfied {
-		result.IsSatisfied = false
-		result.Message = failureDebtResult.Message
 		result.Attachments = nil
 		return result
 	}
