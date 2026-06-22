@@ -1347,11 +1347,20 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
-		return AgentTurnResult{TaskRun: failedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
+		failedTaskRun.Result = fallbackReply
+		return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
 	reply := failureNotice.SendableMessage()
 	failedTaskRun.Result = reply
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+}
+
+func deterministicFailureFallbackReply(responseLanguage string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(responseLanguage)), "en") {
+		return "Sorry — a temporary system error interrupted this task before it could finish. Please try again in a moment."
+	}
+	return "죄송합니다. 일시적인 시스템 오류로 요청을 끝까지 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
 }
 
 type limitPressureWarning struct {
