@@ -211,9 +211,6 @@ func portableNestedSchema(value any) any {
 	if isDocument {
 		clone := map[string]any{}
 		for fieldName, fieldValue := range document {
-			if fieldName == "required" {
-				continue
-			}
 			if fieldName == "type" && fieldValue == "integer" {
 				clone[fieldName] = "number"
 				continue
