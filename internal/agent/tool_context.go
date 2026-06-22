@@ -1,6 +1,9 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 type toolContextKey string
 
@@ -8,6 +11,19 @@ const taskRunIDContextKey toolContextKey = "taskRunID"
 const observationIDContextKey toolContextKey = "observationID"
 const responseLanguageContextKey toolContextKey = "responseLanguage"
 const workKindsContextKey toolContextKey = "workKinds"
+const userFacingMessageContextKey toolContextKey = "userFacingMessage"
+
+func WithUserFacingMessage(ctx context.Context, userFacingMessage string) context.Context {
+	if strings.TrimSpace(userFacingMessage) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, userFacingMessageContextKey, userFacingMessage)
+}
+
+func UserFacingMessageFromContext(ctx context.Context) string {
+	userFacingMessage, _ := ctx.Value(userFacingMessageContextKey).(string)
+	return userFacingMessage
+}
 
 func WithTaskRunID(ctx context.Context, taskRunID string) context.Context {
 	if taskRunID == "" {
