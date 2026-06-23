@@ -45,49 +45,6 @@ func approvalObservationText(observation turnObservation) string {
 	}, " "))
 }
 
-func (agentTurnRunner *AgentTurnRunner) requestPreApprovalForToolCall(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
-	if !toolCallRequiresPreApproval(request, actionDocument) {
-		return toolCallActionOutcome{}
-	}
-	taskEvents := agentTurnRunner.taskRunService.ListTaskEvent(taskRunID)
-	if heldCall, isPending := pendingApprovalHeldCall(taskEvents); isPending && approvalHeldCallMatchesAction(heldCall, actionDocument) {
-		return agentTurnRunner.pendingHeldCallApprovalOutcome(taskRunID, stepID, request, state, heldCall)
-	}
-	if approvalHeldCallActionWasExecuted(taskEvents, actionDocument) {
-		return toolCallActionOutcome{}
-	}
-	return agentTurnRunner.requestHeldCallApproval(taskRunID, stepID, request, state, actionDocument)
-}
-
-func toolCallRequiresPreApproval(request AgentTurnRequest, actionDocument turnActionDocument) bool {
-	if request.IsApprovalContinuation || request.ToolSet == nil {
-		return false
-	}
-	toolDefinition, isFound := request.ToolSet.ToolDefinition(actionDocument.ToolName)
-	return isFound && toolDefinition.RequiresApproval
-}
-
-func (agentTurnRunner *AgentTurnRunner) pendingHeldCallApprovalOutcome(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, heldCall approvalHeldCall) toolCallActionOutcome {
-	taskRun, isFound := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
-	if !isFound {
-		return toolCallActionOutcome{}
-	}
-	if taskRun.Status != task.TaskStatusWaitingApproval {
-		var errorValue error
-		taskRun, errorValue = agentTurnRunner.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, heldCall.Confirmation)
-		if errorValue != nil {
-			result, _ := agentTurnRunner.failTurn(taskRunID, request, errorValue.Error(), state.Observations, state.Attachments, state.ExecutionState)
-			return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
-		}
-	}
-	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusWaitingApproval, "approval "+heldCall.ToolName, heldCall.Confirmation)
-	return toolCallActionOutcome{
-		Result:       AgentTurnResult{TaskRun: taskRun, UserNotice: heldCall.Confirmation, Attachments: state.Attachments},
-		ShouldReturn: true,
-		WasHandled:   true,
-	}
-}
-
 func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
 	confirmation := approvalConfirmationForHeldCall(request, actionDocument.ToolName, actionDocument.ToolInput)
 	heldCall := approvalHeldCall{
@@ -214,33 +171,6 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 		}
 	}
 	return false
-}
-
-func approvalHeldCallActionWasExecuted(taskEvents []task.TaskEvent, actionDocument turnActionDocument) bool {
-	for _, taskEvent := range taskEvents {
-		if taskEvent.Name != "approval.executed" {
-			continue
-		}
-		var executedCall approvalExecutedCall
-		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &executedCall); errorValue != nil {
-			continue
-		}
-		if approvalExecutedCallMatchesAction(executedCall, actionDocument) {
-			return true
-		}
-	}
-	return false
-}
-
-func approvalExecutedCallMatchesAction(executedCall approvalExecutedCall, actionDocument turnActionDocument) bool {
-	if len(executedCall.ToolInput) == 0 {
-		return false
-	}
-	return canonicalToolCallKey(executedCall.ToolName, executedCall.ToolInput) == canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
-}
-
-func approvalHeldCallMatchesAction(heldCall approvalHeldCall, actionDocument turnActionDocument) bool {
-	return canonicalToolCallKey(heldCall.ToolName, heldCall.ToolInput) == canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 }
 
 func approvalConfirmationForHeldCall(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
