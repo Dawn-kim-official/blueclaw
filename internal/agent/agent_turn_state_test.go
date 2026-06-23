@@ -64,8 +64,11 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolInput"`) {
 		t.Fatalf("expected toolInput to be preserved, got %s", request.StructuredOutputSchema.Document)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"nextStepPlan"`) {
-		t.Fatalf("expected continue action to require nextStepPlan, got %s", request.StructuredOutputSchema.Document)
+	if strings.Contains(request.StructuredOutputSchema.Document, `"nextStepPlan"`) {
+		t.Fatalf("expected continue action to omit nextStepPlan, got %s", request.StructuredOutputSchema.Document)
+	}
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"requestTools"`) {
+		t.Fatalf("expected continue action to expose requestTools, got %s", request.StructuredOutputSchema.Document)
 	}
 	finishVariant := actionSchemaVariant(t, request.StructuredOutputSchema.Document, "finish")
 	requiredFields := stringSliceFromAny(finishVariant["required"])

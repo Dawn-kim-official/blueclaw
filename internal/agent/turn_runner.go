@@ -83,7 +83,6 @@ type AgentTurnRequest struct {
 	ActiveGoal                 ActiveGoal
 	ScheduledRun               ScheduledRunContext
 	ToolExposure               ToolExposureEvent
-	CurrentStepPlan            NextStepPlan
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
 	AmbientDuty                AmbientDutyContext
@@ -125,6 +124,8 @@ type turnActionDocument struct {
 	ToolInput             json.RawMessage               `json:"toolInput"`
 	ToolNames             []string                      `json:"toolNames"`
 	SkillNames            []string                      `json:"skillNames"`
+	RequestTools          []string                      `json:"requestTools"`
+	RequestSkills         []string                      `json:"requestSkills"`
 	Reason                string                        `json:"reason"`
 	Reply                 string                        `json:"reply"`
 	FailureResolution     string                        `json:"failureResolution"`
@@ -137,16 +138,6 @@ type turnActionDocument struct {
 	RemainingWork         string                        `json:"remainingWork"`
 	UsedFailureFacts      failureReportFacts            `json:"usedFailureFacts"`
 	ExecutionStateUpdate  ExecutionState                `json:"executionStateUpdate"`
-	NextStepPlan          NextStepPlan                  `json:"nextStepPlan"`
-}
-
-type NextStepPlan struct {
-	Objective           string   `json:"objective,omitempty"`
-	ExpectedTools       []string `json:"expectedTools,omitempty"`
-	ExpectedNextResults []string `json:"expectedNextResults,omitempty"`
-	DoneCriteria        []string `json:"doneCriteria,omitempty"`
-	Risk                string   `json:"risk,omitempty"`
-	WorkingSetReason    string   `json:"workingSetReason,omitempty"`
 }
 
 type turnObservation struct {
@@ -443,9 +434,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 
 		iterationRequest := agentTurnRunner.requestForStep(taskContext, request, state)
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.step_working_set", marshalEventBody(map[string]any{
-			"step":         iteration,
-			"nextStepPlan": state.NextStepPlan,
-			"exposure":     iterationRequest.ToolExposure,
+			"step":     iteration,
+			"exposure": iterationRequest.ToolExposure,
 		}))
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_palette.built", marshalEventBody(map[string]any{
 			"step":     iteration,
@@ -468,8 +458,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.execution_state", marshalEventBody(state.ExecutionState))
 		}
 		if strings.TrimSpace(actionDocument.Action) == "continue" {
-			state.NextStepPlan = normalizeNextStepPlan(actionDocument.NextStepPlan)
-			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.next_step_plan", marshalEventBody(state.NextStepPlan))
+			request = agentTurnRunner.applyInlineToolRequest(taskRun.TaskRunID, request, &state, actionDocument)
 		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
@@ -940,7 +929,7 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunI
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
-	plannedRequest := requestWithStepWorkingSetTools(request, state.NextStepPlan, state.Observations)
+	plannedRequest := requestWithStepWorkingSetTools(request, state.Observations)
 	requestArguments := buildToolSelectionRequest(
 		plannedRequest.ToolSet,
 		instructionBundleFromTurnRequest(plannedRequest),
@@ -971,7 +960,6 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, reques
 	iterationRequest := plannedRequest
 	iterationRequest.ToolSet = filteredToolSet
 	iterationRequest.ToolExposure = exposureEvent
-	iterationRequest.CurrentStepPlan = normalizeNextStepPlan(state.NextStepPlan)
 	iterationRequest.StepBudgetContext = agentTurnRunner.stepBudgetContext(state)
 	return iterationRequest
 }
@@ -996,14 +984,7 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 	}, "\n")
 }
 
-func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan, observations []turnObservation) AgentTurnRequest {
-	normalizedPlan := normalizeNextStepPlan(plan)
-	expectedTools := filterCompletedInspectionPlanTools(normalizedPlan.ExpectedTools, observations)
-	expectedTools = filterLatestSuccessfulTerminalTool(expectedTools, observations)
-	expectedTools = filterExhaustedRecoveryToolNames(expectedTools, observations)
-	expectedTools = filterStepPlanToolsForRequest(expectedTools, request)
-	request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, expectedTools...)
-	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, expectedTools...)
+func requestWithStepWorkingSetTools(request AgentTurnRequest, observations []turnObservation) AgentTurnRequest {
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
 	if requestLooksLikeCalendarStep(request) {
 		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames,
@@ -1019,77 +1000,22 @@ func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan,
 	return request
 }
 
-func filterStepPlanToolsForRequest(toolNames []string, request AgentTurnRequest) []string {
-	filteredToolNames := []string{}
-	agentRequest := AgentRequest{
-		Prompt:     request.Prompt,
-		ActiveGoal: request.ActiveGoal,
+func (agentTurnRunner *AgentTurnRunner) applyInlineToolRequest(taskRunID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) AgentTurnRequest {
+	requestArguments := requestToolsArguments{
+		ToolNames:  append([]string{}, actionDocument.RequestTools...),
+		SkillNames: append([]string{}, actionDocument.RequestSkills...),
 	}
-	for _, toolName := range toolNames {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if trimmedToolName == "" {
-			continue
-		}
-		if isSendEvidenceTool(trimmedToolName) && !requestLooksLikeExternalSendContinuation(agentRequest, request.OutcomeContract) {
-			continue
-		}
-		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
+	if len(appendUniqueStrings(requestArguments.ToolNames)) == 0 && len(appendUniqueStrings(requestArguments.SkillNames)) == 0 {
+		return request
 	}
-	return filteredToolNames
-}
-
-func filterCompletedInspectionPlanTools(toolNames []string, observations []turnObservation) []string {
-	latestObservation, hasObservation := latestToolObservation(observations)
-	if !hasObservation || latestObservation.Failure != nil {
-		return appendUniqueStrings(toolNames)
-	}
-	completedToolName := strings.TrimSpace(latestObservation.Tool)
-	if !completedInspectionToolName(completedToolName) {
-		return appendUniqueStrings(toolNames)
-	}
-	filteredToolNames := []string{}
-	for _, toolName := range toolNames {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if trimmedToolName == "" || trimmedToolName == completedToolName {
-			continue
-		}
-		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
-	}
-	return filteredToolNames
-}
-
-func latestToolObservation(observations []turnObservation) (turnObservation, bool) {
-	for index := len(observations) - 1; index >= 0; index-- {
-		if strings.TrimSpace(observations[index].Tool) != "" {
-			return observations[index], true
-		}
-	}
-	return turnObservation{}, false
-}
-
-func completedInspectionToolName(toolName string) bool {
-	switch toolName {
-	case "file.read", "conversation.history", "memory.search", "site.app.status":
-		return true
-	default:
-		return false
-	}
-}
-
-func filterLatestSuccessfulTerminalTool(toolNames []string, observations []turnObservation) []string {
-	latestObservation, hasObservation := latestToolObservation(observations)
-	if !hasObservation || latestObservation.Failure != nil || strings.TrimSpace(latestObservation.Tool) != "terminal.run" {
-		return appendUniqueStrings(toolNames)
-	}
-	filteredToolNames := []string{}
-	for _, toolName := range toolNames {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if trimmedToolName == "" || trimmedToolName == "terminal.run" {
-			continue
-		}
-		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
-	}
-	return filteredToolNames
+	nextRequest, selectionResult := applyToolRequest(request, requestArguments)
+	state.Request = nextRequest
+	agentTurnRunner.appendEvent(taskRunID, "agent.tool_palette.applied", marshalEventBody(map[string]any{
+		"request": requestArguments,
+		"result":  selectionResult,
+		"source":  "continue_inline",
+	}))
+	return nextRequest
 }
 
 func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnObservation) []string {
