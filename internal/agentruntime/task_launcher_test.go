@@ -392,9 +392,9 @@ func TestApprovalRequestPausesActiveTaskRun(t *testing.T) {
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithUserFacingMessage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Approve browser login?"), agent.ToolInvocation{
 		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"userFacingMessage":"Approve browser login?","reasonCode":"credential_access"}`),
+		Input:    json.RawMessage(`{"reasonCode":"credential_access"}`),
 	})
 
 	if errorValue != nil {
@@ -431,9 +431,9 @@ func TestApprovalRequestReusesPriorApprovalForSameTaskAndConfirmation(t *testing
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithUserFacingMessage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Approve   browser\nlogin?"), agent.ToolInvocation{
 		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"userFacingMessage":"Approve   browser\nlogin?","reasonCode":"credential_access"}`),
+		Input:    json.RawMessage(`{"reasonCode":"credential_access"}`),
 	})
 
 	if errorValue != nil {
@@ -469,9 +469,9 @@ func TestApprovalRequestEmitsAskForDifferentConfirmationContent(t *testing.T) {
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithUserFacingMessage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Approve sending the DM?"), agent.ToolInvocation{
 		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"userFacingMessage":"Approve sending the DM?","reasonCode":"credential_access"}`),
+		Input:    json.RawMessage(`{"reasonCode":"credential_access"}`),
 	})
 
 	if errorValue != nil {
@@ -513,9 +513,9 @@ func TestApprovalRequestEmitsAskAfterPriorRejection(t *testing.T) {
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithUserFacingMessage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Approve browser login?"), agent.ToolInvocation{
 		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"userFacingMessage":"Approve browser login?","reasonCode":"credential_access"}`),
+		Input:    json.RawMessage(`{"reasonCode":"credential_access"}`),
 	})
 
 	if errorValue != nil {
@@ -541,9 +541,9 @@ func TestApprovalRequestAllowsSensitiveReasonCodes(t *testing.T) {
 		}, nil)
 		toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-		toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+		toolResult, errorValue := toolRegistry.Invoke(agent.WithUserFacingMessage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Approve sensitive action?"), agent.ToolInvocation{
 			ToolName: "ask.confirm",
-			Input:    json.RawMessage(`{"userFacingMessage":"Approve sensitive action?","reasonCode":"` + reasonCode + `"}`),
+			Input:    json.RawMessage(`{"reasonCode":"` + reasonCode + `"}`),
 		})
 
 		if errorValue != nil {
@@ -566,9 +566,9 @@ func TestApprovalRequestStoresUserFacingMessageSeparatelyFromReasonDetail(t *tes
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithResponseLanguage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ResponseLanguageKorean), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithUserFacingMessage(agent.WithResponseLanguage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ResponseLanguageKorean), "샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트"), agent.ToolInvocation{
 		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"userFacingMessage":"샘플 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}`),
+		Input:    json.RawMessage(`{"reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}`),
 	})
 
 	if errorValue != nil {
@@ -632,9 +632,9 @@ func TestApprovalRequestRejectsMissingReasonCodeWithoutPausing(t *testing.T) {
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithUserFacingMessage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Proceed?"), agent.ToolInvocation{
 		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"userFacingMessage":"Proceed?"}`),
+		Input:    json.RawMessage(`{}`),
 	})
 
 	if errorValue != nil {
@@ -663,9 +663,9 @@ func TestApprovalRequestRejectsUnrecognizedReasonCodeWithoutPausing(t *testing.T
 	}, nil)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
-	toolResult, errorValue := toolRegistry.Invoke(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), agent.ToolInvocation{
+	toolResult, errorValue := toolRegistry.Invoke(agent.WithUserFacingMessage(agent.WithTaskRunID(context.Background(), taskRun.TaskRunID), "Understood?"), agent.ToolInvocation{
 		ToolName: "ask.confirm",
-		Input:    json.RawMessage(`{"userFacingMessage":"Understood?","reasonCode":"user_acknowledgement"}`),
+		Input:    json.RawMessage(`{"reasonCode":"user_acknowledgement"}`),
 	})
 
 	if errorValue != nil {
