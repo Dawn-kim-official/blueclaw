@@ -1816,6 +1816,10 @@ func actionCallTool(toolName string, input string) string {
 	return `{"action":"continue","toolName":` + quote(toolName) + `,"toolInput":` + input + `}`
 }
 
+func actionCallToolWithMessage(toolName string, message string, input string) string {
+	return `{"action":"continue","toolName":` + quote(toolName) + `,"message":` + quote(message) + `,"toolInput":` + input + `}`
+}
+
 func quote(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)

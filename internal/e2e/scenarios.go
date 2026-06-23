@@ -972,7 +972,7 @@ func AskConfirmReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 		Turns: []VirtualTurn{{
 			Prompt: "진행 전에 확인 받아줘",
 			ActionResponses: []string{
-				actionCallTool("ask.confirm", `{"userFacingMessage":"이대로 진행할까요?","reasonCode":"external_send","reasonDetail":"confirmation acceptance test"}`),
+				actionCallToolWithMessage("ask.confirm", "이대로 진행할까요?", `{"reasonCode":"external_send","reasonDetail":"confirmation acceptance test"}`),
 			},
 			ExpectedToolCalls:      []string{"ask.confirm"},
 			ExpectedEvents:         []string{"confirmation.requested"},
@@ -998,7 +998,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			Prompt: "우경이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
 			ActionResponses: []string{
 				`{"action":"request_tools","toolNames":["ask.confirm"],"skillNames":[],"reason":"외부 DM 전송에는 확인이 필요합니다."}`,
-				actionCallTool("ask.confirm", `{"userFacingMessage":"우경이에게 DM을 보낼까요?","reasonCode":"external_send","reasonDetail":"우경이에게 오늘 오후 3시에 확인하자는 DM을 보냅니다."}`),
+				actionCallToolWithMessage("ask.confirm", "우경이에게 DM을 보낼까요?", `{"reasonCode":"external_send","reasonDetail":"우경이에게 오늘 오후 3시에 확인하자는 DM을 보냅니다."}`),
 			},
 			ExpectedToolCalls: []string{"ask.confirm"},
 			ExpectedToolCallCounts: map[string]int{

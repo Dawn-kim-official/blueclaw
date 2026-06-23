@@ -12,9 +12,8 @@ import (
 )
 
 type askConfirmToolInput struct {
-	UserFacingMessage string `json:"userFacingMessage"`
-	ReasonCode        string `json:"reasonCode"`
-	ReasonDetail      string `json:"reasonDetail"`
+	ReasonCode   string `json:"reasonCode"`
+	ReasonDetail string `json:"reasonDetail"`
 }
 
 type askChoiceToolInput struct {
@@ -83,7 +82,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context
 	}
 	userFacingMessage := strings.TrimSpace(agent.UserFacingMessageFromContext(toolContext))
 	if userFacingMessage == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires a confirmation question in the action message"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires the confirmation question in the action message"), nil
 	}
 	reasonCode := strings.TrimSpace(input.ReasonCode)
 	if !isAllowedApprovalReasonCode(reasonCode) {
@@ -151,10 +150,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askInputTool(toolContext context.C
 		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
 	}))
 	return agent.ToolSuccess(marshalToolResult(map[string]string{"taskRunID": taskRunID, "status": string(task.TaskStatusWaitingUserInput), "question": question, "kind": "input"})), nil
-}
-
-func askConfirmUserFacingMessage(input askConfirmToolInput) string {
-	return strings.TrimSpace(input.UserFacingMessage)
 }
 
 func askConfirmReasonDetail(input askConfirmToolInput) string {
