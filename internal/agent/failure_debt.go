@@ -185,7 +185,7 @@ func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolN
 
 func isInspectionRecoveryTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "file.read", "tool.describe", "site.app.status", "conversation.history":
+	case "file.read", "site.app.status", "conversation.history":
 		return true
 	default:
 		return false

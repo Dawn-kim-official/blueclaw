@@ -473,7 +473,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
-		case "request_tools":
+		case "tool.request":
 			requestArguments := requestToolsArguments{
 				ToolNames:  append([]string{}, actionDocument.ToolNames...),
 				SkillNames: append([]string{}, actionDocument.SkillNames...),
@@ -486,7 +486,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 					"request": requestArguments,
 					"source":  "ambient_capture",
 				}))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "request_tools", observation.ContentText())
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool.request", observation.ContentText())
 				continue
 			}
 			nextRequest, selectionResult := applyToolRequest(request, requestArguments)
@@ -511,7 +511,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				"result":  selectionResult,
 				"source":  "model_action",
 			}))
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "request_tools", observation.ContentText())
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool.request", observation.ContentText())
 			if result, shouldStop := stopForRequestToolsNoProgress(stepID); shouldStop {
 				return result, nil
 			}
@@ -996,32 +996,6 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 	}, "\n")
 }
 
-func describedAvailableToolNames(observations []turnObservation) []string {
-	toolNames := []string{}
-	for _, observation := range observations {
-		if strings.TrimSpace(observation.Tool) != "tool.describe" || observation.Failure != nil {
-			continue
-		}
-		var document struct {
-			Tools []struct {
-				Name         string `json:"name"`
-				Availability struct {
-					Status string `json:"status"`
-				} `json:"availability"`
-			} `json:"tools"`
-		}
-		if json.Unmarshal([]byte(observation.Output.Content), &document) != nil {
-			continue
-		}
-		for _, tool := range document.Tools {
-			if strings.TrimSpace(tool.Name) != "" && tool.Availability.Status == "available" {
-				toolNames = append(toolNames, tool.Name)
-			}
-		}
-	}
-	return toolNames
-}
-
 func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan, observations []turnObservation) AgentTurnRequest {
 	normalizedPlan := normalizeNextStepPlan(plan)
 	expectedTools := filterCompletedInspectionPlanTools(normalizedPlan.ExpectedTools, observations)
@@ -1031,7 +1005,6 @@ func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan,
 	request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
-	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, describedAvailableToolNames(observations)...)
 	if requestLooksLikeCalendarStep(request) {
 		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames,
 			"calendar.event.add",
@@ -1096,7 +1069,7 @@ func latestToolObservation(observations []turnObservation) (turnObservation, boo
 
 func completedInspectionToolName(toolName string) bool {
 	switch toolName {
-	case "file.read", "tool.describe", "conversation.history", "memory.search", "site.app.status":
+	case "file.read", "conversation.history", "memory.search", "site.app.status":
 		return true
 	default:
 		return false

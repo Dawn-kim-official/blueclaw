@@ -35,6 +35,7 @@ type CapabilityConfiguration struct {
 
 type CapabilityToolDescriptor struct {
 	Name                 string          `json:"name"`
+	Description          string          `json:"description,omitempty"`
 	Version              string          `json:"version,omitempty"`
 	PrivacyClass         string          `json:"privacyClass,omitempty"`
 	EstimatedLatency     string          `json:"estimatedLatency,omitempty"`

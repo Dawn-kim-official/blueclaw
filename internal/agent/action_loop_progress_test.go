@@ -81,23 +81,23 @@ func TestSelectToolsWithoutToolCallDoesNotCountAsProgress(t *testing.T) {
 	tracker := newActionProgressTracker(nil)
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "request_tools",
+		Action:        "tool.request",
 		Output:        ToolOutput{Content: "selected"},
 	}}
 
 	first := tracker.evaluate(observations)
 	second := tracker.evaluate(append(observations, turnObservation{
 		ObservationID: "obs-002",
-		Action:        "request_tools",
+		Action:        "tool.request",
 		Output:        ToolOutput{Content: "selected again"},
 	}))
 	third := tracker.evaluate(append(observations, turnObservation{
 		ObservationID: "obs-002",
-		Action:        "request_tools",
+		Action:        "tool.request",
 		Output:        ToolOutput{Content: "selected again"},
 	}, turnObservation{
 		ObservationID: "obs-003",
-		Action:        "request_tools",
+		Action:        "tool.request",
 		Output:        ToolOutput{Content: "selected a third time"},
 	}))
 
@@ -109,7 +109,7 @@ func TestSelectToolsWithoutToolCallDoesNotCountAsProgress(t *testing.T) {
 func TestSelectToolsCountsAsProgressAfterSuccessfulToolCall(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
-		Action:        "request_tools",
+		Action:        "tool.request",
 		Output:        ToolOutput{Content: "selected"},
 	}, {
 		ObservationID: "obs-002",

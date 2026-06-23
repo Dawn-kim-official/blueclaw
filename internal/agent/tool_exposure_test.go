@@ -30,7 +30,7 @@ func TestToolExposureKeepsSelectedToolsBeforeCore(t *testing.T) {
 			t.Fatalf("expected core tool %s to remain exposed, got %+v", toolID, filteredToolSet.ListToolNames())
 		}
 	}
-	if !filteredToolSet.IsAllowed("tool.describe") {
+	if !filteredToolSet.IsAllowed("memory.remember") {
 		t.Fatalf("expected selected tool plus core groups to fit within the cap, got %+v", filteredToolSet.ListToolNames())
 	}
 	if event.UsedFallbackGroups {
@@ -39,7 +39,7 @@ func TestToolExposureKeepsSelectedToolsBeforeCore(t *testing.T) {
 }
 
 func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
-	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "terminal.run", "file.write", "mail.message.search"})
+	toolSet := testToolSet([]string{"skill.search", "memory.remember", "ask.confirm", "terminal.run", "file.write", "mail.message.search"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{Name: "slides", AllowedTools: []string{"terminal.run", "file.write"}},
@@ -50,7 +50,7 @@ func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘", WorkKinds: []string{WorkKindSlidesArtifact}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: []string{"unknown.tool"}}, ToolExposureEvent{})
 
-	for _, toolID := range []string{"skill.search", "tool.describe", "terminal.run", "file.write"} {
+	for _, toolID := range []string{"skill.search", "memory.remember", "terminal.run", "file.write"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected fallback to expose %s, got %+v", toolID, filteredToolSet.ListToolNames())
 		}
@@ -599,15 +599,15 @@ func TestFallbackKeepsSelectedSkillToolsBeforeCoreTools(t *testing.T) {
 			t.Fatalf("expected selected skill tool %s to survive fallback, got %+v", toolName, event.ExposedToolIDs)
 		}
 	}
-	if !filteredToolSet.IsAllowed("tool.describe") {
-		t.Fatalf("expected remaining core capacity to include tool.describe, got %+v", event.ExposedToolIDs)
+	if !filteredToolSet.IsAllowed("memory.remember") {
+		t.Fatalf("expected remaining core capacity to include memory.remember, got %+v", event.ExposedToolIDs)
 	}
 }
 
 func TestToolSelectionContextUsesCompactCards(t *testing.T) {
 	toolSet := testToolSet([]string{"site.app.status"})
 	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "G5 selected-skill candidates", ToolIDs: []string{"site.app.status"}}})
-	summary := renderCoreGroupSummary(collectCoreGroups(testToolSet([]string{"skill.search", "tool.describe"})))
+	summary := renderCoreGroupSummary(collectCoreGroups(testToolSet([]string{"skill.search", "memory.remember"})))
 
 	if !strings.Contains(cards, "- site.app.status:") {
 		t.Fatalf("expected compact card to include tool id, got %s", cards)
@@ -615,7 +615,7 @@ func TestToolSelectionContextUsesCompactCards(t *testing.T) {
 	if strings.Contains(cards, "inputSchema") || strings.Contains(cards, "properties") {
 		t.Fatalf("expected compact card to omit full schema, got %s", cards)
 	}
-	if !strings.Contains(summary, "G1 control-core: skill.search") || !strings.Contains(summary, "G3 memory-context-core: tool.describe") {
+	if !strings.Contains(summary, "G1 control-core: skill.search") || !strings.Contains(summary, "G3 memory-context-core: memory.remember") {
 		t.Fatalf("expected compact core summary, got %s", summary)
 	}
 }
