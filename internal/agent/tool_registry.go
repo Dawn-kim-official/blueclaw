@@ -9,13 +9,14 @@ import (
 )
 
 type ToolDefinition struct {
-	Name            string           `json:"name"`
-	Description     string           `json:"description"`
-	RecoveryCard    ToolRecoveryCard `json:"recoveryCard,omitempty"`
-	InputSchema     json.RawMessage  `json:"inputSchema,omitempty"`
-	OutputSchema    json.RawMessage  `json:"outputSchema,omitempty"`
-	PolicyResource  string           `json:"policyResource,omitempty"`
-	SideEffectClass string           `json:"sideEffectClass,omitempty"`
+	Name             string           `json:"name"`
+	Description      string           `json:"description"`
+	RecoveryCard     ToolRecoveryCard `json:"recoveryCard,omitempty"`
+	InputSchema      json.RawMessage  `json:"inputSchema,omitempty"`
+	OutputSchema     json.RawMessage  `json:"outputSchema,omitempty"`
+	PolicyResource   string           `json:"policyResource,omitempty"`
+	SideEffectClass  string           `json:"sideEffectClass,omitempty"`
+	RequiresApproval bool             `json:"requiresApproval,omitempty"`
 }
 
 type ToolRecoveryCard struct {
@@ -371,6 +372,9 @@ func (toolSet *ToolSet) IsAllowed(toolName string) bool {
 	if trimmedToolName == "" {
 		return false
 	}
+	if !toolIsModelCallable(trimmedToolName) {
+		return false
+	}
 	boundTool, isRegistered := toolSet.boundToolByName[trimmedToolName]
 	if !isRegistered {
 		return false
@@ -391,6 +395,9 @@ func (toolSet *ToolSet) IsRegistered(toolName string) bool {
 
 func (toolSet *ToolSet) CanExpose(toolName string) bool {
 	if toolSet == nil {
+		return false
+	}
+	if !toolIsModelCallable(toolName) {
 		return false
 	}
 	boundTool, isRegistered := toolSet.boundToolByName[strings.TrimSpace(toolName)]
@@ -491,6 +498,9 @@ func (toolSet *ToolSet) ListDescribedToolDefinitions() []ToolDefinition {
 		return toolDefinitions
 	}
 	for _, boundTool := range toolSet.boundToolByName {
+		if !toolIsModelCallable(boundTool.Definition.Name) {
+			continue
+		}
 		if strings.TrimSpace(boundTool.Availability.Status) == ToolAvailabilityDenied {
 			continue
 		}

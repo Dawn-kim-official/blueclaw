@@ -711,7 +711,7 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 
 func appendDefaultBuiltInToolNames(toolNames []string) []string {
 	result := agent.DefaultAllowedToolNames(toolNames)
-	for _, toolName := range []string{"math.calculate", "web.search", "web.fetch", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "schedule.create", "schedule.update", "schedule.cancel", "skill.add", "skill.remove", "skill.search", "tool.describe"} {
+	for _, toolName := range []string{"math.calculate", "web.search", "web.fetch", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "schedule.create", "schedule.update", "schedule.cancel", "skill.add", "skill.remove", "skill.search", "tool.describe"} {
 		if !containsString(result, toolName) {
 			result = append(result, toolName)
 		}

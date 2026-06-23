@@ -488,6 +488,10 @@ func (connectorRuntime *ConnectorRuntime) UseCapabilityTools(capabilityClient ca
 	connectorRuntime.toolCatalogBuilder.UseCapabilityTools(capabilityClient, toolNames)
 }
 
+func (connectorRuntime *ConnectorRuntime) UseCapabilityToolDescriptors(capabilityClient capability.Client, toolDescriptors []agentruntime.CapabilityToolDescriptor) {
+	connectorRuntime.toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, toolDescriptors)
+}
+
 func (connectorRuntime *ConnectorRuntime) UseAllowedToolNames(allowedToolNames []string) {
 	trimmedToolNames := trimNonEmptyStrings(allowedToolNames)
 	if len(trimmedToolNames) == 0 {

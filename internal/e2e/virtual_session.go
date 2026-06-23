@@ -35,25 +35,26 @@ import (
 )
 
 type VirtualSessionScenario struct {
-	Name                     string
-	ProfileName              string
-	ArtifactDirectoryPath    string
-	LanguageModel            llm.LanguageModelProvider
-	DisableScriptedModel     bool
-	UseLooseAssertions       bool
-	SkillDirectoryPaths      []string
-	Skills                   []agent.SkillInstruction
-	AllowedTools             []string
-	CapabilityToolNames      []string
-	InitialMemory            []memory.MemoryFact
-	RouterWorkKinds          []string
-	RouterEffortLevel        string
-	CodingTierVisionFallback bool
-	AddressingResponse       string
-	RouterSiteEvidence       string
-	TurnOptions              agent.TurnOptions
-	ProgressWriter           io.Writer
-	Turns                    []VirtualTurn
+	Name                      string
+	ProfileName               string
+	ArtifactDirectoryPath     string
+	LanguageModel             llm.LanguageModelProvider
+	DisableScriptedModel      bool
+	UseLooseAssertions        bool
+	SkillDirectoryPaths       []string
+	Skills                    []agent.SkillInstruction
+	AllowedTools              []string
+	CapabilityToolNames       []string
+	CapabilityToolDescriptors []agentruntime.CapabilityToolDescriptor
+	InitialMemory             []memory.MemoryFact
+	RouterWorkKinds           []string
+	RouterEffortLevel         string
+	CodingTierVisionFallback  bool
+	AddressingResponse        string
+	RouterSiteEvidence        string
+	TurnOptions               agent.TurnOptions
+	ProgressWriter            io.Writer
+	Turns                     []VirtualTurn
 }
 
 type VirtualTurn struct {
@@ -417,8 +418,6 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return SiteEditRedeployAcceptanceScenario(artifactDirectoryPath), nil
 	case "ask_choice_reply_acceptance":
 		return AskChoiceReplyAcceptanceScenario(artifactDirectoryPath), nil
-	case "ask_confirm_reply_acceptance":
-		return AskConfirmReplyAcceptanceScenario(artifactDirectoryPath), nil
 	case "dm_send_confirm_acceptance":
 		return DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath), nil
 	case "channel_post_acceptance":
@@ -512,10 +511,12 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	runtime.UseTaskScheduleRepository(scheduleStore)
 	cleanup := func() {}
 	var capabilityClient capability.Client
-	if len(scenario.CapabilityToolNames) > 0 {
+	capabilityToolNames := virtualCapabilityToolNames(scenario)
+	if len(capabilityToolNames) > 0 {
 		var capabilityCleanup func()
-		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(scenario.CapabilityToolNames)
+		capabilityClient, capabilityCleanup = startVirtualCapabilityServer(capabilityToolNames)
 		runtime.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
+		runtime.UseCapabilityToolDescriptors(capabilityClient, scenario.CapabilityToolDescriptors)
 		cleanup = capabilityCleanup
 	}
 
@@ -631,7 +632,30 @@ func virtualToolCatalogBuilder(
 	if len(scenario.CapabilityToolNames) > 0 {
 		toolCatalogBuilder.UseCapabilityTools(capabilityClient, scenario.CapabilityToolNames)
 	}
+	if len(scenario.CapabilityToolDescriptors) > 0 {
+		toolCatalogBuilder.UseCapabilityToolDescriptors(capabilityClient, scenario.CapabilityToolDescriptors)
+	}
 	return toolCatalogBuilder
+}
+
+func virtualCapabilityToolNames(scenario VirtualSessionScenario) []string {
+	toolNameByName := map[string]bool{}
+	toolNames := []string{}
+	addToolName := func(toolName string) {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" || toolNameByName[trimmedToolName] {
+			return
+		}
+		toolNameByName[trimmedToolName] = true
+		toolNames = append(toolNames, trimmedToolName)
+	}
+	for _, toolName := range scenario.CapabilityToolNames {
+		addToolName(toolName)
+	}
+	for _, toolDescriptor := range scenario.CapabilityToolDescriptors {
+		addToolName(toolDescriptor.Name)
+	}
+	return toolNames
 }
 
 type virtualSkillEmbeddingProvider struct{}
@@ -1415,7 +1439,7 @@ func allowedToolsOrDefault(allowedTools []string) []string {
 	if len(allowedTools) > 0 {
 		return append([]string{}, allowedTools...)
 	}
-	return []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.confirm", "ask.choice", "ask.input", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach"}
+	return []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach"}
 }
 
 func terminalConfiguration(workspacePath string) config.TerminalConfiguration {

@@ -292,11 +292,11 @@ func TestScheduledToolSetDoesNotExposeInteractiveTools(t *testing.T) {
 		Name:        "user.confirm",
 		Description: "Ask the user to confirm",
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.confirm", "ask.choice", "ask.input", "user.confirm", "schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.choice", "ask.input", "user.confirm", "schedule.create"})
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsScheduledRun: true})
 
-	for _, toolName := range []string{"ask.confirm", "ask.choice", "ask.input", "user.confirm", "schedule.create"} {
+	for _, toolName := range []string{"ask.choice", "ask.input", "user.confirm", "schedule.create"} {
 		if toolRegistry.IsRegistered(toolName) || toolRegistry.IsAllowed(toolName) {
 			t.Fatalf("expected scheduled run not to register interactive tool %s", toolName)
 		}

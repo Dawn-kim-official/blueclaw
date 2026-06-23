@@ -66,18 +66,22 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 		if toolName == "file.read" {
 			continue
 		}
+		if toolName == "ask.confirm" {
+			continue
+		}
 		if request.IsScheduledRun && isInteractiveCapabilityTool(toolName) {
 			continue
 		}
 		toolDescription := firstNonEmptyString(toolDescriptor.Description, defaultCapabilityToolDescription(toolName))
 		toolRegistry.RegisterBoundTool(agent.BoundTool{
 			Definition: agent.ToolDefinition{
-				Name:            toolName,
-				Description:     toolDescription,
-				InputSchema:     toolDescriptor.InputSchema,
-				OutputSchema:    toolDescriptor.OutputSchema,
-				PolicyResource:  toolDescriptor.PolicyResource,
-				SideEffectClass: toolDescriptor.SideEffectClass,
+				Name:             toolName,
+				Description:      toolDescription,
+				InputSchema:      toolDescriptor.InputSchema,
+				OutputSchema:     toolDescriptor.OutputSchema,
+				PolicyResource:   toolDescriptor.PolicyResource,
+				SideEffectClass:  toolDescriptor.SideEffectClass,
+				RequiresApproval: toolDescriptor.RequiresApproval,
 			},
 			Availability: capabilityToolAvailability(toolDescriptor, request),
 			Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
@@ -185,7 +189,7 @@ func capabilityToolAvailability(toolDescriptor CapabilityToolDescriptor, request
 		if isApprovalExemptCapabilityTool(toolDescriptor.Name, request) {
 			return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
 		}
-		return agent.ToolAvailability{Status: agent.ToolAvailabilityAsk, Reason: "requires approval"}
+		return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
 	}
 	return agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable}
 }
@@ -470,14 +474,9 @@ func capabilityRecoveryHints(result json.RawMessage) []agent.RecoveryHint {
 	if strings.TrimSpace(document.Recovery.Kind) == "" {
 		return nil
 	}
-	toolNames := []string{}
-	if strings.TrimSpace(document.Recovery.ConnectCommand) != "" {
-		toolNames = append(toolNames, "ask.confirm")
-	}
 	return []agent.RecoveryHint{{
-		Action:    strings.TrimSpace(document.Recovery.Kind),
-		ToolNames: toolNames,
-		Reason:    "Capability returned a user-visible recovery action.",
+		Action: strings.TrimSpace(document.Recovery.Kind),
+		Reason: "Capability returned a user-visible recovery action.",
 	}}
 }
 

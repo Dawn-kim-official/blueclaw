@@ -101,7 +101,7 @@ func firstGroupToolIDs(groups []toolExposureGroup, groupName string) []string {
 
 func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
 	return []toolExposureGroup{
-		filterGroupTools(toolSet, toolExposureGroup{Name: "G1 control-core", ToolIDs: []string{"skill.search", "ask.confirm"}}),
+		filterGroupTools(toolSet, toolExposureGroup{Name: "G1 control-core", ToolIDs: []string{"skill.search"}}),
 		filterGroupTools(toolSet, toolExposureGroup{Name: "G2 interaction-core", ToolIDs: []string{"ask.choice", "ask.input", "memory.search"}}),
 		filterGroupTools(toolSet, toolExposureGroup{Name: "G3 memory-context-core", ToolIDs: []string{"conversation.history", "memory.remember", "tool.describe"}}),
 	}
@@ -267,7 +267,7 @@ func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGro
 	filteredToolIDs := []string{}
 	for _, toolID := range group.ToolIDs {
 		trimmedToolID := strings.TrimSpace(toolID)
-		if trimmedToolID != "" && toolSet != nil && toolSet.CanExpose(trimmedToolID) {
+		if trimmedToolID != "" && toolIsModelCallable(trimmedToolID) && toolSet != nil && toolSet.CanExpose(trimmedToolID) {
 			filteredToolIDs = appendUniqueStrings(filteredToolIDs, trimmedToolID)
 		}
 	}
@@ -278,7 +278,7 @@ func filterGroupToolsForTurn(toolSet *ToolSet, group toolExposureGroup, selected
 	filteredToolIDs := []string{}
 	for _, toolID := range group.ToolIDs {
 		trimmedToolID := strings.TrimSpace(toolID)
-		if trimmedToolID == "" || toolSet == nil || !toolSet.CanExpose(trimmedToolID) {
+		if trimmedToolID == "" || !toolIsModelCallable(trimmedToolID) || toolSet == nil || !toolSet.CanExpose(trimmedToolID) {
 			continue
 		}
 		if selectedSkillToolNames[trimmedToolID] {
@@ -292,6 +292,10 @@ func filterGroupToolsForTurn(toolSet *ToolSet, group toolExposureGroup, selected
 		}
 	}
 	return toolExposureGroup{Name: group.Name, ToolIDs: filteredToolIDs}
+}
+
+func toolIsModelCallable(toolID string) bool {
+	return strings.TrimSpace(toolID) != "ask.confirm"
 }
 
 func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {

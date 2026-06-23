@@ -91,6 +91,23 @@ func TestToolSetDescriptionsShowRegisteredCatalogWhileActionSchemaUsesExposedToo
 	}
 }
 
+func TestToolSetDoesNotExposeAskConfirm(t *testing.T) {
+	toolSet := NewToolSet([]string{"ask.confirm"})
+	toolSet.RegisterTool(ToolDefinition{Name: "ask.confirm", Description: "Confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
+
+	descriptions := toolSet.Descriptions()
+	actionSchema := toolSet.ActionSchema(false, nil, false)
+
+	if toolSet.IsAllowed("ask.confirm") || toolSet.CanExpose("ask.confirm") {
+		t.Fatalf("expected ask.confirm not to be model-callable, names=%+v", toolSet.ListToolNames())
+	}
+	if strings.Contains(descriptions, "ask.confirm") || strings.Contains(actionSchema, "ask.confirm") {
+		t.Fatalf("expected ask.confirm to stay out of prompt surfaces, prompt=%s schema=%s", descriptions, actionSchema)
+	}
+}
+
 func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
 	actionSchema := buildActionSchemaFromToolDefinitions(nil, false, nil, false)
 	if strings.Contains(actionSchema, "continue") {

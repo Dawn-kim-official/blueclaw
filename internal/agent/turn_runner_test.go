@@ -1248,85 +1248,80 @@ func TestStepPlanDoesNotPinSendToolForAttachmentFollowUp(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerDoesNotApplySiteApprovalRejectToDirectMessage(t *testing.T) {
+func TestAgentTurnRunnerRequiresApprovalToolPausesBeforeInvokeAndExecutesAfterApproval(t *testing.T) {
+	heldInput := `{"eventID":"event-1"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"동하 님에게 DM을 보내도 될까요?","reasonCode":"external_send","reasonDetail":"external send"}}`,
-		finishMessageDocument("승인 요청했습니다."),
+		`{"action":"continue","toolName":"calendar.event.delete","toolInput":` + heldInput + `}`,
+		`{"action":"finish","message":"일정을 삭제했습니다.","replyParts":[{"type":"text","text":"일정을 삭제했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"calendar.event.delete"}],"qualityReview":[]}`,
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestToolSet([]string{"ask.confirm", "terminal.run", "site.app.create", "site.app.publish", "platform.message.send"})
-	approvalCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		approvalCallCount++
-		return ToolSuccess("approval requested"), nil
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"calendar.event.delete"})
+	invokedInputs := []string{}
+	wasExecutedBeforeSecondModel := false
+	toolRegistry.RegisterTool(ToolDefinition{Name: "calendar.event.delete", RequiresApproval: true}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		invokedInputs = append(invokedInputs, string(invocation.Input))
+		wasExecutedBeforeSecondModel = len(languageModel.requests) == 1
+		return ToolSuccess(`{"eventID":"event-1","status":"deleted"}`), nil
 	})
 
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+	firstResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
-		Prompt:            "동하에게 DM 보내줘",
-		ToolSet:           toolRegistry,
-		SkillDecisions:    []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
-		WorkspaceRootPath: t.TempDir(),
-	})
-	if errorValue != nil {
-		t.Fatalf("expected approval request to pause: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
-	}
-	if approvalCallCount != 1 {
-		t.Fatalf("expected approval request tool to run, got %d", approvalCallCount)
-	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "") {
-		t.Fatal("site approval rejection must not apply to direct-message tasks")
-	}
-}
-
-func TestAgentTurnRunnerWaitingApprovalUsesOnlyUserFacingMessage(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"동하 님에게 다음 DM을 보내도 될까요?\n\n테스트","reasonCode":"external_send","reasonDetail":"Direct messages are external sends and require approval before immediate delivery."}}`,
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 2})
-	toolRegistry := newTestToolSet([]string{"ask.confirm"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.confirm"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
-		var input struct {
-			UserFacingMessage string `json:"userFacingMessage"`
-			ReasonCode        string `json:"reasonCode"`
-			ReasonDetail      string `json:"reasonDetail"`
-		}
-		if errorValue := json.Unmarshal(invocation.Input, &input); errorValue != nil {
-			return ToolResult{}, errorValue
-		}
-		taskRunID := TaskRunIDFromContext(toolContext)
-		_, _ = services.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, input.ReasonDetail)
-		return ToolSuccess(marshalEventBody(map[string]string{
-			"userFacingMessage": input.UserFacingMessage,
-			"reasonCode":        input.ReasonCode,
-			"reasonDetail":      input.ReasonDetail,
-		})), nil
-	})
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "동하에게 테스트라고 DM 보내줘",
+		Prompt:            "일정 삭제해줘",
 		ResponseLanguage:  ResponseLanguageKorean,
 		ToolSet:           toolRegistry,
-		SkillDecisions:    []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
+		PinnedToolNames:   []string{"calendar.event.delete"},
 		WorkspaceRootPath: t.TempDir(),
 	})
 	if errorValue != nil {
-		t.Fatalf("expected approval request to pause: %v", errorValue)
+		t.Fatalf("expected first turn to pause: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusWaitingApproval {
-		t.Fatalf("expected waiting approval task, got %s", result.TaskRun.Status)
+	if firstResult.TaskRun.Status != task.TaskStatusWaitingApproval {
+		t.Fatalf("expected waiting approval task, got %s events=%+v", firstResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
 	}
-	if result.UserNotice != "동하 님에게 다음 DM을 보내도 될까요?\n\n테스트" {
-		t.Fatalf("expected user-facing approval message, got %q", result.UserNotice)
+	if len(invokedInputs) != 0 {
+		t.Fatalf("expected B-PRE to hold the tool before invocation, got inputs %+v", invokedInputs)
 	}
-	if strings.Contains(result.UserNotice, "Direct messages are external sends") {
-		t.Fatalf("internal reason detail leaked into reply: %q", result.UserNotice)
+	firstTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)
+	if taskEventsContain(firstTurnEvents, "tool.calendar.event.delete.requested", "") {
+		t.Fatalf("expected no pre-approval tool request event, events=%+v", firstTurnEvents)
+	}
+	if !taskEventsContain(firstTurnEvents, "approval.pending_call", heldInput) {
+		t.Fatalf("expected held call event with original input, events=%+v", firstTurnEvents)
+	}
+	if !taskEventsContain(firstTurnEvents, "confirmation.requested", "external_send") {
+		t.Fatalf("expected confirmation request event, events=%+v", firstTurnEvents)
+	}
+
+	secondResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:      "person-1",
+		ExistingTaskRunID:      firstResult.TaskRun.TaskRunID,
+		IsApprovalContinuation: true,
+		ConversationID:         "conversation-1",
+		Prompt:                 "확인",
+		ResponseLanguage:       ResponseLanguageKorean,
+		ToolSet:                toolRegistry,
+		PinnedToolNames:        []string{"calendar.event.delete"},
+		WorkspaceRootPath:      t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected approval continuation to complete: %v", errorValue)
+	}
+	if secondResult.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s events=%+v", secondResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
+	}
+	if len(invokedInputs) != 1 || invokedInputs[0] != heldInput {
+		t.Fatalf("expected one deterministic execution with held input, got %+v", invokedInputs)
+	}
+	if !wasExecutedBeforeSecondModel {
+		t.Fatal("expected held call to execute before the approval-continuation model step")
+	}
+	secondTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)
+	if !taskEventsContain(secondTurnEvents, "approval.executed", "calendar.event.delete") {
+		t.Fatalf("expected approval executed event, events=%+v", secondTurnEvents)
+	}
+	if !taskEventsContain(secondTurnEvents, "tool.calendar.event.delete.result", "deleted") {
+		t.Fatalf("expected deterministic delete result, events=%+v", secondTurnEvents)
 	}
 }
 

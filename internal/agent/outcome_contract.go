@@ -432,7 +432,7 @@ func universalAgentToolNames() []string {
 }
 
 func coreAgentToolNames() []string {
-	return []string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"}
+	return []string{"skill.search", "tool.describe", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"}
 }
 
 func genericBuiltInToolNames() []string {
