@@ -1330,6 +1330,99 @@ func TestAgentTurnRunnerWaitingApprovalUsesOnlyUserFacingMessage(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) {
+	heldInput := `{"deliveryTarget":{"type":"directMessage","personHint":"우경"},"message":"오늘 오후 3시에 확인하자"}`
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"platform.message.send","toolInput":` + heldInput + `}`,
+		`{"action":"finish","message":"우경이에게 DM을 보냈습니다.","replyParts":[{"type":"text","text":"우경이에게 DM을 보냈습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"platform.message.send"}],"qualityReview":[]}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"platform.message.send"})
+	invokedInputs := []string{}
+	wasExecutedBeforeSecondModel := false
+	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		invokedInputs = append(invokedInputs, string(invocation.Input))
+		if len(invokedInputs) == 1 {
+			return ToolResult{
+				Output: ToolOutput{Content: "requires approval"},
+				Failure: &ToolFailure{
+					Kind:            FailureExternalService,
+					Code:            "approval_required",
+					Stage:           "authorization",
+					UserSafeSummary: "requires approval",
+				},
+			}, nil
+		}
+		wasExecutedBeforeSecondModel = len(languageModel.requests) == 1
+		return ToolSuccess(`{"messageID":"message-1","deliveryStatus":"sent"}`), nil
+	})
+
+	firstResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "우경에게 DM 보내줘",
+		ResponseLanguage:  ResponseLanguageKorean,
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"platform.message.send"},
+		WorkKinds:         []string{WorkKindExternalSend},
+		WorkspaceRootPath: t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected first turn to pause: %v", errorValue)
+	}
+	if firstResult.TaskRun.Status != task.TaskStatusWaitingApproval {
+		t.Fatalf("expected waiting approval task, got %s events=%+v", firstResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
+	}
+	if !strings.Contains(firstResult.UserNotice, "우경") || !strings.Contains(firstResult.UserNotice, "오늘 오후 3시에 확인하자") {
+		t.Fatalf("expected readable confirmation, got %q", firstResult.UserNotice)
+	}
+	firstTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)
+	if !taskEventsContain(firstTurnEvents, "approval.pending_call", heldInput) {
+		t.Fatalf("expected held call event with original input, events=%+v", firstTurnEvents)
+	}
+	if !taskEventsContain(firstTurnEvents, "confirmation.requested", "external_send") {
+		t.Fatalf("expected confirmation request event, events=%+v", firstTurnEvents)
+	}
+	if taskEventsContain(firstTurnEvents, "agent.failure_debt_created", "") {
+		t.Fatalf("approval_required must not create failure debt, events=%+v", firstTurnEvents)
+	}
+
+	secondResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:      "person-1",
+		ExistingTaskRunID:      firstResult.TaskRun.TaskRunID,
+		IsApprovalContinuation: true,
+		ConversationID:         "conversation-1",
+		Prompt:                 "확인",
+		ResponseLanguage:       ResponseLanguageKorean,
+		ToolSet:                toolRegistry,
+		PinnedToolNames:        []string{"platform.message.send"},
+		WorkKinds:              []string{WorkKindExternalSend},
+		WorkspaceRootPath:      t.TempDir(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected approval continuation to complete: %v", errorValue)
+	}
+	if secondResult.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s events=%+v", secondResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
+	}
+	if len(invokedInputs) != 2 {
+		t.Fatalf("expected original attempt and deterministic retry, got %d", len(invokedInputs))
+	}
+	if invokedInputs[0] != heldInput || invokedInputs[1] != heldInput {
+		t.Fatalf("expected exact held input to be reused, got %+v", invokedInputs)
+	}
+	if !wasExecutedBeforeSecondModel {
+		t.Fatal("expected held call to execute before the approval-continuation model step")
+	}
+	secondTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)
+	if !taskEventsContain(secondTurnEvents, "approval.executed", "platform.message.send") {
+		t.Fatalf("expected approval executed event, events=%+v", secondTurnEvents)
+	}
+	if !taskEventsContain(secondTurnEvents, "tool.platform.message.send.result", "message-1") {
+		t.Fatalf("expected deterministic send result, events=%+v", secondTurnEvents)
+	}
+}
+
 func TestAgentTurnRunnerSteersStalledTurnBeforeStopping(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"unknown"}`,

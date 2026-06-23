@@ -354,6 +354,14 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	}
 	toolUseRequirements := state.Requirements
 	successfulToolCalls := map[string]turnObservation{}
+	if request.IsApprovalContinuation {
+		var approvedResult AgentTurnResult
+		var shouldReturn bool
+		request, approvedResult, shouldReturn = agentTurnRunner.executeApprovedHeldCall(taskContext, taskRun.TaskRunID, request, &state, successfulToolCalls)
+		if shouldReturn {
+			return approvedResult, nil
+		}
+	}
 	limitPressureWarnings := map[string]bool{}
 	progressTracker := newActionProgressTracker(state.Observations)
 	appliedSteerEventIDs := appliedSteerEventIDsFromTaskEvents(agentTurnRunner.taskRunService.ListTaskEvent(taskRun.TaskRunID))
@@ -658,6 +666,9 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(state.Observations)+1), actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, request.WorkKinds, actionDocument.Message)
 	if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRunID, state.Attachments); isCancelled {
 		return toolCallActionOutcome{Result: cancelledResult, ShouldReturn: true, WasHandled: true}
+	}
+	if isApprovalRequiredObservation(observation) {
+		return agentTurnRunner.requestHeldCallApproval(taskRunID, stepID, request, state, actionDocument)
 	}
 	agentTurnRunner.recordToolObservation(taskRunID, state, actionDocument, successfulToolCalls, observation, recoveryStep)
 	if pausedResult, isPaused := agentTurnRunner.pausedTaskResult(taskRunID, observation, state.Attachments); isPaused {

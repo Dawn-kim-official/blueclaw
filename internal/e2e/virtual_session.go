@@ -768,7 +768,8 @@ func (client virtualCapabilityHTTPClient) Do(request *http.Request) (*http.Respo
 	if !client.toolNameByName[toolName] {
 		return virtualCapabilityHTTPResponse(http.StatusNotFound, "unknown virtual capability tool"), nil
 	}
-	return virtualCapabilityHTTPResponse(http.StatusOK, virtualCapabilityResponse(toolName)), nil
+	requestBody, _ := io.ReadAll(request.Body)
+	return virtualCapabilityHTTPResponse(http.StatusOK, virtualCapabilityResponse(toolName, requestBody)), nil
 }
 
 func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
@@ -779,7 +780,7 @@ func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
 	}
 }
 
-func virtualCapabilityResponse(toolName string) string {
+func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 	switch toolName {
 	case "site.app.create":
 		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"home/sites/site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app"}}`
@@ -794,10 +795,30 @@ func virtualCapabilityResponse(toolName string) string {
 	case "web.search":
 		return `{"status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
 	case "platform.message.send":
+		if virtualPlatformMessageSendRequiresApproval(requestBody) {
+			return `{"status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
+		}
 		return `{"status":"ok","content":"sent virtual platform message virtual-platform-message-001","result":{"messageID":"virtual-platform-message-001","deliveryStatus":"sent"}}`
 	default:
 		return `{"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true}}`
 	}
+}
+
+func virtualPlatformMessageSendRequiresApproval(requestBody []byte) bool {
+	var requestDocument struct {
+		Input struct {
+			DeliveryTarget struct {
+				Type string `json:"type"`
+			} `json:"deliveryTarget"`
+		} `json:"input"`
+		Context struct {
+			IsApprovalContinuation bool `json:"isApprovalContinuation"`
+		} `json:"context"`
+	}
+	if len(requestBody) == 0 || json.Unmarshal(requestBody, &requestDocument) != nil {
+		return false
+	}
+	return strings.TrimSpace(requestDocument.Input.DeliveryTarget.Type) == "directMessage" && !requestDocument.Context.IsApprovalContinuation
 }
 
 func streamProgressObserver(writer io.Writer) func(task.RawTurnEvent) {

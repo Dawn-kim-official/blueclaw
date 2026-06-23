@@ -535,11 +535,17 @@ func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
 	if !eventsContain(firstTurnResult.Events, "confirmation.requested", "external_send") {
 		t.Fatalf("expected confirmation request before send; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEvents(firstTurnResult.Events, "tool.platform.message.send.requested") != 0 {
-		t.Fatalf("expected no send before approval; events: %s", summarizeEvents(firstTurnResult.Events))
+	if countEvents(firstTurnResult.Events, "tool.platform.message.send.requested") != 1 {
+		t.Fatalf("expected one gated send attempt before approval; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEvents(secondTurnResult.Events, "tool.platform.message.send.requested") != 1 {
-		t.Fatalf("expected one send after approval; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(firstTurnResult.Events, "approval.pending_call", "platform.message.send") {
+		t.Fatalf("expected held approval call; events: %s", summarizeEvents(firstTurnResult.Events))
+	}
+	if countEvents(secondTurnResult.Events, "tool.platform.message.send.requested") != 2 {
+		t.Fatalf("expected one gated attempt and one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "approval.executed", "platform.message.send") {
+		t.Fatalf("expected approval executed event; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !eventsContain(secondTurnResult.Events, "tool.platform.message.send.result", "virtual-platform-message-001") {
 		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))

@@ -946,7 +946,7 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		Turns: []VirtualTurn{{
 			Prompt: "둘 중 하나 고르게 해줘",
 			ActionResponses: []string{
-				actionCallTool("ask.choice", `{"question":"어느 쪽으로 진행할까요?","options":[{"key":"1","label":"첫 번째","shortLabel":"첫 번째"},{"key":"2","label":"두 번째"}],"recommendedOptionKey":"1","selectionMode":"single"}`),
+				actionCallToolWithMessage("ask.choice", "어느 쪽으로 진행할까요?", `{"options":[{"key":"1","label":"첫 번째","shortLabel":"첫 번째"},{"key":"2","label":"두 번째"}],"recommendedOptionKey":"1","selectionMode":"single"}`),
 			},
 			ExpectedToolCalls:      []string{"ask.choice"},
 			ExpectedEvents:         []string{"ask.requested"},
@@ -992,31 +992,33 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 	return VirtualSessionScenario{
 		Name:                  "dm_send_confirm_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"conversation.history", "memory.search", "ask.confirm", "platform.message.send"},
+		RouterWorkKinds:       []string{agent.WorkKindExternalSend},
+		AllowedTools:          []string{"conversation.history", "memory.search", "platform.message.send"},
 		CapabilityToolNames:   []string{"platform.message.send"},
 		Turns: []VirtualTurn{{
 			Prompt: "우경이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
 			ActionResponses: []string{
-				`{"action":"request_tools","toolNames":["ask.confirm"],"skillNames":[],"reason":"외부 DM 전송에는 확인이 필요합니다."}`,
-				actionCallToolWithMessage("ask.confirm", "우경이에게 DM을 보낼까요?", `{"reasonCode":"external_send","reasonDetail":"우경이에게 오늘 오후 3시에 확인하자는 DM을 보냅니다."}`),
+				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"directMessage","personHint":"우경"},"message":"오늘 오후 3시에 확인하자"}`),
 			},
-			ExpectedToolCalls: []string{"ask.confirm"},
-			ExpectedToolCallCounts: map[string]int{
-				"platform.message.send": 0,
+			ExpectedToolCalls: []string{"platform.message.send"},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "tool.platform.message.send.result", BodyFragment: "approval_required", Count: 1},
+				{Name: "approval.pending_call", BodyFragment: `"platform.message.send"`, Count: 1},
+				{Name: "agent.failure_debt_created", BodyFragment: "", Count: 0},
 			},
 			ExpectedEvents:         []string{"confirmation.requested"},
-			ExpectedReplyFragments: []string{"우경이에게 DM을 보낼까요?"},
+			ExpectedReplyFragments: []string{"우경", "오늘 오후 3시에 확인하자"},
+			ExpectedTaskStatus:     task.TaskStatusWaitingApproval,
 		}, {
 			Prompt: "확인",
 			ActionResponses: []string{
-				`{"action":"request_tools","toolNames":["platform.message.send"],"skillNames":[],"reason":"승인 후 DM 전송 도구를 호출합니다."}`,
-				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"directMessage","personHint":"우경"},"message":"오늘 오후 3시에 확인하자"}`),
 				actionFinishMessage("우경이에게 DM을 보냈습니다.", "obs-002:platform.message.send:0"),
 			},
 			ExpectedToolCalls: []string{"platform.message.send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 1},
+				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 2},
 				{Name: "tool.platform.message.send.result", BodyFragment: "virtual-platform-message-001", Count: 1},
+				{Name: "approval.executed", BodyFragment: `"platform.message.send"`, Count: 1},
 			},
 			ExpectedEvents:         []string{"confirmation.reply_classified"},
 			ExpectedModelContexts:  []string{"virtual-platform-message-001"},
