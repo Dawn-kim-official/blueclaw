@@ -124,6 +124,9 @@ func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRu
 	state := buildInitialAgentTaskState(request, options, taskRun.TaskRunID)
 	state.Status = taskRun.Status
 	state.Observations = observationsFromTaskEvents(events)
+	if userResumeClearsInheritedFailureDebt(request, state.Observations) {
+		state.Observations = observationsWithoutFailures(state.Observations)
+	}
 	state.Attachments = attachmentsFromObservations(state.Observations)
 	state.ExecutionState = executionStateFromTaskEvents(events)
 	state.NextStepPlan = nextStepPlanFromTaskEvents(events)
@@ -131,6 +134,25 @@ func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRu
 	state.ToolCallCount = successfulToolCallCount(state.Observations)
 	state.IterationCount = len(state.Observations)
 	return state, nil
+}
+
+func userResumeClearsInheritedFailureDebt(request AgentTurnRequest, observations []turnObservation) bool {
+	if !request.IsRuntimeRestartResume || request.IsApprovalContinuation {
+		return false
+	}
+	_, hasFailureDebt := activeFailureDebt(observations)
+	return hasFailureDebt
+}
+
+func observationsWithoutFailures(observations []turnObservation) []turnObservation {
+	retained := make([]turnObservation, 0, len(observations))
+	for _, observation := range observations {
+		if observation.Failed() {
+			continue
+		}
+		retained = append(retained, observation)
+	}
+	return retained
 }
 
 func shouldCleanRestartRestoredTask(events []task.TaskEvent) bool {
