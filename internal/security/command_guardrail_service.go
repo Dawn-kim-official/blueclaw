@@ -472,10 +472,6 @@ func resolvePathArgument(pathArgument string, basePath string) (string, error) {
 		return filepath.Clean(pathArgument), nil
 	}
 
-	if strings.HasPrefix(pathArgument, "~") {
-		return "", errors.New("home-relative paths are not allowed")
-	}
-
 	return filepath.Abs(filepath.Join(basePath, pathArgument))
 }
 
@@ -486,7 +482,7 @@ func looksLikePath(argument string) bool {
 	if strings.Contains(argument, "://") {
 		return false
 	}
-	return strings.HasPrefix(argument, "/") || strings.HasPrefix(argument, ".") || strings.HasPrefix(argument, "~") || strings.Contains(argument, "/")
+	return strings.HasPrefix(argument, "/") || strings.HasPrefix(argument, ".") || strings.Contains(argument, "/")
 }
 
 func isWithinRootPath(rootPath string, targetPath string) bool {
