@@ -996,6 +996,32 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 	}, "\n")
 }
 
+func describedAvailableToolNames(observations []turnObservation) []string {
+	toolNames := []string{}
+	for _, observation := range observations {
+		if strings.TrimSpace(observation.Tool) != "tool.describe" || observation.Failure != nil {
+			continue
+		}
+		var document struct {
+			Tools []struct {
+				Name         string `json:"name"`
+				Availability struct {
+					Status string `json:"status"`
+				} `json:"availability"`
+			} `json:"tools"`
+		}
+		if json.Unmarshal([]byte(observation.Output.Content), &document) != nil {
+			continue
+		}
+		for _, tool := range document.Tools {
+			if strings.TrimSpace(tool.Name) != "" && tool.Availability.Status == "available" {
+				toolNames = append(toolNames, tool.Name)
+			}
+		}
+	}
+	return toolNames
+}
+
 func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan, observations []turnObservation) AgentTurnRequest {
 	normalizedPlan := normalizeNextStepPlan(plan)
 	expectedTools := filterCompletedInspectionPlanTools(normalizedPlan.ExpectedTools, observations)
@@ -1005,6 +1031,7 @@ func requestWithStepWorkingSetTools(request AgentTurnRequest, plan NextStepPlan,
 	request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, expectedTools...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, describedAvailableToolNames(observations)...)
 	if requestLooksLikeCalendarStep(request) {
 		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames,
 			"calendar.event.add",
