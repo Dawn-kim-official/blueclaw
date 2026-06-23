@@ -446,7 +446,6 @@ func failurePromptContext(request AgentTurnRequest, observations []turnObservati
 		VisibleContext:    request.VisibleContext,
 		MemoryFacts:       request.MemoryFacts,
 		ActiveGoal:        request.ActiveGoal,
-		CurrentStepPlan:   request.CurrentStepPlan,
 		StepBudgetContext: request.StepBudgetContext,
 		Observations:      observations,
 		ExecutionState:    executionState,

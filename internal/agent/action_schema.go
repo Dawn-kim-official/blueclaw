@@ -170,28 +170,15 @@ func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 			"goalSatisfied":        booleanSchema(),
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
-			"nextStepPlan":         nextStepPlanSchema(),
+			"requestTools":         stringArraySchema(0),
+			"requestSkills":        stringArraySchema(0),
 		},
-		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate", "nextStepPlan"},
+		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate"},
 	}
 	if description := strings.TrimSpace(toolDefinition.Description); description != "" {
 		schema["description"] = description
 	}
 	return schema
-}
-
-func nextStepPlanSchema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"objective":           stringSchema(),
-			"expectedTools":       stringArraySchema(0),
-			"expectedNextResults": stringArraySchema(0),
-			"doneCriteria":        stringArraySchema(0),
-			"risk":                stringSchema(),
-			"workingSetReason":    stringSchema(),
-		},
-	}
 }
 
 func toolInputSchema(toolDefinition ToolDefinition) any {

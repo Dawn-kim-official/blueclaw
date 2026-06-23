@@ -42,7 +42,6 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		MemoryContext:     input.MemoryContext,
 		ActiveGoal:        input.RuntimeRequest.ActiveGoal,
 		ScheduledRun:      input.RuntimeRequest.ScheduledRun,
-		CurrentStepPlan:   input.RuntimeRequest.CurrentStepPlan,
 		StepBudgetContext: input.RuntimeRequest.StepBudgetContext,
 		ArtifactManifest:  input.RuntimeRequest.ArtifactManifest,
 		Observations:      input.Observations,
@@ -266,9 +265,6 @@ func buildRuntimeContextDescription(request AgentTurnRequest) string {
 	}
 	if workspaceContext := buildWorkspaceContextDescription(request); workspaceContext != "" {
 		lines = append(lines, workspaceContext)
-	}
-	if !nextStepPlanIsEmpty(request.CurrentStepPlan) {
-		lines = append(lines, "Previous Step plan for the current working set:\n"+marshalEventBody(normalizeNextStepPlan(request.CurrentStepPlan)))
 	}
 	if stepBudgetContext := strings.TrimSpace(request.StepBudgetContext); stepBudgetContext != "" {
 		lines = append(lines, stepBudgetContext)
