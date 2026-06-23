@@ -398,3 +398,40 @@ func TestDecodeLegacyObservationNormalizesMemorySearchFailureCode(t *testing.T) 
 		t.Fatalf("expected canonical memory search failure, got %+v", observation)
 	}
 }
+
+func TestUserResumeClearsInheritedFailureDebt(t *testing.T) {
+	observations := []turnObservation{
+		{ObservationID: "obs-001", Action: "continue", Tool: "site.app.create", Output: ToolOutput{Content: `{"siteID":"site-1"}`}},
+		{
+			ObservationID: "obs-002",
+			Action:        "continue",
+			Tool:          "site.app.publish",
+			Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
+			ToolInputKey:  "site.app.publish\x00{\"siteID\":\"site-1\"}",
+		},
+	}
+	if _, hasDebt := activeFailureDebt(observations); !hasDebt {
+		t.Fatal("setup expected active failure debt before resume")
+	}
+
+	userResume := AgentTurnRequest{IsRuntimeRestartResume: true, IsApprovalContinuation: false}
+	if !userResumeClearsInheritedFailureDebt(userResume, observations) {
+		t.Fatal("expected user-driven resume to clear inherited failure debt")
+	}
+	approvalResume := AgentTurnRequest{IsRuntimeRestartResume: true, IsApprovalContinuation: true}
+	if userResumeClearsInheritedFailureDebt(approvalResume, observations) {
+		t.Fatal("expected approval continuation to retain failure debt")
+	}
+	autoStart := AgentTurnRequest{IsRuntimeRestartResume: false}
+	if userResumeClearsInheritedFailureDebt(autoStart, observations) {
+		t.Fatal("expected non-resume turn to be unaffected")
+	}
+
+	cleared := observationsWithoutFailures(observations)
+	if _, hasDebt := activeFailureDebt(cleared); hasDebt {
+		t.Fatal("expected failure debt cleared after dropping failed observations")
+	}
+	if len(cleared) != 1 || cleared[0].ObservationID != "obs-001" {
+		t.Fatalf("expected successful observation retained, got %+v", cleared)
+	}
+}
