@@ -8,7 +8,7 @@ func TestAmbientCaptureAllowedToolNamesClampsToTaskAndCalendar(t *testing.T) {
 		allowed[toolName] = true
 	}
 
-	for _, requiredToolName := range []string{"flow.task.add", "flow.task.update", "calendar.event.add", "ask.confirm"} {
+	for _, requiredToolName := range []string{"flow.task.add", "flow.task.update", "calendar.event.add", "ask.choice"} {
 		if !allowed[requiredToolName] {
 			t.Fatalf("ambient capture palette must allow %q", requiredToolName)
 		}

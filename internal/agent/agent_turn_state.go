@@ -499,7 +499,7 @@ func observationsFromTaskEvents(events []task.TaskEvent) []turnObservation {
 			continue
 		}
 		observation, errorValue := decodeTurnObservation([]byte(event.Body))
-		if errorValue == nil && strings.TrimSpace(observation.ObservationID) != "" {
+		if errorValue == nil && strings.TrimSpace(observation.ObservationID) != "" && !isApprovalRequiredObservation(observation) {
 			observations = append(observations, observation)
 		}
 	}

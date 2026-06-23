@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"blueclaw/internal/agent"
+	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/connectors"
 	"blueclaw/internal/task"
 )
@@ -964,45 +965,24 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 	}
 }
 
-func AskConfirmReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
-	return VirtualSessionScenario{
-		Name:                  "ask_confirm_reply_acceptance",
-		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"conversation.history", "memory.search", "ask.confirm"},
-		Turns: []VirtualTurn{{
-			Prompt: "진행 전에 확인 받아줘",
-			ActionResponses: []string{
-				actionCallToolWithMessage("ask.confirm", "이대로 진행할까요?", `{"reasonCode":"external_send","reasonDetail":"confirmation acceptance test"}`),
-			},
-			ExpectedToolCalls:      []string{"ask.confirm"},
-			ExpectedEvents:         []string{"confirmation.requested"},
-			ExpectedReplyFragments: []string{"이대로 진행할까요?"},
-		}, {
-			Prompt: "확인",
-			ActionResponses: []string{
-				actionFinishMessage("확인되어 계속 진행하겠습니다."),
-			},
-			ExpectedEvents:         []string{"confirmation.reply_classified"},
-			ExpectedReplyFragments: []string{"확인되어"},
-		}},
-	}
-}
-
 func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "dm_send_confirm_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		RouterWorkKinds:       []string{agent.WorkKindExternalSend},
 		AllowedTools:          []string{"conversation.history", "memory.search", "platform.message.send"},
-		CapabilityToolNames:   []string{"platform.message.send"},
+		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{
+			Name:             "platform.message.send",
+			RequiresApproval: true,
+		}},
 		Turns: []VirtualTurn{{
 			Prompt: "테스트이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
 			ActionResponses: []string{
 				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"directMessage","personHint":"테스트"},"message":"오늘 오후 3시에 확인하자"}`),
 			},
-			ExpectedToolCalls: []string{"platform.message.send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.platform.message.send.result", BodyFragment: "approval_required", Count: 1},
+				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 0},
+				{Name: "tool.platform.message.send.result", BodyFragment: "approval_required", Count: 0},
 				{Name: "approval.pending_call", BodyFragment: `"platform.message.send"`, Count: 1},
 				{Name: "agent.failure_debt_created", BodyFragment: "", Count: 0},
 			},
@@ -1012,11 +992,11 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		}, {
 			Prompt: "확인",
 			ActionResponses: []string{
-				actionFinishMessage("테스트이에게 DM을 보냈습니다.", "obs-002:platform.message.send:0"),
+				actionFinishMessage("테스트이에게 DM을 보냈습니다.", "obs-001:platform.message.send:0"),
 			},
 			ExpectedToolCalls: []string{"platform.message.send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 2},
+				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 1},
 				{Name: "tool.platform.message.send.result", BodyFragment: "virtual-platform-message-001", Count: 1},
 				{Name: "approval.executed", BodyFragment: `"platform.message.send"`, Count: 1},
 			},

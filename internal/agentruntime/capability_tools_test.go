@@ -60,8 +60,12 @@ func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"platform.message.send"})
 
 	immediateToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
-	if !strings.Contains(immediateToolSet.Descriptions(), "ask approval before invoking") {
-		t.Fatalf("expected immediate DM to ask approval, got %s", immediateToolSet.Descriptions())
+	if strings.Contains(immediateToolSet.Descriptions(), "ask approval before invoking") {
+		t.Fatalf("expected immediate DM to be available for runtime gating, got %s", immediateToolSet.Descriptions())
+	}
+	toolDefinition, isFound := immediateToolSet.ToolDefinition("platform.message.send")
+	if !isFound || !toolDefinition.RequiresApproval {
+		t.Fatalf("expected immediate DM definition to require approval, got found=%v definition=%+v", isFound, toolDefinition)
 	}
 	scheduledToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsScheduledRun: true})
 	if strings.Contains(scheduledToolSet.Descriptions(), "ask approval before invoking") {

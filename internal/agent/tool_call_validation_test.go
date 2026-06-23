@@ -459,47 +459,6 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRejectsUnnecessarySitePublishApproval(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"배포는 외부 영향이 있는 작업이므로 확인이 필요합니다.","reasonCode":"external_send"}}`,
-		`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish prototype"}}`,
-		finishMessageWithEvidence("배포했습니다.", "obs-002", "site.app.publish", 0),
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 4})
-	publishCallCount := 0
-	toolRegistry := newTestToolSet([]string{"ask.confirm", "terminal.run", "site.app.create", "site.app.publish"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		publishCallCount++
-		return ToolSuccess(`{"siteID":"site-1","status":"published","publishedURL":"https://demo.example"}`), nil
-	})
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID:     "person-1",
-		ConversationID:        "conversation-1",
-		Prompt:                "웹사이트 만들어서 배포해",
-		WorkKinds:             []string{WorkKindSitePrototype},
-		ToolSet:               toolRegistry,
-		RequiredEvidenceTools: []string{"site.app.publish"},
-		SkillDecisions:        []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
-		WorkspaceRootPath:     t.TempDir(),
-	})
-	if errorValue != nil {
-		t.Fatalf("expected site publish to complete: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
-	}
-	if publishCallCount != 1 {
-		t.Fatalf("expected site.app.publish to run once, got %d", publishCallCount)
-	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "confirmation.requested", "") {
-		t.Fatal("unexpected waiting approval request")
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "site.app.publish") {
-		t.Fatal("expected unnecessary approval rejection event")
-	}
-}
-
 func TestRepeatedFileReadObservationReturnsCachedCoveredRange(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
@@ -587,40 +546,6 @@ func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForUnrelatedC
 
 	if result {
 		t.Fatal("expected unrelated paid action confirm not to be rejected")
-	}
-}
-
-func TestAgentTurnRunnerRejectsUnnecessaryAcknowledgementApproval(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"ask.confirm","toolInput":{"userFacingMessage":"안젤라 바보라는 내용을 기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}}`,
-		`{"action":"continue","toolName":"memory.remember","toolInput":{"content":"안젤라 바보"}}`,
-		finishMessageWithEvidence("기억했습니다.", "obs-002", "memory.remember", 0),
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 4})
-	rememberCallCount := 0
-	toolRegistry := newTestToolSet([]string{"ask.confirm", "memory.remember"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "memory.remember"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		rememberCallCount++
-		return ToolSuccess(`{"remembered":true}`), nil
-	})
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "안젤라 바보라는 것 기억해줘",
-		ToolSet:           toolRegistry,
-	})
-	if errorValue != nil {
-		t.Fatalf("expected turn to complete: %v", errorValue)
-	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
-	}
-	if rememberCallCount != 1 {
-		t.Fatalf("expected memory.remember to run once, got %d", rememberCallCount)
-	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.approval_request_rejected", "memory.remember") {
-		t.Fatal("expected unnecessary acknowledgement approval rejection event")
 	}
 }
 

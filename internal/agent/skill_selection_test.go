@@ -122,7 +122,6 @@ func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
-		"ask.confirm",
 		"terminal.run",
 		"site.app.create",
 		"site.app.publish",
@@ -144,7 +143,7 @@ func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
 
 	filteredToolSet := toolSetForSelectedSkills(fullToolSet, instructionBundle)
 
-	for _, toolName := range []string{"conversation.history", "memory.search", "ask.confirm", "terminal.run", "site.app.create", "site.app.publish"} {
+	for _, toolName := range []string{"conversation.history", "memory.search", "terminal.run", "site.app.create", "site.app.publish"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -158,7 +157,6 @@ func TestToolSetForAgentTurnUsesSelectedSkillAllowedTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
-		"ask.confirm",
 		"math.calculate",
 		"terminal.run",
 		"file.write",
@@ -175,7 +173,7 @@ func TestToolSetForAgentTurnUsesSelectedSkillAllowedTools(t *testing.T) {
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "내일 알려줘"}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"conversation.history", "memory.search", "ask.confirm", "math.calculate", "terminal.run", "file.write", "schedule.create"} {
+	for _, toolName := range []string{"conversation.history", "memory.search", "math.calculate", "terminal.run", "file.write", "schedule.create"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -186,11 +184,11 @@ func TestToolSetForAgentTurnUsesSelectedSkillAllowedTools(t *testing.T) {
 }
 
 func TestToolSetForAgentTurnHidesSelectedSendToolForNonSendOutcome(t *testing.T) {
-	fullToolSet := testToolSet([]string{"ask.confirm", "platform.message.send", "file.write"})
+	fullToolSet := testToolSet([]string{"platform.message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "direct-message",
-			AllowedTools: []string{"ask.confirm", "platform.message.send"},
+			AllowedTools: []string{"platform.message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
@@ -198,7 +196,7 @@ func TestToolSetForAgentTurnHidesSelectedSendToolForNonSendOutcome(t *testing.T)
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
 
-	if !filteredToolSet.IsAllowed("ask.confirm") || !filteredToolSet.IsAllowed("file.write") {
+	if !filteredToolSet.IsAllowed("file.write") {
 		t.Fatalf("expected universal tools to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
 	if filteredToolSet.IsAllowed("platform.message.send") {
