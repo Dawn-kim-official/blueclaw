@@ -36,18 +36,6 @@ func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 	if strings.Contains(toolRegistry.Descriptions(), "site.app.create") {
 		t.Fatalf("expected denied site tool to be omitted from catalog, got %s", toolRegistry.Descriptions())
 	}
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "tool.describe",
-		Input: agent.MarshalToolInput(map[string]any{
-			"toolName": "site.app.create",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if strings.Contains(result.ContentText(), "site.app.create") {
-		t.Fatalf("expected denied site tool to be omitted from describe result, got %s", result.ContentText())
-	}
 }
 
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {

@@ -51,7 +51,7 @@ func requestToolsActionSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":               enumStringSchema("request_tools"),
+			"action":               enumStringSchema("tool.request"),
 			"toolNames":            stringArraySchema(0),
 			"skillNames":           stringArraySchema(0),
 			"reason":               stringSchema(),
@@ -158,7 +158,7 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 }
 
 func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
-	return map[string]any{
+	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"action":               enumStringSchema("continue"),
@@ -174,6 +174,10 @@ func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 		},
 		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate", "nextStepPlan"},
 	}
+	if description := strings.TrimSpace(toolDefinition.Description); description != "" {
+		schema["description"] = description
+	}
+	return schema
 }
 
 func nextStepPlanSchema() map[string]any {

@@ -350,7 +350,7 @@ func normalizeAgentActionResponseContent(content []byte) ([]byte, error) {
 }
 
 func agentActionResponseCandidate(document map[string]json.RawMessage) (string, int) {
-	actionNames := []string{"finish", "continue", "fail", "request_tools", "set_quality_criteria"}
+	actionNames := []string{"finish", "continue", "fail", "tool.request", "set_quality_criteria"}
 	candidateAction := ""
 	candidateCount := 0
 	for _, actionName := range actionNames {

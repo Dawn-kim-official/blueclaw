@@ -190,7 +190,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRe
 	toolCatalogBuilder.registerBuiltInTools(toolSet, handlerContext)
 	toolCatalogBuilder.registerMCPTools(toolSet)
 	toolCatalogBuilder.registerCapabilityTools(toolSet, request)
-	toolCatalogBuilder.registerToolDescribeTool(toolSet, toolSet)
 	toolCatalogBuilder.registerSkillSearchTool(toolSet, handlerContext, toolSet)
 	return toolSet
 }
@@ -207,7 +206,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.DefaultAllowedToolNames([]string{"conversation.history", "task.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.preview", "file.read", "document.read", "image.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "tool.describe", "schedule.create", "schedule.update", "schedule.cancel", "schedule.list"})
+	return agent.DefaultAllowedToolNames([]string{"conversation.history", "task.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.preview", "file.read", "document.read", "image.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.update", "schedule.cancel", "schedule.list"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {

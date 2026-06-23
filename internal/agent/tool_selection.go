@@ -248,12 +248,12 @@ func appendPinnedSkillPrompt(instructionPrompt string, skillInstructions []Skill
 
 func toolRequestObservation(index int, requestArguments requestToolsArguments, result toolRequestResult) turnObservation {
 	content := marshalToolSelectionResult(requestArguments, result)
-	observation := newContentObservation(nextObservationID(index), "request_tools", "", content)
+	observation := newContentObservation(nextObservationID(index), "tool.request", "", content)
 	if toolRequestResultFailed(result) {
 		observation.Failure = &ToolFailure{
 			Kind:            FailureInvalidInput,
 			Code:            FailureCodes.InvalidInput.String(),
-			Stage:           "request_tools",
+			Stage:           "tool.request",
 			UserSafeSummary: toolRequestFailureSummary(result),
 		}
 	}
@@ -270,14 +270,14 @@ func toolRequestAddedNothing(before AgentTurnRequest, after AgentTurnRequest, re
 
 func redundantToolSelectionObservation(index int, requestArguments requestToolsArguments, result toolRequestResult) turnObservation {
 	requested := appendUniqueStrings(append(append([]string{}, requestArguments.ToolNames...), requestArguments.SkillNames...))
-	directive := "These tools and skills are already available in your palette: " + strings.Join(requested, ", ") + ". Do not call request_tools again for tools you already have; call one of them now to make progress, or finish."
+	directive := "These tools and skills are already available in your palette: " + strings.Join(requested, ", ") + ". Do not call tool.request again for tools you already have; call one of them now to make progress, or finish."
 	content := marshalEventBody(map[string]any{
 		"request":   requestArguments,
 		"result":    result,
 		"redundant": true,
 		"directive": directive,
 	})
-	observation := newContentObservation(nextObservationID(index), "request_tools", "", content)
+	observation := newContentObservation(nextObservationID(index), "tool.request", "", content)
 	observation.Summary = directive
 	return observation
 }
@@ -289,7 +289,7 @@ func ambientFixedPaletteObservation(index int, requestArguments requestToolsArgu
 		"fixedPalette": true,
 		"directive":    directive,
 	})
-	observation := newContentObservation(nextObservationID(index), "request_tools", "", content)
+	observation := newContentObservation(nextObservationID(index), "tool.request", "", content)
 	observation.Summary = directive
 	return observation
 }

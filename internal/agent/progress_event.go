@@ -32,7 +32,7 @@ func progressEvents(observations []turnObservation) []progressEvent {
 		if observation.Action == "set_quality_criteria" {
 			recordSuccess(progressEvent{Kind: "quality_criteria", Key: observation.ObservationID})
 		}
-		if observation.Action == "request_tools" && !observation.Failed() && hasSuccessfulToolCallAfter(observations, index) {
+		if observation.Action == "tool.request" && !observation.Failed() && hasSuccessfulToolCallAfter(observations, index) {
 			recordSuccess(progressEvent{Kind: "tool_palette_selected", Key: observation.ObservationID + ":" + observation.ContentText()})
 		}
 		if observation.Action == "continue" && !observation.Failed() {
@@ -148,7 +148,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 
 func isInspectionProgressTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "file.read", "memory.search", "site.app.status", "tool.describe", "conversation.history":
+	case "file.read", "memory.search", "site.app.status", "conversation.history":
 		return true
 	default:
 		return false
