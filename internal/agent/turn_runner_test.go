@@ -1248,7 +1248,7 @@ func TestStepPlanDoesNotPinSendToolForAttachmentFollowUp(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRequiresApprovalToolPausesBeforeInvokeAndExecutesAfterApproval(t *testing.T) {
+func TestAgentTurnRunnerDoesNotPauseBeforeRequiresApprovalToolInvoke(t *testing.T) {
 	heldInput := `{"eventID":"event-1"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"calendar.event.delete","toolInput":` + heldInput + `}`,
@@ -1257,14 +1257,12 @@ func TestAgentTurnRunnerRequiresApprovalToolPausesBeforeInvokeAndExecutesAfterAp
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"calendar.event.delete"})
 	invokedInputs := []string{}
-	wasExecutedBeforeSecondModel := false
 	toolRegistry.RegisterTool(ToolDefinition{Name: "calendar.event.delete", RequiresApproval: true}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
-		wasExecutedBeforeSecondModel = len(languageModel.requests) == 1
 		return ToolSuccess(`{"eventID":"event-1","status":"deleted"}`), nil
 	})
 
-	firstResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "일정 삭제해줘",
@@ -1274,54 +1272,23 @@ func TestAgentTurnRunnerRequiresApprovalToolPausesBeforeInvokeAndExecutesAfterAp
 		WorkspaceRootPath: t.TempDir(),
 	})
 	if errorValue != nil {
-		t.Fatalf("expected first turn to pause: %v", errorValue)
+		t.Fatalf("expected turn to complete: %v", errorValue)
 	}
-	if firstResult.TaskRun.Status != task.TaskStatusWaitingApproval {
-		t.Fatalf("expected waiting approval task, got %s events=%+v", firstResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
-	}
-	if len(invokedInputs) != 0 {
-		t.Fatalf("expected B-PRE to hold the tool before invocation, got inputs %+v", invokedInputs)
-	}
-	firstTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)
-	if taskEventsContain(firstTurnEvents, "tool.calendar.event.delete.requested", "") {
-		t.Fatalf("expected no pre-approval tool request event, events=%+v", firstTurnEvents)
-	}
-	if !taskEventsContain(firstTurnEvents, "approval.pending_call", heldInput) {
-		t.Fatalf("expected held call event with original input, events=%+v", firstTurnEvents)
-	}
-	if !taskEventsContain(firstTurnEvents, "confirmation.requested", "external_send") {
-		t.Fatalf("expected confirmation request event, events=%+v", firstTurnEvents)
-	}
-
-	secondResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID:      "person-1",
-		ExistingTaskRunID:      firstResult.TaskRun.TaskRunID,
-		IsApprovalContinuation: true,
-		ConversationID:         "conversation-1",
-		Prompt:                 "확인",
-		ResponseLanguage:       ResponseLanguageKorean,
-		ToolSet:                toolRegistry,
-		PinnedToolNames:        []string{"calendar.event.delete"},
-		WorkspaceRootPath:      t.TempDir(),
-	})
-	if errorValue != nil {
-		t.Fatalf("expected approval continuation to complete: %v", errorValue)
-	}
-	if secondResult.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s events=%+v", secondResult.TaskRun.Status, services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID))
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if len(invokedInputs) != 1 || invokedInputs[0] != heldInput {
-		t.Fatalf("expected one deterministic execution with held input, got %+v", invokedInputs)
+		t.Fatalf("expected tool to be invoked once with original input, got %+v", invokedInputs)
 	}
-	if !wasExecutedBeforeSecondModel {
-		t.Fatal("expected held call to execute before the approval-continuation model step")
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventsContain(events, "approval.pending_call", "") {
+		t.Fatalf("requiresApproval descriptor should not create pre-approval hold, events=%+v", events)
 	}
-	secondTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)
-	if !taskEventsContain(secondTurnEvents, "approval.executed", "calendar.event.delete") {
-		t.Fatalf("expected approval executed event, events=%+v", secondTurnEvents)
+	if !taskEventsContain(events, "tool.calendar.event.delete.requested", heldInput) {
+		t.Fatalf("expected tool request event, events=%+v", events)
 	}
-	if !taskEventsContain(secondTurnEvents, "tool.calendar.event.delete.result", "deleted") {
-		t.Fatalf("expected deterministic delete result, events=%+v", secondTurnEvents)
+	if !taskEventsContain(events, "tool.calendar.event.delete.result", "deleted") {
+		t.Fatalf("expected tool result event, events=%+v", events)
 	}
 }
 
