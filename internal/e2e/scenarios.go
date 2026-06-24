@@ -742,6 +742,50 @@ func MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath string) VirtualS
 	}
 }
 
+func DatabaseSQLAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "database_sql_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		AllowedTools:          []string{"conversation.history", "memory.search", "db.sql"},
+		Turns: []VirtualTurn{
+			{
+				Prompt: "거래처 Acme 를 데이터베이스에 기록해줘.",
+				ActionResponses: []string{
+					actionSelectTools("db.sql"),
+					actionCallTool("db.sql", `{"sql":"CREATE TABLE IF NOT EXISTS vendors(id INTEGER PRIMARY KEY, name TEXT)","scope":"me"}`),
+					actionCallTool("db.sql", `{"sql":"INSERT INTO vendors(name) VALUES ('Acme')","scope":"me"}`),
+					actionFinishMessage("거래처 Acme를 vendors 테이블에 기록했습니다."),
+				},
+				ExpectedToolCalls: []string{"db.sql"},
+				ExpectedToolCallCounts: map[string]int{
+					"db.sql": 2,
+				},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.db.sql.result", BodyFragment: "vendors", Count: 2},
+				},
+				ExpectedReplyFragments: []string{"vendors"},
+			},
+			{
+				Prompt: "거래처 Beta 도 추가해줘. 이미 있는 테이블을 다시 써.",
+				ActionResponses: []string{
+					actionSelectTools("db.sql"),
+					actionCallTool("db.sql", `{"sql":"SELECT name, sql FROM sqlite_master WHERE type='table'","scope":"me"}`),
+					actionCallTool("db.sql", `{"sql":"INSERT INTO vendors(name) VALUES ('Beta')","scope":"me"}`),
+					actionFinishMessage("기존 vendors 테이블에 거래처 Beta를 추가했습니다."),
+				},
+				ExpectedToolCalls: []string{"db.sql"},
+				ExpectedToolCallCounts: map[string]int{
+					"db.sql": 2,
+				},
+				ExpectedEventCounts: []VirtualEventCount{
+					{Name: "tool.db.sql.result", BodyFragment: "vendors", Count: 2},
+				},
+				ExpectedReplyFragments: []string{"vendors"},
+			},
+		},
+	}
+}
+
 func FailureExplanationAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "failure_explanation_acceptance",
