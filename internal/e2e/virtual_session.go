@@ -539,7 +539,9 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		instructionBundleLoader,
 		agentKernel,
 	)
-	runtime.UseTaskLauncher(agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder))
+	virtualTaskLauncher := agentruntime.NewTaskLauncher(agentKernel, toolCatalogBuilder)
+	virtualTaskLauncher.UseRequesterEmailResolver(identityService)
+	runtime.UseTaskLauncher(virtualTaskLauncher)
 
 	return &VirtualSessionHarness{
 		scenario:         scenario,

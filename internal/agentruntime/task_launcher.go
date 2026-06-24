@@ -22,10 +22,15 @@ type TaskLauncher struct {
 	agentKernel                   *agent.AgentKernel
 	toolCatalogBuilder            *ToolCatalogBuilder
 	requesterWorkspaceProvisioner RequesterWorkspaceProvisioner
+	requesterEmailResolver        RequesterEmailResolver
 }
 
 type RequesterWorkspaceProvisioner interface {
 	ProvisionRequesterWorkspace(context.Context, policy.PersonAccess, string) error
+}
+
+type RequesterEmailResolver interface {
+	ResolvePersonPrimaryEmail(personID string) string
 }
 
 type TaskLaunchRequest struct {
@@ -125,7 +130,22 @@ func (taskLauncher *TaskLauncher) UseRequesterWorkspaceProvisioner(provisioner R
 	taskLauncher.requesterWorkspaceProvisioner = provisioner
 }
 
+func (taskLauncher *TaskLauncher) UseRequesterEmailResolver(resolver RequesterEmailResolver) {
+	taskLauncher.requesterEmailResolver = resolver
+}
+
+func (taskLauncher *TaskLauncher) resolveRequesterEmail(request TaskLaunchRequest) string {
+	personID := strings.TrimSpace(request.RequesterPersonID)
+	if taskLauncher.requesterEmailResolver != nil && personID != "" {
+		if resolvedEmail := strings.TrimSpace(taskLauncher.requesterEmailResolver.ResolvePersonPrimaryEmail(personID)); resolvedEmail != "" {
+			return resolvedEmail
+		}
+	}
+	return request.RequesterEmail
+}
+
 func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunchRequest) (TaskLaunchResult, error) {
+	request.RequesterEmail = taskLauncher.resolveRequesterEmail(request)
 	request.PersonAccess = requesterPersonAccessForTaskLaunch(request)
 	normalizedProfileName := normalizeProfileName(request.ProfileName)
 	activeCircleRequest := withResolvedActiveCircle(ToolCatalogRequest{
