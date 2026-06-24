@@ -177,6 +177,7 @@ type IntakeDecision struct {
 	Reason                    string                `json:"reason"`
 	UserFacingReply           string                `json:"userFacingReply"`
 	WorkKinds                 []string              `json:"workKinds,omitempty"`
+	InitialToolNames          []string              `json:"initialToolNames,omitempty"`
 	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
 	ClarificationOptions      []ClarificationOption `json:"clarificationOptions,omitempty"`
 	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
@@ -202,6 +203,7 @@ type TurnDecision struct {
 	Reason                    string                `json:"reason"`
 	UserFacingReply           string                `json:"userFacingReply"`
 	WorkKinds                 []string              `json:"workKinds,omitempty"`
+	InitialToolNames          []string              `json:"initialToolNames,omitempty"`
 	Approval                  *ApprovalSignal       `json:"approval,omitempty"`
 	Choices                   []string              `json:"choices,omitempty"`
 	ClarificationQuestion     string                `json:"clarificationQuestion,omitempty"`
@@ -313,7 +315,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, cancels, or replaces an active task. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set taskComplexity=simple when a bounded task has a clear short outcome and should normally produce only one final user reply even if it needs tools, such as adding one calendar event, reading one visible attachment, or checking one obvious fact. Set taskComplexity=normal for ordinary bounded work, and taskComplexity=complex for long research, artifact generation, deployment, verification, or work where progress updates are useful. Use clarify when the latest request cannot be routed safely without a user choice; when route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement instead of writing an emoji in userFacingReply. When route is consume, set reactionEmojiName to one enum value that matches the message. For non-consume routes, set reactionEmojiName to null or omit it. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Set workKinds to every kind that matches the requested work: site_prototype for website or web app prototype creation and publishing, slides_artifact for slide or presentation deliverables, calendar for calendar, event, or schedule-management work, file_delivery when the user explicitly asks for a produced or attached file, destructive_action when the request deletes, removes, or overwrites existing data or published resources, paid_service when it needs paid or production infrastructure such as custom domains or cloud accounts, user_browser when it needs the requester's own logged-in browser session including login, MFA, or captcha handoff, browser_session when it needs interactive browser automation, external_send when the result leaves the current conversation as a direct message, email, or another outbound delivery, and coding when the work is software programming such as writing, debugging, refactoring, or reviewing source code. When emitting site_prototype work kind or a link-type expected result for a website, page, or web app, set siteRequestEvidence to a verbatim substring copied from the latest user message that requested the website, page, or web app. If the latest user message did not ask for a website, page, or web app, do not emit site_prototype and leave siteRequestEvidence empty. For short follow-ups such as retry requests, infer workKinds from the visible context work they continue. Use an empty array when none apply. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, cancels, or replaces an active task. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set taskComplexity=simple when a bounded task has a clear short outcome and should normally produce only one final user reply even if it needs tools, such as adding one calendar event, reading one visible attachment, or checking one obvious fact. Set taskComplexity=normal for ordinary bounded work, and taskComplexity=complex for long research, artifact generation, deployment, verification, or work where progress updates are useful. Use clarify when the latest request cannot be routed safely without a user choice; when route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement instead of writing an emoji in userFacingReply. When route is consume, set reactionEmojiName to one enum value that matches the message. For non-consume routes, set reactionEmojiName to null or omit it. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats. Set workKinds to every kind that matches the requested work: site_prototype for website or web app prototype creation and publishing, slides_artifact for slide or presentation deliverables, calendar for calendar, event, or schedule-management work, file_delivery when the user explicitly asks for a produced or attached file, destructive_action when the request deletes, removes, or overwrites existing data or published resources, paid_service when it needs paid or production infrastructure such as custom domains or cloud accounts, user_browser when it needs the requester's own logged-in browser session including login, MFA, or captcha handoff, browser_session when it needs interactive browser automation, external_send when the result leaves the current conversation as a direct message, email, or another outbound delivery, and coding when the work is software programming such as writing, debugging, refactoring, or reviewing source code. When emitting site_prototype work kind or a link-type expected result for a website, page, or web app, set siteRequestEvidence to a verbatim substring copied from the latest user message that requested the website, page, or web app. If the latest user message did not ask for a website, page, or web app, do not emit site_prototype and leave siteRequestEvidence empty. For short follow-ups such as retry requests, infer workKinds from the visible context work they continue. Use an empty array when none apply. Set initialToolNames to the exact tool names copied from Available tools that this request will most likely call first, so they are ready for the first step without a separate request; include only confident picks and leave it empty when unsure or when no tool is needed. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -396,6 +398,7 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
 	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
 	decision.WorkKinds = normalizeWorkKinds(decision.WorkKinds)
+	decision.InitialToolNames = registeredToolNamesOnly(request.ToolSet, decision.InitialToolNames)
 	decision.SiteRequestEvidence = strings.TrimSpace(decision.SiteRequestEvidence)
 	decision, decision.siteNormalizationReport = normalizeTurnDecisionSiteRequirement(request, decision)
 	if shouldTreatAsBoundedSitePrototype(request, decision.IntakeDecision()) {
@@ -532,6 +535,7 @@ func turnRouterSchema(request AgentRequest) string {
 			WorkKindExternalSend,
 			WorkKindCoding,
 		}}},
+		"initialToolNames": map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string"}},
 		"clarificationQuestion": map[string]any{
 			"type": "string",
 		},
@@ -997,6 +1001,20 @@ func hasTool(toolRegistry *ToolSet, toolName string) bool {
 		}
 	}
 	return false
+}
+
+func registeredToolNamesOnly(toolRegistry *ToolSet, toolNames []string) []string {
+	if toolRegistry == nil || len(toolNames) == 0 {
+		return nil
+	}
+	registeredToolNames := []string{}
+	for _, toolName := range appendUniqueStrings([]string{}, toolNames...) {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if hasTool(toolRegistry, trimmedToolName) {
+			registeredToolNames = appendUniqueStrings(registeredToolNames, trimmedToolName)
+		}
+	}
+	return registeredToolNames
 }
 
 func containsAny(value string, candidates []string) bool {
