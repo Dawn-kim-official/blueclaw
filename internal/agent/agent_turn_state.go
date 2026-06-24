@@ -23,7 +23,6 @@ type agentTaskState struct {
 	QualityCriteria []qualityCriterion
 	Attachments     []FileAttachment
 	ExecutionState  ExecutionState
-	NextStepPlan    NextStepPlan
 	ContextSummary  TaskContextSummary
 	IterationCount  int
 	ToolCallCount   int
@@ -129,7 +128,6 @@ func restoreAgentTaskState(request AgentTurnRequest, options TurnOptions, taskRu
 	}
 	state.Attachments = attachmentsFromObservations(state.Observations)
 	state.ExecutionState = executionStateFromTaskEvents(events)
-	state.NextStepPlan = nextStepPlanFromTaskEvents(events)
 	state.ContextSummary = taskContextSummaryFromTaskEvents(events)
 	state.ToolCallCount = successfulToolCallCount(state.Observations)
 	state.IterationCount = len(state.Observations)
