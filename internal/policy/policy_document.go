@@ -3,6 +3,7 @@ package policy
 type PolicyDocument struct {
 	People         []PersonPolicy         `json:"people"`
 	Circles        []CirclePolicy         `json:"circles"`
+	OrgGroups      []OrgGroupPolicy       `json:"orgGroups,omitempty"`
 	Channels       []ChannelPolicy        `json:"channels"`
 	ResourceAccess []ResourceAccessPolicy `json:"resourceAccess"`
 	CircleSync     CircleSyncPolicy       `json:"circleSync"`
@@ -21,8 +22,13 @@ type PersonPolicy struct {
 	GrantedClasses    []string `json:"grantedClasses"`
 	IsAdmin           bool     `json:"isAdmin"`
 	JobTitle          string   `json:"jobTitle,omitempty"`
-	PrimaryCircle     string   `json:"primaryCircle,omitempty"`
+	Group             string   `json:"group,omitempty"`
 	SupervisorID      string   `json:"supervisorID,omitempty"`
+}
+
+type OrgGroupPolicy struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type CirclePolicy struct {
