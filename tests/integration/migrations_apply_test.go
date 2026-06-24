@@ -15,8 +15,8 @@ func TestMigrationsApplyList(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected migrations to load: %v", errorValue)
 	}
-	if len(migrationPaths) != 26 {
-		t.Fatalf("expected 26 migration files, got %d", len(migrationPaths))
+	if len(migrationPaths) != 29 {
+		t.Fatalf("expected 29 migration files, got %d", len(migrationPaths))
 	}
 }
 
@@ -53,6 +53,45 @@ func TestGraphitiMemoryMigrationStoresMirrorMetadata(t *testing.T) {
 		"graphiti_episode",
 		"namespace_document jsonb",
 		"UNIQUE (source_platform, source_message_id)",
+	}
+	for _, requiredField := range requiredFields {
+		if !strings.Contains(migrationText, requiredField) {
+			t.Fatalf("expected migration to include %q", requiredField)
+		}
+	}
+}
+
+func TestGraphitiEpisodePromptMigrationStoresInspectableSource(t *testing.T) {
+	migrationDocument, errorValue := os.ReadFile(filepath.Join("../../migrations", "028_graphiti_episode_prompt.sql"))
+	if errorValue != nil {
+		t.Fatalf("expected graphiti episode prompt migration to load: %v", errorValue)
+	}
+
+	migrationText := string(migrationDocument)
+	requiredFields := []string{
+		"ALTER TABLE graphiti_episode",
+		"ADD COLUMN IF NOT EXISTS prompt text NOT NULL DEFAULT ''",
+	}
+	for _, requiredField := range requiredFields {
+		if !strings.Contains(migrationText, requiredField) {
+			t.Fatalf("expected migration to include %q", requiredField)
+		}
+	}
+}
+
+func TestGraphitiEpisodePromptBackfillMigrationRestoresRawEventContent(t *testing.T) {
+	migrationDocument, errorValue := os.ReadFile(filepath.Join("../../migrations", "029_backfill_graphiti_episode_prompt.sql"))
+	if errorValue != nil {
+		t.Fatalf("expected graphiti episode prompt backfill migration to load: %v", errorValue)
+	}
+
+	migrationText := string(migrationDocument)
+	requiredFields := []string{
+		"UPDATE graphiti_episode episode",
+		"SET prompt = convert_from(raw_event.content_ciphertext, 'UTF8')",
+		"raw_event.platform = episode.source_platform",
+		"raw_event.external_message_id = episode.source_message_id",
+		"episode.prompt = ''",
 	}
 	for _, requiredField := range requiredFields {
 		if !strings.Contains(migrationText, requiredField) {

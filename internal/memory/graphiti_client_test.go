@@ -66,6 +66,36 @@ func TestGraphitiClientSearchesFacts(t *testing.T) {
 	}
 }
 
+func TestGraphitiClientDeletesEpisodeThroughSidecar(t *testing.T) {
+	client := GraphitiClient{
+		Endpoint: "http://graphiti-memoryd",
+		HTTPClient: fakeGraphitiHTTPClient{handler: func(request *http.Request) (*http.Response, error) {
+			if request.URL.Path != "/v1/episodes/delete" {
+				t.Fatalf("expected delete endpoint, got %q", request.URL.Path)
+			}
+			body, errorValue := io.ReadAll(request.Body)
+			if errorValue != nil {
+				t.Fatal(errorValue)
+			}
+			if !strings.Contains(string(body), `"episodeID":"episode-1"`) || !strings.Contains(string(body), `"namespaceIDs":["user:person-1"]`) {
+				t.Fatalf("unexpected delete body %s", string(body))
+			}
+			return graphitiResponse(http.StatusOK, `{"episodeID":"episode-1","deleted":true,"namespaceCount":1}`), nil
+		}},
+	}
+
+	result, errorValue := client.DeleteEpisode(context.Background(), MemoryEpisodeDeleteRequest{
+		EpisodeID:    "episode-1",
+		NamespaceIDs: []string{"user:person-1"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected delete to succeed: %v", errorValue)
+	}
+	if !result.Deleted || result.NamespaceCount != 1 {
+		t.Fatalf("expected delete result, got %+v", result)
+	}
+}
+
 func TestGraphitiClientChecksHealth(t *testing.T) {
 	client := GraphitiClient{
 		Endpoint: "http://graphiti-memoryd",

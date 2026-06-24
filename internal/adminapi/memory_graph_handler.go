@@ -55,6 +55,154 @@ func (memoryGraphHandler MemoryGraphHandler) HandleListPinnedPeople(responseWrit
 	writeJSON(responseWriter, http.StatusOK, map[string]any{"pinned": pinnedFacts})
 }
 
+func (memoryGraphHandler MemoryGraphHandler) HandleDeleteEpisode(responseWriter http.ResponseWriter, request *http.Request) {
+	var body struct {
+		EpisodeID      string   `json:"episodeID"`
+		NamespaceIDs   []string `json:"namespaceIDs"`
+		ReaderPersonID string   `json:"readerPersonID"`
+	}
+	if errorValue := json.NewDecoder(request.Body).Decode(&body); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	episodeID := strings.TrimSpace(body.EpisodeID)
+	readerPersonID := strings.TrimSpace(body.ReaderPersonID)
+	if episodeID == "" || readerPersonID == "" {
+		http.Error(responseWriter, "episodeID and readerPersonID must not be blank", http.StatusBadRequest)
+		return
+	}
+	namespaceIDs, isFound, errorValue := memoryGraphHandler.readableEpisodeNamespaceIDs(request, episodeID, body.NamespaceIDs, readerPersonID)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !isFound {
+		http.Error(responseWriter, "episode not found", http.StatusNotFound)
+		return
+	}
+	if len(namespaceIDs) == 0 {
+		http.Error(responseWriter, "episode is not readable", http.StatusForbidden)
+		return
+	}
+	if memoryGraphHandler.MemoryService == nil {
+		http.Error(responseWriter, "memory service is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	result, errorValue := memoryGraphHandler.MemoryService.DeleteEpisode(request.Context(), memory.MemoryEpisodeDeleteRequest{
+		EpisodeID:    episodeID,
+		NamespaceIDs: namespaceIDs,
+	})
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, result)
+}
+
+func (memoryGraphHandler MemoryGraphHandler) HandleSavePinnedMemory(responseWriter http.ResponseWriter, request *http.Request) {
+	var body struct {
+		ReaderPersonID string `json:"readerPersonID"`
+		Content        string `json:"content"`
+	}
+	if errorValue := json.NewDecoder(request.Body).Decode(&body); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.ReaderPersonID) == "" {
+		http.Error(responseWriter, "readerPersonID must not be blank", http.StatusBadRequest)
+		return
+	}
+	if memoryGraphHandler.MarkdownStore == nil {
+		http.Error(responseWriter, "markdown memory is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	wasUpdated, errorValue := memoryGraphHandler.MarkdownStore.SavePersonMemory(request.Context(), body.ReaderPersonID, body.Content)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, map[string]any{"updated": wasUpdated})
+}
+
+func (memoryGraphHandler MemoryGraphHandler) HandleDeletePinnedMemory(responseWriter http.ResponseWriter, request *http.Request) {
+	var body struct {
+		ReaderPersonID string `json:"readerPersonID"`
+	}
+	if errorValue := json.NewDecoder(request.Body).Decode(&body); errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.ReaderPersonID) == "" {
+		http.Error(responseWriter, "readerPersonID must not be blank", http.StatusBadRequest)
+		return
+	}
+	if memoryGraphHandler.MarkdownStore == nil {
+		http.Error(responseWriter, "markdown memory is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	wasDeleted, errorValue := memoryGraphHandler.MarkdownStore.DeletePersonMemory(request.Context(), body.ReaderPersonID)
+	if errorValue != nil {
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, map[string]any{"deleted": wasDeleted})
+}
+
+func (memoryGraphHandler MemoryGraphHandler) readableEpisodeNamespaceIDs(
+	request *http.Request,
+	episodeID string,
+	requestedNamespaceIDs []string,
+	readerPersonID string,
+) ([]string, bool, error) {
+	reader, hasReader := memoryGraphHandler.Reporter.(memory.GraphMemoryEpisodeReader)
+	if !hasReader || memoryGraphHandler.Identity == nil {
+		return nil, false, nil
+	}
+	episode, isFound, errorValue := reader.GetMemoryGraphEpisode(request.Context(), episodeID)
+	if errorValue != nil || !isFound {
+		return nil, isFound, errorValue
+	}
+	namespaceIDs := requestedReadableNamespaceCandidates(episode.NamespaceIDs, requestedNamespaceIDs)
+	namespaces, errorValue := reader.ListMemoryGraphNamespacesByID(request.Context(), namespaceIDs)
+	if errorValue != nil {
+		return nil, true, errorValue
+	}
+	personAccess := memoryGraphHandler.Identity.ResolvePersonAccess(readerPersonID)
+	readableNamespaceIDs := []string{}
+	for _, namespace := range namespaces {
+		if canReadNamespace(namespace, readerPersonID, personAccess) {
+			readableNamespaceIDs = append(readableNamespaceIDs, namespace.NamespaceID)
+		}
+	}
+	return readableNamespaceIDs, true, nil
+}
+
+func requestedReadableNamespaceCandidates(episodeNamespaceIDs []string, requestedNamespaceIDs []string) []string {
+	episodeNamespaceSet := memoryStringSet(episodeNamespaceIDs)
+	requestedNamespaceSet := memoryStringSet(requestedNamespaceIDs)
+	if len(requestedNamespaceSet) == 0 {
+		return episodeNamespaceIDs
+	}
+	namespaceIDs := []string{}
+	for _, namespaceID := range episodeNamespaceIDs {
+		if requestedNamespaceSet[namespaceID] && episodeNamespaceSet[namespaceID] {
+			namespaceIDs = append(namespaceIDs, namespaceID)
+		}
+	}
+	return namespaceIDs
+}
+
+func memoryStringSet(values []string) map[string]bool {
+	valueSet := map[string]bool{}
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			valueSet[trimmedValue] = true
+		}
+	}
+	return valueSet
+}
+
 func (memoryGraphHandler MemoryGraphHandler) HandleMigrateIdentity(responseWriter http.ResponseWriter, request *http.Request) {
 	var body struct {
 		Mappings []memory.MemoryIdentityMapping `json:"mappings"`

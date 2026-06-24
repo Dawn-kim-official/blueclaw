@@ -49,6 +49,15 @@ func (client GraphitiClient) AddEpisode(ctx context.Context, episode MemoryEpiso
 	return response, nil
 }
 
+func (client GraphitiClient) DeleteEpisode(ctx context.Context, request MemoryEpisodeDeleteRequest) (MemoryEpisodeDeleteResult, error) {
+	var response MemoryEpisodeDeleteResult
+	errorValue := client.post(ctx, "/v1/episodes/delete", request, &response)
+	if errorValue != nil {
+		return MemoryEpisodeDeleteResult{}, errorValue
+	}
+	return response, nil
+}
+
 func (client GraphitiClient) SearchFacts(ctx context.Context, request MemorySearchRequest) ([]MemoryFact, error) {
 	var response graphitiSearchResponse
 	errorValue := client.post(ctx, "/v1/search", request, &response)

@@ -45,6 +45,17 @@ type MemoryIngestionResult struct {
 	NamespaceCount int    `json:"namespaceCount"`
 }
 
+type MemoryEpisodeDeleteRequest struct {
+	EpisodeID    string   `json:"episodeID"`
+	NamespaceIDs []string `json:"namespaceIDs"`
+}
+
+type MemoryEpisodeDeleteResult struct {
+	EpisodeID      string `json:"episodeID"`
+	Deleted        bool   `json:"deleted"`
+	NamespaceCount int    `json:"namespaceCount"`
+}
+
 type MemoryFact struct {
 	FactID            string    `json:"factID"`
 	ScopeType         string    `json:"scopeType"`
@@ -84,6 +95,7 @@ type MemoryGraphEpisode struct {
 	MessageID       string    `json:"messageID"`
 	ConversationID  string    `json:"conversationID"`
 	SenderPersonID  string    `json:"senderPersonID"`
+	Prompt          string    `json:"prompt,omitempty"`
 	NamespaceIDs    []string  `json:"namespaceIDs"`
 	IngestionStatus string    `json:"ingestionStatus"`
 	IngestionError  string    `json:"ingestionError,omitempty"`

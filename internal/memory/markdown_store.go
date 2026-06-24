@@ -115,6 +115,54 @@ func (store *MarkdownStore) MergePersonMemory(ctx context.Context, personID stri
 	return true, writeFileAtomically(path, nextContent+"\n")
 }
 
+func (store *MarkdownStore) SavePersonMemory(ctx context.Context, personID string, content string) (bool, error) {
+	if store == nil {
+		return false, nil
+	}
+	path, isSupported := store.namespacePath(UserNamespace(personID))
+	if !isSupported || strings.TrimSpace(personID) == "" {
+		return false, nil
+	}
+	if errorValue := ctx.Err(); errorValue != nil {
+		return false, errorValue
+	}
+	trimmedContent := strings.TrimSpace(content)
+	if trimmedContent == "" {
+		return store.DeletePersonMemory(ctx, personID)
+	}
+	if runeCount(trimmedContent) > store.hardLimitCharacterCount {
+		return false, errors.New("memory content exceeds the hard limit")
+	}
+	currentContent, errorValue := readOptionalFile(path)
+	if errorValue != nil {
+		return false, errorValue
+	}
+	nextContent := ensureMarkdownMemoryHeading(trimmedContent)
+	if nextContent == strings.TrimSpace(currentContent) {
+		return false, nil
+	}
+	return true, writeFileAtomically(path, nextContent+"\n")
+}
+
+func (store *MarkdownStore) DeletePersonMemory(ctx context.Context, personID string) (bool, error) {
+	if store == nil {
+		return false, nil
+	}
+	path, isSupported := store.namespacePath(UserNamespace(personID))
+	if !isSupported || strings.TrimSpace(personID) == "" {
+		return false, nil
+	}
+	if errorValue := ctx.Err(); errorValue != nil {
+		return false, errorValue
+	}
+	if errorValue := os.Remove(path); os.IsNotExist(errorValue) {
+		return false, nil
+	} else if errorValue != nil {
+		return false, errorValue
+	}
+	return true, nil
+}
+
 func (store *MarkdownStore) readNamespaceMemory(ctx context.Context, namespace MemoryNamespace) (MemoryFact, bool, error) {
 	path, isSupported := store.namespacePath(namespace)
 	if !isSupported {
@@ -291,6 +339,11 @@ func containsMarkdownLine(lines []string, expectedLine string) bool {
 		}
 	}
 	return false
+}
+
+func ensureMarkdownMemoryHeading(content string) string {
+	lines := markdownMemoryLines(content)
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func readOptionalFile(path string) (string, error) {
