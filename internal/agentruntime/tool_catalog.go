@@ -206,7 +206,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName strin
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.DefaultAllowedToolNames([]string{"conversation.history", "task.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.preview", "file.read", "document.read", "image.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.update", "schedule.cancel", "schedule.list", "db.sql"})
+	return agent.DefaultAllowedToolNames([]string{"conversation.history", "task.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.preview", "file.read", "document.read", "image.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.update", "schedule.cancel", "schedule.list"})
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -254,7 +254,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	toolCatalogBuilder.registerFileTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
-	toolCatalogBuilder.registerDatabaseTools(toolRegistry, handlerContext)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) workspaceActorForRequest(toolContext context.Context, request ToolCatalogRequest) (security.WorkspaceActor, *agent.ToolResult) {
