@@ -1037,3 +1037,55 @@ func findTaskEvent(taskEvents []task.TaskEvent, name string) task.TaskEvent {
 	}
 	return task.TaskEvent{}
 }
+
+type fakeRequesterEmailResolver struct {
+	emailByPersonID map[string]string
+}
+
+func (resolver fakeRequesterEmailResolver) ResolvePersonPrimaryEmail(personID string) string {
+	return resolver.emailByPersonID[personID]
+}
+
+func TestResolveRequesterEmailBackfillsScheduledLaunchFromPersonID(t *testing.T) {
+	taskLauncher := &TaskLauncher{requesterEmailResolver: fakeRequesterEmailResolver{
+		emailByPersonID: map[string]string{"person-1": "staff@example.com"},
+	}}
+	resolvedEmail := taskLauncher.resolveRequesterEmail(TaskLaunchRequest{RequesterPersonID: "person-1"})
+	if resolvedEmail != "staff@example.com" {
+		t.Fatalf("expected resolved email staff@example.com, got %q", resolvedEmail)
+	}
+}
+
+func TestResolveRequesterEmailLetsPersonIDOverrideSuppliedEmail(t *testing.T) {
+	taskLauncher := &TaskLauncher{requesterEmailResolver: fakeRequesterEmailResolver{
+		emailByPersonID: map[string]string{"person-1": "mapped@example.com"},
+	}}
+	resolvedEmail := taskLauncher.resolveRequesterEmail(TaskLaunchRequest{
+		RequesterPersonID: "person-1",
+		RequesterEmail:    "spoofed@example.com",
+	})
+	if resolvedEmail != "mapped@example.com" {
+		t.Fatalf("expected personID-resolved email to win, got %q", resolvedEmail)
+	}
+}
+
+func TestResolveRequesterEmailFallsBackToSuppliedWhenPersonUnmapped(t *testing.T) {
+	taskLauncher := &TaskLauncher{requesterEmailResolver: fakeRequesterEmailResolver{
+		emailByPersonID: map[string]string{},
+	}}
+	resolvedEmail := taskLauncher.resolveRequesterEmail(TaskLaunchRequest{
+		RequesterPersonID: "person-unmapped",
+		RequesterEmail:    "event-sender@example.com",
+	})
+	if resolvedEmail != "event-sender@example.com" {
+		t.Fatalf("expected supplied event email as fallback, got %q", resolvedEmail)
+	}
+}
+
+func TestResolveRequesterEmailWithoutResolverStaysEmpty(t *testing.T) {
+	taskLauncher := &TaskLauncher{}
+	resolvedEmail := taskLauncher.resolveRequesterEmail(TaskLaunchRequest{RequesterPersonID: "person-1"})
+	if resolvedEmail != "" {
+		t.Fatalf("expected empty email without resolver, got %q", resolvedEmail)
+	}
+}

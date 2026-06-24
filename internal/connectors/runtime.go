@@ -2965,7 +2965,9 @@ func (connectorRuntime *ConnectorRuntime) currentTaskLauncher() *agentruntime.Ta
 	if connectorRuntime.taskLauncher != nil {
 		return connectorRuntime.taskLauncher
 	}
-	return agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.toolCatalogBuilder)
+	taskLauncher := agentruntime.NewTaskLauncher(connectorRuntime.agentKernel, connectorRuntime.toolCatalogBuilder)
+	taskLauncher.UseRequesterEmailResolver(connectorRuntime.identityService)
+	return taskLauncher
 }
 
 type connectorHistoryProvider struct {
