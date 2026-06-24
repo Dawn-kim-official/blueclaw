@@ -260,6 +260,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision = agentKernel.restoreEscalatedEffortForContinuation(intakeRequest, intakeDecision)
 	request.WorkKinds = appendUniqueStrings(append([]string{}, intakeDecision.WorkKinds...), request.ActiveGoal.WorkKinds...)
 	intakeRequest.WorkKinds = request.WorkKinds
+	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), turnDecision.InitialToolNames...)
+	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	if turnDecision.Route == TurnRouteConsume {
 		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision)
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
