@@ -408,8 +408,6 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return TaskHistoryQuestionAcceptanceScenario(artifactDirectoryPath), nil
 	case "memory_explicit_tool_acceptance":
 		return MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath), nil
-	case "database_sql_acceptance":
-		return DatabaseSQLAcceptanceScenario(artifactDirectoryPath), nil
 	case "failure_explanation_acceptance":
 		return FailureExplanationAcceptanceScenario(artifactDirectoryPath), nil
 	case "one_time_schedule_acceptance":
@@ -1856,7 +1854,7 @@ func actionSelectTools(toolNames ...string) string {
 	for _, toolName := range toolNames {
 		encodedToolNames = append(encodedToolNames, quote(toolName))
 	}
-	return `{"action":"continue","toolName":"skill.search","toolInput":{},"requestTools":[` + strings.Join(encodedToolNames, ",") + `]}`
+	return `{"action":"tool.request","toolNames":[` + strings.Join(encodedToolNames, ",") + `],"skillNames":[],"reason":"required for the requested task"}`
 }
 
 func actionCallTool(toolName string, input string) string {

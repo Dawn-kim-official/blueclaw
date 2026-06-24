@@ -384,6 +384,20 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
 		return result, isBlocked
 	}
+	stopForRequestToolsNoProgress := func(stepID string) (AgentTurnResult, bool) {
+		progressEvaluation, shouldStop := noProgressStopEvaluation()
+		if !shouldStop {
+			return AgentTurnResult{}, false
+		}
+		recoveryAllowance := evaluateRecoveryAllowance(state.Observations, agentTurnRunner.options.RecoveryBudget)
+		reason := "stopped after 3 consecutive model actions without workspace, tool, artifact, attachment, or new failure progress"
+		if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt && !recoveryAllowance.CanRecover {
+			result := agentTurnRunner.runTerminalNoToolsStep(taskContext, taskRun.TaskRunID, stepID, request, &state, "recovery_tool_budget_exhausted")
+			return result, true
+		}
+		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
+		return result, isBlocked
+	}
 	for iteration := 1; ; iteration++ {
 		if iteration > agentTurnRunner.options.MaxIterationCount {
 			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_iterations", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
@@ -448,6 +462,49 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
+		case "tool.request":
+			requestArguments := requestToolsArguments{
+				ToolNames:  append([]string{}, actionDocument.ToolNames...),
+				SkillNames: append([]string{}, actionDocument.SkillNames...),
+				Reason:     actionDocument.Reason,
+			}
+			if request.AmbientDuty.IsMatch {
+				observation := ambientFixedPaletteObservation(len(state.Observations)+1, requestArguments)
+				state.Observations = append(state.Observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.tool_palette.fixed", marshalEventBody(map[string]any{
+					"request": requestArguments,
+					"source":  "ambient_capture",
+				}))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool.request", observation.ContentText())
+				continue
+			}
+			nextRequest, selectionResult := applyToolRequest(request, requestArguments)
+			addedNothing := toolRequestAddedNothing(request, nextRequest, selectionResult)
+			request = nextRequest
+			state.Request = nextRequest
+			var observation turnObservation
+			if addedNothing {
+				observation = redundantToolSelectionObservation(len(state.Observations)+1, requestArguments, selectionResult)
+			} else {
+				observation = toolRequestObservation(len(state.Observations)+1, requestArguments, selectionResult)
+			}
+			state.Observations = append(state.Observations, observation)
+			eventName := "agent.tool_palette.applied"
+			if addedNothing {
+				eventName = "agent.tool_palette.redundant"
+			} else if toolRequestResultFailed(selectionResult) {
+				eventName = "agent.tool_palette.failed"
+			}
+			agentTurnRunner.appendEvent(taskRun.TaskRunID, eventName, marshalEventBody(map[string]any{
+				"request": requestArguments,
+				"result":  selectionResult,
+				"source":  "model_action",
+			}))
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool.request", observation.ContentText())
+			if result, shouldStop := stopForRequestToolsNoProgress(stepID); shouldStop {
+				return result, nil
+			}
+			continue
 		case "set_quality_criteria":
 			state.QualityCriteria = normalizeQualityCriteria(actionDocument.QualityCriteria)
 			observation := turnObservation{
@@ -951,20 +1008,9 @@ func (agentTurnRunner *AgentTurnRunner) applyInlineToolRequest(taskRunID string,
 	if len(appendUniqueStrings(requestArguments.ToolNames)) == 0 && len(appendUniqueStrings(requestArguments.SkillNames)) == 0 {
 		return request
 	}
-	if request.AmbientDuty.IsMatch {
-		agentTurnRunner.appendEvent(taskRunID, "agent.tool_palette.fixed", marshalEventBody(map[string]any{
-			"request": requestArguments,
-			"source":  "ambient_capture",
-		}))
-		return request
-	}
 	nextRequest, selectionResult := applyToolRequest(request, requestArguments)
 	state.Request = nextRequest
-	eventName := "agent.tool_palette.applied"
-	if toolRequestResultFailed(selectionResult) {
-		eventName = "agent.tool_palette.failed"
-	}
-	agentTurnRunner.appendEvent(taskRunID, eventName, marshalEventBody(map[string]any{
+	agentTurnRunner.appendEvent(taskRunID, "agent.tool_palette.applied", marshalEventBody(map[string]any{
 		"request": requestArguments,
 		"result":  selectionResult,
 		"source":  "continue_inline",

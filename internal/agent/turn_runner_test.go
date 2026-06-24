@@ -336,7 +336,7 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 
 func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"skill.search","toolInput":{},"requestTools":["site.app.create"]}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
 		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
 		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
@@ -376,8 +376,8 @@ func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 
 func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"skill.search","toolInput":{},"requestTools":["image.analyze"]}`,
-		`{"action":"continue","toolName":"skill.search","toolInput":{},"requestTools":["image.read"]}`,
+		`{"action":"tool.request","toolNames":["image.analyze"],"skillNames":[],"reason":"need image analysis"}`,
+		`{"action":"tool.request","toolNames":["image.read"],"skillNames":[],"reason":"use the matching registered image tool"}`,
 		`{"action":"continue","toolName":"image.read","toolInput":{"materialID":"mattermost:file-1"}}`,
 		finishMessageWithEvidence("image described", "obs-003", "image.read", 0),
 	}}
@@ -419,7 +419,7 @@ func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T)
 
 func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"skill.search","toolInput":{},"requestSkills":["site-prototype"]}`,
+		`{"action":"tool.request","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
 		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"},"nextStepPlan":{"objective":"finish after creating the site","expectedTools":[],"expectedNextResults":["site created"],"doneCriteria":["site created"],"risk":"none","workingSetReason":"site.app.create should satisfy this test"}}`,
 		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
@@ -452,6 +452,87 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 	}
 	if len(languageModel.requests) < 2 || !strings.Contains(joinMessageContent(languageModel.requests[1].Messages), "SITE WORKFLOW BODY") {
 		t.Fatalf("expected pinned skill instructions in next model request")
+	}
+}
+
+func TestAgentTurnRunnerStopsRepeatedSelectToolsWithoutToolProgress(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still need site creation"}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"should not be requested"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10})
+	toolRegistry := NewToolSet([]string{"skill.search"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"skills":[]}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"siteID":"site-1"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "create website",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to stop cleanly: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
+	}
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_turn_action") != 3 {
+		t.Fatalf("expected no-progress stop after three request_tools actions, got %+v", structuredRequestNames(languageModel.requests))
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "3 consecutive") {
+		t.Fatalf("expected no-progress stop event, got %+v", taskEvents)
+	}
+	if taskEventsContain(taskEvents, "max_iterations", "") {
+		t.Fatal("expected request_tools loop breaker before max_iterations")
+	}
+}
+
+func TestAgentTurnRunnerSelectToolsWithExhaustedFailureDebtRunsTerminalNoTools(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"try another tool"}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still trying"}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"terminal fallback should run after this"}`,
+		noToolFallbackFinishMessageDocument("I can answer from the failure context."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
+	toolRegistry := NewToolSet([]string{"math.calculate", "skill.search"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"skills":[]}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"siteID":"site-1"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return structuredFailureToolResult("exec: \"bc\": executable file not found in $PATH", "bc: command not found", "calculator_failed", "bc_execution", false, false), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "calculate it",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected terminal no-tools result: %v", errorValue)
+	}
+	if result.FinishMessage != "I can answer from the failure context." {
+		t.Fatalf("expected terminal no-tools finish, got %q", result.FinishMessage)
+	}
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_terminal_no_tools_action") != 1 {
+		t.Fatalf("expected one terminal no-tools request, got %+v", structuredRequestNames(languageModel.requests))
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "max_iterations", "") {
+		t.Fatal("expected terminal no-tools route before max_iterations")
 	}
 }
 
@@ -1847,6 +1928,9 @@ func assertTerminalNoToolsSchemasExcludeToolActions(t *testing.T, requests []llm
 		}
 		if actionSchemaHasVariant(t, request.StructuredOutputSchema.Document, "continue") {
 			t.Fatalf("terminal no-tools schema exposed continue: %s", request.StructuredOutputSchema.Document)
+		}
+		if actionSchemaHasVariant(t, request.StructuredOutputSchema.Document, "tool.request") {
+			t.Fatalf("terminal no-tools schema exposed tool.request: %s", request.StructuredOutputSchema.Document)
 		}
 	}
 }

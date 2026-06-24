@@ -144,6 +144,26 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 	}
 }
 
+func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
+	toolSet := newTestToolSet([]string{"site.app.create", "site.app.status"})
+	base := AgentTurnRequest{ToolSet: toolSet}
+
+	afterFirst, firstResult := applyToolRequest(base, requestToolsArguments{ToolNames: []string{"site.app.create", "site.app.status"}})
+	if toolRequestAddedNothing(base, afterFirst, firstResult) {
+		t.Fatal("first selection of new tools should add tools")
+	}
+
+	afterSecond, secondResult := applyToolRequest(afterFirst, requestToolsArguments{ToolNames: []string{"site.app.create", "site.app.status"}})
+	if !toolRequestAddedNothing(afterFirst, afterSecond, secondResult) {
+		t.Fatal("re-selecting already-available tools should add nothing")
+	}
+
+	observation := redundantToolSelectionObservation(1, requestToolsArguments{ToolNames: []string{"site.app.create"}}, secondResult)
+	if !strings.Contains(observation.Summary, "already available") || !strings.Contains(observation.Summary, "call one of them now") {
+		t.Fatalf("expected a use-them-now directive, got %q", observation.Summary)
+	}
+}
+
 func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
 	failedBrowser := newFailureObservation("obs-001", "continue", "browser.open", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureDependencyUnavailable, FailureCodes.Unavailable, "browser_open")
 	guidance := recoveryGuidanceContent(failedBrowser)
