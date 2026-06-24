@@ -21,7 +21,7 @@ from graphiti_core.embedder.client import EmbedderClient, EmbedderConfig
 from graphiti_core.graph_queries import get_fulltext_indices
 from graphiti_core.llm_client.client import LLMClient
 from graphiti_core.llm_client.config import LLMConfig, ModelSize
-from graphiti_core.nodes import EntityNode, EpisodeType
+from graphiti_core.nodes import EntityNode, EpisodicNode, EpisodeType
 from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_RRF
 import requests_unixsocket
 
@@ -168,6 +168,10 @@ class GraphitiMemoryService:
         with self.operation_lock:
             return await self.list_facts_locked(request_document)
 
+    async def delete_episode(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        with self.operation_lock:
+            return await self.delete_episode_locked(request_document)
+
     async def add_episode_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
         episode_id = request_document["episodeID"]
         prompt = request_document["prompt"]
@@ -187,6 +191,29 @@ class GraphitiMemoryService:
                 custom_extraction_instructions=extraction_instructions_for_namespace(namespace, sender_person_id),
             )
         return {"episodeID": episode_id, "namespaceCount": len(namespaces)}
+
+    async def delete_episode_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        episode_id = str(request_document.get("episodeID", "")).strip()
+        namespace_ids = request_document.get("namespaceIDs", [])
+        deleted_count = 0
+        for namespace_id in namespace_ids:
+            deleted_count += await self.delete_namespace_episode(episode_id, str(namespace_id).strip())
+        return {"episodeID": episode_id, "deleted": deleted_count > 0, "namespaceCount": deleted_count}
+
+    async def delete_namespace_episode(self, episode_id: str, namespace_id: str) -> int:
+        if episode_id == "" or namespace_id == "":
+            return 0
+        expected_name = graphiti_group_id(episode_id + ":" + namespace_id)
+        group_id = graphiti_group_id(namespace_id)
+        episodes = await EpisodicNode.get_by_group_ids(self.graphiti.driver, [group_id], limit=1000)
+        for episode in episodes:
+            if str(getattr(episode, "name", "") or "") != expected_name:
+                continue
+            result = self.graphiti.remove_episode(str(getattr(episode, "uuid", "")))
+            if hasattr(result, "__await__"):
+                await result
+            return 1
+        return 0
 
     async def search_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
         query = request_document.get("Query") or request_document.get("query") or ""
@@ -409,6 +436,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             request_document = self.read_json()
             if self.path == "/v1/episodes":
                 response_document = asyncio.run(self.service.add_episode(request_document))
+            elif self.path == "/v1/episodes/delete":
+                response_document = asyncio.run(self.service.delete_episode(request_document))
             elif self.path == "/v1/search":
                 response_document = asyncio.run(self.service.search(request_document))
             elif self.path == "/v1/list":

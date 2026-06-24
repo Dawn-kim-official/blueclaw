@@ -15,6 +15,10 @@ type GraphMemoryStore interface {
 	SearchFacts(context.Context, MemorySearchRequest) ([]MemoryFact, error)
 }
 
+type GraphMemoryEpisodeDeleter interface {
+	DeleteEpisode(context.Context, MemoryEpisodeDeleteRequest) (MemoryEpisodeDeleteResult, error)
+}
+
 type GraphMemoryHealthChecker interface {
 	CheckHealth(context.Context) error
 }
@@ -29,8 +33,17 @@ type GraphMemoryMirror interface {
 	ListAccessibleNamespaces(context.Context, MemorySearchRequest) ([]MemoryNamespace, error)
 }
 
+type GraphMemoryMirrorEditor interface {
+	DeleteGraphEpisodeNamespaces(context.Context, string, []string) (bool, error)
+}
+
 type GraphMemoryReporter interface {
 	ListMemoryGraph(context.Context, int) (MemoryGraph, error)
+}
+
+type GraphMemoryEpisodeReader interface {
+	GetMemoryGraphEpisode(context.Context, string) (MemoryGraphEpisode, bool, error)
+	ListMemoryGraphNamespacesByID(context.Context, []string) ([]MemoryGraphNamespace, error)
 }
 
 type GraphMemoryMigrator interface {
@@ -117,6 +130,33 @@ func (memoryService *MemoryService) AddEpisode(ctx context.Context, episode Memo
 		result.NamespaceCount = len(episode.Namespaces)
 	}
 	memoryService.recordIngestionError("")
+	return result, nil
+}
+
+func (memoryService *MemoryService) DeleteEpisode(ctx context.Context, request MemoryEpisodeDeleteRequest) (MemoryEpisodeDeleteResult, error) {
+	result := MemoryEpisodeDeleteResult{EpisodeID: request.EpisodeID}
+	if memoryService == nil {
+		return result, nil
+	}
+	deleter, hasDeleter := memoryService.store.(GraphMemoryEpisodeDeleter)
+	if memoryService.store != nil && !hasDeleter {
+		return result, nil
+	}
+	if hasDeleter {
+		deletedResult, errorValue := deleter.DeleteEpisode(ctx, request)
+		if errorValue != nil {
+			return result, errorValue
+		}
+		result = deletedResult
+	}
+	editor, hasEditor := memoryService.mirror.(GraphMemoryMirrorEditor)
+	if hasEditor {
+		wasDeleted, errorValue := editor.DeleteGraphEpisodeNamespaces(ctx, request.EpisodeID, request.NamespaceIDs)
+		if errorValue != nil {
+			return result, errorValue
+		}
+		result.Deleted = result.Deleted || wasDeleted
+	}
 	return result, nil
 }
 

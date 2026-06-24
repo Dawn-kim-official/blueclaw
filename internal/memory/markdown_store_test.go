@@ -56,6 +56,52 @@ func TestMarkdownStoreCompressesOverHardLimit(t *testing.T) {
 	}
 }
 
+func TestMarkdownStoreSavePersonMemoryOverwritesContent(t *testing.T) {
+	store := NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := store.MergePersonMemory(context.Background(), "person-1", "Old memory."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	updated, errorValue := store.SavePersonMemory(context.Background(), "person-1", "- New memory.")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !updated {
+		t.Fatal("expected memory update")
+	}
+	memoryFacts, errorValue := store.LoadPinnedMemory(context.Background(), "person-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(memoryFacts) != 1 || memoryFacts[0].Content != "# Memory\n- New memory." {
+		t.Fatalf("expected overwritten memory, got %+v", memoryFacts)
+	}
+}
+
+func TestMarkdownStoreDeletePersonMemoryRemovesContent(t *testing.T) {
+	store := NewMarkdownStore(t.TempDir(), 1200)
+	if _, errorValue := store.MergePersonMemory(context.Background(), "person-1", "Old memory."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	deleted, errorValue := store.DeletePersonMemory(context.Background(), "person-1")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !deleted {
+		t.Fatal("expected memory delete")
+	}
+	memoryFacts, errorValue := store.LoadPinnedMemory(context.Background(), "person-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(memoryFacts) != 0 {
+		t.Fatalf("expected no memory, got %+v", memoryFacts)
+	}
+}
+
 func TestMemoryUpdateProcessorUpdatesGraphitiAndMarkdown(t *testing.T) {
 	graphStore := &recordingGraphStore{}
 	memoryService := &MemoryService{}
