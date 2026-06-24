@@ -30,7 +30,7 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memorySearchToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.search",
-			Description: "Search Blueclaw graph memory allowed for this requester and conversation.",
+			Description: "Search Blueclaw graph memory allowed for this requester and conversation. Returns durable facts, preferences, and relationships by meaning, not exact rows; for exact queries, counts, or aggregates over records you stored in a table, use db.sql instead.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
 		},
 		Handler: func(toolContext context.Context, input memorySearchToolInput) (agent.ToolResult, error) {
@@ -41,7 +41,7 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memoryRememberToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.remember",
-			Description: "Record a memory update for the current person or active circle.",
+			Description: "Record a memory update for the current person or active circle. Use this for a few durable facts, preferences, or relationships to recall by meaning later; for structured records you query, count, or aggregate over many rows, store them with db.sql instead.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string"}},"required":["content"]}`),
 		},
 		Handler: func(toolContext context.Context, input memoryRememberToolInput) (agent.ToolResult, error) {
