@@ -28,7 +28,6 @@ type LLMContextInput struct {
 	ScheduledRun         ScheduledRunContext
 	ActiveTask           ActiveTaskContext
 	PendingInput         PendingInputContext
-	CurrentStepPlan      NextStepPlan
 	StepBudgetContext    string
 	ArtifactManifest     []ArtifactManifestEntry
 	Observations         []turnObservation
@@ -112,7 +111,6 @@ func (builder LLMContextBuilder) workspaceContext(workspaceContext WorkspaceCont
 		RequesterPersonID:     workspaceContext.RequesterPersonID,
 		WorkspaceRootPath:     workspaceContext.RootPath,
 		WorkspaceDefaultPath:  workspaceContext.DefaultPath,
-		CurrentStepPlan:       NextStepPlan{},
 		ToolSet:               nil,
 		ResponseLanguage:      DefaultResponseLanguage(),
 		RequiredEvidenceTools: nil,
@@ -147,9 +145,6 @@ func (builder LLMContextBuilder) taskContext(input LLMContextInput) string {
 	}
 	if pendingInput := builder.pendingInputContext(input.PendingInput); pendingInput != "" {
 		sections = append(sections, pendingInput)
-	}
-	if !nextStepPlanIsEmpty(input.CurrentStepPlan) {
-		sections = append(sections, "Previous Step plan for the current working set:\n"+marshalEventBody(normalizeNextStepPlan(input.CurrentStepPlan)))
 	}
 	if len(sections) == 0 {
 		return ""
@@ -264,7 +259,6 @@ func agentTurnRequestForContext(input LLMContextInput) AgentTurnRequest {
 		TurnStartedAt:         input.TurnStartedAt,
 		WorkspaceRootPath:     input.WorkspaceContext.RootPath,
 		WorkspaceDefaultPath:  input.WorkspaceContext.DefaultPath,
-		CurrentStepPlan:       input.CurrentStepPlan,
 		VisibleContext:        input.VisibleContext,
 		InputParts:            append([]AgentPart{}, input.InputParts...),
 		ActiveGoal:            input.ActiveGoal,

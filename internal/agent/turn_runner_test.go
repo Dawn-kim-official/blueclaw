@@ -1054,49 +1054,6 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 	}
 }
 
-func TestAgentTurnRunnerNextStepPlanExpandsWorkingSet(t *testing.T) {
-	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
-	toolRegistry := newTestToolSet([]string{
-		"site.app.status",
-		"site.app.create",
-		"file.read",
-		"file.write",
-		"terminal.run",
-		"site.app.build",
-		"artifact.review",
-		"site.app.publish",
-	})
-	request := AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "개인 홈페이지 만들고 배포해줘",
-		ToolSet:           toolRegistry,
-	}
-	state := agentTaskState{
-		Request: request,
-		NextStepPlan: NextStepPlan{
-			Objective:           "prepare a publishable site draft",
-			ExpectedTools:       []string{"site.app.create", "file.write", "terminal.run", "site.app.build"},
-			ExpectedNextResults: []string{"a draft workspace exists", "a build result exists"},
-			DoneCriteria:        []string{"draft and build expected results exist"},
-			Risk:                "site may not exist yet",
-			WorkingSetReason:    "next result expectations explain why the tool set is needed",
-		},
-		Observations: []turnObservation{{
-			ObservationID:  "obs-001",
-			Action:         "expected_result_missing",
-			RecoveryPacket: &RecoveryPacket{WhyLikely: "A public URL is still missing."},
-		}},
-	}
-
-	stepRequest := services.runner.requestForStep(context.Background(), request, state)
-	for _, toolName := range []string{"site.app.create", "file.write", "terminal.run", "site.app.build"} {
-		if !stepRequest.ToolSet.CanExpose(toolName) {
-			t.Fatalf("expected evidence-driven working set to expose %s, got %+v", toolName, stepRequest.ToolExposure.ExposedToolIDs)
-		}
-	}
-}
-
 func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
@@ -1150,12 +1107,6 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	if !taskEventsContain(events, "agent.tool_palette.built", "deterministic") {
 		t.Fatal("expected deterministic per-iteration tool exposure without selector LLM calls")
 	}
-	if !taskEventsContain(events, "agent.next_step_plan", "site.app.build") {
-		t.Fatal("expected next Step plan to be recorded for working set selection")
-	}
-	if !taskEventsContain(events, "agent.step_working_set", "site.app.build") {
-		t.Fatal("expected Step working set event to include planned build tool")
-	}
 }
 
 func TestSiteRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
@@ -1169,13 +1120,10 @@ func TestSiteRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 		},
 	}
 
-	updatedRequest := requestWithStepWorkingSetTools(request, NextStepPlan{ExpectedTools: []string{"site.app.status"}}, nil)
+	updatedRequest := requestWithStepWorkingSetTools(request, nil)
 
 	if stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.add") || stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.delete") {
 		t.Fatalf("did not expect calendar tools pinned for site content mention, got %+v", updatedRequest.PinnedToolNames)
-	}
-	if !stringSliceContains(updatedRequest.PinnedToolNames, "site.app.status") {
-		t.Fatalf("expected next step tool to remain pinned, got %+v", updatedRequest.PinnedToolNames)
 	}
 }
 
@@ -1190,61 +1138,10 @@ func TestSlidesRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 		},
 	}
 
-	updatedRequest := requestWithStepWorkingSetTools(request, NextStepPlan{ExpectedTools: []string{"file.write"}}, nil)
+	updatedRequest := requestWithStepWorkingSetTools(request, nil)
 
 	if stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.add") || stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.delete") {
 		t.Fatalf("did not expect calendar tools pinned for slides content mention, got %+v", updatedRequest.PinnedToolNames)
-	}
-	if !stringSliceContains(updatedRequest.PinnedToolNames, "file.write") {
-		t.Fatalf("expected next step tool to remain pinned, got %+v", updatedRequest.PinnedToolNames)
-	}
-}
-
-func TestCompletedInspectionToolDoesNotPinSameNextStepTool(t *testing.T) {
-	request := AgentTurnRequest{}
-	observations := []turnObservation{{
-		ObservationID: "obs-001",
-		Action:        "continue",
-		Tool:          "file.read",
-		Summary:       "path=tmp/deck/presentation.md; range=1-100",
-	}}
-
-	updatedRequest := requestWithStepWorkingSetTools(request, NextStepPlan{
-		ExpectedTools: []string{"file.read", "file.edit"},
-	}, observations)
-
-	if stringSliceContains(updatedRequest.PinnedToolNames, "file.read") {
-		t.Fatalf("did not expect the completed inspection tool to be pinned again, got %+v", updatedRequest.PinnedToolNames)
-	}
-	if !stringSliceContains(updatedRequest.PinnedToolNames, "file.edit") {
-		t.Fatalf("expected next non-inspection tool to stay pinned, got %+v", updatedRequest.PinnedToolNames)
-	}
-}
-
-func TestStepPlanDoesNotPinSendToolForAttachmentFollowUp(t *testing.T) {
-	request := AgentTurnRequest{
-		Prompt: "다시 시도해보자",
-		VisibleContext: VisibleContext{
-			Materials: []VisibleContextMaterial{{
-				MaterialID: "mattermost:file-1",
-				Path:       "home/inbox/mattermost/direct/post/kim-intern-automation.html",
-			}},
-		},
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			SelectedEvidenceHints: []string{"platform.message.send"},
-		}},
-		OutcomeContract: OutcomeContract{SelectedEvidenceHints: []string{"platform.message.send"}},
-	}
-
-	updatedRequest := requestWithStepWorkingSetTools(request, NextStepPlan{
-		ExpectedTools: []string{"platform.message.send", "file.preview"},
-	}, nil)
-
-	if stringSliceContains(updatedRequest.PinnedToolNames, "platform.message.send") {
-		t.Fatalf("did not expect send tool pinned for attachment follow-up, got %+v", updatedRequest.PinnedToolNames)
-	}
-	if !stringSliceContains(updatedRequest.PinnedToolNames, "file.preview") {
-		t.Fatalf("expected file.preview to remain pinned, got %+v", updatedRequest.PinnedToolNames)
 	}
 }
 
