@@ -20,6 +20,9 @@ type PersonPolicy struct {
 	SecurityLevelRank int      `json:"securityLevelRank"`
 	GrantedClasses    []string `json:"grantedClasses"`
 	IsAdmin           bool     `json:"isAdmin"`
+	JobTitle          string   `json:"jobTitle,omitempty"`
+	PrimaryCircle     string   `json:"primaryCircle,omitempty"`
+	SupervisorID      string   `json:"supervisorID,omitempty"`
 }
 
 type CirclePolicy struct {
