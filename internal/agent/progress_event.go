@@ -24,16 +24,13 @@ func progressEvents(observations []turnObservation) []progressEvent {
 	events := []progressEvent{}
 	seenFailures := map[string]bool{}
 	failureProgressSinceSuccess := 0
-	for index, observation := range observations {
+	for _, observation := range observations {
 		recordSuccess := func(event progressEvent) {
 			events = append(events, event)
 			failureProgressSinceSuccess = 0
 		}
 		if observation.Action == "set_quality_criteria" {
 			recordSuccess(progressEvent{Kind: "quality_criteria", Key: observation.ObservationID})
-		}
-		if observation.Action == "tool.request" && !observation.Failed() && hasSuccessfulToolCallAfter(observations, index) {
-			recordSuccess(progressEvent{Kind: "tool_palette_selected", Key: observation.ObservationID + ":" + observation.ContentText()})
 		}
 		if observation.Action == "continue" && !observation.Failed() {
 			recordSuccess(progressEvent{Kind: "tool_success", Key: observation.ObservationID + ":" + observation.Tool})
@@ -58,15 +55,6 @@ func progressEvents(observations []turnObservation) []progressEvent {
 		}
 	}
 	return events
-}
-
-func hasSuccessfulToolCallAfter(observations []turnObservation, index int) bool {
-	for _, observation := range observations[index+1:] {
-		if observation.Action == "continue" && strings.TrimSpace(observation.Tool) != "" && !observation.Failed() {
-			return true
-		}
-	}
-	return false
 }
 
 func progressEventCount(observations []turnObservation) int {
