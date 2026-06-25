@@ -51,17 +51,28 @@ func TestResolveIntakeLanguageModelProviderUsesLowTierModel(t *testing.T) {
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.ExecutionMode = "auto"
 
-	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration))
-	capabilityLLMClient, isCapabilityProvider := languageModelProvider.(llm.CapabilityLLMClient)
-	if !isCapabilityProvider {
-		t.Fatalf("expected capability intake provider, got %T", languageModelProvider)
+	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+	fallbackLanguageModelProvider, isFallbackProvider := languageModelProvider.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected fallback intake provider, got %T", languageModelProvider)
 	}
-	expectedLowModel := llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration)).Low
-	if capabilityLLMClient.ModelName != expectedLowModel {
-		t.Fatalf("expected low tier intake model %q, got %q", expectedLowModel, capabilityLLMClient.ModelName)
+	primaryClient, isPrimaryCapabilityClient := fallbackLanguageModelProvider.PrimaryProvider.(llm.CapabilityLLMClient)
+	if !isPrimaryCapabilityClient {
+		t.Fatalf("expected primary capability intake provider, got %T", fallbackLanguageModelProvider.PrimaryProvider)
 	}
-	if capabilityLLMClient.ExecutionMode != "auto" {
-		t.Fatalf("expected automatic intake execution mode, got %q", capabilityLLMClient.ExecutionMode)
+	fallbackClient, isFallbackCapabilityClient := fallbackLanguageModelProvider.FallbackProvider.(llm.CapabilityLLMClient)
+	if !isFallbackCapabilityClient {
+		t.Fatalf("expected fallback capability intake provider, got %T", fallbackLanguageModelProvider.FallbackProvider)
+	}
+	expectedTierNames := llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration))
+	if primaryClient.ModelName != expectedTierNames.XLow {
+		t.Fatalf("expected xlow tier intake model %q, got %q", expectedTierNames.XLow, primaryClient.ModelName)
+	}
+	if fallbackClient.ModelName != expectedTierNames.Low {
+		t.Fatalf("expected low tier intake fallback model %q, got %q", expectedTierNames.Low, fallbackClient.ModelName)
+	}
+	if primaryClient.ExecutionMode != "auto" || fallbackClient.ExecutionMode != "auto" {
+		t.Fatalf("expected automatic intake execution mode, got %q and %q", primaryClient.ExecutionMode, fallbackClient.ExecutionMode)
 	}
 }
 

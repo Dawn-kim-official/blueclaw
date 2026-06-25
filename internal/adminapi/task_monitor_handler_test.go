@@ -108,6 +108,104 @@ func TestTaskMonitorHandlerIncludeTotalReturnsCountAfterFilter(t *testing.T) {
 	}
 }
 
+func TestTaskMonitorHandlerIncludeTotalReturnsCostSummaries(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	firstTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "first task")
+	secondTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "second task")
+	taskRunService.AppendTaskEvent(firstTaskRun.TaskRunID, "llm.call", `{"costUSD":0.0155,"totalTokens":100}`)
+	taskRunService.AppendTaskEvent(secondTaskRun.TaskRunID, "llm.call", `{"upstreamInferenceCostUSD":0.0045,"totalTokens":50}`)
+	handler := TaskMonitorHandler{TaskRunService: taskRunService, TaskEventService: taskEventService}
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task?includeTotal=true&includeCost=true", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleListTaskRun(responseRecorder, request)
+
+	var response struct {
+		TaskRuns []struct {
+			TaskRunID    string  `json:"taskRunID"`
+			LLMCostUSD   float64 `json:"llmCostUSD"`
+			LLMCallCount int     `json:"llmCallCount"`
+		} `json:"taskRuns"`
+		DailyCostSummaries []struct {
+			Date         string  `json:"date"`
+			CostUSD      float64 `json:"costUSD"`
+			TaskRunCount int     `json:"taskRunCount"`
+			LLMCallCount int     `json:"llmCallCount"`
+		} `json:"dailyCostSummaries"`
+	}
+	if errorValue := json.Unmarshal(responseRecorder.Body.Bytes(), &response); errorValue != nil {
+		t.Fatalf("expected object response, got %s", responseRecorder.Body.String())
+	}
+	if len(response.TaskRuns) != 2 {
+		t.Fatalf("expected two task runs, got %d", len(response.TaskRuns))
+	}
+	if response.TaskRuns[0].LLMCallCount != 1 || response.TaskRuns[1].LLMCallCount != 1 {
+		t.Fatalf("expected row call counts, got %+v", response.TaskRuns)
+	}
+	if len(response.DailyCostSummaries) != 1 {
+		t.Fatalf("expected one daily cost summary, got %+v", response.DailyCostSummaries)
+	}
+	dailySummary := response.DailyCostSummaries[0]
+	if dailySummary.Date == "" {
+		t.Fatalf("expected date in daily summary, got %+v", dailySummary)
+	}
+	if dailySummary.TaskRunCount != 2 || dailySummary.LLMCallCount != 2 {
+		t.Fatalf("expected task and call counts in daily summary, got %+v", dailySummary)
+	}
+	if dailySummary.CostUSD < 0.019999 || dailySummary.CostUSD > 0.020001 {
+		t.Fatalf("expected daily cost 0.02, got %.6f", dailySummary.CostUSD)
+	}
+}
+
+func TestTaskMonitorHandlerLimitsDailyCostSummaryWindow(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	firstTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "first task")
+	secondTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "second task")
+	thirdTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "third task")
+	taskRunService.AppendTaskEvent(firstTaskRun.TaskRunID, "llm.call", `{"costUSD":0.01}`)
+	taskRunService.AppendTaskEvent(secondTaskRun.TaskRunID, "llm.call", `{"costUSD":0.02}`)
+	taskRunService.AppendTaskEvent(thirdTaskRun.TaskRunID, "llm.call", `{"costUSD":0.03}`)
+	handler := TaskMonitorHandler{TaskRunService: taskRunService, TaskEventService: taskEventService}
+	request := httptest.NewRequest(http.MethodGet, "/admin/api/task?limit=1&offset=1&includeTotal=true&includeCost=true&dailyCostTaskRunLimit=1", nil)
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleListTaskRun(responseRecorder, request)
+
+	var response struct {
+		TaskRuns []struct {
+			TaskRunID    string  `json:"taskRunID"`
+			LLMCostUSD   float64 `json:"llmCostUSD"`
+			LLMCallCount int     `json:"llmCallCount"`
+		} `json:"taskRuns"`
+		DailyCostSummaries []struct {
+			TaskRunCount int `json:"taskRunCount"`
+		} `json:"dailyCostSummaries"`
+		DailyCostScope struct {
+			TaskRunLimit      int  `json:"taskRunLimit"`
+			TaskRunCount      int  `json:"taskRunCount"`
+			TotalTaskRunCount int  `json:"totalTaskRunCount"`
+			IsTruncated       bool `json:"isTruncated"`
+		} `json:"dailyCostScope"`
+	}
+	if errorValue := json.Unmarshal(responseRecorder.Body.Bytes(), &response); errorValue != nil {
+		t.Fatalf("expected object response, got %s", responseRecorder.Body.String())
+	}
+	if len(response.TaskRuns) != 1 {
+		t.Fatalf("expected one paged task run, got %+v", response.TaskRuns)
+	}
+	if response.TaskRuns[0].LLMCallCount != 1 || response.TaskRuns[0].LLMCostUSD <= 0 {
+		t.Fatalf("expected paged row cost summary, got %+v", response.TaskRuns[0])
+	}
+	if len(response.DailyCostSummaries) != 1 || response.DailyCostSummaries[0].TaskRunCount != 1 {
+		t.Fatalf("expected daily summary to use one task run, got %+v", response.DailyCostSummaries)
+	}
+	if response.DailyCostScope.TaskRunLimit != 1 || response.DailyCostScope.TaskRunCount != 1 || response.DailyCostScope.TotalTaskRunCount != 3 || !response.DailyCostScope.IsTruncated {
+		t.Fatalf("expected truncated daily cost scope, got %+v", response.DailyCostScope)
+	}
+}
+
 func TestTaskMonitorHandlerWithoutIncludeTotalReturnsBareArray(t *testing.T) {
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	taskRunService.CreateTaskRun("person-1", "conversation-1", "only task")

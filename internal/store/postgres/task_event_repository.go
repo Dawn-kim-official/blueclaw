@@ -40,6 +40,22 @@ FROM task_event WHERE task_run_id = $1 ORDER BY created_at ASC`, taskRunID)
 	return scanTaskEvents(rows)
 }
 
+func (taskEventRepository TaskEventRepository) ListTaskEventByNameForTaskRuns(taskRunIDs []string, name string) ([]task.TaskEvent, error) {
+	if len(taskRunIDs) == 0 || name == "" {
+		return []task.TaskEvent{}, nil
+	}
+	rows, errorValue := taskEventRepository.database.SQL.QueryContext(context.Background(), `
+SELECT task_event_id, task_run_id, name, body, created_at
+FROM task_event
+WHERE task_run_id = ANY($1::text[]) AND name = $2
+ORDER BY created_at ASC`, taskRunIDs, name)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	defer rows.Close()
+	return scanTaskEvents(rows)
+}
+
 func scanTaskEvents(rows *sql.Rows) ([]task.TaskEvent, error) {
 	taskEvents := []task.TaskEvent{}
 	for rows.Next() {

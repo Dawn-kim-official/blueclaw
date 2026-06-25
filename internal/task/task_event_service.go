@@ -8,6 +8,7 @@ import (
 type TaskEventRepository interface {
 	InsertTaskEvent(TaskEvent) error
 	ListTaskEvent(string) ([]TaskEvent, error)
+	ListTaskEventByNameForTaskRuns([]string, string) ([]TaskEvent, error)
 }
 
 type RawTurnEvent struct {
@@ -112,6 +113,38 @@ func (taskEventService *TaskEventService) ListTaskEvent(taskRunID string) []Task
 	taskEventService.mutex.RLock()
 	defer taskEventService.mutex.RUnlock()
 	return append([]TaskEvent{}, taskEventService.taskEvents[taskRunID]...)
+}
+
+func (taskEventService *TaskEventService) ListTaskEventByNameForTaskRuns(taskRunIDs []string, name string) []TaskEvent {
+	if len(taskRunIDs) == 0 || name == "" {
+		return []TaskEvent{}
+	}
+	if taskEventService.repository != nil {
+		taskEvents, errorValue := taskEventService.repository.ListTaskEventByNameForTaskRuns(taskRunIDs, name)
+		if errorValue == nil {
+			return taskEvents
+		}
+	}
+	seenTaskRunIDs := map[string]bool{}
+	selectedTaskRunIDs := []string{}
+	for _, taskRunID := range taskRunIDs {
+		if seenTaskRunIDs[taskRunID] {
+			continue
+		}
+		seenTaskRunIDs[taskRunID] = true
+		selectedTaskRunIDs = append(selectedTaskRunIDs, taskRunID)
+	}
+	taskEventService.mutex.RLock()
+	defer taskEventService.mutex.RUnlock()
+	taskEvents := []TaskEvent{}
+	for _, taskRunID := range selectedTaskRunIDs {
+		for _, taskEvent := range taskEventService.taskEvents[taskRunID] {
+			if taskEvent.Name == name {
+				taskEvents = append(taskEvents, taskEvent)
+			}
+		}
+	}
+	return taskEvents
 }
 
 func (taskEventService *TaskEventService) RemoveTaskRunEvents(taskRunID string) {
