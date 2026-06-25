@@ -30,12 +30,13 @@ type qualityReviewItem struct {
 }
 
 type completionGateResult struct {
-	IsSatisfied        bool
-	Message            string
-	Attachments        []FileAttachment
-	ValidityState      ValidityState
-	ResultVerification ResultVerification
-	SuggestedNextTools []string
+	IsSatisfied          bool
+	Message              string
+	Attachments          []FileAttachment
+	ValidityState        ValidityState
+	ResultVerification   ResultVerification
+	ContractVerification ContractSatisfactionVerification
+	SuggestedNextTools   []string
 }
 
 type completionTransition struct {
@@ -393,7 +394,11 @@ func validateCompletionGateForRequest(request AgentTurnRequest, requirements []t
 
 func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpectedResults(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
 	if len(request.OutcomeContract.ExpectedResults) == 0 {
-		return validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+		result := validateCompletionGateForRequestWithRecoveryBudget(request, requirements, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
+		if !result.IsSatisfied {
+			return result
+		}
+		return agentTurnRunner.verifyCompletionContract(ctx, taskRunID, request, observations, result.Attachments, actionDocument, result)
 	}
 	result := validateExpectedResultCompletionGate(request, observations, criteria, actionDocument, agentTurnRunner.options.RecoveryBudget)
 	if !result.IsSatisfied {
@@ -410,12 +415,40 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 	agentTurnRunner.appendEvent(taskRunID, "agent.expected_result_verification", marshalEventBody(verification))
 	missingResults := blockingExpectedResultItems(request.OutcomeContract, verification, observations)
 	if len(missingResults) == 0 {
-		return result
+		return agentTurnRunner.verifyCompletionContract(ctx, taskRunID, request, observations, result.Attachments, actionDocument, result)
 	}
 	result.IsSatisfied = false
 	result.Message = expectedResultGateMessage(missingResults)
 	result.SuggestedNextTools = suggestedNextToolsForResultVerification(missingResults)
 	return result
+}
+
+func (agentTurnRunner *AgentTurnRunner) verifyCompletionContract(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument, result completionGateResult) completionGateResult {
+	if !activeGoalOutcomeContractHasRequirements(request.OutcomeContract) {
+		return result
+	}
+	verification, errorValue := verifyContractSatisfaction(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)
+	if errorValue != nil {
+		result.IsSatisfied = false
+		result.Message = "contract verification unavailable: " + errorValue.Error()
+		agentTurnRunner.appendEvent(taskRunID, "agent.contract_verification_unavailable", marshalEventBody(map[string]string{"error": errorValue.Error()}))
+		return result
+	}
+	result.ContractVerification = verification
+	agentTurnRunner.appendEvent(taskRunID, "agent.contract_satisfaction_verification", marshalEventBody(verification))
+	if verification.Satisfied {
+		return result
+	}
+	result.IsSatisfied = false
+	result.Message = contractVerificationGateMessage(verification)
+	result.SuggestedNextTools = verification.SuggestedNextTools
+	result.Attachments = nil
+	return result
+}
+
+func contractVerificationGateMessage(verification ContractSatisfactionVerification) string {
+	description := firstNonEmptyString(verification.MissingDescription, verification.Reason, "requested outcome is not backed by observed evidence")
+	return "finish does not satisfy task contract: " + strings.TrimSpace(description)
 }
 
 func validateExpectedResultCompletionGate(request AgentTurnRequest, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
@@ -721,6 +754,8 @@ func completionGateEventName(observation turnObservation) string {
 func evidenceMissingKind(message string) string {
 	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
 	switch {
+	case strings.Contains(normalizedMessage, "task contract"):
+		return "expected_result_missing"
 	case strings.Contains(normalizedMessage, "expected result"):
 		return "expected_result_missing"
 	case strings.Contains(normalizedMessage, "requires successful observation"):

@@ -1760,12 +1760,14 @@ func newTurnRunnerTestServices(languageModel llm.LanguageModelProvider, options 
 }
 
 type sequenceLanguageModel struct {
-	contents             []string
-	resultVerifications  []string
-	textResponses        []string
-	requests             []llm.StructuredResponseRequest
-	verificationRequests []llm.StructuredResponseRequest
-	textPrompts          []string
+	contents              []string
+	resultVerifications   []string
+	contractVerifications []string
+	textResponses         []string
+	requests              []llm.StructuredResponseRequest
+	verificationRequests  []llm.StructuredResponseRequest
+	contractRequests      []llm.StructuredResponseRequest
+	textPrompts           []string
 }
 
 func recoveryDecisionDocument(whatFailed string, whatWasKnown string, nextAction string, userReplyIntent string) string {
@@ -1798,6 +1800,14 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 			return llm.StructuredResponse{Content: languageModel.resultVerifications[index]}, nil
 		}
 		return llm.StructuredResponse{Content: defaultResultVerificationResponse(request)}, nil
+	}
+	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_contract_verifier" {
+		languageModel.contractRequests = append(languageModel.contractRequests, request)
+		index := len(languageModel.contractRequests) - 1
+		if index < len(languageModel.contractVerifications) {
+			return llm.StructuredResponse{Content: languageModel.contractVerifications[index]}, nil
+		}
+		return llm.StructuredResponse{Content: `{"satisfied":true,"reason":"test default","missingDescription":"","suggestedNextTools":[]}`}, nil
 	}
 	languageModel.requests = append(languageModel.requests, request)
 	index := len(languageModel.requests) - 1

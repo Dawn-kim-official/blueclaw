@@ -35,6 +35,13 @@ type ResultVerificationItem struct {
 	SuggestedNextTools  []string `json:"suggestedNextTools,omitempty"`
 }
 
+type ContractSatisfactionVerification struct {
+	Satisfied          bool     `json:"satisfied"`
+	Reason             string   `json:"reason"`
+	MissingDescription string   `json:"missingDescription"`
+	SuggestedNextTools []string `json:"suggestedNextTools"`
+}
+
 var observedURLPattern = regexp.MustCompile(`https?://[^\s"'<>]+`)
 
 func buildObservedResults(observations []turnObservation, attachments []FileAttachment, finishMessage string) []ObservedResult {
@@ -182,6 +189,78 @@ func verifyExpectedResults(ctx context.Context, languageModel llm.LanguageModelP
 	}
 	observedResults = deduplicateObservedResults(observedResults)
 	return enforceObservedResultRequirements(expectedResults, observedResults, finishActionMessage(actionDocument), normalizeResultVerification(expectedResults, verification)), nil
+}
+
+func verifyContractSatisfaction(ctx context.Context, languageModel llm.LanguageModelProvider, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) (ContractSatisfactionVerification, error) {
+	if languageModel == nil {
+		return ContractSatisfactionVerification{}, errors.New("contract verifier language model is not configured")
+	}
+	observedResults := buildObservedResults(observations, attachments, finishActionMessage(actionDocument))
+	response, errorValue := languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+		Messages: contractVerifierMessages(request, observedResults, finishActionMessage(actionDocument)),
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               "blueclaw_contract_verifier",
+			Document:           contractVerifierSchema(),
+			IsStrictlyEnforced: true,
+		},
+	})
+	if errorValue != nil {
+		return ContractSatisfactionVerification{}, errorValue
+	}
+	var verification ContractSatisfactionVerification
+	if errorValue := json.Unmarshal([]byte(response.Content), &verification); errorValue != nil {
+		return ContractSatisfactionVerification{}, errorValue
+	}
+	return normalizeContractSatisfactionVerification(request, verification), nil
+}
+
+func contractVerifierMessages(request AgentTurnRequest, observedResults []ObservedResult, finishMessage string) []llm.Message {
+	contractDocument, _ := json.Marshal(request.OutcomeContract)
+	observedDocument, _ := json.Marshal(deduplicateObservedResults(observedResults))
+	return []llm.Message{
+		{
+			Role:    "system",
+			Content: "You verify whether a Blueclaw task is actually complete. Return satisfied=false when the final reply claims a file, attachment, URL, message send, or other deliverable that is not backed by observed evidence. Do not count a final reply promise, a proposed reply part, or a plain path string as delivered evidence. A file is delivered only when observed results include a file/attachment produced by a successful tool result.",
+		},
+		{
+			Role:    "system",
+			Content: "Outcome contract:\n" + string(contractDocument),
+		},
+		{
+			Role:    "system",
+			Content: "Observed evidence:\n" + string(observedDocument),
+		},
+		{
+			Role:    "system",
+			Content: "Final reply draft:\n" + finishMessage,
+		},
+		{
+			Role:    "user",
+			Content: request.Prompt,
+		},
+	}
+}
+
+func contractVerifierSchema() string {
+	return `{"type":"object","properties":{"satisfied":{"type":"boolean"},"reason":{"type":"string"},"missingDescription":{"type":"string"},"suggestedNextTools":{"type":"array","items":{"type":"string"}}},"required":["satisfied","reason","missingDescription","suggestedNextTools"],"additionalProperties":false}`
+}
+
+func normalizeContractSatisfactionVerification(request AgentTurnRequest, verification ContractSatisfactionVerification) ContractSatisfactionVerification {
+	verification.Reason = strings.TrimSpace(verification.Reason)
+	verification.MissingDescription = strings.TrimSpace(verification.MissingDescription)
+	verification.SuggestedNextTools = registeredToolNamesOnly(request.ToolSet, appendUniqueStrings(verification.SuggestedNextTools))
+	if verification.Satisfied {
+		verification.MissingDescription = ""
+		verification.SuggestedNextTools = nil
+	}
+	if verification.Reason == "" {
+		if verification.Satisfied {
+			verification.Reason = "The requested outcome is backed by observed evidence."
+		} else {
+			verification.Reason = "The requested outcome is not backed by observed evidence."
+		}
+	}
+	return verification
 }
 
 func resultVerifierMessages(request AgentTurnRequest, expectedResults []ExpectedResult, observedResults []ObservedResult) []llm.Message {

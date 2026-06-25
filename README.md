@@ -173,7 +173,7 @@ flowchart TD
   Promote --> Attach["file.attach promoted file"]
 ```
 
-Required artifact tasks are not complete until `file.attach` evidence points to promoted durable artifacts. A draft file under `tmp/<slug>`, a local path string, or a markdown link is not completion evidence.
+Required artifact tasks are not complete until `file.attach` evidence points to promoted durable artifacts. A draft file under `tmp/<slug>`, a local path string, or a markdown link is not completion evidence. Completion contract verification runs only when the task has explicit outcome requirements such as required artifacts, evidence, or result checks; empty contracts stay on the fast path and finish without an extra verifier call.
 
 Runtime failure recovery receives compact execution state plus the latest observation tail. Tool failures should surface concrete actor/path/stage details instead of generic "system limitation" text. For a real task failure the failure-reply path validates a draft against two gates: only safety/fact checks (no secret or diagnostic leak, no false delivery claim) can block a draft, while style/intent issues only trigger repair. Blueclaw tries generated wording, then repair, then local recovery wording, then delivers the best safety-passing draft, and only as a last resort sends a compact redacted raw-error notice — it never composes a deterministic canned sentence. Full suppression is reserved for intentionally ignored cases such as duplicates, cancellations, and self/bot messages.
 
