@@ -134,6 +134,47 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	}
 }
 
+func TestFileReadTreatsMissingSiteControlFileAsOptionalState(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "home/sites/site-1/.internkim/artifact-brief.md",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected missing optional site control file to be state, got %s", result.ContentText())
+	}
+	if !strings.Contains(result.ContentText(), `"exists":false`) ||
+		!strings.Contains(result.ContentText(), `"optional":true`) ||
+		!strings.Contains(result.ContentText(), `"recommendedWritePath":"/workspace/circles/staff/sites/site-1/draft/.internkim/artifact-brief.md"`) {
+		t.Fatalf("expected optional missing control-file payload, got %s", result.ContentText())
+	}
+
+	missingResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "home/sites/site-1/app/src/App.tsx",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !missingResult.Failed() || missingResult.FailureCode() != agent.FailureCodes.NotFound.String() {
+		t.Fatalf("expected ordinary missing file.read to fail as not_found, got %+v", missingResult)
+	}
+}
+
 func TestFileWriteAcceptsPortablePathAndContent(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
@@ -1358,7 +1399,6 @@ func TestFileWriteRejectsBuiltInSkillPaths(t *testing.T) {
 		}
 	}
 }
-
 
 func TestApplyExactOrTolerantEditExactMatch(t *testing.T) {
 	updated, count, applied := applyExactOrTolerantEdit("alpha\nbeta\ngamma\n", "beta", "BETA")

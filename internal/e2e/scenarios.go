@@ -925,7 +925,7 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 			Prompt: "웹사이트 하나 만들어서 배포해봐",
 			ActionResponses: []string{
 				actionCallTool("site.app.create", `{"slug":"demo","title":"Demo Website"}`),
-				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf 'demo site' > dist/index.html","workingDirectoryPath":"home/sites/site-1/app","timeoutSecond":30}`),
+				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf 'demo site' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/site-1/draft/app","timeoutSecond":30}`),
 				actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Initial demo website"}`),
 				actionFinishMessage("웹사이트 프로토타입을 배포했습니다: https://demo.device.example.test", "obs-003:site.app.publish:0"),
 			},
@@ -959,8 +959,8 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 				Prompt: "Build and deploy a simple site.",
 				ActionResponses: []string{
 					actionCallTool("site.app.create", `{"slug":"demo","title":"Demo Website"}`),
-					actionCallTool("file.write", `{"path":"home/sites/site-1/app/index.html","content":"<!doctype html>\n<html>\n<body>\n<h1>Simple Site</h1>\n</body>\n</html>\n"}`),
-					actionCallTool("terminal.run", `{"command":"mkdir -p dist && cp index.html dist/index.html","workingDirectoryPath":"home/sites/site-1/app","timeoutSecond":30}`),
+					actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/site-1/draft/app/src/App.tsx","content":"export default function App() {\n  return <h1>Simple Site</h1>;\n}\n"}`),
+					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><h1>Simple Site</h1></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/site-1/draft/app","timeoutSecond":30}`),
 					actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Initial simple site"}`),
 					actionFinishMessage("Deployed the simple site: https://demo.device.example.test", "obs-004:site.app.publish:0"),
 				},
@@ -972,8 +972,8 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 				Prompt: "Update the heading to say Hello World.",
 				ActionResponses: []string{
 					actionSelectTools("file.edit", "terminal.run", "site.app.publish"),
-					actionCallTool("file.edit", `{"path":"home/sites/site-1/app/index.html","oldText":"Simple Site","newText":"Hello World"}`),
-					actionCallTool("terminal.run", `{"command":"mkdir -p dist && cp index.html dist/index.html","workingDirectoryPath":"home/sites/site-1/app","timeoutSecond":30}`),
+					actionCallTool("file.edit", `{"path":"/workspace/circles/staff/sites/site-1/draft/app/src/App.tsx","oldText":"Simple Site","newText":"Hello World"}`),
+					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><h1>Hello World</h1></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/site-1/draft/app","timeoutSecond":30}`),
 					actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Update heading to Hello World"}`),
 					actionFinishMessage("Updated and redeployed the site: https://demo.device.example.test", "obs-004:site.app.publish:0"),
 				},

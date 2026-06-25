@@ -23,3 +23,19 @@ func TestActiveFailureDebtKeepsDebtAfterInspectionToolWithoutRecoveryStep(t *tes
 		t.Fatal("expected inspection status result to keep failure debt active")
 	}
 }
+
+func TestActiveFailureDebtIgnoresMissingOptionalSiteControlFile(t *testing.T) {
+	_, hasFailureDebt := activeFailureDebt([]turnObservation{
+		{
+			ObservationID: "obs-001",
+			Action:        "continue",
+			Tool:          "file.read",
+			Failure:       &ToolFailure{Code: FailureCodes.NotFound.String()},
+			ToolInputKey:  "file.read\x00{\"path\":\"home/sites/site-1/.internkim/artifact-brief.md\"}",
+		},
+	})
+
+	if hasFailureDebt {
+		t.Fatal("expected missing optional site control file not to create failure debt")
+	}
+}

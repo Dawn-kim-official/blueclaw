@@ -91,6 +91,9 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 		if schemaName == "blueclaw_result_verifier" {
 			return languageModel.structuredResponse(defaultResultVerificationResponse(request)), nil
 		}
+		if schemaName == "blueclaw_contract_verifier" {
+			return languageModel.structuredResponse(defaultContractVerificationResponse()), nil
+		}
 		return llm.StructuredResponse{}, fmt.Errorf("scripted language model has no %s response", schemaName)
 	}
 	if schemaName == "blueclaw_skill_search_queries" && response == `{"queries":[]}` {
@@ -322,6 +325,10 @@ func defaultResultVerificationResponse(request llm.StructuredResponseRequest) st
 		return `{"overallStatus":"satisfied","summary":"scripted test default","results":[]}`
 	}
 	return string(document)
+}
+
+func defaultContractVerificationResponse() string {
+	return `{"satisfied":true,"reason":"scripted test default","missingDescription":"","suggestedNextTools":[]}`
 }
 
 func expectedResultIDsFromRequest(request llm.StructuredResponseRequest) []string {

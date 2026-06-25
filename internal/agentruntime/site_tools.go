@@ -867,15 +867,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusRecord(toolConte
 	siteID, _ := document["siteID"].(string)
 	health := toolCatalogBuilder.siteWorkspaceHealth(toolContext, request, siteID, sourceWorkspacePath)
 	if includeWorkspaceDetails {
+		delete(document, "workspacePath")
 		if resolvedSourceWorkspacePath, _ := health["sourceWorkspacePath"].(string); strings.TrimSpace(resolvedSourceWorkspacePath) != "" {
 			document["sourceWorkspacePath"] = resolvedSourceWorkspacePath
 			document["draftPath"] = resolvedSourceWorkspacePath
-			if siteID := firstNonEmptyString(siteID, siteProjectIDFromPath(resolvedSourceWorkspacePath)); siteID != "" {
-				document["workspacePath"] = filepath.ToSlash(filepath.Join("home", "sites", siteID))
-			}
 		}
 		if resolvedAppWorkspacePath, _ := health["appWorkspacePath"].(string); strings.TrimSpace(resolvedAppWorkspacePath) != "" {
 			document["appWorkspacePath"] = resolvedAppWorkspacePath
+		}
+		if sourceManifest, exists := health["sourceManifest"]; exists {
+			document["sourceManifest"] = sourceManifest
 		}
 		document["workspaceHealthDetails"] = health
 	}
@@ -911,10 +912,50 @@ func (toolCatalogBuilder *ToolCatalogBuilder) siteWorkspaceHealth(toolContext co
 		return map[string]any{"status": "missing", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "suggestedNextTool": "site.app.repair"}
 	}
 	buildStatus := siteBuildStatus(resolvedSourcePath.ConcretePath)
+	sourceManifest := siteSourceManifest(resolvedSourcePath.ConcretePath, resolvedSourcePath.VirtualPath)
 	if buildStatus != "fresh" {
-		return map[string]any{"status": "stale_build", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "suggestedNextTool": "site.app.build"}
+		return map[string]any{"status": "stale_build", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": "site.app.build"}
 	}
-	return map[string]any{"status": "ready", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "suggestedNextTool": ""}
+	return map[string]any{"status": "ready", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": ""}
+}
+
+type siteSourceManifestEntry struct {
+	Label    string `json:"label"`
+	Path     string `json:"path"`
+	Present  bool   `json:"present"`
+	Optional bool   `json:"optional"`
+}
+
+func siteSourceManifest(sourceWorkspaceConcretePath string, sourceWorkspaceVirtualPath string) []siteSourceManifestEntry {
+	entries := []siteSourceManifestEntry{}
+	for _, file := range siteSourceManifestFiles() {
+		entries = append(entries, siteSourceManifestEntry{
+			Label:    file.Label,
+			Path:     filepath.ToSlash(filepath.Join(sourceWorkspaceVirtualPath, file.Path)),
+			Present:  isLocalRegularFile(filepath.Join(sourceWorkspaceConcretePath, file.Path)),
+			Optional: file.Optional,
+		})
+	}
+	return entries
+}
+
+type siteSourceManifestFile struct {
+	Label    string
+	Path     string
+	Optional bool
+}
+
+func siteSourceManifestFiles() []siteSourceManifestFile {
+	return []siteSourceManifestFile{
+		{Label: "siteMetadata", Path: ".internkim/site.json", Optional: true},
+		{Label: "idea", Path: ".internkim/idea.md", Optional: true},
+		{Label: "artifactBrief", Path: ".internkim/artifact-brief.md", Optional: true},
+		{Label: "reviewLog", Path: ".internkim/review-log.json", Optional: true},
+		{Label: "design", Path: "DESIGN.md", Optional: false},
+		{Label: "appSource", Path: "app/src/App.tsx", Optional: false},
+		{Label: "prototypeData", Path: "app/src/prototype-data.ts", Optional: false},
+		{Label: "styles", Path: "app/src/index.css", Optional: false},
+	}
 }
 
 func siteBuildStatus(sourceWorkspacePath string) string {
@@ -1051,6 +1092,8 @@ func siteStarterFiles(site siteCreateResult) []siteStarterFile {
 	files := []siteStarterFile{
 		{Path: ".internkim/site.json", Content: siteWorkspaceMetadata(site)},
 		{Path: ".internkim/idea.md", Content: siteIdeaMarkdown(site)},
+		{Path: ".internkim/artifact-brief.md", Content: siteArtifactBriefMarkdown(site)},
+		{Path: ".internkim/review-log.json", Content: siteReviewLogDocument()},
 		{Path: "DESIGN.md", Content: siteDesignDocument(site)},
 	}
 	files = append(files, siteAppScaffoldFiles(site)...)
@@ -1109,6 +1152,41 @@ func siteIdeaMarkdown(site siteCreateResult) string {
 	summary := firstNonEmptyString(site.Description, title)
 	idea := firstNonEmptyString(site.Idea, site.OriginalPrompt, "Refine this file with the user's site idea before publish.")
 	return "# Site Idea\n\n## Summary\n" + summary + "\n\n## Original Idea\n" + idea + "\n\n## Audience\n" + firstNonEmptyString(site.Audience, "Unspecified") + "\n\n## Purpose\n" + firstNonEmptyString(site.Purpose, "prototype") + "\n\n## Archetype\n" + firstNonEmptyString(site.Archetype, "landing") + "\n"
+}
+
+func siteArtifactBriefMarkdown(site siteCreateResult) string {
+	title := firstNonEmptyString(site.Title, site.Slug, "Untitled site")
+	audience := firstNonEmptyString(site.Audience, "the intended audience")
+	archetype := firstNonEmptyString(site.Archetype, "landing")
+	idea := firstNonEmptyString(site.Idea, site.OriginalPrompt, "Refine the core idea before editing source.")
+	lines := []string{
+		"# Artifact Brief",
+		"",
+		"Request intent: " + idea,
+		"Audience: " + audience,
+		"Archetype: " + archetype,
+		"Main workflow: Make " + title + " useful on the first screen, then support one clear action path.",
+		"Visual direction: Replace the starter scaffold with a domain-specific interface before publish.",
+		"Too shallow: Generic hero copy, placeholder feature cards, or unchanged starter layout.",
+		"",
+	}
+	return strings.Join(lines, "\n")
+}
+
+func siteReviewLogDocument() string {
+	document, errorValue := json.MarshalIndent(map[string]any{
+		"attempts":                      []any{},
+		"reviewedArtifacts":             []any{},
+		"issues":                        []any{},
+		"changesMade":                   []any{},
+		"remainingNotes":                []any{},
+		"visualReviewUnavailable":       true,
+		"visualReviewUnavailableReason": "No visual review has run yet.",
+	}, "", "  ")
+	if errorValue != nil {
+		return "{}\n"
+	}
+	return string(document) + "\n"
 }
 
 func siteDesignDocument(site siteCreateResult) string {

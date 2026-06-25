@@ -298,7 +298,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if sourceWorkspaceInformation.Mode().Perm() != 0770 {
 		t.Fatalf("expected staff-circle source workspace permissions 0770, got %v", sourceWorkspaceInformation.Mode().Perm())
 	}
-	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
+	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", ".internkim/artifact-brief.md", ".internkim/review-log.json", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
 		}
@@ -330,6 +330,9 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if !strings.Contains(result.ContentText(), `"sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"`) ||
 		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app"`) {
 		t.Fatalf("expected virtual source workspace in result, got %s", result.ContentText())
+	}
+	if strings.Contains(result.ContentText(), `"workspacePath":"home/sites/site-1"`) {
+		t.Fatalf("site create result must not encourage non-canonical source paths, got %s", result.ContentText())
 	}
 	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
@@ -482,7 +485,7 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
-	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"draft"}}`}
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.example.test","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"home/sites/site-1","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
@@ -509,8 +512,14 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	if !strings.Contains(result.ContentText(), `"workspaceHealth":"stale_build"`) ||
 		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.build"`) ||
 		!strings.Contains(result.ContentText(), `"sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"`) ||
-		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app"`) {
+		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app"`) ||
+		!strings.Contains(result.ContentText(), `"sourceManifest"`) ||
+		!strings.Contains(result.ContentText(), `"path":"/workspace/circles/staff/sites/site-1/draft/.internkim/artifact-brief.md"`) ||
+		!strings.Contains(result.ContentText(), `"present":false`) {
 		t.Fatalf("expected workspace health annotation, got %s", result.ContentText())
+	}
+	if strings.Contains(result.ContentText(), `"workspacePath":"home/sites/site-1"`) {
+		t.Fatalf("site status must not encourage non-canonical source paths, got %s", result.ContentText())
 	}
 	if strings.Contains(result.ContentText(), `"publishedURL"`) {
 		t.Fatalf("expected draft site status annotation to omit publishedURL, got %s", result.ContentText())

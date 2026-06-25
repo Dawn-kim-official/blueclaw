@@ -115,6 +115,39 @@ func TestOutcomeContractTreatsWebsiteHTMLFormatAsPublicLink(t *testing.T) {
 	}
 }
 
+func TestOutcomeContractTreatsSelectedSiteSkillSuffixAsPublicLink(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "site-prototype",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "site.app.publish"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+	contract := outcomeContractForRequest(
+		AgentRequest{Prompt: "아주 멋있게 좀 만들어 봐라. 이게"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{".txt"}},
+		instructionBundle,
+		ExecutionPlan{},
+		false,
+		[]string{".txt"},
+	)
+
+	if len(contract.RequiredAttachmentSuffixes) != 0 {
+		t.Fatalf("expected selected site skill to clear accidental attachment suffixes, got %+v", contract.RequiredAttachmentSuffixes)
+	}
+	if stringSliceContains(contract.RequiredEvidenceTools, "file.attach") {
+		t.Fatalf("expected no file.attach requirement for site skill continuation, got %+v", contract.RequiredEvidenceTools)
+	}
+	if !stringSliceContains(contract.RequiredEvidenceTools, "site.app.publish") {
+		t.Fatalf("expected site publish evidence to remain required, got %+v", contract)
+	}
+	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
+		t.Fatalf("expected no file result for selected site skill continuation, got %+v", contract.ExpectedResults)
+	}
+}
+
 func TestOutcomeContractKeepsExplicitWebsiteHTMLFileRequest(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘", WorkKinds: []string{WorkKindSitePrototype, WorkKindFileDelivery}},

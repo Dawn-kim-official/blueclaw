@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 )
 
@@ -100,6 +101,9 @@ func activeFailureDebt(observations []turnObservation) (FailureDebt, bool) {
 			continue
 		}
 		if observation.Failed() && strings.TrimSpace(observation.ToolInputKey) != "" {
+			if failureObservationDoesNotCreateDebt(observation) {
+				continue
+			}
 			activeDebt = FailureDebt{LatestFailure: observation}
 			continue
 		}
@@ -111,6 +115,39 @@ func activeFailureDebt(observations []turnObservation) (FailureDebt, bool) {
 		}
 	}
 	return activeDebt, strings.TrimSpace(activeDebt.LatestFailure.ObservationID) != ""
+}
+
+func failureObservationDoesNotCreateDebt(observation turnObservation) bool {
+	if strings.TrimSpace(observation.Tool) != "file.read" {
+		return false
+	}
+	if observation.FailureCode() != FailureCodes.NotFound.String() {
+		return false
+	}
+	return optionalSiteControlFileToolInputKey(observation.ToolInputKey) || optionalSiteControlFileContent(observation.ContentText())
+}
+
+func optionalSiteControlFileToolInputKey(toolInputKey string) bool {
+	return optionalSiteControlFileText(toolInputKey)
+}
+
+func optionalSiteControlFileContent(content string) bool {
+	return optionalSiteControlFileText(content)
+}
+
+func optionalSiteControlFileText(value string) bool {
+	normalizedText := strings.ToLower(filepath.ToSlash(strings.TrimSpace(value)))
+	for _, suffix := range []string{
+		".internkim/site.json",
+		".internkim/idea.md",
+		".internkim/artifact-brief.md",
+		".internkim/review-log.json",
+	} {
+		if strings.Contains(normalizedText, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func successfulObservationIsInspection(observation turnObservation) bool {

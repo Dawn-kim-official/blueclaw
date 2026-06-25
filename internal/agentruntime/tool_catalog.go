@@ -298,9 +298,13 @@ func actorToolFailure(operation string, stage string, virtualPath string, errorV
 	message := actorFailureMessage(operation, virtualPath, errorValue)
 	failureKind := agent.FailureExternalService
 	failureCode := agent.FailureCodes.OperationFailed
-	if actorFailureCode(errorValue) == security.ActorErrorCodePermissionDenied {
+	switch actorFailureCode(errorValue) {
+	case security.ActorErrorCodePermissionDenied:
 		failureKind = agent.FailurePermissionDenied
 		failureCode = agent.FailureCodes.AccessDenied
+	case security.ActorErrorCodeNotFound:
+		failureKind = agent.FailureNotFound
+		failureCode = agent.FailureCodes.NotFound
 	}
 	result := agent.ToolFailureWithOutput(failureKind, failureCode, stage, message, json.RawMessage(marshalToolResult(map[string]any{
 		"operation":   operation,

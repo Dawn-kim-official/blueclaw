@@ -395,6 +395,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			result := agentTurnRunner.runTerminalNoToolsStep(taskContext, taskRun.TaskRunID, stepID, request, &state, "recovery_tool_budget_exhausted")
 			return result, true
 		}
+		if agentTurnRunner.continueStalledRecoveryIfAllowed(taskRun.TaskRunID, &state, &progressTracker, recoveryAllowance) {
+			return AgentTurnResult{}, false
+		}
+		if agentTurnRunner.steerStalledTurnTowardExit(taskRun.TaskRunID, &state, &progressTracker) {
+			return AgentTurnResult{}, false
+		}
 		result, isBlocked := agentTurnRunner.blockTurnForStall(taskRun.TaskRunID, stepID, request, reason, progressEvaluation, recoveryAllowance, state)
 		return result, isBlocked
 	}
