@@ -969,6 +969,63 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 	}
 }
 
+func TestCompletionContractVerifierSkipsEmptyContract(t *testing.T) {
+	languageModel := &sequenceLanguageModel{}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	goalSatisfied := true
+
+	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{}, nil, nil, nil, nil, turnActionDocument{
+		Action:             "finish",
+		Message:            "완료했습니다.",
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      &goalSatisfied,
+		CompletionEvidence: nil,
+	})
+
+	if !result.IsSatisfied {
+		t.Fatalf("expected empty contract to stay on fast path, got %+v", result)
+	}
+	if len(languageModel.contractRequests) != 0 {
+		t.Fatalf("expected no contract verifier call for empty contract, got %d", len(languageModel.contractRequests))
+	}
+}
+
+func TestCompletionContractVerifierRejectsMissingAttachmentEvidence(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contractVerifications: []string{
+			`{"satisfied":false,"reason":"The user requested an attached file, but no file attachment evidence exists.","missingDescription":"Attach the generated file before finishing.","suggestedNextTools":["file.attach"]}`,
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	goalSatisfied := true
+
+	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
+		ToolSet: newTestToolSet([]string{"file.attach"}),
+		OutcomeContract: OutcomeContract{
+			ArtifactRequirement: ArtifactRequirementPreferred,
+		},
+	}, nil, nil, nil, nil, turnActionDocument{
+		Action:             "finish",
+		Message:            "완료했습니다.",
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      &goalSatisfied,
+		CompletionEvidence: nil,
+	})
+
+	if result.IsSatisfied {
+		t.Fatalf("expected contract verifier to reject missing attachment evidence")
+	}
+	if !strings.Contains(result.Message, "Attach the generated file before finishing.") {
+		t.Fatalf("expected verifier missing description in gate message, got %q", result.Message)
+	}
+	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "file.attach" {
+		t.Fatalf("expected verifier to suggest file.attach, got %+v", result.SuggestedNextTools)
+	}
+	if len(languageModel.contractRequests) != 1 {
+		t.Fatalf("expected one contract verifier call, got %d", len(languageModel.contractRequests))
+	}
+}
+
 func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		resultVerifications: []string{
