@@ -2,7 +2,9 @@ package security
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -56,12 +58,63 @@ func (synchronizer POSIXSynchronizer) Synchronize(ctx context.Context) error {
 	if workspaceRootPath == "" {
 		workspaceRootPath = "/workspace"
 	}
-	command := exec.CommandContext(ctx, helperPath, "sync", "--policy", synchronizer.policyPath, "--workspace", workspaceRootPath)
+	statePath, cleanupStateDocument, errorValue := synchronizer.createStateDocument(workspaceRootPath)
+	if errorValue != nil {
+		return errorValue
+	}
+	defer cleanupStateDocument()
+
+	command := exec.CommandContext(ctx, helperPath, "sync", "--state", statePath, "--workspace", workspaceRootPath)
 	output, errorValue := command.CombinedOutput()
 	if errorValue != nil {
 		return errors.New("POSIX synchronization failed: " + strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func (synchronizer POSIXSynchronizer) createStateDocument(workspaceRootPath string) (string, func(), error) {
+	policyDocument, errorValue := synchronizer.loadPolicyDocument()
+	if errorValue != nil {
+		return "", func() {}, errorValue
+	}
+	document, errorValue := json.Marshal(POSIXStateForPolicy(policyDocument, workspaceRootPath))
+	if errorValue != nil {
+		return "", func() {}, errorValue
+	}
+	return writeTemporaryPOSIXStateDocument(document)
+}
+
+func (synchronizer POSIXSynchronizer) loadPolicyDocument() (policy.PolicyDocument, error) {
+	document, errorValue := os.ReadFile(synchronizer.policyPath)
+	if errorValue != nil {
+		return policy.PolicyDocument{}, errorValue
+	}
+	var policyDocument policy.PolicyDocument
+	if errorValue := json.Unmarshal(document, &policyDocument); errorValue != nil {
+		return policy.PolicyDocument{}, errorValue
+	}
+	return policyDocument, nil
+}
+
+func writeTemporaryPOSIXStateDocument(document []byte) (string, func(), error) {
+	file, errorValue := os.CreateTemp("", "blueclaw-posix-state-*.json")
+	if errorValue != nil {
+		return "", func() {}, errorValue
+	}
+	statePath := file.Name()
+	cleanup := func() {
+		_ = os.Remove(statePath)
+	}
+	if _, errorValue := file.Write(document); errorValue != nil {
+		_ = file.Close()
+		cleanup()
+		return "", func() {}, errorValue
+	}
+	if errorValue := file.Close(); errorValue != nil {
+		cleanup()
+		return "", func() {}, errorValue
+	}
+	return statePath, cleanup, nil
 }
 
 func (synchronizer POSIXSynchronizer) ReconcileHome(ctx context.Context, personID string, workspaceRootPath string) error {

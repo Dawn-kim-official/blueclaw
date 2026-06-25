@@ -56,8 +56,8 @@ func runAuthorized(run func([]string) error, arguments []string) error {
 
 func runCapabilities() error {
 	return json.NewEncoder(os.Stdout).Encode(map[string]any{
-		"version":      2,
-		"capabilities": []string{"exec", "fs", "reconcile-home"},
+		"version":      3,
+		"capabilities": []string{"exec", "fs", "reconcile-home", "state-sync"},
 	})
 }
 
@@ -91,21 +91,44 @@ func lookupUserID(userName string) (int, error) {
 func runSync(arguments []string) error {
 	flags := flag.NewFlagSet("sync", flag.ContinueOnError)
 	policyPath := flags.String("policy", "/workspace/.blueclaw/config/policy.json", "policy path")
+	statePath := flags.String("state", "", "POSIX state path")
 	workspacePath := flags.String("workspace", "/workspace", "workspace root path")
 	if errorValue := flags.Parse(arguments); errorValue != nil {
 		return errorValue
 	}
 
-	document, errorValue := os.ReadFile(*policyPath)
+	state, errorValue := loadPOSIXState(*statePath, *policyPath, *workspacePath)
 	if errorValue != nil {
 		return errorValue
 	}
+	return applyPOSIXState(state, *workspacePath)
+}
+
+func loadPOSIXState(statePath string, policyPath string, workspacePath string) (security.POSIXState, error) {
+	if strings.TrimSpace(statePath) != "" {
+		document, errorValue := os.ReadFile(statePath)
+		if errorValue != nil {
+			return security.POSIXState{}, errorValue
+		}
+		var state security.POSIXState
+		if errorValue := json.Unmarshal(document, &state); errorValue != nil {
+			return security.POSIXState{}, errorValue
+		}
+		return state, nil
+	}
+	return loadPOSIXStateFromPolicy(policyPath, workspacePath)
+}
+
+func loadPOSIXStateFromPolicy(policyPath string, workspacePath string) (security.POSIXState, error) {
+	document, errorValue := os.ReadFile(policyPath)
+	if errorValue != nil {
+		return security.POSIXState{}, errorValue
+	}
 	var policyDocument policy.PolicyDocument
 	if errorValue := json.Unmarshal(document, &policyDocument); errorValue != nil {
-		return errorValue
+		return security.POSIXState{}, errorValue
 	}
-
-	return applyPOSIXState(security.POSIXStateForPolicy(policyDocument, *workspacePath), *workspacePath)
+	return security.POSIXStateForPolicy(policyDocument, workspacePath), nil
 }
 
 func runReconcileHome(arguments []string) error {
