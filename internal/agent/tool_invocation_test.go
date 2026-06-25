@@ -90,3 +90,37 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 		t.Fatalf("expected one task artifact, got %d", len(services.taskArtifactService.ListTaskArtifact(result.TaskRun.TaskRunID)))
 	}
 }
+
+func TestModelVisibleToolResultSummaryKeepsPublishedSiteURL(t *testing.T) {
+	content := `{"siteID":"site-1","slug":"tangerine-hub","title":"맛있는 귤 사이트","status":"published","publishedURL":"https://tangerine-hub.zd2df6qt6jmc.intern.kim","description":"` + strings.Repeat("x", 4096) + `"}`
+	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.app.publish", turnObservation{
+		Tool: "site.app.publish",
+		Output: ToolOutput{
+			Content: content,
+		},
+	})
+
+	if !strings.Contains(summary, "publishedURL=https://tangerine-hub.zd2df6qt6jmc.intern.kim") {
+		t.Fatalf("expected exact publishedURL in summary, got %q", summary)
+	}
+	if strings.Contains(summary, strings.Repeat("x", 512)) {
+		t.Fatalf("expected site summary to omit long nonessential fields, got %q", summary)
+	}
+}
+
+func TestModelVisibleToolResultSummaryHidesDraftSiteCreateURL(t *testing.T) {
+	content := `{"siteID":"site-1","slug":"draft-site","title":"Draft","status":"draft","publishedURL":"https://draft-site.zd2df6qt6jmc.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"}`
+	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.app.create", turnObservation{
+		Tool: "site.app.create",
+		Output: ToolOutput{
+			Content: content,
+		},
+	})
+
+	if strings.Contains(summary, "publishedURL") {
+		t.Fatalf("draft create summary must not expose publishedURL, got %q", summary)
+	}
+	if !strings.Contains(summary, "sourceWorkspacePath=/workspace/circles/staff/sites/site-1/draft") {
+		t.Fatalf("expected workspace path in summary, got %q", summary)
+	}
+}

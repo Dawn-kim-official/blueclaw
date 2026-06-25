@@ -189,7 +189,7 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.Langua
 
 func shouldUseSanitizedToolPresenter(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", "file.attach", "file.read", "terminal.run":
+	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", "file.attach", "file.read", "site.app.create", "site.app.publish", "site.app.status", "terminal.run":
 		return true
 	default:
 		return false
@@ -220,6 +220,10 @@ func sanitizedToolResultSummary(observation turnObservation) string {
 		return attachmentResultSummary("File attached", observation.Attachments)
 	case "file.read":
 		return summarizeFileReadObservation(observation)
+	case "site.app.create":
+		return siteToolResultSummary(observation, []string{"siteID", "slug", "title", "status", "workspacePath", "sourceWorkspacePath", "appWorkspacePath"})
+	case "site.app.publish", "site.app.status":
+		return siteToolResultSummary(observation, []string{"siteID", "slug", "title", "status", "publishedURL", "currentVersionID", "liveHTTPStatus", "qualityStatus", "qualityIssueCount"})
 	case "terminal.run":
 		if summary := summarizeTerminalFailure(observation); summary != "" {
 			return summary
@@ -245,6 +249,24 @@ func attachmentResultSummary(prefix string, attachments []FileAttachment) string
 		parts = append(parts, strings.Join(nonEmptyStrings(values), "; "))
 	}
 	return strings.Join(parts, "\n")
+}
+
+func siteToolResultSummary(observation turnObservation, fieldNames []string) string {
+	if !siteObservationHasPublishedStatus(observation.ContentText()) {
+		fieldNames = withoutFieldName(fieldNames, "publishedURL")
+	}
+	return summarizeSafeJSONFields(observation.ContentText(), fieldNames)
+}
+
+func withoutFieldName(fieldNames []string, removedFieldName string) []string {
+	filteredFieldNames := []string{}
+	for _, fieldName := range fieldNames {
+		if strings.TrimSpace(fieldName) == removedFieldName {
+			continue
+		}
+		filteredFieldNames = append(filteredFieldNames, fieldName)
+	}
+	return filteredFieldNames
 }
 
 func summarizeLongToolResult(ctx context.Context, languageModel llm.LanguageModelProvider, toolName string, content string) (string, error) {
