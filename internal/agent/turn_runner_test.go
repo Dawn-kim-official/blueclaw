@@ -636,6 +636,10 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 	if containsString(stringSliceFromAny(finishMessageFailureResolution["enum"]), failureResolutionFailureReport) {
 		t.Fatal("finish schema must not allow failure_report; failure reports must use fail with usedFailureFacts")
 	}
+	finishGoalSatisfied := mapFromAny(finishMessageProperties["goalSatisfied"])
+	if !booleanEnumHasOnly(finishGoalSatisfied["enum"], true) {
+		t.Fatalf("finish schema must require goalSatisfied=true, got %+v", finishGoalSatisfied)
+	}
 	failVariant := actionSchemaVariant(t, schemaDocument, "fail")
 	failRequired := stringSliceFromAny(failVariant["required"])
 	for _, fieldName := range []string{"reason", "goalStatus", "goalSatisfied", "failureResolution", "usedFailureFacts"} {
@@ -644,6 +648,10 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 		}
 	}
 	failProperties := mapFromAny(failVariant["properties"])
+	failGoalSatisfied := mapFromAny(failProperties["goalSatisfied"])
+	if !booleanEnumHasOnly(failGoalSatisfied["enum"], false) {
+		t.Fatalf("fail schema must require goalSatisfied=false, got %+v", failGoalSatisfied)
+	}
 	usedFailureFacts := mapFromAny(failProperties["usedFailureFacts"])
 	attempts := mapFromAny(mapFromAny(usedFailureFacts["properties"])["attempts"])
 	if attempts["type"] != "array" {
@@ -2037,6 +2045,15 @@ func stringSliceFromAny(value any) []string {
 		}
 	}
 	return result
+}
+
+func booleanEnumHasOnly(value any, expected bool) bool {
+	values, isSlice := value.([]any)
+	if !isSlice || len(values) != 1 {
+		return false
+	}
+	boolValue, isBool := values[0].(bool)
+	return isBool && boolValue == expected
 }
 
 func containsString(values []string, target string) bool {

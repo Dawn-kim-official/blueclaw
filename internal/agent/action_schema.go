@@ -80,7 +80,7 @@ func finishActionSchema(hasFailureDebt bool) map[string]any {
 			"completionSummary":     stringSchema(),
 			"failureResolution":     enumValuesStringSchema(failureResolutionValues),
 			"goalStatus":            enumValuesStringSchema([]string{"satisfied"}),
-			"goalSatisfied":         booleanSchema(),
+			"goalSatisfied":         booleanEnumSchema(true),
 			"completionEvidenceIDs": stringArraySchema(0),
 			"qualityReview":         qualityReviewSchema(),
 			"remainingWork":         stringSchema(),
@@ -140,7 +140,7 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 		"action":               enumStringSchema("fail"),
 		"reason":               stringSchema(),
 		"goalStatus":           enumValuesStringSchema([]string{"blocked"}),
-		"goalSatisfied":        booleanSchema(),
+		"goalSatisfied":        booleanEnumSchema(false),
 		"remainingWork":        stringSchema(),
 		"executionStateUpdate": executionStateSchema(),
 	}
@@ -276,6 +276,10 @@ func booleanSchema() map[string]any {
 	return map[string]any{"type": "boolean"}
 }
 
+func booleanEnumSchema(value bool) map[string]any {
+	return map[string]any{"type": "boolean", "enum": []bool{value}}
+}
+
 func objectSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{}}
 }
@@ -326,7 +330,7 @@ func failureReportFactsSchema() map[string]any {
 }
 
 func fallbackActionSchema() string {
-	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean"},"completionEvidenceIDs":{"type":"array","items":{"type":"string"}},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","completionEvidenceIDs","qualityReview"]},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean"},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"]}]}`
+	return `{"oneOf":[{"type":"object","properties":{"action":{"type":"string","enum":["finish"]},"message":{"type":"string"},"failureResolution":{"type":"string","enum":["none","recovered_with_success","no_tool_fallback"]},"goalStatus":{"type":"string","enum":["satisfied"]},"goalSatisfied":{"type":"boolean","enum":[true]},"completionEvidenceIDs":{"type":"array","items":{"type":"string"}},"qualityReview":{"type":"array"},"remainingWork":{"type":"string"}},"required":["action","message","goalStatus","goalSatisfied","completionEvidenceIDs","qualityReview"]},{"type":"object","properties":{"action":{"type":"string","enum":["fail"]},"reason":{"type":"string"},"goalStatus":{"type":"string","enum":["blocked"]},"goalSatisfied":{"type":"boolean","enum":[false]},"remainingWork":{"type":"string"}},"required":["action","reason","goalStatus","goalSatisfied"]}]}`
 }
 
 func finalizerActionSchema() string {

@@ -160,6 +160,38 @@ func TestSuccessfulSiteBuildQualityNormalizesAfterBuild(t *testing.T) {
 	}
 }
 
+func TestManagedSiteBuildScriptCreatesMissingScriptsDirectory(t *testing.T) {
+	workspacePath := t.TempDir()
+	appWorkspacePath := filepath.Join(workspacePath, "sites", "site-1", "app")
+	if errorValue := os.MkdirAll(appWorkspacePath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	factory := actortest.NewDirectWorkspaceActorFactory()
+	workspaceActor, errorValue := factory.Requester(context.Background(), security.WorkspaceActorRequest{
+		WorkspaceRootPath: workspacePath,
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1"},
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	appWorkspace := workspacepath.Path{
+		ConcretePath: appWorkspacePath,
+		VirtualPath:  "/workspace/sites/site-1/app",
+	}
+
+	if toolFailure := ensureManagedSiteBuildScript(context.Background(), workspaceActor, appWorkspace); toolFailure != nil {
+		t.Fatalf("unexpected build script scaffold failure: %s", toolFailure.ContentText())
+	}
+
+	document, errorValue := os.ReadFile(filepath.Join(appWorkspacePath, "scripts", "build.ts"))
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(string(document), "collectDesignQualityIssues") {
+		t.Fatalf("expected managed build script content, got %s", string(document))
+	}
+}
+
 func TestSiteBuildQualityPayloadReportsIssuesAsSuccessData(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "sites", "site-1")
