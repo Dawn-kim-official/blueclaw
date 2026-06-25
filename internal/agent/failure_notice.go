@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strconv"
@@ -49,6 +50,12 @@ type FailureNoticeGenerationStatus struct {
 	TextRecoveryError  string `json:"textRecoveryError,omitempty"`
 	LocalRecoveryError string `json:"localRecoveryError,omitempty"`
 	OriginalWasInvalid bool   `json:"originalWasInvalid,omitempty"`
+}
+
+type failureNoticeReview struct {
+	Decision string `json:"decision"`
+	Message  string `json:"message"`
+	Reason   string `json:"reason"`
 }
 
 type FailureNoticeGenerator struct {
@@ -105,15 +112,8 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 		status.Reason = "language_model_unavailable"
 		return buildRawErrorFailureNotice(report), status
 	}
-	safetyDraft := ""
-	rememberSafetyDraft := func(candidate string) {
-		if safetyDraft == "" && failureNoticeMessagePassesSafety(candidate, report) {
-			safetyDraft = strings.TrimSpace(candidate)
-		}
-	}
 	reply, errorValue := generator.generateRecoveryText(generationContext, buildFailureNoticePrompt(report))
 	if errorValue == nil {
-		rememberSafetyDraft(reply)
 		if notice, source, hasNotice := prepareFailureNoticeWithGenerator(generator, generationContext, reply, "generated", report); hasNotice {
 			status.Source = source
 			return notice, status
@@ -128,7 +128,6 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 				status.TextRecoveryError = firstNonEmptyString(errorString(repairError), "empty_repair")
 				break
 			}
-			rememberSafetyDraft(repairedReply)
 			notice, source, hasNotice := prepareFailureNoticeWithGenerator(generator, generationContext, repairedReply, "generated_repair", report)
 			if hasNotice {
 				status.Source = source
@@ -148,12 +147,6 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 		return notice, status
 	} else if localError != "" {
 		status.LocalRecoveryError = localError
-	}
-	if safetyDraft != "" {
-		status.Source = "generated_degraded"
-		status.Reason = firstNonEmptyString(status.Reason, "style_check_failed_safe_draft_delivered")
-		status.TextRecoveryError = firstNonEmptyString(status.TextRecoveryError, errorString(errorValue), "invalid_generated_reply")
-		return buildSafeFailureNotice(safetyDraft, "generated_degraded", report), status
 	}
 	status.Source = "raw_error"
 	status.Reason = firstNonEmptyString(status.Reason, "text_recovery_failed")
@@ -176,16 +169,6 @@ func failureNoticeMessagePassesSafety(message string, report FailureReport) bool
 		return false
 	}
 	return true
-}
-
-func buildSafeFailureNotice(message string, source string, report FailureReport) FailureNotice {
-	return FailureNotice{
-		Message:           strings.TrimSpace(message),
-		Source:            strings.TrimSpace(source),
-		Language:          strings.TrimSpace(report.ResponseLanguage),
-		DiagnosticEventID: strings.TrimSpace(report.DiagnosticEventID),
-		IsSendable:        true,
-	}
 }
 
 func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context, report IntakeReport) FailureNotice {
@@ -308,19 +291,79 @@ func (generator FailureNoticeGenerator) generateLocalFailureNotice(ctx context.C
 }
 
 func prepareFailureNoticeWithGenerator(generator FailureNoticeGenerator, ctx context.Context, reply string, source string, report FailureReport) (FailureNotice, string, bool) {
-	notice := buildFailureNotice(reply, source, report)
+	if !failureNoticeRequiresStructuredReview(report) {
+		notice := buildFailureNotice(reply, source, report)
+		if notice.IsSendable {
+			return notice, source, true
+		}
+		if !textExceedsCharacterBudget(reply, failureNoticeMaximumCharacters) {
+			return FailureNotice{}, "", false
+		}
+		compressedReply, errorValue := generator.generateRecoveryText(ctx, buildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
+		if errorValue != nil || strings.TrimSpace(compressedReply) == "" {
+			return FailureNotice{}, "", false
+		}
+		compressedNotice := buildFailureNotice(compressedReply, source, report)
+		return compressedNotice, compressedNotice.Source, compressedNotice.IsSendable
+	}
+	reviewedReply, reviewedSource, hasReviewedReply := generator.reviewFailureNotice(ctx, report, reply, source)
+	if !hasReviewedReply {
+		return FailureNotice{}, "", false
+	}
+	notice := buildFailureNotice(reviewedReply, reviewedSource, report)
 	if notice.IsSendable {
-		return notice, source, true
+		return notice, reviewedSource, true
 	}
-	if !textExceedsCharacterBudget(reply, failureNoticeMaximumCharacters) {
-		return FailureNotice{}, "", false
+	return FailureNotice{}, "", false
+}
+
+func failureNoticeRequiresStructuredReview(report FailureReport) bool {
+	return strings.TrimSpace(report.Phase) == "stall"
+}
+
+func (generator FailureNoticeGenerator) reviewFailureNotice(ctx context.Context, report FailureReport, candidate string, source string) (string, string, bool) {
+	trimmedCandidate := strings.TrimSpace(candidate)
+	if trimmedCandidate == "" {
+		return "", "", false
 	}
-	compressedReply, errorValue := generator.generateRecoveryText(ctx, buildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
-	if errorValue != nil || strings.TrimSpace(compressedReply) == "" {
-		return FailureNotice{}, "", false
+	response, errorValue := generator.LanguageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+		Messages: []llm.Message{
+			{Role: "system", Content: "Review a candidate user-facing failure notice for Blueclaw. Use semantic judgment, not keyword matching."},
+			{Role: "system", Content: responseLanguageInstruction(report.ResponseLanguage)},
+			{Role: "system", Content: "Return send only when the candidate is grounded in the compact failure context and is appropriate to show the user. Return rewrite when the candidate is unrelated, meta, generic, misleading, or missing the failure situation; then write the corrected notice. Return reject only when the context is insufficient to write safely."},
+			{Role: "system", Content: "Keep the message concise. Do not expose provider errors, stack traces, internal service URLs, internal filesystem paths, tokens, serialized reply status, or false artifact delivery claims."},
+			{Role: "user", Content: strings.Join([]string{
+				"Compact failure context:",
+				marshalEventBody(report),
+				"Candidate notice:",
+				trimmedCandidate,
+			}, "\n")},
+		},
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               "blueclaw_failure_notice_review",
+			Document:           failureNoticeReviewSchema(),
+			IsStrictlyEnforced: true,
+		},
+	})
+	if errorValue != nil {
+		return "", "", false
 	}
-	compressedNotice := buildFailureNotice(compressedReply, source, report)
-	return compressedNotice, compressedNotice.Source, compressedNotice.IsSendable
+	var review failureNoticeReview
+	if errorValue := json.Unmarshal([]byte(response.Content), &review); errorValue != nil {
+		return "", "", false
+	}
+	decision := strings.TrimSpace(review.Decision)
+	message := strings.TrimSpace(review.Message)
+	if decision == "reject" || message == "" {
+		return "", "", false
+	}
+	if decision == "rewrite" {
+		return message, source + "_review", true
+	}
+	if decision == "send" {
+		return message, source, true
+	}
+	return "", "", false
 }
 
 func buildRawErrorFailureNotice(report FailureReport) FailureNotice {
@@ -444,6 +487,23 @@ func buildFailureNoticeRepairPrompt(report FailureReport, rejectedReply string, 
 		sections = append(sections, "Use the shortest clear wording that still names what could not be completed and the next check.")
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+func failureNoticeReviewSchema() string {
+	document, errorValue := json.Marshal(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"decision": map[string]any{"type": "string", "enum": []string{"send", "rewrite", "reject"}},
+			"message":  stringSchema(),
+			"reason":   stringSchema(),
+		},
+		"required":             []string{"decision", "message", "reason"},
+		"additionalProperties": false,
+	})
+	if errorValue != nil {
+		return `{"type":"object"}`
+	}
+	return string(document)
 }
 
 func buildFailureNoticeCompressionPrompt(report FailureReport, reply string, maximumCharacters int) string {

@@ -19,7 +19,7 @@ func (model fixedReplyLanguageModel) GenerateStructuredResponse(context.Context,
 	return llm.StructuredResponse{}, nil
 }
 
-func TestFailureNoticeDeliversSafeDraftWhenStyleCheckFails(t *testing.T) {
+func TestFailureNoticeFallsBackWhenReviewIsUnavailable(t *testing.T) {
 	report := FailureReport{
 		Phase:            "stall",
 		StopReason:       "recovery_tool_budget_exhausted",
@@ -31,11 +31,14 @@ func TestFailureNoticeDeliversSafeDraftWhenStyleCheckFails(t *testing.T) {
 
 	notice, status := generator.Generate(context.Background(), report)
 
-	if status.Source != "generated_degraded" {
-		t.Fatalf("expected generated_degraded, got %q (reason %q)", status.Source, status.Reason)
+	if status.Source != "raw_error" {
+		t.Fatalf("expected raw_error without structured review, got %q (reason %q)", status.Source, status.Reason)
 	}
 	if notice.SendableMessage() == "" {
-		t.Fatal("expected a sendable degraded notice instead of suppression")
+		t.Fatal("expected a sendable raw failure notice")
+	}
+	if notice.SendableMessage() == "슬라이드 덱을 완성하지 못했어요. 원하시면 텍스트로 정리해 드릴까요?" {
+		t.Fatal("expected unreviewed freeform draft not to be delivered")
 	}
 }
 

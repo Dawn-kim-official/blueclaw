@@ -373,6 +373,10 @@ func ensureManagedSiteBuildScript(ctx context.Context, workspaceActor security.W
 		VirtualPath:  filepath.ToSlash(filepath.Join(appWorkspace.VirtualPath, "scripts", "build.ts")),
 		Kind:         appWorkspace.Kind,
 	}
+	if errorValue := workspaceActor.MkdirAll(ctx, buildScriptPath.Parent(), workspaceDirectoryCreateMode(buildScriptPath.Parent())); errorValue != nil {
+		result := actorToolFailure("mkdir_all", "site_build_scaffold", buildScriptPath.Parent().VirtualPath, errorValue)
+		return &result
+	}
 	if errorValue := workspaceActor.WriteFile(ctx, buildScriptPath, buildScriptContent, workspaceFileCreateMode(buildScriptPath)); errorValue != nil {
 		result := actorToolFailure("write_file", "site_build_scaffold", buildScriptPath.VirtualPath, errorValue)
 		return &result

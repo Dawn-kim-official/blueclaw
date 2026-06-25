@@ -31,6 +31,33 @@ func TestFailureNoticeSendabilityRejectsInternalDiagnostics(t *testing.T) {
 	}
 }
 
+func TestFailureNoticeGeneratorRejectsUngroundedGeneratedReply(t *testing.T) {
+	generator := FailureNoticeGenerator{LanguageModel: reviewingReplyLanguageModel{
+		reply:           "4. I am a large language model, trained by Google DeepMind. I am an open weights model.",
+		structuredReply: `{"decision":"rewrite","message":"사이트 빌드가 정체되어 요청하신 귤 웹사이트를 아직 게시하지 못했습니다. 현재 작업 상태를 다시 확인한 뒤 같은 프로젝트에서 이어가겠습니다.","reason":"candidate was unrelated to the failure context"}`,
+	}}
+
+	notice, status := generator.Generate(context.Background(), FailureReport{
+		Phase:              "stall",
+		StopReason:         "stopped after repeated model actions without workspace progress",
+		FailedOperation:    "site.app.build",
+		SafeFailureSummary: "site.app.build could not create the build scaffold",
+		OriginalRequest:    "더 해 괜찮아",
+		ResponseLanguage:   ResponseLanguageKorean,
+		DiagnosticEventID:  "task-1:stall",
+	})
+
+	if status.Source != "generated_review" || notice.Source != "generated_review" {
+		t.Fatalf("expected structured review rewrite, got notice=%+v status=%+v", notice, status)
+	}
+	if strings.Contains(notice.SendableMessage(), "large language model") {
+		t.Fatalf("expected unrelated generated text not to be sent, got %q", notice.SendableMessage())
+	}
+	if !strings.Contains(notice.SendableMessage(), "게시하지 못했습니다") {
+		t.Fatalf("expected reviewed user notice, got %q", notice.SendableMessage())
+	}
+}
+
 func TestFailureNoticePromptUsesCompactContextOnly(t *testing.T) {
 	report := FailureReport{
 		Phase:              "failure",
@@ -93,6 +120,19 @@ func (model staticReplyLanguageModel) GenerateResponse(context.Context, string) 
 
 func (model staticReplyLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
 	return llm.StructuredResponse{}, errors.New("structured response unsupported")
+}
+
+type reviewingReplyLanguageModel struct {
+	reply           string
+	structuredReply string
+}
+
+func (model reviewingReplyLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return model.reply, nil
+}
+
+func (model reviewingReplyLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	return llm.StructuredResponse{Content: model.structuredReply}, nil
 }
 
 func TestIntakeNoticeGeneratorUsesGeneratedReply(t *testing.T) {
