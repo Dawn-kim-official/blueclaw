@@ -279,6 +279,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		if result, fallbackError, isFound := toolCatalogBuilder.fileReadFallbackFromAttachmentMaterial(toolContext, resolvedPath.VirtualPath, input, handlerContext); isFound {
 			return result, fallbackError
 		}
+		if actorFailureCode(errorValue) == security.ActorErrorCodeNotFound && isOptionalSiteControlFilePath(resolvedPath.VirtualPath) {
+			return optionalSiteControlFileMissingResult(resolvedPath, input, maxOutputBytes), nil
+		}
 		return actorToolFailure("stat", "file_read", resolvedPath.VirtualPath, errorValue), nil
 	}
 	if !fileInformation.IsRegular {
@@ -310,6 +313,71 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 		"sizeBytes":         fileInformation.SizeBytes,
 		"isTruncated":       isFileTruncated || readResult.IsTruncated,
 	}, readResult))), nil
+}
+
+func optionalSiteControlFileMissingResult(resolvedPath ResolvedWorkspacePath, input fileReadToolInput, maxOutputBytes int) agent.ToolResult {
+	readResult := fileReadResult("", input, maxOutputBytes)
+	readResult.ReadHint = "This site control file is optional and is not present yet. Create or update it before source edits if it is relevant to the current site workflow."
+	result := fileReadResultMap(map[string]any{
+		"path":              resolvedPath.VirtualPath,
+		"exists":            false,
+		"optional":          true,
+		"totalLinesKnown":   true,
+		"originalSizeBytes": 0,
+		"sizeBytes":         0,
+		"isTruncated":       false,
+	}, readResult)
+	if recommendedPath := recommendedSiteControlWritePath(resolvedPath.VirtualPath); recommendedPath != "" {
+		result["recommendedWritePath"] = recommendedPath
+	}
+	return agent.ToolSuccess(marshalToolResult(result))
+}
+
+func isOptionalSiteControlFilePath(path string) bool {
+	cleanPath := strings.Trim(filepath.ToSlash(strings.TrimSpace(path)), "/")
+	for _, suffix := range optionalSiteControlFileSuffixes() {
+		if strings.HasSuffix(cleanPath, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func optionalSiteControlFileSuffixes() []string {
+	return []string{
+		".internkim/site.json",
+		".internkim/idea.md",
+		".internkim/artifact-brief.md",
+		".internkim/review-log.json",
+	}
+}
+
+func recommendedSiteControlWritePath(path string) string {
+	cleanPath := strings.Trim(filepath.ToSlash(strings.TrimSpace(path)), "/")
+	for _, prefix := range []string{"home/sites/", "workspace/circles/staff/sites/"} {
+		if recommendedPath := recommendedSiteControlWritePathForPrefix(cleanPath, prefix); recommendedPath != "" {
+			return recommendedPath
+		}
+	}
+	return ""
+}
+
+func recommendedSiteControlWritePathForPrefix(path string, prefix string) string {
+	if !strings.HasPrefix(path, prefix) {
+		return ""
+	}
+	remainder := strings.TrimPrefix(path, prefix)
+	siteID, relativePath, hasRelativePath := strings.Cut(remainder, "/")
+	if strings.TrimSpace(siteID) == "" || !hasRelativePath {
+		return ""
+	}
+	if strings.HasPrefix(relativePath, "draft/") {
+		return ""
+	}
+	if !isOptionalSiteControlFilePath(relativePath) {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Join(canonicalSiteSourceWorkspacePath(siteID), relativePath))
 }
 
 func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[string]any {

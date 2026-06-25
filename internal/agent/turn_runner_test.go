@@ -463,12 +463,13 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndExplicitTools(t *test
 	}
 }
 
-func TestAgentTurnRunnerStopsRepeatedSelectToolsWithoutToolProgress(t *testing.T) {
+func TestAgentTurnRunnerSteersRepeatedSelectToolsTowardConcreteToolUse(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
 		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still need site creation"}`,
 		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"should not be requested"}`,
+		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
+		finishMessageWithEvidence("created", "obs-005", "site.app.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10})
 	toolRegistry := NewToolSet([]string{"skill.search"})
@@ -487,17 +488,20 @@ func TestAgentTurnRunnerStopsRepeatedSelectToolsWithoutToolProgress(t *testing.T
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
-		t.Fatalf("expected turn to stop cleanly: %v", errorValue)
+		t.Fatalf("expected turn to recover cleanly: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
-	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_turn_action") != 3 {
-		t.Fatalf("expected no-progress stop after three request_tools actions, got %+v", structuredRequestNames(languageModel.requests))
+	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_turn_action") != 5 {
+		t.Fatalf("expected request_tools loop to receive one steering turn, got %+v", structuredRequestNames(languageModel.requests))
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "3 consecutive") {
-		t.Fatalf("expected no-progress stop event, got %+v", taskEvents)
+	if !taskEventsContain(taskEvents, "agent.stall_exit_directive", "Take one of two exits now") {
+		t.Fatalf("expected stall exit directive before concrete tool use, got %+v", taskEvents)
+	}
+	if taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "") {
+		t.Fatalf("expected no no-progress block after concrete tool use, got %+v", taskEvents)
 	}
 	if taskEventsContain(taskEvents, "max_iterations", "") {
 		t.Fatal("expected request_tools loop breaker before max_iterations")

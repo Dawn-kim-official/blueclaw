@@ -434,6 +434,7 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
 	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
 	request = normalizeRequestSiteWorkKinds(request, intakeDecision)
+	request = normalizeRequestSiteWorkKindsFromInstructionBundle(request, instructionBundle)
 	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	if activeGoalOutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
@@ -441,6 +442,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHints...)
 		contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForRequestContinuation(request, contract, selectedEvidenceHints)...)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForRequest(request, instructionBundle)...)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
 		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
@@ -453,6 +455,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		RequiredAttachmentSuffixes: append([]string{}, requiredAttachmentSuffixes...),
 	}
 	contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
+	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForRequest(request, instructionBundle)...)
 	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
@@ -480,6 +483,57 @@ func normalizeRequestSiteWorkKinds(request AgentRequest, intakeDecision IntakeDe
 	}
 	request.WorkKinds, _ = removeSiteWorkKinds(request.WorkKinds)
 	return request
+}
+
+func normalizeRequestSiteWorkKindsFromInstructionBundle(request AgentRequest, instructionBundle InstructionBundle) AgentRequest {
+	if workKindsContain(request.WorkKinds, WorkKindSitePrototype) {
+		return request
+	}
+	if activeGoalHasNonFileNonSiteEvidence(request.ActiveGoal) {
+		return request
+	}
+	if !selectedInstructionBundleRequiresSiteEvidence(instructionBundle) {
+		return request
+	}
+	request.WorkKinds = appendUniqueStrings(request.WorkKinds, WorkKindSitePrototype)
+	return request
+}
+
+func activeGoalHasNonFileNonSiteEvidence(activeGoal ActiveGoal) bool {
+	for _, toolName := range outcomeContractToolNames(activeGoal.OutcomeContract) {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName == "" || trimmedToolName == "file.attach" {
+			continue
+		}
+		if strings.HasPrefix(trimmedToolName, "site.app.") {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func selectedInstructionBundleRequiresSiteEvidence(instructionBundle InstructionBundle) bool {
+	for _, toolName := range selectedEvidenceHintTools(instructionBundle) {
+		if strings.HasPrefix(strings.TrimSpace(toolName), "site.app.") {
+			return true
+		}
+	}
+	return false
+}
+
+func selectedSiteEvidenceToolsForRequest(request AgentRequest, instructionBundle InstructionBundle) []string {
+	if !requestLooksLikeSitePrototypeWork(request) {
+		return nil
+	}
+	toolNames := []string{}
+	for _, toolName := range selectedEvidenceHintTools(instructionBundle) {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if strings.HasPrefix(trimmedToolName, "site.app.") {
+			toolNames = appendUniqueStrings(toolNames, trimmedToolName)
+		}
+	}
+	return toolNames
 }
 
 func siteEvidenceQuoteForOutcomeContract(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) string {
@@ -518,9 +572,6 @@ func attachmentSuffixesForOutcomeContract(request AgentRequest, executionPlan Ex
 	if !requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) {
 		return append([]string{}, requiredAttachmentSuffixes...)
 	}
-	if !onlyHTMLAttachmentSuffixes(requiredAttachmentSuffixes) {
-		return append([]string{}, requiredAttachmentSuffixes...)
-	}
 	if requestHasWorkKind(request, WorkKindFileDelivery) {
 		return append([]string{}, requiredAttachmentSuffixes...)
 	}
@@ -531,20 +582,11 @@ func requestExpectsSiteLinkResult(request AgentRequest, executionPlan ExecutionP
 	return requestLooksLikeSitePrototypeWork(request) || hasExecutionPlan && executionPlan.PublicDeploy
 }
 
-func onlyHTMLAttachmentSuffixes(requiredAttachmentSuffixes []string) bool {
-	for _, suffix := range requiredAttachmentSuffixes {
-		if strings.ToLower(strings.TrimSpace(suffix)) != ".html" {
-			return false
-		}
-	}
-	return len(requiredAttachmentSuffixes) > 0
-}
-
 func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) OutcomeContract {
 	contract = normalizeOutcomeContract(contract)
 	contract = normalizeOutcomeContractSiteRequirementForRequest(request, contract)
 	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !requestHasWorkKind(request, WorkKindFileDelivery) {
-		contract = removeImplicitHTMLFileContract(contract)
+		contract = removeImplicitSiteFileContract(contract)
 	}
 	if outcomeContractRequiresPublicLinkOnly(contract) {
 		contract.ArtifactRequirement = ArtifactRequirementNone
@@ -557,6 +599,9 @@ func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan Execu
 
 func normalizeOutcomeContractSiteRequirementForRequest(request AgentRequest, contract OutcomeContract) OutcomeContract {
 	if !outcomeContractHasSiteRequirement(contract) {
+		return contract
+	}
+	if requestHasWorkKind(request, WorkKindSitePrototype) {
 		return contract
 	}
 	activeGoal := ActiveGoal{
@@ -586,10 +631,7 @@ func removePlatformMessageSendContract(contract OutcomeContract) OutcomeContract
 	return contract
 }
 
-func removeImplicitHTMLFileContract(contract OutcomeContract) OutcomeContract {
-	if !onlyHTMLAttachmentSuffixes(contract.RequiredAttachmentSuffixes) {
-		return contract
-	}
+func removeImplicitSiteFileContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = nil
 	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "file.attach")
 	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "file.attach")
