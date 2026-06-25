@@ -25,19 +25,20 @@ func TestSelectToolsReclassifiesSkillNameThatIsRegisteredTool(t *testing.T) {
 	}
 }
 
-func TestExternalSendPreExposesSendToolsWithoutSelection(t *testing.T) {
+func TestExternalSendExposesPinnedSendTools(t *testing.T) {
 	toolSet := testToolSet([]string{"skill.search", "ask.confirm", "platform.message.send", "mail.message.send"})
 	request := AgentRequest{
-		Prompt:    "이샘플님께 DM 보내줘",
-		WorkKinds: []string{WorkKindExternalSend},
-		ToolSet:   toolSet,
+		Prompt:          "이샘플님께 DM 보내줘",
+		WorkKinds:       []string{WorkKindExternalSend},
+		PinnedToolNames: []string{"platform.message.send", "mail.message.send"},
+		ToolSet:         toolSet,
 	}
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	for _, toolName := range []string{"platform.message.send", "mail.message.send"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected %s pre-exposed for an external_send task so it can be called without request_tools, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected pinned send tool %s to be exposed, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }

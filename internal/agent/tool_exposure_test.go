@@ -50,20 +50,22 @@ func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘", WorkKinds: []string{WorkKindSlidesArtifact}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: []string{"unknown.tool"}}, ToolExposureEvent{})
 
-	for _, toolID := range []string{"skill.search", "memory.remember", "terminal.run", "file.write"} {
+	for _, toolID := range []string{"skill.search", "memory.remember"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected fallback to expose %s, got %+v", toolID, filteredToolSet.ListToolNames())
 		}
 	}
-	if filteredToolSet.IsAllowed("mail.message.search") {
-		t.Fatalf("expected unselected skill tool to stay hidden, got %+v", filteredToolSet.ListToolNames())
+	for _, toolID := range []string{"terminal.run", "file.write", "mail.message.search"} {
+		if filteredToolSet.IsAllowed(toolID) {
+			t.Fatalf("expected unrequested tool %s to stay hidden, got %+v", toolID, filteredToolSet.ListToolNames())
+		}
 	}
 	if !event.UsedFallbackGroups {
 		t.Fatalf("expected invalid selection to use fallback groups: %+v", event)
 	}
 }
 
-func TestCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
+func TestPinnedCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 	toolSet := testToolSet([]string{
 		"skill.search",
 		"tool.describe",
@@ -76,11 +78,23 @@ func TestCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 		"flow.task.list",
 		"flow.task.update",
 	})
+	request := AgentRequest{
+		Prompt: "디플랫 코리아 완료",
+		PinnedToolNames: []string{
+			"calendar.event.add",
+			"calendar.event.list",
+			"calendar.event.update",
+			"calendar.event.delete",
+			"flow.task.add",
+			"flow.task.list",
+			"flow.task.update",
+		},
+	}
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(
 		toolSet,
 		InstructionBundle{},
-		AgentRequest{Prompt: "디플랫 코리아 완료"},
+		request,
 		ExecutionPlan{},
 		false,
 		OutcomeContract{},
@@ -173,7 +187,11 @@ func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
 		}},
 	}
 
-	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "네가 보낸 메시지 삭제해줘"}, ExecutionPlan{}, false, contract, ToolSelectionDecision{}, ToolExposureEvent{})
+	request := AgentRequest{
+		Prompt:          "네가 보낸 메시지 삭제해줘",
+		PinnedToolNames: []string{"platform.message.delete"},
+	}
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	for _, toolName := range []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"} {
 		if filteredToolSet.IsAllowed(toolName) {
@@ -244,7 +262,7 @@ func TestToolExposureCapTruncatesByGroupOrder(t *testing.T) {
 	}
 }
 
-func TestDeterministicPaletteTruncatesSelectedSkillToolsByOrder(t *testing.T) {
+func TestPinnedPaletteTruncatesToolsByOrder(t *testing.T) {
 	siteToolIDs := []string{
 		"site.app.status",
 		"site.app.create",
@@ -270,7 +288,18 @@ func TestDeterministicPaletteTruncatesSelectedSkillToolsByOrder(t *testing.T) {
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 만들고 배포해줘", WorkKinds: []string{WorkKindSitePrototype}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
+	request := AgentRequest{
+		Prompt:          "개인 홈페이지 만들고 배포해줘",
+		WorkKinds:       []string{WorkKindSitePrototype},
+		PinnedToolNames: siteToolIDs,
+	}
+	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{})
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic {
+		t.Fatal("expected pinned site tools to select deterministically")
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
 
 	if len(event.ExposedToolIDs) > maxSchemaCallableToolCount {
 		t.Fatalf("expected exposed tools to stay within cap, got %+v", event.ExposedToolIDs)
@@ -287,7 +316,7 @@ func TestDeterministicPaletteTruncatesSelectedSkillToolsByOrder(t *testing.T) {
 	}
 }
 
-func TestDeterministicPaletteKeepsSelectedFileWorkflowAheadOfOtherSkills(t *testing.T) {
+func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T) {
 	toolIDs := []string{
 		"terminal.run",
 		"file.write",
@@ -315,7 +344,17 @@ func TestDeterministicPaletteKeepsSelectedFileWorkflowAheadOfOtherSkills(t *test
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		RequiredEvidenceTools:      []string{"file.attach"},
 	}
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "PPTX 발표자료 만들어 첨부해줘"}, ExecutionPlan{}, false, contract, ToolSelectionDecision{}, ToolExposureEvent{})
+	request := AgentRequest{
+		Prompt:          "PPTX 발표자료 만들어 첨부해줘",
+		PinnedToolNames: []string{"terminal.run", "file.write", "file.promote", "file.attach", "artifact.review"},
+	}
+	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic {
+		t.Fatal("expected requested file workflow tools to select deterministically")
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract, selection, event)
 
 	for _, toolID := range []string{"terminal.run", "file.write", "file.promote", "file.attach", "artifact.review"} {
 		if !filteredToolSet.IsAllowed(toolID) {
@@ -365,13 +404,17 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 			AllowedTools: []string{"site.app.status", "site.app.repair", "terminal.run", "artifact.review"},
 		},
 	}
-	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, AgentRequest{Prompt: "PPTX 파일 첨부해줘"}, ExecutionPlan{}, false, contract, []turnObservation{observation})
+	request := AgentRequest{
+		Prompt:          "PPTX 파일 첨부해줘",
+		PinnedToolNames: []string{"file.promote", "file.attach"},
+	}
+	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract, []turnObservation{observation})
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
 	if !isDeterministic {
 		t.Fatal("expected recovery and outcome tools to select deterministically")
 	}
 
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "PPTX 파일 첨부해줘"}, ExecutionPlan{}, false, contract, selection, event)
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract, selection, event, []turnObservation{observation})
 
 	for _, toolID := range []string{"terminal.run", "artifact.review", "file.attach", "file.promote"} {
 		if !filteredToolSet.IsAllowed(toolID) {
@@ -518,6 +561,38 @@ func TestDeterministicPinnedStepExposesOnlyPinnedTools(t *testing.T) {
 	}
 }
 
+func TestPinnedToolGroupBypassesOutcomeFilter(t *testing.T) {
+	siteToolNames := []string{"site.app.status", "site.app.create", "site.app.publish", "browser.open", "browser.snapshot"}
+	toolSet := testToolSet(append(siteToolNames, "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"))
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name:         "site-prototype",
+			AllowedTools: siteToolNames,
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+	}
+	request := AgentRequest{
+		Prompt:          "이어 해줘",
+		PinnedToolNames: []string{"site.app.status", "site.app.create"},
+	}
+	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{})
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic {
+		t.Fatal("expected pinned site tools to select deterministically")
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
+
+	for _, toolID := range []string{"site.app.status", "site.app.create"} {
+		if !filteredToolSet.IsAllowed(toolID) {
+			t.Fatalf("expected pinned selected-skill tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
+		}
+	}
+	if filteredToolSet.IsAllowed("site.app.publish") {
+		t.Fatalf("expected unpinned site skill tool to keep outcome filtering, got %+v", event.ExposedToolIDs)
+	}
+}
+
 func TestRecoveryWorkingSetDropsExhaustedTool(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
@@ -570,18 +645,23 @@ func TestPlannedToolsDropRepeatedFileRead(t *testing.T) {
 	}
 }
 
-func TestGenericFallbackKeepsExplicitCapabilityToolsBeforeBuiltIns(t *testing.T) {
+func TestFallbackHidesUnrequestedCapabilityTools(t *testing.T) {
 	toolSet := testToolSet([]string{"conversation.history", "memory.search", "browser.snapshot", "file.write", "terminal.run"})
 	instructionBundle := InstructionBundle{}
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "open browser and observe"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
-	if !filteredToolSet.IsAllowed("browser.snapshot") {
-		t.Fatalf("expected explicit capability tool to survive generic fallback, got %+v", event.ExposedToolIDs)
+	if filteredToolSet.IsAllowed("browser.snapshot") {
+		t.Fatalf("expected unrequested capability tool to stay hidden, got %+v", event.ExposedToolIDs)
+	}
+	for _, toolID := range []string{"conversation.history", "memory.search"} {
+		if !filteredToolSet.IsAllowed(toolID) {
+			t.Fatalf("expected core tool %s to remain exposed, got %+v", toolID, event.ExposedToolIDs)
+		}
 	}
 }
 
-func TestFallbackKeepsSelectedSkillToolsBeforeCoreTools(t *testing.T) {
+func TestFallbackHidesSelectedSkillToolsUntilRequested(t *testing.T) {
 	slideToolNames := []string{"terminal.run", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "artifact.review"}
 	toolSet := testToolSet(append(slideToolNames, "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "tool.describe"))
 	instructionBundle := InstructionBundle{
@@ -595,8 +675,8 @@ func TestFallbackKeepsSelectedSkillToolsBeforeCoreTools(t *testing.T) {
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘", WorkKinds: []string{WorkKindSlidesArtifact}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	for _, toolName := range slideToolNames {
-		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected selected skill tool %s to survive fallback, got %+v", toolName, event.ExposedToolIDs)
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected selected skill tool %s to stay hidden until requested, got %+v", toolName, event.ExposedToolIDs)
 		}
 	}
 	if !filteredToolSet.IsAllowed("memory.remember") {

@@ -360,6 +360,7 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
+		InitialToolNames:      []string{"schedule.create"},
 		Turns: []VirtualTurn{{
 			Prompt: "1분마다 \"1분 지났습니다\"라고 보내줘",
 			ActionResponses: []string{
@@ -386,6 +387,7 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.update", "schedule.cancel"},
+		InitialToolNames:      []string{"schedule.create", "schedule.update", "schedule.cancel"},
 		Turns: []VirtualTurn{
 			{
 				Prompt: "30분마다 상태 확인하라고 알려줘. 세 번만 해줘",
@@ -428,6 +430,7 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 		Skills:                []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.event.add", "calendar.event.update", "calendar.event.delete"},
 		CapabilityToolNames:   []string{"calendar.event.add", "calendar.event.update", "calendar.event.delete"},
+		InitialToolNames:      []string{"calendar.event.add", "calendar.event.update", "calendar.event.delete"},
 		Turns: []VirtualTurn{
 			{
 				Prompt: "내일 오전 10시에 제품 회고 일정을 캘린더에 추가해줘",
@@ -486,6 +489,7 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 		Skills:                []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.event.add"},
 		CapabilityToolNames:   []string{"calendar.event.add"},
+		InitialToolNames:      []string{"calendar.event.add"},
 		Turns: []VirtualTurn{{
 			Prompt:           "오늘 오후 5시 정기회의 추가 참석자 최견본, 이샘플",
 			ConversationType: "channel",
@@ -541,6 +545,7 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		Skills:                []agent.SkillInstruction{flowTaskSkill()},
 		AllowedTools:          []string{"conversation.history", "flow.task.add", "flow.task.list", "flow.task.update"},
 		CapabilityToolNames:   []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+		InitialToolNames:      []string{"flow.task.add", "flow.task.list", "flow.task.update"},
 		Turns: []VirtualTurn{{
 			Prompt:           "예시 님 신규 가입 플로우 점검 월요일까지 부탁해요",
 			ConversationType: "channel",
@@ -549,9 +554,8 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			ReplyTargetID:    "virtual-message-010",
 			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
 			ActionResponses: []string{
-				actionSelectTools("terminal.run"),
 				actionCallTool("flow.task.add", `{"prompt":"예시 님 신규 가입 플로우 점검 월요일까지","targetPersonHint":"예시"}`),
-				actionFinishMessage("예시 님 업무로 추가했습니다.", "obs-002:flow.task.add:0"),
+				actionFinishMessage("예시 님 업무로 추가했습니다.", "obs-001:flow.task.add:0"),
 			},
 			ExpectedToolCalls: []string{"flow.task.add"},
 			ExpectedToolCallCounts: map[string]int{
@@ -560,7 +564,6 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "agent.ambient_duty_launch", BodyFragment: `"dutyName":"team_flow_update"`, Count: 1},
-				{Name: "agent.tool_palette.fixed", BodyFragment: "ambient_capture", Count: 1},
 				{Name: "tool.flow.task.add.requested", BodyFragment: "예시", Count: 1},
 			},
 			ExpectedModelContexts: []string{
@@ -835,6 +838,7 @@ func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "schedule.create", "schedule.cancel"},
+		InitialToolNames:      []string{"schedule.create"},
 		Turns: []VirtualTurn{{
 			Prompt: "2027년 1월 15일 오전 9시에 계약서 확인 알림을 한 번만 예약해줘",
 			ActionResponses: []string{
@@ -916,6 +920,7 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
 		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
+		InitialToolNames:      []string{"site.app.create", "terminal.run", "site.app.publish"},
 		Turns: []VirtualTurn{{
 			Prompt: "웹사이트 하나 만들어서 배포해봐",
 			ActionResponses: []string{
@@ -948,6 +953,7 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
 		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
+		InitialToolNames:      []string{"site.app.create", "file.write", "terminal.run", "site.app.publish"},
 		Turns: []VirtualTurn{
 			{
 				Prompt: "Build and deploy a simple site.",
@@ -1015,6 +1021,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		RouterWorkKinds:       []string{agent.WorkKindExternalSend},
 		AllowedTools:          []string{"conversation.history", "memory.search", "platform.message.send"},
+		InitialToolNames:      []string{"platform.message.send"},
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{
 			Name:             "platform.message.send",
 			RequiresApproval: true,

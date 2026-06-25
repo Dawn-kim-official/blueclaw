@@ -25,6 +25,7 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover: %v", errorValue)
@@ -70,6 +71,7 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "샘플에게 DM 보내줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"platform.message.send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
@@ -107,6 +109,7 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "샘플와 정국에게 DM 보내줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"platform.message.send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
@@ -153,6 +156,7 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "샘플에게 DM 보내줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"platform.message.send"},
 		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})
@@ -193,6 +197,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "샘플에게 DM 보내줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"platform.message.send"},
 		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})
@@ -227,6 +232,7 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "1+1=",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover from unavailable tool: %v", errorValue)
@@ -264,6 +270,7 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "입력칸에 hello world라고 입력해줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -301,6 +308,7 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "입력칸에 hello world라고 입력해줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -335,6 +343,7 @@ func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -371,6 +380,7 @@ func TestAgentTurnRunnerStopsRepeatedMalformedToolInputByLimit(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "fill the search box",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -410,6 +420,7 @@ func TestAgentTurnRunnerDoesNotChargeMalformedInputToToolEffort(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -441,6 +452,7 @@ func TestAgentTurnRunnerRejectsRepeatedSuccessfulToolCall(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "marp 버전 확인해줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected duplicate completion: %v", errorValue)
@@ -568,6 +580,7 @@ func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *te
 		ConversationID:    "conversation-1",
 		Prompt:            "1분에 한 번씩 나한테 죄송합니다 10번 해봐",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected duplicate schedule turn to finish: %v", errorValue)

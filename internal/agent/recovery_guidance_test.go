@@ -27,6 +27,7 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "send dm",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"platform.message.send"},
 		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})

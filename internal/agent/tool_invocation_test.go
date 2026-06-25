@@ -23,6 +23,7 @@ func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -51,6 +52,7 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to recover: %v", errorValue)
@@ -79,6 +81,7 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)

@@ -35,6 +35,7 @@ func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		CheckpointSender:  func(context.Context, AgentCheckpoint) error { return nil },
 	})
 	collected := collectTurnEvents(events)
@@ -99,6 +100,7 @@ func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		CheckpointSender:  func(context.Context, AgentCheckpoint) error { return nil },
 	})
 	for range events {

@@ -258,25 +258,6 @@ func requestHasWorkKind(request AgentRequest, workKind string) bool {
 	return workKindsContain(request.WorkKinds, workKind)
 }
 
-func toolSetForSelectedSkills(toolSet *ToolSet, instructionBundle InstructionBundle) *ToolSet {
-	if toolSet == nil {
-		return nil
-	}
-	return toolSet.WithAllowedToolNames(toolNamesForSelectedSkills(instructionBundle))
-}
-
-func turnToolSelectionIsConstrained(instructionBundle InstructionBundle, outcomeContract OutcomeContract) bool {
-	for _, skillDecision := range instructionBundle.SkillDecisions {
-		if skillDecision.Status == "selected" {
-			return true
-		}
-	}
-	return len(outcomeContractRequiredToolNames(outcomeContract)) > 0 ||
-		len(outcomeContract.RequiredAttachmentSuffixes) > 0 ||
-		strings.TrimSpace(outcomeContract.ArtifactRequirement) == ArtifactRequirementRequired ||
-		strings.TrimSpace(outcomeContract.ArtifactRequirement) == ArtifactRequirementPreferred
-}
-
 func toolSetForOutcomeReference(toolSet *ToolSet, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
 	if toolSet == nil {
 		return nil
@@ -311,26 +292,6 @@ func outcomeAllowsSiteTools(request AgentRequest, executionPlan ExecutionPlan, h
 	return contractRequiresToolPrefix(outcomeContract, "site.app.") || (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
 }
 
-func selectedSkillToolShouldExpose(toolName string, selectedSkillToolNames map[string]bool, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
-	trimmedToolName := strings.TrimSpace(toolName)
-	if !selectedSkillToolNames[trimmedToolName] {
-		return false
-	}
-	if strings.HasPrefix(trimmedToolName, "site.app.") {
-		return outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, outcomeContract)
-	}
-	if trimmedToolName == "artifact.review" {
-		return outcomeAllowsVisualArtifactReview(request, outcomeContract)
-	}
-	if isSendEvidenceTool(trimmedToolName) {
-		if activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) {
-			return true
-		}
-		return outcomeAllowsExternalSendTools(request, executionPlan, hasExecutionPlan, outcomeContract)
-	}
-	return true
-}
-
 func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
 	return contractRequiresSendTool(outcomeContract) ||
 		requestHasWorkKind(request, WorkKindExternalSend) ||
@@ -346,51 +307,6 @@ func outcomeAllowsVisualArtifactReview(request AgentRequest, outcomeContract Out
 		requestLooksLikeSlidesArtifactWork(request)
 }
 
-func toolNamesForAgentTurn(instructionBundle InstructionBundle, outcomeContract OutcomeContract, request AgentRequest) []string {
-	toolNames := append([]string{}, universalAgentToolNames()...)
-	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
-	pinnedSkillName := stringSet(request.PinnedSkillNames)
-	for _, skillInstruction := range instructionBundle.Skills {
-		if !selectedSkillName[skillInstruction.Name] && !pinnedSkillName[skillInstruction.Name] {
-			continue
-		}
-		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
-	}
-	toolNames = appendUniqueStrings(toolNames, request.PinnedToolNames...)
-	toolNames = appendUniqueStrings(toolNames, outcomeContractRequiredToolNames(outcomeContract)...)
-	return toolNames
-}
-
-func selectedAndPinnedSkillToolNameSet(instructionBundle InstructionBundle, pinnedSkillNames []string) map[string]bool {
-	toolNameByName := map[string]bool{}
-	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
-	pinnedSkillName := stringSet(pinnedSkillNames)
-	for _, skillInstruction := range instructionBundle.Skills {
-		if !selectedSkillName[skillInstruction.Name] && !pinnedSkillName[skillInstruction.Name] {
-			continue
-		}
-		for _, toolName := range SkillToolNames(skillInstruction) {
-			trimmedToolName := strings.TrimSpace(toolName)
-			if trimmedToolName != "" {
-				toolNameByName[trimmedToolName] = true
-			}
-		}
-	}
-	return toolNameByName
-}
-
-func toolNamesForSelectedSkills(instructionBundle InstructionBundle) []string {
-	toolNames := append([]string{}, universalAgentToolNames()...)
-	selectedSkillName := selectedSkillNames(instructionBundle.SkillDecisions)
-	for _, skillInstruction := range instructionBundle.Skills {
-		if !selectedSkillName[skillInstruction.Name] {
-			continue
-		}
-		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
-	}
-	return toolNames
-}
-
 func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool {
 	selectedSkillName := map[string]bool{}
 	for _, skillDecision := range skillDecisions {
@@ -399,18 +315,6 @@ func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool
 		}
 	}
 	return selectedSkillName
-}
-
-func pinnedSkillToolNames(instructionBundle InstructionBundle, skillNames []string) []string {
-	pinnedSkillName := stringSet(skillNames)
-	toolNames := []string{}
-	for _, skillInstruction := range instructionBundle.Skills {
-		if !pinnedSkillName[skillInstruction.Name] {
-			continue
-		}
-		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
-	}
-	return toolNames
 }
 
 func stringSet(values []string) map[string]bool {

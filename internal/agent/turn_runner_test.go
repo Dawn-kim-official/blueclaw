@@ -63,6 +63,7 @@ func TestAgentTurnRunnerCallsToolsUntilFinishMessage(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -180,6 +181,7 @@ func TestAgentTurnRunnerSendsCheckpointAndStillRunsTool(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
 			checkpoints = append(checkpoints, checkpoint)
 			return nil
@@ -221,6 +223,7 @@ func TestAgentTurnRunnerSuppressesCheckpointForSimpleTask(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "일정 등록해줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		TaskComplexity:    TaskComplexitySimple,
 		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
 			checkpoints = append(checkpoints, checkpoint)
@@ -262,6 +265,7 @@ func TestAgentTurnRunnerRunsToolWhenCheckpointFails(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		CheckpointSender: func(context.Context, AgentCheckpoint) error {
 			return errors.New("send failed")
 		},
@@ -295,6 +299,7 @@ func TestAgentTurnRunnerDoesNotSendCheckpointForRejectedToolCall(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
 			checkpoints = append(checkpoints, checkpoint)
 			return nil
@@ -359,6 +364,7 @@ func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "create website",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -401,6 +407,7 @@ func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T)
 		ConversationID:    "conversation-1",
 		Prompt:            "다시 이미지 봐봐",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -417,9 +424,9 @@ func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T)
 	}
 }
 
-func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
+func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndExplicitTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":[],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
+		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
 		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"},"nextStepPlan":{"objective":"finish after creating the site","expectedTools":[],"expectedNextResults":["site created"],"doneCriteria":["site created"],"risk":"none","workingSetReason":"site.app.create should satisfy this test"}}`,
 		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
 	}}
@@ -438,6 +445,7 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndTools(t *testing.T) {
 		Prompt:            "make site",
 		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		AvailableSkills: []SkillInstruction{{
 			Name:         "site-prototype",
 			Prompt:       "SITE WORKFLOW BODY",
@@ -476,6 +484,7 @@ func TestAgentTurnRunnerStopsRepeatedSelectToolsWithoutToolProgress(t *testing.T
 		ConversationID:    "conversation-1",
 		Prompt:            "create website",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to stop cleanly: %v", errorValue)
@@ -521,6 +530,7 @@ func TestAgentTurnRunnerSelectToolsWithExhaustedFailureDebtRunsTerminalNoTools(t
 		ConversationID:    "conversation-1",
 		Prompt:            "calculate it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected terminal no-tools result: %v", errorValue)
@@ -554,6 +564,7 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 		ConversationID:     "conversation-1",
 		Prompt:             "피피티 만들어줘",
 		ToolSet:            toolRegistry,
+		PinnedToolNames:    toolRegistry.ListToolNames(),
 		AvailableSkills:    []SkillInstruction{{Name: "simple-slides", AllowedTools: []string{"terminal.run", "site.app.create"}}},
 		InstructionPrompt:  "Available skill index.\n\nSelected skill instructions:\nGenerate PPTX with Marp.",
 		InstructionSources: []InstructionSource{{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides", SHA256: "abc"}},
@@ -682,6 +693,7 @@ func TestAgentTurnRunnerBudgetExhaustedContinueTriggersSingleTerminalNoToolsCall
 		ConversationID:    "conversation-1",
 		Prompt:            "calculate it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected terminal fallback result: %v", errorValue)
@@ -721,6 +733,7 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsNoToolFallbackFinish(t *testing.T)
 		ConversationID:    "conversation-1",
 		Prompt:            "calculate it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected terminal fallback result: %v", errorValue)
@@ -748,6 +761,7 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "calculate it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected terminal failure report result: %v", errorValue)
@@ -784,6 +798,7 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 		ConversationID:    "conversation-1",
 		Prompt:            "calculate it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected repaired terminal fallback result: %v", errorValue)
@@ -820,6 +835,7 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 		TaskComplexity:    TaskComplexitySimple,
 		WorkKinds:         []string{WorkKindBrowserSession},
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -856,7 +872,8 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
 		}},
-		ToolSet: toolRegistry,
+		ToolSet:         toolRegistry,
+		PinnedToolNames: toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -984,6 +1001,7 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		Prompt:                "개인 홈페이지 만들고 배포해줘",
 		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"},
 		AvailableSkills: []SkillInstruction{{
 			Name:         "site-prototype",
@@ -1021,6 +1039,7 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 		ConversationID:        "conversation-1",
 		Prompt:                "김인턴 너의 개인 홈페이지 하나 만들어서 배포해봐.",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       []string{"site.app.status", "site.app.create", "file.write", "site.app.build", "artifact.review", "site.app.publish"},
 		RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "site.app.publish", "file.attach"},
 		AvailableSkills: []SkillInstruction{{
 			Name: "site-prototype",
@@ -1081,6 +1100,7 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 		Prompt:                "개인 홈페이지 만들고 배포해줘",
 		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.app.build"},
 		AvailableSkills: []SkillInstruction{{
 			Name:         "site-prototype",
@@ -1333,6 +1353,7 @@ func TestAgentTurnRunnerFinalizesSatisfiedGoalAtIterationEffort(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "스크린샷 줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"browser.screenshot"},
 	})
 	if errorValue != nil {
@@ -1377,6 +1398,7 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 		Prompt:            "스크린샷 줘",
 		WorkKinds:         []string{WorkKindBrowserSession},
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected effort result, got error: %v", errorValue)
@@ -1415,6 +1437,7 @@ func TestAgentTurnRunnerDoesNotCompleteEffortStopFromUnrequestedAttachment(t *te
 		ConversationID:    "conversation-1",
 		Prompt:            "do some work",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected effort result, got error: %v", errorValue)
@@ -1445,6 +1468,7 @@ func TestAgentTurnRunnerFailsWhenMaximumIterationsAreExceeded(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected fallback result, got error: %v", errorValue)
@@ -1650,6 +1674,7 @@ func TestAgentTurnRunnerStopsWhenToolEffortIsExceeded(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
