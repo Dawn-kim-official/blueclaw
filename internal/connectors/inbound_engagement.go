@@ -68,6 +68,7 @@ func ambientCaptureTurnDecision(dutyName string, responseLanguage string) *agent
 		TaskComplexity:   agent.TaskComplexitySimple,
 		EffortLevel:      agent.EffortLevelStandard,
 		WorkKinds:        ambientCaptureWorkKinds(dutyName),
+		InitialToolNames: ambientCaptureInitialToolNames(dutyName),
 		ResponseLanguage: responseLanguage,
 		Reason:           "ambient_duty_capture",
 	}
@@ -78,6 +79,17 @@ func ambientCaptureWorkKinds(dutyName string) []string {
 		return []string{agent.WorkKindCalendar}
 	}
 	return nil
+}
+
+func ambientCaptureInitialToolNames(dutyName string) []string {
+	switch strings.TrimSpace(dutyName) {
+	case "calendar_upkeep":
+		return []string{"calendar.event.add", "calendar.event.update", "calendar.event.list"}
+	case "team_flow_update":
+		return []string{"flow.task.add", "flow.task.list", "flow.task.update"}
+	default:
+		return nil
+	}
 }
 
 func ambientDutyContextFromAddressingDecision(decision agent.AddressingDecision) agent.AmbientDutyContext {

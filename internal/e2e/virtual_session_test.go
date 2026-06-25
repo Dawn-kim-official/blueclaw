@@ -192,9 +192,6 @@ func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"team_flow_update"`) {
 		t.Fatalf("expected ambient duty launch for an other-person-mentioned task assignment; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "agent.tool_palette.fixed", "ambient_capture") {
-		t.Fatalf("expected request_tools to be blocked by the fixed ambient palette; events: %s", summarizeEvents(turnResult.Events))
-	}
 	if eventsContain(turnResult.Events, "tool.terminal.run.requested", "") {
 		t.Fatalf("ambient capture must not reach terminal.run; events: %s", summarizeEvents(turnResult.Events))
 	}

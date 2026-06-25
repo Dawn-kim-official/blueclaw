@@ -527,7 +527,7 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 
 func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"deep","requestedOutputFormats":["pptx"],"reason":"previous permission failure","userFacingReply":"Gamma나 Canva를 사용하세요."}`,
+		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"deep","requestedOutputFormats":["pptx"],"initialToolNames":["file.attach"],"reason":"previous permission failure","userFacingReply":"Gamma나 Canva를 사용하세요."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
@@ -579,7 +579,7 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 
 func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"standard","requestedOutputFormats":["pptx"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
+		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"standard","requestedOutputFormats":["pptx"],"initialToolNames":["file.attach"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
@@ -846,6 +846,7 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "확인해줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"alpha"},
 		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
 			checkpoints = append(checkpoints, checkpoint)
 			return nil
@@ -867,7 +868,7 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 
 func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"quick with useful tool","userFacingReply":""}`,
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"initialToolNames":["primary.lookup","backup.lookup"],"reason":"quick with useful tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"primary.lookup","toolInput":{"query":"hello"}}`,
@@ -934,7 +935,7 @@ func TestAgentKernelQuickReplyFailureDoesNotInventToolFailure(t *testing.T) {
 
 func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
+		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"initialToolNames":["math.calculate"],"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+1"}}`,
@@ -1071,7 +1072,7 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 
 func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["html"],"initialToolNames":["file.attach"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,

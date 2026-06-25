@@ -206,15 +206,8 @@ func pinRequestedSkills(request AgentTurnRequest, skillNames []string, result to
 			result.UnknownSkillNames = appendUniqueStrings(result.UnknownSkillNames, trimmedSkillName)
 			continue
 		}
-		missingToolNames := unavailableSkillToolNames(request.ToolSet, skillInstruction)
-		if len(missingToolNames) > 0 {
-			result.SkillsMissingAllowedTools[trimmedSkillName] = missingToolNames
-			continue
-		}
 		result.PinnedSkillNames = appendUniqueStrings(result.PinnedSkillNames, trimmedSkillName)
 		request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, trimmedSkillName)
-		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, SkillToolNames(skillInstruction)...)
-		request.ToolSet = request.ToolSet.WithAdditionalAllowedToolNames(SkillToolNames(skillInstruction))
 		request.InstructionPrompt = appendPinnedSkillPrompt(request.InstructionPrompt, []SkillInstruction{skillInstruction})
 		request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, skillInstruction.Completion.RequiredEvidenceTools...)
 	}
@@ -229,16 +222,6 @@ func findAvailableSkillInstruction(skillInstructions []SkillInstruction, skillNa
 		}
 	}
 	return SkillInstruction{}, false
-}
-
-func unavailableSkillToolNames(toolSet *ToolSet, skillInstruction SkillInstruction) []string {
-	missingToolNames := []string{}
-	for _, toolName := range SkillToolNames(skillInstruction) {
-		if toolSet == nil || !toolSet.IsRegistered(toolName) || !toolSet.CanExpose(toolName) {
-			missingToolNames = appendUniqueStrings(missingToolNames, toolName)
-		}
-	}
-	return missingToolNames
 }
 
 func appendPinnedSkillPrompt(instructionPrompt string, skillInstructions []SkillInstruction) string {

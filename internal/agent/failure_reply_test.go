@@ -145,6 +145,7 @@ func TestAgentTurnRunnerDoesNotUseDeterministicCapabilityFallbackWhenActionModel
 		Prompt:               "너 뭐 할줄 알아? 짧게 설명해봐",
 		ResponseLanguage:     ResponseLanguageKorean,
 		ToolSet:              toolRegistry,
+		PinnedToolNames:      toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected failed turn without deterministic capability reply: %v", errorValue)
@@ -177,6 +178,7 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "내일 서울 날씨 검색해줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"browser.snapshot"},
 	})
 	if errorValue != nil {
@@ -230,6 +232,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "정국에게 DM 보내줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"platform.message.send"},
 		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
 	})
@@ -268,19 +271,20 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 		ConversationID:    "conversation-1",
 		Prompt:            "정국에게 DM 보내줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		ExistingTaskRunID: existingTaskRun.TaskRunID,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task on second stall, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task on exhausted recovery, got %s", result.TaskRun.Status)
 	}
 	if result.UserNotice != "요청을 처리하지 못했습니다." || result.ReplySuppressed {
 		t.Fatalf("expected safe degraded reply to be delivered, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.stall_blocked_reply", "generated") {
-		t.Fatal("expected generated blocked stall reply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
+		t.Fatal("expected generated failure reply event")
 	}
 }
 
@@ -306,18 +310,19 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 		ConversationID:    "conversation-1",
 		Prompt:            "정국에게 DM 보내줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
-		t.Fatalf("expected stalled task to pause for user input, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed task after exhausted recovery, got %s", result.TaskRun.Status)
 	}
 	if result.UserNotice != generatedReply {
 		t.Fatalf("expected generated reply, got %q", result.UserNotice)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.stall_pause_reply", "generated") {
-		t.Fatal("expected generated stall pause reply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
+		t.Fatal("expected generated failure reply event")
 	}
 }
 
@@ -433,6 +438,7 @@ func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "구글에서 검색해줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -472,6 +478,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 		ConversationID:    "conversation-1",
 		Prompt:            "html 파일 만들어줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -514,6 +521,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t 
 		ConversationID:    "conversation-1",
 		Prompt:            "html 파일 만들어줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
@@ -548,6 +556,7 @@ func TestAgentTurnRunnerReportsRawLimitErrorWhenGenerationKeepsLeakingDiagnostic
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)

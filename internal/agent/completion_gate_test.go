@@ -193,6 +193,7 @@ func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T)
 		ConversationID:             "conversation-1",
 		Prompt:                     "html만 주면 돼",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".html"},
 	})
@@ -230,6 +231,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 		ConversationID:             "conversation-1",
 		Prompt:                     "html만 주면 돼",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".html"},
 	})
@@ -298,6 +300,7 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
 		WorkKinds:         []string{WorkKindBrowserSession},
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected browser tool requirement to recover: %v", errorValue)
@@ -342,6 +345,7 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *test
 		ConversationID:        "conversation-1",
 		Prompt:                "피피티 만들어줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"file.attach"},
 	})
 	if errorValue != nil {
@@ -387,6 +391,7 @@ func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *t
 		ConversationID:        "conversation-1",
 		Prompt:                "html 만들어줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"file.write", "file.attach"},
 	})
 	if errorValue != nil {
@@ -431,6 +436,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 	})
@@ -478,6 +484,7 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 		Prompt:                "html 만들어줘",
 		WorkspaceRootPath:     workspaceRootPath,
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"file.attach"},
 	})
 	if errorValue != nil {
@@ -527,6 +534,7 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
@@ -588,6 +596,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
@@ -631,6 +640,7 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
@@ -675,6 +685,7 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
@@ -723,6 +734,7 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
 		RequiredEvidenceTools:      []string{"file.attach"},
@@ -785,6 +797,7 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 		ConversationID:    "conversation-1",
 		Prompt:            "do it",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to fail safely: %v", errorValue)
@@ -813,6 +826,7 @@ func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T)
 		ConversationID:        "conversation-1",
 		Prompt:                "1+2/4=",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"math.calculate"},
 	})
 	if errorValue != nil {
@@ -843,6 +857,7 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 		ConversationID:            "conversation-1",
 		Prompt:                    "make an artifact",
 		ToolSet:                   toolRegistry,
+		PinnedToolNames:           toolRegistry.ListToolNames(),
 		QualityAcceptanceGuidance: []string{"declare criteria first"},
 	})
 	if errorValue != nil {
@@ -880,6 +895,7 @@ func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityRevie
 		Prompt:            "사이트를 배포해줘",
 		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{{
 			ID:          "site-public-link",
 			Type:        ExpectedResultTypeLink,
@@ -929,6 +945,7 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 		Prompt:            "개인 홈페이지 만들어서 배포해줘",
 		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		OutcomeContract: OutcomeContract{
 			ExpectedResults: []ExpectedResult{{
 				ID:          "site-public-link",
@@ -974,6 +991,7 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 		Prompt:                "개인 홈페이지 배포해줘",
 		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"file.attach"},
 		OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools: []string{"file.attach"},
@@ -1029,6 +1047,7 @@ func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "PPTX 파일로 첨부해줘",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 		OutcomeContract: OutcomeContract{
 			ArtifactRequirement:        ArtifactRequirementRequired,
 			RequiredAttachmentSuffixes: []string{".pptx"},
@@ -1096,6 +1115,7 @@ func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) 
 		Prompt:                "사이트 빌드해서 배포 준비해줘",
 		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.app.build"},
 	})
 	if errorValue != nil {
@@ -1131,6 +1151,7 @@ func TestAgentTurnRunnerFinalizesOneShotEvidenceToolAfterSuccess(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "내일부터 화요일까지 휴가 등록해줘",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"calendar.event.add"},
 	})
 	if errorValue != nil {
@@ -1168,6 +1189,7 @@ func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 		ConversationID:        "conversation-1",
 		Prompt:                "1분에 한 번씩 나한테 죄송합니다 10번 해봐",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"schedule.create"},
 	})
 	if errorValue != nil {
@@ -1189,7 +1211,6 @@ func TestAgentTurnRunnerFinalizesScheduleCreateAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
@@ -1220,6 +1241,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "build deck",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1259,6 +1281,7 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 		ConversationID:             "conversation-1",
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
 		RequiredEvidenceTools:      []string{"file.attach"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 	})
@@ -1282,7 +1305,6 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
 		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/DESIGN.md","content":"colors: blue"}}`,
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
@@ -1313,6 +1335,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing
 		ConversationID:    "conversation-1",
 		Prompt:            "build deck",
 		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
@@ -1357,6 +1380,7 @@ func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T
 		ConversationID:        "conversation-1",
 		Prompt:                "build deck",
 		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"file.write"},
 	})
 	if errorValue != nil {

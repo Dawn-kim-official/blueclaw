@@ -118,7 +118,7 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 	}
 }
 
-func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
+func TestToolSetForAgentTurnHidesSelectedSkillToolsUntilExplicitlyPinned(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
@@ -141,19 +141,21 @@ func TestToolSetForSelectedSkillsKeepsCoreAndSelectedSkillTools(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 
-	filteredToolSet := toolSetForSelectedSkills(fullToolSet, instructionBundle)
+	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"conversation.history", "memory.search", "terminal.run", "site.app.create", "site.app.publish"} {
+	for _, toolName := range []string{"conversation.history", "memory.search"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	if !filteredToolSet.IsAllowed("schedule.create") {
-		t.Fatalf("expected default schedule.create to remain available, got %+v", filteredToolSet.ListToolNames())
+	for _, toolName := range []string{"terminal.run", "site.app.create", "site.app.publish", "schedule.create"} {
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected selected-skill tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
 	}
 }
 
-func TestToolSetForAgentTurnUsesSelectedSkillAllowedTools(t *testing.T) {
+func TestToolSetForAgentTurnUsesPinnedToolsAndCoreOnly(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
@@ -171,19 +173,24 @@ func TestToolSetForAgentTurnUsesSelectedSkillAllowedTools(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "scheduled-task", Status: "selected"}},
 	}
 
-	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "내일 알려줘"}, ExecutionPlan{}, false, OutcomeContract{})
+	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{
+		Prompt:          "내일 알려줘",
+		PinnedToolNames: []string{"schedule.create"},
+	}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"conversation.history", "memory.search", "math.calculate", "terminal.run", "file.write", "schedule.create"} {
+	for _, toolName := range []string{"conversation.history", "memory.search", "schedule.create"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	if filteredToolSet.IsAllowed("mail.message.search") {
-		t.Fatalf("expected unselected skill tool to be hidden, got %+v", filteredToolSet.ListToolNames())
+	for _, toolName := range []string{"math.calculate", "terminal.run", "file.write", "mail.message.search"} {
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected unrequested tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
 	}
 }
 
-func TestToolSetForAgentTurnHidesSelectedSendToolForNonSendOutcome(t *testing.T) {
+func TestToolSetForAgentTurnHidesUnrequestedSendToolForNonSendOutcome(t *testing.T) {
 	fullToolSet := testToolSet([]string{"platform.message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -196,17 +203,17 @@ func TestToolSetForAgentTurnHidesSelectedSendToolForNonSendOutcome(t *testing.T)
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
 
-	if !filteredToolSet.IsAllowed("file.write") {
-		t.Fatalf("expected universal tools to remain available, got %+v", filteredToolSet.ListToolNames())
-	}
 	if filteredToolSet.IsAllowed("platform.message.send") {
 		t.Fatalf("expected send tool to be hidden for non-send outcome, got %+v", filteredToolSet.ListToolNames())
 	}
+	if filteredToolSet.IsAllowed("file.write") {
+		t.Fatalf("expected unrequested file tool to be hidden, got %+v", filteredToolSet.ListToolNames())
+	}
 }
 
-func TestAgentKernelActionSchemaUsesSelectedSkillAllowedTools(t *testing.T) {
+func TestAgentKernelActionSchemaUsesIntakeInitialTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"schedule request","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"initialToolNames":["schedule.create"],"reason":"schedule request","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("done"),
@@ -249,13 +256,13 @@ func TestAgentKernelActionSchemaUsesSelectedSkillAllowedTools(t *testing.T) {
 	}
 	actionSchema := replyLanguageModel.requests[0].StructuredOutputSchema.Document
 	if !strings.Contains(actionSchema, `"toolName":{"enum":["schedule.create"]`) {
-		t.Fatalf("expected selected skill allowed tool in action schema, got %s", actionSchema)
+		t.Fatalf("expected intake initial tool in action schema, got %s", actionSchema)
 	}
 	if strings.Contains(actionSchema, "mail.message.search") {
 		t.Fatalf("expected unselected skill tool to be hidden from action schema, got %s", actionSchema)
 	}
-	if !strings.Contains(actionSchema, "math.calculate") || !strings.Contains(actionSchema, "ask.input") {
-		t.Fatalf("expected universal tools in action schema, got %s", actionSchema)
+	if strings.Contains(actionSchema, "math.calculate") || strings.Contains(actionSchema, "ask.input") {
+		t.Fatalf("expected deterministic initial tool palette to hide unrequested tools, got %s", actionSchema)
 	}
 }
 
@@ -321,15 +328,13 @@ func TestSelectInstructionBundleKeepsSkillWhenAllowedToolIsRegisteredButHidden(t
 		Prompt:  "김인턴 소개 웹사이트 만들어줘",
 		ToolSet: toolSet,
 	}, retriever)
-	filteredToolSet := toolSetForSelectedSkills(toolSet, selectedBundle)
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected hidden registered site skill to be selected, got %+v", selectedBundle.SkillDecisions)
 	}
-	for _, toolName := range []string{"site.app.create", "site.app.publish"} {
-		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected selected skill to expose %s, got %+v", toolName, filteredToolSet.ListToolNames())
-		}
+	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle, AgentRequest{Prompt: "김인턴 소개 웹사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
+	if filteredToolSet.IsAllowed("site.app.create") || filteredToolSet.IsAllowed("site.app.publish") {
+		t.Fatalf("expected selected hidden registered skill tools to stay hidden until requested, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
@@ -1007,7 +1012,7 @@ func TestFifthRetrievedSkillIsSelectedBeforeLimit(t *testing.T) {
 	}
 }
 
-func TestWebsiteSkillToolsSurviveWhenSkillIsFifthCandidate(t *testing.T) {
+func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 	skills := []SkillInstruction{
 		{Name: "simple-slides", Description: "Create slides.", Prompt: "SLIDES BODY"},
 		{Name: "pptx", Description: "Create PowerPoint files.", Prompt: "PPTX BODY"},
@@ -1040,16 +1045,9 @@ func TestWebsiteSkillToolsSurviveWhenSkillIsFifthCandidate(t *testing.T) {
 			"site.app.publish",
 		}),
 	}, retriever)
-	filteredToolSet := toolSetForSelectedSkills(testToolSet([]string{
-		"terminal.run",
-		"site.app.create",
-		"site.app.publish",
-	}), selectedBundle)
 
-	for _, toolName := range []string{"terminal.run", "site.app.create", "site.app.publish"} {
-		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected fifth candidate site tool %s to be allowed, got %+v", toolName, filteredToolSet.ListToolNames())
-		}
+	if !strings.Contains(selectedBundle.Prompt, "SITE BODY") {
+		t.Fatalf("expected fifth candidate site skill body to be selected, got %q", selectedBundle.Prompt)
 	}
 	if strings.Contains(selectedBundle.Prompt, "EXTRA BODY") {
 		t.Fatalf("expected sixth candidate body to stay out, got %q", selectedBundle.Prompt)

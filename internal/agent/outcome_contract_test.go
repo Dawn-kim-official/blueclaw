@@ -378,14 +378,17 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 	}
 }
 
-func TestSelectedSkillToolSetKeepsGenericWebTools(t *testing.T) {
+func TestAgentTurnToolSetKeepsPinnedWebAndSkillTools(t *testing.T) {
 	toolSet := testToolSet([]string{"web.search", "web.fetch", "terminal.run", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills:         []SkillInstruction{{Name: "simple-slides", AllowedTools: []string{"terminal.run", "file.write"}}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
 	}
 
-	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, AgentRequest{Prompt: "https://dawn.kim 참고해서 ppt 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, AgentRequest{
+		Prompt:          "https://dawn.kim 참고해서 ppt 만들어줘",
+		PinnedToolNames: []string{"web.search", "web.fetch", "terminal.run", "file.write"},
+	}, ExecutionPlan{}, false, OutcomeContract{})
 
 	for _, toolName := range []string{"web.search", "web.fetch", "terminal.run", "file.write"} {
 		if !filteredToolSet.IsAllowed(toolName) {
@@ -426,7 +429,7 @@ func TestOutcomeReferenceToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *t
 	}
 }
 
-func TestSelectedSkillToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *testing.T) {
+func TestAgentTurnToolSetKeepsPinnedActiveGoalEvidenceToolsForContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.app.create", "site.app.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -436,8 +439,9 @@ func TestSelectedSkillToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *test
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt:    "다시 해봐 그럼 될 거야",
-		WorkKinds: []string{WorkKindSitePrototype},
+		Prompt:          "다시 해봐 그럼 될 거야",
+		WorkKinds:       []string{WorkKindSitePrototype},
+		PinnedToolNames: []string{"terminal.run", "site.app.create", "site.app.publish"},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.app.create", "terminal.run", "site.app.publish"},
 			SiteEvidenceQuote:     "웹사이트 하나 만들어서 배포해줘",
@@ -454,7 +458,7 @@ func TestSelectedSkillToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *test
 	}
 }
 
-func TestSelectedSkillToolSetKeepsMatchingSelectedSkillToolsWhenActiveGoalWasAttachmentFallback(t *testing.T) {
+func TestAgentTurnToolSetKeepsPinnedSelectedSkillToolsWhenActiveGoalWasAttachmentFallback(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "file.attach", "site.app.create", "site.app.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -467,8 +471,9 @@ func TestSelectedSkillToolSetKeepsMatchingSelectedSkillToolsWhenActiveGoalWasAtt
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt:    "다시 해봐",
-		WorkKinds: []string{WorkKindSitePrototype},
+		Prompt:          "다시 해봐",
+		WorkKinds:       []string{WorkKindSitePrototype},
+		PinnedToolNames: []string{"terminal.run", "site.app.create", "site.app.publish"},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "개인 홈페이지를 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.attach"},
 			RequiredAttachmentSuffixes: []string{".html"},
@@ -646,7 +651,7 @@ func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing
 	}
 }
 
-func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *testing.T) {
+func TestAgentTurnToolSetKeepsPinnedActiveSendToolForActiveSendContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"ask.confirm", "platform.message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -656,7 +661,8 @@ func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *tes
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt: "다시 해줘",
+		Prompt:          "다시 해줘",
+		PinnedToolNames: []string{"platform.message.send"},
 		ActiveGoal: ActiveGoal{
 			OriginalInstruction: "동하에게 테스트라고 DM 보내줘",
 			OutcomeContract: OutcomeContract{
@@ -674,7 +680,7 @@ func TestSelectedSkillToolSetKeepsActiveSendToolForActiveSendContinuation(t *tes
 	}
 }
 
-func TestSelectedSkillToolSetHidesSendToolForAttachmentFollowUp(t *testing.T) {
+func TestAgentTurnToolSetHidesUnrequestedSendToolForAttachmentFollowUp(t *testing.T) {
 	toolSet := testToolSet([]string{"ask.confirm", "platform.message.send", "file.preview", "file.read"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -684,7 +690,8 @@ func TestSelectedSkillToolSetHidesSendToolForAttachmentFollowUp(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt: "다시 시도해보자",
+		Prompt:          "다시 시도해보자",
+		PinnedToolNames: []string{"file.preview"},
 		VisibleContext: VisibleContext{
 			Materials: []VisibleContextMaterial{{
 				MaterialID:  "mattermost:file-1",

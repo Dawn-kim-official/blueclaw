@@ -228,6 +228,7 @@ func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 		Reason:                    turnDecision.Reason,
 		UserFacingReply:           turnDecision.UserFacingReply,
 		WorkKinds:                 append([]string{}, turnDecision.WorkKinds...),
+		InitialToolNames:          append([]string{}, turnDecision.InitialToolNames...),
 		ClarificationQuestion:     turnDecision.ClarificationQuestion,
 		ClarificationOptions:      append([]ClarificationOption{}, turnDecision.ClarificationOptions...),
 		UsedDeterministicFallback: turnDecision.UsedDeterministicFallback,
@@ -1010,7 +1011,7 @@ func registeredToolNamesOnly(toolRegistry *ToolSet, toolNames []string) []string
 	registeredToolNames := []string{}
 	for _, toolName := range appendUniqueStrings([]string{}, toolNames...) {
 		trimmedToolName := strings.TrimSpace(toolName)
-		if hasTool(toolRegistry, trimmedToolName) {
+		if toolRegistry.IsRegistered(trimmedToolName) && toolRegistry.CanExpose(trimmedToolName) {
 			registeredToolNames = appendUniqueStrings(registeredToolNames, trimmedToolName)
 		}
 	}

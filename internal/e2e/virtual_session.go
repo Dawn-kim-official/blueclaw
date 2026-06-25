@@ -46,6 +46,7 @@ type VirtualSessionScenario struct {
 	AllowedTools              []string
 	CapabilityToolNames       []string
 	CapabilityToolDescriptors []agentruntime.CapabilityToolDescriptor
+	InitialToolNames          []string
 	InitialMemory             []memory.MemoryFact
 	RouterWorkKinds           []string
 	RouterEffortLevel         string
@@ -913,7 +914,7 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}
-	if len(scenario.RouterWorkKinds) == 0 {
+	if len(scenario.RouterWorkKinds) == 0 && len(scenario.InitialToolNames) == 0 {
 		return defaultResponses
 	}
 	effortLevel := strings.TrimSpace(scenario.RouterEffortLevel)
@@ -931,6 +932,7 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 		"reason":                 "scripted scenario default",
 		"userFacingReply":        "",
 		"workKinds":              scenario.RouterWorkKinds,
+		"initialToolNames":       scenario.InitialToolNames,
 	}
 	encodedDocument, errorValue := json.Marshal(routerDocument)
 	if errorValue != nil {
