@@ -178,13 +178,22 @@ func POSIXStateForPolicy(policyDocument policy.PolicyDocument, workspaceRootPath
 			continue
 		}
 		groupName := LinuxCircleGroupName(circleID)
+		circleWorkspacePath := firstNonEmptyString(circlePolicy.WorkspaceDirectoryPath, workspaceRootPath+"/circles/"+circleID)
 		state.Groups = append(state.Groups, POSIXGroup{Name: groupName})
 		state.Directories = append(state.Directories, POSIXDirectory{
-			Path:     firstNonEmptyString(circlePolicy.WorkspaceDirectoryPath, workspaceRootPath+"/circles/"+circleID),
+			Path:     circleWorkspacePath,
 			Owner:    blueclawServiceUserName,
 			Group:    groupName,
 			ModeText: "2770",
 		})
+		if circleID == policy.StaffCircleID {
+			state.Directories = append(state.Directories, POSIXDirectory{
+				Path:     strings.TrimRight(circleWorkspacePath, "/") + "/sites",
+				Owner:    blueclawServiceUserName,
+				Group:    groupName,
+				ModeText: "2770",
+			})
+		}
 	}
 
 	for _, personPolicy := range policyDocument.People {

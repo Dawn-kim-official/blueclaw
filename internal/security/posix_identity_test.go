@@ -95,6 +95,9 @@ func TestPOSIXStateForPolicyProjectsWorkspaceDirectories(t *testing.T) {
 	if !hasPOSIXDirectory(state, "/workspace/circles/staff", "blueclaw", "bc_circle_staff", "2770") {
 		t.Fatalf("expected default staff circle POSIX directory, got %+v", state.Directories)
 	}
+	if !hasPOSIXDirectory(state, "/workspace/circles/staff/sites", "blueclaw", "bc_circle_staff", "2770") {
+		t.Fatalf("expected staff site workspace directory, got %+v", state.Directories)
+	}
 	if !hasPOSIXDirectory(state, "/workspace/circles/finance", "blueclaw", "bc_circle_finance", "2770") {
 		t.Fatalf("expected circle POSIX directory, got %+v", state.Directories)
 	}
@@ -117,6 +120,9 @@ func TestPOSIXStateForPolicyGivesEveryPersonStaffAccess(t *testing.T) {
 
 	if !hasPOSIXDirectory(state, "/workspace/circles/staff", "blueclaw", "bc_circle_staff", "2770") {
 		t.Fatalf("expected default staff circle directory, got %+v", state.Directories)
+	}
+	if !hasPOSIXDirectory(state, "/workspace/circles/staff/sites", "blueclaw", "bc_circle_staff", "2770") {
+		t.Fatalf("expected default staff sites directory, got %+v", state.Directories)
 	}
 	if !hasPOSIXGroup(state, "bc_circle_staff") {
 		t.Fatalf("expected staff circle group, got %+v", state.Groups)
