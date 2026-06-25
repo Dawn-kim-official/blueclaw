@@ -1,6 +1,7 @@
 package adminapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"sort"
 	"strconv"
@@ -17,9 +18,33 @@ type TaskMonitorHandler struct {
 	IdentityService  *identity.IdentityService
 }
 
+const defaultDailyCostTaskRunLimit = 500
+const maxDailyCostTaskRunLimit = 1000
+
 type taskRunListItem struct {
 	task.TaskRun
-	RequesterDisplayName string `json:"requesterDisplayName,omitempty"`
+	RequesterDisplayName string  `json:"requesterDisplayName,omitempty"`
+	LLMCostUSD           float64 `json:"llmCostUSD,omitempty"`
+	LLMCallCount         int     `json:"llmCallCount,omitempty"`
+}
+
+type taskRunCostSummary struct {
+	CostUSD      float64
+	LLMCallCount int
+}
+
+type taskDailyCostSummary struct {
+	Date         string  `json:"date"`
+	CostUSD      float64 `json:"costUSD"`
+	TaskRunCount int     `json:"taskRunCount"`
+	LLMCallCount int     `json:"llmCallCount"`
+}
+
+type taskDailyCostScope struct {
+	TaskRunLimit      int  `json:"taskRunLimit"`
+	TaskRunCount      int  `json:"taskRunCount"`
+	TotalTaskRunCount int  `json:"totalTaskRunCount"`
+	IsTruncated       bool `json:"isTruncated"`
 }
 
 func (taskMonitorHandler TaskMonitorHandler) HandleListTaskRun(responseWriter http.ResponseWriter, request *http.Request) {
@@ -34,18 +59,33 @@ func (taskMonitorHandler TaskMonitorHandler) HandleListTaskRun(responseWriter ht
 		query.Get("status"),
 		requesterPersonID,
 	)
-	pagedTaskRuns := taskMonitorHandler.decorateTaskRunList(
-		pageTaskRunList(filteredTaskRuns, query.Get("offset"), query.Get("limit")),
-	)
+	pagedTaskRuns := pageTaskRunList(filteredTaskRuns, query.Get("offset"), query.Get("limit"))
+	costSummaries := map[string]taskRunCostSummary{}
+	if isRequested(query.Get("includeCost")) {
+		costSummaries = taskMonitorHandler.taskRunCostSummaries(pagedTaskRuns)
+	}
+	decoratedTaskRuns := taskMonitorHandler.decorateTaskRunList(pagedTaskRuns, costSummaries)
 
-	if !isTotalRequested(query.Get("includeTotal")) {
-		writeJSON(responseWriter, http.StatusOK, pagedTaskRuns)
+	if !isRequested(query.Get("includeTotal")) {
+		writeJSON(responseWriter, http.StatusOK, decoratedTaskRuns)
 		return
 	}
-	writeJSON(responseWriter, http.StatusOK, map[string]any{
-		"taskRuns":   pagedTaskRuns,
+	responseBody := map[string]any{
+		"taskRuns":   decoratedTaskRuns,
 		"totalCount": len(filteredTaskRuns),
-	})
+	}
+	if isRequested(query.Get("includeCost")) {
+		costTaskRunLimit := dailyCostTaskRunLimit(query.Get("dailyCostTaskRunLimit"))
+		dailyCostTaskRuns := limitTaskRunList(filteredTaskRuns, costTaskRunLimit)
+		responseBody["dailyCostSummaries"] = dailyCostSummaries(dailyCostTaskRuns, taskMonitorHandler.taskRunCostSummaries(dailyCostTaskRuns))
+		responseBody["dailyCostScope"] = taskDailyCostScope{
+			TaskRunLimit:      costTaskRunLimit,
+			TaskRunCount:      len(dailyCostTaskRuns),
+			TotalTaskRunCount: len(filteredTaskRuns),
+			IsTruncated:       len(dailyCostTaskRuns) < len(filteredTaskRuns),
+		}
+	}
+	writeJSON(responseWriter, http.StatusOK, responseBody)
 }
 
 func (taskMonitorHandler TaskMonitorHandler) HandleGetTaskRun(responseWriter http.ResponseWriter, request *http.Request) {
@@ -86,19 +126,48 @@ func (taskMonitorHandler TaskMonitorHandler) requesterScope(request *http.Reques
 	return personID, true
 }
 
-func (taskMonitorHandler TaskMonitorHandler) decorateTaskRunList(taskRuns []task.TaskRun) []taskRunListItem {
+func (taskMonitorHandler TaskMonitorHandler) decorateTaskRunList(taskRuns []task.TaskRun, costSummaries map[string]taskRunCostSummary) []taskRunListItem {
 	decoratedTaskRuns := make([]taskRunListItem, 0, len(taskRuns))
 	for _, taskRun := range taskRuns {
-		decoratedTaskRuns = append(decoratedTaskRuns, taskMonitorHandler.decorateTaskRun(taskRun))
+		decoratedTaskRuns = append(decoratedTaskRuns, taskMonitorHandler.decorateTaskRunWithCost(taskRun, costSummaries[taskRun.TaskRunID]))
 	}
 	return decoratedTaskRuns
 }
 
 func (taskMonitorHandler TaskMonitorHandler) decorateTaskRun(taskRun task.TaskRun) taskRunListItem {
+	return taskMonitorHandler.decorateTaskRunWithCost(taskRun, taskMonitorHandler.taskRunCostSummary(taskRun.TaskRunID))
+}
+
+func (taskMonitorHandler TaskMonitorHandler) decorateTaskRunWithCost(taskRun task.TaskRun, costSummary taskRunCostSummary) taskRunListItem {
 	return taskRunListItem{
 		TaskRun:              taskRun,
 		RequesterDisplayName: taskMonitorHandler.resolveRequesterDisplayName(taskRun.RequesterPersonID),
+		LLMCostUSD:           costSummary.CostUSD,
+		LLMCallCount:         costSummary.LLMCallCount,
 	}
+}
+
+func (taskMonitorHandler TaskMonitorHandler) taskRunCostSummaries(taskRuns []task.TaskRun) map[string]taskRunCostSummary {
+	costSummaries := map[string]taskRunCostSummary{}
+	if taskMonitorHandler.TaskEventService == nil {
+		return costSummaries
+	}
+	for _, taskEvent := range taskMonitorHandler.TaskEventService.ListTaskEventByNameForTaskRuns(taskRunIDs(taskRuns), "llm.call") {
+		costUSD, isLLMCall := llmCallCostUSD(taskEvent)
+		if !isLLMCall {
+			continue
+		}
+		summary := costSummaries[taskEvent.TaskRunID]
+		summary.LLMCallCount += 1
+		summary.CostUSD += costUSD
+		costSummaries[taskEvent.TaskRunID] = summary
+	}
+	return costSummaries
+}
+
+func (taskMonitorHandler TaskMonitorHandler) taskRunCostSummary(taskRunID string) taskRunCostSummary {
+	costSummaries := taskMonitorHandler.taskRunCostSummaries([]task.TaskRun{{TaskRunID: taskRunID}})
+	return costSummaries[taskRunID]
 }
 
 func (taskMonitorHandler TaskMonitorHandler) resolveRequesterDisplayName(requesterPersonID string) string {
@@ -106,6 +175,59 @@ func (taskMonitorHandler TaskMonitorHandler) resolveRequesterDisplayName(request
 		return ""
 	}
 	return taskMonitorHandler.IdentityService.ResolvePersonDisplayName(requesterPersonID)
+}
+
+func dailyCostSummaries(taskRuns []task.TaskRun, costSummaries map[string]taskRunCostSummary) []taskDailyCostSummary {
+	summaryByDate := map[string]taskDailyCostSummary{}
+	for _, taskRun := range taskRuns {
+		costSummary := costSummaries[taskRun.TaskRunID]
+		if costSummary.CostUSD <= 0 && costSummary.LLMCallCount == 0 {
+			continue
+		}
+		date := taskRun.CreatedAt.Format("2006-01-02")
+		dailySummary := summaryByDate[date]
+		dailySummary.Date = date
+		dailySummary.CostUSD += costSummary.CostUSD
+		dailySummary.TaskRunCount += 1
+		dailySummary.LLMCallCount += costSummary.LLMCallCount
+		summaryByDate[date] = dailySummary
+	}
+	summaries := make([]taskDailyCostSummary, 0, len(summaryByDate))
+	for _, dailySummary := range summaryByDate {
+		summaries = append(summaries, dailySummary)
+	}
+	sort.Slice(summaries, func(leftIndex int, rightIndex int) bool {
+		return summaries[leftIndex].Date > summaries[rightIndex].Date
+	})
+	return summaries
+}
+
+func taskRunIDs(taskRuns []task.TaskRun) []string {
+	taskRunIDs := make([]string, 0, len(taskRuns))
+	for _, taskRun := range taskRuns {
+		taskRunIDs = append(taskRunIDs, taskRun.TaskRunID)
+	}
+	return taskRunIDs
+}
+
+func llmCallCostUSD(taskEvent task.TaskEvent) (float64, bool) {
+	if taskEvent.Name != "llm.call" {
+		return 0, false
+	}
+	var body struct {
+		CostUSD               float64 `json:"costUSD"`
+		UpstreamInferenceCost float64 `json:"upstreamInferenceCostUSD"`
+	}
+	if errorValue := json.Unmarshal([]byte(taskEvent.Body), &body); errorValue != nil {
+		return 0, true
+	}
+	if body.CostUSD > 0 {
+		return body.CostUSD, true
+	}
+	if body.UpstreamInferenceCost > 0 {
+		return body.UpstreamInferenceCost, true
+	}
+	return 0, true
 }
 
 func selectTaskRunList(taskRuns []task.TaskRun, status string, requesterPersonID string) []task.TaskRun {
@@ -157,6 +279,27 @@ func pageTaskRunList(taskRuns []task.TaskRun, offsetValue string, limitValue str
 	return windowedTaskRuns[:limit]
 }
 
+func limitTaskRunList(taskRuns []task.TaskRun, limit int) []task.TaskRun {
+	if limit <= 0 {
+		return []task.TaskRun{}
+	}
+	if len(taskRuns) <= limit {
+		return taskRuns
+	}
+	return taskRuns[:limit]
+}
+
+func dailyCostTaskRunLimit(value string) int {
+	limit := parseNonNegativeInteger(value)
+	if limit <= 0 {
+		return defaultDailyCostTaskRunLimit
+	}
+	if limit > maxDailyCostTaskRunLimit {
+		return maxDailyCostTaskRunLimit
+	}
+	return limit
+}
+
 func parseNonNegativeInteger(value string) int {
 	parsed, errorValue := strconv.Atoi(strings.TrimSpace(value))
 	if errorValue != nil || parsed < 0 {
@@ -165,6 +308,6 @@ func parseNonNegativeInteger(value string) int {
 	return parsed
 }
 
-func isTotalRequested(value string) bool {
+func isRequested(value string) bool {
 	return strings.EqualFold(strings.TrimSpace(value), "true")
 }
