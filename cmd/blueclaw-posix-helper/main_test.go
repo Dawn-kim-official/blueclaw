@@ -31,11 +31,41 @@ func TestRunCapabilitiesReportsFilesystemSupport(t *testing.T) {
 	if errorValue := json.Unmarshal(output.Bytes(), &capabilities); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if capabilities.Version != 2 || !containsString(capabilities.Capabilities, "fs") {
+	if capabilities.Version != 3 || !containsString(capabilities.Capabilities, "fs") {
 		t.Fatalf("expected helper fs capability, got %+v", capabilities)
 	}
 	if !containsString(capabilities.Capabilities, "reconcile-home") {
 		t.Fatalf("expected helper reconcile-home capability, got %+v", capabilities)
+	}
+	if !containsString(capabilities.Capabilities, "state-sync") {
+		t.Fatalf("expected helper state-sync capability, got %+v", capabilities)
+	}
+}
+
+func TestLoadPOSIXStatePrefersStateDocument(t *testing.T) {
+	rootPath := t.TempDir()
+	statePath := filepath.Join(rootPath, "state.json")
+	stateDocument, errorValue := json.Marshal(security.POSIXState{
+		Directories: []security.POSIXDirectory{{
+			Path:     "/workspace/circles/staff/sites",
+			Owner:    "blueclaw",
+			Group:    "bc_circle_staff",
+			ModeText: "2770",
+		}},
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := os.WriteFile(statePath, stateDocument, 0600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	state, errorValue := loadPOSIXState(statePath, filepath.Join(rootPath, "missing-policy.json"), "/workspace")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(state.Directories) != 1 || state.Directories[0].Path != "/workspace/circles/staff/sites" {
+		t.Fatalf("expected state document to be loaded, got %+v", state.Directories)
 	}
 }
 
