@@ -550,6 +550,9 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
+	if projectionResult := validateObservedResultProjection(request, observations, attachments, actionDocument); !projectionResult.IsSatisfied {
+		return projectionResult
+	}
 	result := completionGateResult{IsSatisfied: true, Attachments: attachments}
 	result.ValidityState = buildAttachmentValidityState(request.WorkspaceRootPath, result.Attachments)
 	if !result.ValidityState.Passed {
@@ -690,6 +693,9 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 		result.Attachments = nil
 		return result
 	}
+	if projectionResult := validateObservedResultProjection(request, observations, result.Attachments, actionDocument); !projectionResult.IsSatisfied {
+		return projectionResult
+	}
 	result.ValidityState = buildAttachmentValidityState(request.WorkspaceRootPath, result.Attachments)
 	if !result.ValidityState.Passed {
 		result.IsSatisfied = false
@@ -703,6 +709,33 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 		result.Attachments = nil
 	}
 	return result
+}
+
+func validateObservedResultProjection(request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument) completionGateResult {
+	projection := buildObservedResultProjection(request, observations, attachments, actionDocument)
+	if len(projection.MissingRequirements) == 0 {
+		return completionGateResult{IsSatisfied: true, Attachments: attachments}
+	}
+	return completionGateResult{
+		Message:            observedProjectionGateMessage(projection.MissingRequirements),
+		SuggestedNextTools: observedProjectionSuggestedTools(projection.MissingRequirements),
+	}
+}
+
+func observedProjectionGateMessage(requirements []ProjectionMissingRequirement) string {
+	descriptions := []string{}
+	for _, requirement := range requirements {
+		descriptions = append(descriptions, strings.TrimSpace(requirement.Description))
+	}
+	return "finish is not backed by observed results: " + strings.Join(nonEmptyStrings(descriptions), "; ")
+}
+
+func observedProjectionSuggestedTools(requirements []ProjectionMissingRequirement) []string {
+	toolNames := []string{}
+	for _, requirement := range requirements {
+		toolNames = appendUniqueStrings(toolNames, requirement.SuggestedNextTools...)
+	}
+	return toolNames
 }
 
 func expectedResultGateMessage(results []ResultVerificationItem) string {
@@ -817,6 +850,8 @@ func evidenceMissingKind(message string) string {
 	case strings.Contains(normalizedMessage, "task contract"):
 		return "expected_result_missing"
 	case strings.Contains(normalizedMessage, "expected result"):
+		return "expected_result_missing"
+	case strings.Contains(normalizedMessage, "observed results"):
 		return "expected_result_missing"
 	case strings.Contains(normalizedMessage, "requires successful observation"):
 		return "required_tool_missing"

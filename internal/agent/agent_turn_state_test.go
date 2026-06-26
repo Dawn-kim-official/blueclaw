@@ -176,6 +176,16 @@ func TestParseAgentActionResponseNormalizesNestedFinishBlock(t *testing.T) {
 	}
 }
 
+func TestParseAgentActionResponseNormalizesStringGoalSatisfied(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"done","goalStatus":"satisfied","goalSatisfied":"true","completionEvidenceIDs":[],"qualityReview":[]}`})
+	if errorValue != nil {
+		t.Fatalf("expected parsed action: %v", errorValue)
+	}
+	if action.GoalSatisfied == nil || !*action.GoalSatisfied {
+		t.Fatalf("expected string boolean to normalize, got %+v", action.GoalSatisfied)
+	}
+}
+
 func TestParseAgentActionResponseRejectsAmbiguousNestedActionBlocks(t *testing.T) {
 	_, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"finish":{"message":"done"},"continue":{"toolName":"browser.open","toolInput":{}}}`})
 	if errorValue == nil {

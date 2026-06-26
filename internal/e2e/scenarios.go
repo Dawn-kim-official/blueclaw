@@ -480,6 +480,39 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 	}
 }
 
+func CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "calendar_false_finish_recovery_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		RouterWorkKinds:       []string{agent.WorkKindCalendar},
+		Skills:                []agent.SkillInstruction{calendarSkill()},
+		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.event.add"},
+		CapabilityToolNames:   []string{"calendar.event.add"},
+		InitialToolNames:      []string{"calendar.event.add"},
+		Turns: []VirtualTurn{{
+			Prompt: "7월 13일에 샨보장 미팅을 오전 10시부터 11시까지 등록해줘",
+			ActionResponses: []string{
+				actionFinishMessage("7월 13일 미팅을 오전 10시~11시로 등록했습니다."),
+				actionCallTool("calendar.event.add", `{"title":"샨보장 미팅","startISO":"2026-07-13T10:00:00+09:00","endISO":"2026-07-13T11:00:00+09:00","timeZone":"Asia/Seoul"}`),
+				actionFinishMessage("7월 13일 미팅을 오전 10시~11시로 등록했습니다.", "obs-002:calendar.event.add:0"),
+			},
+			ExpectedSelectedSkills: []string{"calendar"},
+			ExpectedToolCalls:      []string{"calendar.event.add"},
+			ExpectedToolCallCounts: map[string]int{
+				"calendar.event.add": 1,
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "agent.evidence_missing", BodyFragment: "observed results", Count: 1},
+				{Name: "agent.completion_required", BodyFragment: "calendar.event.add", Count: 1},
+				{Name: "tool.calendar.event.add.requested", BodyFragment: "2026-07-13T10:00:00+09:00", Count: 1},
+			},
+			ExpectedModelContexts:  []string{"calendar_event", "scheduled"},
+			ExpectedReplyFragments: []string{"등록했습니다"},
+			ForbiddenEvents:        []string{"agent.no_progress_loop_stopped"},
+		}},
+	}
+}
+
 func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "ambient_duty_calendar_acceptance",

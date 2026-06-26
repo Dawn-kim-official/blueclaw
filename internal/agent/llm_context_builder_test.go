@@ -100,6 +100,22 @@ func TestLLMContextBuilderOmitsEmptyOptionalSections(t *testing.T) {
 	}
 }
 
+func TestLLMContextBuilderIncludesObservedResultProjection(t *testing.T) {
+	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
+		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
+		Observations: []turnObservation{
+			newContentObservation("obs-001", "continue", "calendar.event.add", `{"id":"event-1","title":"미팅"}`),
+		},
+		ToolSet: newTestToolSet([]string{"calendar.event.add"}),
+	})
+
+	for _, expected := range []string{"Observed result projection", "calendar_event", "scheduled", "obs-001"} {
+		if !strings.Contains(contextText, expected) {
+			t.Fatalf("expected observed result context %q, got %s", expected, contextText)
+		}
+	}
+}
+
 func TestLLMContextBuilderIncludesAttachmentCatalog(t *testing.T) {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
