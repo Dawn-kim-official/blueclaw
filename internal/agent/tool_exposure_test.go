@@ -143,6 +143,23 @@ func TestStepWorkingSetPinsFlowTaskToolsWithoutCalendarTools(t *testing.T) {
 	}
 }
 
+func TestStepWorkingSetPinsSitePrototypeToolsWithoutCalendarOrFlowTaskTools(t *testing.T) {
+	request := requestWithStepWorkingSetTools(AgentTurnRequest{
+		WorkKinds: []string{WorkKindSitePrototype},
+	}, nil)
+
+	for _, toolName := range []string{"site.app.status", "site.app.create", "site.app.repair", "file.read", "file.write", "file.edit", "file.patch", "terminal.run", "site.app.build", "artifact.review", "site.app.publish"} {
+		if !containsString(request.PinnedToolNames, toolName) {
+			t.Fatalf("expected site prototype tool %s to be pinned, got %+v", toolName, request.PinnedToolNames)
+		}
+	}
+	for _, toolName := range []string{"calendar.event.add", "calendar.event.list", "flow.task.add", "flow.task.update"} {
+		if containsString(request.PinnedToolNames, toolName) {
+			t.Fatalf("expected unrelated workflow tool %s to stay unpinned for site prototype work, got %+v", toolName, request.PinnedToolNames)
+		}
+	}
+}
+
 func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
 	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "file.preview", "document.read", "mail.message.search", "platform.message.send"})
 	instructionBundle := InstructionBundle{
