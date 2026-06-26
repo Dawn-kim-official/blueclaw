@@ -350,7 +350,6 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 
 func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDecision {
 	responseLanguage := ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
-	workKinds := deterministicWorkKindsForRequest(request)
 	return TurnDecision{
 		Route:                     deterministicTurnRoute(request),
 		Classification:            IntakeClassificationBoundedTask,
@@ -359,8 +358,6 @@ func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDec
 		EffortLevel:               LargerEffortLevel(turnRouter.options.DefaultEffortLevel, minimumEffortLevelForRequest(request)),
 		Reason:                    "intake language model unavailable; treating request as bounded work",
 		ResponseLanguage:          responseLanguage,
-		WorkKinds:                 workKinds,
-		InitialToolNames:          deterministicInitialToolNamesForRequest(request, workKinds),
 		UsedDeterministicFallback: true,
 	}
 }
@@ -403,7 +400,6 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
 	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
 	decision.WorkKinds = normalizeWorkKinds(decision.WorkKinds)
-	decision.WorkKinds = appendUniqueStrings(normalizeWorkKinds(decision.WorkKinds), deterministicWorkKindsForRequest(request)...)
 	decision.InitialToolNames = registeredToolNamesOnly(request.ToolSet, appendUniqueStrings(decision.InitialToolNames, deterministicInitialToolNamesForRequest(request, decision.WorkKinds)...))
 	decision.SiteRequestEvidence = strings.TrimSpace(decision.SiteRequestEvidence)
 	decision, decision.siteNormalizationReport = normalizeTurnDecisionSiteRequirement(request, decision)
@@ -435,7 +431,7 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
 	}
-	decision.WorkKinds = appendUniqueStrings(normalizeWorkKinds(decision.WorkKinds), deterministicWorkKindsForRequest(request)...)
+	decision.WorkKinds = normalizeWorkKinds(decision.WorkKinds)
 	decision = normalizeTaskfulConsumeRoute(decision, request)
 	return decision
 }
@@ -756,10 +752,6 @@ func deterministicTaskShape(request AgentRequest, classification IntakeClassific
 		return TaskShapeApprovalGatedTask
 	}
 	return TaskShapeResearchTask
-}
-
-func deterministicWorkKindsForRequest(request AgentRequest) []string {
-	return deterministicWorkflowWorkKindsForRequest(request)
 }
 
 func deterministicInitialToolNamesForRequest(request AgentRequest, workKinds []string) []string {

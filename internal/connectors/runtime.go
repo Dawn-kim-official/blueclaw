@@ -1826,7 +1826,9 @@ func taskRunCanContinueGoal(taskRun task.TaskRun, taskEvents []task.TaskEvent) b
 	case task.TaskStatusWaitingUserInput, task.TaskStatusWaitingApproval:
 		return true
 	case task.TaskStatusBlocked:
-		return taskRunHasLimitStop(taskEvents)
+		return taskRunHasLimitStop(taskEvents) || taskRunHasRecoverableArtifactDelivery(taskEvents)
+	case task.TaskStatusFailed:
+		return taskRunHasRecoverableArtifactDelivery(taskEvents)
 	default:
 		return false
 	}
@@ -1836,6 +1838,47 @@ func taskRunHasLimitStop(taskEvents []task.TaskEvent) bool {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
 		if taskEvent.Name == "agent.limit_stop" {
+			return true
+		}
+	}
+	return false
+}
+
+func taskRunHasRecoverableArtifactDelivery(taskEvents []task.TaskEvent) bool {
+	activeGoal := latestActiveGoal(taskEvents)
+	return outcomeContractRequiresFileAttachment(activeGoal.OutcomeContract)
+}
+
+func outcomeContractRequiresFileAttachment(contract agent.OutcomeContract) bool {
+	if len(contract.RequiredAttachmentSuffixes) > 0 {
+		return true
+	}
+	if toolNamesContain(contract.RequiredEvidenceTools, "file.attach") {
+		return true
+	}
+	if toolNameGroupsContain(contract.RequiredEvidenceAnyOf, "file.attach") {
+		return true
+	}
+	for _, result := range contract.ExpectedResults {
+		if result.Required && result.Type == agent.ExpectedResultTypeFile {
+			return true
+		}
+	}
+	return contract.ArtifactRequirement == agent.ArtifactRequirementRequired && agent.OutcomeContractHasRequirements(contract)
+}
+
+func toolNamesContain(toolNames []string, expectedToolName string) bool {
+	for _, toolName := range toolNames {
+		if strings.TrimSpace(toolName) == expectedToolName {
+			return true
+		}
+	}
+	return false
+}
+
+func toolNameGroupsContain(toolNameGroups [][]string, expectedToolName string) bool {
+	for _, toolNameGroup := range toolNameGroups {
+		if toolNamesContain(toolNameGroup, expectedToolName) {
 			return true
 		}
 	}

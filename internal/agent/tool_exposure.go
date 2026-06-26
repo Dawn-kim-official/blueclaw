@@ -382,7 +382,7 @@ func compactToolCardText(value string) string {
 }
 
 func outcomeContractSummary(contract OutcomeContract) string {
-	if !activeGoalOutcomeContractHasRequirements(contract) {
+	if !OutcomeContractHasRequirements(contract) {
 		return ""
 	}
 	document, errorValue := json.Marshal(contract)
