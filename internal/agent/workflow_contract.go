@@ -25,6 +25,35 @@ type workflowScope struct {
 
 var workflowContracts = []workflowContract{
 	{
+		WorkKind:             WorkKindSitePrototype,
+		ActiveGoalToolPrefix: "site.app.",
+		ToolNames: []string{
+			"site.app.status",
+			"site.app.create",
+			"site.app.repair",
+			"file.read",
+			"file.write",
+			"file.edit",
+			"file.patch",
+			"terminal.run",
+			"site.app.build",
+			"artifact.review",
+			"site.app.preview",
+			"browser.open",
+			"browser.snapshot",
+			"browser.screenshot",
+			"site.app.publish",
+		},
+		PromptMatcher: workflowTextLooksLikeSitePrototypeWork,
+		EvidenceTools: []workflowIntentEvidenceTool{
+			{
+				ToolName: "site.app.status",
+				Keywords: []string{"상태", "확인", "조회", "주소", "링크", "url", "status", "inspect", "check", "link"},
+			},
+		},
+		DefaultEvidenceToolName: "site.app.publish",
+	},
+	{
 		WorkKind:             WorkKindCalendar,
 		ActiveGoalToolPrefix: "calendar.event.",
 		ToolNames: []string{
@@ -219,5 +248,19 @@ func workflowTextLooksLikeFlowTaskWork(scope workflowScope) bool {
 		"등록", "추가", "생성", "만들", "넣어", "기록", "요청", "배정",
 		"수정", "변경", "완료", "처리", "삭제", "목록", "리스트", "조회",
 		"add", "create", "record", "update", "complete", "done", "list",
+	})
+}
+
+func workflowTextLooksLikeSitePrototypeWork(scope workflowScope) bool {
+	text := workflowScopeText(scope)
+	if strings.Contains(text, "site.app.") {
+		return true
+	}
+	if !containsAny(text, []string{"사이트", "웹사이트", "홈페이지", "랜딩", "website", "site", "landing"}) {
+		return false
+	}
+	return containsAny(text, []string{
+		"만들", "생성", "수정", "고쳐", "개선", "빌드", "배포", "공개", "퍼블리시",
+		"create", "build", "edit", "fix", "update", "publish", "deploy",
 	})
 }
