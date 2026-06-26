@@ -121,12 +121,7 @@ func (workspaceVolumeService WorkspaceVolumeService) syncWorkspaceDirectory(work
 	}
 	defer exec.Command(unmountPath, mountDirectoryPath).Run()
 
-	syncArguments := []string{"-a"}
-	if preserveGuestConfig {
-		syncArguments = append(syncArguments, "--exclude", "/.blueclaw/config")
-	}
-	syncArguments = append(syncArguments, filepath.Clean(sourceDirectoryPath)+"/", mountDirectoryPath+"/")
-	syncCommand := exec.Command(syncPath, syncArguments...)
+	syncCommand := exec.Command(syncPath, workspaceSyncArguments(sourceDirectoryPath, mountDirectoryPath, preserveGuestConfig)...)
 	if output, errorValue := syncCommand.CombinedOutput(); errorValue != nil {
 		return errors.New("sync workspace image: " + string(output))
 	}
@@ -135,6 +130,14 @@ func (workspaceVolumeService WorkspaceVolumeService) syncWorkspaceDirectory(work
 	}
 
 	return nil
+}
+
+func workspaceSyncArguments(sourceDirectoryPath string, mountDirectoryPath string, preserveGuestConfig bool) []string {
+	syncArguments := []string{"-a", "--force"}
+	if preserveGuestConfig {
+		syncArguments = append(syncArguments, "--exclude", "/.blueclaw/config")
+	}
+	return append(syncArguments, filepath.Clean(sourceDirectoryPath)+"/", mountDirectoryPath+"/")
 }
 
 func seedGuestConfigDirectory(syncPath string, sourceDirectoryPath string, mountDirectoryPath string) error {

@@ -3,6 +3,7 @@ package firecracker
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -35,6 +36,28 @@ func TestEnsureWorkspaceImageCreatesSparseFileAndMetadata(t *testing.T) {
 	}
 	if !workspaceImageIsExt4(workspaceImagePath) {
 		t.Fatal("expected workspace image to be formatted as ext4")
+	}
+}
+
+func TestWorkspaceSyncArgumentsForceSymlinkReplacement(t *testing.T) {
+	arguments := workspaceSyncArguments("/source/workspace", "/mounted/workspace", false)
+
+	if !slices.Contains(arguments, "--force") {
+		t.Fatalf("expected rsync arguments to force symlink replacement, got %+v", arguments)
+	}
+	if arguments[len(arguments)-2] != "/source/workspace/" {
+		t.Fatalf("expected source directory to include trailing slash, got %+v", arguments)
+	}
+	if arguments[len(arguments)-1] != "/mounted/workspace/" {
+		t.Fatalf("expected mount directory to include trailing slash, got %+v", arguments)
+	}
+}
+
+func TestWorkspaceSyncArgumentsPreserveGuestConfig(t *testing.T) {
+	arguments := workspaceSyncArguments("/source/workspace", "/mounted/workspace", true)
+
+	if !slices.Contains(arguments, "--exclude") || !slices.Contains(arguments, "/.blueclaw/config") {
+		t.Fatalf("expected guest config exclude, got %+v", arguments)
 	}
 }
 
