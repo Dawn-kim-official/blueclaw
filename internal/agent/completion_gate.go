@@ -310,6 +310,9 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	if strings.TrimSpace(actionDocument.GoalStatus) != "" && strings.TrimSpace(actionDocument.GoalStatus) != "satisfied" {
 		return completionGateResult{Message: "finish requires goalStatus=satisfied"}
 	}
+	if result := validateFinishDoesNotHideUnresolvedWork(observations, actionDocument); !result.IsSatisfied {
+		return result
+	}
 	if finishMessagePromisesFutureWork(finishActionMessage(actionDocument)) && !hasScheduleCreateEvidence(observations, actionDocument.CompletionEvidence) {
 		return completionGateResult{Message: "finish.message promises future work without successful schedule.create evidence"}
 	}
@@ -368,6 +371,53 @@ func finishMessagePromisesFutureWork(message string) bool {
 		"will share",
 		"get started",
 		"start working",
+	} {
+		if strings.Contains(normalizedMessage, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateFinishDoesNotHideUnresolvedWork(observations []turnObservation, actionDocument turnActionDocument) completionGateResult {
+	if finishHasUnresolvedRemainingWork(actionDocument.RemainingWork) {
+		return completionGateResult{Message: "finish cannot be satisfied while remainingWork describes unresolved work; recover the work or use fail"}
+	}
+	if _, hasFailureDebt := activeFailureDebt(observations); !hasFailureDebt {
+		return completionGateResult{IsSatisfied: true}
+	}
+	if finishMessageReportsBlockedWork(finishActionMessage(actionDocument)) {
+		return completionGateResult{Message: "finish cannot be satisfied while the message reports blocked or incomplete work; recover the work or use fail"}
+	}
+	return completionGateResult{IsSatisfied: true}
+}
+
+func finishHasUnresolvedRemainingWork(remainingWork string) bool {
+	normalizedText := strings.ToLower(strings.TrimSpace(remainingWork))
+	if normalizedText == "" {
+		return false
+	}
+	for _, completedValue := range []string{"none", "no", "n/a", "na", "없음", "없습니다", "완료", "완료됨"} {
+		if normalizedText == completedValue {
+			return false
+		}
+	}
+	return true
+}
+
+func finishMessageReportsBlockedWork(message string) bool {
+	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
+	for _, phrase := range []string{
+		"할 수 없",
+		"못했습니다",
+		"못 했습니다",
+		"불가",
+		"실패",
+		"cannot",
+		"can't",
+		"unable",
+		"could not",
+		"not able",
 	} {
 		if strings.Contains(normalizedMessage, phrase) {
 			return true
@@ -458,6 +508,9 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	}
 	if strings.TrimSpace(actionDocument.GoalStatus) != "" && strings.TrimSpace(actionDocument.GoalStatus) != "satisfied" {
 		return completionGateResult{Message: "finish requires goalStatus=satisfied"}
+	}
+	if result := validateFinishDoesNotHideUnresolvedWork(observations, actionDocument); !result.IsSatisfied {
+		return result
 	}
 	if finishMessagePromisesFutureWork(finishActionMessage(actionDocument)) && !hasScheduleCreateEvidence(observations, actionDocument.CompletionEvidence) {
 		return completionGateResult{Message: "finish.message promises future work without successful schedule.create evidence"}

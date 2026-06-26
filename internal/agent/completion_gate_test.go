@@ -30,6 +30,33 @@ func TestCompletionGateRejectsFutureWorkPromiseWithoutScheduleEvidence(t *testin
 	}
 }
 
+func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testing.T) {
+	goalSatisfied := true
+	result := validateCompletionGate(
+		nil,
+		[]turnObservation{
+			newFailureObservation("obs-001", "continue", "file.read", "permission denied", FailurePermissionDenied, FailureCodes.AccessDenied, "file_read"),
+		},
+		nil,
+		turnActionDocument{
+			Action:             "finish",
+			Message:            "버튼 기능을 직접 구현할 수 있는 상태가 아닙니다.",
+			FailureResolution:  failureResolutionNoToolFallback,
+			GoalStatus:         "satisfied",
+			GoalSatisfied:      &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{},
+			QualityReview:      []qualityReviewItem{},
+			RemainingWork:      "권한 확인 후 재시도 필요",
+		},
+	)
+	if result.IsSatisfied {
+		t.Fatal("expected completion gate to reject unresolved failure debt")
+	}
+	if !strings.Contains(result.Message, "remainingWork") {
+		t.Fatalf("expected remaining work guidance, got %q", result.Message)
+	}
+}
+
 func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGateForRequestWithRecoveryBudget(

@@ -1415,7 +1415,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(
 	if len(candidates) == 0 {
 		return ResolvedWorkspacePath{}, errors.New("site sourceWorkspacePath could not be resolved")
 	}
-	var firstCreatablePath *ResolvedWorkspacePath
+	creatablePaths := []ResolvedWorkspacePath{}
 	var lastError error
 	for _, candidate := range candidates {
 		resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).ResolveDirectory(candidate, scope)
@@ -1439,18 +1439,67 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(
 			lastError = errorValue
 			continue
 		}
-		if firstCreatablePath == nil {
-			resolvedPathCopy := resolvedPath
-			firstCreatablePath = &resolvedPathCopy
-		}
+		creatablePaths = append(creatablePaths, resolvedPath)
 	}
-	if firstCreatablePath != nil {
-		return *firstCreatablePath, nil
+	if creatablePath, isFound := preferredCreatableSiteWorkspacePath(creatablePaths, input.SourceWorkspacePath, input.SiteID, input.Slug); isFound {
+		return creatablePath, nil
 	}
 	if lastError != nil {
 		return ResolvedWorkspacePath{}, lastError
 	}
 	return ResolvedWorkspacePath{}, errors.New("site sourceWorkspacePath could not be resolved")
+}
+
+func preferredCreatableSiteWorkspacePath(paths []ResolvedWorkspacePath, sourceWorkspacePath string, siteID string, slug string) (ResolvedWorkspacePath, bool) {
+	if len(paths) == 0 {
+		return ResolvedWorkspacePath{}, false
+	}
+	requestedPath := siteSourceDraftPathCandidate(sourceWorkspacePath)
+	if requestedPath != "" && !isLegacySiteSourceWorkspacePath(requestedPath, siteID, slug) {
+		if path, isFound := findResolvedWorkspacePath(paths, requestedPath); isFound {
+			return path, true
+		}
+	}
+	for _, preferredPath := range []string{
+		canonicalSiteSourceWorkspacePath(siteID, slug),
+		canonicalSiteSourceStorageWorkspacePath(siteID),
+	} {
+		if path, isFound := findResolvedWorkspacePath(paths, preferredPath); isFound {
+			return path, true
+		}
+	}
+	return paths[0], true
+}
+
+func findResolvedWorkspacePath(paths []ResolvedWorkspacePath, virtualPath string) (ResolvedWorkspacePath, bool) {
+	normalizedVirtualPath := strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(virtualPath)), "/")
+	if normalizedVirtualPath == "" {
+		return ResolvedWorkspacePath{}, false
+	}
+	for _, path := range paths {
+		if strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(path.VirtualPath)), "/") == normalizedVirtualPath {
+			return path, true
+		}
+	}
+	return ResolvedWorkspacePath{}, false
+}
+
+func isLegacySiteSourceWorkspacePath(path string, siteID string, slug string) bool {
+	cleanPath := strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(path)), "/")
+	cleanSiteID := strings.TrimSpace(siteID)
+	if cleanSiteID == "" {
+		return false
+	}
+	legacyPaths := []string{
+		filepath.ToSlash(filepath.Join("/workspace", "sites", cleanSiteID, "draft")),
+		filepath.ToSlash(filepath.Join("sites", cleanSiteID, "draft")),
+	}
+	for _, legacyPath := range legacyPaths {
+		if cleanPath == legacyPath {
+			return true
+		}
+	}
+	return false
 }
 
 func isWorkspaceActorPermissionDenied(errorValue error) bool {
