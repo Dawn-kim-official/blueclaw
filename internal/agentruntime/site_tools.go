@@ -1415,7 +1415,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(
 	if len(candidates) == 0 {
 		return ResolvedWorkspacePath{}, errors.New("site sourceWorkspacePath could not be resolved")
 	}
-	var firstResolvedPath *ResolvedWorkspacePath
+	var firstCreatablePath *ResolvedWorkspacePath
 	var lastError error
 	for _, candidate := range candidates {
 		resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).ResolveDirectory(candidate, scope)
@@ -1427,22 +1427,41 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(
 			lastError = errors.New("current account cannot use this site workspace path: " + resolvedPath.VirtualPath)
 			continue
 		}
-		if firstResolvedPath == nil {
-			resolvedPathCopy := resolvedPath
-			firstResolvedPath = &resolvedPathCopy
-		}
 		sourceStat, errorValue := workspaceActor.Stat(toolContext, workspacepath.Path(resolvedPath))
 		if errorValue == nil && sourceStat.IsDirectory {
 			return resolvedPath, nil
 		}
+		if errorValue == nil {
+			lastError = errors.New("site source workspace path is not a directory: " + resolvedPath.VirtualPath)
+			continue
+		}
+		if isWorkspaceActorPermissionDenied(errorValue) {
+			lastError = errorValue
+			continue
+		}
+		if firstCreatablePath == nil {
+			resolvedPathCopy := resolvedPath
+			firstCreatablePath = &resolvedPathCopy
+		}
 	}
-	if firstResolvedPath != nil {
-		return *firstResolvedPath, nil
+	if firstCreatablePath != nil {
+		return *firstCreatablePath, nil
 	}
 	if lastError != nil {
 		return ResolvedWorkspacePath{}, lastError
 	}
 	return ResolvedWorkspacePath{}, errors.New("site sourceWorkspacePath could not be resolved")
+}
+
+func isWorkspaceActorPermissionDenied(errorValue error) bool {
+	if errorValue == nil {
+		return false
+	}
+	var actorError security.WorkspaceActorError
+	if errors.As(errorValue, &actorError) {
+		return actorError.Code == security.ActorErrorCodePermissionDenied
+	}
+	return false
 }
 
 func siteSourceBundleExcludeNames() []string {
