@@ -5,11 +5,12 @@ import (
 )
 
 type toolUseRequirement struct {
-	ToolPrefix         string
-	ToolName           string
-	Reason             string
-	RequiresAttachment bool
-	AttachmentSuffixes []string
+	ToolPrefix                 string
+	ToolName                   string
+	Reason                     string
+	RequiresAttachment         bool
+	RequiresSideEffectEvidence bool
+	AttachmentSuffixes         []string
 }
 
 func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
@@ -40,13 +41,23 @@ func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 		}
 		seenToolName[trimmedToolName] = true
 		requirements = append(requirements, toolUseRequirement{
-			ToolName:           trimmedToolName,
-			Reason:             "selected skill requires completion evidence",
-			RequiresAttachment: strings.HasSuffix(trimmedToolName, ".attach"),
-			AttachmentSuffixes: attachmentSuffixesForEvidenceTool(trimmedToolName, request.RequiredAttachmentSuffixes),
+			ToolName:                   trimmedToolName,
+			Reason:                     "selected workflow requires completion evidence",
+			RequiresAttachment:         strings.HasSuffix(trimmedToolName, ".attach"),
+			RequiresSideEffectEvidence: requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, trimmedToolName),
+			AttachmentSuffixes:         attachmentSuffixesForEvidenceTool(trimmedToolName, request.RequiredAttachmentSuffixes),
 		})
 	}
 	return requirements
+}
+
+func requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet *ToolSet, toolName string) bool {
+	if toolSet != nil {
+		if toolDefinition, isFound := toolSet.ToolDefinition(toolName); isFound {
+			return ToolDefinitionRequiresSideEffectEvidence(toolDefinition)
+		}
+	}
+	return ToolDefinitionRequiresSideEffectEvidence(ToolDefinition{Name: toolName})
 }
 
 func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []string {

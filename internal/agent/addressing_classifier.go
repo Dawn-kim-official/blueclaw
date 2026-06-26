@@ -130,6 +130,8 @@ func addressingClassificationPrompt(request AddressingClassificationRequest) str
 		"Set dutyName to the exact standing duty name, or empty string when there is no match.",
 		"Set dutyConfidence from 0 to 1 using the evidence in the latest message and context.",
 		"If the latest message is a short acknowledgement such as \"네\", \"확인해볼게요\", \"좋아요\", or \"고마워\" and recent context shows it follows a human-directed message, choose target=human and shouldReply=false.",
+		"If the latest message only mentions the assistant, such as @김인턴 or the bot handle, choose target=bot and shouldReply=true when recent context gives a topic to answer or continue.",
+		"Do not treat jokes, playful remarks, or casual addressed banter as no-response noise; choose target=bot or target=anyone with shouldReply=true when the assistant is addressed or clearly invited to join.",
 		"Only choose target=bot when the assistant is explicitly addressed, the latest message answers the assistant's own question, or recent context clearly makes the assistant the intended responder.",
 		"conversationType: "+strings.TrimSpace(request.ConversationType),
 		"senderName: "+strings.TrimSpace(request.SenderName),

@@ -27,6 +27,15 @@ type ToolRecoveryCard struct {
 	AvoidWhen  string `json:"avoidWhen,omitempty"`
 }
 
+const (
+	ToolSideEffectNone           = "none"
+	ToolSideEffectRead           = "read"
+	ToolSideEffectComputation    = "computation"
+	ToolSideEffectStateChange    = "state_change"
+	ToolSideEffectWorkspaceWrite = "workspace_write"
+	ToolSideEffectExternalWrite  = "external_write"
+)
+
 type ToolInvocation struct {
 	ToolName string          `json:"toolName"`
 	Input    json.RawMessage `json:"input"`
@@ -363,8 +372,66 @@ func (toolSet *ToolSet) RegisterBoundTool(boundTool BoundTool) {
 		boundTool.Availability.Status = ToolAvailabilityAvailable
 	}
 	toolDefinition.Name = toolName
+	if strings.TrimSpace(toolDefinition.SideEffectClass) == "" && strings.TrimSpace(toolDefinition.RecoveryCard.SideEffect) == "" {
+		toolDefinition.SideEffectClass = DefaultToolSideEffectClass(toolName)
+	}
 	boundTool.Definition = toolDefinition
 	toolSet.boundToolByName[toolName] = boundTool
+}
+
+func DefaultToolSideEffectClass(toolName string) string {
+	normalizedToolName := strings.ToLower(strings.TrimSpace(toolName))
+	if normalizedToolName == "" {
+		return ""
+	}
+	for _, suffix := range []string{".list", ".read", ".search", ".status", ".context", ".preview", ".snapshot", ".screenshot"} {
+		if strings.HasSuffix(normalizedToolName, suffix) {
+			return ToolSideEffectRead
+		}
+	}
+	for _, suffix := range []string{".calculate", ".count", ".compare", ".classify"} {
+		if strings.HasSuffix(normalizedToolName, suffix) {
+			return ToolSideEffectComputation
+		}
+	}
+	for _, suffix := range []string{".send", ".reply", ".post", ".publish"} {
+		if strings.HasSuffix(normalizedToolName, suffix) {
+			return ToolSideEffectExternalWrite
+		}
+	}
+	for _, suffix := range []string{".add", ".create", ".update", ".delete", ".remove", ".cancel", ".write", ".edit", ".patch", ".promote", ".attach", ".run", ".fill", ".click", ".press", ".select"} {
+		if strings.HasSuffix(normalizedToolName, suffix) {
+			return ToolSideEffectStateChange
+		}
+	}
+	return ""
+}
+
+func ToolDefinitionSideEffectClass(toolDefinition ToolDefinition) string {
+	return normalizeToolSideEffectClass(firstNonEmptyString(toolDefinition.SideEffectClass, toolDefinition.RecoveryCard.SideEffect, DefaultToolSideEffectClass(toolDefinition.Name)))
+}
+
+func ToolDefinitionRequiresSideEffectEvidence(toolDefinition ToolDefinition) bool {
+	switch ToolDefinitionSideEffectClass(toolDefinition) {
+	case "", ToolSideEffectNone, ToolSideEffectRead, ToolSideEffectComputation:
+		return false
+	default:
+		return true
+	}
+}
+
+func normalizeToolSideEffectClass(sideEffectClass string) string {
+	normalizedSideEffectClass := strings.ToLower(strings.TrimSpace(sideEffectClass))
+	switch normalizedSideEffectClass {
+	case "readonly", "read_only", "inspect", "inspection":
+		return ToolSideEffectRead
+	case "compute", "calculation", "pure":
+		return ToolSideEffectComputation
+	case "write", "mutation", "mutating":
+		return ToolSideEffectStateChange
+	default:
+		return normalizedSideEffectClass
+	}
 }
 
 func (toolSet *ToolSet) IsAllowed(toolName string) bool {

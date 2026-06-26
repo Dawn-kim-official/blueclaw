@@ -250,6 +250,10 @@ func requestLooksLikeCalendarWork(request AgentRequest) bool {
 	return requestHasWorkKind(request, WorkKindCalendar)
 }
 
+func requestLooksLikeFlowTaskWork(request AgentRequest) bool {
+	return requestMatchesWorkflowKind(request, WorkKindFlowTask)
+}
+
 func requestLooksLikeSlidesArtifactWork(request AgentRequest) bool {
 	return requestHasWorkKind(request, WorkKindSlidesArtifact)
 }
@@ -444,6 +448,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForRequestContinuation(request, contract, selectedEvidenceHints)...)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForRequest(request, instructionBundle)...)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredWorkflowEvidenceToolsForRequest(request)...)
 		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
@@ -457,6 +462,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
 	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForRequest(request, instructionBundle)...)
 	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
+	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredWorkflowEvidenceToolsForRequest(request)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, "file.attach")
@@ -885,8 +891,8 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if strings.HasPrefix(trimmedToolName, "calendar.") {
 		return requestLooksLikeCalendarWork(request)
 	}
-	if strings.HasPrefix(trimmedToolName, "flow.task.") {
-		return requestLooksLikeCalendarWork(request)
+	if workflowEvidenceHintMatchesRequest(trimmedToolName, request) {
+		return true
 	}
 	return false
 }

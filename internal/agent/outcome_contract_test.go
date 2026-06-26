@@ -391,6 +391,53 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendWorkKind(t *testing.T
 	}
 }
 
+func TestOutcomeContractRequiresFlowTaskAddEvidenceForFlowTaskWorkKind(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{
+			Prompt:    "업무 등록해줘\n- 메일 페이지 앱 비밀번호 개선하기",
+			ToolSet:   testToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"}),
+			WorkKinds: []string{WorkKindFlowTask},
+		},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+
+	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "flow.task.add" {
+		t.Fatalf("expected flow task add hard gate, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
+func TestOutcomeContractSelectsOneFlowTaskEvidenceHintForCurrentOperation(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{{
+			Name: "internkim-flow",
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "internkim-flow", Status: "selected"}},
+	}
+	contract := outcomeContractForRequest(
+		AgentRequest{
+			Prompt:    "이번 주 업무 목록 보여줘",
+			ToolSet:   testToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"}),
+			WorkKinds: []string{WorkKindFlowTask},
+		},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
+		instructionBundle,
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+
+	if len(contract.RequiredEvidenceTools) != 1 || contract.RequiredEvidenceTools[0] != "flow.task.list" {
+		t.Fatalf("expected only flow.task.list evidence for list operation, got %+v", contract.RequiredEvidenceTools)
+	}
+}
+
 func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "file.write", "file.attach", "site.app.create", "site.app.publish", "platform.message.send", "mail.message.send"})
 	contract := OutcomeContract{

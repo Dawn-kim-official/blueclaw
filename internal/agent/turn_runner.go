@@ -992,17 +992,7 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 
 func requestWithStepWorkingSetTools(request AgentTurnRequest, observations []turnObservation) AgentTurnRequest {
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
-	if requestLooksLikeCalendarStep(request) {
-		request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames,
-			"calendar.event.add",
-			"calendar.event.list",
-			"calendar.event.update",
-			"calendar.event.delete",
-			"flow.task.add",
-			"flow.task.list",
-			"flow.task.update",
-		)
-	}
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, workflowToolNamesForTurnRequest(request)...)
 	return request
 }
 
@@ -1044,10 +1034,6 @@ func hasSuccessfulToolObservation(observations []turnObservation, toolName strin
 		}
 	}
 	return false
-}
-
-func requestLooksLikeCalendarStep(request AgentTurnRequest) bool {
-	return workKindsContain(request.WorkKinds, WorkKindCalendar)
 }
 
 func instructionBundleFromTurnRequest(request AgentTurnRequest) InstructionBundle {
