@@ -211,6 +211,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if input.Content == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", "content is required"), nil
 	}
+	if isSiteSourceRelativePath(path) {
+		return siteSourceRelativePathFailure("file_write", path), nil
+	}
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_write", errorValue.Error()), nil
@@ -255,6 +258,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) readFileTool(toolContext context.C
 	}
 	if path == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_read", "path or materialID is required"), nil
+	}
+	if isSiteSourceRelativePath(path) {
+		return siteSourceRelativePathFailure("file_read", path), nil
 	}
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
@@ -377,7 +383,24 @@ func recommendedSiteControlWritePathForPrefix(path string, prefix string) string
 	if !isOptionalSiteControlFilePath(relativePath) {
 		return ""
 	}
-	return filepath.ToSlash(filepath.Join(canonicalSiteSourceWorkspacePath(siteID), relativePath))
+	return filepath.ToSlash(filepath.Join("/workspace", "circles", "staff", "sites", siteID, "draft", relativePath))
+}
+
+func isSiteSourceRelativePath(path string) bool {
+	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+	return strings.HasPrefix(cleanPath, "app/src/") ||
+		strings.HasPrefix(cleanPath, "app/components/") ||
+		strings.HasPrefix(cleanPath, "app/lib/") ||
+		strings.HasPrefix(cleanPath, "app/public/") ||
+		cleanPath == "app/src/App.tsx" ||
+		cleanPath == "app/src/index.css" ||
+		cleanPath == "DESIGN.md" ||
+		strings.HasPrefix(cleanPath, ".internkim/")
+}
+
+func siteSourceRelativePathFailure(stage string, path string) agent.ToolResult {
+	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "site source path "+cleanPath+" must be rooted at sourceWorkspacePath from site.app.status, for example /workspace/circles/staff/sites/<slug>/draft/"+cleanPath)
 }
 
 func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[string]any {
@@ -1291,6 +1314,10 @@ func characterBigrams(value string) map[string]bool {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveEditableFilePath(toolContext context.Context, handlerContext toolHandlerContext, workspaceActor security.WorkspaceActor, path string, patchState *filePatchState) (ResolvedWorkspacePath, *agent.ToolResult) {
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	if isSiteSourceRelativePath(path) {
+		result := siteSourceRelativePathFailure("file_patch", path)
+		return ResolvedWorkspacePath{}, &result
+	}
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
 		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_patch", errorValue.Error())
