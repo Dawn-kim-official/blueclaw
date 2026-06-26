@@ -10,31 +10,35 @@ import (
 type LLMContextBuilder struct{}
 
 type LLMContextInput struct {
-	ResponseLanguage     string
-	RequesterPersonID    string
-	RequesterName        string
-	RequesterCallingName string
-	RequesterEmail       string
-	UserPrompt           string
-	InputParts           []AgentPart
-	TurnStartedAt        time.Time
-	InstructionPrompt    string
-	ToolDescription      string
-	WorkspaceContext     WorkspaceContext
-	VisibleContext       VisibleContext
-	MemoryFacts          []memory.MemoryFact
-	MemoryContext        string
-	ActiveGoal           ActiveGoal
-	ScheduledRun         ScheduledRunContext
-	ActiveTask           ActiveTaskContext
-	PendingInput         PendingInputContext
-	StepBudgetContext    string
-	ArtifactManifest     []ArtifactManifestEntry
-	Observations         []turnObservation
-	ExecutionState       ExecutionState
-	FailureFacts         failureReportFacts
-	Attachments          []FileAttachment
-	ExtraSections        []string
+	ResponseLanguage      string
+	RequesterPersonID     string
+	RequesterName         string
+	RequesterCallingName  string
+	RequesterEmail        string
+	UserPrompt            string
+	InputParts            []AgentPart
+	TurnStartedAt         time.Time
+	InstructionPrompt     string
+	ToolDescription       string
+	WorkspaceContext      WorkspaceContext
+	VisibleContext        VisibleContext
+	MemoryFacts           []memory.MemoryFact
+	MemoryContext         string
+	ActiveGoal            ActiveGoal
+	ScheduledRun          ScheduledRunContext
+	ActiveTask            ActiveTaskContext
+	PendingInput          PendingInputContext
+	StepBudgetContext     string
+	ArtifactManifest      []ArtifactManifestEntry
+	Observations          []turnObservation
+	ExecutionState        ExecutionState
+	FailureFacts          failureReportFacts
+	Attachments           []FileAttachment
+	ToolSet               *ToolSet
+	RequiredEvidenceTools []string
+	OutcomeContract       OutcomeContract
+	WorkKinds             []string
+	ExtraSections         []string
 }
 
 type WorkspaceContext struct {
@@ -57,6 +61,7 @@ func (builder LLMContextBuilder) Build(input LLMContextInput) string {
 		builder.artifactManifestContext(input.ArtifactManifest),
 		strings.TrimSpace(input.StepBudgetContext),
 		builder.progressContext(input),
+		builder.observedResultProjectionContext(input),
 		builder.knownFileContext(input),
 		buildExecutionStateContext(input.ExecutionState, input.Observations),
 		toolResultContextText(input.Observations),
@@ -236,6 +241,18 @@ func (builder LLMContextBuilder) knownFileContext(input LLMContextInput) string 
 	return "Known file context. Reuse these exact snippets and previews instead of rereading the same ranges:\n" + body
 }
 
+func (builder LLMContextBuilder) observedResultProjectionContext(input LLMContextInput) string {
+	projection := buildObservedResultProjection(agentTurnRequestForContext(input), input.Observations, input.Attachments, turnActionDocument{})
+	if len(projection.ObservedFacts) == 0 && len(projection.RecoverableActions) == 0 {
+		return ""
+	}
+	body := marshalEventBody(projection)
+	if len(body) > progressMessageLimit {
+		body = body[:progressMessageLimit] + "\n[trimmed]"
+	}
+	return "Observed result projection. This is derived from successful tool observations. Do not claim a side effect unless the matching observed fact exists:\n" + body
+}
+
 func (builder LLMContextBuilder) failureObservationContext(observations []turnObservation) string {
 	for _, observation := range observations {
 		if observation.Failed() {
@@ -263,6 +280,9 @@ func agentTurnRequestForContext(input LLMContextInput) AgentTurnRequest {
 		InputParts:            append([]AgentPart{}, input.InputParts...),
 		ActiveGoal:            input.ActiveGoal,
 		ScheduledRun:          input.ScheduledRun,
-		RequiredEvidenceTools: nil,
+		ToolSet:               input.ToolSet,
+		RequiredEvidenceTools: append([]string{}, input.RequiredEvidenceTools...),
+		OutcomeContract:       input.OutcomeContract,
+		WorkKinds:             append([]string{}, input.WorkKinds...),
 	}
 }

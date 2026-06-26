@@ -397,6 +397,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath), nil
 	case "calendar_event_lifecycle_acceptance":
 		return CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath), nil
+	case "calendar_false_finish_recovery_acceptance":
+		return CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath), nil
 	case "ambient_duty_calendar_acceptance":
 		return AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath), nil
 	case "ambient_task_capture_acceptance":

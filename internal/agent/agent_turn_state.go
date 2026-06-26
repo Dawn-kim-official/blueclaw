@@ -357,16 +357,20 @@ func normalizeAgentActionResponseContent(content []byte) ([]byte, error) {
 		return nil, errorValue
 	}
 	if _, hasAction := document["action"]; hasAction {
-		return content, nil
+		return normalizeAgentActionResponseScalarContent(content)
 	}
 	candidateAction, candidateCount := agentActionResponseCandidate(document)
 	if candidateCount == 0 {
-		return content, nil
+		return normalizeAgentActionResponseScalarContent(content)
 	}
 	if candidateCount > 1 {
 		return nil, errors.New("action response contains multiple candidate action blocks")
 	}
-	return injectAgentActionResponseCandidate(document, candidateAction)
+	injectedContent, errorValue := injectAgentActionResponseCandidate(document, candidateAction)
+	if errorValue != nil {
+		return nil, errorValue
+	}
+	return normalizeAgentActionResponseScalarContent(injectedContent)
 }
 
 func agentActionResponseCandidate(document map[string]json.RawMessage) (string, int) {
@@ -403,6 +407,39 @@ func injectAgentActionResponseCandidate(document map[string]json.RawMessage, act
 	}
 	normalizedDocument["action"] = actionValue
 	return json.Marshal(normalizedDocument)
+}
+
+func normalizeAgentActionResponseScalarContent(content []byte) ([]byte, error) {
+	var document map[string]json.RawMessage
+	if errorValue := json.Unmarshal(content, &document); errorValue != nil {
+		return nil, errorValue
+	}
+	didChange := normalizeJSONStringBooleanField(document, "goalSatisfied")
+	if !didChange {
+		return content, nil
+	}
+	return json.Marshal(document)
+}
+
+func normalizeJSONStringBooleanField(document map[string]json.RawMessage, fieldName string) bool {
+	fieldValue, isPresent := document[fieldName]
+	if !isPresent {
+		return false
+	}
+	var stringValue string
+	if errorValue := json.Unmarshal(fieldValue, &stringValue); errorValue != nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(stringValue)) {
+	case "true":
+		document[fieldName] = json.RawMessage("true")
+		return true
+	case "false":
+		document[fieldName] = json.RawMessage("false")
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeParsedAction(actionDocument turnActionDocument) turnActionDocument {
