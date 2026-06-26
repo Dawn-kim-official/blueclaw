@@ -686,6 +686,56 @@ func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 	}
 }
 
+func TestSiteRepairSkipsPermissionDeniedSlugAlias(t *testing.T) {
+	workspacePath := t.TempDir()
+	brokenAliasPath := filepath.Join(workspacePath, "circles", "staff", "sites", "pretty-gyul")
+	if errorValue := os.MkdirAll(brokenAliasPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := os.Chmod(brokenAliasPath, 0000); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(brokenAliasPath, 0700)
+	})
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"8f1d2701bdefcf2ea917ab49","slug":"pretty-gyul","title":"예쁜 귤","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft","appWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft/app","status":"published"}}`}
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.repair"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.status",
+		PolicyResource: "tool:site.app.status",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.repair",
+		Input:    agent.MarshalToolInput(map[string]string{"siteID": "8f1d2701bdefcf2ea917ab49"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected repair to skip broken alias, got %s", result.ContentText())
+	}
+	storageWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", ".ids", "8f1d2701bdefcf2ea917ab49", "draft")
+	for _, relativePath := range []string{".internkim/site.json", "DESIGN.md", "app/package.json"} {
+		if _, errorValue := os.Stat(filepath.Join(storageWorkspacePath, relativePath)); errorValue != nil {
+			t.Fatalf("expected repaired storage file %s: %v", relativePath, errorValue)
+		}
+	}
+	if !strings.Contains(result.ContentText(), `"/workspace/circles/staff/sites/.ids/8f1d2701bdefcf2ea917ab49/draft"`) {
+		t.Fatalf("expected repair result to use canonical storage path, got %s", result.ContentText())
+	}
+}
+
 func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"failed"}}`}
