@@ -812,11 +812,11 @@ func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
 func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 	switch toolName {
 	case "site.app.create":
-		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"home/sites/site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app"}}`
+		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.app.publish":
 		return `{"status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.example.test"}}`
 	case "site.app.status":
-		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"home/sites/site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app"}}`
+		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.app.logs":
 		return `{"status":"ok","result":{"logs":[]}}`
 	case "image.read":

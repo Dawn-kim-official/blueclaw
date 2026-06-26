@@ -134,6 +134,32 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	}
 }
 
+func TestFileToolsRejectSiteSourceRelativePathBeforeTmpResolution(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "file.read",
+		Input: agent.MarshalToolInput(map[string]string{
+			"path": "app/src/App.tsx",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected relative site path to fail before tmp resolution, got %s", result.ContentText())
+	}
+	if !strings.Contains(result.ContentText(), "sourceWorkspacePath") || strings.Contains(result.ContentText(), "tmp/app/src/App.tsx") {
+		t.Fatalf("expected sourceWorkspacePath guidance without tmp stat path, got %s", result.ContentText())
+	}
+}
+
 func TestFileReadTreatsMissingSiteControlFileAsOptionalState(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)

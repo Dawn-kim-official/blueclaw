@@ -465,7 +465,7 @@ func siteCreationPersonAccess(personID string) policy.PersonAccess {
 }
 
 func testSiteCreateResult(siteID string) siteCreateResult {
-	sourceWorkspacePath := canonicalSiteSourceWorkspacePath(siteID)
+	sourceWorkspacePath := canonicalSiteSourceWorkspacePath(siteID, siteID)
 	return siteCreateResult{
 		SiteID:              siteID,
 		Slug:                siteID,
@@ -475,7 +475,7 @@ func testSiteCreateResult(siteID string) siteCreateResult {
 		Purpose:             "runtime-test",
 		Audience:            "maintainers",
 		Archetype:           "internal",
-		WorkspacePath:       canonicalSiteProjectWorkspacePath(siteID),
+		WorkspacePath:       canonicalSiteProjectWorkspacePath(siteID, siteID),
 		SourceWorkspacePath: sourceWorkspacePath,
 		AppWorkspacePath:    filepath.ToSlash(filepath.Join(sourceWorkspacePath, "app")),
 		Status:              "draft",
@@ -495,6 +495,7 @@ func runRealPOSIXSiteSourceCreation(t *testing.T, fixture posixSiteSourceFixture
 	}
 	sourceWorkspace, errorValue := toolCatalogBuilder.resolveSiteProjectSourceWorkspace(toolContext, request, workspaceActor, siteProjectResolutionInput{
 		SiteID:              site.SiteID,
+		Slug:                site.Slug,
 		SourceWorkspacePath: site.SourceWorkspacePath,
 	})
 	if errorValue != nil {
@@ -512,11 +513,11 @@ func assertResolvedSiteSourceWorkspace(t *testing.T, fixture posixSiteSourceFixt
 	if !filepath.IsAbs(sourceWorkspace.ConcretePath) {
 		t.Fatalf("expected absolute concrete source workspace path, got %+v", sourceWorkspace)
 	}
-	expectedConcretePath := filepath.Join(requesterHomePath(fixture), "sites", site.SiteID, "draft")
+	expectedConcretePath := filepath.Join(fixture.WorkspaceRootPath, "circles", "staff", "sites", site.Slug, "draft")
 	if sourceWorkspace.ConcretePath != expectedConcretePath {
 		t.Fatalf("expected concrete source workspace path %s, got %+v", expectedConcretePath, sourceWorkspace)
 	}
-	expectedVirtualPath := canonicalSiteSourceWorkspacePath(site.SiteID)
+	expectedVirtualPath := canonicalSiteSourceWorkspacePath(site.SiteID, site.Slug)
 	if sourceWorkspace.VirtualPath != expectedVirtualPath {
 		t.Fatalf("expected virtual source workspace path %s, got %+v", expectedVirtualPath, sourceWorkspace)
 	}

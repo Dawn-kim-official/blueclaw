@@ -38,6 +38,7 @@ type siteAppRepairToolInput struct {
 
 type siteProjectResolutionInput struct {
 	SiteID              string
+	Slug                string
 	SourceWorkspacePath string
 }
 
@@ -96,6 +97,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 	}
 	sourceWorkspace, errorValue := toolCatalogBuilder.resolveSiteProjectSourceWorkspace(toolContext, handlerContext.request, workspaceActor, siteProjectResolutionInput{
 		SiteID:              firstNonEmptyString(input.SiteID, site.SiteID, siteProjectIDFromPath(sourceWorkspacePath), siteProjectIDFromPath(appWorkspacePath)),
+		Slug:                firstNonEmptyString(input.Slug, site.Slug),
 		SourceWorkspacePath: sourceWorkspacePath,
 	})
 	if errorValue != nil {
@@ -655,6 +657,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext cont
 	}
 	sourceWorkspace, errorValue := toolCatalogBuilder.resolveSiteProjectSourceWorkspace(toolContext, handlerContext.request, workspaceActor, siteProjectResolutionInput{
 		SiteID:              firstNonEmptyString(input.SiteID, site.SiteID, siteProjectIDFromPath(sourceWorkspacePath)),
+		Slug:                firstNonEmptyString(input.Slug, site.Slug),
 		SourceWorkspacePath: sourceWorkspacePath,
 	})
 	if errorValue != nil {
@@ -667,7 +670,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext cont
 		return actorToolFailure("mkdir_all", "site_repair_workspace", sourceWorkspace.VirtualPath, errorValue), nil
 	}
 	site.SourceWorkspacePath = sourceWorkspace.VirtualPath
-	site.WorkspacePath = canonicalSiteProjectWorkspacePath(firstNonEmptyString(input.SiteID, site.SiteID, siteProjectIDFromPath(sourceWorkspace.VirtualPath)))
+	site.WorkspacePath = siteProjectWorkspacePathFromSourceWorkspace(sourceWorkspace.VirtualPath)
 	site.AppWorkspacePath = filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, "app"))
 	if toolFailure := writeSiteStarterFiles(toolContext, workspaceActor, workspacepath.Directory(sourceWorkspace), site); toolFailure != nil {
 		return *toolFailure, nil
@@ -721,6 +724,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) siteStatusForWorkspaceTool(toolCon
 	return decodeSiteCreateResult(response.Result)
 }
 
+func (toolCatalogBuilder *ToolCatalogBuilder) siteStatusForPublishInput(toolContext context.Context, request ToolCatalogRequest, inputDocument map[string]any) (siteCreateResult, error) {
+	siteID := siteIDFromInputDocument(inputDocument)
+	slug, _ := inputDocument["slug"].(string)
+	if strings.TrimSpace(siteID) == "" && strings.TrimSpace(slug) == "" {
+		return siteCreateResult{}, nil
+	}
+	return toolCatalogBuilder.siteStatusForWorkspaceTool(toolContext, request, siteID, slug)
+}
+
 func siteToolNeedsSourceBundle(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
 	case "site.app.publish", "site.app.preview":
@@ -737,7 +749,20 @@ func (toolCatalogBuilder *ToolCatalogBuilder) enrichSitePublishInput(toolContext
 			return nil, nil, errorValue
 		}
 	}
+	site, statusError := toolCatalogBuilder.siteStatusForPublishInput(toolContext, request, inputDocument)
+	if statusError != nil && siteSourceWorkspacePath(inputDocument) == "" {
+		return nil, nil, statusError
+	}
+	if strings.TrimSpace(site.SiteID) != "" {
+		inputDocument["siteID"] = site.SiteID
+	}
+	if strings.TrimSpace(site.Slug) != "" {
+		inputDocument["slug"] = site.Slug
+	}
 	sourceWorkspacePath := siteSourceWorkspacePath(inputDocument)
+	if sourceWorkspacePath == "" {
+		sourceWorkspacePath = site.SourceWorkspacePath
+	}
 	if sourceWorkspacePath == "" {
 		sourceWorkspacePath = defaultSiteSourceWorkspacePath(inputDocument)
 	}
@@ -749,7 +774,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) enrichSitePublishInput(toolContext
 		return nil, actorFailure, nil
 	}
 	resolvedSourcePath, errorValue := toolCatalogBuilder.resolveSiteProjectSourceWorkspace(toolContext, request, workspaceActor, siteProjectResolutionInput{
-		SiteID:              firstNonEmptyString(siteIDFromInputDocument(inputDocument), siteProjectIDFromPath(sourceWorkspacePath)),
+		SiteID:              firstNonEmptyString(siteIDFromInputDocument(inputDocument), site.SiteID, siteProjectIDFromPath(sourceWorkspacePath)),
+		Slug:                firstNonEmptyString(site.Slug, slugFromInputDocument(inputDocument)),
 		SourceWorkspacePath: sourceWorkspacePath,
 	})
 	if errorValue != nil {
@@ -780,7 +806,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolCo
 		return nil, errorValue
 	}
 	if strings.TrimSpace(site.SourceWorkspacePath) == "" {
-		site.SourceWorkspacePath = defaultSiteSourceWorkspacePath(map[string]any{"siteID": site.SiteID})
+		site.SourceWorkspacePath = defaultSiteSourceWorkspacePath(map[string]any{"siteID": site.SiteID, "slug": site.Slug})
 	}
 	if toolFailure := siteWorkspaceRequesterIdentityFailure(request, "site_source_workspace"); toolFailure != nil {
 		return toolFailure, nil
@@ -791,6 +817,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolCo
 	}
 	sourceWorkspace, errorValue := toolCatalogBuilder.resolveSiteProjectSourceWorkspace(toolContext, request, workspaceActor, siteProjectResolutionInput{
 		SiteID:              site.SiteID,
+		Slug:                site.Slug,
 		SourceWorkspacePath: site.SourceWorkspacePath,
 	})
 	if errorValue != nil {
@@ -803,7 +830,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) materializeSiteCreateResult(toolCo
 		return toolFailure, nil
 	}
 	site.SourceWorkspacePath = sourceWorkspace.VirtualPath
-	site.WorkspacePath = sourceWorkspace.VirtualPath
+	site.WorkspacePath = siteProjectWorkspacePathFromSourceWorkspace(sourceWorkspace.VirtualPath)
 	site.AppWorkspacePath = filepath.ToSlash(filepath.Join(sourceWorkspace.VirtualPath, "app"))
 	site.UIPrimitiveImports = siteUIPrimitiveImports()
 	site.SourceGuidance = siteSourceGuidance()
@@ -869,7 +896,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusRecord(toolConte
 		return
 	}
 	siteID, _ := document["siteID"].(string)
-	health := toolCatalogBuilder.siteWorkspaceHealth(toolContext, request, siteID, sourceWorkspacePath)
+	health := toolCatalogBuilder.siteWorkspaceHealth(toolContext, request, siteID, slugFromSiteStatusDocument(document), sourceWorkspacePath)
 	if includeWorkspaceDetails {
 		delete(document, "workspacePath")
 		if resolvedSourceWorkspacePath, _ := health["sourceWorkspacePath"].(string); strings.TrimSpace(resolvedSourceWorkspacePath) != "" {
@@ -887,13 +914,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusRecord(toolConte
 	document["workspaceHealth"] = health["status"]
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) siteWorkspaceHealth(toolContext context.Context, request ToolCatalogRequest, siteID string, sourceWorkspacePath string) map[string]any {
+func (toolCatalogBuilder *ToolCatalogBuilder) siteWorkspaceHealth(toolContext context.Context, request ToolCatalogRequest, siteID string, slug string, sourceWorkspacePath string) map[string]any {
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, request)
 	if actorFailure != nil {
 		return map[string]any{"status": "permission_problem", "path": sourceWorkspacePath, "suggestedNextTool": "site.app.repair"}
 	}
 	resolvedSourcePath, errorValue := toolCatalogBuilder.resolveSiteProjectSourceWorkspace(toolContext, request, workspaceActor, siteProjectResolutionInput{
 		SiteID:              firstNonEmptyString(siteID, siteProjectIDFromPath(sourceWorkspacePath)),
+		Slug:                slug,
 		SourceWorkspacePath: sourceWorkspacePath,
 	})
 	if errorValue != nil {
@@ -1074,7 +1102,7 @@ func siteWorkspaceRequesterIdentityFailure(request ToolCatalogRequest, stage str
 	if strings.TrimSpace(request.RequesterPersonID) != "" || strings.TrimSpace(request.PersonAccess.PersonID) != "" {
 		return nil
 	}
-	return toolResultPointer(agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "requester personID is required to provision a site workspace under home/sites"))
+	return toolResultPointer(agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "requester personID is required to provision a site workspace"))
 }
 
 type siteStarterFile struct {
@@ -1215,7 +1243,7 @@ func defaultSiteSourceWorkspacePath(inputDocument map[string]any) string {
 	if !isString || strings.TrimSpace(siteID) == "" {
 		return ""
 	}
-	return canonicalSiteSourceWorkspacePath(strings.TrimSpace(siteID))
+	return canonicalSiteSourceWorkspacePath(strings.TrimSpace(siteID), slugFromInputDocument(inputDocument))
 }
 
 func siteIDFromInputDocument(inputDocument map[string]any) string {
@@ -1226,18 +1254,80 @@ func siteIDFromInputDocument(inputDocument map[string]any) string {
 	return strings.TrimSpace(siteID)
 }
 
-func canonicalSiteSourceWorkspacePath(siteID string) string {
-	if strings.TrimSpace(siteID) == "" {
+func slugFromInputDocument(inputDocument map[string]any) string {
+	slug, isString := inputDocument["slug"].(string)
+	if !isString {
 		return ""
 	}
-	return filepath.ToSlash(filepath.Join(canonicalSiteProjectWorkspacePath(siteID), "draft"))
+	return strings.TrimSpace(slug)
 }
 
-func canonicalSiteProjectWorkspacePath(siteID string) string {
+func slugFromSiteStatusDocument(document map[string]any) string {
+	slug, isString := document["slug"].(string)
+	if !isString {
+		return ""
+	}
+	return strings.TrimSpace(slug)
+}
+
+func canonicalSiteSourceWorkspacePath(siteID string, slug string) string {
 	if strings.TrimSpace(siteID) == "" {
 		return ""
 	}
-	return filepath.ToSlash(filepath.Join("/workspace", "circles", "staff", "sites", strings.TrimSpace(siteID)))
+	return filepath.ToSlash(filepath.Join(canonicalSiteProjectWorkspacePath(siteID, slug), "draft"))
+}
+
+func canonicalSiteProjectWorkspacePath(siteID string, slug string) string {
+	if strings.TrimSpace(siteID) == "" {
+		return ""
+	}
+	aliasName := normalizeSiteWorkspaceAlias(slug)
+	if aliasName == "" {
+		return canonicalSiteProjectStorageWorkspacePath(siteID)
+	}
+	return filepath.ToSlash(filepath.Join("/workspace", "circles", "staff", "sites", aliasName))
+}
+
+func canonicalSiteProjectStorageWorkspacePath(siteID string) string {
+	if strings.TrimSpace(siteID) == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Join("/workspace", "circles", "staff", "sites", ".ids", strings.TrimSpace(siteID)))
+}
+
+func canonicalSiteSourceStorageWorkspacePath(siteID string) string {
+	if strings.TrimSpace(siteID) == "" {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Join(canonicalSiteProjectStorageWorkspacePath(siteID), "draft"))
+}
+
+func normalizeSiteWorkspaceAlias(slug string) string {
+	normalized := strings.ToLower(strings.TrimSpace(slug))
+	builder := strings.Builder{}
+	previousHyphen := false
+	for _, character := range normalized {
+		isLetter := character >= 'a' && character <= 'z'
+		isDigit := character >= '0' && character <= '9'
+		if isLetter || isDigit {
+			builder.WriteRune(character)
+			previousHyphen = false
+			continue
+		}
+		if !previousHyphen && builder.Len() > 0 {
+			builder.WriteByte('-')
+			previousHyphen = true
+		}
+	}
+	return strings.Trim(builder.String(), "-")
+}
+
+func siteProjectWorkspacePathFromSourceWorkspace(sourceWorkspacePath string) string {
+	cleanPath := strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(sourceWorkspacePath)), "/")
+	if strings.HasSuffix(cleanPath, "/draft") {
+		return strings.TrimSuffix(cleanPath, "/draft")
+	}
+	return cleanPath
 }
 
 func sourceWorkspacePathFromSiteAppWorkspacePath(appWorkspacePath string) string {
@@ -1276,29 +1366,33 @@ func pathSegmentAfterPrefix(path string, prefix string) string {
 	return strings.TrimSpace(segment)
 }
 
-func siteWorkspacePathCandidates(sourceWorkspacePath string, siteID string) []string {
+func siteWorkspacePathCandidates(sourceWorkspacePath string, siteID string, slug string) []string {
 	candidates := []string{}
-	canonicalPath := canonicalSiteSourceWorkspacePath(siteID)
-	if canonicalPath != "" && shouldPreferCanonicalSiteWorkspacePath(sourceWorkspacePath) {
-		candidates = append(candidates, canonicalPath)
-	}
-	if strings.TrimSpace(sourceWorkspacePath) != "" {
-		candidates = append(candidates, strings.TrimSpace(sourceWorkspacePath))
-	}
-	if canonicalPath != "" && !shouldPreferCanonicalSiteWorkspacePath(sourceWorkspacePath) {
-		candidates = append(candidates, canonicalPath)
+	candidates = append(candidates, siteSourceDraftPathCandidate(sourceWorkspacePath))
+	candidates = append(candidates, canonicalSiteSourceWorkspacePath(siteID, slug))
+	candidates = append(candidates, canonicalSiteSourceStorageWorkspacePath(siteID))
+	if strings.TrimSpace(siteID) != "" {
+		candidates = append(candidates,
+			filepath.ToSlash(filepath.Join("/workspace", "circles", "staff", "sites", strings.TrimSpace(siteID), "draft")),
+			filepath.ToSlash(filepath.Join("/workspace", "sites", strings.TrimSpace(siteID), "draft")),
+			filepath.ToSlash(filepath.Join("sites", strings.TrimSpace(siteID), "draft")),
+		)
 	}
 	return stableUniqueStrings(candidates)
 }
 
-func shouldPreferCanonicalSiteWorkspacePath(path string) bool {
-	cleanPath := strings.Trim(strings.TrimSpace(filepath.ToSlash(path)), "/")
-	return cleanPath == "" ||
-		strings.HasPrefix(cleanPath, "workspace/circles/staff/sites/") ||
-		strings.HasPrefix(cleanPath, "home/sites/") ||
-		strings.HasPrefix(cleanPath, "workspace/sites/") ||
-		strings.HasPrefix(cleanPath, "workspace/private/people/") ||
-		strings.HasPrefix(cleanPath, "sites/")
+func siteSourceDraftPathCandidate(path string) string {
+	cleanPath := strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(path)), "/")
+	if cleanPath == "" {
+		return ""
+	}
+	if strings.HasSuffix(cleanPath, "/draft") {
+		return cleanPath
+	}
+	if strings.HasSuffix(cleanPath, "/app") {
+		return strings.TrimSuffix(cleanPath, "/app")
+	}
+	return filepath.ToSlash(filepath.Join(cleanPath, "draft"))
 }
 
 func stableUniqueStrings(values []string) []string {
@@ -1317,7 +1411,7 @@ func stableUniqueStrings(values []string) []string {
 
 func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(toolContext context.Context, request ToolCatalogRequest, workspaceActor security.WorkspaceActor, input siteProjectResolutionInput) (ResolvedWorkspacePath, error) {
 	scope := WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, agent.TaskRunIDFromContext(toolContext))
-	candidates := siteWorkspacePathCandidates(input.SourceWorkspacePath, firstNonEmptyString(input.SiteID, siteProjectIDFromPath(input.SourceWorkspacePath)))
+	candidates := siteWorkspacePathCandidates(input.SourceWorkspacePath, firstNonEmptyString(input.SiteID, siteProjectIDFromPath(input.SourceWorkspacePath)), input.Slug)
 	if len(candidates) == 0 {
 		return ResolvedWorkspacePath{}, errors.New("site sourceWorkspacePath could not be resolved")
 	}
