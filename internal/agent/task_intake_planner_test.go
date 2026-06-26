@@ -73,7 +73,7 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerDeterministicallyClassifiesFlowTaskRequest(t *testing.T) {
+func TestTaskIntakePlannerFallbackDoesNotInferFlowTaskWorkKind(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
 	toolRegistry := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
 
@@ -82,8 +82,28 @@ func TestTaskIntakePlannerDeterministicallyClassifiesFlowTaskRequest(t *testing.
 		ToolSet: toolRegistry,
 	})
 
+	if decision.HasWorkKind(WorkKindFlowTask) {
+		t.Fatalf("expected fallback not to infer flow task work kind, got %+v", decision.WorkKinds)
+	}
+	if len(decision.InitialToolNames) != 0 {
+		t.Fatalf("expected fallback not to pin flow tools, got %+v", decision.InitialToolNames)
+	}
+}
+
+func TestTaskIntakePlannerMapsModelFlowTaskWorkKindToInitialTools(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"flow task request","userFacingReply":"","workKinds":["flow_task"]}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
+		ToolSet: toolRegistry,
+	})
+
 	if !decision.HasWorkKind(WorkKindFlowTask) {
-		t.Fatalf("expected flow task work kind, got %+v", decision.WorkKinds)
+		t.Fatalf("expected model flow task work kind, got %+v", decision.WorkKinds)
 	}
 	for _, toolName := range []string{"flow.task.add", "flow.task.list", "flow.task.update"} {
 		if !containsString(decision.InitialToolNames, toolName) {

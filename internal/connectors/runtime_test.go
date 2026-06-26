@@ -733,6 +733,70 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 	}
 }
 
+func TestConnectorRuntimeFindsFailedRecoverableArtifactGoal(t *testing.T) {
+	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "기업 문서 가이드를 docx로 만들어줘")
+	appendConnectorActiveGoal(t, taskRunService, taskRun, agent.ActiveGoal{
+		TaskRunID:           taskRun.TaskRunID,
+		OriginalInstruction: taskRun.Prompt,
+		Status:              agent.ActiveGoalStatusBlocked,
+		OutcomeContract: agent.OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".docx"},
+			ExpectedResults: []agent.ExpectedResult{{
+				ID:       "attached-file",
+				Type:     agent.ExpectedResultTypeFile,
+				Required: true,
+			}},
+			ArtifactRequirement: agent.ArtifactRequirementRequired,
+		},
+	})
+	if _, errorValue := taskRunService.FailTaskRun(taskRun.TaskRunID, "file attach failed"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-deliver")
+	event.Prompt = "전달해줘야지 그럼"
+
+	activeGoal, isFound := connectorRuntime.findActiveGoal("person-1", "", event, inboundTaskWaitResolution{})
+
+	if !isFound {
+		t.Fatal("expected failed artifact delivery task to remain a continuation candidate")
+	}
+	if activeGoal.TaskRunID != taskRun.TaskRunID || !toolNamesContain(activeGoal.OutcomeContract.RequiredEvidenceTools, "file.attach") {
+		t.Fatalf("expected recoverable file attachment goal, got %+v", activeGoal)
+	}
+}
+
+func TestConnectorRuntimeDoesNotContinueFailedSiteOnlyGoal(t *testing.T) {
+	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "웹사이트 만들어줘")
+	appendConnectorActiveGoal(t, taskRunService, taskRun, agent.ActiveGoal{
+		TaskRunID:           taskRun.TaskRunID,
+		OriginalInstruction: taskRun.Prompt,
+		Status:              agent.ActiveGoalStatusBlocked,
+		OutcomeContract: agent.OutcomeContract{
+			RequiredEvidenceTools: []string{"site.app.publish"},
+			ExpectedResults: []agent.ExpectedResult{{
+				ID:       "site-public-link",
+				Type:     agent.ExpectedResultTypeLink,
+				Required: true,
+			}},
+			ArtifactRequirement: agent.ArtifactRequirementNone,
+		},
+	})
+	if _, errorValue := taskRunService.FailTaskRun(taskRun.TaskRunID, "publish failed"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-unrelated")
+	event.Prompt = "전달해줘야지 그럼"
+
+	_, isFound := connectorRuntime.findActiveGoal("person-1", "", event, inboundTaskWaitResolution{})
+
+	if isFound {
+		t.Fatal("expected failed site-only task not to continue through artifact recovery path")
+	}
+}
+
 func TestOutboundReplyJSONPreservesInlineAttachmentPayload(t *testing.T) {
 	reply := OutboundReply{
 		Message:   "attached",
@@ -3461,6 +3525,16 @@ func connectorFinishMessage(reply string) string {
 
 func connectorFinishMessageWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {
 	return `{"action":"finish","message":` + strconv.Quote(reply) + `,"completionSummary":` + strconv.Quote(reply) + `,"replyParts":[{"type":"text","text":` + strconv.Quote(reply) + `}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}]}`
+}
+
+func appendConnectorActiveGoal(t *testing.T, taskRunService *task.TaskRunService, taskRun task.TaskRun, activeGoal agent.ActiveGoal) {
+	t.Helper()
+
+	document, errorValue := json.Marshal(activeGoal)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.blocked", string(document))
 }
 
 func newTestConnectorRuntime(t *testing.T, languageModel llm.LanguageModelProvider) (*ConnectorRuntime, *testAdapter) {

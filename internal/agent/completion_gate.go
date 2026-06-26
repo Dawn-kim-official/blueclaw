@@ -424,7 +424,7 @@ func (agentTurnRunner *AgentTurnRunner) validateCompletionGateForRequestWithExpe
 }
 
 func (agentTurnRunner *AgentTurnRunner) verifyCompletionContract(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, actionDocument turnActionDocument, result completionGateResult) completionGateResult {
-	if !activeGoalOutcomeContractHasRequirements(request.OutcomeContract) {
+	if !OutcomeContractHasRequirements(request.OutcomeContract) {
 		return result
 	}
 	verification, errorValue := verifyContractSatisfaction(ctx, agentTurnRunner.languageModel, request, observations, attachments, actionDocument)

@@ -115,7 +115,7 @@ func TestOutcomeContractTreatsWebsiteHTMLFormatAsPublicLink(t *testing.T) {
 	}
 }
 
-func TestOutcomeContractTreatsSelectedSiteSkillSuffixAsPublicLink(t *testing.T) {
+func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name: "site-prototype",
@@ -126,25 +126,31 @@ func TestOutcomeContractTreatsSelectedSiteSkillSuffixAsPublicLink(t *testing.T) 
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "아주 멋있게 좀 만들어 봐라. 이게"},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{".txt"}},
+		AgentRequest{Prompt: "기업 문서 가이드를 docx로 만들어줘"},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{".docx"}},
 		instructionBundle,
 		ExecutionPlan{},
 		false,
-		[]string{".txt"},
+		[]string{".docx"},
 	)
 
-	if len(contract.RequiredAttachmentSuffixes) != 0 {
-		t.Fatalf("expected selected site skill to clear accidental attachment suffixes, got %+v", contract.RequiredAttachmentSuffixes)
+	if len(contract.RequiredAttachmentSuffixes) != 1 || contract.RequiredAttachmentSuffixes[0] != ".docx" {
+		t.Fatalf("expected selected site skill not to clear requested file suffix, got %+v", contract.RequiredAttachmentSuffixes)
 	}
-	if stringSliceContains(contract.RequiredEvidenceTools, "file.attach") {
-		t.Fatalf("expected no file.attach requirement for site skill continuation, got %+v", contract.RequiredEvidenceTools)
+	if !stringSliceContains(contract.RequiredEvidenceTools, "file.attach") {
+		t.Fatalf("expected file.attach requirement for requested file, got %+v", contract.RequiredEvidenceTools)
 	}
-	if !stringSliceContains(contract.RequiredEvidenceTools, "site.app.publish") {
-		t.Fatalf("expected site publish evidence to remain required, got %+v", contract)
+	if stringSliceContains(contract.RequiredEvidenceTools, "site.app.publish") {
+		t.Fatalf("expected selected site skill not to require site publish, got %+v", contract.RequiredEvidenceTools)
 	}
-	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
-		t.Fatalf("expected no file result for selected site skill continuation, got %+v", contract.ExpectedResults)
+	if stringSliceContains(contract.SelectedEvidenceHints, "site.app.publish") {
+		t.Fatalf("expected selected site skill not to keep stale site hint, got %+v", contract.SelectedEvidenceHints)
+	}
+	if !expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeFile, "파일") {
+		t.Fatalf("expected file result for requested attachment, got %+v", contract.ExpectedResults)
+	}
+	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected selected site skill not to require public link, got %+v", contract.ExpectedResults)
 	}
 }
 
