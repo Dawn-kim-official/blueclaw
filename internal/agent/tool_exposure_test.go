@@ -109,6 +109,40 @@ func TestPinnedCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 	}
 }
 
+func TestStepWorkingSetPinsCalendarToolsWithoutFlowTaskTools(t *testing.T) {
+	request := requestWithStepWorkingSetTools(AgentTurnRequest{
+		WorkKinds: []string{WorkKindCalendar},
+	}, nil)
+
+	for _, toolName := range []string{"calendar.event.add", "calendar.event.list", "calendar.event.update", "calendar.event.delete"} {
+		if !containsString(request.PinnedToolNames, toolName) {
+			t.Fatalf("expected calendar tool %s to be pinned, got %+v", toolName, request.PinnedToolNames)
+		}
+	}
+	for _, toolName := range []string{"flow.task.add", "flow.task.list", "flow.task.update"} {
+		if containsString(request.PinnedToolNames, toolName) {
+			t.Fatalf("expected flow task tool %s to stay unpinned for calendar work, got %+v", toolName, request.PinnedToolNames)
+		}
+	}
+}
+
+func TestStepWorkingSetPinsFlowTaskToolsWithoutCalendarTools(t *testing.T) {
+	request := requestWithStepWorkingSetTools(AgentTurnRequest{
+		WorkKinds: []string{WorkKindFlowTask},
+	}, nil)
+
+	for _, toolName := range []string{"flow.task.add", "flow.task.list", "flow.task.update"} {
+		if !containsString(request.PinnedToolNames, toolName) {
+			t.Fatalf("expected flow task tool %s to be pinned, got %+v", toolName, request.PinnedToolNames)
+		}
+	}
+	for _, toolName := range []string{"calendar.event.add", "calendar.event.list", "calendar.event.update", "calendar.event.delete"} {
+		if containsString(request.PinnedToolNames, toolName) {
+			t.Fatalf("expected calendar tool %s to stay unpinned for flow task work, got %+v", toolName, request.PinnedToolNames)
+		}
+	}
+}
+
 func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
 	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "file.preview", "document.read", "mail.message.search", "platform.message.send"})
 	instructionBundle := InstructionBundle{

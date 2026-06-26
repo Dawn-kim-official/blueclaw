@@ -692,12 +692,19 @@ func requirementsWithFailureDebtWaiver(requirements []toolUseRequirement, observ
 	}
 	filteredRequirements := []toolUseRequirement{}
 	for _, requirement := range requirements {
-		if !requirement.RequiresAttachment && strings.TrimSpace(requirement.ToolName) == failedToolName {
+		if canWaiveRequirementWithNoToolFallback(requirement, failedToolName) {
 			continue
 		}
 		filteredRequirements = append(filteredRequirements, requirement)
 	}
 	return filteredRequirements
+}
+
+func canWaiveRequirementWithNoToolFallback(requirement toolUseRequirement, failedToolName string) bool {
+	if requirement.RequiresAttachment || strings.TrimSpace(requirement.ToolName) != failedToolName {
+		return false
+	}
+	return !requirement.RequiresSideEffectEvidence
 }
 
 func completionGateObservation(index int, message string) turnObservation {

@@ -56,11 +56,39 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requestedOutputFormats"`) {
 		t.Fatalf("expected requested output formats in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, WorkKindFlowTask) {
+		t.Fatalf("expected flow task work kind in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), `requestedOutputFormats should be ["html"], not ["html","pptx"]`) {
 		t.Fatal("expected intake prompt to disambiguate html presentation requests from pptx file requests")
 	}
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Prefer consume with reactionEmojiName for lightweight acknowledgement") {
 		t.Fatal("expected intake prompt to prefer reactions over text emoji")
+	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "only mentions the assistant") {
+		t.Fatal("expected intake prompt to guide bare assistant mentions")
+	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Do not ignore jokes") {
+		t.Fatal("expected intake prompt to guide playful addressed remarks")
+	}
+}
+
+func TestTaskIntakePlannerDeterministicallyClassifiesFlowTaskRequest(t *testing.T) {
+	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
+	toolRegistry := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
+		ToolSet: toolRegistry,
+	})
+
+	if !decision.HasWorkKind(WorkKindFlowTask) {
+		t.Fatalf("expected flow task work kind, got %+v", decision.WorkKinds)
+	}
+	for _, toolName := range []string{"flow.task.add", "flow.task.list", "flow.task.update"} {
+		if !containsString(decision.InitialToolNames, toolName) {
+			t.Fatalf("expected initial flow tool %s, got %+v", toolName, decision.InitialToolNames)
+		}
 	}
 }
 
@@ -253,6 +281,38 @@ func TestTurnRouterNormalizesReactionEmojiNameToEnum(t *testing.T) {
 	}
 	if invalidDecision.ReactionEmojiName != DefaultReactionEmojiName {
 		t.Fatalf("expected invalid emoji to default, got %q", invalidDecision.ReactionEmojiName)
+	}
+	if nullDecision.Route != TurnRouteConsume {
+		t.Fatalf("expected lightweight consume route to stay consume, got %q", nullDecision.Route)
+	}
+}
+
+func TestTurnRouterPromotesTaskfulConsumeToTaskRoute(t *testing.T) {
+	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
+	toolSet := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+	decision := router.normalizeDecision(TurnDecision{
+		Route:            TurnRouteConsume,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeResearchTask,
+		TaskComplexity:   TaskComplexitySimple,
+		EffortLevel:      EffortLevelStandard,
+		ResponseLanguage: "ko",
+		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
+		WorkKinds:        []string{WorkKindFlowTask},
+		InitialToolNames: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+	}, router.deterministicDecision(AgentRequest{ToolSet: toolSet}), AgentRequest{
+		Prompt:  "업무 등록해줘.\n\n- 메일 페이지 앱 비밀번호 개선",
+		ToolSet: toolSet,
+	})
+
+	if decision.Route != TurnRouteStartTask {
+		t.Fatalf("expected taskful consume to become start_task, got %+v", decision)
+	}
+	if !workKindsContain(decision.WorkKinds, WorkKindFlowTask) {
+		t.Fatalf("expected flow task work kind to remain, got %+v", decision.WorkKinds)
+	}
+	if !containsString(decision.InitialToolNames, "flow.task.add") {
+		t.Fatalf("expected initial flow task tool to remain, got %+v", decision.InitialToolNames)
 	}
 }
 

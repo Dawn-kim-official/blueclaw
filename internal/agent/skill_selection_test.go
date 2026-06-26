@@ -575,6 +575,60 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 	}
 }
 
+func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:         "simple-slides",
+				Description:  "Generate clean presentation slides with Marp and attach the requested files.",
+				WhenToUse:    "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
+				Prompt:       "Use simple-slides tools.",
+				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+			},
+			{
+				Name:         "internkim-flow",
+				Description:  "Manage InternKim todo tasks with flow.task tools.",
+				WhenToUse:    "Use for 업무, 할 일, todo, task 등록, 목록, 완료, 수정 requests.",
+				Prompt:       "Use flow.task tools.",
+				AllowedTools: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+				Source:       InstructionSource{Path: "skills/internkim-flow/SKILL.md", SkillName: "internkim-flow"},
+			},
+		},
+	}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{
+			{Name: "simple-slides", Score: 30, Reason: "test"},
+			{Name: "internkim-flow", Score: 8, Reason: "test"},
+		},
+		RetrievalMode: "test",
+		IndexStatus:   "ready",
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:    "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
+		WorkKinds: []string{WorkKindFlowTask},
+		ToolSet: testToolSet([]string{
+			"terminal.run",
+			"file.write",
+			"file.attach",
+			"flow.task.add",
+			"flow.task.list",
+			"flow.task.update",
+		}),
+	}, retriever)
+
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "selected") {
+		t.Fatalf("expected internkim-flow selected for flow task work, got %+v", selectedBundle.SkillDecisions)
+	}
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "skipped") {
+		t.Fatalf("expected internkim-flow not to be skipped by simple-slides dominance, got %+v", selectedBundle.SkillDecisions)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "Use flow.task tools.") {
+		t.Fatalf("expected internkim-flow instructions in prompt, got %q", selectedBundle.Prompt)
+	}
+}
+
 func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{

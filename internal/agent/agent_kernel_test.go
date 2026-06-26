@@ -73,6 +73,49 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 	}
 }
 
+func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
+	agentKernel, _ := newKernelTestServices()
+	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
+		Route:            TurnRouteConsume,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeResearchTask,
+		TaskComplexity:   TaskComplexitySimple,
+		EffortLevel:      EffortLevelStandard,
+		ResponseLanguage: "ko",
+		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
+		WorkKinds:        []string{WorkKindFlowTask},
+		InitialToolNames: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+	}})
+
+	toolCallCount := 0
+	toolSet := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+	toolSet.RegisterTool(ToolDefinition{Name: "flow.task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"taskID":"task-1","content":"메일 페이지 앱 비밀번호 개선"}`), nil
+	})
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"flow.task.add","toolInput":{"prompt":"메일 페이지 앱 비밀번호 개선"}}`,
+		finishMessageDocument("업무를 등록했습니다."),
+	}}
+	agentKernel.UseLanguageModelProvider(languageModel)
+
+	request := kernelTestRequest("업무 등록해줘.\n\n- 메일 페이지 앱 비밀번호 개선")
+	request.ToolSet = toolSet
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected executable consume to run through task loop: %v", errorValue)
+	}
+	if result.TurnRoute == TurnRouteConsume || result.ReplySuppressed {
+		t.Fatalf("expected task loop instead of consume, got route=%q suppressed=%v", result.TurnRoute, result.ReplySuppressed)
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected flow.task.add to run once, got %d", toolCallCount)
+	}
+	if result.TaskRun.Result == "consumed" {
+		t.Fatalf("expected task result, got consumed")
+	}
+}
+
 func TestAgentKernelPausesNeedsConfirmationIntake(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{

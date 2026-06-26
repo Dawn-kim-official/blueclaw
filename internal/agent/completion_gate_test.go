@@ -840,6 +840,38 @@ func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T)
 	}
 }
 
+func TestCompletionGateDoesNotWaiveFlowTaskEvidenceWithNoToolFallback(t *testing.T) {
+	goalSatisfied := true
+	request := AgentTurnRequest{
+		WorkKinds:             []string{WorkKindFlowTask},
+		RequiredEvidenceTools: []string{"flow.task.add"},
+		ToolSet:               newTestToolSet([]string{"flow.task.add"}),
+	}
+	result := validateCompletionGateForRequestWithRecoveryBudget(
+		request,
+		deriveToolUseRequirements(request),
+		[]turnObservation{
+			newFailureObservation("obs-001", "continue", "flow.task.add", "flow task add failed", FailureExternalService, FailureCodes.OperationFailed, "flow_task_add"),
+		},
+		nil,
+		turnActionDocument{
+			Action:            "finish",
+			Message:           "업무를 등록했습니다.",
+			GoalStatus:        "satisfied",
+			GoalSatisfied:     &goalSatisfied,
+			FailureResolution: failureResolutionNoToolFallback,
+		},
+		defaultRecoveryBudget(),
+	)
+
+	if result.IsSatisfied {
+		t.Fatal("expected flow task finish without successful flow.task.add evidence to be rejected")
+	}
+	if !strings.Contains(result.Message, "flow.task.add") {
+		t.Fatalf("expected missing flow task evidence message, got %q", result.Message)
+	}
+}
+
 func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"set_quality_criteria","qualityCriteria":["done once: criteria are declared"],"goalStatus":"in_progress","goalSatisfied":false}`,

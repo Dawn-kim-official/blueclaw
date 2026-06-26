@@ -174,6 +174,9 @@ func instructionBundleWithPinnedSkills(instructionBundle InstructionBundle, requ
 }
 
 func dominantArtifactSkillName(request AgentRequest, candidateByName map[string]SkillCandidate) string {
+	if !requestLooksLikeArtifactSkillRequest(request) {
+		return ""
+	}
 	siteCandidate := candidateByName["site-prototype"]
 	slidesCandidate := candidateByName["simple-slides"]
 	isSiteQualified := artifactSkillCandidateQualifies(siteCandidate)
@@ -188,6 +191,31 @@ func dominantArtifactSkillName(request AgentRequest, candidateByName map[string]
 		return "simple-slides"
 	}
 	return ""
+}
+
+func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {
+	if requestPromptMatchesWorkflowKind(request, WorkKindFlowTask) && !requestHasWorkKind(request, WorkKindSitePrototype) && !requestHasWorkKind(request, WorkKindSlidesArtifact) && !requestHasWorkKind(request, WorkKindFileDelivery) {
+		return false
+	}
+	if requestHasWorkKind(request, WorkKindSitePrototype) || requestHasWorkKind(request, WorkKindSlidesArtifact) || requestHasWorkKind(request, WorkKindFileDelivery) {
+		return true
+	}
+	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) || expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) {
+		return true
+	}
+	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.") || activeGoalRequiresTool(request.ActiveGoal, "file.attach") {
+		return true
+	}
+	text := strings.ToLower(strings.Join(nonEmptyStrings([]string{
+		request.Prompt,
+		request.ActiveGoal.OriginalInstruction,
+		request.ActiveGoal.CurrentObjective,
+	}), "\n"))
+	return containsAny(text, []string{
+		"피피티", "발표자료", "프레젠테이션", "슬라이드", "ppt", "pptx", "deck", "slides",
+		"웹사이트", "웹 앱", "웹앱", "홈페이지", "사이트", "프로토타입", "website", "web app", "webpage",
+		"파일", "첨부", "문서", "보고서", "pdf", "docx", "xlsx", "csv", "html",
+	})
 }
 
 func artifactSkillCandidateQualifies(skillCandidate SkillCandidate) bool {

@@ -41,6 +41,16 @@ func TestAddressingClassificationPromptGuidesHumanDirectedAcknowledgements(t *te
 	}
 }
 
+func TestAddressingClassificationPromptGuidesBareMentionAndPlayfulBanter(t *testing.T) {
+	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "@김인턴"})
+
+	for _, fragment := range []string{"only mentions the assistant", "target=bot", "shouldReply=true", "recent context gives a topic", "jokes", "playful remarks"} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("expected addressing prompt to contain %q, got %s", fragment, prompt)
+		}
+	}
+}
+
 func TestAddressingClassificationOverridesHumanShouldReply(t *testing.T) {
 	agentKernel := NewAgentKernel(nil, nil)
 	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{

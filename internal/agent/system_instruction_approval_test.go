@@ -16,3 +16,13 @@ func TestSystemInstructionAddsApprovalContinuationDirective(t *testing.T) {
 		t.Fatal("did not expect the approval-continuation directive without a continuation")
 	}
 }
+
+func TestSystemInstructionGuidesBareMentionAndPlayfulReplies(t *testing.T) {
+	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
+
+	for _, expected := range []string{"only mentions you", "@김인턴", "recent visible conversation context", "Do not silently ignore", "good-humored coworker"} {
+		if !strings.Contains(instruction, expected) {
+			t.Fatalf("expected system instruction to contain %q, got %s", expected, instruction)
+		}
+	}
+}

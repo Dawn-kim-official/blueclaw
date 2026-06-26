@@ -127,6 +127,47 @@ func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
 	}
 }
 
+func TestDefaultToolSideEffectClass(t *testing.T) {
+	tests := []struct {
+		toolName           string
+		expectedSideEffect string
+		requiresCompletion bool
+	}{
+		{toolName: "flow.task.add", expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
+		{toolName: "flow.task.list", expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
+		{toolName: "platform.message.send", expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
+		{toolName: "math.calculate", expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
+	}
+
+	for _, test := range tests {
+		toolDefinition := ToolDefinition{Name: test.toolName}
+		if actualSideEffect := ToolDefinitionSideEffectClass(toolDefinition); actualSideEffect != test.expectedSideEffect {
+			t.Fatalf("expected %s side effect for %s, got %s", test.expectedSideEffect, test.toolName, actualSideEffect)
+		}
+		if actualRequirement := ToolDefinitionRequiresSideEffectEvidence(toolDefinition); actualRequirement != test.requiresCompletion {
+			t.Fatalf("expected requiresCompletion=%v for %s, got %v", test.requiresCompletion, test.toolName, actualRequirement)
+		}
+	}
+}
+
+func TestToolSetKeepsDeclaredRecoverySideEffectBeforeDefault(t *testing.T) {
+	toolSet := NewToolSet([]string{"data.write"})
+	toolSet.RegisterTool(ToolDefinition{
+		Name:         "data.write",
+		RecoveryCard: ToolRecoveryCard{SideEffect: ToolSideEffectRead},
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
+
+	toolDefinition, isFound := toolSet.ToolDefinition("data.write")
+	if !isFound {
+		t.Fatal("expected tool definition")
+	}
+	if actualSideEffect := ToolDefinitionSideEffectClass(toolDefinition); actualSideEffect != ToolSideEffectRead {
+		t.Fatalf("expected declared side effect %s, got %s", ToolSideEffectRead, actualSideEffect)
+	}
+}
+
 func TestToolSetInvokeRejectsHiddenTool(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "hidden.tool"}, func(context.Context, ToolInvocation) (ToolResult, error) {
