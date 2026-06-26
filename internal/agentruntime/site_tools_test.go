@@ -562,6 +562,52 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	}
 }
 
+func TestSiteStatusPrefersCanonicalWorkspaceWhenLegacySourceIsMissing(t *testing.T) {
+	workspacePath := t.TempDir()
+	brokenAliasPath := filepath.Join(workspacePath, "circles", "staff", "sites", "pretty-gyul")
+	if errorValue := os.MkdirAll(brokenAliasPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := os.Chmod(brokenAliasPath, 0000); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(brokenAliasPath, 0700)
+	})
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"8f1d2701bdefcf2ea917ab49","slug":"pretty-gyul","title":"예쁜 귤","publishedURL":"https://pretty-gyul.device.intern.kim","sourceWorkspacePath":"/workspace/sites/8f1d2701bdefcf2ea917ab49/draft","appWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft/app","status":"published"}}`}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.status",
+		PolicyResource: "tool:site.app.status",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.status",
+		Input:    agent.MarshalToolInput(map[string]string{"siteID": "8f1d2701bdefcf2ea917ab49"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(result.ContentText(), `"/workspace/circles/staff/sites/.ids/8f1d2701bdefcf2ea917ab49/draft"`) ||
+		!strings.Contains(result.ContentText(), `"workspaceHealth":"missing"`) ||
+		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.repair"`) {
+		t.Fatalf("expected missing legacy source to resolve to canonical storage, got %s", result.ContentText())
+	}
+	if strings.Contains(result.ContentText(), `"/workspace/sites/8f1d2701bdefcf2ea917ab49/draft"`) {
+		t.Fatalf("site status must not preserve missing legacy source path, got %s", result.ContentText())
+	}
+}
+
 func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
