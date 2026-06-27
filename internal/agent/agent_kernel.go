@@ -228,7 +228,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	var activeGoalSiteReport siteRequirementNormalizationReport
 	request.ActiveGoal, activeGoalSiteReport = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, activeGoalSiteReport)
-	instructionBundle := agentKernel.currentInstructionBundle()
+	baseInstructionBundle := agentKernel.currentInstructionBundle()
+	instructionBundle := baseInstructionBundle
 	instructionBundle = selectInstructionBundleForRequestWithRetrieverAndRouter(
 		responseContext,
 		instructionBundle,
@@ -268,6 +269,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeRequest.WorkKinds = request.WorkKinds
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
+	instructionBundle = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
+	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	if turnDecision.Route == TurnRouteConsume {
 		result, errorValue := agentKernel.completeConsumedRequest(intakeRequest, turnDecision)
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
@@ -361,6 +364,25 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
+}
+
+func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx context.Context, baseInstructionBundle InstructionBundle, request AgentRequest, intakeDecision IntakeDecision) InstructionBundle {
+	selectionRequest := request
+	selectionRequest.ActiveGoal.OutcomeContract.RequiredAttachmentSuffixes = appendUniqueStrings(
+		selectionRequest.ActiveGoal.OutcomeContract.RequiredAttachmentSuffixes,
+		attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)...,
+	)
+	if len(selectionRequest.ActiveGoal.OutcomeContract.RequiredAttachmentSuffixes) > 0 {
+		selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools = appendUniqueStrings(selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools, "file.attach")
+	}
+	instructionBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(
+		ctx,
+		baseInstructionBundle,
+		selectionRequest,
+		agentKernel.skillRetriever,
+		NewSkillSearchQueryRouter(agentKernel.intakeLanguageModel),
+	)
+	return instructionBundleWithPinnedSkills(instructionBundle, selectionRequest)
 }
 
 func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, decision TurnDecision) (AgentTurnResult, error) {

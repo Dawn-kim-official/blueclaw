@@ -325,7 +325,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used when it helps interpret whether the latest message continues, revises, asks about, cancels, replaces an active task, or is a bare assistant mention requesting a response to the recent conversation. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, jokes, playful office banter, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Do not ignore jokes or casual addressed remarks; answer like a friendly, witty coworker while staying concise. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set taskComplexity=simple when a bounded task has a clear short outcome and should normally produce only one final user reply even if it needs tools, such as adding one calendar event, adding one flow task, reading one visible attachment, or checking one obvious fact. Set taskComplexity=normal for ordinary bounded work, and taskComplexity=complex for long research, artifact generation, deployment, verification, or work where progress updates are useful. Use clarify when the latest request cannot be routed safely without a user choice. Do not use clarify for a message that only mentions the assistant, such as @김인턴, when recent visible context gives a clear topic; instead answer from context or continue that topic. When route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement instead of writing an emoji in userFacingReply. When route is consume, set reactionEmojiName to one enum value that matches the message. For non-consume routes, set reactionEmojiName to null or omit it. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. PriorTaskContext, when present, is a candidate previous task in the same conversation or reply target, not an active task. Set priorTaskReference=outcome_recovery only when the latest message asks to deliver, retry, continue, or revise that prior task's outcome. Set priorTaskReference=none for unrelated or self-contained requests. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats or priorTaskReference=outcome_recovery preserves formats from PriorTaskContext. Set workKinds to every kind that matches the requested work: site_prototype for website or web app prototype creation and publishing, slides_artifact for slide or presentation deliverables, calendar for calendar, event, or schedule-management work, flow_task for adding, listing, updating, completing, or deleting 업무, todo, task, 할 일, or Flow work items, file_delivery when the user explicitly asks for a produced or attached file, destructive_action when the request deletes, removes, or overwrites existing data or published resources, paid_service when it needs paid or production infrastructure such as custom domains or cloud accounts, user_browser when it needs the requester's own logged-in browser session including login, MFA, or captcha handoff, browser_session when it needs interactive browser automation, external_send when the result leaves the current conversation as a direct message, email, or another outbound delivery, and coding when the work is software programming such as writing, debugging, refactoring, or reviewing source code. When emitting site_prototype work kind or a link-type expected result for a website, page, or web app, set siteRequestEvidence to a verbatim substring copied from the latest user message that requested the website, page, or web app. If the latest user message did not ask for a website, page, or web app, do not emit site_prototype and leave siteRequestEvidence empty. For short follow-ups such as retry requests or bare assistant mentions, infer workKinds from the visible context work they continue. Use an empty array when none apply. Set initialToolNames to the exact tool names copied from Available tools that this request will most likely call first, so they are ready for the first step without a separate request; include only confident picks and leave it empty when unsure or when no tool is needed. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used when it helps interpret whether the latest message continues, revises, asks about, cancels, replaces an active task, or is a bare assistant mention requesting a response to the recent conversation. Do not carry stale subjects, websites, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may either answer directly or use a small useful tool once, including greetings, jokes, playful office banter, capability questions, arithmetic, and short synthetic verification probes that only need an acknowledgement. Do not ignore jokes or casual addressed remarks; answer like a friendly, witty coworker while staying concise. Use bounded_task for one-request tool work, needs_confirmation for large or destructive work, and unsupported for work that cannot be done safely. Set taskComplexity=simple when a bounded task has a clear short outcome and should normally produce only one final user reply even if it needs tools, such as adding one calendar event, adding one flow task, reading one visible attachment, or checking one obvious fact. Set taskComplexity=normal for ordinary bounded work, and taskComplexity=complex for long research, artifact generation, deployment, verification, or work where progress updates are useful. Use clarify when the latest request cannot be routed safely without a user choice. Do not use clarify for a message that only mentions the assistant, such as @김인턴, when recent visible context gives a clear topic; instead answer from context or continue that topic. When route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement instead of writing an emoji in userFacingReply. When route is consume, set reactionEmojiName to one enum value that matches the message. For non-consume routes, set reactionEmojiName to null or omit it. If schedule.create is available, recurring reminders, periodic reports, finite repeated messages, and future follow-ups are supported as bounded scheduled_task creation; do not reject them as background loops. If site.app.* tools are available, website prototype creation and publishing are supported as bounded tool work unless the request is destructive or asks for paid production infrastructure. PriorTaskContext, when present, is a candidate previous task in the same conversation or reply target, not an active task. Set priorTaskReference=outcome_recovery only when the latest message asks to deliver, retry, continue, or revise that prior task's outcome. Set priorTaskReference=none for unrelated or self-contained requests. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats, or priorTaskReference=outcome_recovery and the prior task prompt, result, known contract, or latest message identifies the deliverable format. Set workKinds to every kind that matches the requested work: site_prototype for website or web app prototype creation and publishing, slides_artifact for slide or presentation deliverables, calendar for calendar, event, or schedule-management work, flow_task for adding, listing, updating, completing, or deleting 업무, todo, task, 할 일, or Flow work items, file_delivery when the user explicitly asks for a produced or attached file, destructive_action when the request deletes, removes, or overwrites existing data or published resources, paid_service when it needs paid or production infrastructure such as custom domains or cloud accounts, user_browser when it needs the requester's own logged-in browser session including login, MFA, or captcha handoff, browser_session when it needs interactive browser automation, external_send when the result leaves the current conversation as a direct message, email, or another outbound delivery, and coding when the work is software programming such as writing, debugging, refactoring, or reviewing source code. When emitting site_prototype work kind or a link-type expected result for a website, page, or web app, set siteRequestEvidence to a verbatim substring copied from the latest user message that requested the website, page, or web app. If the latest user message did not ask for a website, page, or web app, do not emit site_prototype and leave siteRequestEvidence empty. For short follow-ups such as retry requests or bare assistant mentions, infer workKinds from the visible context work they continue. Use an empty array when none apply. Set initialToolNames to the exact tool names copied from Available tools that this request will most likely call first, so they are ready for the first step without a separate request; include only confident picks and leave it empty when unsure or when no tool is needed. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -361,16 +361,12 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 
 func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDecision {
 	responseLanguage := ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
-	requestedOutputFormats := deterministicRequestedOutputFormatsForRequest(request)
+	requestedOutputFormats := []string{}
 	priorTaskReference := deterministicPriorTaskReferenceForRequest(request)
 	if priorTaskReference == PriorTaskReferenceOutcomeRecovery {
 		priorTask := normalizePriorTaskContext(request.PriorTask)
 		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, priorTask.RequestedOutputFormats...)
-		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, InferRequestedOutputFormatsFromText(strings.Join(nonEmptyStrings([]string{
-			priorTask.Prompt,
-			priorTask.Result,
-			priorTask.FailureReason,
-		}), "\n"))...)
+		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, artifactFormatsForAttachmentSuffixes(priorTask.OutcomeContract.RequiredAttachmentSuffixes)...)
 	}
 	workKinds := deterministicWorkKindsForRequest(request, requestedOutputFormats, priorTaskReference)
 	return TurnDecision{
@@ -787,93 +783,6 @@ func normalizeRequestedOutputFormats(formats []string) []string {
 	return normalizedFormats
 }
 
-func deterministicRequestedOutputFormatsForRequest(request AgentRequest) []string {
-	return InferRequestedOutputFormatsFromText(outputFormatInferenceTextForRequest(request))
-}
-
-func outputFormatInferenceTextForRequest(request AgentRequest) string {
-	values := []string{
-		request.Prompt,
-		request.ActiveGoal.OriginalInstruction,
-		request.ActiveGoal.CurrentObjective,
-		request.PriorTask.Prompt,
-		request.PriorTask.Result,
-		request.PriorTask.FailureReason,
-	}
-	for _, message := range request.VisibleContext.Messages {
-		values = append(values, message.Text)
-	}
-	return strings.Join(nonEmptyStrings(values), "\n")
-}
-
-func InferRequestedOutputFormatsFromText(text string) []string {
-	normalizedText := strings.ToLower(strings.TrimSpace(text))
-	if normalizedText == "" {
-		return nil
-	}
-	formats := []string{}
-	if outputTextLooksLikeDocx(normalizedText) {
-		formats = appendUniqueStrings(formats, "docx")
-	}
-	if outputTextLooksLikeXlsx(normalizedText) {
-		formats = appendUniqueStrings(formats, "xlsx")
-	}
-	if outputTextLooksLikePptx(normalizedText) {
-		formats = appendUniqueStrings(formats, "pptx")
-	}
-	if outputTextLooksLikePDF(normalizedText) {
-		formats = appendUniqueStrings(formats, "pdf")
-	}
-	if outputTextLooksLikeCSV(normalizedText) {
-		formats = appendUniqueStrings(formats, "csv")
-	}
-	if outputTextLooksLikeHtmlFile(normalizedText) {
-		formats = appendUniqueStrings(formats, "html")
-	}
-	if textHasArtifactOutputIntent(normalizedText) && containsAny(normalizedText, []string{".txt", " txt", "txt ", "텍스트 파일", "text file"}) {
-		formats = appendUniqueStrings(formats, "txt")
-	}
-	return normalizeRequestedOutputFormats(formats)
-}
-
-func outputTextLooksLikeDocx(text string) bool {
-	return textHasArtifactOutputIntent(text) && containsAny(text, []string{
-		"docx로", ".docx로", "docx 파일", "워드 파일로", "워드 문서로", "word file", "word document",
-	})
-}
-
-func outputTextLooksLikeXlsx(text string) bool {
-	return textHasArtifactOutputIntent(text) && containsAny(text, []string{
-		"xlsx로", ".xlsx로", "xlsx 파일", "엑셀 파일로", "엑셀 문서로", "excel file", "spreadsheet file",
-	})
-}
-
-func outputTextLooksLikePptx(text string) bool {
-	return textHasArtifactOutputIntent(text) && containsAny(text, []string{
-		"pptx로", ".pptx로", "pptx 파일", "파워포인트 파일로", "피피티 파일로", "powerpoint file",
-	})
-}
-
-func outputTextLooksLikePDF(text string) bool {
-	return textHasArtifactOutputIntent(text) && containsAny(text, []string{"pdf로", ".pdf로", "pdf 파일", "as pdf", "as a pdf"})
-}
-
-func outputTextLooksLikeCSV(text string) bool {
-	return textHasArtifactOutputIntent(text) && containsAny(text, []string{"csv로", ".csv로", "csv 파일", "as csv"})
-}
-
-func outputTextLooksLikeHtmlFile(text string) bool {
-	return textHasArtifactOutputIntent(text) && (containsAny(text, []string{"html로", ".html로", "html 파일", "html file"}) ||
-		(strings.Contains(text, "html") && containsAny(text, []string{"첨부", "파일로", "file"})))
-}
-
-func textHasArtifactOutputIntent(text string) bool {
-	return containsAny(text, []string{
-		"만들", "생성", "제작", "전달", "보내", "첨부해", "첨부해서", "첨부로", "파일로", "문서로", "보고서로", "형식으로", "확장자로", "출력", "내보내",
-		"create", "make", "generate", "attach", "deliver", "export", "send as", "as a file",
-	})
-}
-
 func deterministicPriorTaskReferenceForRequest(request AgentRequest) PriorTaskReference {
 	if !priorTaskContextHasContent(request.PriorTask) {
 		return PriorTaskReferenceNone
@@ -897,9 +806,6 @@ func latestMessageAsksForPriorOutcomeRecovery(prompt string) bool {
 
 func deterministicWorkKindsForRequest(request AgentRequest, requestedOutputFormats []string, priorTaskReference PriorTaskReference) []string {
 	workKinds := []string{}
-	if len(requestedOutputFormats) > 0 && requestTextLooksLikeFileDelivery(request) {
-		workKinds = appendUniqueStrings(workKinds, WorkKindFileDelivery)
-	}
 	if priorTaskReference == PriorTaskReferenceOutcomeRecovery {
 		workKinds = appendUniqueStrings(workKinds, request.PriorTask.WorkKinds...)
 		if len(requestedOutputFormats) > 0 {
@@ -907,19 +813,6 @@ func deterministicWorkKindsForRequest(request AgentRequest, requestedOutputForma
 		}
 	}
 	return normalizeWorkKinds(workKinds)
-}
-
-func requestTextLooksLikeFileDelivery(request AgentRequest) bool {
-	text := strings.ToLower(strings.Join(nonEmptyStrings([]string{
-		request.Prompt,
-		request.ActiveGoal.OriginalInstruction,
-		request.ActiveGoal.CurrentObjective,
-		request.PriorTask.Prompt,
-	}), "\n"))
-	return containsAny(text, []string{
-		"파일", "첨부", "전달", "문서", "보고서", "가이드", "파일로",
-		"file", "attach", "deliver", "document", "report", "guide",
-	})
 }
 
 func deterministicTaskShape(request AgentRequest, classification IntakeClassification) TaskShape {

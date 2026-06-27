@@ -129,8 +129,21 @@ func averageSkillTokenCount(documents []skillBM25Document) float64 {
 }
 
 func skillSearchText(skillInstruction SkillInstruction) string {
-	if strings.TrimSpace(skillInstruction.Description) != "" {
-		return strings.TrimSpace(skillInstruction.Description)
+	parts := []string{
+		skillInstruction.Description,
+		skillInstruction.WhenToUse,
+		skillInstruction.Category,
+		strings.Join(skillInstruction.Tags, " "),
+		strings.Join(skillInstruction.Activation.Keywords, " "),
+		strings.Join(skillInstruction.Activation.ToolNames, " "),
+		strings.Join(skillInstruction.Activation.ToolPrefixes, " "),
+		strings.Join(skillInstruction.Completion.RequiredEvidenceTools, " "),
+		strings.Join(skillInstruction.Completion.RequiredAttachmentSuffixes, " "),
+		strings.Join(skillInstruction.AllowedTools, " "),
+	}
+	text := strings.Join(nonEmptyStrings(parts), " ")
+	if text != "" {
+		return text
 	}
 	return strings.TrimSpace(skillInstruction.Name)
 }

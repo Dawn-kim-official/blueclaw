@@ -1828,9 +1828,6 @@ func (connectorRuntime *ConnectorRuntime) findPriorTaskContext(personID string, 
 		}
 		taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
 		context := priorTaskContextForTaskRun(taskRun, taskEvents)
-		if !priorTaskContextHasRecoverableOutcome(context) {
-			continue
-		}
 		if isSelected && !taskRun.UpdatedAt.After(selectedTaskRun.UpdatedAt) {
 			continue
 		}
@@ -1881,13 +1878,7 @@ func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEven
 	activeGoal := latestActiveGoal(taskEvents)
 	intakeDecision := latestIntakeDecision(taskEvents)
 	requestedOutputFormats := appendUniqueConnectorStrings([]string{}, intakeDecision.RequestedOutputFormats...)
-	requestedOutputFormats = appendUniqueConnectorStrings(requestedOutputFormats, agent.InferRequestedOutputFormatsFromText(strings.Join([]string{
-		taskRun.Prompt,
-		taskRun.Result,
-		taskRun.FailureReason,
-		activeGoal.OriginalInstruction,
-		activeGoal.CurrentObjective,
-	}, "\n"))...)
+	requestedOutputFormats = appendUniqueConnectorStrings(requestedOutputFormats, outputFormatsFromAttachmentSuffixes(activeGoal.OutcomeContract.RequiredAttachmentSuffixes)...)
 	workKinds := appendUniqueConnectorStrings(activeGoal.WorkKinds, intakeDecision.WorkKinds...)
 	if len(requestedOutputFormats) > 0 {
 		workKinds = appendUniqueConnectorStrings(workKinds, agent.WorkKindFileDelivery)
@@ -1904,6 +1895,18 @@ func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEven
 	}
 }
 
+func outputFormatsFromAttachmentSuffixes(suffixes []string) []string {
+	formats := []string{}
+	for _, suffix := range suffixes {
+		format := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(suffix)), ".")
+		switch format {
+		case "html", "pptx", "pdf", "txt", "docx", "xlsx", "csv":
+			formats = appendUniqueConnectorStrings(formats, format)
+		}
+	}
+	return formats
+}
+
 func latestIntakeDecision(taskEvents []task.TaskEvent) agent.IntakeDecision {
 	for index := len(taskEvents) - 1; index >= 0; index-- {
 		taskEvent := taskEvents[index]
@@ -1917,11 +1920,6 @@ func latestIntakeDecision(taskEvents []task.TaskEvent) agent.IntakeDecision {
 		return decision
 	}
 	return agent.IntakeDecision{}
-}
-
-func priorTaskContextHasRecoverableOutcome(context agent.PriorTaskContext) bool {
-	return agent.OutcomeContractHasRequirements(context.OutcomeContract) ||
-		len(context.RequestedOutputFormats) > 0
 }
 
 func appendUniqueConnectorStrings(values []string, candidates ...string) []string {

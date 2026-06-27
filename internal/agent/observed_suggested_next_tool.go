@@ -28,10 +28,10 @@ func hasPendingObservedSuggestedNextTool(observations []turnObservation) bool {
 func latestObservedSuggestedNextTool(observations []turnObservation) (observedSuggestedNextTool, bool) {
 	for index := len(observations) - 1; index >= 0; index-- {
 		observation := observations[index]
-		if observation.Failed() {
+		toolName := suggestedNextToolFromObservation(observation)
+		if observation.Failed() && toolName == "" {
 			continue
 		}
-		toolName := suggestedNextToolFromObservation(observation)
 		if toolName == "" || suggestedToolWasUsedAfter(observations, index, toolName) {
 			continue
 		}
@@ -46,6 +46,13 @@ func latestObservedSuggestedNextTool(observations []turnObservation) (observedSu
 }
 
 func suggestedNextToolFromObservation(observation turnObservation) string {
+	if observation.RecoveryPacket != nil {
+		for _, toolName := range observation.RecoveryPacket.AllowedTools {
+			if trimmedToolName := strings.TrimSpace(toolName); trimmedToolName != "" {
+				return trimmedToolName
+			}
+		}
+	}
 	document := map[string]any{}
 	if json.Unmarshal([]byte(strings.TrimSpace(observation.ContentText())), &document) != nil {
 		return ""

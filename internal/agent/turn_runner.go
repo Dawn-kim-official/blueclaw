@@ -1249,7 +1249,11 @@ func stalledRecoveryDirectiveObservation(observationID string, failureDebt Failu
 }
 
 func (agentTurnRunner *AgentTurnRunner) shouldPauseForStalledRecovery(taskRunID string, observations []turnObservation) bool {
-	if _, hasFailureDebt := activeFailureDebt(observations); !hasFailureDebt {
+	failureDebt, hasFailureDebt := activeFailureDebt(observations)
+	if !hasFailureDebt {
+		return false
+	}
+	if failureClassForObservation(failureDebt.LatestFailure) != failureClassUserInput {
 		return false
 	}
 	for _, taskEvent := range agentTurnRunner.taskRunService.ListTaskEvent(taskRunID) {
