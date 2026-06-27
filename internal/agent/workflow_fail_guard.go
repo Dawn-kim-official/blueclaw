@@ -19,7 +19,7 @@ func recoverableWorkflowFailResult(request AgentTurnRequest, observations []turn
 
 func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnObservation) []string {
 	if !turnRequestLooksLikeSitePrototypeWork(request) {
-		return nil
+		return recoverableFileDeliveryNextTools(request, observations)
 	}
 	if !sitePublishIsRequired(request) {
 		return nil
@@ -39,6 +39,22 @@ func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnO
 	return nil
 }
 
+func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []turnObservation) []string {
+	if !turnRequestLooksLikeFileDeliveryWork(request) {
+		return nil
+	}
+	if latestSuccessfulToolIndex(observations, []string{"file.attach"}) >= 0 {
+		return nil
+	}
+	if latestSuccessfulToolIndex(observations, []string{"file.promote"}) >= 0 {
+		return availableWorkflowTools(request.ToolSet, []string{"file.attach"})
+	}
+	if latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "file.patch", "terminal.run"}) < 0 {
+		return nil
+	}
+	return availableWorkflowTools(request.ToolSet, []string{"terminal.run", "file.promote", "file.attach"})
+}
+
 func turnRequestLooksLikeSitePrototypeWork(request AgentTurnRequest) bool {
 	return workKindsContain(request.WorkKinds, WorkKindSitePrototype) ||
 		activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.") ||
@@ -51,6 +67,24 @@ func sitePublishIsRequired(request AgentTurnRequest) bool {
 		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, "site.app.publish") ||
 		contractRequiresToolPrefix(request.OutcomeContract, "site.app.") ||
 		expectedResultsIncludeSiteRequirement(request.OutcomeContract.ExpectedResults)
+}
+
+func turnRequestLooksLikeFileDeliveryWork(request AgentTurnRequest) bool {
+	return workKindsContain(request.WorkKinds, WorkKindFileDelivery) ||
+		len(request.RequiredAttachmentSuffixes) > 0 ||
+		len(request.OutcomeContract.RequiredAttachmentSuffixes) > 0 ||
+		requiredEvidenceContains(request.RequiredEvidenceTools, "file.attach") ||
+		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, "file.attach")
+}
+
+func availableWorkflowTools(toolSet *ToolSet, toolNames []string) []string {
+	tools := []string{}
+	for _, toolName := range toolNames {
+		if toolAvailableForAction(toolSet, toolName) {
+			tools = append(tools, toolName)
+		}
+	}
+	return tools
 }
 
 func latestSuccessfulToolIndex(observations []turnObservation, toolNames []string) int {

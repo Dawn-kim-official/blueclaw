@@ -26,3 +26,19 @@ func TestSystemInstructionGuidesBareMentionAndPlayfulReplies(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemInstructionRestrictsCheckpointsAndRequiresRecovery(t *testing.T) {
+	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
+
+	for _, expected := range []string{
+		"Do not use continue.message as a pre-tool repeat-back",
+		"meaningful intermediate progress",
+		"Do not give up after one failed attempt",
+		"checking which stage failed",
+		"delivery is genuinely blocked",
+	} {
+		if !strings.Contains(instruction, expected) {
+			t.Fatalf("expected system instruction to contain %q, got %s", expected, instruction)
+		}
+	}
+}

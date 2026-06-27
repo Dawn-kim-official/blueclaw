@@ -221,7 +221,7 @@ func TestPromptAssemblerIncludesCheckpointMessages(t *testing.T) {
 	if !strings.Contains(body, "checkpointMessages") || !strings.Contains(body, "사이트 스캐폴드를 만들고 있습니다.") {
 		t.Fatalf("expected checkpoint messages in progress context, got %s", body)
 	}
-	if !strings.Contains(body, "repeat-back plan") || !strings.Contains(body, "meaningful state change") {
+	if !strings.Contains(body, "pre-tool repeat-back") || !strings.Contains(body, "meaningful intermediate progress") {
 		t.Fatalf("expected checkpoint policy instruction, got %s", body)
 	}
 }
