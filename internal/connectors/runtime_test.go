@@ -825,6 +825,28 @@ func TestConnectorRuntimeFindsPriorTaskContextForFailedArtifactGoal(t *testing.T
 	}
 }
 
+func TestConnectorRuntimeInfersPriorFileContextFromLegacyTaskPrompt(t *testing.T) {
+	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"}, "기업 문서 가이드를 워드 파일로 만들어줘")
+	if _, errorValue := taskRunService.CompleteTaskRun(taskRun.TaskRunID, "요청하신 작업이 이미 성공적으로 완료되었습니다."); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-deliver-legacy")
+	event.Prompt = "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고."
+
+	priorTaskContext, isFound := connectorRuntime.findPriorTaskContext("person-1", event)
+
+	if !isFound {
+		t.Fatal("expected legacy completed file task to be available as prior context")
+	}
+	if !slices.Contains(priorTaskContext.RequestedOutputFormats, "docx") {
+		t.Fatalf("expected docx format inferred from legacy prompt, got %+v", priorTaskContext)
+	}
+	if !slices.Contains(priorTaskContext.WorkKinds, agent.WorkKindFileDelivery) {
+		t.Fatalf("expected file delivery work kind inferred from legacy prompt, got %+v", priorTaskContext.WorkKinds)
+	}
+}
+
 func TestConnectorRuntimeDoesNotContinueFailedSiteOnlyGoal(t *testing.T) {
 	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "웹사이트 만들어줘")

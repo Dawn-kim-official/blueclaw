@@ -361,15 +361,30 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 
 func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDecision {
 	responseLanguage := ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
+	requestedOutputFormats := deterministicRequestedOutputFormatsForRequest(request)
+	priorTaskReference := deterministicPriorTaskReferenceForRequest(request)
+	if priorTaskReference == PriorTaskReferenceOutcomeRecovery {
+		priorTask := normalizePriorTaskContext(request.PriorTask)
+		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, priorTask.RequestedOutputFormats...)
+		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, InferRequestedOutputFormatsFromText(strings.Join(nonEmptyStrings([]string{
+			priorTask.Prompt,
+			priorTask.Result,
+			priorTask.FailureReason,
+		}), "\n"))...)
+	}
+	workKinds := deterministicWorkKindsForRequest(request, requestedOutputFormats, priorTaskReference)
 	return TurnDecision{
 		Route:                     deterministicTurnRoute(request),
 		Classification:            IntakeClassificationBoundedTask,
 		TaskShape:                 deterministicTaskShape(request, IntakeClassificationBoundedTask),
 		TaskComplexity:            TaskComplexityNormal,
 		EffortLevel:               LargerEffortLevel(turnRouter.options.DefaultEffortLevel, minimumEffortLevelForRequest(request)),
+		RequestedOutputFormats:    requestedOutputFormats,
 		Reason:                    "intake language model unavailable; treating request as bounded work",
 		ResponseLanguage:          responseLanguage,
-		PriorTaskReference:        PriorTaskReferenceNone,
+		WorkKinds:                 workKinds,
+		InitialToolNames:          deterministicInitialToolNamesForRequest(request, workKinds),
+		PriorTaskReference:        priorTaskReference,
 		UsedDeterministicFallback: true,
 	}
 }
@@ -772,6 +787,141 @@ func normalizeRequestedOutputFormats(formats []string) []string {
 	return normalizedFormats
 }
 
+func deterministicRequestedOutputFormatsForRequest(request AgentRequest) []string {
+	return InferRequestedOutputFormatsFromText(outputFormatInferenceTextForRequest(request))
+}
+
+func outputFormatInferenceTextForRequest(request AgentRequest) string {
+	values := []string{
+		request.Prompt,
+		request.ActiveGoal.OriginalInstruction,
+		request.ActiveGoal.CurrentObjective,
+		request.PriorTask.Prompt,
+		request.PriorTask.Result,
+		request.PriorTask.FailureReason,
+	}
+	for _, message := range request.VisibleContext.Messages {
+		values = append(values, message.Text)
+	}
+	return strings.Join(nonEmptyStrings(values), "\n")
+}
+
+func InferRequestedOutputFormatsFromText(text string) []string {
+	normalizedText := strings.ToLower(strings.TrimSpace(text))
+	if normalizedText == "" {
+		return nil
+	}
+	formats := []string{}
+	if outputTextLooksLikeDocx(normalizedText) {
+		formats = appendUniqueStrings(formats, "docx")
+	}
+	if outputTextLooksLikeXlsx(normalizedText) {
+		formats = appendUniqueStrings(formats, "xlsx")
+	}
+	if outputTextLooksLikePptx(normalizedText) {
+		formats = appendUniqueStrings(formats, "pptx")
+	}
+	if outputTextLooksLikePDF(normalizedText) {
+		formats = appendUniqueStrings(formats, "pdf")
+	}
+	if outputTextLooksLikeCSV(normalizedText) {
+		formats = appendUniqueStrings(formats, "csv")
+	}
+	if outputTextLooksLikeHtmlFile(normalizedText) {
+		formats = appendUniqueStrings(formats, "html")
+	}
+	if textHasArtifactOutputIntent(normalizedText) && containsAny(normalizedText, []string{".txt", " txt", "txt ", "텍스트 파일", "text file"}) {
+		formats = appendUniqueStrings(formats, "txt")
+	}
+	return normalizeRequestedOutputFormats(formats)
+}
+
+func outputTextLooksLikeDocx(text string) bool {
+	return textHasArtifactOutputIntent(text) && containsAny(text, []string{
+		"docx로", ".docx로", "docx 파일", "워드 파일로", "워드 문서로", "word file", "word document",
+	})
+}
+
+func outputTextLooksLikeXlsx(text string) bool {
+	return textHasArtifactOutputIntent(text) && containsAny(text, []string{
+		"xlsx로", ".xlsx로", "xlsx 파일", "엑셀 파일로", "엑셀 문서로", "excel file", "spreadsheet file",
+	})
+}
+
+func outputTextLooksLikePptx(text string) bool {
+	return textHasArtifactOutputIntent(text) && containsAny(text, []string{
+		"pptx로", ".pptx로", "pptx 파일", "파워포인트 파일로", "피피티 파일로", "powerpoint file",
+	})
+}
+
+func outputTextLooksLikePDF(text string) bool {
+	return textHasArtifactOutputIntent(text) && containsAny(text, []string{"pdf로", ".pdf로", "pdf 파일", "as pdf", "as a pdf"})
+}
+
+func outputTextLooksLikeCSV(text string) bool {
+	return textHasArtifactOutputIntent(text) && containsAny(text, []string{"csv로", ".csv로", "csv 파일", "as csv"})
+}
+
+func outputTextLooksLikeHtmlFile(text string) bool {
+	return textHasArtifactOutputIntent(text) && (containsAny(text, []string{"html로", ".html로", "html 파일", "html file"}) ||
+		(strings.Contains(text, "html") && containsAny(text, []string{"첨부", "파일로", "file"})))
+}
+
+func textHasArtifactOutputIntent(text string) bool {
+	return containsAny(text, []string{
+		"만들", "생성", "제작", "전달", "보내", "첨부해", "첨부해서", "첨부로", "파일로", "문서로", "보고서로", "형식으로", "확장자로", "출력", "내보내",
+		"create", "make", "generate", "attach", "deliver", "export", "send as", "as a file",
+	})
+}
+
+func deterministicPriorTaskReferenceForRequest(request AgentRequest) PriorTaskReference {
+	if !priorTaskContextHasContent(request.PriorTask) {
+		return PriorTaskReferenceNone
+	}
+	if latestMessageAsksForPriorOutcomeRecovery(request.Prompt) {
+		return PriorTaskReferenceOutcomeRecovery
+	}
+	return PriorTaskReferenceNone
+}
+
+func latestMessageAsksForPriorOutcomeRecovery(prompt string) bool {
+	text := strings.ToLower(strings.TrimSpace(prompt))
+	if text == "" {
+		return false
+	}
+	return containsAny(text, []string{
+		"전달", "첨부", "다시", "재시도", "이어", "계속", "수정", "고쳐", "개선", "더 예쁘", "더 낫",
+		"deliver", "attach", "retry", "again", "continue", "revise", "update", "improve",
+	})
+}
+
+func deterministicWorkKindsForRequest(request AgentRequest, requestedOutputFormats []string, priorTaskReference PriorTaskReference) []string {
+	workKinds := []string{}
+	if len(requestedOutputFormats) > 0 && requestTextLooksLikeFileDelivery(request) {
+		workKinds = appendUniqueStrings(workKinds, WorkKindFileDelivery)
+	}
+	if priorTaskReference == PriorTaskReferenceOutcomeRecovery {
+		workKinds = appendUniqueStrings(workKinds, request.PriorTask.WorkKinds...)
+		if len(requestedOutputFormats) > 0 {
+			workKinds = appendUniqueStrings(workKinds, WorkKindFileDelivery)
+		}
+	}
+	return normalizeWorkKinds(workKinds)
+}
+
+func requestTextLooksLikeFileDelivery(request AgentRequest) bool {
+	text := strings.ToLower(strings.Join(nonEmptyStrings([]string{
+		request.Prompt,
+		request.ActiveGoal.OriginalInstruction,
+		request.ActiveGoal.CurrentObjective,
+		request.PriorTask.Prompt,
+	}), "\n"))
+	return containsAny(text, []string{
+		"파일", "첨부", "전달", "문서", "보고서", "가이드", "파일로",
+		"file", "attach", "deliver", "document", "report", "guide",
+	})
+}
+
 func deterministicTaskShape(request AgentRequest, classification IntakeClassification) TaskShape {
 	if classification == IntakeClassificationQuickReply {
 		return TaskShapeImmediateReply
@@ -783,7 +933,11 @@ func deterministicTaskShape(request AgentRequest, classification IntakeClassific
 }
 
 func deterministicInitialToolNamesForRequest(request AgentRequest, workKinds []string) []string {
-	return workflowToolNamesForWorkKinds(request.ToolSet, workKinds)
+	toolNames := workflowToolNamesForWorkKinds(request.ToolSet, workKinds)
+	if workKindsContain(workKinds, WorkKindFileDelivery) {
+		toolNames = appendUniqueStrings(toolNames, "conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach")
+	}
+	return registeredToolNamesOnly(request.ToolSet, toolNames)
 }
 
 func normalizeTaskShape(taskShape TaskShape) TaskShape {

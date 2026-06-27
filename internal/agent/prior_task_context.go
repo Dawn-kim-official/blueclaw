@@ -50,10 +50,15 @@ func applyPriorTaskOutcomeRecovery(request AgentRequest, decision IntakeDecision
 		decision.PriorTaskReference = PriorTaskReferenceNone
 		return request, decision
 	}
+	priorTask.RequestedOutputFormats = normalizeRequestedOutputFormats(appendUniqueStrings(priorTask.RequestedOutputFormats, decision.RequestedOutputFormats...))
+	priorTask.WorkKinds = normalizeWorkKinds(appendUniqueStrings(priorTask.WorkKinds, decision.WorkKinds...))
 	contract := outcomeContractFromPriorTask(priorTask)
 	if !OutcomeContractHasRequirements(contract) {
 		decision.PriorTaskReference = PriorTaskReferenceNone
 		return request, decision
+	}
+	if len(priorTask.RequestedOutputFormats) > 0 {
+		priorTask.WorkKinds = appendUniqueStrings(priorTask.WorkKinds, WorkKindFileDelivery)
 	}
 	request.ActiveGoal = ActiveGoal{
 		OriginalInstruction: firstNonEmptyString(priorTask.Prompt, request.Prompt),

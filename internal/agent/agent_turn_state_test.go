@@ -157,6 +157,16 @@ func TestParseAgentActionResponseUsesReplyPartsForFinishMessage(t *testing.T) {
 	}
 }
 
+func TestParseAgentActionResponseNormalizesUntypedFinishReplyParts(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"직접 전달합니다.","replyParts":[{"type":"","text":"대기 중 입니다. 차후 첨부로 전달해드리겠습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[]}`})
+	if errorValue != nil {
+		t.Fatalf("expected parsed action: %v", errorValue)
+	}
+	if finishActionMessage(action) != "대기 중 입니다. 차후 첨부로 전달해드리겠습니다." {
+		t.Fatalf("expected untyped replyParts text to stay visible, got %+v", action)
+	}
+}
+
 func TestParseAgentActionResponseNormalizesNestedFinishBlock(t *testing.T) {
 	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"executionStateUpdate":{"goal":"answer user"},"finish":{"message":"done","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"complete","passed":true,"evidenceIDs":["obs-001"]}]}}`})
 	if errorValue != nil {

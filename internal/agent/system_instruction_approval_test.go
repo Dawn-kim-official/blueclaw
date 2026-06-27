@@ -33,6 +33,7 @@ func TestSystemInstructionRestrictsCheckpointsAndRequiresRecovery(t *testing.T) 
 	for _, expected := range []string{
 		"Do not use continue.message as a pre-tool repeat-back",
 		"meaningful intermediate progress",
+		"finish is the permanent final messenger reply",
 		"Do not give up after one failed attempt",
 		"checking which stage failed",
 		"delivery is genuinely blocked",

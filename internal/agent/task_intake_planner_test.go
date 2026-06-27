@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -105,6 +106,50 @@ func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 	}
 	if !strings.Contains(messageContent, "not permission to finish from old text") {
 		t.Fatalf("expected prior task context to forbid stale finish reuse, got %s", messageContent)
+	}
+}
+
+func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
+	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
+		ToolSet: toolRegistry,
+		PriorTask: PriorTaskContext{
+			TaskRunID: "88894f",
+			Status:    string(task.TaskStatusCompleted),
+			Prompt:    "기업 문서 가이드를 워드 파일로 만들어줘",
+			Result:    "요청하신 작업이 이미 성공적으로 완료되었습니다.",
+		},
+	})
+
+	if decision.PriorTaskReference != PriorTaskReferenceOutcomeRecovery {
+		t.Fatalf("expected deterministic fallback to recover prior outcome, got %+v", decision)
+	}
+	if strings.Join(decision.RequestedOutputFormats, ",") != "docx" {
+		t.Fatalf("expected docx output format, got %+v", decision.RequestedOutputFormats)
+	}
+	if !decision.HasWorkKind(WorkKindFileDelivery) {
+		t.Fatalf("expected file delivery work kind, got %+v", decision.WorkKinds)
+	}
+	if !slices.Contains(decision.InitialToolNames, "file.attach") {
+		t.Fatalf("expected file.attach to be prepared, got %+v", decision.InitialToolNames)
+	}
+}
+
+func TestTaskIntakePlannerFallbackDoesNotTreatInputAttachmentExtensionAsOutput(t *testing.T) {
+	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt: "첨부한 report.pdf 요약 작성해줘",
+	})
+
+	if len(decision.RequestedOutputFormats) != 0 {
+		t.Fatalf("expected no output format for input attachment work, got %+v", decision.RequestedOutputFormats)
+	}
+	if decision.HasWorkKind(WorkKindFileDelivery) {
+		t.Fatalf("expected no file delivery work kind for input attachment work, got %+v", decision.WorkKinds)
 	}
 }
 
@@ -814,6 +859,56 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 	}
 	if !strings.Contains(joinedMessageContent(replyLanguageModel.requests[0].Messages), "Prior task context") {
 		t.Fatal("expected task model context to include prior task context")
+	}
+}
+
+func TestAgentKernelFallbackRecoversLegacyPriorDocxAttachmentContract(t *testing.T) {
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
+		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.attach", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, nil)
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/private/people/person-1/artifacts/company-guide/company-guide.docx",
+				Filename:   "company-guide.docx",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "direct-1",
+		Prompt:            "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
+		ToolSet:           toolRegistry,
+		PriorTask: PriorTaskContext{
+			TaskRunID: "88894f",
+			Status:    string(task.TaskStatusCompleted),
+			Prompt:    "기업 문서 가이드를 워드 파일로 만들어줘",
+			Result:    "요청하신 작업이 이미 성공적으로 완료되었습니다.",
+		},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected fallback prior task attachment recovery to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+		t.Fatalf("expected completed recovery task, got %s events=%+v", result.TaskRun.Status, events)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "company-guide.docx" {
+		t.Fatalf("expected current task docx attachment, got %+v", result.Attachments)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "agent.completion_required", "required file expected result") {
+		t.Fatal("expected text-only finish to be rejected by fallback-restored file contract")
+	}
+	if !taskEventsContain(events, "agent.intake", `"usedDeterministicFallback":true`) {
+		t.Fatal("expected deterministic fallback intake event")
 	}
 }
 

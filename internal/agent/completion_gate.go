@@ -394,7 +394,7 @@ func finishHasUnresolvedRemainingWork(remainingWork string) bool {
 	if normalizedText == "" {
 		return false
 	}
-	for _, completedValue := range []string{"none", "no", "n/a", "na", "없음", "없습니다", "완료", "완료됨"} {
+	for _, completedValue := range []string{"0", "zero", "none", "no", "n/a", "na", "없음", "없습니다", "완료", "완료됨"} {
 		if normalizedText == completedValue {
 			return false
 		}
