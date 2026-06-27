@@ -945,6 +945,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) siteWorkspaceHealth(toolContext co
 	}
 	buildStatus := siteBuildStatus(resolvedSourcePath.ConcretePath)
 	sourceManifest := siteSourceManifest(resolvedSourcePath.ConcretePath, resolvedSourcePath.VirtualPath)
+	if !siteSourceManifestIsComplete(sourceManifest) {
+		return map[string]any{"status": "missing_source", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": "site.app.repair"}
+	}
 	if buildStatus != "fresh" {
 		return map[string]any{"status": "stale_build", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": "site.app.build"}
 	}
@@ -969,6 +972,15 @@ func siteSourceManifest(sourceWorkspaceConcretePath string, sourceWorkspaceVirtu
 		})
 	}
 	return entries
+}
+
+func siteSourceManifestIsComplete(entries []siteSourceManifestEntry) bool {
+	for _, entry := range entries {
+		if !entry.Optional && !entry.Present {
+			return false
+		}
+	}
+	return true
 }
 
 type siteSourceManifestFile struct {

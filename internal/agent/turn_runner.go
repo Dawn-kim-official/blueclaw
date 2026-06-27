@@ -373,6 +373,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		if agentTurnRunner.continueStalledRecoveryIfAllowed(taskRun.TaskRunID, &state, &progressTracker, recoveryAllowance) {
 			return AgentTurnResult{}, false
 		}
+		if agentTurnRunner.steerStalledTurnTowardNextTool(taskRun.TaskRunID, &state, &progressTracker) {
+			return AgentTurnResult{}, false
+		}
 		if agentTurnRunner.steerStalledTurnTowardExit(taskRun.TaskRunID, &state, &progressTracker) {
 			return AgentTurnResult{}, false
 		}
@@ -397,6 +400,9 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			return result, true
 		}
 		if agentTurnRunner.continueStalledRecoveryIfAllowed(taskRun.TaskRunID, &state, &progressTracker, recoveryAllowance) {
+			return AgentTurnResult{}, false
+		}
+		if agentTurnRunner.steerStalledTurnTowardNextTool(taskRun.TaskRunID, &state, &progressTracker) {
 			return AgentTurnResult{}, false
 		}
 		if agentTurnRunner.steerStalledTurnTowardExit(taskRun.TaskRunID, &state, &progressTracker) {
@@ -684,6 +690,10 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return toolCallActionOutcome{Result: pausedResult, ShouldReturn: true, WasHandled: true}
 	}
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "continue "+actionDocument.ToolName, observation.ContentText())
+	if !observation.Failed() && isInspectionProgressTool(observation.Tool) && hasPendingObservedSuggestedNextTool(state.Observations) {
+		result, shouldStop := stopForNoProgress(stepID)
+		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	}
 	return toolCallActionOutcome{WasHandled: true}
 }
 
@@ -1006,6 +1016,7 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 func requestWithStepWorkingSetTools(request AgentTurnRequest, observations []turnObservation) AgentTurnRequest {
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, pendingFileDeliveryToolNames(request, observations)...)
 	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, workflowToolNamesForTurnRequest(request)...)
+	request.PinnedToolNames = appendUniqueStrings(request.PinnedToolNames, observedSuggestedNextToolNames(observations)...)
 	return request
 }
 
@@ -1162,6 +1173,24 @@ func (agentTurnRunner *AgentTurnRunner) continueStalledRecoveryIfAllowed(taskRun
 	return true
 }
 
+func (agentTurnRunner *AgentTurnRunner) steerStalledTurnTowardNextTool(taskRunID string, state *agentTaskState, tracker *actionProgressTracker) bool {
+	if tracker.stallRecoveryDirectiveCount >= maxStallRecoveryDirectivesPerEpisode {
+		return false
+	}
+	suggestion, isFound := latestObservedSuggestedNextTool(state.Observations)
+	if !isFound {
+		return false
+	}
+	if state.Request.ToolSet != nil && !state.Request.ToolSet.IsAllowed(suggestion.ToolName) {
+		return false
+	}
+	directive := suggestedNextToolDirectiveObservation(nextObservationID(len(state.Observations)+1), suggestion)
+	state.Observations = append(state.Observations, directive)
+	agentTurnRunner.appendEvent(taskRunID, "agent.suggested_next_tool_directive", marshalEventBody(directive))
+	tracker.noteStallRecoveryDirective(state.Observations)
+	return true
+}
+
 func (agentTurnRunner *AgentTurnRunner) steerStalledTurnTowardExit(taskRunID string, state *agentTaskState, tracker *actionProgressTracker) bool {
 	if tracker.stallRecoveryDirectiveCount >= maxStallRecoveryDirectivesPerEpisode {
 		return false
@@ -1171,6 +1200,18 @@ func (agentTurnRunner *AgentTurnRunner) steerStalledTurnTowardExit(taskRunID str
 	agentTurnRunner.appendEvent(taskRunID, "agent.stall_exit_directive", marshalEventBody(directive))
 	tracker.noteStallRecoveryDirective(state.Observations)
 	return true
+}
+
+func suggestedNextToolDirectiveObservation(observationID string, suggestion observedSuggestedNextTool) turnObservation {
+	message := suggestion.Reason + " Call " + suggestion.ToolName + " now before repeating inspection, asking the user, or finishing."
+	observation := newContentObservation(observationID, "policy", "", marshalEventBody(map[string]string{
+		"directive":           message,
+		"suggestedTool":       suggestion.ToolName,
+		"sourceTool":          suggestion.SourceTool,
+		"sourceObservationID": suggestion.ObservationID,
+	}))
+	observation.Summary = message
+	return observation
 }
 
 func stalledExitDirectiveObservation(observationID string, observations []turnObservation) turnObservation {

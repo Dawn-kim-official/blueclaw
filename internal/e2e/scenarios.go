@@ -1031,6 +1031,53 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 	}
 }
 
+func SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "site_suggested_repair_recovery",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		RouterWorkKinds:       []string{agent.WorkKindSitePrototype},
+		RouterSiteEvidence:    "Improve and redeploy an existing site",
+		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
+		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
+		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
+		InitialToolNames:      []string{"site.app.status", "file.write", "terminal.run", "site.app.build", "site.app.publish"},
+		Turns: []VirtualTurn{{
+			Prompt: "더 예쁘게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
+			ActionResponses: []string{
+				actionCallTool("site.app.status", `{"siteID":"site-1"}`),
+				actionFinishMessage("사이트 수정이 어렵습니다."),
+				actionCallTool("site.app.status", `{"siteID":"site-1"}`),
+				actionCallTool("site.app.repair", `{"siteID":"site-1"}`),
+				actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main><h1>Polished Citrus Studio</h1><p>Fresh, warm, and carefully crafted.</p></main>;\n}\n"}`),
+				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main><h1>Polished Citrus Studio</h1><p>Fresh, warm, and carefully crafted.</p></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
+				actionCallTool("site.app.build", `{"siteID":"site-1"}`),
+				actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Improve visual quality"}`),
+				actionFinishMessage("사이트를 더 예쁘게 다듬고 다시 배포했습니다: https://demo.device.intern.kim", "obs-009:site.app.publish:0"),
+			},
+			ExpectedSelectedSkills: []string{"site-prototype"},
+			ExpectedToolCalls:      []string{"site.app.status", "site.app.repair", "file.write", "terminal.run", "site.app.build", "site.app.publish"},
+			ExpectedToolCallCounts: map[string]int{
+				"site.app.status":  2,
+				"site.app.repair":  1,
+				"file.write":       1,
+				"terminal.run":     1,
+				"site.app.build":   1,
+				"site.app.publish": 1,
+			},
+			ExpectedEvents:         []string{"agent.suggested_next_tool_directive", "agent.completion_required"},
+			ExpectedModelContexts:  []string{"site.app.repair", "/workspace/circles/staff/sites/demo/draft"},
+			ForbiddenModelContexts: []string{"home/sites/site-1"},
+			ExpectedReplyFragments: []string{"https://demo.device.intern.kim"},
+			ForbiddenReplyFragments: []string{
+				"권한",
+				"제약",
+				"어렵",
+				"완료하지 못",
+			},
+		}},
+	}
+}
+
 func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
 		Name:                  "ask_choice_reply_acceptance",
@@ -1199,6 +1246,7 @@ func sitePrototypeToolNames() []string {
 		"file.edit",
 		"file.patch",
 		"site.app.create",
+		"site.app.repair",
 		"site.app.build",
 		"site.app.publish",
 		"site.app.status",

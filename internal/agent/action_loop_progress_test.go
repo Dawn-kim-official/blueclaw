@@ -123,6 +123,19 @@ func TestSelectToolsCountsAsProgressAfterSuccessfulToolCall(t *testing.T) {
 	}
 }
 
+func TestInspectionToolSuccessDoesNotCountAsLoopProgress(t *testing.T) {
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          "site.app.status",
+		Output:        ToolOutput{Content: `{"workspaceHealth":"missing_source"}`},
+	}}
+
+	if progressEventCount(observations) != 0 {
+		t.Fatalf("expected inspection tool to not count as loop progress, got %+v", progressEvents(observations))
+	}
+}
+
 func TestEvaluateRecoveryAllowanceReportsRemainingBudget(t *testing.T) {
 	failedObservation := terminalFailureObservation("obs-001", "tmp/deck", "bun run build", "missing package.json")
 	allowance := evaluateRecoveryAllowance([]turnObservation{failedObservation}, defaultRecoveryBudget())

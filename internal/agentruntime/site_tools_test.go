@@ -520,7 +520,10 @@ bun run build
 func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "DESIGN.md"), "Design\n")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "prototype-data.ts"), "export const data = {}\n")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "index.css"), "body { margin: 0; }\n")
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"home/sites/site-1","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
@@ -648,10 +651,52 @@ func TestSiteStatusPrefersCanonicalWorkspaceWhenLegacySourceExists(t *testing.T)
 	}
 }
 
+func TestSiteStatusReportsMissingSourceBeforeBuild(t *testing.T) {
+	workspacePath := t.TempDir()
+	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "pretty-gyul", "draft")
+	if errorValue := os.MkdirAll(filepath.Join(sourceWorkspacePath, "app", "dist"), 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<!doctype html><html></html>")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{"status":"fresh"}`)
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"8f1d2701bdefcf2ea917ab49","slug":"pretty-gyul","title":"예쁜 귤","publishedURL":"https://pretty-gyul.device.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft","appWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft/app","status":"published"}}`}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "site.app.status",
+		PolicyResource: "tool:site.app.status",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "site.app.status",
+		Input:    agent.MarshalToolInput(map[string]string{"siteID": "8f1d2701bdefcf2ea917ab49"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !strings.Contains(result.ContentText(), `"workspaceHealth":"missing_source"`) ||
+		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.repair"`) ||
+		strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.build"`) {
+		t.Fatalf("expected missing source to require repair before build, got %s", result.ContentText())
+	}
+}
+
 func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
 	workspacePath := t.TempDir()
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "site-1", "draft")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "DESIGN.md"), "Design\n")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "App.tsx"), "export default function App() { return null }\n")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "prototype-data.ts"), "export const data = {}\n")
+	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "index.css"), "body { margin: 0; }\n")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<!doctype html><html></html>")
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{"status":"fresh"}`)
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"status":"ok","sites":[{"siteID":"site-1","slug":"demo","title":"Demo","status":"published","publishedURL":"https://demo.device.intern.kim","liveHTTPStatus":200,"updatedAt":"2026-06-12T00:00:00Z"},{"siteID":"site-2","slug":"draft","title":"Draft","status":"draft","publishedURL":"https://draft.device.intern.kim","updatedAt":"2026-06-12T00:00:00Z"}]}}`}
