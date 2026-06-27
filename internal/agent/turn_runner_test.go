@@ -1141,6 +1141,58 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/draft/app/src/App.tsx","content":"export default function App(){return <main>Pretty</main>}"}}`,
+			`{"action":"fail","reason":"cannot continue","goalStatus":"blocked","goalSatisfied":false,"remainingWork":"build and publish still needed"}`,
+			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+			`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1"}}`,
+			finishMessageWithEvidence("배포했습니다: https://pretty.example", "obs-004", "site.app.publish", 0),
+		},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 8})
+	toolRegistry := newTestToolSet([]string{"file.write", "site.app.build", "site.app.publish"})
+	toolCalls := []string{}
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "file.write")
+		return ToolSuccess(`{"path":"/workspace/sites/site-1/draft/app/src/App.tsx"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.build")
+		return ToolSuccess(`{"siteID":"site-1","distPath":"/workspace/sites/site-1/draft/app/dist"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.app.publish")
+		return ToolSuccess(`{"siteID":"site-1","publishedURL":"https://pretty.example"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "사이트 더 예쁘게 수정하고 배포해줘",
+		WorkKinds:             []string{WorkKindSitePrototype},
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       toolRegistry.ListToolNames(),
+		RequiredEvidenceTools: []string{"site.app.publish"},
+		OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"site.app.publish"},
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected recoverable fail to continue: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if strings.Join(toolCalls, ",") != "file.write,site.app.build,site.app.publish" {
+		t.Fatalf("expected write then build/publish, got %+v", toolCalls)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recoverable_fail_rejected", "site.app.build") {
+		t.Fatal("expected recoverable fail rejection to suggest build")
+	}
+}
+
 func TestSiteRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt: "메일, 일정, 브라우저 제어 역량을 소개하는 홈페이지를 만들어서 배포해줘",

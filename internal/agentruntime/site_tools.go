@@ -1415,7 +1415,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(
 	if len(candidates) == 0 {
 		return ResolvedWorkspacePath{}, errors.New("site sourceWorkspacePath could not be resolved")
 	}
-	creatablePaths := []ResolvedWorkspacePath{}
+	resolvedCandidates := []resolvedSiteWorkspaceCandidate{}
 	var lastError error
 	for _, candidate := range candidates {
 		resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).ResolveDirectory(candidate, scope)
@@ -1429,7 +1429,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(
 		}
 		sourceStat, errorValue := workspaceActor.Stat(toolContext, workspacepath.Path(resolvedPath))
 		if errorValue == nil && sourceStat.IsDirectory {
-			return resolvedPath, nil
+			resolvedCandidates = append(resolvedCandidates, resolvedSiteWorkspaceCandidate{Path: resolvedPath, Exists: true})
+			continue
 		}
 		if errorValue == nil {
 			lastError = errors.New("site source workspace path is not a directory: " + resolvedPath.VirtualPath)
@@ -1439,10 +1440,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(
 			lastError = errorValue
 			continue
 		}
-		creatablePaths = append(creatablePaths, resolvedPath)
+		resolvedCandidates = append(resolvedCandidates, resolvedSiteWorkspaceCandidate{Path: resolvedPath})
 	}
-	if creatablePath, isFound := preferredCreatableSiteWorkspacePath(creatablePaths, input.SourceWorkspacePath, input.SiteID, input.Slug); isFound {
-		return creatablePath, nil
+	if resolvedPath, isFound := preferredSiteWorkspacePath(resolvedCandidates, input.SourceWorkspacePath, input.SiteID, input.Slug); isFound {
+		return resolvedPath, nil
 	}
 	if lastError != nil {
 		return ResolvedWorkspacePath{}, lastError
@@ -1450,13 +1451,18 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveSiteProjectSourceWorkspace(
 	return ResolvedWorkspacePath{}, errors.New("site sourceWorkspacePath could not be resolved")
 }
 
-func preferredCreatableSiteWorkspacePath(paths []ResolvedWorkspacePath, sourceWorkspacePath string, siteID string, slug string) (ResolvedWorkspacePath, bool) {
-	if len(paths) == 0 {
+type resolvedSiteWorkspaceCandidate struct {
+	Path   ResolvedWorkspacePath
+	Exists bool
+}
+
+func preferredSiteWorkspacePath(candidates []resolvedSiteWorkspaceCandidate, sourceWorkspacePath string, siteID string, slug string) (ResolvedWorkspacePath, bool) {
+	if len(candidates) == 0 {
 		return ResolvedWorkspacePath{}, false
 	}
 	requestedPath := siteSourceDraftPathCandidate(sourceWorkspacePath)
 	if requestedPath != "" && !isLegacySiteSourceWorkspacePath(requestedPath, siteID, slug) {
-		if path, isFound := findResolvedWorkspacePath(paths, requestedPath); isFound {
+		if path, isFound := findSiteWorkspaceCandidate(candidates, requestedPath, true); isFound {
 			return path, true
 		}
 	}
@@ -1464,21 +1470,47 @@ func preferredCreatableSiteWorkspacePath(paths []ResolvedWorkspacePath, sourceWo
 		canonicalSiteSourceWorkspacePath(siteID, slug),
 		canonicalSiteSourceStorageWorkspacePath(siteID),
 	} {
-		if path, isFound := findResolvedWorkspacePath(paths, preferredPath); isFound {
+		if path, isFound := findSiteWorkspaceCandidate(candidates, preferredPath, true); isFound {
 			return path, true
 		}
 	}
-	return paths[0], true
+	for _, candidate := range candidates {
+		if candidate.Exists && !isLegacySiteSourceWorkspacePath(candidate.Path.VirtualPath, siteID, slug) {
+			return candidate.Path, true
+		}
+	}
+	if requestedPath != "" && !isLegacySiteSourceWorkspacePath(requestedPath, siteID, slug) {
+		if path, isFound := findSiteWorkspaceCandidate(candidates, requestedPath, false); isFound {
+			return path, true
+		}
+	}
+	for _, preferredPath := range []string{
+		canonicalSiteSourceWorkspacePath(siteID, slug),
+		canonicalSiteSourceStorageWorkspacePath(siteID),
+	} {
+		if path, isFound := findSiteWorkspaceCandidate(candidates, preferredPath, false); isFound {
+			return path, true
+		}
+	}
+	for _, candidate := range candidates {
+		if candidate.Exists {
+			return candidate.Path, true
+		}
+	}
+	return candidates[0].Path, true
 }
 
-func findResolvedWorkspacePath(paths []ResolvedWorkspacePath, virtualPath string) (ResolvedWorkspacePath, bool) {
+func findSiteWorkspaceCandidate(candidates []resolvedSiteWorkspaceCandidate, virtualPath string, requireExisting bool) (ResolvedWorkspacePath, bool) {
 	normalizedVirtualPath := strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(virtualPath)), "/")
 	if normalizedVirtualPath == "" {
 		return ResolvedWorkspacePath{}, false
 	}
-	for _, path := range paths {
-		if strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(path.VirtualPath)), "/") == normalizedVirtualPath {
-			return path, true
+	for _, candidate := range candidates {
+		if requireExisting && !candidate.Exists {
+			continue
+		}
+		if strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(candidate.Path.VirtualPath)), "/") == normalizedVirtualPath {
+			return candidate.Path, true
 		}
 	}
 	return ResolvedWorkspacePath{}, false
