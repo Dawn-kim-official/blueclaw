@@ -56,6 +56,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requestedOutputFormats"`) {
 		t.Fatalf("expected requested output formats in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"priorTaskReference"`) {
+		t.Fatalf("expected prior task reference in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, WorkKindFlowTask) {
 		t.Fatalf("expected flow task work kind in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
@@ -70,6 +73,38 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Do not ignore jokes") {
 		t.Fatal("expected intake prompt to guide playful addressed remarks")
+	}
+}
+
+func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["docx"],"reason":"deliver prior file","userFacingReply":"","priorTaskReference":"outcome_recovery"}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt: "전달해줘야지 그럼",
+		PriorTask: PriorTaskContext{
+			TaskRunID:              "88894f",
+			Prompt:                 "기업 문서 가이드를 워드 파일로 만들어줘",
+			RequestedOutputFormats: []string{"docx"},
+			OutcomeContract: OutcomeContract{
+				RequiredEvidenceTools:      []string{"file.attach"},
+				RequiredAttachmentSuffixes: []string{".docx"},
+				ArtifactRequirement:        ArtifactRequirementRequired,
+			},
+		},
+	})
+
+	if decision.PriorTaskReference != PriorTaskReferenceOutcomeRecovery {
+		t.Fatalf("expected prior task outcome recovery, got %+v", decision)
+	}
+	messageContent := joinedMessageContent(languageModel.requests[0].Messages)
+	if !strings.Contains(messageContent, "Prior task context") || !strings.Contains(messageContent, "88894f") {
+		t.Fatalf("expected prior task context in router messages, got %s", messageContent)
+	}
+	if !strings.Contains(messageContent, "not permission to finish from old text") {
+		t.Fatalf("expected prior task context to forbid stale finish reuse, got %s", messageContent)
 	}
 }
 
@@ -695,6 +730,74 @@ func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testi
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "artifact retry recovery route") {
 		t.Fatal("expected intake retry promotion event")
+	}
+}
+
+func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message asks to deliver prior file outcome","userFacingReply":"","workKinds":[],"initialToolNames":[],"priorTaskReference":"outcome_recovery"}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
+		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.attach", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	toolRegistry := newTestToolSet([]string{"file.attach"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath: "/workspace/private/people/person-1/artifacts/company-guide/company-guide.docx",
+				Filename:   "company-guide.docx",
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "direct-1",
+		Prompt:            "전달해줘야지 그럼",
+		ToolSet:           toolRegistry,
+		PriorTask: PriorTaskContext{
+			TaskRunID: "88894f",
+			Status:    string(task.TaskStatusFailed),
+			Prompt:    "기업 문서 가이드를 워드 파일로 만들어줘",
+			OutcomeContract: OutcomeContract{
+				RequiredEvidenceTools:      []string{"file.attach"},
+				RequiredAttachmentSuffixes: []string{".docx"},
+				ExpectedResults: []ExpectedResult{{
+					ID:          "attached-file",
+					Type:        ExpectedResultTypeFile,
+					Description: "docx guide attached to the current conversation",
+					Required:    true,
+				}},
+				ArtifactRequirement: ArtifactRequirementRequired,
+			},
+			RequestedOutputFormats: []string{"docx"},
+			WorkKinds:              []string{WorkKindFileDelivery},
+		},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected prior task attachment recovery to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+		t.Fatalf("expected completed recovery task, got %s events=%+v", result.TaskRun.Status, events)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "company-guide.docx" {
+		t.Fatalf("expected current task docx attachment, got %+v", result.Attachments)
+	}
+	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(events, "agent.completion_required", "required file expected result") {
+		t.Fatal("expected first text-only finish to be rejected by the restored file contract")
+	}
+	if !taskEventsContain(events, "agent.intake", `"priorTaskReference":"outcome_recovery"`) {
+		t.Fatal("expected intake event to record prior task outcome recovery")
+	}
+	if !strings.Contains(joinedMessageContent(replyLanguageModel.requests[0].Messages), "Prior task context") {
+		t.Fatal("expected task model context to include prior task context")
 	}
 }
 

@@ -55,6 +55,17 @@ type ExpectedResult struct {
 	AcceptanceHints []string `json:"acceptanceHints,omitempty"`
 }
 
+type PriorTaskContext struct {
+	TaskRunID              string          `json:"taskRunID,omitempty"`
+	Status                 string          `json:"status,omitempty"`
+	Prompt                 string          `json:"prompt,omitempty"`
+	Result                 string          `json:"result,omitempty"`
+	FailureReason          string          `json:"failureReason,omitempty"`
+	OutcomeContract        OutcomeContract `json:"outcomeContract,omitempty"`
+	RequestedOutputFormats []string        `json:"requestedOutputFormats,omitempty"`
+	WorkKinds              []string        `json:"workKinds,omitempty"`
+}
+
 const (
 	ArtifactRequirementNone      = "none"
 	ArtifactRequirementPreferred = "preferred"

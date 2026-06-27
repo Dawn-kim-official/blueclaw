@@ -162,6 +162,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		WorkspaceRootPath:       request.WorkspaceRootPath,
 		ActivePaths:             request.ActivePaths,
 		ActiveGoal:              request.ActiveGoal,
+		PriorTask:               request.PriorTask,
 		ScheduledRun:            request.ScheduledRun,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
 		AmbientDuty:             request.AmbientDuty,
@@ -258,8 +259,11 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		}
 		request.ActiveGoal = ActiveGoal{}
 		intakeRequest.ActiveGoal = ActiveGoal{}
+		request, intakeDecision = applyPriorTaskOutcomeRecovery(request, intakeDecision)
+		intakeDecision.InitialToolNames = registeredToolNamesOnly(turnToolSet, intakeDecision.InitialToolNames)
+		intakeRequest.ActiveGoal = request.ActiveGoal
+		intakeDecision = agentKernel.restoreEscalatedEffortForContinuation(intakeRequest, intakeDecision)
 	}
-	intakeDecision = agentKernel.restoreEscalatedEffortForContinuation(intakeRequest, intakeDecision)
 	request.WorkKinds = appendUniqueStrings(append([]string{}, intakeDecision.WorkKinds...), request.ActiveGoal.WorkKinds...)
 	intakeRequest.WorkKinds = request.WorkKinds
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
@@ -329,6 +333,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		RequiredAttachmentSuffixes: requiredAttachmentSuffixes,
 		OutcomeContract:            outcomeContract,
 		ActiveGoal:                 activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
+		PriorTask:                  request.PriorTask,
 		ScheduledRun:               request.ScheduledRun,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		AmbientDuty:                request.AmbientDuty,

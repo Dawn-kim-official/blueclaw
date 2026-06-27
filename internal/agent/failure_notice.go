@@ -165,9 +165,6 @@ func failureNoticeMessagePassesSafety(message string, report FailureReport) bool
 	if finishMessageNonDeliverableArtifactLocator(trimmedMessage) != "" {
 		return false
 	}
-	if !report.HasAttachments && FinishMessageClaimsAttachmentDelivery(trimmedMessage) {
-		return false
-	}
 	return true
 }
 

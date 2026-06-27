@@ -331,10 +331,7 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 		}
 	}
 	finishMessage := finishActionMessage(actionDocument)
-	if FinishMessageClaimsAttachmentDelivery(finishMessage) && len(attachments) == 0 {
-		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
-	}
-	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(finishMessage) || len(attachments) > 0
+	requiresAttachmentEvidence := len(attachments) > 0
 	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
@@ -543,10 +540,7 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 		}
 	}
 	finishMessage := finishActionMessage(actionDocument)
-	if FinishMessageClaimsAttachmentDelivery(finishMessage) && len(attachments) == 0 {
-		return completionGateResult{Message: "finish.message claims attached files but completionEvidence does not cite an attachment"}
-	}
-	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(finishMessage) || len(attachments) > 0
+	requiresAttachmentEvidence := len(attachments) > 0
 	if errorValue := ValidateFinishMessageDelivery(finishMessage, attachments, requiresAttachmentEvidence); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"blueclaw/internal/llm"
@@ -57,21 +58,36 @@ func TestFailureNoticeFallsBackToRawErrorOnlyWhenDraftLeaks(t *testing.T) {
 	}
 }
 
-func TestFailureNoticeRejectsFalseDeliveryClaimAsUnsafe(t *testing.T) {
-	report := FailureReport{ResponseLanguage: "ko", ArtifactRequired: true, HasAttachments: false}
-	if failureNoticeMessagePassesSafety("슬라이드 덱을 첨부했습니다. 확인해 주세요.", report) {
-		t.Fatal("expected a false attachment-delivery claim to fail the safety gate")
+func TestFailureNoticeReviewRewritesFalseDeliveryClaim(t *testing.T) {
+	generator := FailureNoticeGenerator{LanguageModel: reviewingReplyLanguageModel{
+		reply:           "슬라이드 덱을 첨부했습니다. 확인해 주세요.",
+		structuredReply: `{"decision":"rewrite","message":"슬라이드 덱을 첨부하지 못했습니다. 다시 시도해 주세요.","reason":"candidate falsely claimed artifact delivery without attachments"}`,
+	}}
+
+	notice, status := generator.Generate(context.Background(), FailureReport{
+		Phase:            "stall",
+		StopReason:       "required artifact completion lacked file.attach evidence",
+		ResponseLanguage: "ko",
+		ArtifactRequired: true,
+		HasAttachments:   false,
+	})
+
+	if status.Source != "generated_review" || notice.Source != "generated_review" {
+		t.Fatalf("expected structured review rewrite, got notice=%+v status=%+v", notice, status)
 	}
-	if !failureNoticeMessagePassesSafety("슬라이드 덱(slides.html)을 완성하지 못했어요. 다시 시도해 주세요.", report) {
-		t.Fatal("expected naming the unbuilt artifact to pass the safety gate")
+	if notice.SendableMessage() == "슬라이드 덱을 첨부했습니다. 확인해 주세요." {
+		t.Fatal("expected false delivery claim to be rewritten through structured review")
+	}
+	if !strings.Contains(notice.SendableMessage(), "첨부하지 못했습니다") {
+		t.Fatalf("expected reviewed failure notice, got %q", notice.SendableMessage())
 	}
 }
 
-func TestValidateUserNoticeAllowsNamingUnbuiltArtifact(t *testing.T) {
+func TestValidateUserNoticeDoesNotClassifyAttachmentWording(t *testing.T) {
 	if ValidateUserNoticeDelivery("slides.html을 완성하지 못했어요.") != nil {
 		t.Fatal("expected naming an unbuilt artifact to be allowed")
 	}
-	if ValidateUserNoticeDelivery("slides.html을 첨부했습니다.") == nil {
-		t.Fatal("expected a false delivery claim to be rejected")
+	if errorValue := ValidateUserNoticeDelivery("slides.html을 첨부했습니다."); errorValue != nil {
+		t.Fatalf("expected delivery wording not to be classified by transport validation: %v", errorValue)
 	}
 }

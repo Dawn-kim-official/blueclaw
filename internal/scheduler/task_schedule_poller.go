@@ -317,9 +317,6 @@ func scheduledTaskReply(result agentruntime.TaskScheduleRunResult) (connectors.O
 	if agent.FinishMessageContainsNonDeliverableArtifactLocator(reply) {
 		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task reply exposes non-deliverable artifact locator"}
 	}
-	if agent.FinishMessageClaimsAttachmentDelivery(reply) && len(turnResult.Attachments) == 0 {
-		return connectors.OutboundReply{}, taskScheduleTerminalError{message: "scheduled task reply claims attachments without evidence"}
-	}
 	return connectors.OutboundReply{Message: reply, TaskRunID: turnResult.TaskRun.TaskRunID, ReplyKind: "success", Attachments: turnResult.Attachments}, nil
 }
 

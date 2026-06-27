@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -764,6 +765,66 @@ func TestConnectorRuntimeDoesNotContinueFailedRecoverableArtifactGoal(t *testing
 	}
 }
 
+func TestConnectorRuntimeFindsPriorTaskContextForFailedArtifactGoal(t *testing.T) {
+	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"}, "기업 문서 가이드를 docx로 만들어줘")
+	appendConnectorActiveGoal(t, taskRunService, taskRun, agent.ActiveGoal{
+		TaskRunID:           taskRun.TaskRunID,
+		OriginalInstruction: taskRun.Prompt,
+		Status:              agent.ActiveGoalStatusBlocked,
+		WorkKinds:           []string{agent.WorkKindFileDelivery},
+		OutcomeContract: agent.OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".docx"},
+			ExpectedResults: []agent.ExpectedResult{{
+				ID:          "attached-file",
+				Type:        agent.ExpectedResultTypeFile,
+				Description: "docx file attached to the current conversation",
+				Required:    true,
+			}},
+			ArtifactRequirement: agent.ArtifactRequirementRequired,
+		},
+	})
+	intakeEvent, errorValue := json.Marshal(agent.IntakeDecision{
+		RequestedOutputFormats: []string{"docx"},
+		WorkKinds:              []string{agent.WorkKindFileDelivery},
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	taskRunService.AppendTaskEvent(taskRun.TaskRunID, "agent.intake", string(intakeEvent))
+	if _, errorValue := taskRunService.FailTaskRun(taskRun.TaskRunID, "file attach failed"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-deliver")
+	event.Prompt = "전달해줘야지 그럼"
+
+	priorTaskContext, isFound := connectorRuntime.findPriorTaskContext("person-1", event)
+
+	if !isFound {
+		t.Fatal("expected failed artifact task to be available as prior context")
+	}
+	if priorTaskContext.TaskRunID != taskRun.TaskRunID {
+		t.Fatalf("expected prior task run %q, got %+v", taskRun.TaskRunID, priorTaskContext)
+	}
+	if !agent.OutcomeContractHasRequirements(priorTaskContext.OutcomeContract) {
+		t.Fatalf("expected recoverable outcome contract, got %+v", priorTaskContext.OutcomeContract)
+	}
+	if !slices.Contains(priorTaskContext.OutcomeContract.RequiredEvidenceTools, "file.attach") {
+		t.Fatalf("expected file.attach requirement, got %+v", priorTaskContext.OutcomeContract.RequiredEvidenceTools)
+	}
+	if !slices.Contains(priorTaskContext.OutcomeContract.RequiredAttachmentSuffixes, ".docx") {
+		t.Fatalf("expected docx suffix requirement, got %+v", priorTaskContext.OutcomeContract.RequiredAttachmentSuffixes)
+	}
+
+	otherThreadEvent := testInboundEvent("message-other-thread")
+	otherThreadEvent.Prompt = event.Prompt
+	otherThreadEvent.ReplyTargetID = "other-reply-target"
+	if _, isFound := connectorRuntime.findPriorTaskContext("person-1", otherThreadEvent); isFound {
+		t.Fatal("expected different reply target not to receive prior task context")
+	}
+}
+
 func TestConnectorRuntimeDoesNotContinueFailedSiteOnlyGoal(t *testing.T) {
 	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "웹사이트 만들어줘")
@@ -1289,7 +1350,7 @@ func TestConnectorRuntimeIgnoresWhenAddressingClassifierFails(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeSkipsUnsafeUserNoticeAttachmentClaims(t *testing.T) {
+func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -1307,15 +1368,15 @@ func TestConnectorRuntimeSkipsUnsafeUserNoticeAttachmentClaims(t *testing.T) {
 		},
 	)
 
-	if isSent || dispatchID != "" {
-		t.Fatalf("expected skipped incomplete reply, got dispatchID=%q sent=%v", dispatchID, isSent)
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected user notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
 	}
-	if len(sentReplies) != 0 {
-		t.Fatalf("expected no recovered reply, got %+v", sentReplies)
+	if len(sentReplies) != 1 || sentReplies[0].Message != "파일을 생성해 첨부했습니다." {
+		t.Fatalf("expected unchanged user notice reply, got %+v", sentReplies)
 	}
 }
 
-func TestConnectorRuntimeSkipsUnsafeUserNoticeUnattachedFilenames(t *testing.T) {
+func TestConnectorRuntimeSkipsUnsafeUserNoticeNonDeliverableLocator(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
 	event := testInboundEvent("message-1")
@@ -1326,7 +1387,7 @@ func TestConnectorRuntimeSkipsUnsafeUserNoticeUnattachedFilenames(t *testing.T) 
 		event,
 		"task-1",
 		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
-		agent.AgentTurnResult{UserNotice: "아래 파일을 확인해 주세요.\n[Hermes_Agent_Slide_Part1.html]"},
+		agent.AgentTurnResult{UserNotice: "작업 결과는 sandbox:/mnt/data/Hermes_Agent_Slide_Part1.html에 있습니다."},
 		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
 			sentReplies = append(sentReplies, reply)
 			return "dispatch-1", nil

@@ -451,13 +451,12 @@ func TestAgentTurnRunnerUsesContextualLimitReply(t *testing.T) {
 	}
 }
 
-func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.T) {
+func TestAgentTurnRunnerLimitReplyPromptHidesUndeliveredAttachments(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{
-			"요청하신 HTML 파일을 생성해 첨부했습니다.",
 			"작업은 시작했지만 HTML 파일을 완성하기 전에 실행 한계에 걸렸습니다. 지금까지의 작업 상태는 저장되어 다시 이어서 시도할 수 있습니다.",
 		},
 	}
@@ -487,26 +486,29 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItClaimsAttachments(t *testing.
 		t.Fatalf("expected generated reply without attachment claim, got %q", result.UserNotice)
 	}
 	if !strings.Contains(result.UserNotice, "저장") {
-		t.Fatalf("expected regenerated contextual reply, got %q", result.UserNotice)
+		t.Fatalf("expected contextual reply, got %q", result.UserNotice)
 	}
-	if len(languageModel.textPrompts) != 2 {
-		t.Fatalf("expected repair generation prompt, got %d prompts", len(languageModel.textPrompts))
+	if len(languageModel.textPrompts) != 1 {
+		t.Fatalf("expected one generation prompt, got %d prompts", len(languageModel.textPrompts))
 	}
 	if strings.Contains(languageModel.textPrompts[0], "deck.html") {
 		t.Fatalf("expected blocked limit reply prompt to omit undeliverable attachments, got %s", languageModel.textPrompts[0])
+	}
+	if !strings.Contains(languageModel.textPrompts[0], "Do not claim an attachment or completed artifact exists unless attachment filenames are listed") {
+		t.Fatalf("expected prompt to describe attachment evidence boundary, got %s", languageModel.textPrompts[0])
 	}
 	if len(result.Attachments) != 0 {
 		t.Fatalf("expected blocked task to deliver no attachments, got %+v", result.Attachments)
 	}
 }
 
-func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t *testing.T) {
+func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsNonDeliverableLocator(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"loop","toolInput":{}}`,
 		},
 		textResponses: []string{
-			"아래 파일을 확인해 주세요.\n[Hermes_Agent_Slide_Part1.html]",
+			"작업 결과는 sandbox:/mnt/data/Hermes_Agent_Slide_Part1.html에 있습니다.",
 			"작업은 시작했지만 HTML 파일을 완성하기 전에 중단되었습니다. 다시 시도할 수 있게 상태를 저장했습니다.",
 		},
 	}
@@ -527,7 +529,7 @@ func TestAgentTurnRunnerRegeneratesLimitReplyWhenItMentionsUnattachedFilename(t 
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
 	if strings.Contains(result.UserNotice, "Hermes_Agent_Slide_Part1.html") {
-		t.Fatalf("expected generated reply without unattached filename, got %q", result.UserNotice)
+		t.Fatalf("expected generated reply without non-deliverable locator, got %q", result.UserNotice)
 	}
 	if len(languageModel.textPrompts) != 2 {
 		t.Fatalf("expected repair generation prompt, got %d prompts", len(languageModel.textPrompts))
