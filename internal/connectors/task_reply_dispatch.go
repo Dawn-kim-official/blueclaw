@@ -15,7 +15,6 @@ const (
 	taskReplyDecisionSuppressCancelled       taskReplyDecisionKind = "suppress_cancelled"
 	taskReplyDecisionSendUserNotice          taskReplyDecisionKind = "send_user_notice"
 	taskReplyDecisionSuppressArtifactLocator taskReplyDecisionKind = "suppress_artifact_locator"
-	taskReplyDecisionSuppressMissingAttach   taskReplyDecisionKind = "suppress_missing_attachment"
 	taskReplyDecisionSendFinal               taskReplyDecisionKind = "send_final"
 )
 
@@ -43,9 +42,6 @@ func decideTaskReply(turnResult agent.AgentTurnResult, isCancelledBeforeSend boo
 	}
 	if agent.FinishMessageContainsNonDeliverableArtifactLocator(turnResult.FinishMessage) {
 		return taskReplyDecision{Kind: taskReplyDecisionSuppressArtifactLocator, Reason: "non_deliverable_artifact_locator"}
-	}
-	if agent.FinishMessageClaimsAttachmentDelivery(turnResult.FinishMessage) && len(turnResult.Attachments) == 0 {
-		return taskReplyDecision{Kind: taskReplyDecisionSuppressMissingAttach, Reason: "missing_attachment_evidence"}
 	}
 	return taskReplyDecision{Kind: taskReplyDecisionSendFinal}
 }
@@ -79,10 +75,6 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 		}
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
 	case taskReplyDecisionSuppressArtifactLocator:
-		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", "", decision.Reason))
-		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", "messageID", event.MessageID, "taskRunID", taskRunID, "reason", decision.Reason)
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
-	case taskReplyDecisionSuppressMissingAttach:
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, OutboundReply{TaskRunID: taskRunID, ReplyKind: connectorReplyKindSuccess}, "", "", decision.Reason))
 		connectorRuntime.logger.Warn("connector."+platform+".outbound.blocked", "messageID", event.MessageID, "taskRunID", taskRunID, "reason", decision.Reason)
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil

@@ -61,6 +61,7 @@ type TaskLaunchRequest struct {
 	ResponseLanguage           string
 	VisibleContext             agent.VisibleContext
 	ActiveGoal                 agent.ActiveGoal
+	PriorTask                  agent.PriorTaskContext
 	ScheduledRun               agent.ScheduledRunContext
 	PrecomputedTurnDecision    *agent.TurnDecision
 	AmbientDuty                agent.AmbientDutyContext
@@ -355,6 +356,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		ResponseLanguage:        request.ResponseLanguage,
 		VisibleContext:          request.VisibleContext,
 		ActiveGoal:              request.ActiveGoal,
+		PriorTask:               request.PriorTask,
 		ScheduledRun:            request.ScheduledRun,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
 		AmbientDuty:             request.AmbientDuty,

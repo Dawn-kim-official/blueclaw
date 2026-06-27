@@ -979,6 +979,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		isProgressStarted = true
 	}
 	event = connectorRuntime.withAttachmentMaterials(ctx, adapter, event, personID)
+	priorTask := agent.PriorTaskContext{}
+	if !isApprovalContinuation && !hasPendingAskInteraction && !hasActiveGoal {
+		priorTask, _ = connectorRuntime.findPriorTaskContext(personID, event)
+	}
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	precomputedTurnDecision := precomputedTurnDecisionForLaunch(turnDecision, hasPendingConfirmation, askTurnDecision, hasAskTurnDecision)
@@ -997,6 +1001,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		IsApprovalContinuation:    isApprovalContinuation,
 		ActiveGoal:                activeGoal,
 		HasActiveGoal:             hasActiveGoal,
+		PriorTask:                 priorTask,
 		PrecomputedTurnDecision:   precomputedTurnDecision,
 		AmbientDuty:               addressingLaunch.AmbientDuty,
 		CheckpointSender:          connectorRuntime.checkpointSenderForTurn(platform, event, replyTarget, sendReply),
@@ -1803,6 +1808,39 @@ func (connectorRuntime *ConnectorRuntime) findActiveGoalByTaskRunID(taskRunID st
 	return connectorRuntime.activeGoalForTaskRun(taskRun), true
 }
 
+func (connectorRuntime *ConnectorRuntime) findPriorTaskContext(personID string, event PlatformInboundEvent) (agent.PriorTaskContext, bool) {
+	taskRuns := connectorRuntime.agentKernel.ListTaskRunByPersonID(personID)
+	var selectedTaskRun task.TaskRun
+	var selectedContext agent.PriorTaskContext
+	isSelected := false
+	for _, taskRun := range taskRuns {
+		if !taskRunCanProvidePriorContext(taskRun) {
+			continue
+		}
+		if taskRun.OriginConversationID != event.ConversationID {
+			continue
+		}
+		if !taskRunMatchesReplyTarget(taskRun, event) {
+			continue
+		}
+		if time.Since(taskRun.UpdatedAt) > 72*time.Hour {
+			continue
+		}
+		taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+		context := priorTaskContextForTaskRun(taskRun, taskEvents)
+		if !priorTaskContextHasRecoverableOutcome(context) {
+			continue
+		}
+		if isSelected && !taskRun.UpdatedAt.After(selectedTaskRun.UpdatedAt) {
+			continue
+		}
+		selectedTaskRun = taskRun
+		selectedContext = context
+		isSelected = true
+	}
+	return selectedContext, isSelected
+}
+
 func (connectorRuntime *ConnectorRuntime) activeGoalForTaskRun(selectedTaskRun task.TaskRun) agent.ActiveGoal {
 	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(selectedTaskRun.TaskRunID)
 	activeGoal := latestActiveGoal(taskEvents)
@@ -1819,6 +1857,76 @@ func (connectorRuntime *ConnectorRuntime) activeGoalForTaskRun(selectedTaskRun t
 		activeGoal.Status = activeGoalStatusForTaskRun(selectedTaskRun)
 	}
 	return activeGoal
+}
+
+func taskRunCanProvidePriorContext(taskRun task.TaskRun) bool {
+	switch taskRun.Status {
+	case task.TaskStatusBlocked, task.TaskStatusFailed, task.TaskStatusCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+func taskRunMatchesReplyTarget(taskRun task.TaskRun, event PlatformInboundEvent) bool {
+	eventReplyTargetID := strings.TrimSpace(event.ReplyTargetID)
+	taskReplyTargetID := strings.TrimSpace(taskRun.OriginReplyTargetID)
+	if eventReplyTargetID != "" {
+		return taskReplyTargetID == eventReplyTargetID
+	}
+	return taskReplyTargetID == ""
+}
+
+func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEvent) agent.PriorTaskContext {
+	activeGoal := latestActiveGoal(taskEvents)
+	intakeDecision := latestIntakeDecision(taskEvents)
+	return agent.PriorTaskContext{
+		TaskRunID:              strings.TrimSpace(taskRun.TaskRunID),
+		Status:                 string(taskRun.Status),
+		Prompt:                 strings.TrimSpace(taskRun.Prompt),
+		Result:                 strings.TrimSpace(taskRun.Result),
+		FailureReason:          strings.TrimSpace(taskRun.FailureReason),
+		OutcomeContract:        activeGoal.OutcomeContract,
+		RequestedOutputFormats: append([]string{}, intakeDecision.RequestedOutputFormats...),
+		WorkKinds:              appendUniqueConnectorStrings(activeGoal.WorkKinds, intakeDecision.WorkKinds...),
+	}
+}
+
+func latestIntakeDecision(taskEvents []task.TaskEvent) agent.IntakeDecision {
+	for index := len(taskEvents) - 1; index >= 0; index-- {
+		taskEvent := taskEvents[index]
+		if taskEvent.Name != "agent.intake" {
+			continue
+		}
+		var decision agent.IntakeDecision
+		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &decision); errorValue != nil {
+			continue
+		}
+		return decision
+	}
+	return agent.IntakeDecision{}
+}
+
+func priorTaskContextHasRecoverableOutcome(context agent.PriorTaskContext) bool {
+	return agent.OutcomeContractHasRequirements(context.OutcomeContract) ||
+		len(context.RequestedOutputFormats) > 0
+}
+
+func appendUniqueConnectorStrings(values []string, candidates ...string) []string {
+	result := append([]string{}, values...)
+	seen := map[string]bool{}
+	for _, value := range result {
+		seen[strings.TrimSpace(value)] = true
+	}
+	for _, candidate := range candidates {
+		trimmedCandidate := strings.TrimSpace(candidate)
+		if trimmedCandidate == "" || seen[trimmedCandidate] {
+			continue
+		}
+		seen[trimmedCandidate] = true
+		result = append(result, trimmedCandidate)
+	}
+	return result
 }
 
 func taskRunCanContinueGoal(taskRun task.TaskRun, taskEvents []task.TaskEvent) bool {

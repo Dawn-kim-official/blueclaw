@@ -41,6 +41,7 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		VisibleContext:        input.RuntimeRequest.VisibleContext,
 		MemoryContext:         input.MemoryContext,
 		ActiveGoal:            input.RuntimeRequest.ActiveGoal,
+		PriorTask:             input.RuntimeRequest.PriorTask,
 		ScheduledRun:          input.RuntimeRequest.ScheduledRun,
 		StepBudgetContext:     input.RuntimeRequest.StepBudgetContext,
 		ArtifactManifest:      input.RuntimeRequest.ArtifactManifest,

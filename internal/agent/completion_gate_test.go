@@ -218,9 +218,9 @@ func TestCompletionGateAcceptsCalendarFinishClaimWithCalendarObservation(t *test
 	}
 }
 
-func TestAgentTurnRunnerRejectsAttachmentClaimWithoutAttachmentEvidence(t *testing.T) {
+func TestAgentTurnRunnerRejectsRequiredFileWithoutAttachmentEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		finishMessageDocument("첨부된 파일들을 확인해 주세요."),
+		finishMessageDocument("파일이 준비되었습니다."),
 		`{"action":"fail","reason":"attachment evidence missing"}`,
 		recoveryDecisionDocument("attachment evidence was missing", "no attachment was available", "ask the user to retry file generation", "explain that attachment evidence was missing"),
 	}, textResponses: []string{
@@ -232,18 +232,29 @@ func TestAgentTurnRunnerRejectsAttachmentClaimWithoutAttachmentEvidence(t *testi
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "파일 만들어서 보내줘",
+		RequiredEvidenceTools: []string{
+			"file.attach",
+		},
+		OutcomeContract: OutcomeContract{
+			ArtifactRequirement: ArtifactRequirementRequired,
+			ExpectedResults: []ExpectedResult{{
+				ID:       "attached-file",
+				Type:     ExpectedResultTypeFile,
+				Required: true,
+			}},
+		},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to finish: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusFailed {
-		t.Fatalf("expected failed task after unsupported attachment claim, got %s", result.TaskRun.Status)
+		t.Fatalf("expected failed task after missing file evidence, got %s", result.TaskRun.Status)
 	}
 	if !strings.Contains(result.UserNotice, "근거가 없어") {
 		t.Fatalf("expected generated failure reply, got %q", result.UserNotice)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "claims attached files") {
-		t.Fatal("expected completion gate to reject attachment claim without evidence")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "required file expected result") {
+		t.Fatal("expected completion gate to reject required file without evidence")
 	}
 }
 

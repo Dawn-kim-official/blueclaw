@@ -17,14 +17,14 @@ func TestDecideTaskReplySuppressesCancelledTask(t *testing.T) {
 	}
 }
 
-func TestDecideTaskReplySuppressesMissingAttachmentClaim(t *testing.T) {
+func TestDecideTaskReplyDoesNotInspectAttachmentClaimText(t *testing.T) {
 	decision := decideTaskReply(agent.AgentTurnResult{
 		TaskRun:       task.TaskRun{Status: task.TaskStatusCompleted},
 		FinishMessage: "파일을 첨부했습니다.",
 	}, false)
 
-	if decision.Kind != taskReplyDecisionSuppressMissingAttach || decision.Reason != "missing_attachment_evidence" {
-		t.Fatalf("expected missing attachment suppression, got %+v", decision)
+	if decision.Kind != taskReplyDecisionSendFinal {
+		t.Fatalf("expected final reply decision, got %+v", decision)
 	}
 }
 

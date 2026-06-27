@@ -230,7 +230,7 @@ func (agentTurnRunner *AgentTurnRunner) prepareFinishMessageForPlatform(request 
 	if containsInternalDiagnosticLeak(compressedReply) {
 		return trimmedReply
 	}
-	requiresAttachmentEvidence := FinishMessageClaimsAttachmentDelivery(compressedReply) || len(attachments) > 0
+	requiresAttachmentEvidence := len(attachments) > 0
 	if ValidateFinishMessageDelivery(compressedReply, attachments, requiresAttachmentEvidence) != nil {
 		return trimmedReply
 	}

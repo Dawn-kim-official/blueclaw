@@ -25,6 +25,7 @@ type LLMContextInput struct {
 	MemoryFacts           []memory.MemoryFact
 	MemoryContext         string
 	ActiveGoal            ActiveGoal
+	PriorTask             PriorTaskContext
 	ScheduledRun          ScheduledRunContext
 	ActiveTask            ActiveTaskContext
 	PendingInput          PendingInputContext
@@ -144,6 +145,9 @@ func (builder LLMContextBuilder) taskContext(input LLMContextInput) string {
 	}
 	if activeGoal := activeGoalDescription(input.ActiveGoal); activeGoal != "" {
 		sections = append(sections, activeGoal)
+	}
+	if priorTask := priorTaskContextDescription(input.PriorTask); priorTask != "" {
+		sections = append(sections, priorTask)
 	}
 	if activeTask := builder.activeTaskContext(input.ActiveTask); activeTask != "" {
 		sections = append(sections, activeTask)
@@ -279,6 +283,7 @@ func agentTurnRequestForContext(input LLMContextInput) AgentTurnRequest {
 		VisibleContext:        input.VisibleContext,
 		InputParts:            append([]AgentPart{}, input.InputParts...),
 		ActiveGoal:            input.ActiveGoal,
+		PriorTask:             input.PriorTask,
 		ScheduledRun:          input.ScheduledRun,
 		ToolSet:               input.ToolSet,
 		RequiredEvidenceTools: append([]string{}, input.RequiredEvidenceTools...),

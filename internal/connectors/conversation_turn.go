@@ -19,6 +19,7 @@ type ConversationTurn struct {
 	IsApprovalContinuation    bool
 	ActiveGoal                agent.ActiveGoal
 	HasActiveGoal             bool
+	PriorTask                 agent.PriorTaskContext
 	PrecomputedTurnDecision   *agent.TurnDecision
 	AmbientDuty               agent.AmbientDutyContext
 	CheckpointSender          agent.AgentCheckpointSender
@@ -59,6 +60,7 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		ResponseLanguage:           responseLanguageForEvent(event),
 		VisibleContext:             event.Context.ToAgentVisibleContext(),
 		ActiveGoal:                 activeGoalForLaunch(turn.ActiveGoal, turn.HasActiveGoal),
+		PriorTask:                  turn.PriorTask,
 		PrecomputedTurnDecision:    turn.PrecomputedTurnDecision,
 		AmbientDuty:                turn.AmbientDuty,
 		HistoryProvider:            connectorHistoryProvider{adapter: turn.Adapter},
