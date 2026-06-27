@@ -1880,6 +1880,18 @@ func taskRunMatchesReplyTarget(taskRun task.TaskRun, event PlatformInboundEvent)
 func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEvent) agent.PriorTaskContext {
 	activeGoal := latestActiveGoal(taskEvents)
 	intakeDecision := latestIntakeDecision(taskEvents)
+	requestedOutputFormats := appendUniqueConnectorStrings([]string{}, intakeDecision.RequestedOutputFormats...)
+	requestedOutputFormats = appendUniqueConnectorStrings(requestedOutputFormats, agent.InferRequestedOutputFormatsFromText(strings.Join([]string{
+		taskRun.Prompt,
+		taskRun.Result,
+		taskRun.FailureReason,
+		activeGoal.OriginalInstruction,
+		activeGoal.CurrentObjective,
+	}, "\n"))...)
+	workKinds := appendUniqueConnectorStrings(activeGoal.WorkKinds, intakeDecision.WorkKinds...)
+	if len(requestedOutputFormats) > 0 {
+		workKinds = appendUniqueConnectorStrings(workKinds, agent.WorkKindFileDelivery)
+	}
 	return agent.PriorTaskContext{
 		TaskRunID:              strings.TrimSpace(taskRun.TaskRunID),
 		Status:                 string(taskRun.Status),
@@ -1887,8 +1899,8 @@ func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEven
 		Result:                 strings.TrimSpace(taskRun.Result),
 		FailureReason:          strings.TrimSpace(taskRun.FailureReason),
 		OutcomeContract:        activeGoal.OutcomeContract,
-		RequestedOutputFormats: append([]string{}, intakeDecision.RequestedOutputFormats...),
-		WorkKinds:              appendUniqueConnectorStrings(activeGoal.WorkKinds, intakeDecision.WorkKinds...),
+		RequestedOutputFormats: requestedOutputFormats,
+		WorkKinds:              workKinds,
 	}
 }
 

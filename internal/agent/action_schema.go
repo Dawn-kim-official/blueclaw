@@ -76,7 +76,7 @@ func finishActionSchema(hasFailureDebt bool) map[string]any {
 		"properties": map[string]any{
 			"action":                enumStringSchema("finish"),
 			"message":               stringSchema(),
-			"replyParts":            agentPartArraySchema(),
+			"replyParts":            finishReplyPartArraySchema(),
 			"completionSummary":     stringSchema(),
 			"failureResolution":     enumValuesStringSchema(failureResolutionValues),
 			"goalStatus":            enumValuesStringSchema([]string{"satisfied"}),
@@ -87,6 +87,19 @@ func finishActionSchema(hasFailureDebt bool) map[string]any {
 			"executionStateUpdate":  executionStateSchema(),
 		},
 		"required": requiredFields,
+	}
+}
+
+func finishReplyPartArraySchema() map[string]any {
+	return map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"type": enumValuesStringSchema([]string{"text"}),
+				"text": stringSchema(),
+			},
+		},
 	}
 }
 

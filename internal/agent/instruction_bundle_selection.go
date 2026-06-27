@@ -177,6 +177,9 @@ func dominantArtifactSkillName(request AgentRequest, candidateByName map[string]
 	if !requestLooksLikeArtifactSkillRequest(request) {
 		return ""
 	}
+	if fileSkillName := dominantFileArtifactSkillName(request, candidateByName); fileSkillName != "" {
+		return fileSkillName
+	}
 	siteCandidate := candidateByName["site-prototype"]
 	slidesCandidate := candidateByName["simple-slides"]
 	isSiteQualified := artifactSkillCandidateQualifies(siteCandidate)
@@ -191,6 +194,32 @@ func dominantArtifactSkillName(request AgentRequest, candidateByName map[string]
 		return "simple-slides"
 	}
 	return ""
+}
+
+func dominantFileArtifactSkillName(request AgentRequest, candidateByName map[string]SkillCandidate) string {
+	for _, format := range InferRequestedOutputFormatsFromText(outputFormatInferenceTextForRequest(request)) {
+		for _, skillName := range artifactSkillNamesForFormat(format) {
+			if artifactSkillCandidateQualifies(candidateByName[skillName]) {
+				return skillName
+			}
+		}
+	}
+	return ""
+}
+
+func artifactSkillNamesForFormat(format string) []string {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "docx":
+		return []string{"docx", "documents"}
+	case "xlsx", "csv":
+		return []string{"xlsx", "spreadsheets"}
+	case "pptx":
+		return []string{"pptx", "simple-slides", "presentations"}
+	case "pdf":
+		return []string{"pdf"}
+	default:
+		return nil
+	}
 }
 
 func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {

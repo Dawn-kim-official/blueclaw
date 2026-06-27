@@ -575,6 +575,53 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 	}
 }
 
+func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:        "site-prototype",
+				Description: "Create, publish, and update website prototypes, homepages, web apps, landing pages, and deployed sites.",
+				WhenToUse:   "Use for website, homepage, web app, site, publish, deploy, link, URL, 홈페이지, 웹사이트, 사이트, and 배포 requests.",
+				Prompt:      "Use site tools.",
+				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+			},
+			{
+				Name:        "docx",
+				Description: "Create, edit, and attach Word document files.",
+				WhenToUse:   "Use for Word, docx, 워드 파일, 문서, and report deliverables.",
+				Prompt:      "Use docx tools.",
+				Source:      InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"},
+			},
+		},
+	}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{
+			{Name: "site-prototype", Score: 30, Reason: "bm25_fallback"},
+			{Name: "docx", Score: 8, Reason: "bm25_fallback"},
+		},
+		RetrievalMode: "bm25_fallback",
+		IndexStatus:   "ready",
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt: "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
+		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{{
+			Speaker: "이동하",
+			Text:    "기업 문서 가이드를 워드 파일로 만들어줘",
+		}}},
+	}, retriever)
+
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "docx", "selected") {
+		t.Fatalf("expected docx selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
+		t.Fatalf("expected site-prototype skipped for docx delivery, got %+v", selectedBundle.SkillDecisions)
+	}
+	if strings.Contains(selectedBundle.Prompt, "Use site tools.") {
+		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
+	}
+}
+
 func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{

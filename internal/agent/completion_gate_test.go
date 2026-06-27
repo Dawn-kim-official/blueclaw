@@ -57,6 +57,22 @@ func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testin
 	}
 }
 
+func TestCompletionGateAcceptsZeroRemainingWork(t *testing.T) {
+	goalSatisfied := true
+	result := validateCompletionGate(nil, nil, nil, turnActionDocument{
+		Action:             "finish",
+		Message:            "작업을 완료했습니다.",
+		GoalStatus:         "satisfied",
+		GoalSatisfied:      &goalSatisfied,
+		CompletionEvidence: []completionEvidenceReference{},
+		QualityReview:      []qualityReviewItem{},
+		RemainingWork:      "0",
+	})
+	if !result.IsSatisfied {
+		t.Fatalf("expected zero remaining work to satisfy completion gate, got %q", result.Message)
+	}
+}
+
 func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGateForRequestWithRecoveryBudget(
