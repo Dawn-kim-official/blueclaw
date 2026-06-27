@@ -2501,9 +2501,6 @@ func (connectorRuntime *ConnectorRuntime) sendUserNoticeReply(ctx context.Contex
 	}
 	interaction, _ := latestAskInteraction(taskRunID, connectorRuntime.agentKernel.ListTaskEvent(taskRunID))
 	reply.Interaction = optionalAskInteraction(interaction, event.SenderID)
-	if reply.Interaction != nil {
-		reply.EphemeralUserID = strings.TrimSpace(event.SenderID)
-	}
 	dispatchID, errorValue := sendReply(ctx, replyTarget, reply)
 	if errorValue != nil {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.failed", connectorReplyEventBody(event, reply, "", "", errorValue.Error()))

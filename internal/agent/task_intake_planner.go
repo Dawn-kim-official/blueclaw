@@ -717,6 +717,7 @@ func turnRoutingContextDescription(request AgentRequest) string {
 			"Pending input:",
 			"- Question: "+strings.TrimSpace(request.PendingInput.Question),
 			"- Use continue_task or revise_task when the latest message answers or modifies this pending input.",
+			"- Treat messages that delegate the missing choice back to the assistant as an answer to continue the task; do not ask the same question again.",
 		)
 	}
 	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" {

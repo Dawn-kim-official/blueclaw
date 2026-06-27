@@ -267,6 +267,22 @@ func TestTurnRouterSchemaUsesContextDependentPendingFields(t *testing.T) {
 	}
 }
 
+func TestTurnRoutingContextTreatsDelegatedPendingInputAsAnswer(t *testing.T) {
+	description := turnRoutingContextDescription(AgentRequest{
+		PendingInput: PendingInputContext{
+			TaskRunID: "task-1",
+			Question:  "제목과 섹션을 어떻게 구성할까요?",
+		},
+	})
+
+	if !strings.Contains(description, "delegate the missing choice back to the assistant") {
+		t.Fatalf("expected pending input delegation guidance, got %q", description)
+	}
+	if !strings.Contains(description, "do not ask the same question again") {
+		t.Fatalf("expected repeated ask guidance, got %q", description)
+	}
+}
+
 func TestTurnRouterNormalizesClarificationFields(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
 	decision := router.normalizeDecision(TurnDecision{

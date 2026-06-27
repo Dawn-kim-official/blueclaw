@@ -1376,6 +1376,40 @@ func TestConnectorRuntimeDoesNotFilterUserNoticeAttachmentClaimText(t *testing.T
 	}
 }
 
+func TestConnectorRuntimeSendsAskUserNoticeWithoutEphemeralTarget(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
+	connectorRuntime.agentKernel.AppendTaskEvent("task-1", "ask.requested", `{"kind":"input","question":"제목은 어떻게 할까요?"}`)
+	sentReplies := []OutboundReply{}
+	event := testInboundEvent("message-1")
+	event.SenderID = "requester-1"
+
+	dispatchID, isSent := connectorRuntime.sendUserNoticeReply(
+		context.Background(),
+		"test",
+		event,
+		"task-1",
+		ReplyTarget{ConversationID: "direct-1", ReplyTargetID: "reply-target-1"},
+		agent.AgentTurnResult{UserNotice: "제목은 어떻게 할까요?"},
+		func(_ context.Context, _ ReplyTarget, reply OutboundReply) (string, error) {
+			sentReplies = append(sentReplies, reply)
+			return "dispatch-1", nil
+		},
+	)
+
+	if !isSent || dispatchID != "dispatch-1" {
+		t.Fatalf("expected ask user notice to send, got dispatchID=%q sent=%v", dispatchID, isSent)
+	}
+	if len(sentReplies) != 1 || sentReplies[0].Interaction == nil {
+		t.Fatalf("expected ask interaction reply, got %+v", sentReplies)
+	}
+	if sentReplies[0].EphemeralUserID != "" {
+		t.Fatalf("expected ask reply without ephemeral target, got %+v", sentReplies[0])
+	}
+	if sentReplies[0].Interaction.TargetPlatformUserID != "requester-1" {
+		t.Fatalf("expected interaction target to remain requester-scoped, got %+v", sentReplies[0].Interaction)
+	}
+}
+
 func TestConnectorRuntimeSkipsUnsafeUserNoticeNonDeliverableLocator(t *testing.T) {
 	connectorRuntime, _ := newTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	sentReplies := []OutboundReply{}
