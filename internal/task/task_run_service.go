@@ -21,8 +21,15 @@ type TaskRunRepository interface {
 	FindTaskAttempt(string) (TaskAttempt, bool, error)
 	ListTaskRun() ([]TaskRun, error)
 	ListTaskRunByPersonID(string) ([]TaskRun, error)
+	DeleteTaskRun(string, []string) (bool, error)
 	DeleteTaskRunsBefore(time.Time, []string) ([]string, error)
 }
+
+var (
+	ErrTaskRunNotFound     = errors.New("task run not found")
+	ErrTaskRunAccessDenied = errors.New("task run access denied")
+	ErrTaskRunNotDeletable = errors.New("task run is not deletable")
+)
 
 type ErrIllegalTransition struct {
 	TaskRunID     string
@@ -784,6 +791,34 @@ func (taskRunService *TaskRunService) ListTaskRunByPersonID(personID string) []T
 	return taskRuns
 }
 
+func (taskRunService *TaskRunService) DeleteTerminalTaskRun(taskRunID string, requesterPersonID string) (TaskRun, error) {
+	taskRun, isFound := taskRunService.FindTaskRun(strings.TrimSpace(taskRunID))
+	if !isFound {
+		return TaskRun{}, ErrTaskRunNotFound
+	}
+	if requesterPersonID != "" && taskRun.RequesterPersonID != requesterPersonID {
+		return TaskRun{}, ErrTaskRunAccessDenied
+	}
+	if !isTerminalTaskRunStatus(taskRun.Status) {
+		return TaskRun{}, ErrTaskRunNotDeletable
+	}
+	if taskRunService.repository != nil {
+		wasDeleted, errorValue := taskRunService.repository.DeleteTaskRun(taskRun.TaskRunID, terminalTaskRunStatusStrings())
+		if errorValue != nil {
+			return TaskRun{}, errorValue
+		}
+		if !wasDeleted {
+			return TaskRun{}, ErrTaskRunNotFound
+		}
+		taskRunService.evictTaskRunIDs([]string{taskRun.TaskRunID})
+		return taskRun, nil
+	}
+	if !taskRunService.deleteTerminalTaskRunFromMemory(taskRun.TaskRunID) {
+		return TaskRun{}, ErrTaskRunNotFound
+	}
+	return taskRun, nil
+}
+
 func (taskRunService *TaskRunService) saveTaskRun(taskRun TaskRun) error {
 	if taskRunService.repository == nil {
 		return nil
@@ -1011,12 +1046,7 @@ func (taskRunService *TaskRunService) findTaskRunForMutation(taskRunID string) (
 }
 
 func (taskRunService *TaskRunService) PruneTerminalTaskRunsBefore(cutoff time.Time) []string {
-	terminalStatuses := []string{
-		string(TaskStatusCompleted),
-		string(TaskStatusFailed),
-		string(TaskStatusCancelled),
-		string(TaskStatusBlocked),
-	}
+	terminalStatuses := terminalTaskRunStatusStrings()
 	if taskRunService.repository != nil {
 		deletedIDs, errorValue := taskRunService.repository.DeleteTaskRunsBefore(cutoff, terminalStatuses)
 		if errorValue == nil {
@@ -1044,6 +1074,17 @@ func (taskRunService *TaskRunService) pruneTerminalTaskRunsFromMemory(cutoff tim
 	return prunedIDs
 }
 
+func (taskRunService *TaskRunService) deleteTerminalTaskRunFromMemory(taskRunID string) bool {
+	taskRunService.mutex.Lock()
+	defer taskRunService.mutex.Unlock()
+	taskRun, isFound := taskRunService.taskRuns[taskRunID]
+	if !isFound || !isTerminalTaskRunStatus(taskRun.Status) {
+		return false
+	}
+	taskRunService.evictTaskRunIDsLocked([]string{taskRunID})
+	return true
+}
+
 func (taskRunService *TaskRunService) evictTaskRunIDs(taskRunIDs []string) {
 	taskRunService.mutex.Lock()
 	defer taskRunService.mutex.Unlock()
@@ -1062,4 +1103,30 @@ func (taskRunService *TaskRunService) evictTaskRunIDsLocked(taskRunIDs []string)
 			}
 		}
 	}
+	for taskAttemptID, activeAttempt := range taskRunService.activeAttempts {
+		for _, taskRunID := range taskRunIDs {
+			if activeAttempt.TaskRunID == taskRunID {
+				delete(taskRunService.activeAttempts, taskAttemptID)
+				break
+			}
+		}
+	}
+}
+
+func terminalTaskRunStatusStrings() []string {
+	return []string{
+		string(TaskStatusCompleted),
+		string(TaskStatusFailed),
+		string(TaskStatusCancelled),
+		string(TaskStatusBlocked),
+	}
+}
+
+func isTerminalTaskRunStatus(status TaskStatus) bool {
+	for _, terminalStatus := range terminalTaskRunStatusStrings() {
+		if string(status) == terminalStatus {
+			return true
+		}
+	}
+	return false
 }

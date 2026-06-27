@@ -63,6 +63,46 @@ func TestCancelledTaskRunCannotComplete(t *testing.T) {
 	}
 }
 
+func TestDeleteTerminalTaskRunRemovesCompletedTaskRun(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "finished task")
+	if _, errorValue := taskRunService.CompleteTaskRun(taskRun.TaskRunID, "done"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	deletedTaskRun, errorValue := taskRunService.DeleteTerminalTaskRun(taskRun.TaskRunID, "person-1")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if deletedTaskRun.TaskRunID != taskRun.TaskRunID {
+		t.Fatalf("deleted task run = %+v, want %s", deletedTaskRun, taskRun.TaskRunID)
+	}
+	if _, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID); isFound {
+		t.Fatal("expected task run to be deleted")
+	}
+}
+
+func TestDeleteTerminalTaskRunRejectsRunningTaskRun(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "running task")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	deletedTaskRun, errorValue := taskRunService.DeleteTerminalTaskRun(taskRun.TaskRunID, "person-1")
+
+	if !errors.Is(errorValue, ErrTaskRunNotDeletable) {
+		t.Fatalf("error = %v, want ErrTaskRunNotDeletable", errorValue)
+	}
+	if deletedTaskRun.TaskRunID != "" {
+		t.Fatalf("deleted task run = %+v, want zero value", deletedTaskRun)
+	}
+	if _, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID); !isFound {
+		t.Fatal("running task run should remain")
+	}
+}
+
 func TestAdvanceTaskRunCreatesCurrentAttempt(t *testing.T) {
 	taskRunService := NewTaskRunService(NewTaskEventService())
 	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "long task")

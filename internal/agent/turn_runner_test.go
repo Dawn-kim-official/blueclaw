@@ -1805,6 +1805,10 @@ func (repository failingAttemptStartRepository) ListTaskRunByPersonID(string) ([
 	return nil, nil
 }
 
+func (repository failingAttemptStartRepository) DeleteTaskRun(string, []string) (bool, error) {
+	return false, nil
+}
+
 func (repository failingAttemptStartRepository) DeleteTaskRunsBefore(time.Time, []string) ([]string, error) {
 	return nil, nil
 }

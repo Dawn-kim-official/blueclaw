@@ -288,3 +288,62 @@ func TestTaskMonitorHandlerUnknownViewerSeesNoTaskRuns(t *testing.T) {
 		t.Fatalf("expected no task runs for unknown viewer, got %s", responseRecorder.Body.String())
 	}
 }
+
+func TestTaskMonitorHandlerDeletesScopedTerminalTaskRun(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	aliceTaskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "alice task")
+	if _, errorValue := taskRunService.CompleteTaskRun(aliceTaskRun.TaskRunID, "done"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	bobTaskRun := taskRunService.CreateTaskRun("person-2", "conversation-2", "bob task")
+	if _, errorValue := taskRunService.CompleteTaskRun(bobTaskRun.TaskRunID, "done"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	handler := TaskMonitorHandler{TaskRunService: taskRunService, IdentityService: newTestIdentityService()}
+	body := `{"taskRunID":"` + bobTaskRun.TaskRunID + `","viewerEmail":"alice@example.com"}`
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/delete", strings.NewReader(body))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleDeleteTaskRun(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusNotFound {
+		t.Fatalf("expected scoped delete to return 404, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if _, isFound := taskRunService.FindTaskRun(bobTaskRun.TaskRunID); !isFound {
+		t.Fatal("bob task run should remain")
+	}
+
+	body = `{"taskRunID":"` + aliceTaskRun.TaskRunID + `","viewerEmail":"alice@example.com"}`
+	request = httptest.NewRequest(http.MethodPost, "/admin/api/task/delete", strings.NewReader(body))
+	responseRecorder = httptest.NewRecorder()
+
+	handler.HandleDeleteTaskRun(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusOK {
+		t.Fatalf("expected delete to succeed, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if _, isFound := taskRunService.FindTaskRun(aliceTaskRun.TaskRunID); isFound {
+		t.Fatal("alice task run should be deleted")
+	}
+}
+
+func TestTaskMonitorHandlerRejectsRunningTaskRunDelete(t *testing.T) {
+	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
+	taskRun := taskRunService.CreateTaskRun("person-1", "conversation-1", "running task")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	handler := TaskMonitorHandler{TaskRunService: taskRunService, IdentityService: newTestIdentityService()}
+	body := `{"taskRunID":"` + taskRun.TaskRunID + `","viewerEmail":"alice@example.com"}`
+	request := httptest.NewRequest(http.MethodPost, "/admin/api/task/delete", strings.NewReader(body))
+	responseRecorder := httptest.NewRecorder()
+
+	handler.HandleDeleteTaskRun(responseRecorder, request)
+
+	if responseRecorder.Code != http.StatusConflict {
+		t.Fatalf("expected conflict, got %d: %s", responseRecorder.Code, responseRecorder.Body.String())
+	}
+	if _, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID); !isFound {
+		t.Fatal("running task run should remain")
+	}
+}
