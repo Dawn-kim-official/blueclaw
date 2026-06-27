@@ -164,6 +164,56 @@ func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
 	}
 }
 
+func TestObservedSuggestedNextToolReadsNestedHealth(t *testing.T) {
+	observations := []turnObservation{
+		newContentObservation("obs-001", "continue", "site.app.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.app.repair"}}`),
+	}
+
+	suggestion, isFound := latestObservedSuggestedNextTool(observations)
+	if !isFound || suggestion.ToolName != "site.app.repair" || suggestion.ObservationID != "obs-001" {
+		t.Fatalf("expected nested site repair suggestion, got %+v found=%v", suggestion, isFound)
+	}
+
+	observations = append(observations, newContentObservation("obs-002", "continue", "site.app.repair", `{"workspaceHealth":"ready"}`))
+	if _, isFound := latestObservedSuggestedNextTool(observations); isFound {
+		t.Fatal("expected suggestion to expire after the suggested tool was used")
+	}
+}
+
+func TestRequestWorkingSetPinsObservedSuggestedNextTool(t *testing.T) {
+	request := AgentTurnRequest{}
+	observations := []turnObservation{
+		newContentObservation("obs-001", "continue", "site.app.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.app.repair"}}`),
+	}
+
+	updatedRequest := requestWithStepWorkingSetTools(request, observations)
+	if len(updatedRequest.PinnedToolNames) != 1 || updatedRequest.PinnedToolNames[0] != "site.app.repair" {
+		t.Fatalf("expected observed suggested tool to be pinned, got %+v", updatedRequest.PinnedToolNames)
+	}
+}
+
+func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
+	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	state := &agentTaskState{
+		Request: AgentTurnRequest{ToolSet: newTestToolSet([]string{"site.app.repair"})},
+		Observations: []turnObservation{
+			newContentObservation("obs-001", "continue", "site.app.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.app.repair"}}`),
+		},
+	}
+	tracker := newActionProgressTracker(nil)
+
+	if !services.runner.steerStalledTurnTowardNextTool("task-suggested-next", state, &tracker) {
+		t.Fatal("expected suggested next tool directive")
+	}
+	lastObservation := state.Observations[len(state.Observations)-1]
+	if !strings.Contains(lastObservation.Summary, "site.app.repair") || strings.Contains(lastObservation.Summary, "finish") && !strings.Contains(lastObservation.Summary, "before") {
+		t.Fatalf("expected directive to require suggested tool before finish, got %q", lastObservation.Summary)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent("task-suggested-next"), "agent.suggested_next_tool_directive", "site.app.repair") {
+		t.Fatal("expected suggested next tool event")
+	}
+}
+
 func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
 	failedBrowser := newFailureObservation("obs-001", "continue", "browser.open", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureDependencyUnavailable, FailureCodes.Unavailable, "browser_open")
 	guidance := recoveryGuidanceContent(failedBrowser)

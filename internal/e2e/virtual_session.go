@@ -421,6 +421,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_edit_redeploy_acceptance":
 		return SiteEditRedeployAcceptanceScenario(artifactDirectoryPath), nil
+	case "site_suggested_repair_recovery":
+		return SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath), nil
 	case "ask_choice_reply_acceptance":
 		return AskChoiceReplyAcceptanceScenario(artifactDirectoryPath), nil
 	case "dm_send_confirm_acceptance":

@@ -35,7 +35,7 @@ func progressEvents(observations []turnObservation) []progressEvent {
 		if observation.Action == "tool.request" && !observation.Failed() && hasSuccessfulToolCallAfter(observations, index) {
 			recordSuccess(progressEvent{Kind: "tool_palette_selected", Key: observation.ObservationID + ":" + observation.ContentText()})
 		}
-		if observation.Action == "continue" && !observation.Failed() {
+		if observation.Action == "continue" && !observation.Failed() && !isInspectionProgressTool(observation.Tool) {
 			recordSuccess(progressEvent{Kind: "tool_success", Key: observation.ObservationID + ":" + observation.Tool})
 		}
 		if observation.Failed() && strings.TrimSpace(observation.AttemptFingerprint) != "" && !seenFailures[observation.AttemptFingerprint] {

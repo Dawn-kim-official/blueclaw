@@ -499,6 +499,29 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 	}
 }
 
+func TestSiteSuggestedRepairRecovery(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), SiteSuggestedRepairRecoveryScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected suggested repair recovery scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if turnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
+	}
+	if !eventsContain(turnResult.Events, "agent.suggested_next_tool_directive", "site.app.repair") {
+		t.Fatalf("expected suggested repair directive; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEvents(turnResult.Events, "tool.site.app.repair.requested") != 1 {
+		t.Fatalf("expected one site.app.repair call; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEvents(turnResult.Events, "tool.site.app.publish.requested") != 1 {
+		t.Fatalf("expected one site.app.publish call; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !strings.Contains(turnResult.FinishMessage, "https://") {
+		t.Fatalf("expected final assistant message to contain a URL, got %q", turnResult.FinishMessage)
+	}
+}
+
 func TestAskChoiceReplyAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), AskChoiceReplyAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
