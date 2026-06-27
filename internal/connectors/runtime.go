@@ -1827,8 +1827,6 @@ func taskRunCanContinueGoal(taskRun task.TaskRun, taskEvents []task.TaskEvent) b
 		return true
 	case task.TaskStatusBlocked:
 		return taskRunHasLimitStop(taskEvents) || taskRunHasRecoverableArtifactDelivery(taskEvents)
-	case task.TaskStatusFailed:
-		return taskRunHasRecoverableArtifactDelivery(taskEvents)
 	default:
 		return false
 	}

@@ -448,6 +448,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForRequest(request, instructionBundle)...)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredWorkflowEvidenceToolsForRequest(request)...)
+		contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
@@ -462,6 +463,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForRequest(request, instructionBundle)...)
 	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
 	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredWorkflowEvidenceToolsForRequest(request)...)
+	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, "file.attach")
@@ -475,6 +477,9 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 
 func normalizeRequestSiteWorkKinds(request AgentRequest, intakeDecision IntakeDecision) AgentRequest {
 	if !workKindsContain(request.WorkKinds, WorkKindSitePrototype) {
+		return request
+	}
+	if requestPromptMatchesWorkflowKind(request, WorkKindSitePrototype) {
 		return request
 	}
 	if siteEvidenceQuoteMatchesMessage(intakeDecision.SiteRequestEvidence, request.Prompt) {
@@ -644,6 +649,7 @@ func OutcomeContractHasRequirements(contract OutcomeContract) bool {
 		len(contract.RequiredEvidenceTools) > 0 ||
 		len(contract.RequiredEvidenceAnyOf) > 0 ||
 		len(contract.RequiredAttachmentSuffixes) > 0 ||
+		len(contract.RequiredEffects) > 0 ||
 		(artifactRequirement != "" && artifactRequirement != ArtifactRequirementNone)
 }
 

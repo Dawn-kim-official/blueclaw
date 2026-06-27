@@ -817,6 +817,8 @@ func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.app.publish":
 		return `{"status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.intern.kim"}}`
+	case "site.app.build":
+		return `{"status":"ok","result":{"siteID":"site-1","status":"built","buildID":"build-1"}}`
 	case "site.app.status":
 		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.app.logs":

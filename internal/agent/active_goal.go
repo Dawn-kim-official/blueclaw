@@ -32,11 +32,19 @@ type OutcomeContract struct {
 	RequiredEvidenceTools      []string         `json:"requiredEvidenceTools,omitempty"`
 	RequiredEvidenceAnyOf      [][]string       `json:"requiredEvidenceAnyOf,omitempty"`
 	RequiredAttachmentSuffixes []string         `json:"requiredAttachmentSuffixes,omitempty"`
+	RequiredEffects            []OutcomeEffect  `json:"requiredEffects,omitempty"`
 	ExpectedResults            []ExpectedResult `json:"expectedResults,omitempty"`
 	ArtifactRequirement        string           `json:"artifactRequirement,omitempty"`
 	SelectedEvidenceHints      []string         `json:"selectedEvidenceHints,omitempty"`
 	SiteEvidenceQuote          string           `json:"siteEvidenceQuote,omitempty"`
 	Source                     string           `json:"source,omitempty"`
+}
+
+type OutcomeEffect struct {
+	ObjectType         string   `json:"objectType"`
+	Effect             string   `json:"effect"`
+	Description        string   `json:"description,omitempty"`
+	SuggestedNextTools []string `json:"suggestedNextTools,omitempty"`
 }
 
 type ExpectedResult struct {
@@ -76,11 +84,39 @@ func normalizeOutcomeContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = appendUniqueStrings(contract.RequiredAttachmentSuffixes)
 	contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints)
 	contract.RequiredEvidenceAnyOf = normalizeEvidenceAnyOf(contract.RequiredEvidenceAnyOf)
+	contract.RequiredEffects = normalizeOutcomeEffects(contract.RequiredEffects)
 	contract.ExpectedResults = normalizeExpectedResults(contract.ExpectedResults)
 	contract.ArtifactRequirement = normalizeArtifactRequirement(contract.ArtifactRequirement)
 	contract.SiteEvidenceQuote = strings.TrimSpace(contract.SiteEvidenceQuote)
 	contract.Source = strings.TrimSpace(contract.Source)
 	return contract
+}
+
+func normalizeOutcomeEffects(effects []OutcomeEffect) []OutcomeEffect {
+	normalizedEffects := []OutcomeEffect{}
+	seenEffects := map[string]bool{}
+	for _, effect := range effects {
+		normalizedEffect := normalizeOutcomeEffect(effect)
+		if normalizedEffect.ObjectType == "" || normalizedEffect.Effect == "" {
+			continue
+		}
+		key := normalizedEffect.ObjectType + "\x00" + normalizedEffect.Effect
+		if seenEffects[key] {
+			continue
+		}
+		seenEffects[key] = true
+		normalizedEffects = append(normalizedEffects, normalizedEffect)
+	}
+	return normalizedEffects
+}
+
+func normalizeOutcomeEffect(effect OutcomeEffect) OutcomeEffect {
+	return OutcomeEffect{
+		ObjectType:         strings.TrimSpace(effect.ObjectType),
+		Effect:             strings.TrimSpace(effect.Effect),
+		Description:        strings.TrimSpace(effect.Description),
+		SuggestedNextTools: appendUniqueStrings(effect.SuggestedNextTools),
+	}
 }
 
 func normalizeExpectedResults(results []ExpectedResult) []ExpectedResult {

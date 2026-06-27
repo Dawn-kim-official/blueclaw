@@ -67,6 +67,31 @@ func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
 	}
 }
 
+func TestOutcomeContractRequiresCurrentEffectsForSiteModification(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{
+			Prompt:    "예쁜 귤 웹사이트 퀄리티가 너무 낮아. 더 예쁘게 해줘.",
+			WorkKinds: []string{WorkKindSitePrototype},
+			ToolSet:   newTestToolSet([]string{"site.app.status", "file.edit", "site.app.build", "site.app.publish"}),
+		},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+
+	for _, expectedEffect := range []OutcomeEffect{
+		{ObjectType: "workspace", Effect: "modified"},
+		{ObjectType: "website", Effect: "built"},
+		{ObjectType: "website", Effect: "published"},
+	} {
+		if !outcomeEffectsContain(contract.RequiredEffects, expectedEffect.ObjectType, expectedEffect.Effect) {
+			t.Fatalf("expected required effect %+v, got %+v", expectedEffect, contract.RequiredEffects)
+		}
+	}
+}
+
 func TestOutcomeContractCreatesExpectedResultsForRequestedFile(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "pptx 파일 만들어줘"},

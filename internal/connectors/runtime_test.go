@@ -733,7 +733,7 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 	}
 }
 
-func TestConnectorRuntimeFindsFailedRecoverableArtifactGoal(t *testing.T) {
+func TestConnectorRuntimeDoesNotContinueFailedRecoverableArtifactGoal(t *testing.T) {
 	connectorRuntime, _, taskRunService, _ := newWaitRoutingTestConnectorRuntime(t, testLanguageModel{reply: "unused"})
 	taskRun := taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "direct-1", ReplyTargetID: "origin-reply-target"}, "기업 문서 가이드를 docx로 만들어줘")
 	appendConnectorActiveGoal(t, taskRunService, taskRun, agent.ActiveGoal{
@@ -759,11 +759,8 @@ func TestConnectorRuntimeFindsFailedRecoverableArtifactGoal(t *testing.T) {
 
 	activeGoal, isFound := connectorRuntime.findActiveGoal("person-1", "", event, inboundTaskWaitResolution{})
 
-	if !isFound {
-		t.Fatal("expected failed artifact delivery task to remain a continuation candidate")
-	}
-	if activeGoal.TaskRunID != taskRun.TaskRunID || !toolNamesContain(activeGoal.OutcomeContract.RequiredEvidenceTools, "file.attach") {
-		t.Fatalf("expected recoverable file attachment goal, got %+v", activeGoal)
+	if isFound {
+		t.Fatalf("expected failed artifact delivery task not to continue in the same task run, got %+v", activeGoal)
 	}
 }
 
