@@ -566,6 +566,18 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				continue
 			}
 		case "fail":
+			if recoverableResult, shouldContinue := recoverableWorkflowFailResult(request, state.Observations); shouldContinue {
+				observation := completionGateObservation(len(state.Observations)+1, recoverableResult.Message)
+				observation = withCompletionGateRecoveryPacket(observation, recoverableResult)
+				state.Observations = append(state.Observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recoverable_fail_rejected", marshalEventBody(observation))
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.completion_required", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recoverable_fail_rejected", observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
+				continue
+			}
 			if failureDebt, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt && !recoveryToolBudgetExhaustedForRequest(state.Observations, request.ToolSet, agentTurnRunner.options.RecoveryBudget, failureDebt) {
 				observation := recoveryGuidanceObservation(len(state.Observations)+1, failureDebt.LatestFailure)
 				observation = withObservationContent(observation, "FailureDebt is still active. Try a different recovery step within budget, answer without tools using failureResolution=no_tool_fallback if enough context exists, or fail only after recovery budget is exhausted. "+observation.ContentText())
