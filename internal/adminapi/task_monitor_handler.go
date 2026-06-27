@@ -2,6 +2,7 @@ package adminapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
@@ -45,6 +46,12 @@ type taskDailyCostScope struct {
 	TaskRunCount      int  `json:"taskRunCount"`
 	TotalTaskRunCount int  `json:"totalTaskRunCount"`
 	IsTruncated       bool `json:"isTruncated"`
+}
+
+type taskRunDeleteRequest struct {
+	TaskRunID     string `json:"taskRunID"`
+	ViewerEmail   string `json:"viewerEmail"`
+	ViewerIsAdmin bool   `json:"viewerIsAdmin"`
 }
 
 func (taskMonitorHandler TaskMonitorHandler) HandleListTaskRun(responseWriter http.ResponseWriter, request *http.Request) {
@@ -108,11 +115,45 @@ func (taskMonitorHandler TaskMonitorHandler) HandleGetTaskRun(responseWriter htt
 	})
 }
 
+func (taskMonitorHandler TaskMonitorHandler) HandleDeleteTaskRun(responseWriter http.ResponseWriter, request *http.Request) {
+	var deleteRequest taskRunDeleteRequest
+	if errorValue := json.NewDecoder(request.Body).Decode(&deleteRequest); errorValue != nil {
+		http.Error(responseWriter, "invalid task run delete request", http.StatusBadRequest)
+		return
+	}
+	taskRunID := strings.TrimSpace(deleteRequest.TaskRunID)
+	if taskRunID == "" {
+		http.Error(responseWriter, "taskRunID is required", http.StatusBadRequest)
+		return
+	}
+	requesterPersonID, isViewerAllowed := taskMonitorHandler.requesterScopeForViewer(deleteRequest.ViewerEmail, deleteRequest.ViewerIsAdmin)
+	if !isViewerAllowed {
+		http.Error(responseWriter, "task run not found", http.StatusNotFound)
+		return
+	}
+	deletedTaskRun, errorValue := taskMonitorHandler.TaskRunService.DeleteTerminalTaskRun(taskRunID, requesterPersonID)
+	if errorValue != nil {
+		taskMonitorHandler.writeDeleteTaskRunError(responseWriter, errorValue)
+		return
+	}
+	writeJSON(responseWriter, http.StatusOK, map[string]any{
+		"status":    "deleted",
+		"taskRunID": deletedTaskRun.TaskRunID,
+	})
+}
+
 func (taskMonitorHandler TaskMonitorHandler) requesterScope(request *http.Request) (string, bool) {
-	if strings.EqualFold(strings.TrimSpace(request.URL.Query().Get("viewerIsAdmin")), "true") {
+	return taskMonitorHandler.requesterScopeForViewer(
+		request.URL.Query().Get("viewerEmail"),
+		strings.EqualFold(strings.TrimSpace(request.URL.Query().Get("viewerIsAdmin")), "true"),
+	)
+}
+
+func (taskMonitorHandler TaskMonitorHandler) requesterScopeForViewer(viewerEmail string, isViewerAdmin bool) (string, bool) {
+	if isViewerAdmin {
 		return "", true
 	}
-	viewerEmail := strings.TrimSpace(request.URL.Query().Get("viewerEmail"))
+	viewerEmail = strings.TrimSpace(viewerEmail)
 	if viewerEmail == "" {
 		return "", true
 	}
@@ -124,6 +165,17 @@ func (taskMonitorHandler TaskMonitorHandler) requesterScope(request *http.Reques
 		return "", false
 	}
 	return personID, true
+}
+
+func (taskMonitorHandler TaskMonitorHandler) writeDeleteTaskRunError(responseWriter http.ResponseWriter, errorValue error) {
+	switch {
+	case errors.Is(errorValue, task.ErrTaskRunNotFound), errors.Is(errorValue, task.ErrTaskRunAccessDenied):
+		http.Error(responseWriter, "task run not found", http.StatusNotFound)
+	case errors.Is(errorValue, task.ErrTaskRunNotDeletable):
+		http.Error(responseWriter, "task run is not deletable", http.StatusConflict)
+	default:
+		http.Error(responseWriter, errorValue.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (taskMonitorHandler TaskMonitorHandler) decorateTaskRunList(taskRuns []task.TaskRun, costSummaries map[string]taskRunCostSummary) []taskRunListItem {

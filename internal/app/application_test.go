@@ -394,6 +394,10 @@ func (repository *applicationAutoResumeRepository) ListTaskRunByPersonID(personI
 	return taskRuns, nil
 }
 
+func (repository *applicationAutoResumeRepository) DeleteTaskRun(string, []string) (bool, error) {
+	return false, nil
+}
+
 func (repository *applicationAutoResumeRepository) DeleteTaskRunsBefore(time.Time, []string) ([]string, error) {
 	return nil, nil
 }

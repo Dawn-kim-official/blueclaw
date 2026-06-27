@@ -195,6 +195,19 @@ FROM task_run WHERE requester_person_id = $1 ORDER BY created_at DESC`, personID
 	return scanTaskRuns(rows)
 }
 
+func (taskRunRepository TaskRunRepository) DeleteTaskRun(taskRunID string, statuses []string) (bool, error) {
+	result, errorValue := taskRunRepository.database.SQL.ExecContext(context.Background(),
+		`DELETE FROM task_run WHERE task_run_id = $1 AND status = ANY($2::text[])`,
+		taskRunID,
+		statuses,
+	)
+	if errorValue != nil {
+		return false, errorValue
+	}
+	deletedCount, errorValue := result.RowsAffected()
+	return deletedCount > 0, errorValue
+}
+
 func (taskRunRepository TaskRunRepository) DeleteTaskRunsBefore(cutoff time.Time, statuses []string) ([]string, error) {
 	rows, errorValue := taskRunRepository.database.SQL.QueryContext(context.Background(),
 		`DELETE FROM task_run WHERE updated_at < $1 AND status = ANY($2::text[]) RETURNING task_run_id`,

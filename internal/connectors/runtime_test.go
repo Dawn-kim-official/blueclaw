@@ -3861,6 +3861,10 @@ func (repository *testTaskRunRepository) ListTaskRunByPersonID(personID string) 
 	return taskRuns, nil
 }
 
+func (repository *testTaskRunRepository) DeleteTaskRun(string, []string) (bool, error) {
+	return false, nil
+}
+
 func (repository *testTaskRunRepository) DeleteTaskRunsBefore(time.Time, []string) ([]string, error) {
 	return nil, nil
 }
