@@ -1042,13 +1042,32 @@ func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnO
 	if !expectedResultRequiresFileAttachment(request.OutcomeContract) || hasSuccessfulToolObservation(observations, "file.attach") {
 		return nil
 	}
-	if hasSuccessfulToolObservation(observations, "file.promote") {
-		return []string{"file.attach"}
+	return availableFileDeliveryToolNames(request)
+}
+
+func availableFileDeliveryToolNames(request AgentTurnRequest) []string {
+	toolNames := selectedSkillFileDeliveryToolNames(request)
+	toolNames = appendUniqueStrings(toolNames, "file.preview", "file.read", "file.write", "file.edit", "file.patch", "terminal.run", "artifact.review", "file.promote", "file.attach")
+	if request.ToolSet == nil {
+		return toolNames
 	}
-	if hasSuccessfulToolObservation(observations, "terminal.run") {
-		return []string{"file.promote", "file.attach"}
+	return registeredToolNamesOnly(request.ToolSet, toolNames)
+}
+
+func selectedSkillFileDeliveryToolNames(request AgentTurnRequest) []string {
+	selectedSkillNames := selectedSkillNameSet(request.SkillDecisions)
+	toolNames := []string{}
+	for _, skillInstruction := range request.AvailableSkills {
+		if !selectedSkillNames[skillInstruction.Name] {
+			continue
+		}
+		if !skillSupportsFileDelivery(skillInstruction) {
+			continue
+		}
+		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
+		toolNames = appendUniqueStrings(toolNames, skillInstruction.Completion.RequiredEvidenceTools...)
 	}
-	return nil
+	return toolNames
 }
 
 func hasSuccessfulToolObservation(observations []turnObservation, toolName string) bool {

@@ -1000,6 +1000,107 @@ func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
 	}
 }
 
+func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Prompt: "base",
+		Skills: []SkillInstruction{
+			{
+				Name:         "public-web-builder",
+				Description:  "Create, update, build, and publish website prototypes with public URLs.",
+				WhenToUse:    "Use for website, homepage, web app, landing page, deploy, and publish requests.",
+				Prompt:       "Use website build and publish tools.",
+				AllowedTools: []string{"file.write", "terminal.run", "site.app.create", "site.app.build", "site.app.publish"},
+				Source:       InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
+			},
+			{
+				Name:         "enterprise-document-maker",
+				Description:  "Create, verify, promote, and attach Word documents in .docx format.",
+				WhenToUse:    "Use for Word documents, .docx files, memos, reports, and enterprise document deliverables.",
+				Prompt:       "Create the document, validate it, promote it, then attach it.",
+				AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
+				Completion: SkillCompletion{
+					RequiredEvidenceTools: []string{"file.promote", "file.attach"},
+				},
+				Source: InstructionSource{Path: "skills/enterprise-document-maker/SKILL.md", SkillName: "enterprise-document-maker"},
+			},
+		},
+	}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{
+			{Name: "public-web-builder", Score: 30, Reason: "embedding_similarity"},
+			{Name: "enterprise-document-maker", Score: 8, Reason: "embedding_similarity"},
+		},
+		RetrievalMode: "embedding",
+		IndexStatus:   "ready",
+	}}
+	languageModel := &schemaStructuredLanguageModel{contentBySchema: map[string]string{
+		"blueclaw_skill_search_queries":       `{"queries":[{"description":"Recover and attach the requested .docx enterprise guide file."}]}`,
+		"blueclaw_contract_skill_arbitration": `{"selectedSkillNames":["enterprise-document-maker"],"rejectedSkillNames":["public-web-builder"],"requiredNextToolNames":["file.write","terminal.run","file.promote","file.attach"],"expectedEvidence":["file.attach"],"unmetPreconditions":[],"reason":"The outcome contract requires a .docx attachment, not a public website."}`,
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
+		Prompt:    "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
+		WorkKinds: []string{WorkKindFileDelivery},
+		ToolSet: testToolSet([]string{
+			"file.write",
+			"terminal.run",
+			"file.promote",
+			"file.attach",
+			"site.app.create",
+			"site.app.build",
+			"site.app.publish",
+		}),
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".docx"},
+			ArtifactRequirement:        ArtifactRequirementRequired,
+			ExpectedResults: []ExpectedResult{{
+				ID:       "docx-guide",
+				Type:     ExpectedResultTypeFile,
+				Required: true,
+			}},
+		}},
+	}, retriever, NewSkillSearchQueryRouter(languageModel))
+
+	if !structuredRequestHasSchema(languageModel.requests, "blueclaw_contract_skill_arbitration") {
+		t.Fatalf("expected contract arbitration request, got %+v", structuredRequestSchemaNames(languageModel.requests))
+	}
+	if !skillDecisionHasReason(selectedBundle.SkillDecisions, "enterprise-document-maker", "contract_arbitration") {
+		t.Fatalf("expected enterprise document skill selected by arbitration, got %+v", selectedBundle.SkillDecisions)
+	}
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "public-web-builder", "selected") {
+		t.Fatalf("expected website skill not to be selected by artifact contract arbitration, got %+v", selectedBundle.SkillDecisions)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "Create the document") || strings.Contains(selectedBundle.Prompt, "Use website build") {
+		t.Fatalf("expected only arbitrated document instructions, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestContractSkillArbitrationDoesNotRunWithoutOutcomeContract(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Prompt: "base",
+		Skills: []SkillInstruction{{
+			Name:         "mail",
+			Description:  "Read mail.",
+			Prompt:       "Use mail tools.",
+			AllowedTools: []string{"mail.message.search"},
+		}},
+	}
+	languageModel := &schemaStructuredLanguageModel{contentBySchema: map[string]string{
+		"blueclaw_skill_search_queries":       `{"queries":[{"description":"Read recent email."}]}`,
+		"blueclaw_contract_skill_arbitration": `{"selectedSkillNames":[],"rejectedSkillNames":["mail"],"requiredNextToolNames":[],"expectedEvidence":[],"unmetPreconditions":[],"reason":"should not be called"}`,
+	}}
+
+	_ = selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
+		Prompt:  "메일 확인해줘",
+		ToolSet: testToolSet([]string{"mail.message.search"}),
+	}, NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""), NewSkillSearchQueryRouter(languageModel))
+
+	if structuredRequestHasSchema(languageModel.requests, "blueclaw_contract_skill_arbitration") {
+		t.Fatalf("expected no contract arbitration without an outcome contract, got %+v", structuredRequestSchemaNames(languageModel.requests))
+	}
+}
+
 func TestSkillQueryRouterMessagesPrioritizeLatestRequest(t *testing.T) {
 	router := NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[]}`})
 
@@ -1518,6 +1619,24 @@ func (languageModel staticStructuredLanguageModel) GenerateStructuredResponse(co
 	return llm.StructuredResponse{Content: languageModel.content}, nil
 }
 
+type schemaStructuredLanguageModel struct {
+	contentBySchema map[string]string
+	requests        []llm.StructuredResponseRequest
+}
+
+func (languageModel *schemaStructuredLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func (languageModel *schemaStructuredLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	languageModel.requests = append(languageModel.requests, request)
+	content := languageModel.contentBySchema[request.StructuredOutputSchema.Name]
+	if strings.TrimSpace(content) == "" {
+		content = `{}`
+	}
+	return llm.StructuredResponse{Content: content}, nil
+}
+
 type staticSkillRetriever struct {
 	result SkillRetrievalResult
 }
@@ -1539,6 +1658,32 @@ func skillDecisionHasStatus(skillDecisions []SkillSelectionDecision, skillName s
 		}
 	}
 	return false
+}
+
+func skillDecisionHasReason(skillDecisions []SkillSelectionDecision, skillName string, reason string) bool {
+	for _, skillDecision := range skillDecisions {
+		if skillDecision.Name == skillName && skillDecision.Reason == reason {
+			return true
+		}
+	}
+	return false
+}
+
+func structuredRequestHasSchema(requests []llm.StructuredResponseRequest, schemaName string) bool {
+	for _, request := range requests {
+		if request.StructuredOutputSchema.Name == schemaName {
+			return true
+		}
+	}
+	return false
+}
+
+func structuredRequestSchemaNames(requests []llm.StructuredResponseRequest) []string {
+	names := []string{}
+	for _, request := range requests {
+		names = append(names, request.StructuredOutputSchema.Name)
+	}
+	return names
 }
 
 func testToolSet(toolNames []string) *ToolSet {
