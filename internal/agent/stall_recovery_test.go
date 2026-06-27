@@ -180,6 +180,28 @@ func TestObservedSuggestedNextToolReadsNestedHealth(t *testing.T) {
 	}
 }
 
+func TestObservedSuggestedNextToolReadsRecoveryPacketAllowedTools(t *testing.T) {
+	observation := completionGateObservation(1, "finish is not backed by observed results")
+	observation.RecoveryPacket = &RecoveryPacket{
+		AllowedTools: []string{"file.write", "site.app.build"},
+	}
+
+	suggestion, isFound := latestObservedSuggestedNextTool([]turnObservation{observation})
+	if !isFound || suggestion.ToolName != "file.write" {
+		t.Fatalf("expected recovery packet allowed tool suggestion, got %+v found=%v", suggestion, isFound)
+	}
+}
+
+func TestTechnicalStallDoesNotPauseForUserInput(t *testing.T) {
+	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
+	failedBuild := newFailureObservation("obs-001", "continue", "site.app.build", "quality gate failed", FailureExternalService, FailureCodes.InvalidInput, "site_build_delivery")
+	failedBuild.ToolInputKey = "site.app.build:site-1"
+
+	if services.runner.shouldPauseForStalledRecovery("task-technical-stall", []turnObservation{failedBuild}) {
+		t.Fatal("expected technical artifact failures to block with a failure notice instead of waiting for user input")
+	}
+}
+
 func TestRequestWorkingSetPinsObservedSuggestedNextTool(t *testing.T) {
 	request := AgentTurnRequest{}
 	observations := []turnObservation{

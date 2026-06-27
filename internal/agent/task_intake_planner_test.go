@@ -117,10 +117,14 @@ func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
 		Prompt:  "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
 		ToolSet: toolRegistry,
 		PriorTask: PriorTaskContext{
-			TaskRunID: "88894f",
-			Status:    string(task.TaskStatusCompleted),
-			Prompt:    "기업 문서 가이드를 워드 파일로 만들어줘",
-			Result:    "요청하신 작업이 이미 성공적으로 완료되었습니다.",
+			TaskRunID:              "88894f",
+			Status:                 string(task.TaskStatusCompleted),
+			Prompt:                 "기업 문서 가이드를 워드 파일로 만들어줘",
+			Result:                 "요청하신 작업이 이미 성공적으로 완료되었습니다.",
+			RequestedOutputFormats: []string{"docx"},
+			OutcomeContract: OutcomeContract{
+				RequiredAttachmentSuffixes: []string{".docx"},
+			},
 		},
 	})
 
@@ -862,13 +866,16 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 	}
 }
 
-func TestAgentKernelFallbackRecoversLegacyPriorDocxAttachmentContract(t *testing.T) {
+func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":["docx"],"responseLanguage":"ko","reason":"latest message asks for the prior Word file as an attachment","userFacingReply":"","workKinds":["file_delivery"],"initialToolNames":["file.attach"],"priorTaskReference":"outcome_recovery"}`,
+	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
 		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
 		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.attach", 0),
 	}}
-	services := newKernelIntakeTestServices(replyLanguageModel, nil)
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
@@ -905,10 +912,13 @@ func TestAgentKernelFallbackRecoversLegacyPriorDocxAttachmentContract(t *testing
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(events, "agent.completion_required", "required file expected result") {
-		t.Fatal("expected text-only finish to be rejected by fallback-restored file contract")
+		t.Fatal("expected text-only finish to be rejected by intake-restored file contract")
 	}
-	if !taskEventsContain(events, "agent.intake", `"usedDeterministicFallback":true`) {
-		t.Fatal("expected deterministic fallback intake event")
+	if !taskEventsContain(events, "agent.intake", `"requestedOutputFormats":["docx"]`) {
+		t.Fatal("expected intake event to record structured output format")
+	}
+	if taskEventsContain(events, "agent.intake", `"usedDeterministicFallback":true`) {
+		t.Fatal("expected normal intake path, not deterministic fallback")
 	}
 }
 

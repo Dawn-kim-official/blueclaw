@@ -103,7 +103,7 @@ func (skillRetriever *EmbeddingSkillRetriever) Search(ctx context.Context, reque
 			SelectedCandidates: []SkillCandidate{directCandidate},
 		}
 	}
-	querySet = normalizeSkillSearchQuerySet(querySet)
+	querySet = normalizeSkillSearchQuerySet(augmentSkillSearchQuerySetForArtifactContract(querySet, request))
 	queryText := skillSearchQueryText(querySet)
 	if len(querySet.Queries) == 0 {
 		return SkillRetrievalResult{

@@ -888,19 +888,20 @@ func resolveIntakeLanguageModelProvider(runtimeConfiguration config.RuntimeConfi
 		executionMode = "auto"
 	}
 	tierNames := llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration))
+	primaryModelName := firstNonEmptyString(runtimeConfiguration.Agent.Intake.Model, tierNames.Medium)
 	return llm.FallbackLanguageModelProvider{
 		PrimaryProvider: llm.CapabilityLLMClient{
 			CapabilityClient: capabilityClient,
-			ModelName:        tierNames.XLow,
+			ModelName:        primaryModelName,
 			ExecutionMode:    executionMode,
 		},
 		FallbackProvider: llm.CapabilityLLMClient{
 			CapabilityClient: capabilityClient,
-			ModelName:        tierNames.Low,
+			ModelName:        tierNames.High,
 			ExecutionMode:    executionMode,
 		},
-		PrimaryLabel:  "xlow",
-		FallbackLabel: "low",
+		PrimaryLabel:  "intake",
+		FallbackLabel: "high",
 		Logger:        logger,
 	}
 }

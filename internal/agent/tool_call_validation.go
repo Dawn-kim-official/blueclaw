@@ -548,7 +548,7 @@ func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolNa
 	if !sitePublishTaskToolsAreAvailable(request.ToolSet) {
 		return false
 	}
-	if !selectedSkillNameSet(request.SkillDecisions)["site-prototype"] {
+	if !requestHasSelectedSiteArtifactSkill(request) {
 		return false
 	}
 	approvalText := strings.ToLower(strings.TrimSpace(string(toolInput)))
@@ -559,6 +559,16 @@ func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolNa
 		return true
 	}
 	return containsAny(approvalText, []string{"deploy", "publish", "external", "website", "site", "배포", "웹사이트", "외부"})
+}
+
+func requestHasSelectedSiteArtifactSkill(request AgentTurnRequest) bool {
+	selectedSkillNames := selectedSkillNameSet(request.SkillDecisions)
+	for _, skillInstruction := range request.AvailableSkills {
+		if selectedSkillNames[skillInstruction.Name] && skillSupportsSiteArtifact(skillInstruction) {
+			return true
+		}
+	}
+	return false
 }
 
 func sitePublishTaskToolsAreAvailable(toolSet *ToolSet) bool {

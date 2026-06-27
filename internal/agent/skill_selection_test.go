@@ -559,7 +559,13 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 		IndexStatus:   "ready",
 	}}
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘",
+		Prompt:    "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘",
+		WorkKinds: []string{WorkKindSlidesArtifact, WorkKindFileDelivery},
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".pptx"},
+			ArtifactRequirement:        ArtifactRequirementRequired,
+		}},
 	}, retriever)
 
 	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "simple-slides", "selected") {
@@ -605,6 +611,14 @@ func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
+		WorkKinds: []string{
+			WorkKindFileDelivery,
+		},
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".docx"},
+			ArtifactRequirement:        ArtifactRequirementRequired,
+		}},
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{{
 			Speaker: "이동하",
 			Text:    "기업 문서 가이드를 워드 파일로 만들어줘",
@@ -619,6 +633,180 @@ func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
 	}
 	if strings.Contains(selectedBundle.Prompt, "Use site tools.") {
 		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:         "site-prototype",
+				Description:  "Create, publish, and update website prototypes.",
+				WhenToUse:    "Use for website, site, publish, and deploy requests.",
+				Prompt:       "Use site tools.",
+				AllowedTools: []string{"site.app.status", "file.write", "site.app.build", "site.app.publish"},
+				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+			},
+			{
+				Name:         "simple-slides",
+				Description:  "Create slide decks and presentation artifacts.",
+				WhenToUse:    "Use for slides and PPTX requests.",
+				Prompt:       "Use slides tools.",
+				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+			},
+		},
+	}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{
+			{Name: "simple-slides", Score: 0.9, Reason: "embedding_similarity"},
+			{Name: "site-prototype", Score: 0.1, Reason: "embedding_similarity"},
+		},
+		RetrievalMode: "embedding",
+		IndexStatus:   "ready",
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:    "더 좋게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
+		WorkKinds: []string{WorkKindSitePrototype},
+		ToolSet: testToolSet([]string{
+			"site.app.status",
+			"file.write",
+			"site.app.build",
+			"site.app.publish",
+			"terminal.run",
+			"file.attach",
+		}),
+	}, retriever)
+
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
+		t.Fatalf("expected site-prototype selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "simple-slides", "selected") {
+		t.Fatalf("expected unrelated slides skill outside the site artifact contract to be skipped, got %+v", selectedBundle.SkillDecisions)
+	}
+	if !strings.Contains(selectedBundle.Prompt, "Use site tools.") || strings.Contains(selectedBundle.Prompt, "Use slides tools.") {
+		t.Fatalf("expected only site instructions, got %q", selectedBundle.Prompt)
+	}
+}
+
+func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing.T) {
+	testCases := []struct {
+		suffix            string
+		expectedSkillName string
+	}{
+		{suffix: ".docx", expectedSkillName: "docx"},
+		{suffix: ".pptx", expectedSkillName: "simple-slides"},
+		{suffix: ".xlsx", expectedSkillName: "xlsx"},
+		{suffix: ".pdf", expectedSkillName: "pdf"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.suffix, func(t *testing.T) {
+			instructionBundle := InstructionBundle{
+				Skills: []SkillInstruction{
+					{Name: "docx", Description: "Create Word documents.", Prompt: "Use docx tools.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"}},
+					{Name: "simple-slides", Description: "Create slide decks.", Prompt: "Use slides tools.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"}},
+					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Use xlsx tools.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
+					{Name: "pdf", Description: "Create PDFs.", Prompt: "Use pdf tools.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
+					{Name: "site-prototype", Description: "Create websites.", Prompt: "Use site tools.", AllowedTools: []string{"site.app.create", "site.app.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
+				},
+			}
+
+			selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+				Prompt:    "첨부파일로 줘",
+				WorkKinds: []string{WorkKindFileDelivery},
+				ToolSet: testToolSet([]string{
+					"terminal.run",
+					"file.write",
+					"file.attach",
+					"site.app.create",
+					"site.app.publish",
+				}),
+				ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+					RequiredEvidenceTools:      []string{"file.attach"},
+					RequiredAttachmentSuffixes: []string{testCase.suffix},
+				}},
+			}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
+
+			if !skillDecisionHasStatus(selectedBundle.SkillDecisions, testCase.expectedSkillName, "selected") {
+				t.Fatalf("expected %s selected for %s, got %+v", testCase.expectedSkillName, testCase.suffix, selectedBundle.SkillDecisions)
+			}
+			if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
+				t.Fatalf("expected unrelated site skill skipped for file attachment contract, got %+v", selectedBundle.SkillDecisions)
+			}
+		})
+	}
+}
+
+func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:         "enterprise-document-maker",
+				Description:  "Create, edit, promote, and attach Word documents in .docx format for business reports.",
+				WhenToUse:    "Use for Word, docx, 워드, 보고서, and document deliverables.",
+				Prompt:       "Use document artifact tools.",
+				AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.attach"},
+				Completion: SkillCompletion{
+					RequiredEvidenceTools: []string{"file.promote", "file.attach"},
+				},
+				Source: InstructionSource{Path: "skills/enterprise-document-maker/SKILL.md", SkillName: "enterprise-document-maker"},
+			},
+			{
+				Name:         "public-web-builder",
+				Description:  "Create, update, build, and publish website prototypes with a public URL.",
+				WhenToUse:    "Use for website, homepage, landing page, web app, deploy, and publish requests.",
+				Prompt:       "Use web artifact tools.",
+				AllowedTools: []string{"file.write", "terminal.run", "site.app.create", "site.app.build", "site.app.publish"},
+				Source:       InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
+			},
+		},
+	}
+
+	fileBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:    "첨부파일로 줘",
+		WorkKinds: []string{WorkKindFileDelivery},
+		ToolSet: testToolSet([]string{
+			"terminal.run",
+			"file.write",
+			"file.promote",
+			"file.attach",
+			"site.app.create",
+			"site.app.build",
+			"site.app.publish",
+		}),
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredAttachmentSuffixes: []string{".docx"},
+		}},
+	}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
+
+	if !skillDecisionHasStatus(fileBundle.SkillDecisions, "enterprise-document-maker", "selected") {
+		t.Fatalf("expected metadata-declared document skill selected, got %+v", fileBundle.SkillDecisions)
+	}
+	if skillDecisionHasStatus(fileBundle.SkillDecisions, "public-web-builder", "selected") {
+		t.Fatalf("expected website skill skipped for docx attachment contract, got %+v", fileBundle.SkillDecisions)
+	}
+
+	siteBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:    "더 예쁜 웹사이트로 고쳐서 다시 배포해줘",
+		WorkKinds: []string{WorkKindSitePrototype},
+		ToolSet: testToolSet([]string{
+			"terminal.run",
+			"file.write",
+			"file.promote",
+			"file.attach",
+			"site.app.create",
+			"site.app.build",
+			"site.app.publish",
+		}),
+	}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
+
+	if !skillDecisionHasStatus(siteBundle.SkillDecisions, "public-web-builder", "selected") {
+		t.Fatalf("expected metadata-declared website skill selected, got %+v", siteBundle.SkillDecisions)
+	}
+	if skillDecisionHasStatus(siteBundle.SkillDecisions, "enterprise-document-maker", "selected") {
+		t.Fatalf("expected document skill skipped for website artifact contract, got %+v", siteBundle.SkillDecisions)
 	}
 }
 

@@ -46,7 +46,7 @@ func TestResolveLanguageModelProviderDefaultsToCapabilityLLM(t *testing.T) {
 	}
 }
 
-func TestResolveIntakeLanguageModelProviderUsesLowTierModel(t *testing.T) {
+func TestResolveIntakeLanguageModelProviderUsesReliableTaskTierModel(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.Agent.Intake.Enabled = true
 	runtimeConfiguration.Agent.Intake.ExecutionMode = "auto"
@@ -65,14 +65,33 @@ func TestResolveIntakeLanguageModelProviderUsesLowTierModel(t *testing.T) {
 		t.Fatalf("expected fallback capability intake provider, got %T", fallbackLanguageModelProvider.FallbackProvider)
 	}
 	expectedTierNames := llm.ResolveModelTierNames(deriveLanguageModelRuntimeConfiguration(runtimeConfiguration))
-	if primaryClient.ModelName != expectedTierNames.XLow {
-		t.Fatalf("expected xlow tier intake model %q, got %q", expectedTierNames.XLow, primaryClient.ModelName)
+	if primaryClient.ModelName != expectedTierNames.Medium {
+		t.Fatalf("expected medium tier intake model %q, got %q", expectedTierNames.Medium, primaryClient.ModelName)
 	}
-	if fallbackClient.ModelName != expectedTierNames.Low {
-		t.Fatalf("expected low tier intake fallback model %q, got %q", expectedTierNames.Low, fallbackClient.ModelName)
+	if fallbackClient.ModelName != expectedTierNames.High {
+		t.Fatalf("expected high tier intake fallback model %q, got %q", expectedTierNames.High, fallbackClient.ModelName)
 	}
 	if primaryClient.ExecutionMode != "auto" || fallbackClient.ExecutionMode != "auto" {
 		t.Fatalf("expected automatic intake execution mode, got %q and %q", primaryClient.ExecutionMode, fallbackClient.ExecutionMode)
+	}
+}
+
+func TestResolveIntakeLanguageModelProviderUsesExplicitModel(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Agent.Intake.Enabled = true
+	runtimeConfiguration.Agent.Intake.Model = "x-ai/grok-4.3"
+
+	languageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, newCapabilityClient(runtimeConfiguration), nil)
+	fallbackLanguageModelProvider, isFallbackProvider := languageModelProvider.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected fallback intake provider, got %T", languageModelProvider)
+	}
+	primaryClient, isPrimaryCapabilityClient := fallbackLanguageModelProvider.PrimaryProvider.(llm.CapabilityLLMClient)
+	if !isPrimaryCapabilityClient {
+		t.Fatalf("expected primary capability intake provider, got %T", fallbackLanguageModelProvider.PrimaryProvider)
+	}
+	if primaryClient.ModelName != "x-ai/grok-4.3" {
+		t.Fatalf("expected explicit intake model, got %q", primaryClient.ModelName)
 	}
 }
 
