@@ -117,12 +117,17 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 	candidateByName := skillCandidateByName(retrievalResult.SelectedCandidates)
 	candidateInstructions := visibleCandidateSkillInstructions(candidateSkillInstructions(instructionBundle.Skills, retrievalResult.SelectedCandidates), candidateByName, request.RequesterCircles)
 	dominantSkill := dominantArtifactSkill(request, candidateInstructions, candidateByName)
+	contractArbitration, hasContractArbitration := skillSearchQueryRouter.ArbitrateContractSkills(ctx, request, candidateInstructions, candidateByName)
+	contractSelectedSkillNames := stringSet(contractArbitration.SelectedSkillNames)
 	for _, skillInstruction := range candidateInstructions {
 		skillCandidate, isFound := candidateByName[skillInstruction.Name]
 		if !isFound {
 			continue
 		}
 		skillDecision := skillDecisionForCandidate(skillInstruction, skillCandidate, normalizedAgentProfileName(request.ProfileName))
+		if hasContractArbitration {
+			skillDecision = skillDecisionForArbitratedCandidate(skillInstruction, skillCandidate, contractSelectedSkillNames, normalizedAgentProfileName(request.ProfileName))
+		}
 		if skillDecision.Status == "selected" {
 			availabilityDecision := skillAvailabilityDecision(skillInstruction, request, normalizedAgentProfileName(request.ProfileName))
 			if availabilityDecision.Status == "skipped" && availabilityDecision.Reason != "no_trigger_matched" {
@@ -130,11 +135,11 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 				skillDecision.Score = skillCandidate.Score
 			}
 		}
-		if skillDecision.Status == "selected" && shouldSkipDominatedArtifactSkill(skillInstruction, skillCandidate, dominantSkill, request) {
+		if !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipDominatedArtifactSkill(skillInstruction, skillCandidate, dominantSkill, request) {
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "dominated_by_"+dominantSkill.Name, nil)
 			skillDecision.Score = skillCandidate.Score
 		}
-		if skillDecision.Status == "selected" && shouldSkipArtifactSkillOutsideContract(skillInstruction, skillCandidate, request) {
+		if !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipArtifactSkillOutsideContract(skillInstruction, skillCandidate, request) {
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "outside_artifact_contract", nil)
 			skillDecision.Score = skillCandidate.Score
 		}
@@ -440,6 +445,17 @@ func skillDecisionForCandidate(skillInstruction SkillInstruction, skillCandidate
 		Score:       skillCandidate.Score,
 		Source:      skillInstruction.Source,
 	}
+}
+
+func skillDecisionForArbitratedCandidate(skillInstruction SkillInstruction, skillCandidate SkillCandidate, selectedSkillNames map[string]bool, profileName string) SkillSelectionDecision {
+	if selectedSkillNames[skillInstruction.Name] {
+		skillDecision := selectedSkillDecision(skillInstruction, profileName, "contract_arbitration")
+		skillDecision.Score = skillCandidate.Score
+		return skillDecision
+	}
+	skillDecision := skippedSkillDecision(skillInstruction, profileName, "not_selected_by_contract_arbitration", nil)
+	skillDecision.Score = skillCandidate.Score
+	return skillDecision
 }
 
 func minimumSelectionScoreForCandidate(skillCandidate SkillCandidate) float64 {

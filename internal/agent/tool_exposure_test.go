@@ -474,6 +474,63 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 	}
 }
 
+func TestStepWorkingSetKeepsFileCreationToolsAfterAttachPathFailure(t *testing.T) {
+	toolSet := testToolSet([]string{
+		"file.preview",
+		"file.read",
+		"file.write",
+		"file.edit",
+		"file.patch",
+		"terminal.run",
+		"artifact.review",
+		"file.promote",
+		"file.attach",
+	})
+	request := requestWithStepWorkingSetTools(AgentTurnRequest{
+		Prompt:  "첨부파일로 줘",
+		ToolSet: toolSet,
+		AvailableSkills: []SkillInstruction{{
+			Name:         "enterprise-document-maker",
+			AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
+			Completion: SkillCompletion{
+				RequiredEvidenceTools: []string{"file.promote", "file.attach"},
+			},
+		}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "enterprise-document-maker", Status: "selected"}},
+		PinnedToolNames: []string{
+			"file.attach",
+		},
+		OutcomeContract: OutcomeContract{
+			ArtifactRequirement:        ArtifactRequirementRequired,
+			RequiredAttachmentSuffixes: []string{".docx"},
+			RequiredEvidenceTools:      []string{"file.attach"},
+			ExpectedResults: []ExpectedResult{{
+				ID:       "docx-guide",
+				Type:     ExpectedResultTypeFile,
+				Required: true,
+			}},
+		},
+	}, []turnObservation{
+		newFailureObservation("obs-001", "continue", "file.attach", "stat artifacts/guide.docx: no such file or directory", FailureInvalidInput, FailureCodes.InvalidInput, "file_attach"),
+	})
+	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundleFromTurnRequest(request), agentRequestFromTurnRequest(request), ExecutionPlan{}, false, request.OutcomeContract)
+	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
+	if !isDeterministic {
+		t.Fatal("expected pending file delivery tools to select deterministically")
+	}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundleFromTurnRequest(request), agentRequestFromTurnRequest(request), ExecutionPlan{}, false, request.OutcomeContract, selection, event)
+
+	for _, toolID := range []string{"file.write", "terminal.run", "file.promote", "file.attach"} {
+		if !containsString(request.PinnedToolNames, toolID) {
+			t.Fatalf("expected pending delivery pin %s, got %+v", toolID, request.PinnedToolNames)
+		}
+		if !filteredToolSet.IsAllowed(toolID) {
+			t.Fatalf("expected pending delivery tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
+		}
+	}
+}
+
 func TestRecoveryWorkingSetUsesActiveFailureHints(t *testing.T) {
 	toolSet := testToolSet([]string{"file.read", "file.write", "site.app.build", "site.app.publish", "skill.search", "tool.describe", "ask.confirm"})
 	instructionBundle := InstructionBundle{
