@@ -3,17 +3,24 @@ package agent
 import "strings"
 
 type workflowContract struct {
-	WorkKind                string
-	ActiveGoalToolPrefix    string
-	ToolNames               []string
-	PromptMatcher           func(workflowScope) bool
-	EvidenceTools           []workflowIntentEvidenceTool
-	DefaultEvidenceToolName string
+	WorkKind                  string
+	ActiveGoalToolPrefix      string
+	ToolNames                 []string
+	PromptMatcher             func(workflowScope) bool
+	EvidenceTools             []workflowIntentEvidenceTool
+	DefaultEvidenceToolName   string
+	EffectRequirements        []workflowIntentEffectRequirement
+	DefaultEffectRequirements []OutcomeEffect
 }
 
 type workflowIntentEvidenceTool struct {
 	ToolName string
 	Keywords []string
+}
+
+type workflowIntentEffectRequirement struct {
+	Requirements []OutcomeEffect
+	Keywords     []string
 }
 
 type workflowScope struct {
@@ -52,6 +59,37 @@ var workflowContracts = []workflowContract{
 			},
 		},
 		DefaultEvidenceToolName: "site.app.publish",
+		EffectRequirements: []workflowIntentEffectRequirement{
+			{
+				Requirements: []OutcomeEffect{{
+					ObjectType:         "website",
+					Effect:             "read",
+					Description:        "current request asks to inspect or return the existing website state",
+					SuggestedNextTools: []string{"site.app.status"},
+				}},
+				Keywords: []string{"상태", "확인", "조회", "주소", "링크", "url", "status", "inspect", "check", "link"},
+			},
+		},
+		DefaultEffectRequirements: []OutcomeEffect{
+			{
+				ObjectType:         "workspace",
+				Effect:             "modified",
+				Description:        "current request asks for a website change, so a successful source or workspace modification must be observed",
+				SuggestedNextTools: []string{"file.edit", "file.patch", "file.write", "site.app.create"},
+			},
+			{
+				ObjectType:         "website",
+				Effect:             "built",
+				Description:        "current request asks for a website change, so a successful current build must be observed",
+				SuggestedNextTools: []string{"site.app.build"},
+			},
+			{
+				ObjectType:         "website",
+				Effect:             "published",
+				Description:        "current request asks for a website change, so a successful current publish must be observed",
+				SuggestedNextTools: []string{"site.app.publish"},
+			},
+		},
 	},
 	{
 		WorkKind:             WorkKindCalendar,
@@ -175,6 +213,18 @@ func requiredWorkflowEvidenceToolsForRequest(request AgentRequest) []string {
 	return toolNames
 }
 
+func requiredWorkflowEffectRequirementsForRequest(request AgentRequest) []OutcomeEffect {
+	scope := workflowScopeFromAgentRequest(request)
+	requirements := []OutcomeEffect{}
+	for _, contract := range workflowContracts {
+		if !workflowScopeMatchesContract(scope, contract) {
+			continue
+		}
+		requirements = appendOutcomeEffects(requirements, workflowEffectRequirementsForScope(scope, contract)...)
+	}
+	return requirements
+}
+
 func workflowEvidenceHintMatchesRequest(toolName string, request AgentRequest) bool {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if trimmedToolName == "" {
@@ -228,6 +278,20 @@ func workflowEvidenceToolForScope(scope workflowScope, contract workflowContract
 	return contract.DefaultEvidenceToolName
 }
 
+func workflowEffectRequirementsForScope(scope workflowScope, contract workflowContract) []OutcomeEffect {
+	text := workflowScopeText(scope)
+	for _, effectRequirement := range contract.EffectRequirements {
+		if containsAny(text, effectRequirement.Keywords) {
+			return normalizeOutcomeEffects(effectRequirement.Requirements)
+		}
+	}
+	return normalizeOutcomeEffects(contract.DefaultEffectRequirements)
+}
+
+func appendOutcomeEffects(effects []OutcomeEffect, candidates ...OutcomeEffect) []OutcomeEffect {
+	return normalizeOutcomeEffects(append(append([]OutcomeEffect{}, effects...), candidates...))
+}
+
 func workflowScopeText(scope workflowScope) string {
 	return strings.ToLower(strings.Join(nonEmptyStrings([]string{
 		scope.Prompt,
@@ -261,6 +325,7 @@ func workflowTextLooksLikeSitePrototypeWork(scope workflowScope) bool {
 	}
 	return containsAny(text, []string{
 		"만들", "생성", "수정", "고쳐", "개선", "빌드", "배포", "공개", "퍼블리시",
-		"create", "build", "edit", "fix", "update", "publish", "deploy",
+		"예쁘", "낫게", "품질", "퀄리티", "create", "build", "edit", "fix",
+		"update", "publish", "deploy", "better", "prettier", "quality", "improve",
 	})
 }

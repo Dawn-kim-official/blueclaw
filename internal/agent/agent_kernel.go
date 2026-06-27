@@ -244,6 +244,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
+	intakeDecision.WorkKinds = appendUniqueStrings(intakeDecision.WorkKinds, deterministicWorkflowWorkKindsForRequest(intakeRequest)...)
+	intakeDecision.InitialToolNames = registeredToolNamesOnly(turnToolSet, appendUniqueStrings(intakeDecision.InitialToolNames, workflowToolNamesForWorkKinds(turnToolSet, intakeDecision.WorkKinds)...))
 	intakeDecision = promoteSitePrototypeEffort(intakeRequest, intakeDecision)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)

@@ -104,3 +104,62 @@ func TestWorkflowContractSelectsSitePrototypeEvidenceByIntent(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkflowContractRequiresSiteModificationEffectsByDefault(t *testing.T) {
+	toolSet := newTestToolSet([]string{"site.app.status", "file.edit", "file.patch", "file.write", "site.app.build", "site.app.publish"})
+	request := AgentRequest{
+		Prompt:    "예쁜 귤 웹사이트 퀄리티가 너무 낮아. 더 예쁘게 해줘.",
+		ToolSet:   toolSet,
+		WorkKinds: []string{WorkKindSitePrototype},
+	}
+
+	requirements := requiredWorkflowEffectRequirementsForRequest(request)
+
+	for _, expectedEffect := range []OutcomeEffect{
+		{ObjectType: "workspace", Effect: "modified"},
+		{ObjectType: "website", Effect: "built"},
+		{ObjectType: "website", Effect: "published"},
+	} {
+		if !outcomeEffectsContain(requirements, expectedEffect.ObjectType, expectedEffect.Effect) {
+			t.Fatalf("expected required effect %+v, got %+v", expectedEffect, requirements)
+		}
+	}
+}
+
+func TestWorkflowContractRequiresOnlySiteReadEffectForStatusIntent(t *testing.T) {
+	toolSet := newTestToolSet([]string{"site.app.status", "site.app.publish"})
+	request := AgentRequest{
+		Prompt:    "예쁜 귤 웹사이트 주소 확인해줘",
+		ToolSet:   toolSet,
+		WorkKinds: []string{WorkKindSitePrototype},
+	}
+
+	requirements := requiredWorkflowEffectRequirementsForRequest(request)
+
+	if len(requirements) != 1 || requirements[0].ObjectType != "website" || requirements[0].Effect != "read" {
+		t.Fatalf("expected only website read effect, got %+v", requirements)
+	}
+}
+
+func TestWorkflowContractDerivesSitePrototypeWorkKindForQualityRequest(t *testing.T) {
+	toolSet := newTestToolSet([]string{"site.app.status", "file.edit", "site.app.build", "site.app.publish"})
+	request := AgentRequest{
+		Prompt:  "예쁜 귤 웹사이트 퀄리티가 너무 낮잖아. 더 예쁘게 해줘.",
+		ToolSet: toolSet,
+	}
+
+	workKinds := deterministicWorkflowWorkKindsForRequest(request)
+
+	if !workKindsContain(workKinds, WorkKindSitePrototype) {
+		t.Fatalf("expected site prototype work kind, got %+v", workKinds)
+	}
+}
+
+func outcomeEffectsContain(effects []OutcomeEffect, objectType string, effect string) bool {
+	for _, observedEffect := range effects {
+		if observedEffect.ObjectType == objectType && observedEffect.Effect == effect {
+			return true
+		}
+	}
+	return false
+}

@@ -68,9 +68,9 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 	case "file.promote":
 		return filePathObservationFacts(observation, "file", "made_durable")
 	case "file.write":
-		return filePathObservationFacts(observation, "file", "created")
+		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "created"))
 	case "file.edit", "file.patch":
-		return filePathObservationFacts(observation, "file", "updated")
+		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "updated"))
 	case "calendar.event.add":
 		return toolObjectFact(observation, "calendar_event", "scheduled")
 	case "calendar.event.update":
@@ -90,7 +90,7 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 	case "site.app.publish":
 		return siteObservationFacts(observation, "published")
 	case "site.app.create":
-		return siteObservationFacts(observation, "created")
+		return append(siteObservationFacts(observation, "created"), siteWorkspaceModifiedFacts(observation)...)
 	case "site.app.build":
 		return siteObservationFacts(observation, "built")
 	case "site.app.status":
@@ -145,6 +145,24 @@ func filePathObservationFacts(observation turnObservation, objectType string, ef
 	}}
 }
 
+func appendWorkspaceModifiedFact(facts []ObservedFact) []ObservedFact {
+	nextFacts := append([]ObservedFact{}, facts...)
+	for _, fact := range facts {
+		nextFacts = append(nextFacts, ObservedFact{
+			ObjectType:    "workspace",
+			Effect:        "modified",
+			Visibility:    fact.Visibility,
+			Durability:    fact.Durability,
+			ObservationID: fact.ObservationID,
+			ToolName:      fact.ToolName,
+			Path:          fact.Path,
+			Filename:      fact.Filename,
+			Summary:       fact.Summary,
+		})
+	}
+	return nextFacts
+}
+
 func toolObjectFact(observation turnObservation, objectType string, effect string) []ObservedFact {
 	document := observationOutputDocument(observation)
 	return []ObservedFact{{
@@ -186,6 +204,25 @@ func siteStatusFacts(observation turnObservation) []ObservedFact {
 	return facts
 }
 
+func siteWorkspaceModifiedFacts(observation turnObservation) []ObservedFact {
+	document := observationOutputDocument(observation)
+	path := firstNonEmptyString(stringValue(document["appWorkspacePath"]), stringValue(document["sourceWorkspacePath"]), stringValue(document["workspacePath"]))
+	if path == "" {
+		return nil
+	}
+	return []ObservedFact{{
+		ObjectType:    "workspace",
+		Effect:        "modified",
+		Visibility:    fileVisibility(path),
+		Durability:    fileDurability(path),
+		ObservationID: observation.ObservationID,
+		ToolName:      observation.Tool,
+		Path:          path,
+		Filename:      filepath.Base(filepath.ToSlash(path)),
+		Summary:       truncateProjectionSummary(observation.Summary),
+	}}
+}
+
 func siteStatusIsPublished(statusText string) bool {
 	normalizedStatus := strings.ToLower(strings.TrimSpace(statusText))
 	if normalizedStatus == "" || strings.Contains(normalizedStatus, "unpublish") {
@@ -214,10 +251,13 @@ func appendObservedAttachmentFacts(facts []ObservedFact, attachments []FileAttac
 
 func missingRequirementsForFinishClaims(request AgentTurnRequest, facts []ObservedFact, actionDocument turnActionDocument) []ProjectionMissingRequirement {
 	message := finishActionMessage(actionDocument)
-	if strings.TrimSpace(actionDocument.Action) != "finish" || strings.TrimSpace(message) == "" {
+	if strings.TrimSpace(actionDocument.Action) != "finish" {
 		return nil
 	}
-	requirements := claimedRequirementsFromFinishMessage(request, message)
+	requirements := requiredProjectionRequirementsFromContract(request)
+	if strings.TrimSpace(message) != "" {
+		requirements = append(requirements, claimedRequirementsFromFinishMessage(request, message)...)
+	}
 	missingRequirements := []ProjectionMissingRequirement{}
 	for _, requirement := range requirements {
 		if projectionHasObservedFact(facts, requirement.ObjectType, requirement.Effect) {
@@ -226,6 +266,18 @@ func missingRequirementsForFinishClaims(request AgentTurnRequest, facts []Observ
 		missingRequirements = append(missingRequirements, requirement)
 	}
 	return missingRequirements
+}
+
+func requiredProjectionRequirementsFromContract(request AgentTurnRequest) []ProjectionMissingRequirement {
+	requirements := []ProjectionMissingRequirement{}
+	for _, effect := range normalizeOutcomeEffects(request.OutcomeContract.RequiredEffects) {
+		description := effect.Description
+		if description == "" {
+			description = "finish is missing required observed effect " + effect.ObjectType + "/" + effect.Effect
+		}
+		requirements = append(requirements, projectionRequirement(request, description, effect.ObjectType, effect.Effect, effect.SuggestedNextTools))
+	}
+	return deduplicateProjectionRequirements(requirements)
 }
 
 func claimedRequirementsFromFinishMessage(request AgentTurnRequest, message string) []ProjectionMissingRequirement {
