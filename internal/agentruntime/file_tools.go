@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"mime"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -47,7 +46,6 @@ type filePreviewToolInput struct {
 type fileWriteToolInput struct {
 	Path    string `json:"path"`
 	Content string `json:"content"`
-	Mode    uint32 `json:"mode"`
 }
 
 type fileEditToolInput struct {
@@ -99,7 +97,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				UseWhen:    "A source file, design document, script, or generated text artifact must be created or replaced.",
 				AvoidWhen:  "You only need to inspect files, append shell output, or run commands; do not pass escaped newline sequences when writing multiline source.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."},"mode":{"type":"number","description":"Optional POSIX file mode."}},"required":["path","content"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."}},"required":["path","content"]}`),
 		},
 		Handler: func(toolContext context.Context, input fileWriteToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.writeFileTool(toolContext, input, handlerContext)
@@ -227,10 +225,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_write", "current account cannot write this file"), nil
 	}
-	fileMode := workspaceFileCreateMode(resolvedPath)
-	if input.Mode != 0 {
-		fileMode = os.FileMode(input.Mode)
-	}
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
 	if actorFailure != nil {
 		return *actorFailure, nil
@@ -238,7 +232,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	if errorValue := workspaceActor.MkdirAll(toolContext, resolvedPath.Parent(), workspaceDirectoryCreateMode(resolvedPath.Parent())); errorValue != nil {
 		return actorToolFailure("mkdir_all", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
-	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), fileMode); errorValue != nil {
+	if errorValue := workspaceActor.WriteFile(toolContext, resolvedPath, []byte(input.Content), workspaceFileCreateMode(resolvedPath)); errorValue != nil {
 		return actorToolFailure("write_file", "file_write", resolvedPath.VirtualPath, errorValue), nil
 	}
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
