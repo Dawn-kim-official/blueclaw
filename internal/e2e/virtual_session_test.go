@@ -183,6 +183,26 @@ func TestToolPermissionScenarioReturnsPlannedFallback(t *testing.T) {
 	}
 }
 
+func TestFileWriteLegacyModeAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), FileWriteLegacyModeAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected legacy mode scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if turnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
+	}
+	if countEvents(turnResult.Events, "tool.file.write.requested") != 1 {
+		t.Fatalf("expected one file.write request, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 1 {
+		t.Fatalf("expected one terminal.run request, got events: %s", summarizeEvents(turnResult.Events))
+	}
+	if eventsContain(turnResult.Events, "tool.terminal.run.result", "permission denied") {
+		t.Fatalf("terminal.run must not hit permission denied; events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
 func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 	result, errorValue := RunVirtualSession(context.Background(), AmbientTaskCaptureAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {

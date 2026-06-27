@@ -389,6 +389,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return WebSearchAcceptanceScenario(artifactDirectoryPath), nil
 	case "tool_permission_hides_skill":
 		return ToolPermissionHidesSkillScenario(artifactDirectoryPath), nil
+	case "file_write_legacy_mode_acceptance":
+		return FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath), nil
 	case "gws_disabled":
 		return GWSDisabledScenario(artifactDirectoryPath), nil
 	case "schedule_create_acceptance":

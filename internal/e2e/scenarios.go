@@ -130,6 +130,35 @@ func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessi
 	}
 }
 
+func FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "file_write_legacy_mode_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		RouterWorkKinds:       []string{agent.WorkKindCoding},
+		AllowedTools:          []string{"file.write", "terminal.run"},
+		InitialToolNames:      []string{"file.write", "terminal.run"},
+		Turns: []VirtualTurn{{
+			Prompt: "중간 JSON 파일을 만들고 터미널에서 읽히는지 확인해줘.",
+			ActionResponses: []string{
+				actionCallTool("file.write", `{"path":"tmp/docx-guide/document.json","content":"{\"title\":\"readable\"}\n","mode":644}`),
+				actionCallTool("terminal.run", `{"workingDirectoryPath":"tmp/docx-guide","command":"cat document.json","timeoutSecond":30}`),
+				actionFinishMessage("파일을 생성하고 터미널에서 읽히는 것을 확인했습니다.", "obs-002:terminal.run:0"),
+			},
+			ExpectedToolCalls: []string{"file.write", "terminal.run"},
+			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
+				PathGlob:          "private/people/person-1/tmp/*/docx-guide/document.json",
+				ContainsFragments: []string{"readable"},
+			}},
+			ExpectedReplyFragments: []string{"확인"},
+			ForbiddenReplyFragments: []string{
+				"permission denied",
+				"권한",
+				"완료하지 못",
+			},
+		}},
+	}
+}
+
 func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	attachment := connectors.InputAttachment{
 		Platform:    "mattermost",

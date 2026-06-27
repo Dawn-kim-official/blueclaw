@@ -1378,6 +1378,62 @@ func TestFileWriteAndTerminalRunShareRequesterWorkspaceActorView(t *testing.T) {
 	}
 }
 
+func TestFileWriteIgnoresLegacyModeAndKeepsTaskDraftReadable(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+	toolContext := agent.WithTaskRunID(context.Background(), "run-mode-regression")
+
+	writeResult, errorValue := toolRegistry.Invoke(toolContext, agent.ToolInvocation{
+		ToolName: "file.write",
+		Input: agent.MarshalToolInput(map[string]any{
+			"path":    "tmp/docx-guide/document.json",
+			"content": `{"title":"readable"}`,
+			"mode":    644,
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if writeResult.Failed() {
+		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
+	}
+
+	runResult, errorValue := toolRegistry.Invoke(toolContext, agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"workingDirectoryPath": "tmp/docx-guide",
+			"command":              "cat document.json",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runResult.Failed() {
+		t.Fatalf("expected terminal.run to read file.write output, got %s", runResult.ContentText())
+	}
+	if !strings.Contains(runResult.ContentText(), "readable") {
+		t.Fatalf("expected terminal output to include written content, got %s", runResult.ContentText())
+	}
+
+	documentPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "run-mode-regression", "docx-guide", "document.json")
+	fileInformation, errorValue := os.Stat(documentPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if fileInformation.Mode().Perm() != 0600 {
+		t.Fatalf("expected runtime default private mode 0600, got %04o", fileInformation.Mode().Perm())
+	}
+}
+
 func TestFileWriteWithoutRequesterIdentityDoesNotFallbackToServiceUser(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
