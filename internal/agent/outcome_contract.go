@@ -336,39 +336,15 @@ func stringSet(values []string) map[string]bool {
 }
 
 func universalAgentToolNames() []string {
-	toolNames := append([]string{}, coreAgentToolNames()...)
-	toolNames = appendUniqueStrings(toolNames, DefaultSkillToolNames()...)
-	toolNames = appendUniqueStrings(toolNames, genericBuiltInToolNames()...)
-	return toolNames
+	return KernelToolNames()
 }
 
 func coreAgentToolNames() []string {
-	return []string{"skill.search", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"}
+	return KernelToolNames()
 }
 
 func genericBuiltInToolNames() []string {
-	return []string{
-		"math.calculate",
-		"web.search",
-		"web.fetch",
-		"terminal.run",
-		"terminal.session",
-		"browser_handoff.openURL",
-		"file.preview",
-		"file.read",
-		"file.write",
-		"file.edit",
-		"file.patch",
-		"file.promote",
-		"file.attach",
-		"calendar.event.add",
-		"calendar.event.delete",
-		"skill.add",
-		"skill.remove",
-		"schedule.create",
-		"schedule.update",
-		"schedule.cancel",
-	}
+	return KernelToolNames()
 }
 
 func selectedEvidenceHintTools(instructionBundle InstructionBundle) []string {
@@ -469,7 +445,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, "file.attach")
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, ArtifactDeliverToolName)
 	}
 	contract.ExpectedResults = expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, contract.RequiredEvidenceTools, requiredAttachmentSuffixes)
 	contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
@@ -609,7 +585,9 @@ func removePlatformMessageSendContract(contract OutcomeContract) OutcomeContract
 
 func removeImplicitSiteFileContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = nil
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, ArtifactDeliverToolName)
 	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "file.attach")
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, ArtifactDeliverToolName)
 	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "file.attach")
 	contract.ExpectedResults = removeExpectedResultsByType(contract.ExpectedResults, ExpectedResultTypeFile)
 	return contract
@@ -618,7 +596,7 @@ func removeImplicitSiteFileContract(contract OutcomeContract) OutcomeContract {
 func removeToolName(toolNames []string, removedToolName string) []string {
 	values := []string{}
 	for _, toolName := range toolNames {
-		if strings.TrimSpace(toolName) != removedToolName {
+		if !ToolNamesMatch(toolName, removedToolName) {
 			values = appendUniqueStrings(values, toolName)
 		}
 	}
@@ -711,7 +689,12 @@ func requestExpectsFileResult(requiredEvidenceTools []string, requiredAttachment
 	if len(requiredAttachmentSuffixes) > 0 {
 		return true
 	}
-	return stringSliceContains(requiredEvidenceTools, "file.attach")
+	for _, toolName := range requiredEvidenceTools {
+		if IsArtifactDeliveryTool(toolName) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendExpectedResults(results []ExpectedResult, additionalResults ...ExpectedResult) []ExpectedResult {
@@ -721,7 +704,7 @@ func appendExpectedResults(results []ExpectedResult, additionalResults ...Expect
 }
 
 func artifactRequirementForOutcomeContract(intakeDecision IntakeDecision, contract OutcomeContract) string {
-	if len(contract.RequiredAttachmentSuffixes) > 0 || stringSliceContains(contract.RequiredEvidenceTools, "file.attach") || evidenceAnyOfContainsTool(contract.RequiredEvidenceAnyOf, "file.attach") {
+	if len(contract.RequiredAttachmentSuffixes) > 0 || evidenceToolsContainArtifactDelivery(contract.RequiredEvidenceTools) || evidenceAnyOfContainsArtifactDelivery(contract.RequiredEvidenceAnyOf) {
 		return ArtifactRequirementRequired
 	}
 	if outcomeContractRequiresPublicLinkOnly(contract) {
@@ -754,6 +737,24 @@ func outcomeContractRequiresPublicLinkOnly(contract OutcomeContract) bool {
 func evidenceAnyOfContainsTool(groups [][]string, toolName string) bool {
 	for _, group := range groups {
 		if stringSliceContains(group, toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func evidenceToolsContainArtifactDelivery(toolNames []string) bool {
+	for _, toolName := range toolNames {
+		if IsArtifactDeliveryTool(toolName) {
+			return true
+		}
+	}
+	return false
+}
+
+func evidenceAnyOfContainsArtifactDelivery(groups [][]string) bool {
+	for _, group := range groups {
+		if evidenceToolsContainArtifactDelivery(group) {
 			return true
 		}
 	}
@@ -850,7 +851,7 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) {
 		return true
 	}
-	if trimmedToolName == "file.attach" {
+	if IsArtifactDeliveryTool(trimmedToolName) {
 		return len(requiredAttachmentSuffixes) > 0
 	}
 	if strings.HasPrefix(trimmedToolName, "site.app.") {
@@ -918,7 +919,7 @@ func activeGoalMentionsTool(activeGoal ActiveGoal, toolName string) bool {
 		return false
 	}
 	for _, activeToolName := range outcomeContractToolNames(activeGoal.OutcomeContract) {
-		if strings.TrimSpace(activeToolName) == normalizedToolName {
+		if ToolNamesMatch(activeToolName, normalizedToolName) {
 			return true
 		}
 	}
@@ -931,7 +932,7 @@ func activeGoalRequiresTool(activeGoal ActiveGoal, toolName string) bool {
 		return false
 	}
 	for _, activeToolName := range outcomeContractRequiredToolNames(activeGoal.OutcomeContract) {
-		if strings.TrimSpace(activeToolName) == normalizedToolName {
+		if ToolNamesMatch(activeToolName, normalizedToolName) {
 			return true
 		}
 	}

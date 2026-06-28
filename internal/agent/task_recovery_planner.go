@@ -18,7 +18,7 @@ func shouldRetryUnsupportedLocalArtifact(request AgentRequest, decision IntakeDe
 	if decision.HasWorkKind(WorkKindDestructiveAction) {
 		return false
 	}
-	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.promote", "file.attach"}) {
+	if !hasAllTools(request.ToolSet, []string{TerminalRunToolName, ArtifactDeliverToolName}) {
 		return false
 	}
 	return hasArtifactOutputFormat(decision.RequestedOutputFormats) ||

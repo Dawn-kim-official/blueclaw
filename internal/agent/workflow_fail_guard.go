@@ -43,16 +43,16 @@ func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []t
 	if !turnRequestLooksLikeFileDeliveryWork(request) {
 		return nil
 	}
-	if latestSuccessfulToolIndex(observations, []string{"file.attach"}) >= 0 {
+	if latestSuccessfulToolIndex(observations, []string{ArtifactDeliverToolName, "file.attach"}) >= 0 {
 		return nil
 	}
 	if latestSuccessfulToolIndex(observations, []string{"file.promote"}) >= 0 {
-		return availableWorkflowTools(request.ToolSet, []string{"file.attach"})
+		return availableWorkflowTools(request.ToolSet, []string{ArtifactDeliverToolName})
 	}
 	if latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "file.patch", "terminal.run"}) < 0 {
 		return nil
 	}
-	return availableWorkflowTools(request.ToolSet, []string{"terminal.run", "file.promote", "file.attach"})
+	return availableWorkflowTools(request.ToolSet, []string{"terminal.run", ArtifactDeliverToolName})
 }
 
 func turnRequestLooksLikeSitePrototypeWork(request AgentTurnRequest) bool {
@@ -73,6 +73,8 @@ func turnRequestLooksLikeFileDeliveryWork(request AgentTurnRequest) bool {
 	return workKindsContain(request.WorkKinds, WorkKindFileDelivery) ||
 		len(request.RequiredAttachmentSuffixes) > 0 ||
 		len(request.OutcomeContract.RequiredAttachmentSuffixes) > 0 ||
+		requiredEvidenceContains(request.RequiredEvidenceTools, ArtifactDeliverToolName) ||
+		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, ArtifactDeliverToolName) ||
 		requiredEvidenceContains(request.RequiredEvidenceTools, "file.attach") ||
 		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, "file.attach")
 }

@@ -20,6 +20,23 @@ func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
 	}
 }
 
+func TestWorkspacePathResolverMapsTemporaryDirectoryToRequesterDraft(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	resolvedPath, errorValue := resolver.ResolveDirectory("/tmp/capability", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "task-1", "capability")
+	if resolvedPath.ConcretePath != expectedConcretePath {
+		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
+	}
+	if resolvedPath.VirtualPath != "tmp/capability" {
+		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
+	}
+}
+
 func TestWorkspacePathResolverMapsVirtualHomeToRequesterPrivateRoot(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)

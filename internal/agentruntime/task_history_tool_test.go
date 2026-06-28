@@ -14,6 +14,7 @@ func newTaskHistoryTestRegistry(t *testing.T, requesterPersonID string) (*agent.
 	taskRunService := task.NewTaskRunService(task.NewTaskEventService())
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseTaskRunService(taskRunService)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"task.history"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: requesterPersonID,

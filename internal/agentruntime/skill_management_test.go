@@ -410,6 +410,7 @@ Use scripts/missing.sh when needed.
 func TestSkillManagementRejectsProductionServiceOwnedWorkspace(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath("/workspace")
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"skill.add"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{

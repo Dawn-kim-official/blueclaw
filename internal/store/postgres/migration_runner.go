@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -9,6 +10,7 @@ import (
 
 type MigrationRunner struct {
 	MigrationDirectoryPath string
+	Logger                 *slog.Logger
 }
 
 func (migrationRunner MigrationRunner) ListMigrationPath() ([]string, error) {

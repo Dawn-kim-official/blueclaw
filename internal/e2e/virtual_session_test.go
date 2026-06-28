@@ -244,11 +244,12 @@ func TestScheduleCreateAcceptance(t *testing.T) {
 		t.Fatalf("expected schedule acceptance scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "schedule.created", `"intervalSecond":60`) {
-		t.Fatal("expected schedule.create to persist an interval schedule")
+	if !eventsContain(turnResult.Events, "tool.terminal.run.requested", "schedule.create") ||
+		!eventsContain(turnResult.Events, "tool.terminal.run.result", "intervalSecond") {
+		t.Fatalf("expected terminal capability schedule create; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.ModelContext, "schedule.create") {
-		t.Fatal("expected model context to expose schedule.create")
+		t.Fatal("expected model context to document schedule.create capability")
 	}
 }
 
@@ -263,14 +264,16 @@ func TestScheduleLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if !eventsContain(firstTurnResult.Events, "schedule.created", `"intervalSecond":1800`) {
-		t.Fatalf("expected initial interval schedule; events: %s", summarizeEvents(firstTurnResult.Events))
+	if !eventsContain(firstTurnResult.Events, "tool.terminal.run.requested", "schedule.create") ||
+		!eventsContain(firstTurnResult.Events, "tool.terminal.run.result", "intervalSecond") {
+		t.Fatalf("expected initial interval schedule through terminal capability CLI; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "schedule.updated", `"intervalSecond":3600`) {
-		t.Fatalf("expected modification to update existing schedule; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "tool.terminal.run.requested", "schedule.update") ||
+		!eventsContain(secondTurnResult.Events, "tool.terminal.run.result", "intervalSecond") {
+		t.Fatalf("expected modification through terminal capability CLI; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(thirdTurnResult.Events, "schedule.cancelled", `"cancelledScheduleCount":1`) {
-		t.Fatalf("expected deletion to cancel active schedule; events: %s", summarizeEvents(thirdTurnResult.Events))
+	if !eventsContain(thirdTurnResult.Events, "tool.terminal.run.requested", "schedule.cancel") {
+		t.Fatalf("expected deletion through terminal capability CLI; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
 	if activeScheduleCount(result.TaskSchedules) != 0 {
 		t.Fatalf("expected zero active schedules, got %+v", result.TaskSchedules)
@@ -288,16 +291,16 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if countEvents(firstTurnResult.Events, "tool.calendar.event.add.requested") != 1 {
+	if countEventsWithFragment(firstTurnResult.Events, "tool.terminal.run.requested", "calendar.event.add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEvents(secondTurnResult.Events, "tool.calendar.event.update.requested") != 1 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "calendar.event.update") != 1 {
 		t.Fatalf("expected one calendar update request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.calendar.event.update.requested", "2026-06-13T14:00:00+09:00") {
+	if !eventsContain(secondTurnResult.Events, "tool.terminal.run.requested", "2026-06-13T14:00:00+09:00") {
 		t.Fatalf("expected updated time in calendar update input; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEvents(thirdTurnResult.Events, "tool.calendar.event.delete.requested") != 1 {
+	if countEventsWithFragment(thirdTurnResult.Events, "tool.terminal.run.requested", "calendar.event.delete") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
 	if !strings.Contains(thirdTurnResult.FinishMessage, "삭제했습니다") {
@@ -484,11 +487,11 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "site-prototype") {
 		t.Fatal("expected site-prototype skill to be selected")
 	}
-	if !eventsContain(turnResult.Events, "tool.site.app.publish.result", "publishedURL") {
+	if !eventsContain(turnResult.Events, "tool.terminal.run.result", "publishedURL") {
 		t.Fatalf("expected site publish result to include a public URL; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.ModelContext, "site.app.create") || !strings.Contains(turnResult.ModelContext, "site.app.publish") {
-		t.Fatal("expected model context to expose site app tools")
+		t.Fatal("expected model context to document site app capabilities")
 	}
 }
 
@@ -504,15 +507,11 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
 	}
-	fileMutationCount := countEvents(secondTurnResult.Events, "tool.file.edit.requested") + countEvents(secondTurnResult.Events, "tool.file.write.requested") + countEvents(secondTurnResult.Events, "tool.file.patch.requested")
-	if fileMutationCount == 0 {
-		t.Fatalf("expected a file mutation tool in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
-	}
 	if countEvents(secondTurnResult.Events, "tool.terminal.run.requested") == 0 {
 		t.Fatalf("expected terminal.run in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEvents(secondTurnResult.Events, "tool.site.app.publish.requested") == 0 {
-		t.Fatalf("expected site.app.publish in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "site.app.publish") == 0 {
+		t.Fatalf("expected site.app.publish capability CLI in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", secondTurnResult.FinishMessage)

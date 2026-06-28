@@ -264,10 +264,10 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 	if !allMissingRequirementsAreFileAttachments(requirements, state.Requirements) {
 		return completionActionContinueWork
 	}
-	if request.ToolSet == nil || !request.ToolSet.IsAllowed("file.attach") {
+	if request.ToolSet == nil || !request.ToolSet.IsAllowed(ArtifactDeliverToolName) {
 		return completionActionBlockedMissingTool
 	}
-	if hasFailedFileAttachForPaths(observations, state.AttachmentPaths) {
+	if hasFailedArtifactDeliveryForPaths(observations, state.AttachmentPaths) {
 		return completionActionContinueWork
 	}
 	if requiredArtifactsSatisfyMissingFileAttachments(state.Requirements, state.ExistingArtifacts) {
@@ -351,16 +351,16 @@ func allRequirementsAreFileAttachments(requirements []toolUseRequirement) bool {
 		return false
 	}
 	for _, requirement := range requirements {
-		if requirement.ToolName != "file.attach" || !requirement.RequiresAttachment {
+		if !IsArtifactDeliveryTool(requirement.ToolName) || !requirement.RequiresAttachment {
 			return false
 		}
 	}
 	return true
 }
 
-func hasFailedFileAttachForPaths(observations []turnObservation, paths []string) bool {
+func hasFailedArtifactDeliveryForPaths(observations []turnObservation, paths []string) bool {
 	for _, observation := range observations {
-		if !observation.Failed() || strings.TrimSpace(observation.Tool) != "file.attach" {
+		if !observation.Failed() || !IsArtifactDeliveryTool(observation.Tool) {
 			continue
 		}
 		if observationContentContainsAllPaths(observation.ContentText(), paths) {
@@ -387,7 +387,7 @@ func allMissingRequirementsAreFileAttachments(requirements []toolUseRequirement,
 		if state.Satisfied {
 			continue
 		}
-		if index >= len(requirements) || requirements[index].ToolName != "file.attach" || !requirements[index].RequiresAttachment {
+		if index >= len(requirements) || !IsArtifactDeliveryTool(requirements[index].ToolName) || !requirements[index].RequiresAttachment {
 			return false
 		}
 	}
@@ -418,7 +418,7 @@ func requiredFileAttachmentSuffixes(requirements []toolUseRequirement) []string 
 	suffixes := []string{}
 	seenSuffix := map[string]bool{}
 	for _, requirement := range requirements {
-		if requirement.ToolName != "file.attach" || !requirement.RequiresAttachment {
+		if !IsArtifactDeliveryTool(requirement.ToolName) || !requirement.RequiresAttachment {
 			continue
 		}
 		for _, suffix := range requirement.AttachmentSuffixes {

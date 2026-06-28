@@ -32,7 +32,6 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	if allowQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
 	}
-	variants = append(variants, requestToolsActionSchema())
 	for _, toolDefinition := range toolDefinitions {
 		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
 			continue
@@ -45,25 +44,6 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 		return fallbackActionSchema()
 	}
 	return string(document)
-}
-
-func requestToolsActionSchema() map[string]any {
-	toolNamesSchema := stringArraySchema(0)
-	toolNamesSchema["description"] = "Registered tool names only, such as file.attach or terminal.run. Do not include generated alias names such as file_attach."
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":               enumStringSchema("tool.request"),
-			"toolNames":            toolNamesSchema,
-			"skillNames":           stringArraySchema(0),
-			"reason":               stringSchema(),
-			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
-			"goalSatisfied":        booleanSchema(),
-			"remainingWork":        stringSchema(),
-			"executionStateUpdate": executionStateSchema(),
-		},
-		"required": []string{"action", "toolNames", "skillNames", "executionStateUpdate"},
-	}
 }
 
 func finishActionSchema(hasFailureDebt bool) map[string]any {
@@ -173,8 +153,6 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 }
 
 func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
-	requestToolsSchema := stringArraySchema(0)
-	requestToolsSchema["description"] = "Registered tool names only, such as file.attach or terminal.run. Do not include generated alias names such as file_attach."
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -187,8 +165,6 @@ func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 			"goalSatisfied":        booleanSchema(),
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
-			"requestTools":         requestToolsSchema,
-			"requestSkills":        stringArraySchema(0),
 		},
 		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate"},
 	}

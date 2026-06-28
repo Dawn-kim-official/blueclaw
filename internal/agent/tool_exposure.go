@@ -65,14 +65,6 @@ func buildToolSelectionRequest(toolSet *ToolSet, instructionBundle InstructionBu
 }
 
 func deterministicToolSelectionDecision(request toolSelectionRequest) (ToolSelectionDecision, ToolExposureEvent, bool) {
-	if recoveryTools := firstGroupToolIDs(request.CandidateGroups, "G4 recovery/pinned candidates"); len(recoveryTools) > 0 {
-		selection, event := deterministicToolSelection(recoveryTools, "pinned or recovery tools are needed for the next step")
-		return selection, event, true
-	}
-	if materialTools := visibleContextMaterialReadToolNames(request.VisibleContext); len(materialTools) > 0 {
-		selection, event := deterministicToolSelection(materialTools, "visible attachment materials can be read by materialID")
-		return selection, event, true
-	}
 	return ToolSelectionDecision{}, ToolExposureEvent{}, false
 }
 
@@ -100,48 +92,26 @@ func firstGroupToolIDs(groups []toolExposureGroup, groupName string) []string {
 
 func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
 	return []toolExposureGroup{
-		filterGroupTools(toolSet, toolExposureGroup{Name: "G1 control-core", ToolIDs: []string{"skill.search"}}),
-		filterGroupTools(toolSet, toolExposureGroup{Name: "G2 interaction-core", ToolIDs: []string{"ask.choice", "ask.input", "memory.search"}}),
-		filterGroupTools(toolSet, toolExposureGroup{Name: "G3 memory-context-core", ToolIDs: []string{"conversation.history", "memory.remember"}}),
+		filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()}),
 	}
 }
 
 func collectOptionalCandidateGroups(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, observations []turnObservation) []toolExposureGroup {
-	return []toolExposureGroup{
-		filterGroupTools(toolSet, toolExposureGroup{Name: "G4 recovery/pinned candidates", ToolIDs: recoveryPinnedToolNames(instructionBundle, request, observations)}),
-	}
+	return nil
 }
 
 func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selection ToolSelectionDecision, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
 	if toolSet == nil {
 		return nil, selectionEvent
 	}
-	recentObservations := []turnObservation{}
-	if len(observations) > 0 {
-		recentObservations = observations[0]
-	}
-	coreGroups := collectCoreGroups(toolSet)
-	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, recentObservations)
-	selectedGroup := selectedOptionalGroup(selection.SelectedToolIDs, candidateGroups)
-	if len(selectedGroup.ToolIDs) == 0 {
-		selectedGroup = selectedRegisteredToolGroup(toolSet, selection.SelectedToolIDs)
-	}
-	selectionEvent.ValidSelectedToolIDs = append([]string{}, selectedGroup.ToolIDs...)
-
-	groups := []toolExposureGroup{}
-	if len(selectedGroup.ToolIDs) > 0 {
-		groups = append(groups, selectedGroup)
-		if selectionEvent.SelectionSource != "deterministic" {
-			groups = append(groups, coreGroups...)
-		}
-	} else {
-		selectionEvent.UsedFallbackGroups = true
-		groups = fallbackToolExposureGroups(coreGroups, candidateGroups)
-	}
-
-	exposedToolIDs, droppedGroups := applyGroupCap(groups, maxSchemaCallableToolCount)
+	kernelGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()})
+	exposedToolIDs := stableUniqueToolIDs(kernelGroup.ToolIDs)
+	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, "fixed_kernel")
+	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, "Blueclaw exposes the same six kernel tools on every turn")
+	selectionEvent.ValidSelectedToolIDs = nil
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
-	selectionEvent.DroppedGroups = droppedGroups
+	selectionEvent.DroppedGroups = nil
+	selectionEvent.UsedFallbackGroups = false
 	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
 }
 
@@ -237,7 +207,7 @@ func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGro
 }
 
 func toolIsModelCallable(toolID string) bool {
-	return strings.TrimSpace(toolID) != "ask.confirm"
+	return strings.TrimSpace(toolID) != ""
 }
 
 func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {

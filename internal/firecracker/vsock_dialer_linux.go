@@ -9,6 +9,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func DefaultGuestConnectionDialer(healthContext context.Context, vsockUnixSocketPath string, healthPortOrService string) (GuestConnection, error) {
@@ -20,6 +21,10 @@ func DefaultGuestConnectionDialer(healthContext context.Context, vsockUnixSocket
 	var dialer net.Dialer
 	connection, errorValue := dialer.DialContext(healthContext, "unix", vsockUnixSocketPath)
 	if errorValue != nil {
+		return nil, errorValue
+	}
+	if errorValue = connection.SetDeadline(soonestDeadline(time.Now(), healthContext, firecrackerVSockOperationTimeout)); errorValue != nil {
+		_ = connection.Close()
 		return nil, errorValue
 	}
 
@@ -37,6 +42,10 @@ func DefaultGuestConnectionDialer(healthContext context.Context, vsockUnixSocket
 	if !strings.HasPrefix(response, "OK ") {
 		_ = connection.Close()
 		return nil, fmt.Errorf("firecracker vsock connect failed: %s", strings.TrimSpace(response))
+	}
+	if errorValue = connection.SetDeadline(time.Time{}); errorValue != nil {
+		_ = connection.Close()
+		return nil, errorValue
 	}
 
 	return firecrackerGuestConnection{Conn: connection, Reader: reader}, nil

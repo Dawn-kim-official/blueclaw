@@ -43,7 +43,7 @@ func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {
 		requirements = append(requirements, toolUseRequirement{
 			ToolName:                   trimmedToolName,
 			Reason:                     "selected workflow requires completion evidence",
-			RequiresAttachment:         strings.HasSuffix(trimmedToolName, ".attach"),
+			RequiresAttachment:         IsArtifactDeliveryTool(trimmedToolName),
 			RequiresSideEffectEvidence: requiredEvidenceToolNeedsSuccessfulSideEffect(request.ToolSet, trimmedToolName),
 			AttachmentSuffixes:         attachmentSuffixesForEvidenceTool(trimmedToolName, request.RequiredAttachmentSuffixes),
 		})
@@ -61,7 +61,7 @@ func requiredEvidenceToolNeedsSuccessfulSideEffect(toolSet *ToolSet, toolName st
 }
 
 func attachmentSuffixesForEvidenceTool(toolName string, suffixes []string) []string {
-	if !strings.HasSuffix(toolName, ".attach") {
+	if !IsArtifactDeliveryTool(toolName) {
 		return nil
 	}
 	trimmedSuffixes := []string{}

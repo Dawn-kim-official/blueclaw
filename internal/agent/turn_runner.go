@@ -1039,19 +1039,27 @@ func (agentTurnRunner *AgentTurnRunner) applyInlineToolRequest(taskRunID string,
 }
 
 func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnObservation) []string {
-	if !expectedResultRequiresFileAttachment(request.OutcomeContract) || hasSuccessfulToolObservation(observations, "file.attach") {
+	if !expectedResultRequiresFileAttachment(request.OutcomeContract) || hasSuccessfulArtifactDeliveryObservation(observations) {
 		return nil
 	}
 	return availableFileDeliveryToolNames(request)
 }
 
 func availableFileDeliveryToolNames(request AgentTurnRequest) []string {
-	toolNames := selectedSkillFileDeliveryToolNames(request)
-	toolNames = appendUniqueStrings(toolNames, "file.preview", "file.read", "file.write", "file.edit", "file.patch", "terminal.run", "artifact.review", "file.promote", "file.attach")
+	toolNames := []string{TerminalRunToolName, ArtifactDeliverToolName, SkillSearchToolName}
 	if request.ToolSet == nil {
 		return toolNames
 	}
 	return registeredToolNamesOnly(request.ToolSet, toolNames)
+}
+
+func hasSuccessfulArtifactDeliveryObservation(observations []turnObservation) bool {
+	for _, observation := range observations {
+		if !observation.Failed() && IsArtifactDeliveryTool(observation.Tool) {
+			return true
+		}
+	}
+	return false
 }
 
 func selectedSkillFileDeliveryToolNames(request AgentTurnRequest) []string {

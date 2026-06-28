@@ -852,9 +852,8 @@ func canRunFileArtifactWork(request AgentRequest) bool {
 	if request.ToolSet == nil {
 		return false
 	}
-	return request.ToolSet.IsAllowed("file.write") &&
-		request.ToolSet.IsAllowed("terminal.run") &&
-		request.ToolSet.IsAllowed("file.attach")
+	return request.ToolSet.IsAllowed(TerminalRunToolName) &&
+		request.ToolSet.IsAllowed(ArtifactDeliverToolName)
 }
 
 func deterministicPriorTaskReferenceForRequest(request AgentRequest) PriorTaskReference {
@@ -902,7 +901,7 @@ func deterministicTaskShape(request AgentRequest, classification IntakeClassific
 func deterministicInitialToolNamesForRequest(request AgentRequest, workKinds []string) []string {
 	toolNames := workflowToolNamesForWorkKinds(request.ToolSet, workKinds)
 	if workKindsContain(workKinds, WorkKindFileDelivery) {
-		toolNames = appendUniqueStrings(toolNames, "conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach")
+		toolNames = appendUniqueStrings(toolNames, TerminalRunToolName, ArtifactDeliverToolName, SkillSearchToolName)
 	}
 	return registeredToolNamesOnly(request.ToolSet, toolNames)
 }
@@ -1140,7 +1139,7 @@ func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decisio
 	if decision.HasWorkKind(WorkKindDestructiveAction) {
 		return false
 	}
-	if !hasAllTools(request.ToolSet, []string{"terminal.run", "file.write", "file.promote", "file.attach"}) {
+	if !hasAllTools(request.ToolSet, []string{TerminalRunToolName, ArtifactDeliverToolName}) {
 		return false
 	}
 	return decision.HasWorkKind(WorkKindSlidesArtifact) || decision.HasWorkKind(WorkKindFileDelivery)

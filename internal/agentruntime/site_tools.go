@@ -19,7 +19,7 @@ import (
 
 const (
 	siteSourceBundleMaximumBytes = 64 * 1024 * 1024
-	siteAppStatusToolDescription = "Inspect InternKim site status. Use scope=mine to list all requester-editable sites across conversations. Use checkLive=true to verify live HTTP reachability for published sites."
+	siteAppStatusToolDescription = "Inspect workspace site status. Use scope=mine to list all requester-editable sites across conversations. Use checkLive=true to verify live HTTP reachability for published sites."
 )
 
 type siteAppBuildToolInput struct {
@@ -46,7 +46,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSiteTools(toolRegistry *ag
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[siteAppBuildToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "site.app.build",
-			Description: "Build an editable InternKim site project from its canonical appWorkspacePath and return build evidence.",
+			Description: "Build an editable workspace site project from its canonical appWorkspacePath and return build evidence.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"},"appWorkspacePath":{"type":"string"},"timeoutSecond":{"type":"number"}}}`),
 		},
 		Handler: func(toolContext context.Context, input siteAppBuildToolInput) (agent.ToolResult, error) {
@@ -57,7 +57,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSiteTools(toolRegistry *ag
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[siteAppRepairToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "site.app.repair",
-			Description: "Repair a missing editable InternKim site workspace by recreating the canonical source/app scaffold without changing the published snapshot.",
+			Description: "Repair a missing editable workspace site by recreating the canonical source/app scaffold without changing the published snapshot.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"}}}`),
 		},
 		Handler: func(toolContext context.Context, input siteAppRepairToolInput) (agent.ToolResult, error) {
@@ -176,8 +176,8 @@ func siteBuildCommandFailureResult(buildResult agent.ToolResult, appWorkspace wo
 			RequiredPreconditions: []string{"source_changed"},
 			RecoveryHints: []agent.RecoveryHint{{
 				Action:    "edit_resource",
-				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
-				Reason:    "Inspect the source file named in the build error and fix it with file.edit or file.write, then run site.app.build again. If your own edit introduced the error, rewrite the file back to the last version you read. git, package managers, and other system executables are not available in this workspace, so do not call terminal.run to revert; restore the file content directly with file.write.",
+				ToolNames: []string{agent.TerminalRunToolName, agent.SkillSearchToolName},
+				Reason:    "Use the site skill's bundled scripts or the capability CLI to inspect and update the affected source, then rebuild with the site capability.",
 			}},
 			AffectedResources: siteBuildFailureAffectedResources(buildResult.ContentText(), appWorkspace),
 		}
@@ -313,8 +313,8 @@ func siteDeliveryBlockedBuildResult(result map[string]any) agent.ToolResult {
 			RequiredPreconditions: []string{"source_changed"},
 			RecoveryHints: []agent.RecoveryHint{{
 				Action:    "edit_resource",
-				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
-				Reason:    "Replace starter scaffold content in editableTargets, then run site.app.build again.",
+				ToolNames: []string{agent.TerminalRunToolName, agent.SkillSearchToolName},
+				Reason:    "Use the site skill's bundled scripts or capability CLI to replace starter scaffold content in editableTargets, then rebuild.",
 			}},
 			AffectedResources: siteDeliveryBlockedAffectedResources(result),
 		},
@@ -485,12 +485,9 @@ func siteQualityIssueContainsStarterMarker(issue map[string]any) bool {
 
 func siteTextContainsStarterMarker(value string) bool {
 	for _, marker := range []string{
-		"INTERNKIM_SITE_STARTER_REPLACE_ME",
 		"Replace this starter",
 		"Beautiful default scaffold",
-		"InternKim React prototype",
 		"Dependency-free site scaffold",
-		"InternKim site prototype loaded",
 	} {
 		if strings.Contains(value, marker) {
 			return true

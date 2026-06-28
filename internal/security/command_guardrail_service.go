@@ -535,6 +535,7 @@ func sanitizeEnvironmentVariables(environmentVariables map[string]string, worksp
 		"BUN_TMPDIR":                   true,
 		"BUN_INSTALL":                  true,
 		"BUN_INSTALL_CACHE_DIR":        true,
+		"CAPABILITY_BRIDGE_URL":        true,
 		"npm_config_cache":             true,
 	}
 

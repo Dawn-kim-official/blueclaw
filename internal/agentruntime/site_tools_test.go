@@ -253,8 +253,8 @@ func TestSiteDeliveryBlockedBuildResultCreatesRecoveryFailure(t *testing.T) {
 	if !containsTestString(result.Failure.RequiredPreconditions, "source_changed") {
 		t.Fatalf("expected source_changed precondition, got %+v", result.Failure.RequiredPreconditions)
 	}
-	if len(result.Failure.RecoveryHints) == 0 || !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "file.write") {
-		t.Fatalf("expected file.write recovery hint, got %+v", result.Failure.RecoveryHints)
+	if len(result.Failure.RecoveryHints) == 0 || !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "terminal.run") {
+		t.Fatalf("expected terminal.run recovery hint, got %+v", result.Failure.RecoveryHints)
 	}
 	if len(result.Failure.AffectedResources) != 1 || result.Failure.AffectedResources[0].Path != "/workspace/sites/site-1/app/src/App.tsx" {
 		t.Fatalf("expected affected source resource, got %+v", result.Failure.AffectedResources)
@@ -274,8 +274,8 @@ func TestSiteBuildCommandFailureClassifiesSourceSyntaxErrors(t *testing.T) {
 	if !containsTestString(result.Failure.RequiredPreconditions, "source_changed") {
 		t.Fatalf("expected source_changed precondition, got %+v", result.Failure.RequiredPreconditions)
 	}
-	if len(result.Failure.RecoveryHints) == 0 || !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "file.write") {
-		t.Fatalf("expected file.write recovery hint, got %+v", result.Failure.RecoveryHints)
+	if len(result.Failure.RecoveryHints) == 0 || !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "terminal.run") {
+		t.Fatalf("expected terminal.run recovery hint, got %+v", result.Failure.RecoveryHints)
 	}
 	if len(result.Failure.AffectedResources) != 1 || result.Failure.AffectedResources[0].Path != "/workspace/circles/staff/sites/site-1/draft/app/src/App.tsx" {
 		t.Fatalf("expected App.tsx affected resource, got %+v", result.Failure.AffectedResources)

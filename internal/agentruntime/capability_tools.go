@@ -154,15 +154,15 @@ func defaultCapabilityToolDescription(toolName string) string {
 	case "platform.message.search":
 		return "Search platform messages by scope, author, and queries. queries is an OR list; use one item for a single keyword. Returns compact messageIDs before previews. Use before deleting or editing messages described in natural language."
 	case "platform.message.delete":
-		return "Delete InternKim bot messages by exact messageIDs returned from platform.message.search. Deletes one selected page at a time and never searches internally."
+		return "Delete assistant bot messages by exact messageIDs returned from platform.message.search. Deletes one selected page at a time and never searches internally."
 	case "platform.message.send":
 		return "Send a platform message to a direct message, current thread, current channel, or named channel. Recipient resolution and ambiguity are handled by this tool."
 	case "platform.message.update":
-		return "Update an InternKim bot message text or pin state. Use only for platform messages that should be edited or pinned."
+		return "Update an assistant bot message text or pin state. Use only for platform messages that should be edited or pinned."
 	case "site.app.status":
 		return siteAppStatusToolDescription
 	default:
-		return "InternKim capability tool"
+		return "Workspace capability tool"
 	}
 }
 

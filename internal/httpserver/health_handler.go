@@ -36,7 +36,7 @@ type databaseHealth struct {
 }
 
 func (healthHandler HealthHandler) HandleHealth(responseWriter http.ResponseWriter, request *http.Request) {
-	ctx, cancel := context.WithTimeout(request.Context(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(request.Context(), 10*time.Second)
 	defer cancel()
 
 	response := healthHandler.health(ctx)

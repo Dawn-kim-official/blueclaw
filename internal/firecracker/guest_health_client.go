@@ -27,7 +27,10 @@ func (vsockGuestHealthClient VSockGuestHealthClient) CheckHealth(healthContext c
 		dialGuestConnection = DefaultGuestConnectionDialer
 	}
 
-	guestConnection, errorValue := dialGuestConnection(healthContext, vsockUnixSocketPath, healthPortOrService)
+	attemptContext, cancelAttempt := context.WithTimeout(healthContext, firecrackerVSockOperationTimeout)
+	defer cancelAttempt()
+
+	guestConnection, errorValue := dialGuestConnection(attemptContext, vsockUnixSocketPath, healthPortOrService)
 	if errorValue != nil {
 		return errorValue
 	}
@@ -57,9 +60,9 @@ func (vsockGuestHealthClient VSockGuestHealthClient) CheckHealth(healthContext c
 	}()
 
 	select {
-	case <-healthContext.Done():
+	case <-attemptContext.Done():
 		_ = guestConnection.Close()
-		return healthContext.Err()
+		return attemptContext.Err()
 	case errorValue = <-healthResultChannel:
 		return errorValue
 	}
