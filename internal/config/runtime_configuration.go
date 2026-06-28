@@ -74,6 +74,7 @@ type AgentConfiguration struct {
 	DefaultEffortLevel   string                   `json:"defaultEffortLevel"`
 	ToolResultMaxBytes   int                      `json:"toolResultMaxBytes"`
 	FailureRecovery      AgentFailureRecovery     `json:"failureRecovery"`
+	GenerationOptions    AgentGenerationOptions   `json:"generationOptions,omitempty"`
 	AdminTaskLinkBaseURL string                   `json:"adminTaskLinkBaseURL,omitempty"`
 }
 
@@ -94,6 +95,11 @@ type AgentRecoveryBudget struct {
 	AlternateRoute int `json:"alternateRoute"`
 	AdjacentTool   int `json:"adjacentTool"`
 	NoToolFallback int `json:"noToolFallback"`
+}
+
+type AgentGenerationOptions struct {
+	Seed        *int64   `json:"seed,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
 }
 
 type LanguageModelConfiguration struct {

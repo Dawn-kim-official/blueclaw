@@ -489,6 +489,8 @@ func siteTextContainsStarterMarker(value string) bool {
 		"Replace this starter",
 		"Beautiful default scaffold",
 		"InternKim React prototype",
+		"Dependency-free site scaffold",
+		"InternKim site prototype loaded",
 	} {
 		if strings.Contains(value, marker) {
 			return true
@@ -1163,7 +1165,7 @@ func siteWorkspaceMetadata(site siteCreateResult) string {
 		"createdBy":      site.CreatedBy,
 		"owner":          site.OwnerIdentity,
 		"collaborators":  site.Collaborators,
-		"stack":          "React + Vite + TypeScript + Tailwind + shadcn/ui scaffold with Stitch DESIGN.md",
+		"stack":          "Dependency-free TypeScript + CSS scaffold with Stitch DESIGN.md",
 		"uiPrimitives":   siteUIPrimitiveImports(),
 		"designDefault":  "starter scaffold only; customize through a black-on-white DESIGN.md before publish",
 		"sourceContract": "editable source is owned by the requester actor",
@@ -1176,19 +1178,14 @@ func siteWorkspaceMetadata(site siteCreateResult) string {
 
 func siteUIPrimitiveImports() []string {
 	return []string{
-		"Badge from ./components/ui/badge",
-		"Button from ./components/ui/button",
-		"Card, CardContent, CardDescription, CardHeader, CardTitle from ./components/ui/card",
-		"Input from ./components/ui/input",
-		"Textarea from ./components/ui/textarea",
-		"Separator from ./components/ui/separator",
-		"Tabs, TabsContent, TabsList, TabsTrigger from ./components/ui/tabs",
-		"Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger from ./components/ui/dialog",
+		"Use semantic HTML buttons, inputs, dialogs, tables, tabs, and badges with app-owned CSS classes",
+		"Use inline SVG icons or CSS symbols instead of package imports",
+		"Keep source data in ./src/prototype-data.ts and render it from ./src/App.tsx",
 	}
 }
 
 func siteSourceGuidance() string {
-	return "Use local shadcn-style primitives from ./components/ui/* and customize App.tsx, prototype-data.ts, and index.css. Default to black-on-white minimal styling unless the user asks for another direction. Keep package.json, Vite, Tailwind, and scripts managed."
+	return "Use dependency-free TypeScript, semantic HTML, app-owned CSS classes, and prototype-data.ts. Default to black-on-white minimal styling unless the user asks for another direction. Keep package.json, build scripts, and other managed files unchanged."
 }
 
 func siteIdeaMarkdown(site siteCreateResult) string {
