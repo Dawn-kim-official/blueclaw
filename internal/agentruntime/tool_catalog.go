@@ -197,16 +197,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolSet(request ToolCatalogRe
 func (toolCatalogBuilder *ToolCatalogBuilder) allowedToolNames(profileName string) []string {
 	normalizedProfileName := normalizeProfileName(profileName)
 	if allowedToolNames, isFound := toolCatalogBuilder.allowedToolNamesByProfile[normalizedProfileName]; isFound {
-		return agent.DefaultAllowedToolNames(allowedToolNames)
+		return trimNonEmptyStrings(allowedToolNames)
 	}
 	if len(toolCatalogBuilder.fallbackAllowedToolNames) > 0 {
-		return agent.DefaultAllowedToolNames(toolCatalogBuilder.fallbackAllowedToolNames)
+		return trimNonEmptyStrings(toolCatalogBuilder.fallbackAllowedToolNames)
 	}
 	return DefaultAllowedToolNames()
 }
 
 func DefaultAllowedToolNames() []string {
-	return agent.DefaultAllowedToolNames([]string{"conversation.history", "task.history", "memory.search", "memory.remember", "math.calculate", "web.search", "web.fetch", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.preview", "file.read", "document.read", "image.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "skill.add", "skill.remove", "skill.search", "schedule.create", "schedule.update", "schedule.cancel", "schedule.list", "db.sql"})
+	return agent.KernelToolNames()
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerHistoryTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -252,6 +252,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	toolCatalogBuilder.registerSiteTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerAskTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerFileTools(toolRegistry, handlerContext)
+	toolCatalogBuilder.registerArtifactDeliveryTool(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
 	toolCatalogBuilder.registerDatabaseTools(toolRegistry, handlerContext)

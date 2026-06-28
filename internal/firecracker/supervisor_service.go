@@ -139,6 +139,7 @@ func (supervisorService *SupervisorService) WaitForGuestHealth(healthContext con
 		healthCheckInterval = 200 * time.Millisecond
 	}
 
+	var lastError error
 	for {
 		errorValue := supervisorService.GuestHealthClient.CheckHealth(
 			healthContext,
@@ -148,9 +149,13 @@ func (supervisorService *SupervisorService) WaitForGuestHealth(healthContext con
 		if errorValue == nil {
 			return nil
 		}
+		lastError = errorValue
 
 		select {
 		case <-healthContext.Done():
+			if lastError != nil {
+				return fmt.Errorf("guest health did not become ready: %w", lastError)
+			}
 			return healthContext.Err()
 		case <-time.After(healthCheckInterval):
 		}

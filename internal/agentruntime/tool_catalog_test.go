@@ -214,6 +214,7 @@ func newFileToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
 	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory())
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, internalTestToolNames())
 	return toolCatalogBuilder
 }
 
@@ -230,7 +231,29 @@ func newTerminalToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder
 	toolCatalogBuilder.UseWorkspaceRootPath(workspacePath)
 	toolCatalogBuilder.UseTerminalService(terminalService)
 	toolCatalogBuilder.UseWorkspaceActorFactory(actortest.NewDirectWorkspaceActorFactory(terminalService))
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, internalTestToolNames())
 	return toolCatalogBuilder
+}
+
+func internalTestToolNames() []string {
+	return []string{
+		"artifact.deliver",
+		"conversation.history",
+		"document.read",
+		"file.attach",
+		"file.edit",
+		"file.patch",
+		"file.preview",
+		"file.promote",
+		"file.read",
+		"file.write",
+		"image.read",
+		"skill.add",
+		"skill.remove",
+		"skill.search",
+		"task.history",
+		"terminal.run",
+	}
 }
 
 func findToolDefinition(toolDefinitions []agent.ToolDefinition, toolName string) (agent.ToolDefinition, bool) {

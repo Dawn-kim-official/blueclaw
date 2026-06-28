@@ -564,11 +564,8 @@ func (toolSet *ToolSet) ListDescribedToolDefinitions() []ToolDefinition {
 	if toolSet == nil {
 		return toolDefinitions
 	}
-	for _, boundTool := range toolSet.boundToolByName {
-		if !toolIsModelCallable(boundTool.Definition.Name) {
-			continue
-		}
-		if strings.TrimSpace(boundTool.Availability.Status) == ToolAvailabilityDenied {
+	for toolName, boundTool := range toolSet.boundToolByName {
+		if !toolSet.IsAllowed(toolName) {
 			continue
 		}
 		toolDefinitions = append(toolDefinitions, boundTool.Definition)
@@ -633,7 +630,7 @@ func (toolSet *ToolSet) Descriptions() string {
 	if len(toolDefinitions) == 0 {
 		return ""
 	}
-	lines := []string{"Available tool catalog. These tools are known to Blueclaw; exposed tools can be called now, hidden tools must be named in the requestTools field of your action to expose them for the next step before calling. Tool availability does not make tool use mandatory:"}
+	lines := []string{"Available tool catalog. These fixed kernel tools can be called now. Use /workspace/tools/capability from terminal.run for domain capabilities. Tool availability does not make tool use mandatory:"}
 	for _, toolDefinition := range toolDefinitions {
 		toolName := strings.TrimSpace(toolDefinition.Name)
 		lines = append(lines, "- "+toolCatalogLine(toolName, toolDefinition, toolSet))

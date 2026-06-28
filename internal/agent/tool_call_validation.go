@@ -289,7 +289,7 @@ type terminalToolNameError struct {
 }
 
 func (errorValue terminalToolNameError) Error() string {
-	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Name it in the requestTools field of your action if the tool is hidden, then call " + errorValue.toolName + " directly with its tool schema."
+	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use the fixed kernel tool schema directly, or use /workspace/tools/capability for domain capabilities."
 }
 
 func isTerminalToolNameError(errorValue error) bool {
@@ -316,7 +316,7 @@ func validateTerminalToolInput(toolName string, toolInput json.RawMessage, toolS
 	if commandToolName := firstTerminalCommandToken(command); toolSet != nil && toolSet.IsRegistered(commandToolName) {
 		return terminalToolNameError{toolName: commandToolName}
 	}
-	for _, toolAlias := range []string{"file.write", "file.promote", "file.attach", "set_quality_criteria", "finish", "finish"} {
+	for _, toolAlias := range []string{"artifact.deliver", "set_quality_criteria", "finish", "finish"} {
 		if strings.Contains(command, toolAlias) {
 			return errors.New(strings.TrimSpace(toolName) + " command cannot call Blueclaw action " + toolAlias + "; call that action directly instead")
 		}
@@ -631,12 +631,12 @@ func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput j
 }
 
 func unnecessaryAcknowledgementApprovalMessage() string {
-	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write such as saving a memory the user asked you to remember. Perform the action directly (e.g. call memory.remember) and then finish."
+	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write. Perform the action directly through the relevant kernel tool or capability CLI, then finish."
 }
 
 func isTerminalExecutionTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "terminal.run", "terminal.session":
+	case "terminal.run":
 		return true
 	default:
 		return false

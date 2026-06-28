@@ -74,10 +74,10 @@ func ResolveModelTierNames(runtimeConfiguration config.RuntimeConfiguration) Mod
 	capabilityConfiguration := runtimeConfiguration.LanguageModel.Capability
 	return ModelTierNames{
 		High:   firstNonEmptyModelName(capabilityConfiguration.HighModel, capabilityConfiguration.Model, defaultHighModelName),
-		Medium: firstNonEmptyModelName(capabilityConfiguration.MediumModel, defaultMediumModelName),
-		Low:    firstNonEmptyModelName(capabilityConfiguration.LowModel, defaultLowModelName),
-		XLow:   firstNonEmptyModelName(capabilityConfiguration.XLowModel, defaultXLowModelName),
-		Coding: firstNonEmptyModelName(capabilityConfiguration.CodingModel, defaultCodingModelName),
+		Medium: firstNonEmptyModelName(capabilityConfiguration.MediumModel, capabilityConfiguration.Model, defaultMediumModelName),
+		Low:    firstNonEmptyModelName(capabilityConfiguration.LowModel, capabilityConfiguration.Model, defaultLowModelName),
+		XLow:   firstNonEmptyModelName(capabilityConfiguration.XLowModel, capabilityConfiguration.Model, defaultXLowModelName),
+		Coding: firstNonEmptyModelName(capabilityConfiguration.CodingModel, capabilityConfiguration.Model, defaultCodingModelName),
 	}
 }
 

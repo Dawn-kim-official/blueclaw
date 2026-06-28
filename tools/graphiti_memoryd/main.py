@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import json
 import os
 import shutil
-import sys
 import threading
 import traceback
 import urllib.error
@@ -12,23 +13,14 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from graphiti_core import Graphiti
-from graphiti_core.cross_encoder.client import CrossEncoderClient
-from graphiti_core.driver.kuzu_driver import KuzuDriver
-from graphiti_core.driver.driver import GraphProvider
-from graphiti_core.edges import EntityEdge
-from graphiti_core.embedder.client import EmbedderClient, EmbedderConfig
-from graphiti_core.graph_queries import get_fulltext_indices
-from graphiti_core.llm_client.client import LLMClient
-from graphiti_core.llm_client.config import LLMConfig, ModelSize
-from graphiti_core.nodes import EntityNode, EpisodicNode, EpisodeType
-from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_RRF
 import requests_unixsocket
 
 
-class CapabilityLLMClient(LLMClient):
+class CapabilityLLMClient:
     def __init__(self, endpoint: str, model: str):
-        super().__init__(LLMConfig(api_key="capability", model=model, small_model=model))
+        from graphiti_core.llm_client.config import LLMConfig
+
+        self.config = LLMConfig(api_key="capability", model=model, small_model=model)
         self.endpoint = endpoint.rstrip("/")
         self.model_name = model
 
@@ -37,7 +29,7 @@ class CapabilityLLMClient(LLMClient):
         messages: list[Any],
         response_model: type[Any] | None = None,
         max_tokens: int = 8192,
-        model_size: ModelSize = ModelSize.medium,
+        model_size: Any = None,
     ) -> dict[str, Any]:
         schema = response_model.model_json_schema() if response_model else None
         schema_name = getattr(response_model, "__name__", "graphiti_response") if response_model else "graphiti_response"
@@ -65,8 +57,10 @@ class CapabilityLLMClient(LLMClient):
         return {"content": str(content)}
 
 
-class CapabilityEmbedder(EmbedderClient):
+class CapabilityEmbedder:
     def __init__(self, endpoint: str):
+        from graphiti_core.embedder.client import EmbedderConfig
+
         self.endpoint = endpoint.rstrip("/")
         self.config = EmbedderConfig()
 
@@ -101,7 +95,7 @@ class CapabilityEmbedder(EmbedderClient):
         return [[float(value) for value in embedding] for embedding in embeddings]
 
 
-class CapabilityReranker(CrossEncoderClient):
+class CapabilityReranker:
     def __init__(self, endpoint: str):
         self.endpoint = endpoint.rstrip("/")
 
@@ -140,13 +134,15 @@ def dump_message(message: Any) -> dict[str, str]:
 
 class GraphitiMemoryService:
     def __init__(self):
+        from graphiti_core import Graphiti
+
         capability_endpoint = os.environ.get("INTERNKIM_CAPABILITY_ENDPOINT", "http+unix://%2Frun%2Finternkim%2Fcapability.sock")
         kuzu_path = os.environ.get("BLUECLAW_GRAPHITI_KUZU_PATH", "/workspace/.blueclaw/graphiti/kuzu")
         model = os.environ.get("BLUECLAW_GRAPHITI_MODEL", "google/gemini-3.1-flash-lite-preview")
         os.makedirs(os.path.dirname(kuzu_path), exist_ok=True)
         graph_driver = create_kuzu_driver(kuzu_path)
         graph_driver._database = ""
-        asyncio.run(ensure_kuzu_fulltext_indexes(graph_driver))
+        self.graph_driver = graph_driver
         self.graphiti = Graphiti(
             graph_driver=graph_driver,
             llm_client=CapabilityLLMClient(capability_endpoint, model),
@@ -154,7 +150,10 @@ class GraphitiMemoryService:
             cross_encoder=CapabilityReranker(capability_endpoint),
         )
         self.operation_lock = threading.Lock()
-        asyncio.run(self.graphiti.build_indices_and_constraints())
+
+    async def initialize(self):
+        await ensure_kuzu_fulltext_indexes(self.graph_driver)
+        await self.graphiti.build_indices_and_constraints()
 
     async def add_episode(self, request_document: dict[str, Any]) -> dict[str, Any]:
         with self.operation_lock:
@@ -173,6 +172,8 @@ class GraphitiMemoryService:
             return await self.delete_episode_locked(request_document)
 
     async def add_episode_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        from graphiti_core.nodes import EpisodeType
+
         episode_id = request_document["episodeID"]
         prompt = request_document["prompt"]
         sender_person_id = request_document["senderPersonID"]
@@ -201,6 +202,8 @@ class GraphitiMemoryService:
         return {"episodeID": episode_id, "deleted": deleted_count > 0, "namespaceCount": deleted_count}
 
     async def delete_namespace_episode(self, episode_id: str, namespace_id: str) -> int:
+        from graphiti_core.nodes import EpisodicNode
+
         if episode_id == "" or namespace_id == "":
             return 0
         expected_name = graphiti_group_id(episode_id + ":" + namespace_id)
@@ -216,6 +219,8 @@ class GraphitiMemoryService:
         return 0
 
     async def search_locked(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        from graphiti_core.search.search_config_recipes import COMBINED_HYBRID_SEARCH_RRF
+
         query = request_document.get("Query") or request_document.get("query") or ""
         limit = int(request_document.get("Limit") or request_document.get("limit") or 12)
         namespaces = request_document.get("Namespaces") or request_document.get("namespaces") or []
@@ -260,6 +265,9 @@ class GraphitiMemoryService:
         return {"facts": facts}
 
     async def list_namespace_facts(self, namespace: dict[str, Any], namespace_id: str, group_id: str, limit: int) -> list[dict[str, Any]]:
+        from graphiti_core.edges import EntityEdge
+        from graphiti_core.nodes import EntityNode
+
         facts: list[dict[str, Any]] = []
         try:
             edges = await EntityEdge.get_by_group_ids(self.graphiti.driver, [group_id], limit=limit)
@@ -284,12 +292,44 @@ class GraphitiMemoryService:
         return facts
 
 
+class LazyGraphitiMemoryService:
+    def __init__(self):
+        self.service: GraphitiMemoryService | None = None
+        self.service_lock = threading.Lock()
+
+    async def get_service(self) -> GraphitiMemoryService:
+        with self.service_lock:
+            if self.service is None:
+                service = GraphitiMemoryService()
+                await service.initialize()
+                self.service = service
+            return self.service
+
+    async def add_episode(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        service = await self.get_service()
+        return await service.add_episode(request_document)
+
+    async def search(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        service = await self.get_service()
+        return await service.search(request_document)
+
+    async def list_facts(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        service = await self.get_service()
+        return await service.list_facts(request_document)
+
+    async def delete_episode(self, request_document: dict[str, Any]) -> dict[str, Any]:
+        service = await self.get_service()
+        return await service.delete_episode(request_document)
+
+
 def graphiti_group_id(namespace_id: str) -> str:
     digest = hashlib.sha256(namespace_id.encode("utf-8")).hexdigest()[:24]
     return "bc_" + digest
 
 
 def create_kuzu_driver(kuzu_path: str) -> KuzuDriver:
+    from graphiti_core.driver.kuzu_driver import KuzuDriver
+
     try:
         return KuzuDriver(db=kuzu_path)
     except Exception as error:
@@ -340,6 +380,9 @@ def extraction_instructions_for_namespace(namespace: dict[str, Any], sender_pers
 
 
 async def ensure_kuzu_fulltext_indexes(graph_driver: KuzuDriver):
+    from graphiti_core.driver.driver import GraphProvider
+    from graphiti_core.graph_queries import get_fulltext_indices
+
     for query in get_fulltext_indices(GraphProvider.KUZU):
         try:
             await graph_driver.execute_query(query)
@@ -472,11 +515,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 def main():
     listen_address = os.environ.get("BLUECLAW_GRAPHITI_LISTEN_ADDRESS", "127.0.0.1")
     listen_port = int(os.environ.get("BLUECLAW_GRAPHITI_PORT", "7791"))
-    try:
-        RequestHandler.service = GraphitiMemoryService()
-    except Exception as error:
-        print(str(error), file=sys.stderr)
-        raise
+    RequestHandler.service = LazyGraphitiMemoryService()
     server = ThreadingHTTPServer((listen_address, listen_port), RequestHandler)
     server.serve_forever()
 

@@ -181,7 +181,9 @@ func skillSupportsSiteArtifact(skillInstruction SkillInstruction) bool {
 }
 
 func skillSupportsFileDelivery(skillInstruction SkillInstruction) bool {
-	return skillHasToolName(skillInstruction, "file.attach") ||
+	return skillHasToolName(skillInstruction, ArtifactDeliverToolName) ||
+		skillHasToolName(skillInstruction, "file.attach") ||
+		skillHasEvidenceTool(skillInstruction, ArtifactDeliverToolName) ||
 		skillHasEvidenceTool(skillInstruction, "file.attach") ||
 		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0 ||
 		skillTextContainsAny(skillContractSearchText(skillInstruction), []string{"attach", "attachment", "deliverable", "file artifact", "첨부", "파일"})

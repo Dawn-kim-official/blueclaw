@@ -34,24 +34,8 @@ var workflowContracts = []workflowContract{
 	{
 		WorkKind:             WorkKindSitePrototype,
 		ActiveGoalToolPrefix: "site.app.",
-		ToolNames: []string{
-			"site.app.status",
-			"site.app.create",
-			"site.app.repair",
-			"file.read",
-			"file.write",
-			"file.edit",
-			"file.patch",
-			"terminal.run",
-			"site.app.build",
-			"artifact.review",
-			"site.app.preview",
-			"browser.open",
-			"browser.snapshot",
-			"browser.screenshot",
-			"site.app.publish",
-		},
-		PromptMatcher: workflowTextLooksLikeSitePrototypeWork,
+		ToolNames:            KernelToolNames(),
+		PromptMatcher:        workflowTextLooksLikeSitePrototypeWork,
 		EvidenceTools: []workflowIntentEvidenceTool{
 			{
 				ToolName: "site.app.status",
@@ -65,7 +49,7 @@ var workflowContracts = []workflowContract{
 					ObjectType:         "website",
 					Effect:             "read",
 					Description:        "current request asks to inspect or return the existing website state",
-					SuggestedNextTools: []string{"site.app.status"},
+					SuggestedNextTools: []string{TerminalRunToolName, SkillSearchToolName},
 				}},
 				Keywords: []string{"상태", "확인", "조회", "주소", "링크", "url", "status", "inspect", "check", "link"},
 			},
@@ -75,41 +59,32 @@ var workflowContracts = []workflowContract{
 				ObjectType:         "workspace",
 				Effect:             "modified",
 				Description:        "current request asks for a website change, so a successful source or workspace modification must be observed",
-				SuggestedNextTools: []string{"file.edit", "file.patch", "file.write", "site.app.create"},
+				SuggestedNextTools: []string{TerminalRunToolName, SkillSearchToolName},
 			},
 			{
 				ObjectType:         "website",
 				Effect:             "built",
 				Description:        "current request asks for a website change, so a successful current build must be observed",
-				SuggestedNextTools: []string{"site.app.build"},
+				SuggestedNextTools: []string{TerminalRunToolName},
 			},
 			{
 				ObjectType:         "website",
 				Effect:             "published",
 				Description:        "current request asks for a website change, so a successful current publish must be observed",
-				SuggestedNextTools: []string{"site.app.publish"},
+				SuggestedNextTools: []string{TerminalRunToolName},
 			},
 		},
 	},
 	{
 		WorkKind:             WorkKindCalendar,
 		ActiveGoalToolPrefix: "calendar.event.",
-		ToolNames: []string{
-			"calendar.event.add",
-			"calendar.event.list",
-			"calendar.event.update",
-			"calendar.event.delete",
-		},
+		ToolNames:            KernelToolNames(),
 	},
 	{
 		WorkKind:             WorkKindFlowTask,
 		ActiveGoalToolPrefix: "flow.task.",
-		ToolNames: []string{
-			"flow.task.add",
-			"flow.task.list",
-			"flow.task.update",
-		},
-		PromptMatcher: workflowTextLooksLikeFlowTaskWork,
+		ToolNames:            KernelToolNames(),
+		PromptMatcher:        workflowTextLooksLikeFlowTaskWork,
 		EvidenceTools: []workflowIntentEvidenceTool{
 			{
 				ToolName: "flow.task.list",
@@ -205,12 +180,19 @@ func requiredWorkflowEvidenceToolsForRequest(request AgentRequest) []string {
 			continue
 		}
 		toolName := workflowEvidenceToolForScope(scope, contract)
-		if toolName == "" || !hasTool(scope.ToolSet, toolName) {
+		if toolName == "" || !workflowEvidenceToolCanBeSatisfied(scope.ToolSet, toolName) {
 			continue
 		}
 		toolNames = appendUniqueStrings(toolNames, toolName)
 	}
 	return toolNames
+}
+
+func workflowEvidenceToolCanBeSatisfied(toolSet *ToolSet, toolName string) bool {
+	if hasTool(toolSet, toolName) {
+		return true
+	}
+	return hasTool(toolSet, TerminalRunToolName) && strings.Contains(strings.TrimSpace(toolName), ".")
 }
 
 func requiredWorkflowEffectRequirementsForRequest(request AgentRequest) []OutcomeEffect {

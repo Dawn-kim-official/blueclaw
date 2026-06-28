@@ -111,10 +111,22 @@ func (resolver WorkspacePathResolver) Resolve(value string, scope WorkspaceScope
 }
 
 func (resolver WorkspacePathResolver) ResolveDirectory(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
-	if strings.TrimSpace(value) == "" {
-		return resolver.Resolve("tmp", scope)
+	return resolver.Resolve(normalizedWorkspaceDirectoryPath(value), scope)
+}
+
+func normalizedWorkspaceDirectoryPath(value string) string {
+	trimmedPath := strings.TrimSpace(value)
+	if trimmedPath == "" {
+		return "tmp"
 	}
-	return resolver.Resolve(value, scope)
+	cleanPath := filepath.Clean(trimmedPath)
+	if cleanPath == "/tmp" {
+		return "tmp"
+	}
+	if strings.HasPrefix(cleanPath, "/tmp/") {
+		return filepath.ToSlash(filepath.Join("tmp", strings.TrimPrefix(cleanPath, "/tmp/")))
+	}
+	return trimmedPath
 }
 
 func (resolver WorkspacePathResolver) resolveVirtual(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {

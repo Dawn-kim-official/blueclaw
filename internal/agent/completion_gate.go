@@ -64,7 +64,7 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 	transition := advanceAgentTask(agentState)
 	switch transition.Effect.Kind {
 	case agentEffectContinue:
-		if transition.Effect.ToolCall != nil && transition.Effect.ToolCall.ToolName == "file.attach" {
+		if transition.Effect.ToolCall != nil && IsArtifactDeliveryTool(transition.Effect.ToolCall.ToolName) {
 			return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, *transition.Effect.ToolCall)
 		}
 	case agentEffectFinish:
@@ -85,7 +85,7 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Co
 		files = append(files, map[string]string{"path": path})
 	}
 	return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, ToolInvocation{
-		ToolName: "file.attach",
+		ToolName: ArtifactDeliverToolName,
 		Input:    MarshalToolInput(map[string]any{"files": files}),
 	})
 }
@@ -153,7 +153,7 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 		return trimmedContent
 	}
 	if trimmedContent == "" {
-		trimmedContent = "file.attach failed"
+		trimmedContent = ArtifactDeliverToolName + " failed"
 	}
 	return trimmedContent + "\nrequested paths: " + strings.Join(paths, "\n")
 }
@@ -525,7 +525,7 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	}
 	if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(attachments) == 0 {
 		return completionGateResult{
-			Message: "required file expected result must cite file.attach completionEvidence",
+			Message: "required file expected result must cite artifact.deliver completionEvidence",
 		}
 	}
 	if missingSuffix := missingRequiredAttachmentSuffix(attachments, request.OutcomeContract.RequiredAttachmentSuffixes); len(attachments) > 0 && missingSuffix != "" {
@@ -654,11 +654,16 @@ func sendCompletionEvidenceRequiredMessage(toolNames []string) string {
 func hasSendCompletionEvidence(observations []turnObservation, references []completionEvidenceReference) bool {
 	for _, reference := range references {
 		observation, isFound := findSuccessfulObservation(observations, reference)
-		if isFound && isSendEvidenceTool(observation.Tool) {
+		if isFound && (isSendEvidenceTool(observation.Tool) || terminalObservationInvokedSendTool(observation)) {
 			return true
 		}
 	}
 	return false
+}
+
+func terminalObservationInvokedSendTool(observation turnObservation) bool {
+	toolName, _, isFound := terminalCapabilityResponse(observation)
+	return isFound && isSendEvidenceTool(toolName)
 }
 
 func hasSuccessfulToolObservationForTurn(observations []turnObservation, toolName string) bool {
@@ -699,7 +704,7 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 	}
 	if request.OutcomeContract.ArtifactRequirement == ArtifactRequirementRequired && !hasDurableArtifactAttachment(result.Attachments) {
 		result.IsSatisfied = false
-		result.Message = "required artifact completion must cite file.attach evidence from artifacts/<slug>, /workspace/circles/<circleID>/..., or /workspace/shared/public/..."
+		result.Message = "required artifact completion must cite artifact.deliver evidence from artifacts/<slug>, /workspace/circles/<circleID>/..., or /workspace/shared/public/..."
 		result.Attachments = nil
 	}
 	return result
@@ -867,7 +872,7 @@ func evidenceMissingGuidance(evidenceKind string, message string) string {
 	case "required_tool_missing":
 		return "The final reply needs successful tool evidence before completion. Use the required tool if it has not run, or cite an existing successful observation. " + message
 	case "attachment_missing":
-		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use file.attach before finish. " + message
+		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use artifact.deliver before finish. " + message
 	case "attachment_invalid":
 		return "The final reply needs valid attachment evidence. Recheck the artifact path and required suffix, then attach a valid file. " + message
 	case "evidence_reference_invalid":
@@ -988,7 +993,10 @@ func matchingCompletionObservations(requirement toolUseRequirement, observations
 func requirementMatchesObservation(requirement toolUseRequirement, observation turnObservation) bool {
 	toolName := strings.TrimSpace(observation.Tool)
 	if strings.TrimSpace(requirement.ToolName) != "" {
-		return toolName == strings.TrimSpace(requirement.ToolName)
+		if terminalObservationMatchesCapabilityTool(observation, requirement.ToolName) {
+			return true
+		}
+		return ToolNamesMatch(toolName, requirement.ToolName)
 	}
 	if strings.TrimSpace(requirement.ToolPrefix) != "" {
 		return strings.HasPrefix(toolName, strings.TrimSpace(requirement.ToolPrefix))
@@ -1004,7 +1012,7 @@ func findSuccessfulObservation(observations []turnObservation, reference complet
 		if strings.TrimSpace(observation.ObservationID) != strings.TrimSpace(reference.ObservationID) {
 			continue
 		}
-		if strings.TrimSpace(reference.ToolName) != "" && strings.TrimSpace(observation.Tool) != strings.TrimSpace(reference.ToolName) {
+		if strings.TrimSpace(reference.ToolName) != "" && !ToolNamesMatch(observation.Tool, reference.ToolName) && !terminalObservationMatchesCapabilityTool(observation, reference.ToolName) {
 			continue
 		}
 		return observation, true
@@ -1037,12 +1045,10 @@ func collectReferenceDeliveryAttachments(observations []turnObservation, referen
 }
 
 func toolProducesDeliveryAttachments(toolName string) bool {
-	switch strings.TrimSpace(toolName) {
-	case "file.attach", "browser.screenshot":
+	if IsArtifactDeliveryTool(toolName) {
 		return true
-	default:
-		return false
 	}
+	return strings.TrimSpace(toolName) == "browser.screenshot"
 }
 
 func attachmentsForReference(observation turnObservation, reference completionEvidenceReference) []FileAttachment {

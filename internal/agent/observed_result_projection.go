@@ -62,9 +62,13 @@ func observedFactsFromObservations(observations []turnObservation) []ObservedFac
 }
 
 func factsFromObservation(observation turnObservation) []ObservedFact {
-	switch strings.TrimSpace(observation.Tool) {
-	case "file.attach":
+	if IsArtifactDeliveryTool(observation.Tool) {
 		return fileAttachmentFacts(observation)
+	}
+	if facts := terminalCapabilityFacts(observation); len(facts) > 0 {
+		return facts
+	}
+	switch strings.TrimSpace(observation.Tool) {
 	case "file.promote":
 		return filePathObservationFacts(observation, "file", "made_durable")
 	case "file.write":
@@ -81,6 +85,8 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 		return toolObjectFact(observation, "flow_task", "created")
 	case "flow.task.update":
 		return toolObjectFact(observation, "flow_task", "updated")
+	case "flow.task.delete":
+		return toolObjectFact(observation, "flow_task", "deleted")
 	case "schedule.create":
 		return toolObjectFact(observation, "schedule", "created")
 	case "schedule.update":
@@ -180,7 +186,7 @@ func toolObjectFact(observation turnObservation, objectType string, effect strin
 
 func siteObservationFacts(observation turnObservation, effect string) []ObservedFact {
 	document := observationOutputDocument(observation)
-	url := firstNonEmptyString(stringValue(document["url"]), stringValue(document["publicURL"]), stringValue(document["previewURL"]))
+	url := firstNonEmptyString(stringValue(document["url"]), stringValue(document["publicURL"]), stringValue(document["publishedURL"]), stringValue(document["previewURL"]))
 	return []ObservedFact{{
 		ObjectType:    "website",
 		Effect:        effect,

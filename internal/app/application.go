@@ -38,6 +38,8 @@ import (
 	"blueclaw/internal/userapi"
 )
 
+const databaseInitializationTimeout = 240 * time.Second
+
 type Application struct {
 	httpServer                    *http.Server
 	connectorRuntime              *connectors.ConnectorRuntime
@@ -76,19 +78,24 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		runtimeLogger = runtimelogging.NewDiscardLogger()
 	}
 	logger := runtimeLogger.Logger
-	database, databaseError := openRuntimeDatabase(runtimeConfiguration)
+	logger.Info("application.initializing", "stage", "open_database")
+	database, databaseError := openRuntimeDatabase(runtimeConfiguration, logger)
 	if databaseError != nil && startupError == nil {
 		startupError = databaseError
 	}
+	logger.Info("application.initializing", "stage", "load_policy")
 	policyLoader := policy.PolicyLoader{}
 	policyDocument, _ := policyLoader.LoadPolicyDocument(policyPath)
+	logger.Info("application.initializing", "stage", "posix_synchronize")
 	posixSynchronizer := security.NewPOSIXSynchronizer(runtimeConfiguration.Terminal, policyPath)
 	if errorValue := posixSynchronizer.Synchronize(context.Background()); errorValue != nil && startupError == nil {
 		startupError = errorValue
 	}
+	logger.Info("application.initializing", "stage", "project_policy")
 	if database.SQL != nil {
 		_ = postgres.NewPersonRepository(database).UpsertPeople(policyDocument)
 	}
+	logger.Info("application.initializing", "stage", "identity")
 	policyProjectionService := policy.PolicyProjectionService{}
 	identityService := identity.NewIdentityService(policyProjectionService.ReplacePolicyProjectionTransactionally(policyDocument))
 	var platformAccountLister adminapi.PlatformAccountLister
@@ -134,6 +141,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	magicLinkService := auth.NewMagicLinkService()
 	sessionService := auth.NewSessionService()
 	taskAuthService := task.NewTaskAuthService(magicLinkService, sessionService, taskRunService)
+	logger.Info("application.initializing", "stage", "agent_kernel")
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseTurnOptions(deriveAgentTurnOptions(runtimeConfiguration))
@@ -151,6 +159,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.High, taskTierLanguageModels.Medium, taskTierLanguageModels.XLow, taskTierLanguageModels.Coding)
 	}
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
+	logger.Info("application.initializing", "stage", "skill_retriever")
 	skillRetriever := agent.NewEmbeddingSkillRetriever(
 		llm.CapabilityEmbeddingClient{
 			CapabilityClient: capabilityClient,
@@ -164,6 +173,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	if intakeLanguageModelProvider != nil {
 		agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModelProvider)
 	}
+	logger.Info("application.initializing", "stage", "memory")
 	terminalService := security.NewTerminalSessionService(runtimeConfiguration.Terminal)
 	memoryService := &memory.MemoryService{}
 	memoryService.UseGraphStore(memory.NewGraphitiClient(
@@ -186,6 +196,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	taskIntakeController := runtimecontrol.NewTaskIntakeController()
 	mcpRegistry := mcp.NewMcpRegistry()
 	mcpRegistry.LoadServerDefinition(runtimeConfiguration.MCPServers)
+	logger.Info("application.initializing", "stage", "tool_catalog")
 	toolCatalogBuilder := agentruntime.NewToolCatalogBuilder()
 	toolCatalogBuilder.UseMCPRegistry(mcpRegistry)
 	toolCatalogBuilder.UseCapabilityTools(capabilityClient, runtimeConfiguration.Capabilities.ToolNames)
@@ -221,6 +232,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		}
 		taskSchedulePoller = &poller
 	}
+	logger.Info("application.initializing", "stage", "connector_runtime")
 	taskRetentionSweeper := &scheduler.TaskRetentionSweeper{
 		TaskRunService:      taskRunService,
 		TaskEventService:    taskEventService,
@@ -251,6 +263,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	connectorRuntime.RegisterAdapter(apiconnector.NewAdapter(identityService, agentReplyStore))
 	connectorEventHandler := httpserver.NewConnectorEventHandler(connectorRuntime)
 
+	logger.Info("application.initializing", "stage", "router")
 	router := httpserver.NewRouter(httpserver.RouterDependencies{
 		HealthHandler: httpserver.HealthHandler{
 			Database:         database,
@@ -341,6 +354,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		connectors.NewHTTPWebhookTransport("signal-internal-ingress", "signal"),
 	}
 
+	logger.Info("application.initializing", "stage", "ready")
 	return &Application{
 		httpServer: &http.Server{
 			Addr:    deriveListenAddress(runtimeConfiguration.BaseURL),
@@ -616,48 +630,16 @@ func instructionSource(path string, skillName string, document []byte) agent.Ins
 }
 
 func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []string {
-	allowedToolNameByName := map[string]bool{
-		"conversation.history": true,
-		"math.calculate":       true,
-		"schedule.create":      true,
-		"schedule.update":      true,
-		"schedule.cancel":      true,
-	}
-	for _, toolName := range agent.DefaultSkillToolNames() {
+	allowedToolNameByName := map[string]bool{}
+	for _, toolName := range agent.KernelToolNames() {
 		allowedToolNameByName[toolName] = true
 	}
 	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
 		for _, allowedToolName := range agentProfile.AllowedToolNames {
 			trimmedToolName := strings.TrimSpace(allowedToolName)
-			if trimmedToolName != "" {
+			if agent.IsKernelToolName(trimmedToolName) {
 				allowedToolNameByName[trimmedToolName] = true
 			}
-		}
-	}
-	for _, mcpServer := range runtimeConfiguration.MCPServers {
-		for _, toolName := range mcpServer.ToolNames {
-			trimmedToolName := strings.TrimSpace(toolName)
-			if trimmedToolName != "" {
-				allowedToolNameByName[trimmedToolName] = true
-			}
-		}
-		for _, tool := range mcpServer.Tools {
-			trimmedToolName := strings.TrimSpace(tool.Name)
-			if trimmedToolName != "" {
-				allowedToolNameByName[trimmedToolName] = true
-			}
-		}
-	}
-	for _, toolName := range runtimeConfiguration.Capabilities.ToolNames {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if trimmedToolName != "" {
-			allowedToolNameByName[trimmedToolName] = true
-		}
-	}
-	for _, toolDescriptor := range runtimeConfiguration.Capabilities.ToolDescriptors {
-		trimmedToolName := strings.TrimSpace(toolDescriptor.Name)
-		if trimmedToolName != "" {
-			allowedToolNameByName[trimmedToolName] = true
 		}
 	}
 	allowedToolNames := []string{}
@@ -694,7 +676,7 @@ func capabilityToolDescription(toolDescriptor config.CapabilityToolDescriptor) s
 	if strings.TrimSpace(toolDescriptor.PrivacyClass) == "" && strings.TrimSpace(toolDescriptor.EstimatedLatency) == "" {
 		return ""
 	}
-	descriptionParts := []string{"InternKim capability tool"}
+	descriptionParts := []string{"Workspace capability tool"}
 	if strings.TrimSpace(toolDescriptor.PrivacyClass) != "" {
 		descriptionParts = append(descriptionParts, "privacy="+strings.TrimSpace(toolDescriptor.PrivacyClass))
 	}
@@ -717,10 +699,11 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 }
 
 func appendDefaultBuiltInToolNames(toolNames []string) []string {
-	result := agent.DefaultAllowedToolNames(toolNames)
-	for _, toolName := range []string{"math.calculate", "web.search", "web.fetch", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "schedule.create", "schedule.update", "schedule.cancel", "skill.add", "skill.remove", "skill.search"} {
-		if !containsString(result, toolName) {
-			result = append(result, toolName)
+	result := agent.KernelToolNames()
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if agent.IsKernelToolName(trimmedToolName) && !containsString(result, trimmedToolName) {
+			result = append(result, trimmedToolName)
 		}
 	}
 	return result
@@ -735,31 +718,38 @@ func containsString(values []string, expectedValue string) bool {
 	return false
 }
 
-func openRuntimeDatabase(runtimeConfiguration config.RuntimeConfiguration) (postgres.Database, error) {
+func openRuntimeDatabase(runtimeConfiguration config.RuntimeConfiguration, logger *slog.Logger) (postgres.Database, error) {
 	if strings.TrimSpace(runtimeConfiguration.Database.ConnectionString) == "" {
 		return postgres.Database{}, nil
 	}
-	database, errorValue := postgres.OpenDatabase(runtimeConfiguration.Database.ConnectionString)
+	ctx, cancel := context.WithTimeout(context.Background(), databaseInitializationTimeout)
+	defer cancel()
+	logger.Info("application.open_database.phase", "phase", "connect")
+	database, errorValue := postgres.OpenDatabase(ctx, runtimeConfiguration.Database.ConnectionString)
 	if errorValue != nil {
 		return postgres.Database{}, errorValue
 	}
+	logger.Info("application.open_database.phase", "phase", "validate_migration_directory")
 	migrationDirectoryPath := strings.TrimSpace(runtimeConfiguration.Database.MigrationDirectoryPath)
 	if migrationDirectoryPath == "" {
 		migrationDirectoryPath = "migrations"
 	}
-	migrationRunner := postgres.MigrationRunner{MigrationDirectoryPath: migrationDirectoryPath}
+	migrationRunner := postgres.MigrationRunner{MigrationDirectoryPath: migrationDirectoryPath, Logger: logger}
 	if errorValue := postgres.ValidateConnectorMigrationDirectory(migrationRunner); errorValue != nil {
 		_ = database.Close()
 		return postgres.Database{}, errorValue
 	}
-	if errorValue := migrationRunner.ApplyMigrations(context.Background(), database); errorValue != nil {
+	logger.Info("application.open_database.phase", "phase", "apply_migrations")
+	if errorValue := migrationRunner.ApplyMigrations(ctx, database); errorValue != nil {
 		_ = database.Close()
 		return postgres.Database{}, errorValue
 	}
-	if errorValue := postgres.ValidateConnectorDeliverySchema(context.Background(), database); errorValue != nil {
+	logger.Info("application.open_database.phase", "phase", "validate_schema")
+	if errorValue := postgres.ValidateConnectorDeliverySchema(ctx, database); errorValue != nil {
 		_ = database.Close()
 		return postgres.Database{}, errorValue
 	}
+	logger.Info("application.open_database.phase", "phase", "ready")
 	return database, nil
 }
 
@@ -920,12 +910,19 @@ func (application *Application) Start() error {
 	if application.startupError != nil {
 		return application.startupError
 	}
+	application.runtimeLogger.Logger.Info("application.starting", "stage", "log_retention")
 	application.startLogRetentionLoop()
+	application.runtimeLogger.Logger.Info("application.starting", "stage", "memory_queue")
 	application.startMemoryUpdateQueue()
+	application.runtimeLogger.Logger.Info("application.starting", "stage", "connector_runtime")
 	application.startConnectorRuntime()
+	application.runtimeLogger.Logger.Info("application.starting", "stage", "connector_transports")
 	application.startConnectorTransports()
+	application.runtimeLogger.Logger.Info("application.starting", "stage", "task_schedule")
 	application.startTaskSchedulePoller()
+	application.runtimeLogger.Logger.Info("application.starting", "stage", "task_retention")
 	application.startTaskRetentionSweeper()
+	application.runtimeLogger.Logger.Info("application.starting", "stage", "listen")
 	listener, errorValue := net.Listen("tcp", application.httpServer.Addr)
 	if errorValue != nil {
 		return errorValue

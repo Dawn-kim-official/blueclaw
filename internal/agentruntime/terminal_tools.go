@@ -22,36 +22,119 @@ type terminalSessionToolInput struct {
 	TimeoutSecond        int               `json:"timeoutSecond"`
 }
 
+type terminalRunToolInput struct {
+	Mode                 string            `json:"mode"`
+	Command              string            `json:"command"`
+	ExecutableName       string            `json:"executableName"`
+	Arguments            []string          `json:"arguments"`
+	Stdin                string            `json:"stdin"`
+	WorkingDirectoryPath string            `json:"workingDirectoryPath"`
+	EnvironmentVariables map[string]string `json:"environmentVariables"`
+	TimeoutSecond        int               `json:"timeoutSecond"`
+	SessionID            string            `json:"sessionID"`
+	Input                string            `json:"input"`
+}
+
+func (input terminalRunToolInput) commandRequest() security.CommandRequest {
+	command := strings.TrimSpace(input.Command)
+	arguments := normalizedTerminalRunArguments(command, input.Arguments)
+	if command != "" && len(arguments) > 0 && isSingleExecutableCommand(command) {
+		return security.CommandRequest{
+			ExecutableName:       command,
+			Arguments:            arguments,
+			Stdin:                input.Stdin,
+			WorkingDirectoryPath: input.WorkingDirectoryPath,
+			EnvironmentVariables: input.EnvironmentVariables,
+			TimeoutSecond:        input.TimeoutSecond,
+		}
+	}
+	return security.CommandRequest{
+		Command:              input.Command,
+		ExecutableName:       input.ExecutableName,
+		Arguments:            arguments,
+		Stdin:                input.Stdin,
+		WorkingDirectoryPath: input.WorkingDirectoryPath,
+		EnvironmentVariables: input.EnvironmentVariables,
+		TimeoutSecond:        input.TimeoutSecond,
+	}
+}
+
+func normalizedTerminalRunArguments(command string, arguments []string) []string {
+	normalizedArguments := append([]string{}, arguments...)
+	if len(normalizedArguments) == 0 {
+		return normalizedArguments
+	}
+	firstArgument := strings.TrimSpace(normalizedArguments[0])
+	if firstArgument == strings.TrimSpace(command) || filepath.Base(firstArgument) == filepath.Base(strings.TrimSpace(command)) {
+		return append([]string{}, normalizedArguments[1:]...)
+	}
+	return normalizedArguments
+}
+
+func isSingleExecutableCommand(command string) bool {
+	trimmedCommand := strings.TrimSpace(command)
+	if trimmedCommand == "" {
+		return false
+	}
+	return !strings.ContainsAny(trimmedCommand, " \t\n\r;&|<>$`'\"")
+}
+
+func (input terminalRunToolInput) sessionInput(action string) terminalSessionToolInput {
+	return terminalSessionToolInput{
+		Action:               action,
+		SessionID:            input.SessionID,
+		Command:              input.Command,
+		Input:                input.Input,
+		WorkingDirectoryPath: input.WorkingDirectoryPath,
+		EnvironmentVariables: input.EnvironmentVariables,
+		TimeoutSecond:        input.TimeoutSecond,
+	}
+}
+
 func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[security.CommandRequest, agent.ToolResult]{
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[terminalRunToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "terminal.run",
-			Description: "Run a guarded non-interactive command inside the Blueclaw workspace. Use file.write, file.edit, or file.patch for source file creation and edits instead of shell heredocs or redirection.",
+			Description: "Run a guarded command or manage a PTY session inside the Blueclaw workspace. mode defaults to command; use session_start, session_write, session_status, or session_close for long-running interactive work.",
 			RecoveryCard: agent.ToolRecoveryCard{
-				Does:       "Runs one non-interactive workspace command for inspection, dependency install, build, render, or tests.",
+				Does:       "Runs workspace commands, build scripts, render checks, tests, or PTY session operations.",
 				Produces:   "Command stdout, stderr, exit status, and runtime diagnostics.",
 				SideEffect: "workspace_write",
 				UseWhen:    "You need to execute a toolchain command, build, render, test, list files, or inspect environment state.",
-				AvoidWhen:  "You are creating or editing source files with heredoc, tee, or shell redirection; use file.write, file.edit, or file.patch instead.",
+				AvoidWhen:  "A dedicated bundled skill script or capability CLI can perform the action more safely.",
 			},
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"number"}},"required":["command"]}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"mode":{"type":"string","enum":["command","session_start","session_write","session_status","session_close"]},"command":{"type":"string"},"executableName":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"stdin":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"number"},"sessionID":{"type":"string"},"input":{"type":"string"}}}`),
 		},
-		Handler: func(toolContext context.Context, input security.CommandRequest) (agent.ToolResult, error) {
-			return toolCatalogBuilder.runTerminalTool(toolContext, input, handlerContext)
-		},
-		Result: agent.IdentityToolResult,
-	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[terminalSessionToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        "terminal.session",
-			Description: "Manage a PTY terminal session inside the Blueclaw workspace with action start, write, status, or close.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"action":{"type":"string","enum":["start","write","status","close"]},"sessionID":{"type":"string"},"command":{"type":"string"},"input":{"type":"string"},"workingDirectoryPath":{"type":"string"},"timeoutSecond":{"type":"number"}},"required":["action"]}`),
-		},
-		Handler: func(toolContext context.Context, input terminalSessionToolInput) (agent.ToolResult, error) {
-			return toolCatalogBuilder.sessionTerminalTool(toolContext, input, handlerContext)
+		Handler: func(toolContext context.Context, input terminalRunToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.runTerminalRunTool(toolContext, input, handlerContext)
 		},
 		Result: agent.IdentityToolResult,
 	})
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalRunTool(toolContext context.Context, input terminalRunToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	switch normalizedTerminalRunMode(input.Mode) {
+	case "command":
+		return toolCatalogBuilder.runTerminalTool(toolContext, input.commandRequest(), handlerContext)
+	case "session_start":
+		return toolCatalogBuilder.startTerminalSession(toolContext, input.sessionInput("start"), handlerContext)
+	case "session_write":
+		return toolCatalogBuilder.writeTerminalSession(input.sessionInput("write"))
+	case "session_status":
+		return toolCatalogBuilder.statusTerminalSession(input.sessionInput("status"))
+	case "session_close":
+		return toolCatalogBuilder.closeTerminalSession(input.sessionInput("close"))
+	default:
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_run", "terminal.run mode must be command, session_start, session_write, session_status, or session_close"), nil
+	}
+}
+
+func normalizedTerminalRunMode(mode string) string {
+	trimmedMode := strings.TrimSpace(mode)
+	if trimmedMode == "" {
+		return "command"
+	}
+	return trimmedMode
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext context.Context, input security.CommandRequest, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -66,7 +149,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	}
 	input.Command = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Command)
 	input.Stdin = toolCatalogBuilder.resolveAgentWorkspaceReferences(input.Stdin)
-	input.EnvironmentVariables = toolCatalogBuilder.resolveAgentWorkspaceEnvironment(mergeWorkspaceEnvironment(input.EnvironmentVariables, scope.EnvironmentVariables()))
+	input.EnvironmentVariables = toolCatalogBuilder.terminalEnvironmentVariables(input.EnvironmentVariables, scope)
 	input.WorkingDirectoryPath = workingDirectory.ConcretePath
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
 		return terminalWorkspaceAccessFailure(input.WorkingDirectoryPath), nil
@@ -155,12 +238,12 @@ func terminalSourceWriteMisuseFailure(command string) *agent.ToolResult {
 	if target == "" {
 		return nil
 	}
-	message := "terminal.run is for commands, builds, renders, and inspection; use file.write, file.edit, or file.patch to create or edit source files"
+	message := "terminal.run is for commands, builds, renders, and inspection; use bundled skill scripts or capability CLI operations for source creation and edits"
 	document := json.RawMessage(marshalToolResult(map[string]any{
 		"failureClass":       "source_edit_tool_misuse",
 		"command":            command,
 		"detectedTarget":     target,
-		"suggestedNextTools": []string{"file.write", "file.edit", "file.patch"},
+		"suggestedNextTools": []string{"terminal.run", "skill.search"},
 		"message":            message,
 	}))
 	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_source_write", message, document)
@@ -169,8 +252,8 @@ func terminalSourceWriteMisuseFailure(command string) *agent.ToolResult {
 	result.Failure.RetryPolicy = "different_tool"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
 		Action:    "edit_resource",
-		ToolNames: []string{"file.write", "file.edit", "file.patch"},
-		Reason:    "Write source content through file tools so the runtime can preserve context, permissions, and recovery state.",
+		ToolNames: []string{"terminal.run", "skill.search"},
+		Reason:    "Use bundled skill scripts or capability CLI operations so the runtime can preserve context, permissions, and recovery state.",
 	}}
 	return &result
 }
@@ -264,17 +347,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext co
 	case "start":
 		return toolCatalogBuilder.startTerminalSession(toolContext, input, handlerContext)
 	case "write":
-		commandResult, errorValue := toolCatalogBuilder.terminalService.WriteSessionInput(input.SessionID, input.Input)
-		return terminalSessionToolResult(commandResult, errorValue), nil
+		return toolCatalogBuilder.writeTerminalSession(input)
 	case "status":
-		status, errorValue := toolCatalogBuilder.terminalService.StatusSession(input.SessionID)
-		return statusToolResult(status, errorValue), nil
+		return toolCatalogBuilder.statusTerminalSession(input)
 	case "close":
-		errorValue := toolCatalogBuilder.terminalService.CloseSession(input.SessionID)
-		if errorValue != nil {
-			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_session", errorValue.Error()), nil
-		}
-		return agent.ToolSuccess(marshalToolResult(map[string]string{"sessionID": input.SessionID, "status": "closed"})), nil
+		return toolCatalogBuilder.closeTerminalSession(input)
 	default:
 		_ = toolContext
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_session", "terminal session action must be start, write, status, or close"), nil
@@ -298,7 +375,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(toolContext c
 	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), workspaceDirectoryCreateMode(workspacepath.Directory(workingDirectory))); errorValue != nil {
 		return actorToolFailure("mkdir_all", "terminal_session", workingDirectory.VirtualPath, errorValue), nil
 	}
-	environmentVariables := toolCatalogBuilder.resolveAgentWorkspaceEnvironment(mergeWorkspaceEnvironment(input.EnvironmentVariables, scope.EnvironmentVariables()))
+	environmentVariables := toolCatalogBuilder.terminalEnvironmentVariables(input.EnvironmentVariables, scope)
 	if toolFailure := toolCatalogBuilder.materializeTerminalRuntimeDirectories(toolContext, workspaceActor, scope, environmentVariables); toolFailure != nil {
 		return *toolFailure, nil
 	}
@@ -316,6 +393,41 @@ func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalSession(toolContext c
 	}
 	status, errorValue := toolCatalogBuilder.terminalService.StatusSession(sessionID)
 	return statusToolResult(status, errorValue), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) writeTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
+	if toolCatalogBuilder.terminalService == nil {
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
+	}
+	commandResult, errorValue := toolCatalogBuilder.terminalService.WriteSessionInput(input.SessionID, input.Input)
+	return terminalSessionToolResult(commandResult, errorValue), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) statusTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
+	if toolCatalogBuilder.terminalService == nil {
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
+	}
+	status, errorValue := toolCatalogBuilder.terminalService.StatusSession(input.SessionID)
+	return statusToolResult(status, errorValue), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) closeTerminalSession(input terminalSessionToolInput) (agent.ToolResult, error) {
+	if toolCatalogBuilder.terminalService == nil {
+		return agent.ToolFailureResult(agent.FailureDependencyUnavailable, agent.FailureCodes.Unavailable, "terminal_run", "terminal service is unavailable"), nil
+	}
+	errorValue := toolCatalogBuilder.terminalService.CloseSession(input.SessionID)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", errorValue.Error()), nil
+	}
+	return agent.ToolSuccess(marshalToolResult(map[string]string{"sessionID": input.SessionID, "status": "closed"})), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) terminalEnvironmentVariables(environmentVariables map[string]string, scope WorkspaceScope) map[string]string {
+	mergedEnvironmentVariables := mergeWorkspaceEnvironment(environmentVariables, scope.EnvironmentVariables())
+	if endpoint := strings.TrimSpace(toolCatalogBuilder.capabilityClient.Endpoint); endpoint != "" {
+		mergedEnvironmentVariables["CAPABILITY_BRIDGE_URL"] = endpoint
+	}
+	return toolCatalogBuilder.resolveAgentWorkspaceEnvironment(mergedEnvironmentVariables)
 }
 
 func terminalSessionToolResult(commandResult security.CommandResult, errorValue error) agent.ToolResult {

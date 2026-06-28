@@ -44,6 +44,31 @@ func TestTerminalRunTranslatesAgentWorkspacePaths(t *testing.T) {
 	}
 }
 
+func TestTerminalRunCommandRequestTreatsCommandWithArgumentsAsExecutable(t *testing.T) {
+	input := terminalRunToolInput{
+		Command: "/workspace/tools/capability",
+		Arguments: []string{
+			"/workspace/tools/capability",
+			"invoke",
+			"flow.task.add",
+			`{"prompt":"test"}`,
+		},
+		WorkingDirectoryPath: "/workspace",
+	}
+
+	commandRequest := input.commandRequest()
+	if commandRequest.Command != "" {
+		t.Fatalf("expected shell command to be cleared, got %q", commandRequest.Command)
+	}
+	if commandRequest.ExecutableName != "/workspace/tools/capability" {
+		t.Fatalf("expected executable command, got %q", commandRequest.ExecutableName)
+	}
+	expectedArguments := []string{"invoke", "flow.task.add", `{"prompt":"test"}`}
+	if strings.Join(commandRequest.Arguments, "\n") != strings.Join(expectedArguments, "\n") {
+		t.Fatalf("expected normalized arguments %+v, got %+v", expectedArguments, commandRequest.Arguments)
+	}
+}
+
 func TestTerminalRunRejectsSourceWriteHeredoc(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
@@ -69,8 +94,8 @@ func TestTerminalRunRejectsSourceWriteHeredoc(t *testing.T) {
 	if result.Failure.Stage != "terminal_source_write" {
 		t.Fatalf("expected terminal_source_write stage, got %+v", result.Failure)
 	}
-	if !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "file.write") {
-		t.Fatalf("expected file.write recovery hint, got %+v", result.Failure.RecoveryHints)
+	if !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "terminal.run") {
+		t.Fatalf("expected terminal.run recovery hint, got %+v", result.Failure.RecoveryHints)
 	}
 }
 
@@ -96,8 +121,8 @@ func TestTerminalRunRejectsSourceFileRedirection(t *testing.T) {
 	if !result.Failed() {
 		t.Fatalf("expected terminal.run source write failure, got %s", result.ContentText())
 	}
-	if !strings.Contains(result.ContentText(), "file.write") {
-		t.Fatalf("expected source write failure to suggest file.write, got %s", result.ContentText())
+	if !strings.Contains(result.ContentText(), "bundled skill scripts") {
+		t.Fatalf("expected source write failure to suggest bundled skill scripts, got %s", result.ContentText())
 	}
 }
 

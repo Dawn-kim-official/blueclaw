@@ -61,19 +61,17 @@ func TestResolveModelTierNamesUsesBuiltInDefaults(t *testing.T) {
 	}
 }
 
-func TestResolveModelTierNamesHighFallsBackToCapabilityModel(t *testing.T) {
+func TestResolveModelTierNamesFallsBackToCapabilityModelForEveryTier(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.LanguageModel.Capability.Model = "google/custom-base"
 
 	tierNames := ResolveModelTierNames(runtimeConfiguration)
-	if tierNames.High != "google/custom-base" {
-		t.Fatalf("expected high to fall back to capability model, got %q", tierNames.High)
-	}
-	if tierNames.Medium != defaultMediumModelName {
-		t.Fatalf("expected medium default unaffected by capability model, got %q", tierNames.Medium)
-	}
-	if tierNames.Low != defaultLowModelName {
-		t.Fatalf("expected low default unaffected by capability model, got %q", tierNames.Low)
+	if tierNames.High != "google/custom-base" ||
+		tierNames.Medium != "google/custom-base" ||
+		tierNames.Low != "google/custom-base" ||
+		tierNames.XLow != "google/custom-base" ||
+		tierNames.Coding != "google/custom-base" {
+		t.Fatalf("expected every tier to fall back to capability model, got %+v", tierNames)
 	}
 }
 

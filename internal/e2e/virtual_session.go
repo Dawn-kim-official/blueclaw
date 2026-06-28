@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -468,6 +469,9 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	if errorValue := os.MkdirAll(workspacePath, 0700); errorValue != nil {
 		return nil, errorValue
 	}
+	if errorValue := materializeVirtualCapabilityCLI(workspacePath); errorValue != nil {
+		return nil, errorValue
+	}
 
 	skillInstructions, errorValue := loadVirtualSkillInstructions(scenario, workspacePath)
 	if errorValue != nil {
@@ -779,6 +783,130 @@ func fileSHA256(path string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func materializeVirtualCapabilityCLI(workspacePath string) error {
+	toolDirectoryPath := filepath.Join(workspacePath, "tools")
+	if errorValue := os.MkdirAll(toolDirectoryPath, 0700); errorValue != nil {
+		return errorValue
+	}
+	return os.WriteFile(filepath.Join(toolDirectoryPath, "capability"), []byte(virtualCapabilityCLIDocument), 0700)
+}
+
+const virtualCapabilityCLIDocument = `#!/usr/bin/env python3
+import json
+import os
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+
+def main():
+    command, arguments = parse_arguments(sys.argv[1:])
+    endpoint = bridge_endpoint()
+    if command == "catalog":
+        write_json(get_json(endpoint, "/v1/capabilities"))
+        return
+    if command == "list":
+        for descriptor in sorted(descriptors(endpoint), key=lambda item: item.get("name", "")):
+            name = str(descriptor.get("name", "")).strip()
+            if name:
+                print(name)
+        return
+    if command == "describe":
+        require_argument(arguments, "tool name")
+        descriptor = find_descriptor(endpoint, arguments[0])
+        if descriptor is None:
+            raise SystemExit("capability not found: " + arguments[0])
+        write_json(descriptor)
+        return
+    if command == "invoke":
+        require_argument(arguments, "tool name")
+        write_json(post_json(endpoint, "/v1/tools/" + urllib.parse.quote(arguments[0], safe="") + "/invoke", invoke_request(arguments[0], arguments[1:])))
+        return
+    if command == "render":
+        require_argument(arguments, "tool name")
+        request = invoke_request(arguments[0], arguments[1:])
+        request["render"] = True
+        write_json(post_json(endpoint, "/v1/tools/" + urllib.parse.quote(arguments[0], safe="") + "/invoke", request))
+        return
+    raise SystemExit("unknown command: " + command)
+
+def parse_arguments(arguments):
+    if not arguments:
+        raise SystemExit("usage: capability catalog|list|describe|invoke|render ...")
+    return arguments[0], arguments[1:]
+
+def bridge_endpoint():
+    endpoint = os.environ.get("CAPABILITY_BRIDGE_URL", "").strip().rstrip("/")
+    if not endpoint:
+        raise SystemExit("CAPABILITY_BRIDGE_URL is not set")
+    return endpoint
+
+def require_argument(arguments, label):
+    if not arguments or not arguments[0].strip():
+        raise SystemExit(label + " is required")
+
+def descriptors(endpoint):
+    document = get_json(endpoint, "/v1/capabilities")
+    values = []
+    for key in ("capabilities", "deviceCapabilities", "companionCapabilities"):
+        candidates = document.get(key)
+        if isinstance(candidates, list):
+            values.extend(item for item in candidates if isinstance(item, dict))
+    return values
+
+def find_descriptor(endpoint, tool_name):
+    requested_name = tool_name.strip()
+    for descriptor in descriptors(endpoint):
+        if str(descriptor.get("name", "")).strip() == requested_name:
+            return descriptor
+    return None
+
+def invoke_request(tool_name, arguments):
+    if not arguments:
+        input_document = {}
+    else:
+        input_document = parse_json_argument(" ".join(arguments))
+    if isinstance(input_document, dict) and ("input" in input_document or "context" in input_document or "toolName" in input_document):
+        request = dict(input_document)
+        request["toolName"] = request.get("toolName") or tool_name
+        return request
+    return {"toolName": tool_name, "input": input_document}
+
+def parse_json_argument(value):
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as error:
+        raise SystemExit("invalid JSON input: " + str(error)) from error
+
+def get_json(endpoint, path):
+    return request_json(endpoint + path, None)
+
+def post_json(endpoint, path, document):
+    return request_json(endpoint + path, document)
+
+def request_json(url, document):
+    data = None
+    headers = {"Accept": "application/json"}
+    if document is not None:
+        data = json.dumps(document, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        message = error.read().decode("utf-8", errors="replace").strip()
+        raise SystemExit("capability bridge returned " + str(error.code) + ": " + message) from error
+    except urllib.error.URLError as error:
+        raise SystemExit("capability bridge unavailable: " + str(error.reason)) from error
+
+def write_json(document):
+    print(json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True))
+
+if __name__ == "__main__":
+    main()
+`
+
 type virtualCapabilityHTTPClient struct {
 	toolNameByName map[string]bool
 }
@@ -791,10 +919,46 @@ func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()
 			toolNameByName[trimmedToolName] = true
 		}
 	}
+	server := httptest.NewServer(http.HandlerFunc(virtualCapabilityHandler(toolNameByName)))
 	return capability.Client{
-		Endpoint:   "http://virtual-capability",
-		HTTPClient: virtualCapabilityHTTPClient{toolNameByName: toolNameByName},
-	}, func() {}
+		Endpoint:   server.URL,
+		HTTPClient: server.Client(),
+	}, server.Close
+}
+
+func virtualCapabilityHandler(toolNameByName map[string]bool) http.HandlerFunc {
+	return func(responseWriter http.ResponseWriter, request *http.Request) {
+		responseWriter.Header().Set("Content-Type", "application/json")
+		if request.Method == http.MethodGet && request.URL.Path == "/v1/capabilities" {
+			_, _ = responseWriter.Write([]byte(virtualCapabilityCatalogResponse(toolNameByName)))
+			return
+		}
+		if request.Method != http.MethodPost || !strings.HasPrefix(request.URL.Path, "/v1/tools/") || !strings.HasSuffix(request.URL.Path, "/invoke") {
+			http.Error(responseWriter, "unsupported virtual capability endpoint", http.StatusNotFound)
+			return
+		}
+		toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
+		toolName = strings.TrimSuffix(toolName, "/invoke")
+		if !toolNameByName[toolName] {
+			http.Error(responseWriter, "unknown virtual capability tool", http.StatusNotFound)
+			return
+		}
+		requestBody, _ := io.ReadAll(request.Body)
+		_, _ = responseWriter.Write([]byte(virtualCapabilityResponse(toolName, requestBody)))
+	}
+}
+
+func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
+	toolNames := make([]string, 0, len(toolNameByName))
+	for toolName := range toolNameByName {
+		toolNames = append(toolNames, toolName)
+	}
+	sort.Strings(toolNames)
+	descriptors := []string{}
+	for _, toolName := range toolNames {
+		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":{"type":"object"}}`)
+	}
+	return `{"capabilities":[` + strings.Join(descriptors, ",") + `]}`
 }
 
 func (client virtualCapabilityHTTPClient) Do(request *http.Request) (*http.Response, error) {
@@ -818,27 +982,39 @@ func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
 func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 	switch toolName {
 	case "site.app.create":
-		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
+		return `{"provider":"virtual","toolName":"site.app.create","status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.app.publish":
-		return `{"status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.intern.kim"}}`
+		return `{"provider":"virtual","toolName":"site.app.publish","status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.intern.kim"}}`
 	case "site.app.build":
-		return `{"status":"ok","result":{"siteID":"site-1","status":"built","buildID":"build-1"}}`
+		return `{"provider":"virtual","toolName":"site.app.build","status":"ok","result":{"siteID":"site-1","status":"built","buildID":"build-1"}}`
 	case "site.app.status":
-		return `{"status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
+		return `{"provider":"virtual","toolName":"site.app.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.app.logs":
-		return `{"status":"ok","result":{"logs":[]}}`
+		return `{"provider":"virtual","toolName":"site.app.logs","status":"ok","result":{"logs":[]}}`
 	case "image.read":
-		return `{"status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
+		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
-		return `{"status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
+		return `{"provider":"virtual","toolName":"web.search","status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
 	case "platform.message.send":
 		if virtualPlatformMessageSendRequiresApproval(requestBody) {
-			return `{"status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
+			return `{"provider":"virtual","toolName":"platform.message.send","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
 		}
-		return `{"status":"ok","content":"sent virtual platform message virtual-platform-message-001","result":{"messageID":"virtual-platform-message-001","deliveryStatus":"sent"}}`
+		return `{"provider":"virtual","toolName":"platform.message.send","status":"ok","content":"sent virtual platform message virtual-platform-message-001","result":{"messageID":"virtual-platform-message-001","deliveryStatus":"sent"}}`
 	default:
-		return `{"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true}}`
+		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true,"request":` + jsonObjectOrEmpty(requestBody) + `}}`
 	}
+}
+
+func jsonObjectOrEmpty(document []byte) string {
+	trimmedDocument := strings.TrimSpace(string(document))
+	if trimmedDocument == "" {
+		return "{}"
+	}
+	var decodedDocument map[string]any
+	if errorValue := json.Unmarshal([]byte(trimmedDocument), &decodedDocument); errorValue != nil {
+		return "{}"
+	}
+	return trimmedDocument
 }
 
 func virtualPlatformMessageSendRequiresApproval(requestBody []byte) bool {
