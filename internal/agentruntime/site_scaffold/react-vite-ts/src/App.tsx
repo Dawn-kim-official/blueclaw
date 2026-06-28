@@ -1,44 +1,37 @@
-import { Badge } from "./components/ui/badge";
-import { Button } from "./components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
-import { Input } from "./components/ui/input";
-import { Separator } from "./components/ui/separator";
-import { Textarea } from "./components/ui/textarea";
+import { prototypeData } from "./prototype-data";
 
 const starterMarker = "INTERNKIM_SITE_STARTER_REPLACE_ME";
 
-function App() {
-	return (
-		<main data-starter-marker={starterMarker} className="min-h-screen bg-background p-8 text-foreground">
-			<section className="mx-auto grid max-w-3xl gap-6">
-				<div className="space-y-3">
-					<Badge variant="outline">InternKim site scaffold</Badge>
-					<h1 className="text-4xl font-bold tracking-[0px]">Replace this starter with the requested site.</h1>
-					<p className="max-w-2xl text-muted-foreground">
-						Use the local shadcn-style primitives imported from <code>./components/ui/*</code>, then replace this
-						starter marker before building and publishing.
-					</p>
+export function renderApp(rootElement: HTMLElement): void {
+	rootElement.innerHTML = `
+		<main data-starter-marker="${starterMarker}" class="app-shell">
+			<section class="starter-panel">
+				<p class="eyebrow">Dependency-free site scaffold</p>
+				<h1>Replace this starter with the requested site.</h1>
+				<p class="lede">
+					InternKim site prototype loaded. Use source-backed data, stable controls, and responsive CSS before publishing.
+				</p>
+				<div class="starter-grid">
+					<div>
+						<span class="label">Title</span>
+						<strong>${escapeHTML(prototypeData.title)}</strong>
+					</div>
+					<div>
+						<span class="label">Status</span>
+						<strong>${escapeHTML(prototypeData.status)}</strong>
+					</div>
 				</div>
-				<Card>
-					<CardHeader>
-						<CardTitle>Primitive import pattern</CardTitle>
-						<CardDescription>Keep config files managed; customize App.tsx, prototype-data.ts, and index.css.</CardDescription>
-					</CardHeader>
-					<CardContent className="grid gap-4">
-						<div className="grid gap-3 sm:grid-cols-2">
-							<Input value="Button, Card, Badge, Input" readOnly />
-							<Input value="Textarea, Separator, Tabs, Dialog" readOnly />
-						</div>
-						<Textarea value="Build the real experience here, not a generic feature-card page." readOnly />
-						<Separator />
-						<div>
-							<Button type="button">Replace starter</Button>
-						</div>
-					</CardContent>
-				</Card>
+				<button class="primary-action" type="button">Replace starter</button>
 			</section>
 		</main>
-	);
+	`;
 }
 
-export default App;
+function escapeHTML(value: string): string {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#39;");
+}

@@ -374,6 +374,10 @@ func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) ag
 		ContextWindowTokens: runtimeConfiguration.LanguageModel.Capability.ContextWindowTokens,
 		EffortLevel:         effortProfile.EffortLevel,
 		ToolResultMaxBytes:  runtimeConfiguration.Agent.ToolResultMaxBytes,
+		GenerationOptions: llm.GenerationOptions{
+			Seed:        runtimeConfiguration.Agent.GenerationOptions.Seed,
+			Temperature: runtimeConfiguration.Agent.GenerationOptions.Temperature,
+		},
 		RecoveryBudget: agent.RecoveryBudget{
 			CorrectedRetry: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.CorrectedRetry,
 			AlternateRoute: runtimeConfiguration.Agent.FailureRecovery.RecoveryBudget.AlternateRoute,

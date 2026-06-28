@@ -48,11 +48,13 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 }
 
 func requestToolsActionSchema() map[string]any {
+	toolNamesSchema := stringArraySchema(0)
+	toolNamesSchema["description"] = "Registered tool names only, such as file.attach or terminal.run. Do not include generated alias names such as file_attach."
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"action":               enumStringSchema("tool.request"),
-			"toolNames":            stringArraySchema(0),
+			"toolNames":            toolNamesSchema,
 			"skillNames":           stringArraySchema(0),
 			"reason":               stringSchema(),
 			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
@@ -171,6 +173,8 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 }
 
 func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
+	requestToolsSchema := stringArraySchema(0)
+	requestToolsSchema["description"] = "Registered tool names only, such as file.attach or terminal.run. Do not include generated alias names such as file_attach."
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -183,7 +187,7 @@ func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
 			"goalSatisfied":        booleanSchema(),
 			"remainingWork":        stringSchema(),
 			"executionStateUpdate": executionStateSchema(),
-			"requestTools":         stringArraySchema(0),
+			"requestTools":         requestToolsSchema,
 			"requestSkills":        stringArraySchema(0),
 		},
 		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate"},

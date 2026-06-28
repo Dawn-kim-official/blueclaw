@@ -57,6 +57,12 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requestedOutputFormats"`) {
 		t.Fatalf("expected requested output formats in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"outputKind"`) {
+		t.Fatalf("expected output kind in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"enum":["file","photo","site"]`) {
+		t.Fatalf("expected generic output kind enum in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"priorTaskReference"`) {
 		t.Fatalf("expected prior task reference in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
@@ -74,6 +80,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Do not ignore jokes") {
 		t.Fatal("expected intake prompt to guide playful addressed remarks")
+	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "set it to null for reading, summarizing, searching, or analyzing an input attachment") {
+		t.Fatal("expected intake prompt to separate input attachments from file deliverables")
 	}
 }
 
@@ -210,6 +219,70 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 
 	if strings.Join(decision.RequestedOutputFormats, ",") != "html" {
 		t.Fatalf("expected structured html output format, got %+v", decision.RequestedOutputFormats)
+	}
+	if decision.OutputKind != OutputKindFile {
+		t.Fatalf("expected requested output formats to imply file output kind, got %+v", decision.OutputKind)
+	}
+}
+
+func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"unsupported","taskShape":"immediate_reply","taskComplexity":"simple","effortLevel":"deep","outputKind":"file","requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","workKinds":[],"priorTaskReference":"none"}`,
+	}}
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "제안서를 PDF 파일로 만들어줘",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask {
+		t.Fatalf("expected structured file artifact enum to recover bounded task, got %+v", decision)
+	}
+	if decision.OutputKind != OutputKindFile {
+		t.Fatalf("expected file artifact kind, got %+v", decision)
+	}
+	if strings.Join(decision.RequestedOutputFormats, ",") != "pdf" {
+		t.Fatalf("expected pdf output format, got %+v", decision.RequestedOutputFormats)
+	}
+	if !decision.HasWorkKind(WorkKindFileDelivery) {
+		t.Fatalf("expected file delivery work kind, got %+v", decision.WorkKinds)
+	}
+	if !slices.Contains(decision.InitialToolNames, "file.attach") {
+		t.Fatalf("expected file delivery tools from enum result, got %+v", decision.InitialToolNames)
+	}
+	if decision.UserFacingReply != "" {
+		t.Fatalf("expected unsupported reply to be cleared, got %q", decision.UserFacingReply)
+	}
+}
+
+func TestTaskIntakePlannerUsesRequestedOutputFormatsToResolveArtifactKindConflict(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","taskComplexity":"normal","effortLevel":"deep","requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","workKinds":["file_delivery","site_prototype"],"initialToolNames":["site.app.status"],"priorTaskReference":"none"}`,
+	}}
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach", "site.app.status"})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "제공한 데이터만 기반으로 제안서를 PDF 파일로 만들어서 첨부해줘",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.OutputKind != OutputKindFile {
+		t.Fatalf("expected requested output formats to imply file output kind, got %+v", decision.OutputKind)
+	}
+	if !decision.HasWorkKind(WorkKindFileDelivery) {
+		t.Fatalf("expected file delivery work kind, got %+v", decision.WorkKinds)
+	}
+	if decision.HasWorkKind(WorkKindSitePrototype) {
+		t.Fatalf("expected quote-less site work kind to be removed, got %+v", decision.WorkKinds)
+	}
+	if len(decision.ExpectedResults) != 1 || decision.ExpectedResults[0].ID != "result-1" {
+		t.Fatalf("expected quote-less site result to be removed, got %+v", decision.ExpectedResults)
+	}
+	if slices.Contains(decision.InitialToolNames, "site.app.status") {
+		t.Fatalf("expected site tool to be removed from initial tools, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -1376,7 +1449,7 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 
 func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["html"],"initialToolNames":["file.attach"],"reason":"explicit html output","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","outputKind":"file","requestedOutputFormats":["html"],"initialToolNames":["file.attach"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
@@ -1427,6 +1500,94 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", `"requestedOutputFormats":["html"]`) {
 		t.Fatal("expected intake event to preserve structured output format")
+	}
+}
+
+func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T) {
+	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"unsupported","taskShape":"immediate_reply","taskComplexity":"simple","effortLevel":"deep","outputKind":"site","requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","workKinds":["file_delivery","site_prototype"],"initialToolNames":["site.app.status"],"priorTaskReference":"none"}`,
+	}}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/brief/quality-brief.pdf"}}`,
+		finishMessageWithEvidence("PDF 파일을 첨부했습니다: quality-brief.pdf", "obs-001", "file.attach", 0),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{
+		RetrievalMode: "embedding",
+		IndexStatus:   "ready",
+		SelectedCandidates: []SkillCandidate{
+			{Name: "site-prototype", Score: 30, Reason: "embedding_similarity"},
+			{Name: "pdf", Score: 8, Reason: "embedding_similarity"},
+		},
+	}})
+	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
+		return InstructionBundle{Skills: []SkillInstruction{
+			{
+				Name:         "site-prototype",
+				Description:  "Create websites.",
+				Prompt:       "Use site tools.",
+				AllowedTools: []string{"site.app.create", "site.app.publish"},
+				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+			},
+			{
+				Name:         "pdf",
+				Description:  "Create, verify, and attach PDF documents.",
+				WhenToUse:    "Use for PDF deliverables, reports, briefs, and .pdf file artifacts.",
+				Prompt:       "Use pdf tools.",
+				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				Source:       InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"},
+			},
+		}}
+	})
+	toolRegistry := newTestToolSet([]string{
+		"terminal.run",
+		"file.write",
+		"file.attach",
+		"site.app.create",
+		"site.app.publish",
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{
+			Output: ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{
+				DevicePath: "artifacts/brief/quality-brief.pdf",
+				Filename:   "quality-brief.pdf",
+				SizeBytes:  42,
+			}},
+		}, nil
+	})
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "제공한 데이터만 기반으로 브리프를 pdf 파일로 만들어서 첨부해줘",
+		ToolSet:           toolRegistry,
+	})
+	if errorValue != nil {
+		t.Fatalf("expected structured pdf artifact task to complete: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "quality-brief.pdf" {
+		t.Fatalf("expected pdf attachment, got %+v", result.Attachments)
+	}
+	turnPrompt := joinedMessageContent(replyLanguageModel.requests[0].Messages)
+	if !strings.Contains(turnPrompt, "Use pdf tools.") {
+		t.Fatalf("expected pdf skill instructions in turn prompt, got %s", turnPrompt)
+	}
+	if strings.Contains(turnPrompt, "Use site tools.") {
+		t.Fatalf("expected site skill to stay out of pdf attachment turn prompt, got %s", turnPrompt)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.intake", `"outputKind":"file"`) {
+		t.Fatal("expected intake event to preserve structured artifact enum")
+	}
+	if !taskEventsContain(taskEvents, "agent.intake", `"requestedOutputFormats":["pdf"]`) {
+		t.Fatal("expected intake event to preserve pdf output format")
+	}
+	if taskEventsContain(taskEvents, "agent.intake", WorkKindSitePrototype) {
+		t.Fatal("expected unverified site work kind to be removed from pdf output intake")
 	}
 }
 

@@ -54,7 +54,7 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	}
 }
 
-func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
+func TestSiteStaticScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	files := siteAppScaffoldFiles(siteCreateResult{Slug: "demo-site", Title: "Demo Site"})
 	fileMap := map[string]string{}
 	for _, file := range files {
@@ -64,30 +64,29 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 		"app/package.json",
 		"app/index.html",
 		"app/scripts/build.ts",
+		"app/scripts/preview.ts",
 		"app/tsconfig.json",
-		"app/vite.config.ts",
 		"app/src/App.tsx",
 		"app/src/main.tsx",
 		"app/src/index.css",
 		"app/src/prototype-data.ts",
 	} {
 		if strings.TrimSpace(fileMap[path]) == "" {
-			t.Fatalf("expected React scaffold file %s", path)
+			t.Fatalf("expected static scaffold file %s", path)
 		}
 	}
 	if _, exists := fileMap["app/src/content.html"]; exists {
 		t.Fatalf("legacy HTML scaffold file should not be present")
 	}
-	for _, expectedText := range []string{`"react"`, `"vite"`, `"@vitejs/plugin-react"`, `"bun scripts/build.ts"`} {
+	for _, expectedText := range []string{`"build": "bun scripts/build.ts"`, `"preview": "bun scripts/preview.ts"`} {
 		if !strings.Contains(fileMap["app/package.json"], expectedText) {
 			t.Fatalf("site package manifest must contain %q", expectedText)
 		}
 	}
-	if strings.Contains(fileMap["app/package.json"], "@google/design.md") {
-		t.Fatalf("site package manifest must not depend on nested design.md CLI")
-	}
-	if strings.Contains(fileMap["app/package.json"], `": "^`) {
-		t.Fatalf("site package manifest must pin exact dependency versions")
+	for _, forbiddenText := range []string{`"dependencies"`, `"devDependencies"`, `"react"`, `"vite"`, "@google/design.md", `": "^`} {
+		if strings.Contains(fileMap["app/package.json"], forbiddenText) {
+			t.Fatalf("site package manifest must not contain %q", forbiddenText)
+		}
 	}
 	buildScript := fileMap["app/scripts/build.ts"]
 	if strings.Contains(buildScript, "site quality gate failed") {
@@ -96,45 +95,38 @@ func TestSiteReactScaffoldIncludesManagedBuildQualityContract(t *testing.T) {
 	if !strings.Contains(buildScript, "suggestedFix") {
 		t.Fatalf("build script must include actionable quality fixes")
 	}
-	for _, forbiddenText := range []string{`Bun.execPath`, `name: "bunx"`} {
+	for _, forbiddenText := range []string{`Bun.execPath`, `name: "bunx"`, "bun install", "node_modules", `from "vite"`, `import("vite")`, `./node_modules/.bin/vite`, `arguments: ["x", "vite", "build"]`} {
 		if strings.Contains(buildScript, forbiddenText) {
-			t.Fatalf("build script must rely on canonical runtime PATH, not %q", forbiddenText)
+			t.Fatalf("build script must not use dependency installation or Vite path %q", forbiddenText)
 		}
 	}
-	if !strings.Contains(buildScript, `PATH: canonicalRuntimePATH`) {
-		t.Fatalf("build script must pass canonical PATH to child commands")
-	}
-	if strings.Contains(buildScript, `existsSync("node_modules")`) {
-		t.Fatalf("build script must refresh dependencies instead of trusting stale node_modules")
+	if !strings.Contains(buildScript, `await Bun.build`) || !strings.Contains(buildScript, `copyFileSync("src/index.css"`) {
+		t.Fatalf("build script must use Bun's static build path")
 	}
 	if !strings.Contains(buildScript, `collectDesignQualityIssues`) || !strings.Contains(buildScript, `category: "designDocument"`) {
 		t.Fatalf("build script must report DESIGN.md quality issues in-process")
 	}
-	if strings.Contains(buildScript, "@google/design.md") {
-		t.Fatalf("build script must not spawn nested design.md CLI")
+	for _, forbiddenText := range []string{"@google/design.md", "DESIGN.md lint failed", "DESIGN.md is required"} {
+		if strings.Contains(buildScript, forbiddenText) {
+			t.Fatalf("build script must not fail solely because DESIGN.md quality issues were reported")
+		}
 	}
-	if strings.Contains(buildScript, "DESIGN.md lint failed") {
-		t.Fatalf("build script must not fail solely because DESIGN.md quality issues were reported")
+	if !strings.Contains(buildScript, `category: "externalDependency"`) {
+		t.Fatalf("build script must detect dependency imports")
 	}
-	if strings.Contains(buildScript, "DESIGN.md is required") {
-		t.Fatalf("build script must not fail solely because DESIGN.md is missing")
+	if strings.Contains(fileMap["app/src/App.tsx"], `from "react"`) || strings.Contains(fileMap["app/src/main.tsx"], `from "react-dom"`) {
+		t.Fatalf("default app source must not import React dependencies")
 	}
-	if !strings.Contains(buildScript, `arguments: ["--bun", "./node_modules/vite/bin/vite.js", "build"]`) {
-		t.Fatalf("build script must call the installed local Vite with Bun")
+	if strings.Contains(fileMap["app/src/index.css"], `@import "tailwindcss"`) {
+		t.Fatalf("default CSS must not import Tailwind")
 	}
-	if strings.Contains(buildScript, `import("vite")`) {
-		t.Fatalf("build script must not resolve Vite through Bun's package cache")
+	if _, exists := fileMap["app/vite.config.ts"]; exists {
+		t.Fatalf("static scaffold must not include Vite config")
 	}
-	if strings.Contains(buildScript, `name: "./node_modules/.bin/vite"`) {
-		t.Fatalf("build script must not require a node executable through Vite's shebang")
-	}
-	if strings.Contains(buildScript, `arguments: ["x", "vite", "build"]`) {
-		t.Fatalf("build script must not spawn nested bun x vite")
-	}
-	viteIndex := strings.Index(buildScript, `await buildVite();`)
+	buildIndex := strings.Index(buildScript, `await buildStaticSite();`)
 	qualityIndex := strings.LastIndex(buildScript, "writeBuildQuality(qualityIssues);")
-	if viteIndex < 0 || qualityIndex < viteIndex {
-		t.Fatalf("build script must write build-quality.json after vite build")
+	if buildIndex < 0 || qualityIndex < buildIndex {
+		t.Fatalf("build script must write build-quality.json after static build")
 	}
 }
 
@@ -334,7 +326,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if sourceWorkspaceInformation.Mode().Perm() != 0770 {
 		t.Fatalf("expected staff-circle source workspace permissions 0770, got %v", sourceWorkspaceInformation.Mode().Perm())
 	}
-	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", ".internkim/artifact-brief.md", ".internkim/review-log.json", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
+	for _, relativePath := range []string{".internkim/site.json", ".internkim/idea.md", ".internkim/artifact-brief.md", ".internkim/review-log.json", "DESIGN.md", "app/package.json", "app/scripts/build.ts", "app/scripts/preview.ts", "app/src/App.tsx", "app/src/main.tsx", "app/src/index.css", "app/src/prototype-data.ts"} {
 		if _, errorValue := os.Stat(filepath.Join(sourceWorkspacePath, relativePath)); errorValue != nil {
 			t.Fatalf("expected materialized source file %s: %v", relativePath, errorValue)
 		}
@@ -346,8 +338,8 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !strings.Contains(string(packageDocument), `"build": "bun scripts/build.ts"`) || strings.Contains(string(packageDocument), "latest") || !strings.Contains(string(packageDocument), `"react"`) {
-		t.Fatalf("expected React scaffold package manifest, got %s", string(packageDocument))
+	if !strings.Contains(string(packageDocument), `"build": "bun scripts/build.ts"`) || !strings.Contains(string(packageDocument), `"preview": "bun scripts/preview.ts"`) || strings.Contains(string(packageDocument), "latest") || strings.Contains(string(packageDocument), `"react"`) {
+		t.Fatalf("expected static scaffold package manifest, got %s", string(packageDocument))
 	}
 	metadataDocument, errorValue := os.ReadFile(filepath.Join(sourceWorkspacePath, ".internkim", "site.json"))
 	if errorValue != nil {
@@ -379,7 +371,7 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if readResult.Failed() || !strings.Contains(readResult.ContentText(), "function App") {
+	if readResult.Failed() || !strings.Contains(readResult.ContentText(), "renderApp") {
 		t.Fatalf("expected file.read to inspect materialized site source, got %s", readResult.ContentText())
 	}
 	workspaceActor, errorValue := toolCatalogBuilder.workspaceActorFactory.Requester(context.Background(), security.WorkspaceActorRequest{

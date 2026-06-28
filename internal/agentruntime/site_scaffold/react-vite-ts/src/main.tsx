@@ -1,16 +1,9 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import App from "./App";
-import "./index.css";
+import { renderApp } from "./App";
 
 const rootElement = document.getElementById("root");
 
 if (!rootElement) {
-	throw new Error("React root element is missing");
+	throw new Error("Site root element is missing");
 }
 
-createRoot(rootElement).render(
-	<StrictMode>
-		<App />
-	</StrictMode>,
-);
+renderApp(rootElement);

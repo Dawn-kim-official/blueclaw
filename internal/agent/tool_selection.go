@@ -32,6 +32,7 @@ type toolCandidate struct {
 
 func applyToolRequest(request AgentTurnRequest, requestArguments requestToolsArguments) (AgentTurnRequest, toolRequestResult) {
 	result := toolRequestResult{SkillsMissingAllowedTools: map[string][]string{}}
+	requestArguments.ToolNames = normalizeRequestedToolNames(requestArguments.ToolNames, request.ToolSet)
 	if len(appendUniqueStrings(requestArguments.ToolNames)) == 0 && len(appendUniqueStrings(requestArguments.SkillNames)) == 0 {
 		result.EmptyRequirement = true
 	}
@@ -45,6 +46,57 @@ func applyToolRequest(request AgentTurnRequest, requestArguments requestToolsArg
 		result.ToolCandidates = nil
 	}
 	return request, result
+}
+
+func normalizeRequestedToolNames(toolNames []string, toolSet *ToolSet) []string {
+	normalizedToolNames := []string{}
+	for _, toolName := range toolNames {
+		normalizedToolNames = appendUniqueStrings(normalizedToolNames, normalizeRequestedToolName(toolName, toolSet))
+	}
+	return normalizedToolNames
+}
+
+func normalizeRequestedToolName(toolName string, toolSet *ToolSet) string {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == "" {
+		return ""
+	}
+	if toolSet != nil && toolSet.IsRegistered(trimmedToolName) {
+		return trimmedToolName
+	}
+	if normalizedToolName, isFound := normalizeContinueActionToolName(trimmedToolName, toolSet); isFound {
+		return normalizedToolName
+	}
+	return trimmedToolName
+}
+
+func normalizeContinueActionToolName(toolName string, toolSet *ToolSet) (string, bool) {
+	if toolSet == nil {
+		return "", false
+	}
+	encodedToolName, hasPrefix := strings.CutPrefix(toolName, "continue__")
+	if !hasPrefix || strings.TrimSpace(encodedToolName) == "" {
+		return "", false
+	}
+	for _, toolDefinition := range toolSet.ListRegisteredToolDefinitions() {
+		registeredToolName := strings.TrimSpace(toolDefinition.Name)
+		if registeredToolName == "" {
+			continue
+		}
+		if strings.EqualFold(encodeContinueActionToolName(registeredToolName), toolName) {
+			return registeredToolName, true
+		}
+	}
+	decodedToolName := strings.ReplaceAll(encodedToolName, "_", ".")
+	if toolSet.IsRegistered(decodedToolName) {
+		return decodedToolName, true
+	}
+	return "", false
+}
+
+func encodeContinueActionToolName(toolName string) string {
+	replacer := strings.NewReplacer(".", "_", "-", "_", "/", "_")
+	return "continue__" + replacer.Replace(strings.TrimSpace(toolName))
 }
 
 func pinRequestedTools(request AgentTurnRequest, toolNames []string, result toolRequestResult) (AgentTurnRequest, toolRequestResult) {

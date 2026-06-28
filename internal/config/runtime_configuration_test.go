@@ -72,6 +72,10 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
     },
     "defaultEffortLevel": "standard",
     "toolResultMaxBytes": 32768,
+    "generationOptions": {
+      "seed": 41,
+      "temperature": 0
+    },
     "failureRecovery": {
       "failureDebtFinalizationGate": true,
       "attemptFingerprint": "tool_input_error_code",
@@ -211,6 +215,12 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	}
 	if runtimeConfiguration.Agent.ToolResultMaxBytes != 32768 {
 		t.Fatalf("expected agent tool result limit to match, got %d", runtimeConfiguration.Agent.ToolResultMaxBytes)
+	}
+	if runtimeConfiguration.Agent.GenerationOptions.Seed == nil || *runtimeConfiguration.Agent.GenerationOptions.Seed != 41 {
+		t.Fatalf("expected agent generation seed to load, got %+v", runtimeConfiguration.Agent.GenerationOptions)
+	}
+	if runtimeConfiguration.Agent.GenerationOptions.Temperature == nil || *runtimeConfiguration.Agent.GenerationOptions.Temperature != 0 {
+		t.Fatalf("expected agent generation temperature to load, got %+v", runtimeConfiguration.Agent.GenerationOptions)
 	}
 	if !runtimeConfiguration.Agent.FailureRecovery.FailureDebtFinalizationGate {
 		t.Fatal("expected agent failure debt finalization gate to load")

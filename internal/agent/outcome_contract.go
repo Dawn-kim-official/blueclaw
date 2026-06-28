@@ -33,6 +33,9 @@ func normalizeTurnDecisionSiteRequirement(request AgentRequest, decision TurnDec
 	decision.ExpectedResults = intakeDecision.ExpectedResults
 	decision.SiteRequestEvidence = intakeDecision.SiteRequestEvidence
 	decision.WorkKinds = intakeDecision.WorkKinds
+	if report.HasDrops() {
+		decision.InitialToolNames, _ = removeToolNamePrefix(decision.InitialToolNames, "site.app.")
+	}
 	return decision, report
 }
 
