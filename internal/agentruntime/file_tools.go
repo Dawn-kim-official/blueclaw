@@ -48,6 +48,10 @@ type fileWriteToolInput struct {
 	Content string `json:"content"`
 }
 
+type fileDeleteToolInput struct {
+	Path string `json:"path"`
+}
+
 type fileEditToolInput struct {
 	Path    string `json:"path"`
 	OldText string `json:"oldText"`
@@ -170,6 +174,24 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 		},
 		Result: agent.IdentityToolResult,
 	})
+	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileDeleteToolInput, agent.ToolResult]{
+		Definition: agent.ToolDefinition{
+			Name:        "file.delete",
+			Description: "Delete one file from the Blueclaw workspace by its workspace path. Use the same path form as file.write and file.read, for example tmp/notes.txt or home/sites/<id>/draft/app/src/App.tsx.",
+			RecoveryCard: agent.ToolRecoveryCard{
+				Does:       "Removes one workspace file at the requested path.",
+				Produces:   "Confirmation that the file no longer exists.",
+				SideEffect: "workspace_write",
+				UseWhen:    "A workspace file the requester created or owns should be removed; resolve the path with the same form used to write it.",
+				AvoidWhen:  "You only need to overwrite a file (use file.write), the path is a directory, or it is a built-in resource.",
+			},
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace file path to delete, in the same form as file.write (for example tmp/notes.txt)."}},"required":["path"]}`),
+		},
+		Handler: func(toolContext context.Context, input fileDeleteToolInput) (agent.ToolResult, error) {
+			return toolCatalogBuilder.deleteFileTool(toolContext, input, handlerContext)
+		},
+		Result: agent.IdentityToolResult,
+	})
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileAttachToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:            agent.FileDeliverToolName,
@@ -222,6 +244,51 @@ func (toolCatalogBuilder *ToolCatalogBuilder) writeFileTool(toolContext context.
 	return agent.ToolSuccess(marshalToolResult(map[string]any{
 		"path":      resolvedPath.VirtualPath,
 		"sizeBytes": len(input.Content),
+	})), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) deleteFileTool(toolContext context.Context, input fileDeleteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
+	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
+	path := strings.TrimSpace(input.Path)
+	if path == "" {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", "path is required"), nil
+	}
+	if isSiteSourceRelativePath(path) {
+		return siteSourceRelativePathFailure("file_delete", path), nil
+	}
+	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", errorValue.Error()), nil
+	}
+	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
+		return managedSiteManifestProtectedFailure(resolvedPath.VirtualPath), nil
+	}
+	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
+		return agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_delete", "file.delete cannot remove built-in skill files"), nil
+	}
+	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, resolvedPath.ConcretePath) {
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_delete", "current account cannot delete this file"), nil
+	}
+	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
+	if actorFailure != nil {
+		return *actorFailure, nil
+	}
+	information, statErrorValue := workspaceActor.Stat(toolContext, resolvedPath)
+	if statErrorValue != nil || !information.IsRegular {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_delete", "no file to delete at "+resolvedPath.VirtualPath), nil
+	}
+	commandRequest := security.CommandRequest{
+		ExecutableName:       "rm",
+		Arguments:            []string{"-f", "--", resolvedPath.ConcretePath},
+		WorkingDirectoryPath: resolvedPath.Parent().ConcretePath,
+		ExecutionIdentity:    toolCatalogBuilder.executionIdentityForRequester(handlerContext.request),
+	}
+	if _, errorValue := workspaceActor.Run(toolContext, commandRequest); errorValue != nil {
+		return actorToolFailure("remove_file", "file_delete", resolvedPath.VirtualPath, errorValue), nil
+	}
+	return agent.ToolSuccess(marshalToolResult(map[string]any{
+		"path":    resolvedPath.VirtualPath,
+		"deleted": true,
 	})), nil
 }
 
