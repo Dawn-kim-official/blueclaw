@@ -52,8 +52,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	if errorValue != nil {
 		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
-	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
-	observation.Tool = effectiveObservationToolName(trimmedToolName, toolInput)
+	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, effectiveObservationToolName(trimmedToolName, toolInput), toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
 	return observation
 }
 
@@ -76,7 +75,7 @@ func toolFailureObservation(observationID string, toolName string, message strin
 	return newFailureObservation(observationID, "continue", toolName, message, FailureUnknown, FailureCodes.OperationFailed, firstNonEmptyString(toolName, "tool"))
 }
 
-func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, observationToolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
 	toolResult = normalizeToolFailureResult(toolName, toolResult)
 	content := toolResult.ContentText()
 	originalContent := content
@@ -105,7 +104,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 	observation := turnObservation{
 		ObservationID:   observationID,
 		Action:          "continue",
-		Tool:            toolName,
+		Tool:            firstNonEmptyString(observationToolName, toolName),
 		Output:          toolResult.Output,
 		Failure:         toolResult.Failure,
 		Attachments:     attachments,
