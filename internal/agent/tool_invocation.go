@@ -75,7 +75,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 	if !isError {
 		attachments = append(attachments, toolResult.Attachments...)
 	}
-	if !isError && toolName == "file.attach" && len(attachments) > 0 {
+	if !isError && IsArtifactDeliveryTool(toolName) && len(attachments) > 0 {
 		validityState := buildAttachmentValidityState(workspaceRootPath, attachments)
 		if !validityState.Passed {
 			content = validityFailureMessage(validityState)
@@ -189,7 +189,7 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.Langua
 
 func shouldUseSanitizedToolPresenter(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", "file.attach", "file.read", "site.app.create", "site.app.publish", "site.app.status", "terminal.run":
+	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", FileDeliverToolName, "file.read", "site.app.create", "site.app.publish", "site.app.status", "terminal.run":
 		return true
 	default:
 		return false
@@ -216,7 +216,7 @@ func sanitizedToolResultSummary(observation turnObservation) string {
 		return summarizeSafeJSONFields(observation.ContentText(), []string{"capturedAt", "contentType", "filename", "sizeBytes"})
 	case "file.pick":
 		return attachmentResultSummary("User selected file", observation.Attachments)
-	case "file.attach":
+	case FileDeliverToolName:
 		return attachmentResultSummary("File attached", observation.Attachments)
 	case "file.read":
 		return summarizeFileReadObservation(observation)

@@ -292,11 +292,11 @@ func TestScheduledToolSetKeepsKernelAskToolsAvailable(t *testing.T) {
 		Name:        "user.confirm",
 		Description: "Ask the user to confirm",
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.choice", "ask.input", "ask.confirm", "user.confirm", "schedule.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"ask.input", "ask.confirm", "user.confirm", "schedule.create"})
 
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default", IsScheduledRun: true})
 
-	for _, toolName := range []string{"ask.choice", "ask.input", "ask.confirm"} {
+	for _, toolName := range []string{"ask.input", "ask.confirm"} {
 		if !toolRegistry.IsRegistered(toolName) || !toolRegistry.IsAllowed(toolName) {
 			t.Fatalf("expected scheduled run to keep kernel ask tool %s, got %+v", toolName, toolRegistry.ListToolNames())
 		}

@@ -960,7 +960,7 @@ func calendarSkill() agent.SkillInstruction {
 func scheduledTaskSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:        "scheduled-task",
-		Description: "Create or cancel scheduled, recurring, and finite repeated reminders, messages, reports, and follow-up tasks with schedule tools.",
+		Description: "Create or cancel scheduled, recurring, and finite repeated reminders, messages, reports, and follow-up tasks with schedule capability operations.",
 		WhenToUse:   "Use when the user asks to schedule, remind, repeat, cancel schedules, stop reminders, send something every minute/hour/day/week/month, repeat N times, send a finite repeated message, or says 예약, 알림, 리마인드, 취소, 중지, 마다, 분마다, 시간마다, 한 번씩, 1분에 한 번씩, 10번, 매일, 매주, or 매월.",
 		Category:    "automation",
 		Tags:        []string{"schedule", "reminder", "cron"},
@@ -1264,7 +1264,7 @@ func simpleSlidesSkill() agent.SkillInstruction {
 func sitePrototypeSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
 		Name:        "site-prototype",
-		Description: "Create, publish, update, take down, restore, or delete free React and PocketBase website prototypes through InternKim site.app tools.",
+		Description: "Create, publish, update, take down, restore, or delete free React and PocketBase website prototypes through InternKim site.app capability operations.",
 		Category:    "site-prototype",
 		Tags:        []string{"website", "prototype", "deploy"},
 		Prompt:      "Create and publish website prototypes. For a new prototype, call site.app.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to verify the app when useful, call site.app.build, then call site.app.publish with the siteID and a concise message. Never claim deployment succeeded until site.app.publish succeeds.",

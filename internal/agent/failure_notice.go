@@ -88,7 +88,7 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 		NextAction:          strings.TrimSpace(decision.NextAction),
 		OriginalRequest:     strings.TrimSpace(request.Prompt),
 		ResponseLanguage:    strings.TrimSpace(request.ResponseLanguage),
-		ArtifactRequired:    requestRequiresDurableArtifact(request),
+		ArtifactRequired:    requestRequiresFileAttachment(request),
 		HasAttachments:      len(attachments) > 0,
 		AttachmentFilenames: failureReportAttachmentFilenames(attachments),
 		DiagnosticEventID:   diagnosticEventID(request, taskRunID, phase),

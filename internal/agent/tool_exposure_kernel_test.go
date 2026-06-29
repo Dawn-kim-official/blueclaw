@@ -6,7 +6,6 @@ func TestToolExposureUsesFixedKernelOnly(t *testing.T) {
 	toolSet := testToolSet(append(KernelToolNames(),
 		"site.app.create",
 		"site.app.publish",
-		"file.write",
 		"platform.message.send",
 	))
 
@@ -24,9 +23,14 @@ func TestToolExposureUsesFixedKernelOnly(t *testing.T) {
 	if got := filteredToolSet.ListToolNames(); !sameStringSet(got, KernelToolNames()) {
 		t.Fatalf("expected fixed kernel tools, got %+v", got)
 	}
-	for _, hiddenToolName := range []string{"site.app.create", "site.app.publish", "file.write", "platform.message.send"} {
+	for _, hiddenToolName := range []string{"site.app.create", "site.app.publish", "platform.message.send"} {
 		if filteredToolSet.IsAllowed(hiddenToolName) {
 			t.Fatalf("expected non-kernel tool %s to be hidden, got %+v", hiddenToolName, filteredToolSet.ListToolNames())
+		}
+	}
+	for _, kernelToolName := range []string{"file.read", "file.write", "file.edit", "file.patch", "file.preview", "image.read"} {
+		if !filteredToolSet.IsAllowed(kernelToolName) {
+			t.Fatalf("expected coding kernel tool %s to be exposed, got %+v", kernelToolName, filteredToolSet.ListToolNames())
 		}
 	}
 	if event.SelectionSource != "fixed_kernel" || event.UsedFallbackGroups {

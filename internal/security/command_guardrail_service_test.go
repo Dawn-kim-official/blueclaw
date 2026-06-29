@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -242,6 +243,47 @@ func TestCommandGuardrailAllowsStandardDeviceRedirects(t *testing.T) {
 
 	if errorValue != nil {
 		t.Fatalf("expected standard device redirect to be allowed, got %v", errorValue)
+	}
+}
+
+func TestCommandGuardrailAllowsWorkspaceCapabilityCLIExecutable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root cannot build terminal command plans")
+	}
+
+	workspaceRootPath := t.TempDir()
+	capabilityPath := workspaceRootPath + "/tools/capability"
+	if errorValue := os.MkdirAll(workspaceRootPath+"/tools", 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := os.WriteFile(capabilityPath, []byte("#!/bin/sh\n"), 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
+		Mode:                   "firecrackerGuest",
+		WorkspaceRootPath:      workspaceRootPath,
+		AllowedExecutableNames: []string{"capability"},
+		DeniedExecutableNames:  []string{"sudo"},
+		AllowNetwork:           true,
+		AllowInteractiveShell:  true,
+		TimeoutSecond:          3,
+	})
+
+	commandPlan, errorValue := commandGuardrailService.BuildCommandPlan(CommandRequest{
+		ExecutableName:       capabilityPath,
+		Arguments:            []string{"list"},
+		WorkingDirectoryPath: workspaceRootPath,
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected workspace capability CLI to be allowed, got %v", errorValue)
+	}
+	expectedCapabilityPath, errorValue := filepath.EvalSymlinks(capabilityPath)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if commandPlan.ExecutablePath != expectedCapabilityPath {
+		t.Fatalf("expected capability executable path, got %+v", commandPlan)
 	}
 }
 

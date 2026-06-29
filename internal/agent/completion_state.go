@@ -264,7 +264,7 @@ func recommendedCompletionAction(request AgentTurnRequest, requirements []toolUs
 	if !allMissingRequirementsAreFileAttachments(requirements, state.Requirements) {
 		return completionActionContinueWork
 	}
-	if request.ToolSet == nil || !request.ToolSet.IsAllowed(ArtifactDeliverToolName) {
+	if request.ToolSet == nil || !request.ToolSet.IsAllowed(FileDeliverToolName) {
 		return completionActionBlockedMissingTool
 	}
 	if hasFailedArtifactDeliveryForPaths(observations, state.AttachmentPaths) {

@@ -347,7 +347,7 @@ func TestPinnedPaletteTruncatesToolsByOrder(t *testing.T) {
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{})
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
 	if !isDeterministic {
-		t.Fatal("expected pinned site tools to select deterministically")
+		t.Fatal("expected pinned site operations to select deterministically")
 	}
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
@@ -686,7 +686,7 @@ func TestPinnedToolGroupBypassesOutcomeFilter(t *testing.T) {
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{})
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
 	if !isDeterministic {
-		t.Fatal("expected pinned site tools to select deterministically")
+		t.Fatal("expected pinned site operations to select deterministically")
 	}
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
@@ -838,7 +838,7 @@ func TestFileToolCardsSeparateWriteEditAndPatchRoles(t *testing.T) {
 		},
 	}, handler)
 
-	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "file tools", ToolIDs: []string{"file.write", "file.edit", "file.patch"}}})
+	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "file operations", ToolIDs: []string{"file.write", "file.edit", "file.patch"}}})
 
 	for _, expectedText := range []string{"file.write", "full rewrite", "file.edit", "oldText", "file.patch", "Several targeted edits"} {
 		if !strings.Contains(cards, expectedText) {

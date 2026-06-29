@@ -1207,7 +1207,7 @@ func TestSiteRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 	updatedRequest := requestWithStepWorkingSetTools(request, nil)
 
 	if stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.add") || stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.delete") {
-		t.Fatalf("did not expect calendar tools pinned for site content mention, got %+v", updatedRequest.PinnedToolNames)
+		t.Fatalf("did not expect calendar operations pinned for site content mention, got %+v", updatedRequest.PinnedToolNames)
 	}
 }
 
@@ -1225,7 +1225,7 @@ func TestSlidesRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 	updatedRequest := requestWithStepWorkingSetTools(request, nil)
 
 	if stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.add") || stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.delete") {
-		t.Fatalf("did not expect calendar tools pinned for slides content mention, got %+v", updatedRequest.PinnedToolNames)
+		t.Fatalf("did not expect calendar operations pinned for slides content mention, got %+v", updatedRequest.PinnedToolNames)
 	}
 }
 

@@ -252,7 +252,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerBuiltInTools(toolRegistry 
 	toolCatalogBuilder.registerSiteTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerAskTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerFileTools(toolRegistry, handlerContext)
-	toolCatalogBuilder.registerArtifactDeliveryTool(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerScheduleTools(toolRegistry, handlerContext)
 	toolCatalogBuilder.registerSkillManagementTools(toolRegistry)
 	toolCatalogBuilder.registerDatabaseTools(toolRegistry, handlerContext)

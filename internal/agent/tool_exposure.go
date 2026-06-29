@@ -107,7 +107,7 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	kernelGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()})
 	exposedToolIDs := stableUniqueToolIDs(kernelGroup.ToolIDs)
 	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, "fixed_kernel")
-	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, "Blueclaw exposes the same six kernel tools on every turn")
+	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, "Blueclaw exposes the same compact kernel tools on every turn")
 	selectionEvent.ValidSelectedToolIDs = nil
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
 	selectionEvent.DroppedGroups = nil

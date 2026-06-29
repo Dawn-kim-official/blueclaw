@@ -5,20 +5,33 @@ import "strings"
 const (
 	TerminalRunToolName     = "terminal.run"
 	AskInputToolName        = "ask.input"
-	AskChoiceToolName       = "ask.choice"
 	AskConfirmToolName      = "ask.confirm"
+	FileDeliverToolName     = "file.deliver"
+	AskChoiceToolName       = "ask.choice"
 	ArtifactDeliverToolName = "artifact.deliver"
+	FileAttachToolName      = "file.attach"
 	SkillSearchToolName     = "skill.search"
+	FileReadToolName        = "file.read"
+	FileWriteToolName       = "file.write"
+	FileEditToolName        = "file.edit"
+	FilePatchToolName       = "file.patch"
+	FilePreviewToolName     = "file.preview"
+	ImageReadToolName       = "image.read"
 )
 
 func KernelToolNames() []string {
 	return []string{
 		TerminalRunToolName,
 		AskInputToolName,
-		AskChoiceToolName,
 		AskConfirmToolName,
-		ArtifactDeliverToolName,
+		FileDeliverToolName,
 		SkillSearchToolName,
+		FileReadToolName,
+		FileWriteToolName,
+		FileEditToolName,
+		FilePatchToolName,
+		FilePreviewToolName,
+		ImageReadToolName,
 	}
 }
 
@@ -34,8 +47,10 @@ func IsKernelToolName(toolName string) bool {
 func CanonicalEvidenceToolName(toolName string) string {
 	trimmedToolName := strings.TrimSpace(toolName)
 	switch trimmedToolName {
-	case "file.attach":
-		return ArtifactDeliverToolName
+	case AskChoiceToolName:
+		return AskInputToolName
+	case ArtifactDeliverToolName, FileAttachToolName:
+		return FileDeliverToolName
 	case "terminal.session":
 		return TerminalRunToolName
 	default:
@@ -48,5 +63,5 @@ func ToolNamesMatch(leftToolName string, rightToolName string) bool {
 }
 
 func IsArtifactDeliveryTool(toolName string) bool {
-	return CanonicalEvidenceToolName(toolName) == ArtifactDeliverToolName
+	return CanonicalEvidenceToolName(toolName) == FileDeliverToolName
 }

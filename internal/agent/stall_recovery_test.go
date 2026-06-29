@@ -243,7 +243,7 @@ func TestBrowserFailureRecoveryGuidanceRedirectsToWebFetch(t *testing.T) {
 		t.Fatalf("expected browser failure to steer toward web.fetch, got %q", guidance)
 	}
 	nonBrowser := newFailureObservation("obs-002", "continue", "terminal.run", "boom", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
-	if strings.Contains(recoveryGuidanceContent(nonBrowser), "browser tools run on the user's Companion") {
+	if strings.Contains(recoveryGuidanceContent(nonBrowser), "browser capability operations run on the user's Companion") {
 		t.Fatal("expected non-browser failures not to get browser guidance")
 	}
 }

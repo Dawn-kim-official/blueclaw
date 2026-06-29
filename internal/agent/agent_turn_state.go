@@ -230,7 +230,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			Effect: agentEffect{
 				Kind: agentEffectContinue,
 				ToolCall: &ToolInvocation{
-					ToolName: "file.attach",
+					ToolName: FileDeliverToolName,
 					Input:    MarshalToolInput(map[string]any{"path": nextCompletionAttachmentPath(completionState)}),
 				},
 			},
@@ -295,7 +295,8 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 	if requirements == nil {
 		requirements = deriveToolUseRequirements(state.Request)
 	}
-	blockedToolNames := blockedToolNamesForPreconditions(state.Request.ToolSet, requirements, state.Observations)
+	modelToolSet := modelCallableToolSet(state.Request.ToolSet)
+	blockedToolNames := blockedToolNamesForPreconditions(modelToolSet, requirements, state.Observations)
 	failureFacts := buildFailureReportFacts(state.Observations, state.Options.RecoveryBudget)
 	hasFailureDebt := len(failureFacts.Attempts) > 0
 	allowFail := shouldExposeFailAction(state)
@@ -303,7 +304,7 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 		state.Request,
 		state.Observations,
 		buildAgentSystemInstruction(state.Request),
-		buildAgentToolDescription(state.Request.ToolSet),
+		buildAgentToolDescription(modelToolSet),
 		state.ExecutionState,
 	)
 	if hasFailureDebt {
@@ -316,11 +317,18 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 		Messages: messages,
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
-			Document:           actionSchemaForToolSet(state.Request.ToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail),
+			Document:           actionSchemaForToolSet(modelToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail),
 			IsStrictlyEnforced: true,
 		},
 		GenerationOptions: state.Options.GenerationOptions,
 	}
+}
+
+func modelCallableToolSet(toolSet *ToolSet) *ToolSet {
+	if toolSet == nil {
+		return nil
+	}
+	return toolSet.WithAllowedToolNames(KernelToolNames())
 }
 
 func shouldExposeFailAction(state agentTaskState) bool {

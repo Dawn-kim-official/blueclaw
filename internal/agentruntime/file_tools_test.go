@@ -32,7 +32,7 @@ func TestFileAttachToolAttachesSinglePath(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.attach",
+		ToolName: agent.FileDeliverToolName,
 		Input: agent.MarshalToolInput(map[string]any{
 			"path": "tmp/deck/deck.pptx",
 		}),
@@ -65,7 +65,7 @@ func TestFileAttachToolAttachesMultipleFiles(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.attach",
+		ToolName: agent.FileDeliverToolName,
 		Input: agent.MarshalToolInput(map[string]any{
 			"files": []map[string]string{
 				{"path": "artifacts/deck/deck.html", "contentType": "text/html"},
@@ -117,7 +117,7 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	}
 
 	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.attach",
+		ToolName: agent.FileDeliverToolName,
 		Input: agent.MarshalToolInput(map[string]string{
 			"path": "home/projects/deck/presentation.md",
 		}),
@@ -126,7 +126,7 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if attachResult.Failed() {
-		t.Fatalf("expected file.attach success, got %s", attachResult.ContentText())
+		t.Fatalf("expected file.deliver success, got %s", attachResult.ContentText())
 	}
 	expectedDevicePath := "/workspace/private/people/person-1/projects/deck/presentation.md"
 	if attachResult.Attachments[0].DevicePath != expectedDevicePath {
@@ -888,7 +888,7 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 	}
 
 	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.attach",
+		ToolName: agent.FileDeliverToolName,
 		Input: agent.MarshalToolInput(map[string]string{
 			"path": "/workspace/circles/finance/report.md",
 		}),
@@ -897,7 +897,7 @@ func TestFileToolsDenyCirclePathForNonMember(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !attachResult.Failed() || !strings.Contains(attachResult.ContentText(), "cannot read") {
-		t.Fatalf("expected file.attach read denial, got %+v", attachResult)
+		t.Fatalf("expected file.deliver read denial, got %+v", attachResult)
 	}
 }
 
@@ -1132,7 +1132,7 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.attach",
+		ToolName: agent.FileDeliverToolName,
 		Input: agent.MarshalToolInput(map[string]string{
 			"path": "notes.md",
 		}),
@@ -1141,14 +1141,14 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected private attach success, got %+v", result)
+		t.Fatalf("expected private delivery success, got %+v", result)
 	}
 	if result.Attachments[0].DevicePath != "/workspace/private/people/person-1/tmp/notes.md" {
 		t.Fatalf("expected private device path, got %+v", result.Attachments[0])
 	}
 }
 
-func TestFilePromoteCopiesDraftOutputToArtifacts(t *testing.T) {
+func TestFileDeliverCanDeliverDraftOutput(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -1174,25 +1174,24 @@ func TestFilePromoteCopiesDraftOutputToArtifacts(t *testing.T) {
 	if writeResult.Failed() {
 		t.Fatalf("expected file.write success, got %s", writeResult.ContentText())
 	}
-	promoteResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.promote",
+	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.FileDeliverToolName,
 		Input: agent.MarshalToolInput(map[string]any{
-			"path":                     "tmp/deck/build/deck.pptx",
-			"destinationDirectoryPath": "artifacts/deck",
+			"path": "tmp/deck/build/deck.pptx",
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if promoteResult.Failed() {
-		t.Fatalf("expected file.promote success, got %s", promoteResult.ContentText())
+	if deliverResult.Failed() {
+		t.Fatalf("expected file.deliver success, got %s", deliverResult.ContentText())
 	}
-	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "artifacts", "deck", "deck.pptx")
-	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "pptx" {
-		t.Fatalf("expected promoted file at %s, got %q and %v", expectedPath, string(document), errorValue)
+	if len(deliverResult.Attachments) != 1 {
+		t.Fatalf("expected one delivered file, got %+v", deliverResult.Attachments)
 	}
-	if !strings.Contains(promoteResult.ContentText(), `"artifacts/deck/deck.pptx"`) {
-		t.Fatalf("expected promoted virtual path, got %s", promoteResult.ContentText())
+	expectedDevicePath := "/workspace/private/people/person-1/tmp/deck/build/deck.pptx"
+	if deliverResult.Attachments[0].DevicePath != expectedDevicePath {
+		t.Fatalf("expected delivered draft path, got %+v", deliverResult.Attachments[0])
 	}
 }
 

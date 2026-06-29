@@ -193,7 +193,7 @@ func TestDeriveAllowedToolNamesByProfileKeepsDomainCapabilitiesOutOfBaseline(t *
 	if containsString(defaultProfileToolNames, "site.app.create") {
 		t.Fatalf("expected domain capability to stay out of profile baseline, got %+v", defaultProfileToolNames)
 	}
-	for _, expectedToolName := range []string{"terminal.run", "ask.input", "ask.choice", "ask.confirm", "artifact.deliver", "skill.search"} {
+	for _, expectedToolName := range []string{"terminal.run", "ask.input", "ask.confirm", "file.deliver", "skill.search", "file.read", "file.write", "file.edit", "file.patch", "file.preview", "image.read"} {
 		if !containsString(defaultProfileToolNames, expectedToolName) {
 			t.Fatalf("expected baseline tool %q, got %+v", expectedToolName, defaultProfileToolNames)
 		}

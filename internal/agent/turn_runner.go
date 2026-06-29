@@ -1008,7 +1008,7 @@ func (agentTurnRunner *AgentTurnRunner) stepBudgetContext(state agentTaskState) 
 		"Step budget:",
 		fmt.Sprintf("Tool calls: %d/%d used, %d remaining.", state.ToolCallCount, maxToolCallCount, remainingToolCallCount),
 		fmt.Sprintf("Steps: %d/%d used, %d remaining.", state.IterationCount, maxIterationCount, remainingIterationCount),
-		"Use the shortest path to the expected result. Avoid extra inspection when the next edit, build, publish, promote, attach, or final action is already clear.",
+		"Use the shortest path to the expected result. Avoid extra inspection when the next edit, build, publish, file delivery, or final action is already clear.",
 		"Keep at least two tool calls for delivery when the requested link or file has not been delivered yet.",
 	}, "\n")
 }
@@ -1046,7 +1046,7 @@ func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnO
 }
 
 func availableFileDeliveryToolNames(request AgentTurnRequest) []string {
-	toolNames := []string{TerminalRunToolName, ArtifactDeliverToolName, SkillSearchToolName}
+	toolNames := []string{TerminalRunToolName, FileDeliverToolName, SkillSearchToolName}
 	if request.ToolSet == nil {
 		return toolNames
 	}
@@ -1451,10 +1451,10 @@ func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount 
 		budgetLine += fmt.Sprintf(" Time: %s/%s elapsed.", roundedSeconds(elapsed), roundedSeconds(maxElapsed))
 	}
 	if level == "finalize" {
-		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish/promote/attach, then final. Do not inspect more unless delivery is impossible without it."
+		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it."
 	}
 	if level == "consolidate" {
-		return budgetLine + " Consolidate completed work, reuse existing observations, and prefer direct edit/build/publish or promote/attach over additional inspection."
+		return budgetLine + " Consolidate completed work, reuse existing observations, and prefer direct edit/build/publish or file delivery over additional inspection."
 	}
 	return budgetLine + " Spend tool calls deliberately. Keep enough budget for final delivery and avoid exploratory reads unless they directly enable the next action."
 }
