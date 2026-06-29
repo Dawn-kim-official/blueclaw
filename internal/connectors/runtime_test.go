@@ -577,7 +577,7 @@ func TestConnectorRuntimeInterruptsInactiveRunningTaskAndStartsNewTask(t *testin
 		StartedAt:     now.Add(-time.Minute),
 	}
 	connectorRuntime, adapter, taskEventService := newRepositoryBackedTestConnectorRuntime(t, testLanguageModel{reply: "새 작업으로 처리했습니다."}, taskRunRepository)
-	taskEventService.AppendTaskEvent(orphanedTaskRun.TaskRunID, "tool.site.app.build.requested", `{"observationID":"observation-1","toolName":"site.app.build"}`)
+	taskEventService.AppendTaskEvent(orphanedTaskRun.TaskRunID, "tool.site.build.requested", `{"observationID":"observation-1","toolName":"site.build"}`)
 	event := testInboundEvent("message-after-stale-task")
 	event.Prompt = "다시 해줘"
 
@@ -597,7 +597,7 @@ func TestConnectorRuntimeInterruptsInactiveRunningTaskAndStartsNewTask(t *testin
 	if taskAttempt.Status != task.TaskAttemptStatusInterrupted {
 		t.Fatalf("attempt status = %s, want interrupted", taskAttempt.Status)
 	}
-	if !connectorTaskEventsContain(connectorRuntime, orphanedTaskRun.TaskRunID, "tool.site.app.build.cancelled", "cancelled_by_attempt_end") {
+	if !connectorTaskEventsContain(connectorRuntime, orphanedTaskRun.TaskRunID, "tool.site.build.cancelled", "cancelled_by_attempt_end") {
 		t.Fatal("expected orphaned tool request to be cancelled")
 	}
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "새 작업으로 처리했습니다." {
@@ -858,7 +858,7 @@ func TestConnectorRuntimeDoesNotContinueFailedSiteOnlyGoal(t *testing.T) {
 		OriginalInstruction: taskRun.Prompt,
 		Status:              agent.ActiveGoalStatusBlocked,
 		OutcomeContract: agent.OutcomeContract{
-			RequiredEvidenceTools: []string{"site.app.publish"},
+			RequiredEvidenceTools: []string{"site.publish"},
 			ExpectedResults: []agent.ExpectedResult{{
 				ID:       "site-public-link",
 				Type:     agent.ExpectedResultTypeLink,
@@ -2216,15 +2216,15 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
+			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.add", "calendar.event.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2235,7 +2235,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.event.add", "calendar.event.delete"})
+	}, []string{"calendar.add", "calendar.delete"})
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
 
@@ -2272,7 +2272,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	if !structuredMessagesContain(requests[actionIndex].Messages, "The user approved the pending action") {
 		t.Fatalf("expected active goal context to carry approval context, got %+v", requests[actionIndex].Messages)
 	}
-	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
 	}
 	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "내일 휴가 일정을 캘린더에서 삭제했습니다." {
@@ -2295,15 +2295,15 @@ func TestConnectorRuntimeHandlesDeterministicConfirmationReplyBeforeRouter(t *te
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.event.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.event.delete", 0),
+			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.add", "calendar.event.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2314,7 +2314,7 @@ func TestConnectorRuntimeHandlesDeterministicConfirmationReplyBeforeRouter(t *te
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.event.add", "calendar.event.delete"})
+	}, []string{"calendar.add", "calendar.delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -2339,7 +2339,7 @@ func TestConnectorRuntimeHandlesDeterministicConfirmationReplyBeforeRouter(t *te
 	if !connectorTaskEventsContain(connectorRuntime, firstResult.TaskRunID, "confirmation.reply_classified", "deterministic_confirm") {
 		t.Fatal("expected deterministic confirmation classification event")
 	}
-	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.delete/invoke" {
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
 	}
 }
@@ -2368,7 +2368,7 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -2421,7 +2421,7 @@ func TestConnectorRuntimeRoutesPendingConfirmationRevisionAsNewTask(t *testing.T
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.delete", "platform.message.search", "platform.message.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete", "message.search", "message.delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -2493,7 +2493,7 @@ func TestConnectorRuntimeConsumesInteractiveConfirmationCancel(t *testing.T) {
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.delete"})
 
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "내일 휴가 일정을 캘린더에서 삭제해줘"
@@ -2570,8 +2570,8 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"우선 진행합니다."}}`,
-			connectorFinishMessageWithEvidence("동하에게 DM을 보냈습니다.", "obs-001", "platform.message.send", 0),
+			`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"우선 진행합니다."}}`,
+			connectorFinishMessageWithEvidence("동하에게 DM을 보냈습니다.", "obs-001", "message.send", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2580,14 +2580,14 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
 		Name:        "direct-message",
 		Description: "사업계획서 작성과 메시지 전송 후보.",
-		Prompt:      "Use platform.message.send only for explicit DM delivery.",
+		Prompt:      "Use message.send only for explicit DM delivery.",
 		Completion: agent.SkillCompletion{
-			RequiredEvidenceTools: []string{"platform.message.send"},
+			RequiredEvidenceTools: []string{"message.send"},
 		},
-		AllowedTools: []string{"platform.message.send"},
+		AllowedTools: []string{"message.send"},
 		Source:       agent.InstructionSource{Path: "skills/direct-message/SKILL.md", SkillName: "direct-message"},
 	})
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "platform.message.send"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "message.send"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2597,7 +2597,7 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"platform.message.send"})
+	}, []string{"message.send"})
 	firstEvent := testInboundEvent("message-1")
 	firstEvent.Prompt = "동하에게 DM 보내줘"
 
@@ -2654,8 +2654,8 @@ func TestConnectorRuntimeStartsNewTaskForClearNewRequest(t *testing.T) {
 	useTestConnectorSkill(connectorRuntime, agent.SkillInstruction{
 		Name:         "direct-message",
 		Description:  "DM 후보.",
-		Completion:   agent.SkillCompletion{RequiredEvidenceTools: []string{"platform.message.send"}},
-		AllowedTools: []string{"platform.message.send"},
+		Completion:   agent.SkillCompletion{RequiredEvidenceTools: []string{"message.send"}},
+		AllowedTools: []string{"message.send"},
 	})
 
 	firstEvent := testInboundEvent("message-1")
@@ -2690,15 +2690,15 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 			`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":"","workKinds":["calendar"]}`,
 		}},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.event.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.event.add", 0),
+			`{"action":"continue","toolName":"calendar.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.add", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
 	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
 	useTestConnectorSkill(connectorRuntime, connectorCalendarSkill())
-	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.event.add", "calendar.event.delete"})
+	connectorRuntime.UseAllowedToolNames([]string{"conversation.history", "memory.search", "ask.confirm", "calendar.add", "calendar.delete"})
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
@@ -2709,7 +2709,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 			}, nil
 		}),
-	}, []string{"calendar.event.add", "calendar.event.delete"})
+	}, []string{"calendar.add", "calendar.delete"})
 	event := testInboundEvent("message-1")
 	event.Prompt = "나 내일 휴가라고 달력에 추가해줘"
 
@@ -2724,7 +2724,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	if connectorContainsSchemaName(requests, "blueclaw_confirmation_reply_decision") {
 		t.Fatalf("expected no approval continuation classification, got %+v", connectorRequestSchemaNames(requests))
 	}
-	if len(invokedTools) != 1 || invokedTools[0] != "calendar.event.add/invoke" {
+	if len(invokedTools) != 1 || invokedTools[0] != "calendar.add/invoke" {
 		t.Fatalf("expected direct calendar add invocation, got %+v", invokedTools)
 	}
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "내일 휴가 일정을 캘린더에 추가했습니다." {
@@ -3916,9 +3916,9 @@ func connectorCalendarSkill() agent.SkillInstruction {
 		Name:         "calendar",
 		Description:  "Create or list calendar events.",
 		WhenToUse:    "Use for calendar, event, 일정, 달력, 캘린더, and 휴가 requests.",
-		Prompt:       "Use calendar.event.add to create calendar events without approval. Use calendar.event.delete only after approval.",
+		Prompt:       "Use calendar.add to create calendar events without approval. Use calendar.delete only after approval.",
 		TriggerHints: []string{"calendar", "event", "일정", "달력", "캘린더", "휴가"},
-		AllowedTools: []string{"calendar.event.add", "calendar.event.delete"},
+		AllowedTools: []string{"calendar.add", "calendar.delete"},
 		Source:       agent.InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
 	}
 }

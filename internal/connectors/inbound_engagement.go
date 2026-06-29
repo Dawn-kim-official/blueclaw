@@ -84,9 +84,9 @@ func ambientCaptureWorkKinds(dutyName string) []string {
 func ambientCaptureInitialToolNames(dutyName string) []string {
 	switch strings.TrimSpace(dutyName) {
 	case "calendar_upkeep":
-		return []string{"calendar.event.add", "calendar.event.update", "calendar.event.list"}
+		return []string{"calendar.add", "calendar.update", "calendar.list"}
 	case "team_flow_update":
-		return []string{"flow.task.add", "flow.task.list", "flow.task.update"}
+		return []string{"task.add", "task.list", "task.update"}
 	default:
 		return nil
 	}

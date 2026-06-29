@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 
 	"blueclaw/internal/access"
@@ -16,10 +17,10 @@ import (
 )
 
 var idempotentCapabilityToolNames = map[string]bool{
-	"platform.message.send": true,
-	"mail.message.send":     true,
-	"google.gmail.send":     true,
-	"slack.message.send":    true,
+	"message.send":       true,
+	"mail.message.send":  true,
+	"google.gmail.send":  true,
+	"slack.message.send": true,
 }
 
 func capabilityToolIdempotencyKey(toolContext context.Context, toolName string) string {
@@ -85,53 +86,143 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 			},
 			Availability: capabilityToolAvailability(toolDescriptor, request),
 			Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
-				var response struct {
-					Content      string          `json:"content"`
-					IsError      bool            `json:"isError"`
-					Status       string          `json:"status"`
-					Message      string          `json:"message"`
-					ErrorCode    string          `json:"errorCode"`
-					FailureStage string          `json:"failureStage"`
-					Retryable    bool            `json:"retryable"`
-					SafeRetry    bool            `json:"safeRetry"`
-					Result       json.RawMessage `json:"result"`
-				}
-				policyResource := firstNonEmptyString(toolDescriptor.PolicyResource, "tool:"+toolName)
-				if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
-					return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
-				}
-				toolInput, toolFailure, errorValue := toolCatalogBuilder.prepareCapabilityToolInput(toolContext, toolName, request, json.RawMessage(toolInvocation.Input))
-				if toolFailure != nil {
-					return *toolFailure, nil
-				}
-				if errorValue != nil {
-					return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", errorValue.Error()), nil
-				}
-				if errorValue := toolCatalogBuilder.validateCapabilityToolInputAccess(toolName, request, toolInput); errorValue != nil {
-					return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read_access", errorValue.Error()), nil
-				}
-				errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(toolName)+"/invoke", capabilityToolRequest(toolContext, toolName, request, toolInput), &response)
-				if errorValue != nil {
-					return agent.ToolResult{}, errorValue
-				}
-				if !response.IsError && response.Status != "error" && response.Status != "denied" {
-					toolFailure, errorValue := toolCatalogBuilder.handleCapabilityToolSuccess(toolContext, toolName, request, &response.Result)
-					if toolFailure != nil {
-						return *toolFailure, nil
-					}
-					if errorValue != nil {
-						return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_result", errorValue.Error()), nil
-					}
-				}
-				content := strings.TrimSpace(response.Content)
-				if content == "" && len(response.Result) > 0 {
-					content = string(response.Result)
-				}
-				isError := response.IsError || response.Status == "error" || response.Status == "denied"
-				return capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
+				return toolCatalogBuilder.invokeCapabilityOperation(toolContext, toolName, toolDescriptor, request, json.RawMessage(toolInvocation.Input))
 			},
 		})
 	}
+	toolCatalogBuilder.registerGenericCapabilityTool(toolRegistry, request)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolContext context.Context, operation string, toolDescriptor CapabilityToolDescriptor, request ToolCatalogRequest, rawInput json.RawMessage) (agent.ToolResult, error) {
+	var response struct {
+		Content      string          `json:"content"`
+		IsError      bool            `json:"isError"`
+		Status       string          `json:"status"`
+		Message      string          `json:"message"`
+		ErrorCode    string          `json:"errorCode"`
+		FailureStage string          `json:"failureStage"`
+		Retryable    bool            `json:"retryable"`
+		SafeRetry    bool            `json:"safeRetry"`
+		Result       json.RawMessage `json:"result"`
+	}
+	policyResource := firstNonEmptyString(toolDescriptor.PolicyResource, "tool:"+operation)
+	if !access.CanAccess(access.Request{PersonAccess: request.PersonAccess, Action: access.ActionExecute, Resource: policyResource}) {
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "capability_access", "current account cannot execute this tool"), nil
+	}
+	toolInput, toolFailure, errorValue := toolCatalogBuilder.prepareCapabilityToolInput(toolContext, operation, request, rawInput)
+	if toolFailure != nil {
+		return *toolFailure, nil
+	}
+	if errorValue != nil {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", errorValue.Error()), nil
+	}
+	if errorValue := toolCatalogBuilder.validateCapabilityToolInputAccess(operation, request, toolInput); errorValue != nil {
+		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read_access", errorValue.Error()), nil
+	}
+	errorValue = toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/"+url.PathEscape(operation)+"/invoke", capabilityToolRequest(toolContext, operation, request, toolInput), &response)
+	if errorValue != nil {
+		return agent.ToolResult{}, errorValue
+	}
+	if !response.IsError && response.Status != "error" && response.Status != "denied" {
+		toolFailure, errorValue := toolCatalogBuilder.handleCapabilityToolSuccess(toolContext, operation, request, &response.Result)
+		if toolFailure != nil {
+			return *toolFailure, nil
+		}
+		if errorValue != nil {
+			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_result", errorValue.Error()), nil
+		}
+	}
+	content := strings.TrimSpace(response.Content)
+	if content == "" && len(response.Result) > 0 {
+		content = string(response.Result)
+	}
+	isError := response.IsError || response.Status == "error" || response.Status == "denied"
+	return capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
+	if toolCatalogBuilder.capabilityClient.HTTPClient == nil && strings.TrimSpace(toolCatalogBuilder.capabilityClient.Endpoint) == "" {
+		return
+	}
+	toolRegistry.RegisterBoundTool(agent.BoundTool{
+		Definition: agent.ToolDefinition{
+			Name:        agent.CapabilityInvokeToolName,
+			Description: toolCatalogBuilder.genericCapabilityToolDescription(),
+			InputSchema: genericCapabilityInvokeInputSchema(),
+		},
+		Availability: agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable},
+		Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
+			var call struct {
+				Operation string          `json:"operation"`
+				Input     json.RawMessage `json:"input"`
+			}
+			if errorValue := json.Unmarshal(toolInvocation.Input, &call); errorValue != nil {
+				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires an operation name and an input object"), nil
+			}
+			operation := strings.TrimSpace(call.Operation)
+			if operation == "" {
+				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires an operation name"), nil
+			}
+			return toolRegistry.InvokeRegistered(toolContext, agent.ToolInvocation{ToolName: operation, Input: call.Input})
+		},
+	})
+}
+
+var genericCapabilityCatalogExcluded = map[string]bool{
+	"llm.text":         true,
+	"llm.structured":   true,
+	"embedding.create": true,
+	"platform.reply":   true,
+	"file.read":        true,
+	"image.read":       true,
+	"document.read":    true,
+	"ask.confirm":      true,
+	"ask.input":        true,
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityToolDescription() string {
+	lines := []string{
+		"Invoke a workspace capability operation by name. Set operation to one of the operations below and input to that operation's parameters. Identity, approval, and delivery are handled by the runtime — never pass requester identity in input.",
+		"",
+		"Available operations:",
+	}
+	for _, entry := range toolCatalogBuilder.capabilityCatalogEntries() {
+		lines = append(lines, "- "+entry)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) capabilityCatalogEntries() []string {
+	entries := []string{}
+	seenName := map[string]bool{}
+	for _, toolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
+		name := strings.TrimSpace(toolDescriptor.Name)
+		if name == "" || genericCapabilityCatalogExcluded[name] || seenName[name] {
+			continue
+		}
+		seenName[name] = true
+		entries = append(entries, name+": "+capabilityCatalogSummary(toolDescriptor.Description))
+	}
+	sort.Strings(entries)
+	return entries
+}
+
+func capabilityCatalogSummary(description string) string {
+	trimmed := strings.TrimSpace(description)
+	if trimmed == "" {
+		return "Workspace capability operation."
+	}
+	if index := strings.IndexByte(trimmed, '.'); index > 0 {
+		return strings.TrimSpace(trimmed[:index+1])
+	}
+	if len(trimmed) > 140 {
+		return strings.TrimSpace(trimmed[:140])
+	}
+	return trimmed
+}
+
+func genericCapabilityInvokeInputSchema() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{"operation":{"type":"string","description":"The capability operation name from the available operations list in this tool's description."},"input":{"type":"object","description":"The parameters object for the chosen operation."}},"required":["operation"]}`)
 }
 
 func isInteractiveCapabilityTool(toolName string) bool {
@@ -149,17 +240,17 @@ func defaultCapabilityToolDescription(toolName string) string {
 		return "Read a workspace document path as Markdown using the shared document conversion pipeline. Prefer file.preview for paths listed in the conversation attachment catalog."
 	case "image.read":
 		return "Load an image path from the conversation attachment catalog or workspace into the model as an image input. Use only when visual inspection is needed; do not call for PDFs or text documents."
-	case "platform.message.context":
+	case "message.context":
 		return "Read the current platform conversation, thread, channel, requester, and bot message context."
-	case "platform.message.search":
+	case "message.search":
 		return "Search platform messages by scope, author, and queries. queries is an OR list; use one item for a single keyword. Returns compact messageIDs before previews. Use before deleting or editing messages described in natural language."
-	case "platform.message.delete":
-		return "Delete assistant bot messages by exact messageIDs returned from platform.message.search. Deletes one selected page at a time and never searches internally."
-	case "platform.message.send":
+	case "message.delete":
+		return "Delete assistant bot messages by exact messageIDs returned from message.search. Deletes one selected page at a time and never searches internally."
+	case "message.send":
 		return "Send a platform message to a direct message, current thread, current channel, or named channel. Recipient resolution and ambiguity are handled by this tool."
-	case "platform.message.update":
+	case "message.update":
 		return "Update an assistant bot message text or pin state. Use only for platform messages that should be edited or pinned."
-	case "site.app.status":
+	case "site.status":
 		return siteAppStatusToolDescription
 	default:
 		return "Workspace capability tool"
@@ -230,7 +321,7 @@ func capabilityFailureKind(errorCode string, failureStage string) agent.FailureK
 }
 
 func isApprovalExemptCapabilityTool(toolName string, request ToolCatalogRequest) bool {
-	if strings.TrimSpace(toolName) != "platform.message.send" {
+	if strings.TrimSpace(toolName) != "message.send" {
 		return false
 	}
 	return request.IsScheduledRun || request.IsApprovalContinuation
@@ -342,9 +433,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName
 
 func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolContext context.Context, toolName string, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
 	switch strings.TrimSpace(toolName) {
-	case "site.app.create":
+	case "site.create":
 		return toolCatalogBuilder.materializeSiteCreateResult(toolContext, request, result)
-	case "site.app.status":
+	case "site.status":
 		return toolCatalogBuilder.annotateSiteStatusResult(toolContext, request, result)
 	default:
 		return nil, nil

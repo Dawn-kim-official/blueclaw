@@ -685,7 +685,7 @@ func intakeDecisionHasSitePrototypeEvidence(request AgentRequest, intakeDecision
 	if strings.TrimSpace(intakeDecision.SiteRequestEvidence) != "" {
 		return true
 	}
-	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.")
+	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.")
 }
 
 type budgetEscalatedEventBody struct {

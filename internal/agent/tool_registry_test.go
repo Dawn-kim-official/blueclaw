@@ -116,14 +116,14 @@ func TestFallbackActionSchemaDoesNotAllowToolCalls(t *testing.T) {
 }
 
 func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
-	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "flow.task.update"}}, false, nil, false)
-	for _, fragment := range []string{"flow.task.update", "taskID", "query", "content", "status", "endDate"} {
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.update"}}, false, nil, false)
+	for _, fragment := range []string{"task.update", "taskID", "query", "content", "status", "endDate"} {
 		if !strings.Contains(actionSchema, fragment) {
 			t.Fatalf("expected action schema to include %q, got %s", fragment, actionSchema)
 		}
 	}
-	if !isOneShotCompletionEvidenceTool("flow.task.update") {
-		t.Fatal("expected flow.task.update to count as one-shot completion evidence")
+	if !isOneShotCompletionEvidenceTool("task.update") {
+		t.Fatal("expected task.update to count as one-shot completion evidence")
 	}
 }
 
@@ -133,9 +133,9 @@ func TestDefaultToolSideEffectClass(t *testing.T) {
 		expectedSideEffect string
 		requiresCompletion bool
 	}{
-		{toolName: "flow.task.add", expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
-		{toolName: "flow.task.list", expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
-		{toolName: "platform.message.send", expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
+		{toolName: "task.add", expectedSideEffect: ToolSideEffectStateChange, requiresCompletion: true},
+		{toolName: "task.list", expectedSideEffect: ToolSideEffectRead, requiresCompletion: false},
+		{toolName: "message.send", expectedSideEffect: ToolSideEffectExternalWrite, requiresCompletion: true},
 		{toolName: "math.calculate", expectedSideEffect: ToolSideEffectComputation, requiresCompletion: false},
 	}
 

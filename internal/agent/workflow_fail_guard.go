@@ -24,17 +24,17 @@ func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnO
 	if !sitePublishIsRequired(request) {
 		return nil
 	}
-	sourceChangeIndex := latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "file.patch", "site.app.create"})
+	sourceChangeIndex := latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "file.patch", "site.create"})
 	if sourceChangeIndex < 0 {
 		return nil
 	}
-	buildIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.app.build"}, sourceChangeIndex)
-	if buildIndex < 0 && toolAvailableForAction(request.ToolSet, "site.app.build") {
-		return []string{"site.app.build"}
+	buildIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.build"}, sourceChangeIndex)
+	if buildIndex < 0 && toolAvailableForAction(request.ToolSet, "site.build") {
+		return []string{"site.build"}
 	}
-	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.app.publish"}, maxInt(sourceChangeIndex, buildIndex))
-	if publishIndex < 0 && toolAvailableForAction(request.ToolSet, "site.app.publish") {
-		return []string{"site.app.publish"}
+	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.publish"}, maxInt(sourceChangeIndex, buildIndex))
+	if publishIndex < 0 && toolAvailableForAction(request.ToolSet, "site.publish") {
+		return []string{"site.publish"}
 	}
 	return nil
 }
@@ -54,15 +54,15 @@ func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []t
 
 func turnRequestLooksLikeSitePrototypeWork(request AgentTurnRequest) bool {
 	return workKindsContain(request.WorkKinds, WorkKindSitePrototype) ||
-		activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.") ||
-		contractRequiresToolPrefix(request.OutcomeContract, "site.app.") ||
-		requiredEvidenceContains(request.RequiredEvidenceTools, "site.app.publish")
+		activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") ||
+		contractRequiresToolPrefix(request.OutcomeContract, "site.") ||
+		requiredEvidenceContains(request.RequiredEvidenceTools, "site.publish")
 }
 
 func sitePublishIsRequired(request AgentTurnRequest) bool {
-	return requiredEvidenceContains(request.RequiredEvidenceTools, "site.app.publish") ||
-		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, "site.app.publish") ||
-		contractRequiresToolPrefix(request.OutcomeContract, "site.app.") ||
+	return requiredEvidenceContains(request.RequiredEvidenceTools, "site.publish") ||
+		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, "site.publish") ||
+		contractRequiresToolPrefix(request.OutcomeContract, "site.") ||
 		expectedResultsIncludeSiteRequirement(request.OutcomeContract.ExpectedResults)
 }
 

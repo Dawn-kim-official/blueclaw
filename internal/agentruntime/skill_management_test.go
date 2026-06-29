@@ -54,9 +54,9 @@ func TestSkillSearchToolExactNameIncludesCompletionMetadata(t *testing.T) {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
 			Name:         "site-prototype",
 			Description:  "Create sites.",
-			AllowedTools: []string{"site.app.create", "site.app.publish"},
+			AllowedTools: []string{"site.create", "site.publish"},
 			Completion: agent.SkillCompletion{
-				RequiredEvidenceTools: []string{"site.app.publish"},
+				RequiredEvidenceTools: []string{"site.publish"},
 			},
 			Source: agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
 		}}}
@@ -73,7 +73,7 @@ func TestSkillSearchToolExactNameIncludesCompletionMetadata(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !strings.Contains(result.ContentText(), `"sourcePath":"skills/site-prototype/SKILL.md"`) || !strings.Contains(result.ContentText(), "site.app.publish") {
+	if !strings.Contains(result.ContentText(), `"sourcePath":"skills/site-prototype/SKILL.md"`) || !strings.Contains(result.ContentText(), "site.publish") {
 		t.Fatalf("expected exact skill metadata, got %s", result.ContentText())
 	}
 }
@@ -433,7 +433,7 @@ func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{
 			{Name: "mail", Description: "Email skill.", AllowedTools: []string{"mail.message.search"}},
-			{Name: "site-prototype", Description: "Create sites.", AllowedTools: []string{"site.app.create"}},
+			{Name: "site-prototype", Description: "Create sites.", AllowedTools: []string{"site.create"}},
 		}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -464,7 +464,7 @@ func TestSkillSearchToolNameLookupReturnsPromptBody(t *testing.T) {
 			Name:         "site-prototype",
 			Description:  "Create sites.",
 			Prompt:       "Build the site, verify it, and attach promoted outputs.",
-			AllowedTools: []string{"site.app.create"},
+			AllowedTools: []string{"site.create"},
 			Source:       agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
 		}}}
 	})

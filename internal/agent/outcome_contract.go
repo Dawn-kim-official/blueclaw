@@ -34,7 +34,7 @@ func normalizeTurnDecisionSiteRequirement(request AgentRequest, decision TurnDec
 	decision.SiteRequestEvidence = intakeDecision.SiteRequestEvidence
 	decision.WorkKinds = intakeDecision.WorkKinds
 	if report.HasDrops() {
-		decision.InitialToolNames, _ = removeToolNamePrefix(decision.InitialToolNames, "site.app.")
+		decision.InitialToolNames, _ = removeToolNamePrefix(decision.InitialToolNames, "site.")
 	}
 	return decision, report
 }
@@ -88,13 +88,13 @@ func activeGoalRequiresSiteEvidence(activeGoal ActiveGoal) bool {
 }
 
 func outcomeContractHasSiteRequirement(contract OutcomeContract) bool {
-	return contractMentionsToolPrefix(contract, "site.app.") || expectedResultsIncludeSiteRequirement(contract.ExpectedResults)
+	return contractMentionsToolPrefix(contract, "site.") || expectedResultsIncludeSiteRequirement(contract.ExpectedResults)
 }
 
 func stripOutcomeContractSiteRequirements(contract OutcomeContract, report siteRequirementNormalizationReport) (OutcomeContract, siteRequirementNormalizationReport) {
-	contract.RequiredEvidenceTools, report.DroppedRequiredEvidenceTools = removeToolNamePrefix(contract.RequiredEvidenceTools, "site.app.")
-	contract.RequiredEvidenceAnyOf, report.DroppedRequiredEvidenceAnyOf = removeToolNamePrefixGroups(contract.RequiredEvidenceAnyOf, "site.app.")
-	contract.SelectedEvidenceHints, report.DroppedSelectedEvidenceHints = removeToolNamePrefix(contract.SelectedEvidenceHints, "site.app.")
+	contract.RequiredEvidenceTools, report.DroppedRequiredEvidenceTools = removeToolNamePrefix(contract.RequiredEvidenceTools, "site.")
+	contract.RequiredEvidenceAnyOf, report.DroppedRequiredEvidenceAnyOf = removeToolNamePrefixGroups(contract.RequiredEvidenceAnyOf, "site.")
+	contract.SelectedEvidenceHints, report.DroppedSelectedEvidenceHints = removeToolNamePrefix(contract.SelectedEvidenceHints, "site.")
 	contract.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(contract.ExpectedResults)
 	contract.SiteEvidenceQuote = ""
 	return normalizeOutcomeContract(contract), report
@@ -204,7 +204,7 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 	if requestIsNonDestructiveSitePrototypePublish(request, requiredEvidenceTools) {
 		return false
 	}
-	if hasTool(request.ToolSet, "site.app.publish") && requestHasWorkKind(request, WorkKindDestructiveAction) {
+	if hasTool(request.ToolSet, "site.publish") && requestHasWorkKind(request, WorkKindDestructiveAction) {
 		return true
 	}
 	if intakeDecision.TaskShape == TaskShapeApprovalGatedTask {
@@ -222,7 +222,7 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 
 func confirmationRiskyEvidenceTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "platform.message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+	case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
 		return true
 	default:
 		return false
@@ -230,10 +230,10 @@ func confirmationRiskyEvidenceTool(toolName string) bool {
 }
 
 func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredEvidenceTools []string) bool {
-	if !hasAllTools(request.ToolSet, []string{"site.app.create", "site.app.publish"}) {
+	if !hasAllTools(request.ToolSet, []string{"site.create", "site.publish"}) {
 		return false
 	}
-	if !requiredEvidenceContains(requiredEvidenceTools, "site.app.publish") && !hasTool(request.ToolSet, "site.app.publish") {
+	if !requiredEvidenceContains(requiredEvidenceTools, "site.publish") && !hasTool(request.ToolSet, "site.publish") {
 		return false
 	}
 	if !requestLooksLikeSitePrototypeWork(request) {
@@ -246,7 +246,7 @@ func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredE
 }
 
 func requestLooksLikeSitePrototypeWork(request AgentRequest) bool {
-	return requestHasWorkKind(request, WorkKindSitePrototype) || activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.")
+	return requestHasWorkKind(request, WorkKindSitePrototype) || activeGoalRequiresToolPrefix(request.ActiveGoal, "site.")
 }
 
 func requestLooksLikeCalendarWork(request AgentRequest) bool {
@@ -286,7 +286,7 @@ func shouldExposeToolForOutcome(toolName string, request AgentRequest, execution
 	if activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) {
 		return true
 	}
-	if strings.HasPrefix(trimmedToolName, "site.app.") {
+	if strings.HasPrefix(trimmedToolName, "site.") {
 		return outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, outcomeContract)
 	}
 	if isSendEvidenceTool(trimmedToolName) {
@@ -296,7 +296,7 @@ func shouldExposeToolForOutcome(toolName string, request AgentRequest, execution
 }
 
 func outcomeAllowsSiteTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
-	return contractRequiresToolPrefix(outcomeContract, "site.app.") || (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
+	return contractRequiresToolPrefix(outcomeContract, "site.") || (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
 }
 
 func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
@@ -481,7 +481,7 @@ func selectedSiteEvidenceToolsForRequest(request AgentRequest, instructionBundle
 	toolNames := []string{}
 	for _, toolName := range selectedEvidenceHintTools(instructionBundle) {
 		trimmedToolName := strings.TrimSpace(toolName)
-		if strings.HasPrefix(trimmedToolName, "site.app.") {
+		if strings.HasPrefix(trimmedToolName, "site.") {
 			toolNames = appendUniqueStrings(toolNames, trimmedToolName)
 		}
 	}
@@ -506,7 +506,7 @@ func filterStaleOutcomeHints(request AgentRequest, executionPlan ExecutionPlan, 
 		if trimmedToolName == "" {
 			continue
 		}
-		if strings.HasPrefix(trimmedToolName, "site.app.") && !outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, contract) {
+		if strings.HasPrefix(trimmedToolName, "site.") && !outcomeAllowsSiteTools(request, executionPlan, hasExecutionPlan, contract) {
 			continue
 		}
 		if trimmedToolName == "artifact.review" && !outcomeAllowsVisualArtifactReview(request, contract) {
@@ -577,9 +577,9 @@ func outcomeContractRequiresPlatformMessageMaintenance(contract OutcomeContract)
 }
 
 func removePlatformMessageSendContract(contract OutcomeContract) OutcomeContract {
-	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "platform.message.send")
-	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, "platform.message.send")
-	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "platform.message.send")
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "message.send")
+	contract.SelectedEvidenceHints = removeToolName(contract.SelectedEvidenceHints, "message.send")
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "message.send")
 	return contract
 }
 
@@ -678,7 +678,7 @@ func requestExpectsPublicSiteResult(request AgentRequest, executionPlan Executio
 		return true
 	}
 	for _, toolName := range requiredEvidenceTools {
-		if strings.HasPrefix(strings.TrimSpace(toolName), "site.app.") {
+		if strings.HasPrefix(strings.TrimSpace(toolName), "site.") {
 			return true
 		}
 	}
@@ -848,7 +848,7 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if isPlatformMessageMaintenanceTool(trimmedToolName) {
 		return intakeDecision.TaskShape == TaskShapeMaintenanceTask ||
 			activeGoalMentionsTool(request.ActiveGoal, trimmedToolName) ||
-			activeGoalMentionsToolPrefix(request.ActiveGoal, "platform.message.")
+			activeGoalMentionsToolPrefix(request.ActiveGoal, "message.")
 	}
 	if activeGoalRequiresTool(request.ActiveGoal, trimmedToolName) {
 		return true
@@ -856,7 +856,7 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if IsArtifactDeliveryTool(trimmedToolName) {
 		return len(requiredAttachmentSuffixes) > 0
 	}
-	if strings.HasPrefix(trimmedToolName, "site.app.") {
+	if strings.HasPrefix(trimmedToolName, "site.") {
 		return (hasExecutionPlan && executionPlan.PublicDeploy) || requestLooksLikeSitePrototypeWork(request)
 	}
 	if strings.HasPrefix(trimmedToolName, "schedule.") {
@@ -873,7 +873,7 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 
 func isSendEvidenceTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "platform.message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+	case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
 		return true
 	default:
 		return false
@@ -882,7 +882,7 @@ func isSendEvidenceTool(toolName string) bool {
 
 func isPlatformMessageMaintenanceTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "platform.message.context", "platform.message.search", "platform.message.update", "platform.message.delete":
+	case "message.context", "message.search", "message.update", "message.delete":
 		return true
 	default:
 		return false
@@ -943,7 +943,7 @@ func activeGoalRequiresTool(activeGoal ActiveGoal, toolName string) bool {
 
 func requestLooksLikeExternalSendContinuation(request AgentRequest, contract OutcomeContract) bool {
 	return contractRequiresSendTool(contract) ||
-		activeGoalRequiresTool(request.ActiveGoal, "platform.message.send") ||
+		activeGoalRequiresTool(request.ActiveGoal, "message.send") ||
 		activeGoalRequiresTool(request.ActiveGoal, "mail.message.send") ||
 		activeGoalRequiresTool(request.ActiveGoal, "google.gmail.send") ||
 		activeGoalRequiresTool(request.ActiveGoal, "slack.message.send")
@@ -1069,7 +1069,7 @@ func executionPlanEvidenceTools(executionPlan ExecutionPlan, evidenceHints []str
 		if isSendEvidenceTool(toolName) && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend) {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
-		if strings.HasPrefix(strings.TrimSpace(toolName), "site.app.") && executionPlan.PublicDeploy {
+		if strings.HasPrefix(strings.TrimSpace(toolName), "site.") && executionPlan.PublicDeploy {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
 	}

@@ -7,14 +7,14 @@ import (
 
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"이동하"},"message":"확인 부탁해"}}`,
-		finishMessageWithEvidence("sent", "obs-003", "platform.message.send", 0),
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"이동하"},"message":"확인 부탁해"}}`,
+		finishMessageWithEvidence("sent", "obs-003", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
-	toolRegistry := newTestToolSet([]string{"platform.message.send"})
+	toolRegistry := newTestToolSet([]string{"message.send"})
 	callCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
 		if callCount == 1 {
 			return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
@@ -28,8 +28,8 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 		Prompt:                "send dm",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"platform.message.send"},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
+		RequiredEvidenceTools: []string{"message.send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected retry recovery: %v", errorValue)
@@ -46,13 +46,13 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 }
 
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
-	failure := newFailureObservation("obs-001", "continue", "platform.message.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
+	failure := newFailureObservation("obs-001", "continue", "message.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
 	passiveGuidance := recoveryGuidanceObservation(2, failure)
 	spentGuidance := recoveryGuidanceObservation(3, failure)
 	spentGuidance.RecoveryAttemptSpent = true
 	retryObservation := failure
 	retryObservation.ObservationID = "obs-004"
-	retryObservation.RecoveryAttemptKey = "platform.message.send\x00{}"
+	retryObservation.RecoveryAttemptKey = "message.send\x00{}"
 	retryObservation.RecoveryAttemptSpent = true
 
 	if count := recoveryAttemptCount([]turnObservation{failure, passiveGuidance}); count != 0 {
@@ -65,7 +65,7 @@ func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 
 func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
 		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"}}`,
 		finishMessageDocument("확인했습니다."),
@@ -80,8 +80,8 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 			NoToolFallback: 0,
 		},
 	})
-	toolRegistry := newTestToolSet([]string{"site.app.build", "file.read", "file.edit"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"site.build", "file.read", "file.edit"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "source failed"},
 			Failure: &ToolFailure{
@@ -113,7 +113,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		ConversationID:    "conversation-1",
 		Prompt:            "사이트 빌드 문제 확인해줘",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"site.app.build", "file.read", "file.edit"},
+		PinnedToolNames:   []string{"site.build", "file.read", "file.edit"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected inspection recovery to continue: %v", errorValue)

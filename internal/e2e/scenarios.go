@@ -1,8 +1,6 @@
 package e2e
 
 import (
-	"strings"
-
 	"blueclaw/internal/agent"
 	"blueclaw/internal/agentruntime"
 	"blueclaw/internal/connectors"
@@ -10,12 +8,7 @@ import (
 )
 
 func actionInvokeCapabilityTool(toolName string, input string) string {
-	command := "/workspace/tools/capability invoke " + toolName + " " + shellSingleQuote(input)
-	return actionCallTool("terminal.run", `{"command":`+quote(command)+`,"workingDirectoryPath":"home","timeoutSecond":30}`)
-}
-
-func shellSingleQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+	return actionCallTool("capability.invoke", `{"operation":`+quote(toolName)+`,"input":`+input+`}`)
 }
 
 func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSessionScenario {
@@ -211,7 +204,7 @@ func AttachmentMaterialReadScenario(artifactDirectoryPath string) VirtualSession
 			},
 			ForbiddenModelContexts: []string{
 				"mail.message.search",
-				"platform.message.send",
+				"message.send",
 			},
 			ExpectedReplyFragments: []string{"이미지"},
 		}},
@@ -410,8 +403,8 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 			},
 			ExpectedSelectedSkills: []string{"scheduled-task"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.terminal.run.requested", BodyFragment: "schedule.create", Count: 1},
-				{Name: "tool.terminal.run.result", BodyFragment: "intervalSecond", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "schedule.create", Count: 1},
+				{Name: "tool.capability.invoke.result", BodyFragment: "intervalSecond", Count: 1},
 			},
 			ExpectedModelContexts: []string{"scheduled-task", "schedule.create", "taskInstruction", "1분마다"},
 			ForbiddenReplyFragments: []string{
@@ -441,8 +434,8 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 				},
 				ExpectedSelectedSkills: []string{"scheduled-task"},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.terminal.run.requested", BodyFragment: "schedule.create", Count: 1},
-					{Name: "tool.terminal.run.result", BodyFragment: "intervalSecond", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "schedule.create", Count: 1},
+					{Name: "tool.capability.invoke.result", BodyFragment: "intervalSecond", Count: 1},
 				},
 				ExpectedModelContexts: []string{"scheduled-task", "schedule.create", "taskInstruction", "30분마다"},
 			},
@@ -453,8 +446,8 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 					actionFinishMessage("예약을 1시간마다 다섯 번으로 수정했습니다.", "obs-001:schedule.update:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.terminal.run.requested", BodyFragment: "schedule.update", Count: 1},
-					{Name: "tool.terminal.run.result", BodyFragment: "intervalSecond", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "schedule.update", Count: 1},
+					{Name: "tool.capability.invoke.result", BodyFragment: "intervalSecond", Count: 1},
 				},
 			},
 			{
@@ -464,7 +457,7 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 					actionFinishMessage("예약을 삭제했습니다.", "obs-001:schedule.cancel:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.terminal.run.requested", BodyFragment: "schedule.cancel", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "schedule.cancel", Count: 1},
 				},
 			},
 		},
@@ -478,39 +471,39 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 		RouterWorkKinds:       []string{agent.WorkKindCalendar},
 		Skills:                []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:          agent.KernelToolNames(),
-		CapabilityToolNames:   []string{"calendar.event.add", "calendar.event.update", "calendar.event.delete"},
+		CapabilityToolNames:   []string{"calendar.add", "calendar.update", "calendar.delete"},
 		InitialToolNames:      []string{"terminal.run"},
 		Turns: []VirtualTurn{
 			{
 				Prompt: "내일 오전 10시에 제품 회고 일정을 캘린더에 추가해줘",
 				ActionResponses: []string{
-					actionInvokeCapabilityTool("calendar.event.add", `{"title":"제품 회고","startISO":"2026-06-13T10:00:00+09:00","endISO":"2026-06-13T11:00:00+09:00","timeZone":"Asia/Seoul"}`),
-					actionFinishMessage("내일 오전 10시에 제품 회고 일정을 추가했습니다.", "obs-001:calendar.event.add:0"),
+					actionInvokeCapabilityTool("calendar.add", `{"title":"제품 회고","startISO":"2026-06-13T10:00:00+09:00","endISO":"2026-06-13T11:00:00+09:00","timeZone":"Asia/Seoul"}`),
+					actionFinishMessage("내일 오전 10시에 제품 회고 일정을 추가했습니다.", "obs-001:calendar.add:0"),
 				},
 				ExpectedSelectedSkills: []string{"calendar"},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.terminal.run.requested", BodyFragment: "calendar.event.add", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "calendar.add", Count: 1},
 				},
 			},
 			{
 				Prompt: "그 일정을 내일 오후 2시로 바꿔줘",
 				ActionResponses: []string{
-					actionInvokeCapabilityTool("calendar.event.update", `{"eventID":"calendar-event-001","startISO":"2026-06-13T14:00:00+09:00","endISO":"2026-06-13T15:00:00+09:00","timeZone":"Asia/Seoul"}`),
-					actionFinishMessage("제품 회고 일정을 내일 오후 2시로 변경했습니다.", "obs-001:calendar.event.update:0"),
+					actionInvokeCapabilityTool("calendar.update", `{"eventID":"calendar-event-001","startISO":"2026-06-13T14:00:00+09:00","endISO":"2026-06-13T15:00:00+09:00","timeZone":"Asia/Seoul"}`),
+					actionFinishMessage("제품 회고 일정을 내일 오후 2시로 변경했습니다.", "obs-001:calendar.update:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.terminal.run.requested", BodyFragment: "calendar.event.update", Count: 1},
-					{Name: "tool.terminal.run.requested", BodyFragment: "2026-06-13T14:00:00+09:00", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "calendar.update", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "2026-06-13T14:00:00+09:00", Count: 1},
 				},
 			},
 			{
 				Prompt: "그 일정 삭제해줘",
 				ActionResponses: []string{
-					actionInvokeCapabilityTool("calendar.event.delete", `{"eventID":"calendar-event-001"}`),
-					actionFinishMessage("제품 회고 일정을 삭제했습니다.", "obs-001:calendar.event.delete:0"),
+					actionInvokeCapabilityTool("calendar.delete", `{"eventID":"calendar-event-001"}`),
+					actionFinishMessage("제품 회고 일정을 삭제했습니다.", "obs-001:calendar.delete:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.terminal.run.requested", BodyFragment: "calendar.event.delete", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "calendar.delete", Count: 1},
 				},
 				ExpectedReplyFragments: []string{"삭제했습니다"},
 			},
@@ -524,25 +517,25 @@ func CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath string)
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		RouterWorkKinds:       []string{agent.WorkKindCalendar},
 		Skills:                []agent.SkillInstruction{calendarSkill()},
-		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.event.add"},
-		CapabilityToolNames:   []string{"calendar.event.add"},
-		InitialToolNames:      []string{"calendar.event.add"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.add"},
+		CapabilityToolNames:   []string{"calendar.add"},
+		InitialToolNames:      []string{"calendar.add"},
 		Turns: []VirtualTurn{{
 			Prompt: "7월 13일에 샨보장 미팅을 오전 10시부터 11시까지 등록해줘",
 			ActionResponses: []string{
 				actionFinishMessage("7월 13일 미팅을 오전 10시~11시로 등록했습니다."),
-				actionCallTool("calendar.event.add", `{"title":"샨보장 미팅","startISO":"2026-07-13T10:00:00+09:00","endISO":"2026-07-13T11:00:00+09:00","timeZone":"Asia/Seoul"}`),
-				actionFinishMessage("7월 13일 미팅을 오전 10시~11시로 등록했습니다.", "obs-002:calendar.event.add:0"),
+				actionInvokeCapabilityTool("calendar.add", `{"title":"샨보장 미팅","startISO":"2026-07-13T10:00:00+09:00","endISO":"2026-07-13T11:00:00+09:00","timeZone":"Asia/Seoul"}`),
+				actionFinishMessage("7월 13일 미팅을 오전 10시~11시로 등록했습니다.", "obs-002:calendar.add:0"),
 			},
 			ExpectedSelectedSkills: []string{"calendar"},
-			ExpectedToolCalls:      []string{"calendar.event.add"},
+			ExpectedToolCalls:      []string{"calendar.add"},
 			ExpectedToolCallCounts: map[string]int{
-				"calendar.event.add": 1,
+				"calendar.add": 1,
 			},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "agent.evidence_missing", BodyFragment: "observed results", Count: 1},
-				{Name: "agent.completion_required", BodyFragment: "calendar.event.add", Count: 1},
-				{Name: "tool.calendar.event.add.requested", BodyFragment: "2026-07-13T10:00:00+09:00", Count: 1},
+				{Name: "agent.completion_required", BodyFragment: "calendar.add", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "2026-07-13T10:00:00+09:00", Count: 1},
 			},
 			ExpectedModelContexts:  []string{"calendar_event", "scheduled"},
 			ExpectedReplyFragments: []string{"등록했습니다"},
@@ -558,9 +551,9 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 		RouterWorkKinds:       []string{agent.WorkKindCalendar},
 		AddressingResponse:    `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
 		Skills:                []agent.SkillInstruction{calendarSkill()},
-		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.event.add"},
-		CapabilityToolNames:   []string{"calendar.event.add"},
-		InitialToolNames:      []string{"calendar.event.add"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.add"},
+		CapabilityToolNames:   []string{"calendar.add"},
+		InitialToolNames:      []string{"calendar.add"},
 		Turns: []VirtualTurn{{
 			Prompt:           "오늘 오후 5시 정기회의 추가 참석자 이찬희, 이동하",
 			ConversationType: "channel",
@@ -569,16 +562,16 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 			ReplyTargetID:    "virtual-message-001",
 			Addressing:       connectors.AddressingMetadata{},
 			ActionResponses: []string{
-				actionCallTool("calendar.event.add", `{"title":"정기회의","startISO":"2026-06-12T17:00:00+09:00","endISO":"2026-06-12T18:00:00+09:00","timeZone":"Asia/Seoul","attendees":["이찬희","이동하"]}`),
-				actionFinishMessage("정기회의 일정을 추가했습니다.", "obs-001:calendar.event.add:0"),
+				actionInvokeCapabilityTool("calendar.add", `{"title":"정기회의","startISO":"2026-06-12T17:00:00+09:00","endISO":"2026-06-12T18:00:00+09:00","timeZone":"Asia/Seoul","attendees":["이찬희","이동하"]}`),
+				actionFinishMessage("정기회의 일정을 추가했습니다.", "obs-001:calendar.add:0"),
 			},
 			ExpectedSelectedSkills: []string{"calendar"},
-			ExpectedToolCalls:      []string{"calendar.event.add"},
+			ExpectedToolCalls:      []string{"calendar.add"},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "agent.ambient_duty_launch", BodyFragment: `"dutyName":"calendar_upkeep"`, Count: 1},
-				{Name: "tool.calendar.event.add.requested", BodyFragment: "2026-06-12T17:00:00+09:00", Count: 1},
-				{Name: "tool.calendar.event.add.requested", BodyFragment: "이찬희", Count: 1},
-				{Name: "tool.calendar.event.add.requested", BodyFragment: "이동하", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "2026-06-12T17:00:00+09:00", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "이찬희", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "이동하", Count: 1},
 			},
 			ExpectedModelContexts: []string{
 				"Ambient duty context",
@@ -596,10 +589,10 @@ func flowTaskSkill() agent.SkillInstruction {
 		Name:         "flow",
 		Description:  "Add, update, and complete team work tasks.",
 		WhenToUse:    "Use for task assignment, 업무, 할 일, status changes, and deadlines tracked in team flow.",
-		Prompt:       "Use flow.task.add to add a task for a person, flow.task.list to find an existing task, and flow.task.update to change status, details, or mark it complete.",
+		Prompt:       "Use task.add to add a task for a person, task.list to find an existing task, and task.update to change status, details, or mark it complete.",
 		Category:     "flow",
 		Tags:         []string{"flow", "task"},
-		AllowedTools: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+		AllowedTools: []string{"task.add", "task.list", "task.update"},
 		TriggerHints: []string{"task", "업무", "할 일", "마감", "deadline"},
 		Source: agent.InstructionSource{
 			Path:      "skills/flow/SKILL.md",
@@ -614,9 +607,9 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AddressingResponse:    `{"target":"human","shouldReply":false,"dutyMatch":true,"dutyName":"team_flow_update","dutyConfidence":0.9}`,
 		Skills:                []agent.SkillInstruction{flowTaskSkill()},
-		AllowedTools:          []string{"conversation.history", "flow.task.add", "flow.task.list", "flow.task.update"},
-		CapabilityToolNames:   []string{"flow.task.add", "flow.task.list", "flow.task.update"},
-		InitialToolNames:      []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+		AllowedTools:          []string{"conversation.history", "task.add", "task.list", "task.update"},
+		CapabilityToolNames:   []string{"task.add", "task.list", "task.update"},
+		InitialToolNames:      []string{"task.add", "task.list", "task.update"},
 		Turns: []VirtualTurn{{
 			Prompt:           "세은 님 신규 가입 플로우 점검 월요일까지 부탁해요",
 			ConversationType: "channel",
@@ -625,17 +618,17 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			ReplyTargetID:    "virtual-message-010",
 			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
 			ActionResponses: []string{
-				actionCallTool("flow.task.add", `{"prompt":"세은 님 신규 가입 플로우 점검 월요일까지","targetPersonHint":"세은"}`),
-				actionFinishMessage("세은 님 업무로 추가했습니다.", "obs-001:flow.task.add:0"),
+				actionInvokeCapabilityTool("task.add", `{"prompt":"세은 님 신규 가입 플로우 점검 월요일까지","targetPersonHint":"세은"}`),
+				actionFinishMessage("세은 님 업무로 추가했습니다.", "obs-001:task.add:0"),
 			},
-			ExpectedToolCalls: []string{"flow.task.add"},
+			ExpectedToolCalls: []string{"task.add"},
 			ExpectedToolCallCounts: map[string]int{
-				"flow.task.add": 1,
-				"terminal.run":  0,
+				"task.add":     1,
+				"terminal.run": 0,
 			},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "agent.ambient_duty_launch", BodyFragment: `"dutyName":"team_flow_update"`, Count: 1},
-				{Name: "tool.flow.task.add.requested", BodyFragment: "세은", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "세은", Count: 1},
 			},
 			ExpectedModelContexts: []string{
 				"Ambient duty context",
@@ -653,14 +646,14 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			ReplyTargetID:    "virtual-message-011",
 			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
 			ActionResponses: []string{
-				actionCallTool("flow.task.list", `{"targetPersonHint":"세은"}`),
-				actionCallTool("flow.task.update", `{"query":"신규 가입 플로우 점검","targetPersonHint":"세은","endDate":"2026-06-24"}`),
-				actionFinishMessage("세은 님 업무 마감을 수요일로 변경했습니다.", "obs-002:flow.task.update:0"),
+				actionInvokeCapabilityTool("task.list", `{"targetPersonHint":"세은"}`),
+				actionInvokeCapabilityTool("task.update", `{"query":"신규 가입 플로우 점검","targetPersonHint":"세은","endDate":"2026-06-24"}`),
+				actionFinishMessage("세은 님 업무 마감을 수요일로 변경했습니다.", "obs-002:task.update:0"),
 			},
-			ExpectedToolCalls: []string{"flow.task.list", "flow.task.update"},
+			ExpectedToolCalls: []string{"task.list", "task.update"},
 			ExpectedToolCallCounts: map[string]int{
-				"flow.task.add":    0,
-				"flow.task.update": 1,
+				"task.add":    0,
+				"task.update": 1,
 			},
 			ExpectedReplyTargetID:  "virtual-message-011",
 			ExpectedReplyFragments: []string{"변경"},
@@ -680,7 +673,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 				Prompt: "간단한 메모 정리 custom skill을 등록해줘",
 				ActionResponses: []string{
 					actionSelectTools("skill.add"),
-					actionCallTool("skill.add", skillAddToolInput(skillName, skillContent)),
+					actionInvokeCapabilityTool("skill.add", skillAddToolInput(skillName, skillContent)),
 					actionFinishMessage("memo-helper skill을 등록했습니다.", "obs-002:skill.add:0"),
 				},
 				ExpectedToolCalls: []string{"skill.add"},
@@ -689,7 +682,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 					"skill.remove": 0,
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.skill.add.result", BodyFragment: "created", Count: 1},
+					{Name: "tool.capability.invoke.result", BodyFragment: "created", Count: 1},
 				},
 				ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
 					PathGlob:          ".agents/skills/memo-helper/SKILL.md",
@@ -701,7 +694,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 				Prompt: "방금 등록한 memo-helper skill 삭제해줘",
 				ActionResponses: []string{
 					actionSelectTools("skill.remove"),
-					actionCallTool("skill.remove", `{"name":"memo-helper"}`),
+					actionInvokeCapabilityTool("skill.remove", `{"name":"memo-helper"}`),
 					actionFinishMessage("memo-helper skill을 삭제했습니다.", "obs-002:skill.remove:0"),
 				},
 				ExpectedToolCalls: []string{"skill.remove"},
@@ -710,7 +703,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 					"skill.remove": 1,
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.skill.remove.result", BodyFragment: "removed", Count: 1},
+					{Name: "tool.capability.invoke.result", BodyFragment: "removed", Count: 1},
 				},
 				ExpectedReplyFragments: []string{"memo-helper", "삭제"},
 			},
@@ -913,7 +906,7 @@ func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 		Turns: []VirtualTurn{{
 			Prompt: "2027년 1월 15일 오전 9시에 계약서 확인 알림을 한 번만 예약해줘",
 			ActionResponses: []string{
-				actionCallTool("schedule.create", `{"name":"계약서 확인 알림","taskInstruction":"현재 대화에 \"계약서를 확인하세요\"라고 보낸다.","kind":"once","runAt":"2027-01-15T00:00:00Z","timeZone":"Asia/Seoul"}`),
+				actionInvokeCapabilityTool("schedule.create", `{"name":"계약서 확인 알림","taskInstruction":"현재 대화에 \"계약서를 확인하세요\"라고 보낸다.","kind":"once","runAt":"2027-01-15T00:00:00Z","timeZone":"Asia/Seoul"}`),
 				actionFinishMessage("2027년 1월 15일 오전 9시에 한 번 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
 			},
 			ExpectedSelectedSkills: []string{"scheduled-task"},
@@ -943,10 +936,10 @@ func calendarSkill() agent.SkillInstruction {
 		Name:         "calendar",
 		Description:  "Create, update, and delete calendar events.",
 		WhenToUse:    "Use for calendar event creation, updates, deletion, 일정, 달력, 캘린더, and meeting time changes.",
-		Prompt:       "Use calendar.event.add to create calendar events, calendar.event.update to edit event time or details, and calendar.event.delete to delete events.",
+		Prompt:       "Use calendar.add to create calendar events, calendar.update to edit event time or details, and calendar.delete to delete events.",
 		Category:     "calendar",
 		Tags:         []string{"calendar", "event"},
-		AllowedTools: []string{"calendar.event.add", "calendar.event.update", "calendar.event.delete"},
+		AllowedTools: []string{"calendar.add", "calendar.update", "calendar.delete"},
 		TriggerHints: []string{"calendar", "event", "일정", "달력", "캘린더", "meeting"},
 		Source: agent.InstructionSource{
 			Path:      "skills/calendar/SKILL.md",
@@ -995,20 +988,20 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		Turns: []VirtualTurn{{
 			Prompt: "웹사이트 하나 만들어서 배포해봐",
 			ActionResponses: []string{
-				actionInvokeCapabilityTool("site.app.create", `{"slug":"demo","title":"Demo Website"}`),
+				actionInvokeCapabilityTool("site.create", `{"slug":"demo","title":"Demo Website"}`),
 				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf 'demo site' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
-				actionInvokeCapabilityTool("site.app.build", `{"siteID":"site-1"}`),
-				actionInvokeCapabilityTool("site.app.publish", `{"siteID":"site-1","message":"Initial demo website"}`),
-				actionFinishMessage("웹사이트 프로토타입을 배포했습니다: https://demo.device.intern.kim", "obs-004:site.app.publish:0"),
+				actionInvokeCapabilityTool("site.build", `{"siteID":"site-1"}`),
+				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Initial demo website"}`),
+				actionFinishMessage("웹사이트 프로토타입을 배포했습니다: https://demo.device.intern.kim", "obs-004:site.publish:0"),
 			},
 			ExpectedSelectedSkills: []string{"site-prototype"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.terminal.run.requested", BodyFragment: "site.app.create", Count: 1},
-				{Name: "tool.terminal.run.requested", BodyFragment: "site.app.build", Count: 1},
-				{Name: "tool.terminal.run.requested", BodyFragment: "site.app.publish", Count: 1},
-				{Name: "tool.terminal.run.result", BodyFragment: "publishedURL", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "site.create", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "site.build", Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
+				{Name: "tool.capability.invoke.result", BodyFragment: "device.intern.kim", Count: 1},
 			},
-			ExpectedModelContexts:  []string{"site-prototype", "site.app.create", "site.app.publish", "/workspace/circles/staff/sites/demo/draft", "웹사이트 하나"},
+			ExpectedModelContexts:  []string{"site-prototype", "site.create", "site.publish", "/workspace/circles/staff/sites/demo/draft", "웹사이트 하나"},
 			ForbiddenModelContexts: []string{"home/sites/site-1"},
 			ExpectedReplyFragments: []string{"https://demo.device.intern.kim"},
 			ForbiddenReplyFragments: []string{
@@ -1036,18 +1029,18 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 			{
 				Prompt: "Build and deploy a simple site.",
 				ActionResponses: []string{
-					actionInvokeCapabilityTool("site.app.create", `{"slug":"demo","title":"Demo Website"}`),
+					actionInvokeCapabilityTool("site.create", `{"slug":"demo","title":"Demo Website"}`),
 					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><h1>Simple Site</h1></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
-					actionInvokeCapabilityTool("site.app.build", `{"siteID":"site-1"}`),
-					actionInvokeCapabilityTool("site.app.publish", `{"siteID":"site-1","message":"Initial simple site"}`),
-					actionFinishMessage("Deployed the simple site: https://demo.device.intern.kim", "obs-004:site.app.publish:0"),
+					actionInvokeCapabilityTool("site.build", `{"siteID":"site-1"}`),
+					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Initial simple site"}`),
+					actionFinishMessage("Deployed the simple site: https://demo.device.intern.kim", "obs-004:site.publish:0"),
 				},
 				ExpectedSelectedSkills: []string{"site-prototype"},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.terminal.run.requested", BodyFragment: "site.app.create", Count: 1},
-					{Name: "tool.terminal.run.requested", BodyFragment: "site.app.build", Count: 1},
-					{Name: "tool.terminal.run.requested", BodyFragment: "site.app.publish", Count: 1},
-					{Name: "tool.terminal.run.result", BodyFragment: "publishedURL", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "site.create", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "site.build", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
+					{Name: "tool.capability.invoke.result", BodyFragment: "device.intern.kim", Count: 1},
 				},
 				ExpectedModelContexts:  []string{"/workspace/circles/staff/sites/demo/draft"},
 				ForbiddenModelContexts: []string{"home/sites/site-1"},
@@ -1057,15 +1050,15 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 				Prompt: "Update the heading to say Hello World.",
 				ActionResponses: []string{
 					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><h1>Hello World</h1></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
-					actionInvokeCapabilityTool("site.app.build", `{"siteID":"site-1"}`),
-					actionInvokeCapabilityTool("site.app.publish", `{"siteID":"site-1","message":"Update heading to Hello World"}`),
-					actionFinishMessage("Updated and redeployed the site: https://demo.device.intern.kim", "obs-003:site.app.publish:0"),
+					actionInvokeCapabilityTool("site.build", `{"siteID":"site-1"}`),
+					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Update heading to Hello World"}`),
+					actionFinishMessage("Updated and redeployed the site: https://demo.device.intern.kim", "obs-003:site.publish:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.terminal.run.requested", BodyFragment: "Hello World", Count: 2},
-					{Name: "tool.terminal.run.requested", BodyFragment: "site.app.build", Count: 1},
-					{Name: "tool.terminal.run.requested", BodyFragment: "site.app.publish", Count: 1},
-					{Name: "tool.terminal.run.result", BodyFragment: "publishedURL", Count: 1},
+					{Name: "tool.terminal.run.requested", BodyFragment: "Hello World", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "site.build", Count: 1},
+					{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
+					{Name: "tool.capability.invoke.result", BodyFragment: "device.intern.kim", Count: 1},
 				},
 				ExpectedModelContexts:  []string{"/workspace/circles/staff/sites/demo/draft"},
 				ForbiddenModelContexts: []string{"home/sites/site-1"},
@@ -1084,32 +1077,32 @@ func SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath string) VirtualSe
 		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
 		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
-		InitialToolNames:      []string{"site.app.status", "file.write", "terminal.run", "site.app.build", "site.app.publish"},
+		InitialToolNames:      []string{"site.status", "file.write", "terminal.run", "site.build", "site.publish"},
 		Turns: []VirtualTurn{{
 			Prompt: "더 예쁘게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
 			ActionResponses: []string{
-				actionCallTool("site.app.status", `{"siteID":"site-1"}`),
+				actionInvokeCapabilityTool("site.status", `{"siteID":"site-1"}`),
 				actionFinishMessage("사이트 수정이 어렵습니다."),
-				actionCallTool("site.app.status", `{"siteID":"site-1"}`),
-				actionCallTool("site.app.repair", `{"siteID":"site-1"}`),
+				actionInvokeCapabilityTool("site.status", `{"siteID":"site-1"}`),
+				actionInvokeCapabilityTool("site.repair", `{"siteID":"site-1"}`),
 				actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main><h1>Polished Citrus Studio</h1><p>Fresh, warm, and carefully crafted.</p></main>;\n}\n"}`),
 				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main><h1>Polished Citrus Studio</h1><p>Fresh, warm, and carefully crafted.</p></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
-				actionCallTool("site.app.build", `{"siteID":"site-1"}`),
-				actionCallTool("site.app.publish", `{"siteID":"site-1","message":"Improve visual quality"}`),
-				actionFinishMessage("사이트를 더 예쁘게 다듬고 다시 배포했습니다: https://demo.device.intern.kim", "obs-009:site.app.publish:0"),
+				actionInvokeCapabilityTool("site.build", `{"siteID":"site-1"}`),
+				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Improve visual quality"}`),
+				actionFinishMessage("사이트를 더 예쁘게 다듬고 다시 배포했습니다: https://demo.device.intern.kim", "obs-009:site.publish:0"),
 			},
 			ExpectedSelectedSkills: []string{"site-prototype"},
-			ExpectedToolCalls:      []string{"site.app.status", "site.app.repair", "file.write", "terminal.run", "site.app.build", "site.app.publish"},
+			ExpectedToolCalls:      []string{"site.status", "site.repair", "file.write", "terminal.run", "site.build", "site.publish"},
 			ExpectedToolCallCounts: map[string]int{
-				"site.app.status":  2,
-				"site.app.repair":  1,
-				"file.write":       1,
-				"terminal.run":     1,
-				"site.app.build":   1,
-				"site.app.publish": 1,
+				"site.status":  2,
+				"site.repair":  1,
+				"file.write":   1,
+				"terminal.run": 1,
+				"site.build":   1,
+				"site.publish": 1,
 			},
 			ExpectedEvents:         []string{"agent.suggested_next_tool_directive", "agent.completion_required"},
-			ExpectedModelContexts:  []string{"site.app.repair", "/workspace/circles/staff/sites/demo/draft"},
+			ExpectedModelContexts:  []string{"site.repair", "/workspace/circles/staff/sites/demo/draft"},
 			ForbiddenModelContexts: []string{"home/sites/site-1"},
 			ExpectedReplyFragments: []string{"https://demo.device.intern.kim"},
 			ForbiddenReplyFragments: []string{
@@ -1153,21 +1146,21 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		Name:                  "dm_send_confirm_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		RouterWorkKinds:       []string{agent.WorkKindExternalSend},
-		AllowedTools:          []string{"conversation.history", "memory.search", "platform.message.send"},
-		InitialToolNames:      []string{"platform.message.send"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "message.send"},
+		InitialToolNames:      []string{"message.send"},
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{
-			Name:             "platform.message.send",
+			Name:             "message.send",
 			RequiresApproval: true,
 		}},
 		Turns: []VirtualTurn{{
 			Prompt: "우경이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
 			ActionResponses: []string{
-				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"directMessage","personHint":"우경"},"message":"오늘 오후 3시에 확인하자"}`),
+				actionInvokeCapabilityTool("message.send", `{"deliveryTarget":{"type":"directMessage","personHint":"우경"},"message":"오늘 오후 3시에 확인하자"}`),
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 1},
-				{Name: "tool.platform.message.send.result", BodyFragment: "approval_required", Count: 1},
-				{Name: "approval.pending_call", BodyFragment: `"platform.message.send"`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"type":"directMessage"`, Count: 1},
+				{Name: "tool.capability.invoke.result", BodyFragment: "approval_required", Count: 1},
+				{Name: "approval.pending_call", BodyFragment: `"message.send"`, Count: 1},
 				{Name: "agent.failure_debt_created", BodyFragment: "", Count: 0},
 			},
 			ExpectedEvents:         []string{"confirmation.requested"},
@@ -1176,13 +1169,13 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		}, {
 			Prompt: "확인",
 			ActionResponses: []string{
-				actionFinishMessage("우경이에게 DM을 보냈습니다.", "obs-002:platform.message.send:0"),
+				actionFinishMessage("우경이에게 DM을 보냈습니다.", "obs-002:message.send:0"),
 			},
-			ExpectedToolCalls: []string{"platform.message.send"},
+			ExpectedToolCalls: []string{"message.send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 2},
-				{Name: "tool.platform.message.send.result", BodyFragment: "virtual-platform-message-001", Count: 1},
-				{Name: "approval.executed", BodyFragment: `"platform.message.send"`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"type":"directMessage"`, Count: 2},
+				{Name: "tool.capability.invoke.result", BodyFragment: "virtual-platform-message-001", Count: 1},
+				{Name: "approval.executed", BodyFragment: `"message.send"`, Count: 1},
 			},
 			ExpectedEvents:         []string{"confirmation.reply_classified"},
 			ExpectedModelContexts:  []string{"virtual-platform-message-001"},
@@ -1195,20 +1188,20 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 	return VirtualSessionScenario{
 		Name:                  "channel_post_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"conversation.history", "memory.search", "platform.message.send"},
-		CapabilityToolNames:   []string{"platform.message.send"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "message.send"},
+		CapabilityToolNames:   []string{"message.send"},
 		Turns: []VirtualTurn{{
 			Prompt: "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
 			ActionResponses: []string{
-				`{"action":"tool.request","toolNames":["platform.message.send"],"skillNames":[],"reason":"채널 공지를 게시하려면 플랫폼 메시지 전송 도구가 필요합니다."}`,
-				actionCallTool("platform.message.send", `{"deliveryTarget":{"type":"channel","channelName":"announcements"},"message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
-				actionFinishMessage("announcements 채널에 공지를 올렸습니다.", "obs-002:platform.message.send:0"),
+				`{"action":"tool.request","toolNames":["message.send"],"skillNames":[],"reason":"채널 공지를 게시하려면 플랫폼 메시지 전송 도구가 필요합니다."}`,
+				actionInvokeCapabilityTool("message.send", `{"deliveryTarget":{"type":"channel","channelName":"announcements"},"message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
+				actionFinishMessage("announcements 채널에 공지를 올렸습니다.", "obs-002:message.send:0"),
 			},
-			ExpectedToolCalls: []string{"platform.message.send"},
+			ExpectedToolCalls: []string{"message.send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"channel"`, Count: 1},
-				{Name: "tool.platform.message.send.requested", BodyFragment: `"channelName":"announcements"`, Count: 1},
-				{Name: "tool.platform.message.send.requested", BodyFragment: `"type":"directMessage"`, Count: 0},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"type":"channel"`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"channelName":"announcements"`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"type":"directMessage"`, Count: 0},
 			},
 			ExpectedReplyFragments: []string{"채널", "올렸습니다"},
 		}},
@@ -1219,22 +1212,22 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 	return VirtualSessionScenario{
 		Name:                  "platform_message_edit_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"conversation.history", "memory.search", "platform.message.update"},
-		CapabilityToolNames:   []string{"platform.message.update"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "message.update"},
+		CapabilityToolNames:   []string{"message.update"},
 		Turns: []VirtualTurn{{
 			Prompt: "방금 올린 공지 message virtual-platform-message-001 문구를 '오늘 오후 6시에 전체 공지 회의가 있습니다.'로 바꿔줘",
 			ActionResponses: []string{
-				`{"action":"tool.request","toolNames":["platform.message.update"],"skillNames":[],"reason":"최근 공지 메시지를 수정하려면 플랫폼 메시지 업데이트 도구가 필요합니다."}`,
-				actionCallTool("platform.message.update", `{"messageID":"virtual-platform-message-001","text":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
-				actionFinishMessage("공지 메시지 문구를 수정했습니다.", "obs-002:platform.message.update:0"),
+				`{"action":"tool.request","toolNames":["message.update"],"skillNames":[],"reason":"최근 공지 메시지를 수정하려면 플랫폼 메시지 업데이트 도구가 필요합니다."}`,
+				actionInvokeCapabilityTool("message.update", `{"messageID":"virtual-platform-message-001","text":"오늘 오후 6시에 전체 공지 회의가 있습니다."}`),
+				actionFinishMessage("공지 메시지 문구를 수정했습니다.", "obs-002:message.update:0"),
 			},
-			ExpectedToolCalls: []string{"platform.message.update"},
+			ExpectedToolCalls: []string{"message.update"},
 			ExpectedToolCallCounts: map[string]int{
-				"platform.message.update": 1,
+				"message.update": 1,
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.platform.message.update.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 1},
-				{Name: "tool.platform.message.update.requested", BodyFragment: `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"messageID":"virtual-platform-message-001"`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`, Count: 1},
 			},
 		}},
 	}
@@ -1267,7 +1260,7 @@ func sitePrototypeSkill() agent.SkillInstruction {
 		Description: "Create, publish, update, take down, restore, or delete free React and PocketBase website prototypes through InternKim site.app capability operations.",
 		Category:    "site-prototype",
 		Tags:        []string{"website", "prototype", "deploy"},
-		Prompt:      "Create and publish website prototypes. For a new prototype, call site.app.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to verify the app when useful, call site.app.build, then call site.app.publish with the siteID and a concise message. Never claim deployment succeeded until site.app.publish succeeds.",
+		Prompt:      "Create and publish website prototypes. For a new prototype, call site.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to verify the app when useful, call site.build, then call site.publish with the siteID and a concise message. Never claim deployment succeeded until site.publish succeeds.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"웹사이트", "배포", "사이트", "web app", "website", "prototype"},
 		},
@@ -1289,31 +1282,31 @@ func sitePrototypeToolNames() []string {
 		"file.write",
 		"file.edit",
 		"file.patch",
-		"site.app.create",
-		"site.app.repair",
-		"site.app.build",
-		"site.app.publish",
-		"site.app.status",
-		"site.app.logs",
-		"site.app.rollback",
-		"site.app.unpublish",
-		"site.app.restore",
-		"site.app.delete",
+		"site.create",
+		"site.repair",
+		"site.build",
+		"site.publish",
+		"site.status",
+		"site.logs",
+		"site.rollback",
+		"site.unpublish",
+		"site.restore",
+		"site.delete",
 		"user.confirm",
 	}
 }
 
 func sitePrototypeCapabilityToolNames() []string {
 	return []string{
-		"site.app.create",
-		"site.app.build",
-		"site.app.publish",
-		"site.app.status",
-		"site.app.logs",
-		"site.app.rollback",
-		"site.app.unpublish",
-		"site.app.restore",
-		"site.app.delete",
+		"site.create",
+		"site.build",
+		"site.publish",
+		"site.status",
+		"site.logs",
+		"site.rollback",
+		"site.unpublish",
+		"site.restore",
+		"site.delete",
 		"user.confirm",
 	}
 }

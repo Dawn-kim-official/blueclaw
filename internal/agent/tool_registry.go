@@ -524,6 +524,15 @@ func (toolSet *ToolSet) Invoke(ctx context.Context, toolInvocation ToolInvocatio
 	if !toolSet.IsAllowed(toolName) {
 		return ToolFailureResult(FailurePolicyBlocked, FailureCodes.PolicyBlocked, "tool_availability", "tool is not allowed"), nil
 	}
+	return toolSet.InvokeRegistered(ctx, toolInvocation)
+}
+
+// InvokeRegistered dispatches to a registered tool handler without the
+// model-exposure check. It is the dispatch path for the capability.invoke kernel
+// verb, which reaches registered domain operations that are intentionally hidden
+// from the model action schema. Per-handler access policy still applies.
+func (toolSet *ToolSet) InvokeRegistered(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
+	toolName := strings.TrimSpace(toolInvocation.ToolName)
 	boundTool, isFound := toolSet.boundToolByName[toolName]
 	if !isFound {
 		return ToolFailureResult(FailureNotFound, FailureCodes.NotFound, "tool_registry", "tool is not registered"), nil
@@ -630,9 +639,12 @@ func (toolSet *ToolSet) Descriptions() string {
 	if len(toolDefinitions) == 0 {
 		return ""
 	}
-	lines := []string{"Available tool catalog. These fixed kernel tools can be called now. Use /workspace/tools/capability from terminal.run for domain capabilities. Tool availability does not make tool use mandatory:"}
+	lines := []string{"Available tool catalog. These fixed kernel tools can be called now. Use capability.invoke for domain capabilities; its description lists the available operations. Tool availability does not make tool use mandatory:"}
 	for _, toolDefinition := range toolDefinitions {
 		toolName := strings.TrimSpace(toolDefinition.Name)
+		if !toolSet.IsAllowed(toolName) {
+			continue
+		}
 		lines = append(lines, "- "+toolCatalogLine(toolName, toolDefinition, toolSet))
 	}
 	return strings.Join(lines, "\n")

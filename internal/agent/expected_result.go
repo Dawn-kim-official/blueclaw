@@ -112,9 +112,9 @@ func observedResultsFromSuccessfulObservation(observation turnObservation) []Obs
 
 func observationCanDeliverLink(observation turnObservation, content string) bool {
 	switch strings.TrimSpace(observation.Tool) {
-	case "site.app.create":
+	case "site.create":
 		return false
-	case "site.app.publish", "site.app.status":
+	case "site.publish", "site.status":
 		return siteObservationHasPublishedStatus(content)
 	default:
 		return true
@@ -399,7 +399,7 @@ func expectedResultNeedsSitePublicURL(expectedResult ExpectedResult) bool {
 
 func observedResultsContainSiteAppTool(observedResults []ObservedResult) bool {
 	for _, observedResult := range observedResults {
-		if strings.HasPrefix(strings.TrimSpace(observedResult.ToolName), "site.app.") {
+		if strings.HasPrefix(strings.TrimSpace(observedResult.ToolName), "site.") {
 			return true
 		}
 	}
@@ -408,7 +408,7 @@ func observedResultsContainSiteAppTool(observedResults []ObservedResult) bool {
 
 func siteToolCanSatisfyLinkResult(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "site.app.publish", "site.app.status":
+	case "site.publish", "site.status":
 		return true
 	default:
 		return false

@@ -93,8 +93,8 @@ func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 
 func TestModelVisibleToolResultSummaryKeepsPublishedSiteURL(t *testing.T) {
 	content := `{"siteID":"site-1","slug":"tangerine-hub","title":"맛있는 귤 사이트","status":"published","publishedURL":"https://tangerine-hub.zd2df6qt6jmc.intern.kim","description":"` + strings.Repeat("x", 4096) + `"}`
-	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.app.publish", turnObservation{
-		Tool: "site.app.publish",
+	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.publish", turnObservation{
+		Tool: "site.publish",
 		Output: ToolOutput{
 			Content: content,
 		},
@@ -110,8 +110,8 @@ func TestModelVisibleToolResultSummaryKeepsPublishedSiteURL(t *testing.T) {
 
 func TestModelVisibleToolResultSummaryHidesDraftSiteCreateURL(t *testing.T) {
 	content := `{"siteID":"site-1","slug":"draft-site","title":"Draft","status":"draft","publishedURL":"https://draft-site.zd2df6qt6jmc.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"}`
-	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.app.create", turnObservation{
-		Tool: "site.app.create",
+	summary := modelVisibleToolResultSummary(context.Background(), nil, "site.create", turnObservation{
+		Tool: "site.create",
 		Output: ToolOutput{
 			Content: content,
 		},

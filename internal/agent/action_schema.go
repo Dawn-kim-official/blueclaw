@@ -242,11 +242,11 @@ func specificToolInputSchema(toolName string) json.RawMessage {
 		return json.RawMessage(`{"type":"object","properties":{"target":{"type":"string"},"ref":{"type":"string"},"selector":{"type":"string"},"milliseconds":{"type":"number"}}}`)
 	case "conversation.history":
 		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}}}`)
-	case "flow.task.add":
+	case "task.add":
 		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"]}`)
-	case "flow.task.list":
+	case "task.list":
 		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string","description":"Leave EMPTY to list everyone's tasks. Set to one person's name — including the requester's own name for their own tasks — to list only that person."},"weekFrom":{"type":"number","description":"Relative week offset for the start of the range. 0 = this week (default), -1 = last week, -2 = two weeks ago. Omit for this week."},"weekTo":{"type":"number","description":"Relative week offset for the end of the range, default 0 (this week). For all time use a wide range such as weekFrom -520."},"status":{"type":"string"},"limit":{"type":"number"}}}`)
-	case "flow.task.update":
+	case "task.update":
 		return json.RawMessage(`{"type":"object","properties":{"taskID":{"type":"string"},"query":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"},"content":{"type":"string"},"goal":{"type":"string"},"status":{"type":"string"},"size":{"type":"string"},"category":{"type":"string"},"type":{"type":"string"},"startDate":{"type":"string"},"endDate":{"type":"string"},"flag":{"type":"number"},"requestReason":{"type":"string"},"decisionReason":{"type":"string"}}}`)
 	default:
 		return nil

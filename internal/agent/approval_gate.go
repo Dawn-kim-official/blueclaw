@@ -174,11 +174,26 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 }
 
 func approvalConfirmationForHeldCall(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
-	summary := approvalToolInputSummaryFromRaw(toolInput)
+	effectiveToolName, effectiveInput := unwrapCapabilityInvokeCall(toolName, toolInput)
+	summary := approvalToolInputSummaryFromRaw(effectiveInput)
 	if ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish {
-		return englishApprovalConfirmation(toolName, summary)
+		return englishApprovalConfirmation(effectiveToolName, summary)
 	}
-	return koreanApprovalConfirmation(toolName, summary)
+	return koreanApprovalConfirmation(effectiveToolName, summary)
+}
+
+func unwrapCapabilityInvokeCall(toolName string, toolInput json.RawMessage) (string, json.RawMessage) {
+	if strings.TrimSpace(toolName) != CapabilityInvokeToolName {
+		return toolName, toolInput
+	}
+	var call struct {
+		Operation string          `json:"operation"`
+		Input     json.RawMessage `json:"input"`
+	}
+	if json.Unmarshal(toolInput, &call) != nil || strings.TrimSpace(call.Operation) == "" {
+		return toolName, toolInput
+	}
+	return CanonicalEvidenceToolName(strings.TrimSpace(call.Operation)), call.Input
 }
 
 func koreanApprovalConfirmation(toolName string, summary approvalToolInputSummary) string {
@@ -205,11 +220,11 @@ func englishApprovalConfirmation(toolName string, summary approvalToolInputSumma
 
 func koreanApprovalActionName(toolName string) string {
 	switch strings.TrimSpace(toolName) {
-	case "platform.message.send", "mattermost.message.send", "slack.message.send":
+	case "message.send", "mattermost.message.send", "slack.message.send":
 		return "메시지 전송"
 	case "mail.message.send", "google.gmail.send":
 		return "메일 전송"
-	case "calendar.event.add", "calendar.event.update", "calendar.event.delete":
+	case "calendar.add", "calendar.update", "calendar.delete":
 		return "캘린더 변경"
 	default:
 		return strings.TrimSpace(toolName)
@@ -218,11 +233,11 @@ func koreanApprovalActionName(toolName string) string {
 
 func englishApprovalActionName(toolName string) string {
 	switch strings.TrimSpace(toolName) {
-	case "platform.message.send", "mattermost.message.send", "slack.message.send":
+	case "message.send", "mattermost.message.send", "slack.message.send":
 		return "sending this message"
 	case "mail.message.send", "google.gmail.send":
 		return "sending this email"
-	case "calendar.event.add", "calendar.event.update", "calendar.event.delete":
+	case "calendar.add", "calendar.update", "calendar.delete":
 		return "this calendar change"
 	default:
 		return strings.TrimSpace(toolName)

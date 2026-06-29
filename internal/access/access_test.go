@@ -68,9 +68,9 @@ func TestFlowResourcePolicies(t *testing.T) {
 		{Resource: "api:flow.summary", Actions: []string{ActionRead}, Circles: []string{"staff"}},
 		{Resource: "api:flow.task", Actions: []string{"create", "update"}, Circles: []string{"staff"}},
 		{Resource: "api:flow.definition", Actions: []string{ActionManage}, Circles: []string{"admin"}},
-		{Resource: "tool:flow.task.add", Actions: []string{ActionExecute}, Circles: []string{"staff"}},
-		{Resource: "tool:flow.task.list", Actions: []string{ActionExecute}, Circles: []string{"staff"}},
-		{Resource: "tool:flow.task.update", Actions: []string{ActionExecute}, Circles: []string{"staff"}},
+		{Resource: "tool:task.add", Actions: []string{ActionExecute}, Circles: []string{"staff"}},
+		{Resource: "tool:task.list", Actions: []string{ActionExecute}, Circles: []string{"staff"}},
+		{Resource: "tool:task.update", Actions: []string{ActionExecute}, Circles: []string{"staff"}},
 	}
 	staffAccess := policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}, ResourceAccessRules: resourceAccessRules}
 	adminAccess := policy.PersonAccess{PersonID: "person-2", Circles: []string{"staff", "admin"}, ResourceAccessRules: resourceAccessRules}
@@ -88,22 +88,22 @@ func TestFlowResourcePolicies(t *testing.T) {
 	if !CanAccess(Request{PersonAccess: adminAccess, Action: ActionManage, Resource: "api:flow.definition"}) {
 		t.Fatal("admin should manage Flow definitions")
 	}
-	if !CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:flow.task.add"}) {
+	if !CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:task.add"}) {
 		t.Fatal("staff should execute Flow task add tool")
 	}
-	if !CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:flow.task.list"}) {
+	if !CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:task.list"}) {
 		t.Fatal("staff should execute Flow task list tool")
 	}
-	if !CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:flow.task.update"}) {
+	if !CanAccess(Request{PersonAccess: staffAccess, Action: ActionExecute, Resource: "tool:task.update"}) {
 		t.Fatal("staff should execute Flow task update tool")
 	}
-	if CanAccess(Request{PersonAccess: guestAccess, Action: ActionExecute, Resource: "tool:flow.task.add"}) {
+	if CanAccess(Request{PersonAccess: guestAccess, Action: ActionExecute, Resource: "tool:task.add"}) {
 		t.Fatal("guest should not execute Flow task add tool")
 	}
-	if CanAccess(Request{PersonAccess: guestAccess, Action: ActionExecute, Resource: "tool:flow.task.list"}) {
+	if CanAccess(Request{PersonAccess: guestAccess, Action: ActionExecute, Resource: "tool:task.list"}) {
 		t.Fatal("guest should not execute Flow task list tool")
 	}
-	if CanAccess(Request{PersonAccess: guestAccess, Action: ActionExecute, Resource: "tool:flow.task.update"}) {
+	if CanAccess(Request{PersonAccess: guestAccess, Action: ActionExecute, Resource: "tool:task.update"}) {
 		t.Fatal("guest should not execute Flow task update tool")
 	}
 }

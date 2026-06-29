@@ -9,12 +9,12 @@ func TestRecoveryPacketDoesNotHardCodeToolAllowedList(t *testing.T) {
 	observation := turnObservation{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.app.publish",
+		Tool:          "site.publish",
 		Output:        ToolOutput{Content: "site workspace must contain app/dist; build in Blueclaw before publishing"},
 		Failure: &ToolFailure{
 			Kind:            FailureExternalService,
 			Code:            FailureCodes.OperationFailed.String(),
-			Stage:           "site.app.publish",
+			Stage:           "site.publish",
 			UserSafeSummary: "site workspace must contain app/dist; build in Blueclaw before publishing",
 		},
 	}

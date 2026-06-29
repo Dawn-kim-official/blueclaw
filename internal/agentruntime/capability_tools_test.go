@@ -15,9 +15,9 @@ import (
 func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:           "site.app.create",
+		Name:           "site.create",
 		Description:    "Create a site.",
-		PolicyResource: "tool:site.app.create",
+		PolicyResource: "tool:site.create",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -26,14 +26,14 @@ func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 			PersonID: "person-1",
 			Circles:  []string{"staff"},
 			ResourceAccessRules: []policy.ResourceAccessPolicy{{
-				Resource: "tool:site.app.create",
+				Resource: "tool:site.create",
 				Actions:  []string{"execute"},
 				Circles:  []string{"admin"},
 			}},
 		},
 	})
 
-	if strings.Contains(toolRegistry.Descriptions(), "site.app.create") {
+	if strings.Contains(toolRegistry.Descriptions(), "site.create") {
 		t.Fatalf("expected denied site tool to be omitted from catalog, got %s", toolRegistry.Descriptions())
 	}
 }
@@ -41,17 +41,17 @@ func TestToolCatalogHidesPolicyDeniedCapabilityTools(t *testing.T) {
 func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{
-		Name:             "platform.message.send",
+		Name:             "message.send",
 		Description:      "Send a direct message",
 		RequiresApproval: true,
 	}})
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"platform.message.send"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"message.send"})
 
 	immediateToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	if strings.Contains(immediateToolSet.Descriptions(), "ask approval before invoking") {
 		t.Fatalf("expected immediate DM to be available for runtime gating, got %s", immediateToolSet.Descriptions())
 	}
-	toolDefinition, isFound := immediateToolSet.ToolDefinition("platform.message.send")
+	toolDefinition, isFound := immediateToolSet.ToolDefinition("message.send")
 	if !isFound || !toolDefinition.RequiresApproval {
 		t.Fatalf("expected immediate DM definition to require approval, got found=%v definition=%+v", isFound, toolDefinition)
 	}
@@ -66,7 +66,7 @@ func TestPlatformDMSendAvailabilityDependsOnTrustedContext(t *testing.T) {
 }
 
 func TestCapabilityToolRequestIncludesTrustedExecutionContext(t *testing.T) {
-	requestDocument := capabilityToolRequest(context.Background(), "platform.message.send", ToolCatalogRequest{
+	requestDocument := capabilityToolRequest(context.Background(), "message.send", ToolCatalogRequest{
 		TaskSource:              TaskLaunchSourceScheduled,
 		IsScheduledRun:          true,
 		IsApprovalContinuation:  true,
@@ -173,22 +173,22 @@ func TestDocumentReadRejectsImageMaterialID(t *testing.T) {
 
 func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 	ctx := agent.WithObservationID(agent.WithTaskRunID(context.Background(), "run-1"), "obs-3")
-	sendKey := capabilityToolIdempotencyKey(ctx, "platform.message.send")
+	sendKey := capabilityToolIdempotencyKey(ctx, "message.send")
 	if sendKey == "" {
 		t.Fatal("expected idempotency key for send tool")
 	}
-	if again := capabilityToolIdempotencyKey(ctx, "platform.message.send"); again != sendKey {
+	if again := capabilityToolIdempotencyKey(ctx, "message.send"); again != sendKey {
 		t.Fatalf("idempotency key not deterministic: %q vs %q", sendKey, again)
 	}
 	differentObservation := agent.WithObservationID(agent.WithTaskRunID(context.Background(), "run-1"), "obs-4")
-	if other := capabilityToolIdempotencyKey(differentObservation, "platform.message.send"); other == sendKey {
+	if other := capabilityToolIdempotencyKey(differentObservation, "message.send"); other == sendKey {
 		t.Fatal("expected different observation to produce different key")
 	}
 	if nonSend := capabilityToolIdempotencyKey(ctx, "web.search"); nonSend != "" {
 		t.Fatalf("expected no key for non-send tool, got %q", nonSend)
 	}
 	missing := agent.WithTaskRunID(context.Background(), "run-1")
-	if noObservation := capabilityToolIdempotencyKey(missing, "platform.message.send"); noObservation != "" {
+	if noObservation := capabilityToolIdempotencyKey(missing, "message.send"); noObservation != "" {
 		t.Fatalf("expected no key without observation id, got %q", noObservation)
 	}
 }

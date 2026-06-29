@@ -84,17 +84,17 @@ func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
 		ResponseLanguage: "ko",
 		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
 		WorkKinds:        []string{WorkKindFlowTask},
-		InitialToolNames: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+		InitialToolNames: []string{"task.add", "task.list", "task.update"},
 	}})
 
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
-	toolSet.RegisterTool(ToolDefinition{Name: "flow.task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
+	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"taskID":"task-1","content":"메일 페이지 앱 비밀번호 개선"}`), nil
 	})
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"flow.task.add","toolInput":{"prompt":"메일 페이지 앱 비밀번호 개선"}}`,
+		`{"action":"continue","toolName":"task.add","toolInput":{"prompt":"메일 페이지 앱 비밀번호 개선"}}`,
 		finishMessageDocument("업무를 등록했습니다."),
 	}}
 	agentKernel.UseLanguageModelProvider(languageModel)
@@ -109,7 +109,7 @@ func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
 		t.Fatalf("expected task loop instead of consume, got route=%q suppressed=%v", result.TurnRoute, result.ReplySuppressed)
 	}
 	if toolCallCount != 1 {
-		t.Fatalf("expected flow.task.add to run once, got %d", toolCallCount)
+		t.Fatalf("expected task.add to run once, got %d", toolCallCount)
 	}
 	if result.TaskRun.Result == "consumed" {
 		t.Fatalf("expected task result, got consumed")

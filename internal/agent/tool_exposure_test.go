@@ -8,21 +8,21 @@ import (
 )
 
 func TestToolExposureKeepsSelectedToolsBeforeCore(t *testing.T) {
-	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "site.app.status", "site.app.publish"})
+	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "site.status", "site.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "site-prototype",
-			AllowedTools: []string{"site.app.status", "site.app.publish"},
+			AllowedTools: []string{"site.status", "site.publish"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "사이트 고쳐줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: []string{"site.app.status"}}, ToolExposureEvent{})
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "사이트 고쳐줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: []string{"site.status"}}, ToolExposureEvent{})
 
-	if !filteredToolSet.IsAllowed("site.app.status") {
+	if !filteredToolSet.IsAllowed("site.status") {
 		t.Fatalf("expected selected tool to be exposed, got %+v", filteredToolSet.ListToolNames())
 	}
-	if filteredToolSet.IsAllowed("site.app.publish") {
+	if filteredToolSet.IsAllowed("site.publish") {
 		t.Fatalf("expected unselected fallback skill tool to be hidden when selection is valid, got %+v", filteredToolSet.ListToolNames())
 	}
 	for _, toolID := range []string{"skill.search", "ask.choice", "ask.input", "memory.search", "conversation.history"} {
@@ -70,24 +70,24 @@ func TestPinnedCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 		"skill.search",
 		"tool.describe",
 		"ask.confirm",
-		"calendar.event.add",
-		"calendar.event.list",
-		"calendar.event.update",
-		"calendar.event.delete",
-		"flow.task.add",
-		"flow.task.list",
-		"flow.task.update",
+		"calendar.add",
+		"calendar.list",
+		"calendar.update",
+		"calendar.delete",
+		"task.add",
+		"task.list",
+		"task.update",
 	})
 	request := AgentRequest{
 		Prompt: "디플랫 코리아 완료",
 		PinnedToolNames: []string{
-			"calendar.event.add",
-			"calendar.event.list",
-			"calendar.event.update",
-			"calendar.event.delete",
-			"flow.task.add",
-			"flow.task.list",
-			"flow.task.update",
+			"calendar.add",
+			"calendar.list",
+			"calendar.update",
+			"calendar.delete",
+			"task.add",
+			"task.list",
+			"task.update",
 		},
 	}
 
@@ -102,7 +102,7 @@ func TestPinnedCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 		ToolExposureEvent{},
 	)
 
-	for _, toolID := range []string{"flow.task.update", "flow.task.list", "calendar.event.list", "calendar.event.update"} {
+	for _, toolID := range []string{"task.update", "task.list", "calendar.list", "calendar.update"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected %s for calendar/work request, got %+v", toolID, filteredToolSet.ListToolNames())
 		}
@@ -114,12 +114,12 @@ func TestStepWorkingSetPinsCalendarToolsWithoutFlowTaskTools(t *testing.T) {
 		WorkKinds: []string{WorkKindCalendar},
 	}, nil)
 
-	for _, toolName := range []string{"calendar.event.add", "calendar.event.list", "calendar.event.update", "calendar.event.delete"} {
+	for _, toolName := range []string{"calendar.add", "calendar.list", "calendar.update", "calendar.delete"} {
 		if !containsString(request.PinnedToolNames, toolName) {
 			t.Fatalf("expected calendar tool %s to be pinned, got %+v", toolName, request.PinnedToolNames)
 		}
 	}
-	for _, toolName := range []string{"flow.task.add", "flow.task.list", "flow.task.update"} {
+	for _, toolName := range []string{"task.add", "task.list", "task.update"} {
 		if containsString(request.PinnedToolNames, toolName) {
 			t.Fatalf("expected flow task tool %s to stay unpinned for calendar work, got %+v", toolName, request.PinnedToolNames)
 		}
@@ -131,12 +131,12 @@ func TestStepWorkingSetPinsFlowTaskToolsWithoutCalendarTools(t *testing.T) {
 		WorkKinds: []string{WorkKindFlowTask},
 	}, nil)
 
-	for _, toolName := range []string{"flow.task.add", "flow.task.list", "flow.task.update"} {
+	for _, toolName := range []string{"task.add", "task.list", "task.update"} {
 		if !containsString(request.PinnedToolNames, toolName) {
 			t.Fatalf("expected flow task tool %s to be pinned, got %+v", toolName, request.PinnedToolNames)
 		}
 	}
-	for _, toolName := range []string{"calendar.event.add", "calendar.event.list", "calendar.event.update", "calendar.event.delete"} {
+	for _, toolName := range []string{"calendar.add", "calendar.list", "calendar.update", "calendar.delete"} {
 		if containsString(request.PinnedToolNames, toolName) {
 			t.Fatalf("expected calendar tool %s to stay unpinned for flow task work, got %+v", toolName, request.PinnedToolNames)
 		}
@@ -148,12 +148,12 @@ func TestStepWorkingSetPinsSitePrototypeToolsWithoutCalendarOrFlowTaskTools(t *t
 		WorkKinds: []string{WorkKindSitePrototype},
 	}, nil)
 
-	for _, toolName := range []string{"site.app.status", "site.app.create", "site.app.repair", "file.read", "file.write", "file.edit", "file.patch", "terminal.run", "site.app.build", "artifact.review", "site.app.publish"} {
+	for _, toolName := range []string{"site.status", "site.create", "site.repair", "file.read", "file.write", "file.edit", "file.patch", "terminal.run", "site.build", "artifact.review", "site.publish"} {
 		if !containsString(request.PinnedToolNames, toolName) {
 			t.Fatalf("expected site prototype tool %s to be pinned, got %+v", toolName, request.PinnedToolNames)
 		}
 	}
-	for _, toolName := range []string{"calendar.event.add", "calendar.event.list", "flow.task.add", "flow.task.update"} {
+	for _, toolName := range []string{"calendar.add", "calendar.list", "task.add", "task.update"} {
 		if containsString(request.PinnedToolNames, toolName) {
 			t.Fatalf("expected unrelated workflow tool %s to stay unpinned for site prototype work, got %+v", toolName, request.PinnedToolNames)
 		}
@@ -161,11 +161,11 @@ func TestStepWorkingSetPinsSitePrototypeToolsWithoutCalendarOrFlowTaskTools(t *t
 }
 
 func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
-	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "file.preview", "document.read", "mail.message.search", "platform.message.send"})
+	toolSet := testToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "terminal.run", "image.read", "file.preview", "document.read", "mail.message.search", "message.send"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{Name: "mail", AllowedTools: []string{"mail.message.search"}},
-			{Name: "mattermost", AllowedTools: []string{"platform.message.send"}},
+			{Name: "mattermost", AllowedTools: []string{"message.send"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "mail", Status: "selected"},
@@ -196,7 +196,7 @@ func TestToolExposureSelectsAttachmentReadToolForVisibleMaterial(t *testing.T) {
 	if filteredToolSet.IsAllowed("terminal.run") {
 		t.Fatalf("expected terminal.run to stay hidden for attachment read selection, got %+v", filteredToolSet.ListToolNames())
 	}
-	for _, toolName := range []string{"mail.message.search", "platform.message.send"} {
+	for _, toolName := range []string{"mail.message.search", "message.send"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected selected skill tool %s to stay hidden for attachment read selection, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -208,19 +208,19 @@ func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
 		"skill.search",
 		"tool.describe",
 		"ask.confirm",
-		"platform.message.context",
-		"platform.message.search",
-		"platform.message.send",
-		"platform.message.delete",
-		"site.app.status",
-		"site.app.build",
+		"message.context",
+		"message.search",
+		"message.send",
+		"message.delete",
+		"site.status",
+		"site.build",
 		"artifact.review",
-		"site.app.publish",
+		"site.publish",
 	})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
-			{Name: "mattermost", AllowedTools: []string{"platform.message.context", "platform.message.search", "platform.message.send", "platform.message.delete"}},
-			{Name: "site-prototype", AllowedTools: []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"}},
+			{Name: "mattermost", AllowedTools: []string{"message.context", "message.search", "message.send", "message.delete"}},
+			{Name: "site-prototype", AllowedTools: []string{"site.status", "site.build", "artifact.review", "site.publish"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "mattermost", Status: "selected"},
@@ -228,8 +228,8 @@ func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
 		},
 	}
 	contract := OutcomeContract{
-		RequiredEvidenceTools: []string{"platform.message.delete"},
-		SelectedEvidenceHints: []string{"platform.message.delete"},
+		RequiredEvidenceTools: []string{"message.delete"},
+		SelectedEvidenceHints: []string{"message.delete"},
 		ExpectedResults: []ExpectedResult{{
 			ID:          "final-message",
 			Type:        ExpectedResultTypeMessage,
@@ -240,20 +240,20 @@ func TestToolExposureDropsStaleSiteToolsForMessageDeleteOutcome(t *testing.T) {
 
 	request := AgentRequest{
 		Prompt:          "네가 보낸 메시지 삭제해줘",
-		PinnedToolNames: []string{"platform.message.delete"},
+		PinnedToolNames: []string{"message.delete"},
 	}
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract, ToolSelectionDecision{}, ToolExposureEvent{})
 
-	for _, toolName := range []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"} {
+	for _, toolName := range []string{"site.status", "site.build", "artifact.review", "site.publish"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected stale site tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	if !filteredToolSet.IsAllowed("platform.message.delete") {
-		t.Fatalf("expected platform.message.delete to remain exposed, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("message.delete") {
+		t.Fatalf("expected message.delete to remain exposed, got %+v", filteredToolSet.ListToolNames())
 	}
-	if filteredToolSet.IsAllowed("platform.message.send") {
-		t.Fatalf("expected platform.message.send to stay hidden for delete completion reporting, got %+v", filteredToolSet.ListToolNames())
+	if filteredToolSet.IsAllowed("message.send") {
+		t.Fatalf("expected message.send to stay hidden for delete completion reporting, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
@@ -315,18 +315,18 @@ func TestToolExposureCapTruncatesByGroupOrder(t *testing.T) {
 
 func TestPinnedPaletteTruncatesToolsByOrder(t *testing.T) {
 	siteToolIDs := []string{
-		"site.app.status",
-		"site.app.create",
+		"site.status",
+		"site.create",
 		"file.read",
 		"file.write",
 		"terminal.run",
-		"site.app.build",
+		"site.build",
 		"browser.open",
 		"browser.snapshot",
 		"browser.screenshot",
 		"artifact.review",
-		"site.app.publish",
-		"site.app.repair",
+		"site.publish",
+		"site.repair",
 	}
 	for index := 0; index < maxSchemaCallableToolCount; index++ {
 		siteToolIDs = append(siteToolIDs, fmt.Sprintf("site.extra.%02d", index))
@@ -355,7 +355,7 @@ func TestPinnedPaletteTruncatesToolsByOrder(t *testing.T) {
 	if len(event.ExposedToolIDs) > maxSchemaCallableToolCount {
 		t.Fatalf("expected exposed tools to stay within cap, got %+v", event.ExposedToolIDs)
 	}
-	for _, toolID := range []string{"site.app.status", "site.app.create", "file.read", "file.write", "terminal.run", "site.app.build", "browser.open", "browser.snapshot", "browser.screenshot", "artifact.review", "site.app.publish", "site.app.repair"} {
+	for _, toolID := range []string{"site.status", "site.create", "file.read", "file.write", "terminal.run", "site.build", "browser.open", "browser.snapshot", "browser.screenshot", "artifact.review", "site.publish", "site.repair"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected deterministic skill tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
 		}
@@ -374,16 +374,16 @@ func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T)
 		"file.promote",
 		"file.attach",
 		"artifact.review",
-		"site.app.status",
-		"site.app.create",
-		"site.app.build",
-		"site.app.publish",
+		"site.status",
+		"site.create",
+		"site.build",
+		"site.publish",
 	}
 	toolSet := testToolSet(toolIDs)
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{Name: "simple-slides", AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.attach", "artifact.review"}},
-			{Name: "site-prototype", AllowedTools: []string{"site.app.status", "site.app.create", "site.app.build", "site.app.publish", "terminal.run", "file.write", "artifact.review"}},
+			{Name: "site-prototype", AllowedTools: []string{"site.status", "site.create", "site.build", "site.publish", "terminal.run", "file.write", "artifact.review"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "simple-slides", Status: "selected"},
@@ -412,7 +412,7 @@ func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T)
 			t.Fatalf("expected selected file workflow tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
 		}
 	}
-	if filteredToolSet.IsAllowed("site.app.publish") {
+	if filteredToolSet.IsAllowed("site.publish") {
 		t.Fatalf("expected lower-priority site publish tool to stay out of PPTX palette, got %+v", event.ExposedToolIDs)
 	}
 }
@@ -420,8 +420,8 @@ func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T)
 func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 	toolSet := testToolSet([]string{
 		"terminal.run",
-		"site.app.status",
-		"site.app.repair",
+		"site.status",
+		"site.repair",
 		"artifact.review",
 		"file.attach",
 		"file.promote",
@@ -452,7 +452,7 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 		},
 		ToolInputKey: "artifact.review\x00{\"path\":\"tmp/deck\"}",
 		RecoveryPacket: &RecoveryPacket{
-			AllowedTools: []string{"site.app.status", "site.app.repair", "terminal.run", "artifact.review"},
+			AllowedTools: []string{"site.status", "site.repair", "terminal.run", "artifact.review"},
 		},
 	}
 	request := AgentRequest{
@@ -532,18 +532,18 @@ func TestStepWorkingSetKeepsFileCreationToolsAfterAttachPathFailure(t *testing.T
 }
 
 func TestRecoveryWorkingSetUsesActiveFailureHints(t *testing.T) {
-	toolSet := testToolSet([]string{"file.read", "file.write", "site.app.build", "site.app.publish", "skill.search", "tool.describe", "ask.confirm"})
+	toolSet := testToolSet([]string{"file.read", "file.write", "site.build", "site.publish", "skill.search", "tool.describe", "ask.confirm"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "site-prototype",
-			AllowedTools: []string{"file.read", "file.write", "site.app.build", "site.app.publish"},
+			AllowedTools: []string{"file.read", "file.write", "site.build", "site.publish"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	observation := turnObservation{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.app.build",
+		Tool:          "site.build",
 		Output:        ToolOutput{Content: "starter scaffold remains"},
 		Failure: &ToolFailure{
 			Kind:                  FailureInvalidInput,
@@ -556,8 +556,8 @@ func TestRecoveryWorkingSetUsesActiveFailureHints(t *testing.T) {
 				ToolNames: []string{"file.read", "file.write"},
 			}},
 		},
-		ToolInputKey:       "site.app.build\x00{\"siteID\":\"site-1\"}",
-		AttemptFingerprint: "site.app.build\x00{\"siteID\":\"site-1\"}\x00invalid_input",
+		ToolInputKey:       "site.build\x00{\"siteID\":\"site-1\"}",
+		AttemptFingerprint: "site.build\x00{\"siteID\":\"site-1\"}\x00invalid_input",
 	}
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, AgentRequest{Prompt: "개인 홈페이지 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{}, []turnObservation{observation})
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
@@ -572,16 +572,16 @@ func TestRecoveryWorkingSetUsesActiveFailureHints(t *testing.T) {
 			t.Fatalf("expected recovery hint tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
 		}
 	}
-	if filteredToolSet.IsAllowed("site.app.publish") {
+	if filteredToolSet.IsAllowed("site.publish") {
 		t.Fatalf("expected publish to stay hidden until source changes and rebuild succeeds, got %+v", event.ExposedToolIDs)
 	}
 }
 
 func TestRecoveryWorkingSetDoesNotLetPinnedSkillToolsCrowdOutRecoveryHints(t *testing.T) {
 	siteToolNames := []string{
-		"site.app.build",
-		"site.app.publish",
-		"site.app.status",
+		"site.build",
+		"site.publish",
+		"site.status",
 		"terminal.run",
 		"terminal.session",
 		"browser.open",
@@ -591,16 +591,16 @@ func TestRecoveryWorkingSetDoesNotLetPinnedSkillToolsCrowdOutRecoveryHints(t *te
 		"file.edit",
 		"file.patch",
 		"file.write",
-		"site.app.create",
-		"site.app.repair",
-		"site.app.preview",
-		"site.app.history",
-		"site.app.diff",
-		"site.app.logs",
-		"site.app.rollback",
-		"site.app.unpublish",
-		"site.app.restore",
-		"site.app.delete",
+		"site.create",
+		"site.repair",
+		"site.preview",
+		"site.history",
+		"site.diff",
+		"site.logs",
+		"site.rollback",
+		"site.unpublish",
+		"site.restore",
+		"site.delete",
 		"artifact.review",
 		"user.confirm",
 	}
@@ -615,7 +615,7 @@ func TestRecoveryWorkingSetDoesNotLetPinnedSkillToolsCrowdOutRecoveryHints(t *te
 	observation := turnObservation{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.app.build",
+		Tool:          "site.build",
 		Failure: &ToolFailure{
 			Kind:                  FailureInvalidInput,
 			Code:                  FailureCodes.InvalidInput.String(),
@@ -627,8 +627,8 @@ func TestRecoveryWorkingSetDoesNotLetPinnedSkillToolsCrowdOutRecoveryHints(t *te
 				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
 			}},
 		},
-		ToolInputKey:       "site.app.build\x00{\"siteID\":\"site-1\"}",
-		AttemptFingerprint: "site.app.build\x00{\"siteID\":\"site-1\"}\x00invalid_input",
+		ToolInputKey:       "site.build\x00{\"siteID\":\"site-1\"}",
+		AttemptFingerprint: "site.build\x00{\"siteID\":\"site-1\"}\x00invalid_input",
 	}
 	request := AgentRequest{
 		Prompt:           "개인 홈페이지 배포해줘",
@@ -647,19 +647,19 @@ func TestRecoveryWorkingSetDoesNotLetPinnedSkillToolsCrowdOutRecoveryHints(t *te
 			t.Fatalf("expected recovery hint tool %s to survive selected skill pressure, got %+v", toolID, event.ExposedToolIDs)
 		}
 	}
-	if filteredToolSet.IsAllowed("browser.screenshot") || filteredToolSet.IsAllowed("site.app.rollback") {
+	if filteredToolSet.IsAllowed("browser.screenshot") || filteredToolSet.IsAllowed("site.rollback") {
 		t.Fatalf("expected broad pinned skill tools to stay out of G4 recovery set, got %+v", event.ExposedToolIDs)
 	}
 }
 
 func TestDeterministicPinnedStepExposesOnlyPinnedTools(t *testing.T) {
-	toolSet := testToolSet([]string{"site.app.build", "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"})
-	request := AgentRequest{Prompt: "빌드해줘", PinnedToolNames: []string{"site.app.build"}}
-	selection, event := deterministicToolSelection([]string{"site.app.build"}, "pinned tools are required for the next step")
+	toolSet := testToolSet([]string{"site.build", "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"})
+	request := AgentRequest{Prompt: "빌드해줘", PinnedToolNames: []string{"site.build"}}
+	selection, event := deterministicToolSelection([]string{"site.build"}, "pinned tools are required for the next step")
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
 
-	if !filteredToolSet.IsAllowed("site.app.build") {
+	if !filteredToolSet.IsAllowed("site.build") {
 		t.Fatalf("expected pinned build tool to be exposed, got %+v", event.ExposedToolIDs)
 	}
 	for _, toolID := range []string{"skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"} {
@@ -670,7 +670,7 @@ func TestDeterministicPinnedStepExposesOnlyPinnedTools(t *testing.T) {
 }
 
 func TestPinnedToolGroupBypassesOutcomeFilter(t *testing.T) {
-	siteToolNames := []string{"site.app.status", "site.app.create", "site.app.publish", "browser.open", "browser.snapshot"}
+	siteToolNames := []string{"site.status", "site.create", "site.publish", "browser.open", "browser.snapshot"}
 	toolSet := testToolSet(append(siteToolNames, "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember"))
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -681,7 +681,7 @@ func TestPinnedToolGroupBypassesOutcomeFilter(t *testing.T) {
 	}
 	request := AgentRequest{
 		Prompt:          "이어 해줘",
-		PinnedToolNames: []string{"site.app.status", "site.app.create"},
+		PinnedToolNames: []string{"site.status", "site.create"},
 	}
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{})
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
@@ -691,12 +691,12 @@ func TestPinnedToolGroupBypassesOutcomeFilter(t *testing.T) {
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{}, selection, event)
 
-	for _, toolID := range []string{"site.app.status", "site.app.create"} {
+	for _, toolID := range []string{"site.status", "site.create"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected pinned selected-skill tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
 		}
 	}
-	if filteredToolSet.IsAllowed("site.app.publish") {
+	if filteredToolSet.IsAllowed("site.publish") {
 		t.Fatalf("expected unpinned site skill tool to keep outcome filtering, got %+v", event.ExposedToolIDs)
 	}
 }
@@ -793,11 +793,11 @@ func TestFallbackHidesSelectedSkillToolsUntilRequested(t *testing.T) {
 }
 
 func TestToolSelectionContextUsesCompactCards(t *testing.T) {
-	toolSet := testToolSet([]string{"site.app.status"})
-	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "G5 selected-skill candidates", ToolIDs: []string{"site.app.status"}}})
+	toolSet := testToolSet([]string{"site.status"})
+	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "G5 selected-skill candidates", ToolIDs: []string{"site.status"}}})
 	summary := renderCoreGroupSummary(collectCoreGroups(testToolSet([]string{"skill.search", "memory.remember"})))
 
-	if !strings.Contains(cards, "- site.app.status:") {
+	if !strings.Contains(cards, "- site.status:") {
 		t.Fatalf("expected compact card to include tool id, got %s", cards)
 	}
 	if strings.Contains(cards, "inputSchema") || strings.Contains(cards, "properties") {

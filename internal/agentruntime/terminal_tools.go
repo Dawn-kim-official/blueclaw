@@ -101,7 +101,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry
 				Produces:   "Command stdout, stderr, exit status, and runtime diagnostics.",
 				SideEffect: "workspace_write",
 				UseWhen:    "You need to execute a toolchain command, build, render, test, list files, or inspect environment state.",
-				AvoidWhen:  "A dedicated bundled skill script or capability CLI can perform the action more safely.",
+				AvoidWhen:  "A dedicated bundled skill script or capability.invoke can perform the action more safely.",
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"mode":{"type":"string","enum":["command","session_start","session_write","session_status","session_close"]},"command":{"type":"string"},"executableName":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"stdin":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"number"},"sessionID":{"type":"string"},"input":{"type":"string"}}}`),
 		},
@@ -238,7 +238,7 @@ func terminalSourceWriteMisuseFailure(command string) *agent.ToolResult {
 	if target == "" {
 		return nil
 	}
-	message := "terminal.run is for commands, builds, renders, and inspection; use bundled skill scripts or capability CLI operations for source creation and edits"
+	message := "terminal.run is for commands, builds, renders, and inspection; use bundled skill scripts or capability.invoke operations for source creation and edits"
 	document := json.RawMessage(marshalToolResult(map[string]any{
 		"failureClass":       "source_edit_tool_misuse",
 		"command":            command,
@@ -253,7 +253,7 @@ func terminalSourceWriteMisuseFailure(command string) *agent.ToolResult {
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
 		Action:    "edit_resource",
 		ToolNames: []string{"terminal.run", "skill.search"},
-		Reason:    "Use bundled skill scripts or capability CLI operations so the runtime can preserve context, permissions, and recovery state.",
+		Reason:    "Use bundled skill scripts or capability.invoke operations so the runtime can preserve context, permissions, and recovery state.",
 	}}
 	return &result
 }

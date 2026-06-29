@@ -70,7 +70,7 @@ func TestTerminalCurrentDirectoryRecoveryGuidanceUsesSiteAppWorkspace(t *testing
 
 	for _, expectedText := range []string{
 		"could not read its current working directory",
-		"site.app.status",
+		"site.status",
 		"appWorkspacePath",
 		"home/sites/<siteID>/app",
 		"not source subdirectories like app/src",

@@ -4,9 +4,9 @@ import "testing"
 
 func TestToolExposureUsesFixedKernelOnly(t *testing.T) {
 	toolSet := testToolSet(append(KernelToolNames(),
-		"site.app.create",
-		"site.app.publish",
-		"platform.message.send",
+		"site.create",
+		"site.publish",
+		"message.send",
 	))
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(
@@ -16,14 +16,14 @@ func TestToolExposureUsesFixedKernelOnly(t *testing.T) {
 		ExecutionPlan{},
 		false,
 		OutcomeContract{},
-		ToolSelectionDecision{SelectedToolIDs: []string{"site.app.create"}},
+		ToolSelectionDecision{SelectedToolIDs: []string{"site.create"}},
 		ToolExposureEvent{},
 	)
 
 	if got := filteredToolSet.ListToolNames(); !sameStringSet(got, KernelToolNames()) {
 		t.Fatalf("expected fixed kernel tools, got %+v", got)
 	}
-	for _, hiddenToolName := range []string{"site.app.create", "site.app.publish", "platform.message.send"} {
+	for _, hiddenToolName := range []string{"site.create", "site.publish", "message.send"} {
 		if filteredToolSet.IsAllowed(hiddenToolName) {
 			t.Fatalf("expected non-kernel tool %s to be hidden, got %+v", hiddenToolName, filteredToolSet.ListToolNames())
 		}

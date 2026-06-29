@@ -121,7 +121,7 @@ func terminalPathRecoveryGuidance(observation turnObservation) string {
 		return "Recovery route: retry terminal.run with workingDirectoryPath set to tmp/<slug> or home/<path>, use relative paths inside the command, then deliver accepted output with file.deliver."
 	default:
 		if terminalCurrentDirectoryRecoveryNeeded(observation) {
-			return "Recovery route: the command could not read its current working directory. Retry terminal.run with an existing virtual workspace directory. For site projects, use site.app.status and run builds from appWorkspacePath such as home/sites/<siteID>/app, not source subdirectories like app/src; run scripts with relative paths from that app directory."
+			return "Recovery route: the command could not read its current working directory. Retry terminal.run with an existing virtual workspace directory. For site projects, use site.status and run builds from appWorkspacePath such as home/sites/<siteID>/app, not source subdirectories like app/src; run scripts with relative paths from that app directory."
 		}
 		return ""
 	}

@@ -85,7 +85,7 @@ func TestTaskLauncherAuditsPlatformMessageRegistryFingerprint(t *testing.T) {
 		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteCriteriaSchema())},
 	}, testPlatformMessageCapabilityDescriptors())
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"platform.message.context", "platform.message.search", "platform.message.delete"},
+		"default": {"message.context", "message.search", "message.delete"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
@@ -134,7 +134,7 @@ func TestTaskLauncherAuditsPlatformMessageSchemaSkewWithoutBlocking(t *testing.T
 		HTTPClient: &recordingHTTPClient{responseBody: platformMessageLiveRegistryResponse(platformMessageDeleteIDsOnlySchema())},
 	}, testPlatformMessageCapabilityDescriptors())
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"platform.message.context", "platform.message.search", "platform.message.delete"},
+		"default": {"message.context", "message.search", "message.delete"},
 	}, nil)
 
 	launchResult, errorValue := NewTaskLauncher(agentKernel, toolCatalogBuilder).Launch(context.Background(), TaskLaunchRequest{
@@ -168,11 +168,11 @@ func TestTaskLauncherRejectsStaleMessageToolRegistryBeforeModelCall(t *testing.T
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
 		Endpoint: "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: `{"deviceCapabilities":[
-			{"name":"platform.message.context"},
-			{"name":"platform.message.search"},
-			{"name":"platform.message.send"},
-			{"name":"platform.message.update"},
-			{"name":"platform.message.delete"}
+			{"name":"message.context"},
+			{"name":"message.search"},
+			{"name":"message.send"},
+			{"name":"message.update"},
+			{"name":"message.delete"}
 		]}`},
 	}, []CapabilityToolDescriptor{{Name: "mattermost.post.delete", PolicyResource: "tool:mattermost.post.delete"}})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
@@ -826,15 +826,15 @@ func TestCapabilityToolExecutionUsesResourceAccess(t *testing.T) {
 
 func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	resourceAccessRules := []policy.ResourceAccessPolicy{{
-		Resource: "tool:flow.task.add",
+		Resource: "tool:task.add",
 		Actions:  []string{"execute"},
 		Circles:  []string{"staff"},
 	}}
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
-	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"flow.task.add"})
+	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"task.add"})
 	toolCatalogBuilder.UseAllowedToolNamesByProfile(map[string][]string{
-		"default": {"flow.task.add"},
+		"default": {"task.add"},
 	}, nil)
 
 	guestToolSet := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -845,7 +845,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 		},
 	})
 	guestResult, errorValue := guestToolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "flow.task.add",
+		ToolName: "task.add",
 		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
 	})
 	if errorValue != nil {
@@ -867,7 +867,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 		},
 	})
 	staffResult, errorValue := staffToolSet.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "flow.task.add",
+		ToolName: "task.add",
 		Input:    json.RawMessage(`{"prompt":"10분 회의"}`),
 	})
 	if errorValue != nil {
@@ -876,7 +876,7 @@ func TestFlowTaskAddToolRequiresStaffCircle(t *testing.T) {
 	if staffResult.Failed() {
 		t.Fatalf("expected staff execution success, got %+v", staffResult)
 	}
-	if httpClient.requestPath != "/v1/tools/flow.task.add/invoke" {
+	if httpClient.requestPath != "/v1/tools/task.add/invoke" {
 		t.Fatalf("expected Flow capability bridge call, got path=%s body=%s", httpClient.requestPath, httpClient.requestBody)
 	}
 }
@@ -911,22 +911,22 @@ type staticRuntimeLanguageModel struct {
 
 func testPlatformMessageCapabilityDescriptors() []CapabilityToolDescriptor {
 	return []CapabilityToolDescriptor{
-		{Name: "platform.message.context", PolicyResource: "tool:platform.message.context", InputSchema: platformMessageEmptySchema()},
-		{Name: "platform.message.search", PolicyResource: "tool:platform.message.search", InputSchema: platformMessageEmptySchema()},
-		{Name: "platform.message.send", PolicyResource: "tool:platform.message.send", InputSchema: platformMessageEmptySchema()},
-		{Name: "platform.message.update", PolicyResource: "tool:platform.message.update", InputSchema: platformMessageEmptySchema()},
-		{Name: "platform.message.delete", PolicyResource: "tool:platform.message.delete", InputSchema: platformMessageDeleteCriteriaSchema()},
+		{Name: "message.context", PolicyResource: "tool:message.context", InputSchema: platformMessageEmptySchema()},
+		{Name: "message.search", PolicyResource: "tool:message.search", InputSchema: platformMessageEmptySchema()},
+		{Name: "message.send", PolicyResource: "tool:message.send", InputSchema: platformMessageEmptySchema()},
+		{Name: "message.update", PolicyResource: "tool:message.update", InputSchema: platformMessageEmptySchema()},
+		{Name: "message.delete", PolicyResource: "tool:message.delete", InputSchema: platformMessageDeleteCriteriaSchema()},
 	}
 }
 
 func platformMessageLiveRegistryResponse(deleteSchema json.RawMessage) string {
 	response := map[string]any{
 		"deviceCapabilities": []map[string]any{
-			{"name": "platform.message.context", "inputSchema": platformMessageEmptySchema()},
-			{"name": "platform.message.search", "inputSchema": platformMessageEmptySchema()},
-			{"name": "platform.message.send", "inputSchema": platformMessageEmptySchema()},
-			{"name": "platform.message.update", "inputSchema": platformMessageEmptySchema()},
-			{"name": "platform.message.delete", "inputSchema": deleteSchema},
+			{"name": "message.context", "inputSchema": platformMessageEmptySchema()},
+			{"name": "message.search", "inputSchema": platformMessageEmptySchema()},
+			{"name": "message.send", "inputSchema": platformMessageEmptySchema()},
+			{"name": "message.update", "inputSchema": platformMessageEmptySchema()},
+			{"name": "message.delete", "inputSchema": deleteSchema},
 		},
 	}
 	document, errorValue := json.Marshal(response)

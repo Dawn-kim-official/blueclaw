@@ -40,10 +40,10 @@ func TestAgentTurnRunnerRecordsDeniedToolAsObservation(t *testing.T) {
 
 func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"terminal.run"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("created"), nil
 	})
-	input := MarshalToolInput(map[string]any{"command": "site.app.create --slug demo"})
+	input := MarshalToolInput(map[string]any{"command": "site.create --slug demo"})
 
 	errorValue := validateTerminalToolInput("terminal.run", input, toolRegistry)
 
@@ -54,14 +54,14 @@ func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.
 
 func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"첫 번째"}}`,
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"두 번째"}}`,
-		finishMessageWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "platform.message.send", 0),
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"첫 번째"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"두 번째"}}`,
+		finishMessageWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestToolSet([]string{"platform.message.send"})
+	toolRegistry := newTestToolSet([]string{"message.send"})
 	sendCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
 		return ToolSuccess("sent"), nil
 	})
@@ -72,9 +72,9 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 		Prompt:                "동하에게 DM 보내줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"platform.message.send"},
+		RequiredEvidenceTools: []string{"message.send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected turn to complete from first send: %v", errorValue)
@@ -92,14 +92,14 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
-		finishMessageWithEvidence("동하와 정국에게 DM을 보냈습니다.", "obs-001", "platform.message.send", 0),
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+		finishMessageWithEvidence("동하와 정국에게 DM을 보냈습니다.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestToolSet([]string{"platform.message.send"})
+	toolRegistry := newTestToolSet([]string{"message.send"})
 	sendCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
 		return ToolSuccess("sent"), nil
 	})
@@ -110,9 +110,9 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 		Prompt:                "동하와 정국에게 DM 보내줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"platform.message.send"},
+		RequiredEvidenceTools: []string{"message.send"},
 		SkillDecisions:        []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected fan-out turn to complete: %v", errorValue)
@@ -127,26 +127,26 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.message.context","toolInput":{}}`,
-		`{"action":"continue","toolName":"platform.message.context","toolInput":{}}`,
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
-		failureReportDocument("mattermost still unavailable", "platform.message.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
+		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+		failureReportDocument("mattermost still unavailable", "message.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
 		"mattermost_lookup/unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, RecoveryAttemptLimit: 3})
-	toolRegistry := newTestToolSet([]string{"platform.message.send", "platform.message.context"})
+	toolRegistry := newTestToolSet([]string{"message.send", "message.context"})
 	callCount := 0
 	sendInputs := []string{}
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		callCount++
 		sendInputs = append(sendInputs, string(invocation.Input))
 		return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.context"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.context"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("mattermost still unavailable", "mattermost still unavailable", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 	})
 
@@ -157,8 +157,8 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 		Prompt:                "동하에게 DM 보내줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"platform.message.send"},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
+		RequiredEvidenceTools: []string{"message.send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected exhausted retry failure result: %v", errorValue)
@@ -176,17 +176,17 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
-		failureReportDocument("send failed", "platform.message.send", "동하", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}`,
+		failureReportDocument("send failed", "message.send", "동하", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("message send failed", "message_send/operation_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
 		"message_send/operation_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"platform.message.send", "platform.message.context"})
+	toolRegistry := newTestToolSet([]string{"message.send", "message.context"})
 	callCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
 		return structuredFailureToolResult("Mattermost returned 503 after post create", "Mattermost returned 503 after post create", "send_failed", "message_send", true, false), nil
 	})
@@ -198,8 +198,8 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 		Prompt:                "동하에게 DM 보내줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"platform.message.send"},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
+		RequiredEvidenceTools: []string{"message.send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected safe failure: %v", errorValue)

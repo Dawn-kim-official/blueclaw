@@ -212,7 +212,7 @@ func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolN
 				return true
 			}
 		case "workspace_repaired":
-			if toolName == "site.app.repair" {
+			if toolName == "site.repair" {
 				return true
 			}
 		}
@@ -222,7 +222,7 @@ func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolN
 
 func isInspectionRecoveryTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "file.read", "site.app.status", "conversation.history":
+	case "file.read", "site.status", "conversation.history":
 		return true
 	default:
 		return false

@@ -26,9 +26,9 @@ func TestSitePublishInputIncludesEditableWorkspaceBundle(t *testing.T) {
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{
 		Endpoint:   "http://capability.local",
 		HTTPClient: &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app","status":"draft"}}`},
-	}, []CapabilityToolDescriptor{{Name: "site.app.status", PolicyResource: "tool:site.app.status"}})
+	}, []CapabilityToolDescriptor{{Name: "site.status", PolicyResource: "tool:site.status"}})
 
-	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
+	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.publish", ToolCatalogRequest{
 		RequesterPersonID: "person-1",
 		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	}, agent.MarshalToolInput(map[string]any{"siteID": "site-1"}))
@@ -286,10 +286,10 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site description","idea":"Demo site idea","purpose":"portfolio","audience":"buyers","archetype":"portfolio","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","workspacePath":"/workspace/circles/staff/sites/demo","status":"draft","ownerIdentity":{"personID":"person-1","displayName":"Owner"}}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "file.read"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.create", "file.read"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.create",
-		PolicyResource: "tool:site.app.create",
+		Name:           "site.create",
+		PolicyResource: "tool:site.create",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -309,14 +309,14 @@ func TestSiteCreateMaterializesEditableSourceWithRequesterActor(t *testing.T) {
 	}
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.create",
+		ToolName: "site.create",
 		Input:    agent.MarshalToolInput(map[string]string{"slug": "demo"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if result.Failed() {
-		t.Fatalf("expected site.app.create success, got %s", result.ContentText())
+		t.Fatalf("expected site.create success, got %s", result.ContentText())
 	}
 	sourceWorkspacePath := filepath.Join(workspacePath, "circles", "staff", "sites", "demo", "draft")
 	sourceWorkspaceInformation, errorValue := os.Stat(sourceWorkspacePath)
@@ -395,10 +395,10 @@ func TestSiteCreateWithoutRequesterPersonIDDoesNotTargetWorkspaceRoot(t *testing
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.create"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.create",
-		PolicyResource: "tool:site.app.create",
+		Name:           "site.create",
+		PolicyResource: "tool:site.create",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -409,7 +409,7 @@ func TestSiteCreateWithoutRequesterPersonIDDoesNotTargetWorkspaceRoot(t *testing
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.create",
+		ToolName: "site.create",
 		Input:    agent.MarshalToolInput(map[string]string{"slug": "demo"}),
 	})
 	if errorValue != nil {
@@ -427,10 +427,10 @@ func TestSiteCreateAppWorkspaceSupportsBunLikeBuildRuntime(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "terminal.run"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.create", "terminal.run"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.create",
-		PolicyResource: "tool:site.app.create",
+		Name:           "site.create",
+		PolicyResource: "tool:site.create",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -444,14 +444,14 @@ func TestSiteCreateAppWorkspaceSupportsBunLikeBuildRuntime(t *testing.T) {
 	})
 
 	createResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.create",
+		ToolName: "site.create",
 		Input:    agent.MarshalToolInput(map[string]string{"slug": "demo"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if createResult.Failed() {
-		t.Fatalf("expected site.app.create success, got %s", createResult.ContentText())
+		t.Fatalf("expected site.create success, got %s", createResult.ContentText())
 	}
 	var createDocument map[string]any
 	if errorValue := json.Unmarshal([]byte(createResult.ContentText()), &createDocument); errorValue != nil {
@@ -459,7 +459,7 @@ func TestSiteCreateAppWorkspaceSupportsBunLikeBuildRuntime(t *testing.T) {
 	}
 	appWorkspacePath, isString := createDocument["appWorkspacePath"].(string)
 	if !isString || strings.TrimSpace(appWorkspacePath) == "" {
-		t.Fatalf("expected appWorkspacePath in site.app.create result, got %s", createResult.ContentText())
+		t.Fatalf("expected appWorkspacePath in site.create result, got %s", createResult.ContentText())
 	}
 
 	buildCommand := `
@@ -518,10 +518,10 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "src", "index.css"), "body { margin: 0; }\n")
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"home/sites/site-1","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"draft"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.status"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.status",
-		PolicyResource: "tool:site.app.status",
+		Name:           "site.status",
+		PolicyResource: "tool:site.status",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -534,14 +534,14 @@ func TestSiteStatusAnnotatesWorkspaceHealth(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.status",
+		ToolName: "site.status",
 		Input:    agent.MarshalToolInput(map[string]string{"siteID": "site-1"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if !strings.Contains(result.ContentText(), `"workspaceHealth":"stale_build"`) ||
-		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.build"`) ||
+		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.build"`) ||
 		!strings.Contains(result.ContentText(), `"sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft"`) ||
 		!strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app"`) ||
 		!strings.Contains(result.ContentText(), `"sourceManifest"`) ||
@@ -571,10 +571,10 @@ func TestSiteStatusPrefersCanonicalWorkspaceWhenLegacySourceIsMissing(t *testing
 	})
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"8f1d2701bdefcf2ea917ab49","slug":"pretty-gyul","title":"예쁜 귤","publishedURL":"https://pretty-gyul.device.intern.kim","sourceWorkspacePath":"/workspace/sites/8f1d2701bdefcf2ea917ab49/draft","appWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft/app","status":"published"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.status"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.status",
-		PolicyResource: "tool:site.app.status",
+		Name:           "site.status",
+		PolicyResource: "tool:site.status",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -587,7 +587,7 @@ func TestSiteStatusPrefersCanonicalWorkspaceWhenLegacySourceIsMissing(t *testing
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.status",
+		ToolName: "site.status",
 		Input:    agent.MarshalToolInput(map[string]string{"siteID": "8f1d2701bdefcf2ea917ab49"}),
 	})
 	if errorValue != nil {
@@ -595,7 +595,7 @@ func TestSiteStatusPrefersCanonicalWorkspaceWhenLegacySourceIsMissing(t *testing
 	}
 	if !strings.Contains(result.ContentText(), `"/workspace/circles/staff/sites/.ids/8f1d2701bdefcf2ea917ab49/draft"`) ||
 		!strings.Contains(result.ContentText(), `"workspaceHealth":"missing"`) ||
-		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.repair"`) {
+		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.repair"`) {
 		t.Fatalf("expected missing legacy source to resolve to canonical storage, got %s", result.ContentText())
 	}
 	if strings.Contains(result.ContentText(), `"/workspace/sites/8f1d2701bdefcf2ea917ab49/draft"`) {
@@ -611,10 +611,10 @@ func TestSiteStatusPrefersCanonicalWorkspaceWhenLegacySourceExists(t *testing.T)
 	}
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"8f1d2701bdefcf2ea917ab49","slug":"pretty-gyul","title":"예쁜 귤","publishedURL":"https://pretty-gyul.device.intern.kim","sourceWorkspacePath":"/workspace/sites/8f1d2701bdefcf2ea917ab49/draft","appWorkspacePath":"/workspace/sites/8f1d2701bdefcf2ea917ab49/draft/app","status":"published"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.status"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.status",
-		PolicyResource: "tool:site.app.status",
+		Name:           "site.status",
+		PolicyResource: "tool:site.status",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -627,7 +627,7 @@ func TestSiteStatusPrefersCanonicalWorkspaceWhenLegacySourceExists(t *testing.T)
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.status",
+		ToolName: "site.status",
 		Input:    agent.MarshalToolInput(map[string]string{"siteID": "8f1d2701bdefcf2ea917ab49"}),
 	})
 	if errorValue != nil {
@@ -635,7 +635,7 @@ func TestSiteStatusPrefersCanonicalWorkspaceWhenLegacySourceExists(t *testing.T)
 	}
 	if !strings.Contains(result.ContentText(), `"/workspace/circles/staff/sites/pretty-gyul/draft"`) ||
 		!strings.Contains(result.ContentText(), `"workspaceHealth":"missing"`) ||
-		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.repair"`) {
+		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.repair"`) {
 		t.Fatalf("expected existing legacy source to defer to canonical repair path, got %s", result.ContentText())
 	}
 	if strings.Contains(result.ContentText(), `"/workspace/sites/8f1d2701bdefcf2ea917ab49/draft"`) {
@@ -653,10 +653,10 @@ func TestSiteStatusReportsMissingSourceBeforeBuild(t *testing.T) {
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{"status":"fresh"}`)
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"8f1d2701bdefcf2ea917ab49","slug":"pretty-gyul","title":"예쁜 귤","publishedURL":"https://pretty-gyul.device.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft","appWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft/app","status":"published"}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.status"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.status",
-		PolicyResource: "tool:site.app.status",
+		Name:           "site.status",
+		PolicyResource: "tool:site.status",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -669,15 +669,15 @@ func TestSiteStatusReportsMissingSourceBeforeBuild(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.status",
+		ToolName: "site.status",
 		Input:    agent.MarshalToolInput(map[string]string{"siteID": "8f1d2701bdefcf2ea917ab49"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if !strings.Contains(result.ContentText(), `"workspaceHealth":"missing_source"`) ||
-		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.repair"`) ||
-		strings.Contains(result.ContentText(), `"suggestedNextTool":"site.app.build"`) {
+		!strings.Contains(result.ContentText(), `"suggestedNextTool":"site.repair"`) ||
+		strings.Contains(result.ContentText(), `"suggestedNextTool":"site.build"`) {
 		t.Fatalf("expected missing source to require repair before build, got %s", result.ContentText())
 	}
 }
@@ -693,10 +693,10 @@ func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, ".internkim", "build-quality.json"), `{"status":"fresh"}`)
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"status":"ok","sites":[{"siteID":"site-1","slug":"demo","title":"Demo","status":"published","publishedURL":"https://demo.device.intern.kim","liveHTTPStatus":200,"updatedAt":"2026-06-12T00:00:00Z"},{"siteID":"site-2","slug":"draft","title":"Draft","status":"draft","publishedURL":"https://draft.device.intern.kim","updatedAt":"2026-06-12T00:00:00Z"}]}}`}
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.status"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.status"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.status",
-		PolicyResource: "tool:site.app.status",
+		Name:           "site.status",
+		PolicyResource: "tool:site.status",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"scope":{"type":"string","enum":["conversation","mine"]},"checkLive":{"type":"boolean"}},"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -707,9 +707,9 @@ func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
 			Circles:  []string{"staff"},
 		},
 	})
-	toolDefinition, isFound := findToolDefinition(toolRegistry.ListToolDefinitions(), "site.app.status")
+	toolDefinition, isFound := findToolDefinition(toolRegistry.ListToolDefinitions(), "site.status")
 	if !isFound {
-		t.Fatal("expected site.app.status definition")
+		t.Fatal("expected site.status definition")
 	}
 	if !strings.Contains(string(toolDefinition.InputSchema), `"scope"`) || !strings.Contains(string(toolDefinition.InputSchema), `"checkLive"`) {
 		t.Fatalf("expected owner-wide live fields in schema, got %s", string(toolDefinition.InputSchema))
@@ -719,7 +719,7 @@ func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
 	}
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.status",
+		ToolName: "site.status",
 		Input: agent.MarshalToolInput(map[string]any{
 			"scope":     "mine",
 			"checkLive": true,
@@ -745,7 +745,7 @@ func TestSiteStatusMineSchemaAndAnnotationPassThrough(t *testing.T) {
 func TestSiteBuildRejectsSourceSubdirectoryCWD(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.build"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.build"})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
 		ProfileName:       "default",
 		RequesterPersonID: "person-1",
@@ -756,7 +756,7 @@ func TestSiteBuildRejectsSourceSubdirectoryCWD(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.build",
+		ToolName: "site.build",
 		Input: agent.MarshalToolInput(map[string]string{
 			"appWorkspacePath": "/workspace/circles/staff/sites/site-1/app/src",
 		}),
@@ -773,10 +773,10 @@ func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"draft"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.repair"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.repair"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.status",
-		PolicyResource: "tool:site.app.status",
+		Name:           "site.status",
+		PolicyResource: "tool:site.status",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -789,7 +789,7 @@ func TestSiteRepairRecreatesEditableWorkspace(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.repair",
+		ToolName: "site.repair",
 		Input:    agent.MarshalToolInput(map[string]string{"siteID": "site-1"}),
 	})
 	if errorValue != nil {
@@ -823,10 +823,10 @@ func TestSiteRepairSkipsPermissionDeniedSlugAlias(t *testing.T) {
 	})
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"8f1d2701bdefcf2ea917ab49","slug":"pretty-gyul","title":"예쁜 귤","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft","appWorkspacePath":"/workspace/circles/staff/sites/pretty-gyul/draft/app","status":"published"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.repair"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.repair"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.status",
-		PolicyResource: "tool:site.app.status",
+		Name:           "site.status",
+		PolicyResource: "tool:site.status",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -839,7 +839,7 @@ func TestSiteRepairSkipsPermissionDeniedSlugAlias(t *testing.T) {
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.repair",
+		ToolName: "site.repair",
 		Input:    agent.MarshalToolInput(map[string]string{"siteID": "8f1d2701bdefcf2ea917ab49"}),
 	})
 	if errorValue != nil {
@@ -863,10 +863,10 @@ func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T)
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","description":"Demo site","idea":"Demo idea","purpose":"portfolio","archetype":"portfolio","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app","status":"failed"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.repair"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.repair"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.status",
-		PolicyResource: "tool:site.app.status",
+		Name:           "site.status",
+		PolicyResource: "tool:site.status",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"}},"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -881,7 +881,7 @@ func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T)
 	})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.repair",
+		ToolName: "site.repair",
 		Input:    agent.MarshalToolInput(map[string]string{}),
 	})
 	if errorValue != nil {
@@ -891,7 +891,7 @@ func TestSiteRepairResolvesCurrentConversationSiteWhenInputIsEmpty(t *testing.T)
 		t.Fatalf("expected context repair success, got %s", result.ContentText())
 	}
 	if !strings.Contains(httpClient.requestBody, `"conversationID":"thread:channel:post"`) {
-		t.Fatalf("expected site.app.status request to include conversation context, got %s", httpClient.requestBody)
+		t.Fatalf("expected site.status request to include conversation context, got %s", httpClient.requestBody)
 	}
 	if !strings.Contains(result.ContentText(), `"appWorkspacePath":"/workspace/circles/staff/sites/site-1/draft/app"`) {
 		t.Fatalf("expected repaired app workspace path from resolved site, got %s", result.ContentText())
@@ -905,10 +905,10 @@ func TestSiteCreateAppWorkspaceBuildsOfflineWithBun(t *testing.T) {
 	workspacePath := t.TempDir()
 	httpClient := &recordingHTTPClient{responseBody: `{"status":"ok","result":{"siteID":"site-1","slug":"demo","title":"Demo","publishedURL":"https://demo.device.intern.kim","sourceWorkspacePath":"/workspace/circles/staff/sites/site-1/draft","workspacePath":"/workspace/circles/staff/sites/site-1","status":"draft"}}`}
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.app.create", "terminal.run"})
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"site.create", "terminal.run"})
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
-		Name:           "site.app.create",
-		PolicyResource: "tool:site.app.create",
+		Name:           "site.create",
+		PolicyResource: "tool:site.create",
 		InputSchema:    json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
@@ -922,14 +922,14 @@ func TestSiteCreateAppWorkspaceBuildsOfflineWithBun(t *testing.T) {
 	})
 
 	createResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "site.app.create",
+		ToolName: "site.create",
 		Input:    agent.MarshalToolInput(map[string]string{"slug": "demo"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	if createResult.Failed() {
-		t.Fatalf("expected site.app.create success, got %s", createResult.ContentText())
+		t.Fatalf("expected site.create success, got %s", createResult.ContentText())
 	}
 	var createDocument map[string]any
 	if errorValue := json.Unmarshal([]byte(createResult.ContentText()), &createDocument); errorValue != nil {
@@ -974,7 +974,7 @@ func TestSitePublishInputRejectsInaccessibleWorkspaceBundle(t *testing.T) {
 	writeTestFile(t, filepath.Join(sourceWorkspacePath, "app", "dist", "index.html"), "<html>ok</html>")
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
 
-	_, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.app.publish", ToolCatalogRequest{
+	_, errorValue := toolCatalogBuilder.enrichCapabilityToolInput("site.publish", ToolCatalogRequest{
 		PersonAccess: policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
 	}, agent.MarshalToolInput(map[string]any{
 		"siteID":              "site-1",

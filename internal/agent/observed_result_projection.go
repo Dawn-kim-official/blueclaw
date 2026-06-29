@@ -73,17 +73,17 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "created"))
 	case "file.edit", "file.patch":
 		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "updated"))
-	case "calendar.event.add":
+	case "calendar.add":
 		return toolObjectFact(observation, "calendar_event", "scheduled")
-	case "calendar.event.update":
+	case "calendar.update":
 		return toolObjectFact(observation, "calendar_event", "updated")
-	case "calendar.event.delete":
+	case "calendar.delete":
 		return toolObjectFact(observation, "calendar_event", "deleted")
-	case "flow.task.add":
+	case "task.add":
 		return toolObjectFact(observation, "flow_task", "created")
-	case "flow.task.update":
+	case "task.update":
 		return toolObjectFact(observation, "flow_task", "updated")
-	case "flow.task.delete":
+	case "task.delete":
 		return toolObjectFact(observation, "flow_task", "deleted")
 	case "schedule.create":
 		return toolObjectFact(observation, "schedule", "created")
@@ -91,13 +91,13 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 		return toolObjectFact(observation, "schedule", "updated")
 	case "schedule.cancel":
 		return toolObjectFact(observation, "schedule", "deleted")
-	case "site.app.publish":
+	case "site.publish":
 		return siteObservationFacts(observation, "published")
-	case "site.app.create":
+	case "site.create":
 		return append(siteObservationFacts(observation, "created"), siteWorkspaceModifiedFacts(observation)...)
-	case "site.app.build":
+	case "site.build":
 		return siteObservationFacts(observation, "built")
-	case "site.app.status":
+	case "site.status":
 		return siteStatusFacts(observation)
 	case AskInputToolName, AskChoiceToolName, AskConfirmToolName:
 		return toolObjectFact(observation, "user_input", "requested")
@@ -287,25 +287,25 @@ func requiredProjectionRequirementsFromContract(request AgentTurnRequest) []Proj
 func claimedRequirementsFromFinishMessage(request AgentTurnRequest, message string) []ProjectionMissingRequirement {
 	requirements := []ProjectionMissingRequirement{}
 	if finishClaimsCalendarEventScheduled(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event scheduling but no successful calendar event creation was observed", "calendar_event", "scheduled", []string{"calendar.event.add"}))
+		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event scheduling but no successful calendar event creation was observed", "calendar_event", "scheduled", []string{"calendar.add"}))
 	}
 	if finishClaimsCalendarEventUpdated(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event update but no successful calendar event update was observed", "calendar_event", "updated", []string{"calendar.event.update"}))
+		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event update but no successful calendar event update was observed", "calendar_event", "updated", []string{"calendar.update"}))
 	}
 	if finishClaimsCalendarEventDeleted(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event deletion but no successful calendar event deletion was observed", "calendar_event", "deleted", []string{"calendar.event.delete"}))
+		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event deletion but no successful calendar event deletion was observed", "calendar_event", "deleted", []string{"calendar.delete"}))
 	}
 	if finishClaimsFlowTaskCreated(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims flow task creation but no successful flow task creation was observed", "flow_task", "created", []string{"flow.task.add"}))
+		requirements = append(requirements, projectionRequirement(request, "finish claims flow task creation but no successful flow task creation was observed", "flow_task", "created", []string{"task.add"}))
 	}
 	if finishClaimsFlowTaskUpdated(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims flow task update but no successful flow task update was observed", "flow_task", "updated", []string{"flow.task.update"}))
+		requirements = append(requirements, projectionRequirement(request, "finish claims flow task update but no successful flow task update was observed", "flow_task", "updated", []string{"task.update"}))
 	}
 	if finishClaimsMessageSent(message) {
 		requirements = append(requirements, projectionRequirement(request, "finish claims external message delivery but no successful send observation was observed", "message", "sent", requiredSendToolNamesForRequest(request)))
 	}
 	if finishClaimsWebsitePublished(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims website publication but no successful site publish observation was observed", "website", "published", []string{"site.app.publish"}))
+		requirements = append(requirements, projectionRequirement(request, "finish claims website publication but no successful site publish observation was observed", "website", "published", []string{"site.publish"}))
 	}
 	return deduplicateProjectionRequirements(requirements)
 }

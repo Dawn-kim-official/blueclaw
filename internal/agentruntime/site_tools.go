@@ -45,7 +45,7 @@ type siteProjectResolutionInput struct {
 func (toolCatalogBuilder *ToolCatalogBuilder) registerSiteTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[siteAppBuildToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
-			Name:        "site.app.build",
+			Name:        "site.build",
 			Description: "Build an editable workspace site project from its canonical appWorkspacePath and return build evidence.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"},"appWorkspacePath":{"type":"string"},"timeoutSecond":{"type":"number"}}}`),
 		},
@@ -56,7 +56,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerSiteTools(toolRegistry *ag
 	})
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[siteAppRepairToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
-			Name:        "site.app.repair",
+			Name:        "site.repair",
 			Description: "Repair a missing editable workspace site by recreating the canonical source/app scaffold without changing the published snapshot.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"siteID":{"type":"string"},"slug":{"type":"string"},"sourceWorkspacePath":{"type":"string"}}}`),
 		},
@@ -82,7 +82,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 		sourceWorkspacePath = sourceWorkspacePathFromSiteAppWorkspacePath(appWorkspacePath)
 	}
 	if strings.TrimSpace(sourceWorkspacePath) == "" && strings.TrimSpace(appWorkspacePath) == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_build_workspace", "appWorkspacePath could not be resolved; call site.app.status first"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_build_workspace", "appWorkspacePath could not be resolved; call site.status first"), nil
 	}
 	if strings.HasSuffix(strings.TrimSuffix(filepath.ToSlash(appWorkspacePath), "/"), "/src") {
 		canonicalPath := filepath.ToSlash(filepath.Dir(filepath.ToSlash(appWorkspacePath)))
@@ -113,7 +113,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) buildSiteAppTool(toolContext conte
 	}
 	appStat, errorValue := workspaceActor.Stat(toolContext, workspacepath.Path(appWorkspace))
 	if errorValue != nil || !appStat.IsDirectory {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.NotFound, "site_build_workspace", "appWorkspacePath does not exist; run site.app.repair before building"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.NotFound, "site_build_workspace", "appWorkspacePath does not exist; run site.repair before building"), nil
 	}
 	if toolFailure := ensureManagedSiteBuildScript(toolContext, workspaceActor, appWorkspace); toolFailure != nil {
 		return *toolFailure, nil
@@ -177,7 +177,7 @@ func siteBuildCommandFailureResult(buildResult agent.ToolResult, appWorkspace wo
 			RecoveryHints: []agent.RecoveryHint{{
 				Action:    "edit_resource",
 				ToolNames: []string{agent.TerminalRunToolName, agent.SkillSearchToolName},
-				Reason:    "Use the site skill's bundled scripts or the capability CLI to inspect and update the affected source, then rebuild with the site capability.",
+				Reason:    "Use the site skill's bundled scripts or capability.invoke to inspect and update the affected source, then rebuild with the site capability.",
 			}},
 			AffectedResources: siteBuildFailureAffectedResources(buildResult.ContentText(), appWorkspace),
 		}
@@ -314,7 +314,7 @@ func siteDeliveryBlockedBuildResult(result map[string]any) agent.ToolResult {
 			RecoveryHints: []agent.RecoveryHint{{
 				Action:    "edit_resource",
 				ToolNames: []string{agent.TerminalRunToolName, agent.SkillSearchToolName},
-				Reason:    "Use the site skill's bundled scripts or capability CLI to replace starter scaffold content in editableTargets, then rebuild.",
+				Reason:    "Use the site skill's bundled scripts or capability.invoke to replace starter scaffold content in editableTargets, then rebuild.",
 			}},
 			AffectedResources: siteDeliveryBlockedAffectedResources(result),
 		},
@@ -422,7 +422,7 @@ func siteBuildQualityPayload(ctx context.Context, workspaceActor security.Worksp
 		payload["recommendedNextActions"] = []string{
 			"Do not publish while deliveryBlocked is true.",
 			"Edit the listed editableTargets to replace starter scaffold content.",
-			"Run site.app.build again after source changes.",
+			"Run site.build again after source changes.",
 		}
 		return payload
 	}
@@ -594,7 +594,7 @@ func siteBlockingIssueCount(quality map[string]any) (int, bool) {
 func writeSuccessfulSiteBuildQuality(ctx context.Context, workspaceActor security.WorkspaceActor, qualityPath workspacepath.Path) *agent.ToolResult {
 	quality := map[string]any{
 		"generatedAt":         time.Now().UTC().Format(time.RFC3339),
-		"generatedBy":         "site.app.build",
+		"generatedBy":         "site.build",
 		"blockingIssueCount":  0,
 		"issues":              []any{},
 		"postBuildNormalized": true,
@@ -608,7 +608,7 @@ func writeSuccessfulSiteBuildQuality(ctx context.Context, workspaceActor securit
 			if generatedBy, _ := quality["generatedBy"].(string); strings.TrimSpace(generatedBy) != "" {
 				quality["generatedBy"] = strings.TrimSpace(generatedBy)
 			} else {
-				quality["generatedBy"] = "site.app.build"
+				quality["generatedBy"] = "site.build"
 			}
 			quality["postBuildNormalized"] = true
 			if _, exists := quality["blockingIssueCount"]; !exists {
@@ -645,7 +645,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) repairSiteAppTool(toolContext cont
 	}
 	sourceWorkspacePath := firstNonEmptyString(input.SourceWorkspacePath, site.SourceWorkspacePath)
 	if strings.TrimSpace(sourceWorkspacePath) == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_repair_workspace", "sourceWorkspacePath could not be resolved; call site.app.status first"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "site_repair_workspace", "sourceWorkspacePath could not be resolved; call site.status first"), nil
 	}
 	if toolFailure := siteWorkspaceRequesterIdentityFailure(handlerContext.request, "site_repair_workspace"); toolFailure != nil {
 		return *toolFailure, nil
@@ -694,7 +694,7 @@ func shouldResolveSiteStatusForWorkspaceTool(siteID string, slug string, sourceW
 
 func (toolCatalogBuilder *ToolCatalogBuilder) siteStatusForWorkspaceTool(toolContext context.Context, request ToolCatalogRequest, siteID string, slug string) (siteCreateResult, error) {
 	if toolCatalogBuilder.capabilityClient.Endpoint == "" {
-		return siteCreateResult{}, errors.New("site.app.status capability is unavailable")
+		return siteCreateResult{}, errors.New("site.status capability is unavailable")
 	}
 	input := map[string]string{}
 	if strings.TrimSpace(siteID) != "" {
@@ -710,7 +710,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) siteStatusForWorkspaceTool(toolCon
 		Status  string          `json:"status"`
 		Message string          `json:"message"`
 	}
-	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/site.app.status/invoke", capabilityToolRequest(toolContext, "site.app.status", request, inputDocument), &response)
+	errorValue := toolCatalogBuilder.capabilityClient.PostJSON(toolContext, "/v1/tools/site.status/invoke", capabilityToolRequest(toolContext, "site.status", request, inputDocument), &response)
 	if errorValue != nil {
 		return siteCreateResult{}, errorValue
 	}
@@ -734,7 +734,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) siteStatusForPublishInput(toolCont
 
 func siteToolNeedsSourceBundle(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "site.app.publish", "site.app.preview":
+	case "site.publish", "site.preview":
 		return true
 	default:
 		return false
@@ -916,7 +916,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) annotateSiteStatusRecord(toolConte
 func (toolCatalogBuilder *ToolCatalogBuilder) siteWorkspaceHealth(toolContext context.Context, request ToolCatalogRequest, siteID string, slug string, sourceWorkspacePath string) map[string]any {
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, request)
 	if actorFailure != nil {
-		return map[string]any{"status": "permission_problem", "path": sourceWorkspacePath, "suggestedNextTool": "site.app.repair"}
+		return map[string]any{"status": "permission_problem", "path": sourceWorkspacePath, "suggestedNextTool": "site.repair"}
 	}
 	resolvedSourcePath, errorValue := toolCatalogBuilder.resolveSiteProjectSourceWorkspace(toolContext, request, workspaceActor, siteProjectResolutionInput{
 		SiteID:              firstNonEmptyString(siteID, siteProjectIDFromPath(sourceWorkspacePath)),
@@ -924,14 +924,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) siteWorkspaceHealth(toolContext co
 		SourceWorkspacePath: sourceWorkspacePath,
 	})
 	if errorValue != nil {
-		return map[string]any{"status": "unknown", "reason": errorValue.Error(), "suggestedNextTool": "site.app.status"}
+		return map[string]any{"status": "unknown", "reason": errorValue.Error(), "suggestedNextTool": "site.status"}
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionWrite, resolvedSourcePath.ConcretePath) {
-		return map[string]any{"status": "permission_problem", "path": resolvedSourcePath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "suggestedNextTool": "site.app.repair"}
+		return map[string]any{"status": "permission_problem", "path": resolvedSourcePath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "suggestedNextTool": "site.repair"}
 	}
 	sourceStat, errorValue := workspaceActor.Stat(toolContext, workspacepath.Path(resolvedSourcePath))
 	if errorValue != nil || !sourceStat.IsDirectory {
-		return map[string]any{"status": "missing", "path": resolvedSourcePath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "suggestedNextTool": "site.app.repair"}
+		return map[string]any{"status": "missing", "path": resolvedSourcePath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "suggestedNextTool": "site.repair"}
 	}
 	appPath := workspacepath.Path{
 		ConcretePath: filepath.Join(resolvedSourcePath.ConcretePath, "app"),
@@ -940,15 +940,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) siteWorkspaceHealth(toolContext co
 	}
 	appStat, errorValue := workspaceActor.Stat(toolContext, appPath)
 	if errorValue != nil || !appStat.IsDirectory {
-		return map[string]any{"status": "missing", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "suggestedNextTool": "site.app.repair"}
+		return map[string]any{"status": "missing", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "suggestedNextTool": "site.repair"}
 	}
 	buildStatus := siteBuildStatus(resolvedSourcePath.ConcretePath)
 	sourceManifest := siteSourceManifest(resolvedSourcePath.ConcretePath, resolvedSourcePath.VirtualPath)
 	if !siteSourceManifestIsComplete(sourceManifest) {
-		return map[string]any{"status": "missing_source", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": "site.app.repair"}
+		return map[string]any{"status": "missing_source", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": "site.repair"}
 	}
 	if buildStatus != "fresh" {
-		return map[string]any{"status": "stale_build", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": "site.app.build"}
+		return map[string]any{"status": "stale_build", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": "site.build"}
 	}
 	return map[string]any{"status": "ready", "path": appPath.VirtualPath, "sourceWorkspacePath": resolvedSourcePath.VirtualPath, "appWorkspacePath": appPath.VirtualPath, "buildStatus": buildStatus, "sourceManifest": sourceManifest, "suggestedNextTool": ""}
 }
@@ -1078,14 +1078,14 @@ type siteCreateResult struct {
 
 func decodeSiteCreateResult(document json.RawMessage) (siteCreateResult, error) {
 	if len(bytes.TrimSpace(document)) == 0 {
-		return siteCreateResult{}, errors.New("site.app.create returned no result")
+		return siteCreateResult{}, errors.New("site.create returned no result")
 	}
 	var site siteCreateResult
 	if errorValue := json.Unmarshal(document, &site); errorValue != nil {
 		return siteCreateResult{}, errorValue
 	}
 	if strings.TrimSpace(site.SiteID) == "" {
-		return siteCreateResult{}, errors.New("site.app.create result is missing siteID")
+		return siteCreateResult{}, errors.New("site.create result is missing siteID")
 	}
 	return site, nil
 }

@@ -57,7 +57,7 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 		MemoryContext: "사용자는 구체적인 실패 이유를 원한다.",
 		Observations: []turnObservation{{
 			ObservationID: "obs-1",
-			Tool:          "platform.message.send",
+			Tool:          "message.send",
 			Failure: &ToolFailure{
 				Code:            "send_failed",
 				Stage:           "message_send",
@@ -65,7 +65,7 @@ func TestLLMContextBuilderFlattensConversationMemoryAndFailure(t *testing.T) {
 			},
 		}},
 		FailureFacts: failureReportFacts{Attempts: []failureReportAttempt{{
-			ToolName:     "platform.message.send",
+			ToolName:     "message.send",
 			ErrorCode:    "send_failed",
 			FailureStage: "message_send",
 			Message:      "Mattermost returned 503",
@@ -104,9 +104,9 @@ func TestLLMContextBuilderIncludesObservedResultProjection(t *testing.T) {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{
 		TurnStartedAt: time.Date(2026, time.May, 12, 8, 32, 27, 0, time.UTC),
 		Observations: []turnObservation{
-			newContentObservation("obs-001", "continue", "calendar.event.add", `{"id":"event-1","title":"미팅"}`),
+			newContentObservation("obs-001", "continue", "calendar.add", `{"id":"event-1","title":"미팅"}`),
 		},
-		ToolSet: newTestToolSet([]string{"calendar.event.add"}),
+		ToolSet: newTestToolSet([]string{"calendar.add"}),
 	})
 
 	for _, expected := range []string{"Observed result projection", "calendar_event", "scheduled", "obs-001"} {

@@ -120,7 +120,7 @@ func artifactFormatsForAttachmentSuffixes(suffixes []string) []string {
 }
 
 func requestNeedsSiteArtifactContract(request AgentRequest) bool {
-	if requestHasWorkKind(request, WorkKindSitePrototype) || activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.") {
+	if requestHasWorkKind(request, WorkKindSitePrototype) || activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") {
 		return true
 	}
 	if outcomeContractHasSiteEffect(request.ActiveGoal.OutcomeContract) {
@@ -129,7 +129,7 @@ func requestNeedsSiteArtifactContract(request AgentRequest) bool {
 	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) && workflowTextLooksLikeSitePrototypeWork(workflowScopeFromAgentRequest(request)) {
 		return true
 	}
-	return expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) && activeGoalMentionsToolPrefix(request.ActiveGoal, "site.app.")
+	return expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) && activeGoalMentionsToolPrefix(request.ActiveGoal, "site.")
 }
 
 func outcomeContractHasSiteEffect(contract OutcomeContract) bool {
@@ -167,7 +167,7 @@ func skillMatchesArtifactContract(skillInstruction SkillInstruction, contract ar
 }
 
 func skillSupportsSiteArtifact(skillInstruction SkillInstruction) bool {
-	if skillSupportsToolPrefix(skillInstruction, "site.app.") {
+	if skillSupportsToolPrefix(skillInstruction, "site.") {
 		return true
 	}
 	text := skillContractSearchText(skillInstruction)

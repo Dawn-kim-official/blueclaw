@@ -1149,7 +1149,7 @@ func shouldTreatAsBoundedSitePrototype(request AgentRequest, decision IntakeDeci
 	if decision.Classification != IntakeClassificationUnsupported && decision.Classification != IntakeClassificationNeedsConfirmation {
 		return false
 	}
-	if !hasAllTools(request.ToolSet, []string{"site.app.create", "site.app.publish"}) {
+	if !hasAllTools(request.ToolSet, []string{"site.create", "site.publish"}) {
 		return false
 	}
 	if decision.HasWorkKind(WorkKindDestructiveAction) || decision.HasWorkKind(WorkKindPaidService) {

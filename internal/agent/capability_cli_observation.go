@@ -28,17 +28,17 @@ func terminalCapabilityFacts(observation turnObservation) []ObservedFact {
 
 func factsFromCapabilityObservation(observation turnObservation) []ObservedFact {
 	switch strings.TrimSpace(observation.Tool) {
-	case "calendar.event.add":
+	case "calendar.add":
 		return toolObjectFact(observation, "calendar_event", "scheduled")
-	case "calendar.event.update":
+	case "calendar.update":
 		return toolObjectFact(observation, "calendar_event", "updated")
-	case "calendar.event.delete":
+	case "calendar.delete":
 		return toolObjectFact(observation, "calendar_event", "deleted")
-	case "flow.task.add":
+	case "task.add":
 		return toolObjectFact(observation, "flow_task", "created")
-	case "flow.task.update":
+	case "task.update":
 		return toolObjectFact(observation, "flow_task", "updated")
-	case "flow.task.delete":
+	case "task.delete":
 		return toolObjectFact(observation, "flow_task", "deleted")
 	case "schedule.create":
 		return toolObjectFact(observation, "schedule", "created")
@@ -46,13 +46,13 @@ func factsFromCapabilityObservation(observation turnObservation) []ObservedFact 
 		return toolObjectFact(observation, "schedule", "updated")
 	case "schedule.cancel":
 		return toolObjectFact(observation, "schedule", "deleted")
-	case "site.app.publish":
+	case "site.publish":
 		return siteObservationFacts(observation, "published")
-	case "site.app.create":
+	case "site.create":
 		return append(siteObservationFacts(observation, "created"), siteWorkspaceModifiedFacts(observation)...)
-	case "site.app.build":
+	case "site.build":
 		return siteObservationFacts(observation, "built")
-	case "site.app.status":
+	case "site.status":
 		return siteStatusFacts(observation)
 	default:
 		if isSendEvidenceTool(observation.Tool) {
