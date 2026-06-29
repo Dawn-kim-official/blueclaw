@@ -255,7 +255,7 @@ func ambientCaptureAllowedToolNames() []string {
 	return []string{
 		"flow.task.add", "flow.task.list", "flow.task.update",
 		"calendar.event.add", "calendar.event.update", "calendar.event.list",
-		"ask.choice", "ask.input",
+		"ask.input",
 		"conversation.history",
 	}
 }

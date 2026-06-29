@@ -378,7 +378,7 @@ func isSiteSourceRelativePath(path string) bool {
 
 func siteSourceRelativePathFailure(stage string, path string) agent.ToolResult {
 	cleanPath := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
-	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "site source path "+cleanPath+" must be rooted at sourceWorkspacePath from site.app.status, for example /workspace/circles/staff/sites/<slug>/draft/"+cleanPath)
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, "site source path "+cleanPath+" must be rooted at sourceWorkspacePath from the website status capability, for example /workspace/circles/staff/sites/<slug>/draft/"+cleanPath)
 }
 
 func fileReadResultMap(base map[string]any, readResult fileReadOutput) map[string]any {
@@ -1302,7 +1302,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveEditableFilePath(toolContex
 		return ResolvedWorkspacePath{}, &result
 	}
 	if isManagedSitePackageManifestPath(resolvedPath.VirtualPath) {
-		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_patch", "site.app.create manages this build manifest; edit DESIGN.md and app source files instead of app/package.json")
+		result := agent.ToolFailureResult(agent.FailurePolicyBlocked, agent.FailureCodes.PolicyBlocked, "file_patch", "the website scaffold capability manages this build manifest; edit DESIGN.md and app source files instead of app/package.json")
 		return ResolvedWorkspacePath{}, &result
 	}
 	if isImmutableSkillPath(toolCatalogBuilder.workspaceRootPath, resolvedPath.ConcretePath) {
@@ -1398,7 +1398,7 @@ func managedSiteManifestProtectedFailure(path string) agent.ToolResult {
 	content := marshalToolResult(map[string]string{
 		"code":   "managed_manifest_protected",
 		"path":   strings.TrimSpace(path),
-		"detail": "site.app.create manages this build manifest; edit DESIGN.md and app source files instead of overwriting app/package.json",
+		"detail": "the website scaffold capability manages this build manifest; edit DESIGN.md and app source files instead of overwriting app/package.json",
 	})
 	return agent.ToolResult{
 		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
