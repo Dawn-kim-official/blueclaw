@@ -163,6 +163,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(tool
 			if operation == "" {
 				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires an operation name"), nil
 			}
+			if !toolRegistry.IsRegistered(operation) {
+				return toolCatalogBuilder.unknownCapabilityOperationResult(operation), nil
+			}
 			return toolRegistry.InvokeRegistered(toolContext, agent.ToolInvocation{ToolName: operation, Input: call.Input})
 		},
 	})
@@ -223,6 +226,82 @@ func capabilityCatalogSummary(description string) string {
 
 func genericCapabilityInvokeInputSchema() json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{"operation":{"type":"string","description":"The capability operation name from the available operations list in this tool's description."},"input":{"type":"object","description":"The parameters object for the chosen operation."}},"required":["operation"]}`)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) unknownCapabilityOperationResult(operation string) agent.ToolResult {
+	message := "operation \"" + operation + "\" is not a valid capability operation."
+	if suggestions := toolCatalogBuilder.suggestCapabilityOperations(operation); len(suggestions) > 0 {
+		message += " Did you mean: " + strings.Join(suggestions, ", ") + "?"
+	}
+	message += " Use an exact operation name from this tool's available operations list."
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability.invoke", message)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) suggestCapabilityOperations(operation string) []string {
+	domainSegments, finalSegment := capabilityOperationSegments(operation)
+	type scoredOperation struct {
+		name        string
+		score       int
+		matchDomain bool
+	}
+	scoredOperations := []scoredOperation{}
+	for _, entry := range toolCatalogBuilder.capabilityCatalogEntries() {
+		name := strings.TrimSpace(strings.SplitN(entry, ":", 2)[0])
+		candidateDomainSegments, candidateFinalSegment := capabilityOperationSegments(name)
+		score := 0
+		matchDomain := false
+		for segment := range candidateDomainSegments {
+			if domainSegments[segment] {
+				score += 2
+				matchDomain = true
+			}
+		}
+		if finalSegment != "" && candidateFinalSegment == finalSegment {
+			score++
+		}
+		if score > 0 {
+			scoredOperations = append(scoredOperations, scoredOperation{name: name, score: score, matchDomain: matchDomain})
+		}
+	}
+	hasDomainMatch := false
+	for _, scoredOperation := range scoredOperations {
+		if scoredOperation.matchDomain {
+			hasDomainMatch = true
+			break
+		}
+	}
+	sort.SliceStable(scoredOperations, func(leftIndex int, rightIndex int) bool {
+		return scoredOperations[leftIndex].score > scoredOperations[rightIndex].score
+	})
+	suggestions := []string{}
+	for _, scoredOperation := range scoredOperations {
+		if hasDomainMatch && !scoredOperation.matchDomain {
+			continue
+		}
+		suggestions = append(suggestions, scoredOperation.name)
+		if len(suggestions) >= 6 {
+			break
+		}
+	}
+	return suggestions
+}
+
+func capabilityOperationSegments(operation string) (map[string]bool, string) {
+	segments := strings.Split(operation, ".")
+	domainSegments := map[string]bool{}
+	finalSegment := ""
+	for index, segment := range segments {
+		trimmedSegment := strings.TrimSpace(segment)
+		if trimmedSegment == "" {
+			continue
+		}
+		if index == len(segments)-1 {
+			finalSegment = trimmedSegment
+			continue
+		}
+		domainSegments[trimmedSegment] = true
+	}
+	return domainSegments, finalSegment
 }
 
 func isInteractiveCapabilityTool(toolName string) bool {
