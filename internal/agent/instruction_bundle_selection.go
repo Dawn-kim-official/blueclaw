@@ -139,6 +139,10 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "dominated_by_"+dominantSkill.Name, nil)
 			skillDecision.Score = skillCandidate.Score
 		}
+		if !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction, skillCandidate, request) {
+			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "outside_artifact_request", nil)
+			skillDecision.Score = skillCandidate.Score
+		}
 		if !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipArtifactSkillOutsideContract(skillInstruction, skillCandidate, request) {
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "outside_artifact_contract", nil)
 			skillDecision.Score = skillCandidate.Score
@@ -277,6 +281,16 @@ func shouldSkipArtifactSkillOutsideContract(skillInstruction SkillInstruction, s
 		return false
 	}
 	return !skillMatchesAnyArtifactContract(skillInstruction, contracts)
+}
+
+func shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction SkillInstruction, skillCandidate SkillCandidate, request AgentRequest) bool {
+	if skillCandidate.Reason == "direct_skill_name" || strings.TrimSpace(skillCandidate.Name) == "" {
+		return false
+	}
+	if requestLooksLikeArtifactSkillRequest(request) {
+		return false
+	}
+	return skillSupportsSiteArtifact(skillInstruction) || skillSupportsFileDelivery(skillInstruction)
 }
 
 func alwaysSelectedSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, profileName string, existingSkillDecisions []SkillSelectionDecision) []SkillInstruction {
