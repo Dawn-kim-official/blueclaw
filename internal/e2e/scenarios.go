@@ -990,18 +990,16 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 			ActionResponses: []string{
 				actionInvokeCapabilityTool("site.create", `{"slug":"demo","title":"Demo Website"}`),
 				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf 'demo site' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
-				actionInvokeCapabilityTool("site.build", `{"siteID":"site-1"}`),
 				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Initial demo website"}`),
-				actionFinishMessage("웹사이트 프로토타입을 배포했습니다: https://demo.device.example.test", "obs-004:site.publish:0"),
+				actionFinishMessage("웹사이트 프로토타입을 배포했습니다: https://demo.device.example.test", "obs-003:site.publish:0"),
 			},
 			ExpectedSelectedSkills: []string{"site-prototype"},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.capability.invoke.requested", BodyFragment: "site.create", Count: 1},
-				{Name: "tool.capability.invoke.requested", BodyFragment: "site.build", Count: 1},
 				{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
 				{Name: "tool.capability.invoke.result", BodyFragment: "device.example.test", Count: 1},
 			},
-			ExpectedModelContexts:  []string{"site-prototype", "site.create", "site.publish", "/workspace/circles/staff/sites/demo/draft", "웹사이트 하나"},
+			ExpectedModelContexts:  []string{"site.create", "site.publish", "/workspace/circles/staff/sites/demo/draft", "웹사이트 하나"},
 			ForbiddenModelContexts: []string{"home/sites/site-1"},
 			ExpectedReplyFragments: []string{"https://demo.device.example.test"},
 			ForbiddenReplyFragments: []string{
@@ -1031,14 +1029,12 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("site.create", `{"slug":"demo","title":"Demo Website"}`),
 					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><h1>Simple Site</h1></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
-					actionInvokeCapabilityTool("site.build", `{"siteID":"site-1"}`),
 					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Initial simple site"}`),
-					actionFinishMessage("Deployed the simple site: https://demo.device.example.test", "obs-004:site.publish:0"),
+					actionFinishMessage("Deployed the simple site: https://demo.device.example.test", "obs-003:site.publish:0"),
 				},
 				ExpectedSelectedSkills: []string{"site-prototype"},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.create", Count: 1},
-					{Name: "tool.capability.invoke.requested", BodyFragment: "site.build", Count: 1},
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
 					{Name: "tool.capability.invoke.result", BodyFragment: "device.example.test", Count: 1},
 				},
@@ -1050,13 +1046,11 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 				Prompt: "Update the heading to say Hello World.",
 				ActionResponses: []string{
 					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><h1>Hello World</h1></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
-					actionInvokeCapabilityTool("site.build", `{"siteID":"site-1"}`),
 					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Update heading to Hello World"}`),
-					actionFinishMessage("Updated and redeployed the site: https://demo.device.example.test", "obs-003:site.publish:0"),
+					actionFinishMessage("Updated and redeployed the site: https://demo.device.example.test", "obs-002:site.publish:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.terminal.run.requested", BodyFragment: "Hello World", Count: 1},
-					{Name: "tool.capability.invoke.requested", BodyFragment: "site.build", Count: 1},
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
 					{Name: "tool.capability.invoke.result", BodyFragment: "device.example.test", Count: 1},
 				},
@@ -1077,7 +1071,7 @@ func SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath string) VirtualSe
 		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
 		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
-		InitialToolNames:      []string{"site.status", "file.write", "terminal.run", "site.build", "site.publish"},
+		InitialToolNames:      []string{"site.status", "file.write", "terminal.run", "site.publish"},
 		Turns: []VirtualTurn{{
 			Prompt: "더 예쁘게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
 			ActionResponses: []string{
@@ -1087,18 +1081,16 @@ func SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath string) VirtualSe
 				actionInvokeCapabilityTool("site.repair", `{"siteID":"site-1"}`),
 				actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main><h1>Polished Citrus Studio</h1><p>Fresh, warm, and carefully crafted.</p></main>;\n}\n"}`),
 				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main><h1>Polished Citrus Studio</h1><p>Fresh, warm, and carefully crafted.</p></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
-				actionInvokeCapabilityTool("site.build", `{"siteID":"site-1"}`),
 				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Improve visual quality"}`),
-				actionFinishMessage("사이트를 더 예쁘게 다듬고 다시 배포했습니다: https://demo.device.example.test", "obs-009:site.publish:0"),
+				actionFinishMessage("사이트를 더 예쁘게 다듬고 다시 배포했습니다: https://demo.device.example.test", "obs-008:site.publish:0"),
 			},
 			ExpectedSelectedSkills: []string{"site-prototype"},
-			ExpectedToolCalls:      []string{"site.status", "site.repair", "file.write", "terminal.run", "site.build", "site.publish"},
+			ExpectedToolCalls:      []string{"site.status", "site.repair", "file.write", "terminal.run", "site.publish"},
 			ExpectedToolCallCounts: map[string]int{
 				"site.status":  2,
 				"site.repair":  1,
 				"file.write":   1,
 				"terminal.run": 1,
-				"site.build":   1,
 				"site.publish": 1,
 			},
 			ExpectedEvents:         []string{"agent.suggested_next_tool_directive", "agent.completion_required"},
@@ -1260,7 +1252,7 @@ func sitePrototypeSkill() agent.SkillInstruction {
 		Description: "Create, publish, update, take down, restore, or delete free React and PocketBase website prototypes through InternKim site.app capability operations.",
 		Category:    "site-prototype",
 		Tags:        []string{"website", "prototype", "deploy"},
-		Prompt:      "Create and publish website prototypes. For a new prototype, call site.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to verify the app when useful, call site.build, then call site.publish with the siteID and a concise message. Never claim deployment succeeded until site.publish succeeds.",
+		Prompt:      "Create and publish website prototypes. For a new prototype, call site.create with a DNS-safe slug and title, write or edit source inside the returned site workspace, call terminal.run to build the app with bun, then call site.publish with the siteID and a concise message. Never claim deployment succeeded until site.publish succeeds.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"웹사이트", "배포", "사이트", "web app", "website", "prototype"},
 		},
@@ -1284,7 +1276,6 @@ func sitePrototypeToolNames() []string {
 		"file.patch",
 		"site.create",
 		"site.repair",
-		"site.build",
 		"site.publish",
 		"site.status",
 		"site.logs",
@@ -1299,7 +1290,6 @@ func sitePrototypeToolNames() []string {
 func sitePrototypeCapabilityToolNames() []string {
 	return []string{
 		"site.create",
-		"site.build",
 		"site.publish",
 		"site.status",
 		"site.logs",

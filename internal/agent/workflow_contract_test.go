@@ -32,7 +32,6 @@ func TestWorkflowContractDerivesSitePrototypeWorkKindAndTools(t *testing.T) {
 		"file.edit",
 		"file.patch",
 		"terminal.run",
-		"site.build",
 		"artifact.review",
 		"site.preview",
 		"browser.open",
@@ -51,7 +50,7 @@ func TestWorkflowContractDerivesSitePrototypeWorkKindAndTools(t *testing.T) {
 	}
 
 	toolNames := workflowToolNamesForWorkKinds(toolSet, workKinds)
-	for _, toolName := range []string{"site.status", "site.repair", "file.read", "file.write", "file.edit", "file.patch", "site.build", "artifact.review", "site.publish"} {
+	for _, toolName := range []string{"site.status", "site.repair", "file.read", "file.write", "file.edit", "file.patch", "artifact.review", "site.publish"} {
 		if !stringSliceContains(toolNames, toolName) {
 			t.Fatalf("expected workflow tool %s, got %+v", toolName, toolNames)
 		}
@@ -106,7 +105,7 @@ func TestWorkflowContractSelectsSitePrototypeEvidenceByIntent(t *testing.T) {
 }
 
 func TestWorkflowContractRequiresSiteModificationEffectsByDefault(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.status", "file.edit", "file.patch", "file.write", "site.build", "site.publish"})
+	toolSet := newTestToolSet([]string{"site.status", "file.edit", "file.patch", "file.write", "site.publish"})
 	request := AgentRequest{
 		Prompt:    "예쁜 귤 웹사이트 퀄리티가 너무 낮아. 더 예쁘게 해줘.",
 		ToolSet:   toolSet,
@@ -117,7 +116,6 @@ func TestWorkflowContractRequiresSiteModificationEffectsByDefault(t *testing.T) 
 
 	for _, expectedEffect := range []OutcomeEffect{
 		{ObjectType: "workspace", Effect: "modified"},
-		{ObjectType: "website", Effect: "built"},
 		{ObjectType: "website", Effect: "published"},
 	} {
 		if !outcomeEffectsContain(requirements, expectedEffect.ObjectType, expectedEffect.Effect) {
@@ -142,7 +140,7 @@ func TestWorkflowContractRequiresOnlySiteReadEffectForStatusIntent(t *testing.T)
 }
 
 func TestWorkflowContractDerivesSitePrototypeWorkKindForQualityRequest(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.status", "file.edit", "site.build", "site.publish"})
+	toolSet := newTestToolSet([]string{"site.status", "file.edit", "site.publish"})
 	request := AgentRequest{
 		Prompt:  "예쁜 귤 웹사이트 퀄리티가 너무 낮잖아. 더 예쁘게 해줘.",
 		ToolSet: toolSet,

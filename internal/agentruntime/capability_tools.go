@@ -250,8 +250,6 @@ func defaultCapabilityToolDescription(toolName string) string {
 		return "Send a platform message to a direct message, current thread, current channel, or named channel. Recipient resolution and ambiguity are handled by this tool."
 	case "message.update":
 		return "Update an assistant bot message text or pin state. Use only for platform messages that should be edited or pinned."
-	case "site.status":
-		return siteAppStatusToolDescription
 	default:
 		return "Workspace capability tool"
 	}
@@ -361,16 +359,11 @@ func capabilityToolRequest(toolContext context.Context, toolName string, request
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
-	if siteToolNeedsSourceBundle(toolName) {
-		toolInput, toolFailure, errorValue := toolCatalogBuilder.enrichSitePublishInput(toolContext, request, toolInput)
-		return toolInput, toolFailure, errorValue
-	}
 	if capabilityToolNeedsWorkspacePath(toolName) {
 		input, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePathInput(toolContext, toolName, request, toolInput)
 		return input, nil, errorValue
 	}
-	toolInput, errorValue := toolCatalogBuilder.enrichCapabilityToolInput(toolName, request, toolInput)
-	return toolInput, nil, errorValue
+	return toolInput, nil, nil
 }
 
 func capabilityToolNeedsWorkspacePath(toolName string) bool {
@@ -420,26 +413,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableCapabilityPath(requ
 	return resolvedPath, nil
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) enrichCapabilityToolInput(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
-	if !siteToolNeedsSourceBundle(toolName) {
-		return toolInput, nil
-	}
-	toolInput, toolFailure, errorValue := toolCatalogBuilder.enrichSitePublishInput(context.Background(), request, toolInput)
-	if toolFailure != nil {
-		return nil, errors.New(toolFailure.ContentText())
-	}
-	return toolInput, errorValue
-}
-
 func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolContext context.Context, toolName string, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
-	switch strings.TrimSpace(toolName) {
-	case "site.create":
-		return toolCatalogBuilder.materializeSiteCreateResult(toolContext, request, result)
-	case "site.status":
-		return toolCatalogBuilder.annotateSiteStatusResult(toolContext, request, result)
-	default:
-		return nil, nil
-	}
+	return nil, nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) error {

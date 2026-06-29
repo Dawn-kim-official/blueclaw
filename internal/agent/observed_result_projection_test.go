@@ -82,10 +82,9 @@ func TestObservedResultProjectionRequiresCurrentSiteModificationEffects(t *testi
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSet([]string{"site.status", "file.edit", "site.build", "site.publish"}),
+			ToolSet: newTestToolSet([]string{"site.status", "file.edit", "site.publish"}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{
 				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file.edit"}},
-				{ObjectType: "website", Effect: "built", SuggestedNextTools: []string{"site.build"}},
 				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.publish"}},
 			}},
 		},
@@ -101,26 +100,21 @@ func TestObservedResultProjectionRequiresCurrentSiteModificationEffects(t *testi
 	if !projectionMissingRequirementContains(projection.MissingRequirements, "workspace", "modified") {
 		t.Fatalf("expected missing workspace modification, got %+v", projection.MissingRequirements)
 	}
-	if !projectionMissingRequirementContains(projection.MissingRequirements, "website", "built") {
-		t.Fatalf("expected missing website build, got %+v", projection.MissingRequirements)
-	}
 }
 
 func TestObservedResultProjectionAcceptsCurrentSiteModificationEffects(t *testing.T) {
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSet([]string{"file.edit", "site.build", "site.publish"}),
+			ToolSet: newTestToolSet([]string{"file.edit", "site.publish"}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{
 				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file.edit"}},
-				{ObjectType: "website", Effect: "built", SuggestedNextTools: []string{"site.build"}},
 				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.publish"}},
 			}},
 		},
 		[]turnObservation{
 			newContentObservation("obs-001", "continue", "file.edit", `{"path":"/workspace/circles/staff/sites/pretty-gyul/draft/app/src/App.tsx"}`),
-			newContentObservation("obs-002", "continue", "site.build", `{"siteID":"site-1","status":"built"}`),
-			newContentObservation("obs-003", "continue", "site.publish", `{"siteID":"site-1","status":"published","publishedURL":"https://pretty-gyul.example"}`),
+			newContentObservation("obs-002", "continue", "site.publish", `{"siteID":"site-1","status":"published","publishedURL":"https://pretty-gyul.example"}`),
 		},
 		nil,
 		turnActionDocument{

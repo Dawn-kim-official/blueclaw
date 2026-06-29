@@ -50,8 +50,6 @@ func factsFromCapabilityObservation(observation turnObservation) []ObservedFact 
 		return siteObservationFacts(observation, "published")
 	case "site.create":
 		return append(siteObservationFacts(observation, "created"), siteWorkspaceModifiedFacts(observation)...)
-	case "site.build":
-		return siteObservationFacts(observation, "built")
 	case "site.status":
 		return siteStatusFacts(observation)
 	default:
