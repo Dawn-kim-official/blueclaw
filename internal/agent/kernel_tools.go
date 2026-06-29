@@ -14,6 +14,7 @@ const (
 	CapabilityInvokeToolName = "capability.invoke"
 	FileReadToolName         = "file.read"
 	FileWriteToolName        = "file.write"
+	FileDeleteToolName       = "file.delete"
 	FileEditToolName         = "file.edit"
 	FilePatchToolName        = "file.patch"
 	FilePreviewToolName      = "file.preview"
@@ -30,6 +31,7 @@ func KernelToolNames() []string {
 		CapabilityInvokeToolName,
 		FileReadToolName,
 		FileWriteToolName,
+		FileDeleteToolName,
 		FileEditToolName,
 		FilePatchToolName,
 		FilePreviewToolName,
