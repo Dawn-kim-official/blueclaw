@@ -438,6 +438,9 @@ func capabilityToolRequest(toolContext context.Context, toolName string, request
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
+	if siteToolNeedsSourceBundle(toolName) {
+		return toolCatalogBuilder.enrichSitePublishInput(toolContext, request, toolInput)
+	}
 	if capabilityToolNeedsWorkspacePath(toolName) {
 		input, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePathInput(toolContext, toolName, request, toolInput)
 		return input, nil, errorValue
@@ -493,7 +496,12 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableCapabilityPath(requ
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolContext context.Context, toolName string, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {
-	return nil, nil
+	switch strings.TrimSpace(toolName) {
+	case "site.create":
+		return toolCatalogBuilder.materializeSiteCreateResult(toolContext, request, result)
+	default:
+		return nil, nil
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(toolName string, request ToolCatalogRequest, toolInput json.RawMessage) error {
