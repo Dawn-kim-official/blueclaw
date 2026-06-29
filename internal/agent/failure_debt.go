@@ -208,7 +208,7 @@ func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolN
 	for _, precondition := range requiredPreconditionsForObservation(failedObservation) {
 		switch strings.TrimSpace(precondition) {
 		case "source_changed":
-			if toolName == "file.write" || toolName == "file.edit" || toolName == "file.patch" || toolName == "file.promote" {
+			if toolName == "file.write" || toolName == "file.edit" || toolName == "file.patch" {
 				return true
 			}
 		case "workspace_repaired":

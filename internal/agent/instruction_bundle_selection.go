@@ -81,7 +81,7 @@ func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, a
 	}
 	for _, toolName := range allowedTools {
 		switch strings.TrimSpace(toolName) {
-		case "terminal.run", "file.write", "file.edit", "file.patch", "file.promote", "file.attach":
+		case "terminal.run", "file.write", "file.edit", "file.patch", FileDeliverToolName:
 			return true
 		}
 	}
@@ -234,7 +234,7 @@ func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {
 	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) || expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) {
 		return true
 	}
-	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.") || activeGoalRequiresTool(request.ActiveGoal, "file.attach") {
+	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.") || activeGoalRequiresTool(request.ActiveGoal, FileDeliverToolName) {
 		return true
 	}
 	text := strings.ToLower(strings.Join(nonEmptyStrings([]string{

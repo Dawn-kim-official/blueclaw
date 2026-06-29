@@ -69,8 +69,6 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 		return facts
 	}
 	switch strings.TrimSpace(observation.Tool) {
-	case "file.promote":
-		return filePathObservationFacts(observation, "file", "made_durable")
 	case "file.write":
 		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "created"))
 	case "file.edit", "file.patch":
@@ -101,7 +99,7 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 		return siteObservationFacts(observation, "built")
 	case "site.app.status":
 		return siteStatusFacts(observation)
-	case "ask.input", "ask.choice", "ask.confirm":
+	case AskInputToolName, AskChoiceToolName, AskConfirmToolName:
 		return toolObjectFact(observation, "user_input", "requested")
 	default:
 		if isSendEvidenceTool(observation.Tool) {
@@ -428,10 +426,11 @@ func fileVisibility(path string) string {
 }
 
 func fileDurability(path string) string {
-	if isDurableArtifactDevicePath(path) {
-		return "durable"
+	normalizedPath := filepath.ToSlash(strings.TrimSpace(path))
+	if strings.Contains(normalizedPath, "/tmp/") || strings.HasPrefix(normalizedPath, "tmp/") {
+		return "draft"
 	}
-	return "draft"
+	return "durable"
 }
 
 func effectVisibility(effect string) string {

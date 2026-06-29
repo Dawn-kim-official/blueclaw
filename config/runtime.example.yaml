@@ -206,7 +206,8 @@
       "tar",
       "gzip",
       "bun",
-      "go"
+      "go",
+      "capability"
     ],
     "deniedExecutableNames": [
       "sudo",

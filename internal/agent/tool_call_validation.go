@@ -316,7 +316,7 @@ func validateTerminalToolInput(toolName string, toolInput json.RawMessage, toolS
 	if commandToolName := firstTerminalCommandToken(command); toolSet != nil && toolSet.IsRegistered(commandToolName) {
 		return terminalToolNameError{toolName: commandToolName}
 	}
-	for _, toolAlias := range []string{"artifact.deliver", "set_quality_criteria", "finish", "finish"} {
+	for _, toolAlias := range []string{FileDeliverToolName, "set_quality_criteria", "finish"} {
 		if strings.Contains(command, toolAlias) {
 			return errors.New(strings.TrimSpace(toolName) + " command cannot call Blueclaw action " + toolAlias + "; call that action directly instead")
 		}
@@ -584,7 +584,7 @@ func sitePublishTaskToolsAreAvailable(toolSet *ToolSet) bool {
 
 func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
 	for _, toolName := range requiredEvidenceTools {
-		if strings.TrimSpace(toolName) == expectedToolName {
+		if ToolNamesMatch(toolName, expectedToolName) {
 			return true
 		}
 	}
@@ -592,7 +592,7 @@ func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName s
 }
 
 func unnecessarySiteApprovalMessage() string {
-	return "Approval is not required for site.app.create, terminal.run builds, or site.app.publish. Continue with the site tools directly. Ask approval only for site.app.rollback, site.app.unpublish, or site.app.delete."
+	return "Approval is not required for website create, build, or publish capability operations. Continue with the website capability operations directly. Ask approval only before rollback, unpublish, or delete."
 }
 
 func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput json.RawMessage) bool {

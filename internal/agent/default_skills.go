@@ -16,7 +16,7 @@ Persistent memory is available by default.
 Use injected memory context when older context may be relevant.
 Use the capability CLI for public web information only when the missing information is required and public, current, or external.
 Do not use public web lookup to replace private person memory, circle memory, user preferences, names, or addressing instructions.
-If the user explicitly asks you to remember something, or states a durable preference, fact, or context update, finish with a clear acknowledgement; the runtime memory pipeline handles durable storage outside the six-tool kernel.
+If the user explicitly asks you to remember something, or states a durable preference, fact, or context update, finish with a clear acknowledgement; the runtime memory pipeline handles durable storage outside the compact kernel.
 Treat examples such as names, preferences, working style, project context, and recurring constraints as non-exhaustive examples, not special cases.
 Do not remember secrets, one-off requests, temporary details, or facts that are not useful beyond the current conversation.
 The runtime decides whether durable memory belongs to person memory or active circle memory from the current conversation scope.

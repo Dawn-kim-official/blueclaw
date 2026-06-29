@@ -5,7 +5,7 @@ type TaskRecoveryPlanner struct{}
 func (TaskRecoveryPlanner) Plan(request AgentRequest, decision IntakeDecision) IntakeDecision {
 	if shouldRetryUnsupportedLocalArtifact(request, decision) {
 		decision.Classification = IntakeClassificationBoundedTask
-		decision.Reason = "artifact retry recovery route selected from available terminal and file tools"
+		decision.Reason = "artifact retry recovery route selected from available terminal and file delivery capabilities"
 		decision.UserFacingReply = ""
 	}
 	return decision
@@ -18,7 +18,7 @@ func shouldRetryUnsupportedLocalArtifact(request AgentRequest, decision IntakeDe
 	if decision.HasWorkKind(WorkKindDestructiveAction) {
 		return false
 	}
-	if !hasAllTools(request.ToolSet, []string{TerminalRunToolName, ArtifactDeliverToolName}) {
+	if !hasAllTools(request.ToolSet, []string{TerminalRunToolName, FileDeliverToolName}) {
 		return false
 	}
 	return hasArtifactOutputFormat(decision.RequestedOutputFormats) ||

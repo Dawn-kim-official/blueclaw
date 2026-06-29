@@ -305,7 +305,7 @@ func toolRequestAddedNothing(before AgentTurnRequest, after AgentTurnRequest, re
 
 func redundantToolSelectionObservation(index int, requestArguments requestToolsArguments, result toolRequestResult) turnObservation {
 	requested := appendUniqueStrings(append(append([]string{}, requestArguments.ToolNames...), requestArguments.SkillNames...))
-	directive := "These tools and skills are already available in your palette: " + strings.Join(requested, ", ") + ". Do not call tool.request again for tools you already have; call one of them now to make progress, or finish."
+	directive := "These kernel tools, skills, or capability operations are already available in your palette: " + strings.Join(requested, ", ") + ". Do not request them again; use one now to make progress, or finish."
 	content := marshalEventBody(map[string]any{
 		"request":   requestArguments,
 		"result":    result,
@@ -318,7 +318,7 @@ func redundantToolSelectionObservation(index int, requestArguments requestToolsA
 }
 
 func ambientFixedPaletteObservation(index int, requestArguments requestToolsArguments) turnObservation {
-	directive := "This ambient capture has a fixed tool palette: use only the already-available task and calendar tools, then finish. Do not request other tools."
+	directive := "This ambient capture has a fixed palette: use only the already-available task and calendar capability operations, then finish. Do not request other capabilities."
 	content := marshalEventBody(map[string]any{
 		"request":      requestArguments,
 		"fixedPalette": true,

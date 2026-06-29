@@ -1525,7 +1525,7 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 			{
 				Name:         "site-prototype",
 				Description:  "Create websites.",
-				Prompt:       "Use site tools.",
+				Prompt:       "Follow site prototype workflow.",
 				AllowedTools: []string{"site.app.create", "site.app.publish"},
 				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
@@ -1533,7 +1533,7 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 				Name:         "pdf",
 				Description:  "Create, verify, and attach PDF documents.",
 				WhenToUse:    "Use for PDF deliverables, reports, briefs, and .pdf file artifacts.",
-				Prompt:       "Use pdf tools.",
+				Prompt:       "Follow pdf workflow.",
 				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
 				Source:       InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"},
 			},
@@ -1573,10 +1573,10 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 		t.Fatalf("expected pdf attachment, got %+v", result.Attachments)
 	}
 	turnPrompt := joinedMessageContent(replyLanguageModel.requests[0].Messages)
-	if !strings.Contains(turnPrompt, "Use pdf tools.") {
+	if !strings.Contains(turnPrompt, "Follow pdf workflow.") {
 		t.Fatalf("expected pdf skill instructions in turn prompt, got %s", turnPrompt)
 	}
-	if strings.Contains(turnPrompt, "Use site tools.") {
+	if strings.Contains(turnPrompt, "Follow site prototype workflow.") {
 		t.Fatalf("expected site skill to stay out of pdf attachment turn prompt, got %s", turnPrompt)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)

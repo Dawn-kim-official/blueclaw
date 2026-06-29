@@ -237,14 +237,12 @@ func newTerminalToolTestCatalogBuilder(workspacePath string) *ToolCatalogBuilder
 
 func internalTestToolNames() []string {
 	return []string{
-		"artifact.deliver",
 		"conversation.history",
 		"document.read",
-		"file.attach",
+		"file.deliver",
 		"file.edit",
 		"file.patch",
 		"file.preview",
-		"file.promote",
 		"file.read",
 		"file.write",
 		"image.read",

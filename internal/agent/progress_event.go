@@ -50,9 +50,6 @@ func progressEvents(observations []turnObservation) []progressEvent {
 				recordSuccess(progressEvent{Kind: "attachment", Key: attachment.DevicePath})
 			}
 		}
-		if observation.Action == "continue" && observation.Tool == "file.promote" && !observation.Failed() {
-			recordSuccess(progressEvent{Kind: "artifact_promoted", Key: observation.Output.Content})
-		}
 		if observation.Action == "continue" && (observation.Tool == "file.write" || observation.Tool == "file.edit" || observation.Tool == "file.patch") && !observation.Failed() {
 			recordSuccess(progressEvent{Kind: "file_rewrite", Key: observation.ToolInputKey + ":" + observation.Output.Content})
 		}
@@ -131,9 +128,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "site_build", Tool: toolName}, true
 	case "site.app.publish":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "site_publish", Tool: toolName}, true
-	case "file.promote":
-		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "artifact_promotion", Tool: toolName}, true
-	case "file.attach":
+	case FileDeliverToolName:
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "attachment", Tool: toolName}, true
 	case "terminal.run":
 		if terminalObservationExitCode(observation) == 0 {

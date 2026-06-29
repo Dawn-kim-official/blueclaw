@@ -467,7 +467,7 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 		"Do not claim a tool result or attachment exists unless it appears below.",
 	}
 	if requiredArtifactWithoutAttachment(request, attachments) {
-		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
+		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no delivered file evidence is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the file was not delivered, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
 	}
 	if reason := strings.TrimSpace(failureReason); reason != "" {
 		sections = append(sections, "Failure reason for your private planning only. Paraphrase it safely for the user:\n"+reason)
@@ -521,7 +521,7 @@ func recoverySituationFor(reason string, observations []turnObservation, attachm
 	if strings.Contains(combinedText, "blocked_by_captcha") || strings.Contains(combinedText, "bot-detection") || strings.Contains(combinedText, "captcha") {
 		return "browser_blocked"
 	}
-	if strings.Contains(combinedText, "attachment") || strings.Contains(combinedText, "file.attach") || strings.Contains(combinedText, "첨부") {
+	if strings.Contains(combinedText, "attachment") || strings.Contains(combinedText, "file.deliver") || strings.Contains(combinedText, "첨부") {
 		return "attachment_unavailable"
 	}
 	if fallbackKind == "limit" || strings.Contains(combinedText, "max_") || strings.Contains(combinedText, "limit") {
@@ -575,20 +575,20 @@ func failureReplyIsInvalidForRequest(reply string, request AgentTurnRequest, fai
 }
 
 func requiredArtifactWithoutAttachment(request AgentTurnRequest, attachments []FileAttachment) bool {
-	return requestRequiresDurableArtifact(request) && !hasDurableArtifactAttachment(attachments)
+	return requestRequiresFileAttachment(request) && len(attachments) == 0
 }
 
-func requestRequiresDurableArtifact(request AgentTurnRequest) bool {
+func requestRequiresFileAttachment(request AgentTurnRequest) bool {
 	if request.OutcomeContract.ArtifactRequirement == ArtifactRequirementRequired {
 		return true
 	}
 	if len(request.RequiredAttachmentSuffixes) > 0 {
 		return true
 	}
-	if requiredEvidenceContains(request.RequiredEvidenceTools, "file.attach") {
+	if requiredEvidenceContains(request.RequiredEvidenceTools, FileDeliverToolName) {
 		return true
 	}
-	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, "file.attach")
+	return evidenceAnyOfContainsTool(request.OutcomeContract.RequiredEvidenceAnyOf, FileDeliverToolName)
 }
 
 func requiredArtifactFailureReplyIsInvalid(reply string) bool {
@@ -681,7 +681,7 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 		"Do not claim a tool result or attachment exists unless it appears below.",
 	}
 	if requiredArtifactWithoutAttachment(request, attachments) {
-		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no promoted attachment is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the artifact was not attached, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
+		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no delivered file evidence is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the file was not delivered, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
 	}
 	if observationSummary := buildLimitObservationSummary(observations); observationSummary != "" {
 		sections = append(sections, "Completed observations:\n"+observationSummary)

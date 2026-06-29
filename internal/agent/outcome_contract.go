@@ -445,7 +445,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, ArtifactDeliverToolName)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, FileDeliverToolName)
 	}
 	contract.ExpectedResults = expectedResultsForRequest(request, intakeDecision, executionPlan, hasExecutionPlan, contract.RequiredEvidenceTools, requiredAttachmentSuffixes)
 	contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
@@ -585,10 +585,10 @@ func removePlatformMessageSendContract(contract OutcomeContract) OutcomeContract
 
 func removeImplicitSiteFileContract(contract OutcomeContract) OutcomeContract {
 	contract.RequiredAttachmentSuffixes = nil
-	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, ArtifactDeliverToolName)
-	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, "file.attach")
-	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, ArtifactDeliverToolName)
-	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, "file.attach")
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, FileDeliverToolName)
+	contract.RequiredEvidenceTools = removeToolName(contract.RequiredEvidenceTools, FileAttachToolName)
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, FileDeliverToolName)
+	contract.RequiredEvidenceAnyOf = removeToolNameGroups(contract.RequiredEvidenceAnyOf, FileAttachToolName)
 	contract.ExpectedResults = removeExpectedResultsByType(contract.ExpectedResults, ExpectedResultTypeFile)
 	return contract
 }
@@ -736,8 +736,10 @@ func outcomeContractRequiresPublicLinkOnly(contract OutcomeContract) bool {
 
 func evidenceAnyOfContainsTool(groups [][]string, toolName string) bool {
 	for _, group := range groups {
-		if stringSliceContains(group, toolName) {
-			return true
+		for _, candidateToolName := range group {
+			if ToolNamesMatch(candidateToolName, toolName) {
+				return true
+			}
 		}
 	}
 	return false

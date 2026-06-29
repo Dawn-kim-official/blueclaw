@@ -44,7 +44,7 @@ func TestSkillSearchToolUsesSharedRetriever(t *testing.T) {
 		t.Fatalf("expected mail skill result, got %+v", resultDocument)
 	}
 	if !containsTestString(resultDocument.Skills[0].Tools, "mail.message.search") {
-		t.Fatalf("expected mail tools in result, got %+v", resultDocument.Skills[0].Tools)
+		t.Fatalf("expected mail operations in result, got %+v", resultDocument.Skills[0].Tools)
 	}
 }
 

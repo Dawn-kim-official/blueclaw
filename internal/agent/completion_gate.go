@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"strings"
 
 	"blueclaw/internal/task"
@@ -85,7 +84,7 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Co
 		files = append(files, map[string]string{"path": path})
 	}
 	return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, ToolInvocation{
-		ToolName: ArtifactDeliverToolName,
+		ToolName: FileDeliverToolName,
 		Input:    MarshalToolInput(map[string]any{"files": files}),
 	})
 }
@@ -153,7 +152,7 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 		return trimmedContent
 	}
 	if trimmedContent == "" {
-		trimmedContent = ArtifactDeliverToolName + " failed"
+		trimmedContent = FileDeliverToolName + " failed"
 	}
 	return trimmedContent + "\nrequested paths: " + strings.Join(paths, "\n")
 }
@@ -525,7 +524,7 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	}
 	if expectedResultRequiresFileAttachment(request.OutcomeContract) && len(attachments) == 0 {
 		return completionGateResult{
-			Message: "required file expected result must cite artifact.deliver completionEvidence",
+			Message: "required file expected result must cite file.deliver completionEvidence",
 		}
 	}
 	if missingSuffix := missingRequiredAttachmentSuffix(attachments, request.OutcomeContract.RequiredAttachmentSuffixes); len(attachments) > 0 && missingSuffix != "" {
@@ -533,10 +532,10 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 			Message: "required file expected result must include attachment suffix " + missingSuffix,
 		}
 	}
-	if expectedResultRequiresTool(request.OutcomeContract, "ask.choice") && !hasSuccessfulToolObservationForTurn(observations, "ask.choice") {
+	if expectedResultRequiresTool(request.OutcomeContract, AskInputToolName) && !hasSuccessfulToolObservationForTurn(observations, AskInputToolName) {
 		return completionGateResult{
-			Message:            "required interactive choice expected result must use ask.choice",
-			SuggestedNextTools: []string{"ask.choice"},
+			Message:            "required interactive choice expected result must use ask.input",
+			SuggestedNextTools: []string{AskInputToolName},
 		}
 	}
 	finishMessage := finishActionMessage(actionDocument)
@@ -582,7 +581,7 @@ func expectedResultRequiresTool(contract OutcomeContract, toolName string) bool 
 			continue
 		}
 		for _, hint := range result.AcceptanceHints {
-			if strings.TrimSpace(hint) == normalizedToolName {
+			if ToolNamesMatch(hint, normalizedToolName) {
 				return true
 			}
 		}
@@ -672,7 +671,7 @@ func hasSuccessfulToolObservationForTurn(observations []turnObservation, toolNam
 		return false
 	}
 	for _, observation := range observations {
-		if strings.TrimSpace(observation.Tool) == normalizedToolName && !observation.Failed() {
+		if ToolNamesMatch(observation.Tool, normalizedToolName) && !observation.Failed() {
 			return true
 		}
 	}
@@ -701,11 +700,6 @@ func validateCompletionGateForRequestWithRecoveryBudget(request AgentTurnRequest
 		result.Message = validityFailureMessage(result.ValidityState)
 		result.Attachments = nil
 		return result
-	}
-	if request.OutcomeContract.ArtifactRequirement == ArtifactRequirementRequired && !hasDurableArtifactAttachment(result.Attachments) {
-		result.IsSatisfied = false
-		result.Message = "required artifact completion must cite artifact.deliver evidence from artifacts/<slug>, /workspace/circles/<circleID>/..., or /workspace/shared/public/..."
-		result.Attachments = nil
 	}
 	return result
 }
@@ -744,23 +738,6 @@ func expectedResultGateMessage(results []ResultVerificationItem) string {
 		parts = append(parts, strings.TrimSpace(result.ID)+": "+strings.TrimSpace(description))
 	}
 	return "finish is missing required expected result: " + strings.Join(parts, "; ")
-}
-
-func hasDurableArtifactAttachment(attachments []FileAttachment) bool {
-	for _, attachment := range attachments {
-		if isDurableArtifactDevicePath(attachment.DevicePath) {
-			return true
-		}
-	}
-	return false
-}
-
-func isDurableArtifactDevicePath(devicePath string) bool {
-	normalizedPath := filepath.ToSlash(strings.TrimSpace(devicePath))
-	return strings.HasPrefix(normalizedPath, "artifacts/") ||
-		strings.HasPrefix(normalizedPath, "/workspace/private/people/") && strings.Contains(normalizedPath, "/artifacts/") ||
-		strings.HasPrefix(normalizedPath, "/workspace/circles/") ||
-		strings.HasPrefix(normalizedPath, "/workspace/shared/public/")
 }
 
 func requirementsWithFailureDebtWaiver(requirements []toolUseRequirement, observations []turnObservation, actionDocument turnActionDocument) []toolUseRequirement {
@@ -872,7 +849,7 @@ func evidenceMissingGuidance(evidenceKind string, message string) string {
 	case "required_tool_missing":
 		return "The final reply needs successful tool evidence before completion. Use the required tool if it has not run, or cite an existing successful observation. " + message
 	case "attachment_missing":
-		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use artifact.deliver before finish. " + message
+		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use file.deliver before finish. " + message
 	case "attachment_invalid":
 		return "The final reply needs valid attachment evidence. Recheck the artifact path and required suffix, then attach a valid file. " + message
 	case "evidence_reference_invalid":

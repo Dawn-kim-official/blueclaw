@@ -373,7 +373,7 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 		attachmentSuffixesForRequestedOutputFormats(intakeDecision.RequestedOutputFormats)...,
 	)
 	if len(selectionRequest.ActiveGoal.OutcomeContract.RequiredAttachmentSuffixes) > 0 {
-		selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools = appendUniqueStrings(selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools, ArtifactDeliverToolName)
+		selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools = appendUniqueStrings(selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools, FileDeliverToolName)
 	}
 	instructionBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(
 		ctx,

@@ -107,7 +107,7 @@ func browserPublicFetchRecoveryGuidance(observation turnObservation) string {
 	if !strings.HasPrefix(strings.TrimSpace(observation.Tool), "browser.") {
 		return ""
 	}
-	return "Recovery route: browser tools run on the user's Companion and are only for sign-in, page interaction, screenshots, or pages that block fetching. To read or copy public web page content, use web.fetch (or web.search) instead of a browser; only fall back to the browser handoff when fetching fails or the user explicitly asks for a visible browser. Do not pass a tool name or a localhost address as the browser URL."
+	return "Recovery route: browser capability operations run on the user's Companion and are only for sign-in, page interaction, screenshots, or pages that block fetching. To read or copy public web page content, use web.fetch (or web.search) instead of a browser; only fall back to the browser handoff when fetching fails or the user explicitly asks for a visible browser. Do not pass a tool name or a localhost address as the browser URL."
 }
 
 func terminalPathRecoveryGuidance(observation turnObservation) string {
@@ -116,9 +116,9 @@ func terminalPathRecoveryGuidance(observation turnObservation) string {
 	}
 	switch strings.TrimSpace(observation.FailureStage()) {
 	case "terminal_path_guardrail":
-		return "Recovery route: retry terminal.run with virtual workspace paths: tmp/<slug> for draft work, home/<path> for requester-private durable source work, and artifacts/<slug> only after promotion. Do not call /opt/blueclaw, /tmp, concrete private POSIX paths, or runtime-internal paths directly. For built-in artifact skills, execute /workspace/skills/<skill>/scripts/skill_runtime.py and let the wrapper choose dependencies."
+		return "Recovery route: retry terminal.run with virtual workspace paths: tmp/<slug> for draft work, home/<path> for requester-private durable source work, and artifacts/<slug> only when durable storage is explicitly needed. Do not call /opt/blueclaw, /tmp, concrete private POSIX paths, or runtime-internal paths directly. For built-in artifact skills, execute /workspace/skills/<skill>/scripts/skill_runtime.py and let the wrapper choose dependencies."
 	case "terminal_working_directory_access":
-		return "Recovery route: retry terminal.run with workingDirectoryPath set to tmp/<slug> or home/<path>, use relative paths inside the command, then promote accepted output to artifacts/<slug> or an allowed circle/shared path."
+		return "Recovery route: retry terminal.run with workingDirectoryPath set to tmp/<slug> or home/<path>, use relative paths inside the command, then deliver accepted output with file.deliver."
 	default:
 		if terminalCurrentDirectoryRecoveryNeeded(observation) {
 			return "Recovery route: the command could not read its current working directory. Retry terminal.run with an existing virtual workspace directory. For site projects, use site.app.status and run builds from appWorkspacePath such as home/sites/<siteID>/app, not source subdirectories like app/src; run scripts with relative paths from that app directory."

@@ -16,7 +16,14 @@ import (
 func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T) {
 	seed := int64(77)
 	temperature := 0.4
-	toolSet := NewToolSet([]string{"site.app.publish"})
+	toolSet := NewToolSet([]string{TerminalRunToolName, "site.app.publish"})
+	toolSet.RegisterTool(ToolDefinition{
+		Name:        TerminalRunToolName,
+		Description: "Run a command.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ran"), nil
+	})
 	toolSet.RegisterTool(ToolDefinition{
 		Name:        "site.app.publish",
 		Description: "Publish a site.",
@@ -58,8 +65,11 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if strings.Contains(request.StructuredOutputSchema.Document, `"call_tool"`) || strings.Contains(request.StructuredOutputSchema.Document, `"final_reply"`) || strings.Contains(request.StructuredOutputSchema.Document, `"finalReply"`) {
 		t.Fatalf("expected model-facing schema to omit legacy action aliases, got %s", request.StructuredOutputSchema.Document)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site.app.publish"]`) {
-		t.Fatalf("expected toolName enum to be preserved, got %s", request.StructuredOutputSchema.Document)
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["terminal.run"]`) {
+		t.Fatalf("expected kernel toolName enum to be preserved, got %s", request.StructuredOutputSchema.Document)
+	}
+	if strings.Contains(request.StructuredOutputSchema.Document, "site.app.publish") {
+		t.Fatalf("expected domain operation to stay out of model-facing schema, got %s", request.StructuredOutputSchema.Document)
 	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolInput"`) {
 		t.Fatalf("expected toolInput to be preserved, got %s", request.StructuredOutputSchema.Document)
@@ -67,8 +77,8 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if strings.Contains(request.StructuredOutputSchema.Document, `"nextStepPlan"`) {
 		t.Fatalf("expected continue action to omit nextStepPlan, got %s", request.StructuredOutputSchema.Document)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"requestTools"`) {
-		t.Fatalf("expected continue action to expose requestTools, got %s", request.StructuredOutputSchema.Document)
+	if strings.Contains(request.StructuredOutputSchema.Document, `"requestTools"`) {
+		t.Fatalf("expected continue action to omit requestTools, got %s", request.StructuredOutputSchema.Document)
 	}
 	finishVariant := actionSchemaVariant(t, request.StructuredOutputSchema.Document, "finish")
 	requiredFields := stringSliceFromAny(finishVariant["required"])
@@ -80,8 +90,8 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if strings.Contains(request.StructuredOutputSchema.Document, `"finishMessage"`) {
 		t.Fatalf("expected model-facing schema to omit legacy finishMessage, got %s", request.StructuredOutputSchema.Document)
 	}
-	if !strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["tool.request"]`) {
-		t.Fatalf("expected tool.request action in schema, got %s", request.StructuredOutputSchema.Document)
+	if strings.Contains(request.StructuredOutputSchema.Document, `"action":{"enum":["tool.request"]`) {
+		t.Fatalf("expected tool.request action to stay hidden, got %s", request.StructuredOutputSchema.Document)
 	}
 	if strings.Contains(request.StructuredOutputSchema.Document, "require_capabilities") {
 		t.Fatalf("expected model-facing schema to omit require_capabilities, got %s", request.StructuredOutputSchema.Document)
@@ -297,21 +307,21 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 	if errorValue := os.WriteFile(artifactPath, []byte("<html></html>"), 0o600); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	toolSet := NewToolSet([]string{"file.attach"})
-	toolSet.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("attached"), nil
+	toolSet := NewToolSet([]string{FileDeliverToolName})
+	toolSet.RegisterTool(ToolDefinition{Name: FileDeliverToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("delivered"), nil
 	})
 	state := agentTaskState{
 		Request: AgentTurnRequest{
 			Prompt:                     "HTML 파일 만들어줘",
 			ToolSet:                    toolSet,
 			WorkspaceRootPath:          workspaceRootPath,
-			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredEvidenceTools:      []string{FileDeliverToolName},
 			RequiredAttachmentSuffixes: []string{".html"},
 			TurnStartedAt:              time.Now().Add(-time.Second),
 		},
 		Requirements: []toolUseRequirement{{
-			ToolName:           "file.attach",
+			ToolName:           FileDeliverToolName,
 			RequiresAttachment: true,
 			AttachmentSuffixes: []string{".html"},
 		}},
@@ -320,10 +330,10 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 	transition := advanceAgentTask(state)
 
 	if transition.Effect.Kind != agentEffectContinue {
-		t.Fatalf("expected file attach effect, got %+v", transition.Effect)
+		t.Fatalf("expected file delivery effect, got %+v", transition.Effect)
 	}
-	if transition.Effect.ToolCall == nil || transition.Effect.ToolCall.ToolName != "file.attach" {
-		t.Fatalf("expected file.attach tool call, got %+v", transition.Effect.ToolCall)
+	if transition.Effect.ToolCall == nil || transition.Effect.ToolCall.ToolName != FileDeliverToolName {
+		t.Fatalf("expected file.deliver tool call, got %+v", transition.Effect.ToolCall)
 	}
 	if !strings.Contains(string(transition.Effect.ToolCall.Input), artifactPath) {
 		t.Fatalf("expected artifact path in tool input, got %s", string(transition.Effect.ToolCall.Input))

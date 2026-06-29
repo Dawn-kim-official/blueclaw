@@ -79,12 +79,6 @@ type fileAttachFileInput struct {
 	Title       string `json:"title"`
 }
 
-type filePromoteToolInput struct {
-	Path                     string `json:"path"`
-	DestinationDirectoryPath string `json:"destinationDirectoryPath"`
-	Overwrite                bool   `json:"overwrite"`
-}
-
 func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileWriteToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
@@ -178,23 +172,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 	})
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileAttachToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
-			Name:        "file.attach",
-			Description: "Attach one or more existing workspace files to the final reply evidence.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"files":{"type":"array","description":"One or more finished workspace files to attach in this single call.","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to an existing file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."}},"required":["path"]}}},"required":["files"]}`),
+			Name:            agent.FileDeliverToolName,
+			Description:     "Deliver one or more existing workspace files as final reply evidence.",
+			SideEffectClass: agent.ToolSideEffectStateChange,
+			InputSchema:     json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to one finished file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."},"files":{"type":"array","description":"One or more finished workspace files to deliver in this single call.","items":{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to an existing file."},"filename":{"type":"string","description":"Optional display filename."},"contentType":{"type":"string","description":"Optional MIME type."},"title":{"type":"string","description":"Optional attachment title."}},"required":["path"]}}}}`),
 		},
 		Handler: func(toolContext context.Context, input fileAttachToolInput) (agent.ToolResult, error) {
 			return toolCatalogBuilder.attachFileTool(toolContext, input, handlerContext)
-		},
-		Result: agent.IdentityToolResult,
-	})
-	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[filePromoteToolInput, agent.ToolResult]{
-		Definition: agent.ToolDefinition{
-			Name:        "file.promote",
-			Description: "Copy one finished draft file from tmp/<slug>/build into artifacts/<slug>/ or an allowed durable circle/shared directory before attaching. Use once per output file; do not pass a directory path.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"destinationDirectoryPath":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["path","destinationDirectoryPath"]}`),
-		},
-		Handler: func(toolContext context.Context, input filePromoteToolInput) (agent.ToolResult, error) {
-			return toolCatalogBuilder.promoteFileTool(toolContext, input, handlerContext)
 		},
 		Result: agent.IdentityToolResult,
 	})
@@ -1433,7 +1417,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
 	attachmentInputs := normalizeFileAttachInputs(input)
 	if len(attachmentInputs) == 0 {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_attach", "files must contain at least one path"), nil
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "files must contain at least one path"), nil
 	}
 	attachments := []agent.FileAttachment{}
 	for _, attachmentInput := range attachmentInputs {
@@ -1442,72 +1426,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) attachFileTool(toolContext context
 			return *failureResult, nil
 		}
 		if errorValue != nil {
-			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_attach", errorValue.Error()), nil
+			return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "file_deliver", errorValue.Error()), nil
 		}
 		attachments = append(attachments, attachment)
 	}
 	_ = toolContext
 	return agent.ToolResult{
-		Output:      agent.ToolOutput{Content: "files attached"},
+		Output:      agent.ToolOutput{Content: "files delivered"},
 		Attachments: attachments,
 	}, nil
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) promoteFileTool(toolContext context.Context, input filePromoteToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
-	sourcePath := strings.TrimSpace(input.Path)
-	if sourcePath == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "path is required"), nil
-	}
-	scope := toolCatalogBuilder.workspaceScopeForToolContext(toolContext, handlerContext.request)
-	resolver := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath)
-	destinationDirectory, errorValue := resolver.ResolveDirectory(input.DestinationDirectoryPath, scope)
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", errorValue.Error()), nil
-	}
-	if !destinationDirectory.IsDurableArtifact {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "destinationDirectoryPath must be artifacts/<slug>, /workspace/circles/<circleID>/..., or /workspace/shared/public/..."), nil
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, destinationDirectory.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_promote", "current account cannot write the promotion destination"), nil
-	}
-	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
-	if actorFailure != nil {
-		return *actorFailure, nil
-	}
-	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(destinationDirectory), workspaceDirectoryCreateMode(workspacepath.Directory(destinationDirectory))); errorValue != nil {
-		return actorToolFailure("mkdir_all", "file_promote", destinationDirectory.VirtualPath, errorValue), nil
-	}
-	source, errorValue := resolver.Resolve(sourcePath, scope)
-	if errorValue != nil {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", errorValue.Error()), nil
-	}
-	if source.Kind != workspacePathKindDraft {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source path must come from tmp/<slug> draft work"), nil
-	}
-	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, source.ConcretePath) {
-		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_promote", "current account cannot read the promotion source"), nil
-	}
-	sourceInformation, errorValue := workspaceActor.Stat(toolContext, source)
-	if errorValue != nil {
-		return actorToolFailure("stat", "file_promote", source.VirtualPath, errorValue), nil
-	}
-	if !sourceInformation.IsRegular {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "source path is a directory or non-file; promote each output file separately, for example tmp/<slug>/build/deck.html and tmp/<slug>/build/deck.pptx"), nil
-	}
-	destination := workspacepath.Directory(destinationDirectory).JoinVirtualFile(source.BaseName())
-	if !input.Overwrite {
-		if _, errorValue := workspaceActor.Stat(toolContext, destination); errorValue == nil {
-			return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_promote", "destination already exists; set overwrite=true to replace it"), nil
-		} else if !security.IsActorNotFoundError(errorValue) {
-			return actorToolFailure("stat", "file_promote", destination.VirtualPath, errorValue), nil
-		}
-	}
-	if errorValue := workspaceActor.CopyFile(toolContext, source, destination, workspaceFileCreateMode(destination), input.Overwrite); errorValue != nil {
-		return actorToolFailure("copy_file", "file_promote", destination.VirtualPath, errorValue), nil
-	}
-	return agent.ToolSuccess(marshalToolResult(map[string]any{
-		"path": destination.VirtualPath,
-	})), nil
 }
 
 func normalizeFileAttachInputs(input fileAttachToolInput) []fileAttachFileInput {
@@ -1528,16 +1455,16 @@ func normalizeFileAttachInputs(input fileAttachToolInput) []fileAttachFileInput 
 func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context.Context, input fileAttachFileInput, handlerContext toolHandlerContext, scope WorkspaceScope) (agent.FileAttachment, *agent.ToolResult, error) {
 	path := strings.TrimSpace(input.Path)
 	if path == "" {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_attach", "attachment path is required")
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "delivery path is required")
 		return agent.FileAttachment{}, &result, nil
 	}
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, scope)
 	if errorValue != nil {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_attach", errorValue.Error())
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", errorValue.Error())
 		return agent.FileAttachment{}, &result, nil
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_attach", "current account cannot read this file")
+		result := agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_deliver", "current account cannot read this file")
 		return agent.FileAttachment{}, &result, nil
 	}
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
@@ -1546,16 +1473,16 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context
 	}
 	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
 	if errorValue != nil {
-		result := actorToolFailure("stat", "file_attach", resolvedPath.VirtualPath, errorValue)
+		result := actorToolFailure("stat", "file_deliver", resolvedPath.VirtualPath, errorValue)
 		return agent.FileAttachment{}, &result, nil
 	}
 	if !fileInformation.IsRegular {
-		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_attach", "attachment path is not a regular file")
+		result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "file_deliver", "delivery path is not a regular file")
 		return agent.FileAttachment{}, &result, nil
 	}
 	document, errorValue := workspaceActor.ReadFile(toolContext, resolvedPath, inlineAttachmentMaximumBytes)
 	if errorValue != nil {
-		result := actorToolFailure("read_file", "file_attach", resolvedPath.VirtualPath, errorValue)
+		result := actorToolFailure("read_file", "file_deliver", resolvedPath.VirtualPath, errorValue)
 		return agent.FileAttachment{}, &result, nil
 	}
 	filename := attachmentFilename(input, resolvedPath.ConcretePath)

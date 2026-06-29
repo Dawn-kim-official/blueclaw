@@ -425,7 +425,7 @@ func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
 			{
 				Name:        "calendar",
 				Description: "Create or list calendar events.",
-				Prompt:      "Use calendar tools.",
+				Prompt:      "Follow calendar workflow.",
 				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SHA256: "two", SkillName: "calendar"},
 			},
 		},
@@ -445,7 +445,7 @@ func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
 	if !strings.Contains(selectedBundle.Prompt, "Generate slides.") {
 		t.Fatalf("expected selected skill body, got %q", selectedBundle.Prompt)
 	}
-	if strings.Contains(selectedBundle.Prompt, "Use calendar tools.") {
+	if strings.Contains(selectedBundle.Prompt, "Follow calendar workflow.") {
 		t.Fatalf("expected unselected skill body to stay out of prompt, got %q", selectedBundle.Prompt)
 	}
 }
@@ -457,28 +457,28 @@ func TestSiteArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 				Name:        "site-prototype",
 				Description: "Create, publish, and update website prototypes, homepages, web apps, landing pages, and deployed sites.",
 				WhenToUse:   "Use for website, homepage, web app, site, publish, deploy, 홈페이지, 웹사이트, 사이트, and 배포 requests.",
-				Prompt:      "Use site tools.",
+				Prompt:      "Follow site prototype workflow.",
 				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 			{
 				Name:        "mail",
 				Description: "Search, read, and send mail messages.",
 				WhenToUse:   "Use when the user wants to operate on real email.",
-				Prompt:      "Use mail tools.",
+				Prompt:      "Follow mail workflow.",
 				Source:      InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
 			},
 			{
 				Name:        "calendar",
 				Description: "Create, list, and update calendar events and schedules.",
 				WhenToUse:   "Use when the user wants to operate on real calendar data.",
-				Prompt:      "Use calendar tools.",
+				Prompt:      "Follow calendar workflow.",
 				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
 			},
 			{
 				Name:        "browser",
 				Description: "Control the browser and inspect web pages.",
 				WhenToUse:   "Use when the user wants interactive browser control.",
-				Prompt:      "Use browser tools.",
+				Prompt:      "Follow browser workflow.",
 				Source:      InstructionSource{Path: "skills/browser/SKILL.md", SkillName: "browser"},
 			},
 		},
@@ -509,7 +509,7 @@ func TestSiteArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 			t.Fatalf("expected %s not to be selected for site content mentions, got %+v", skillName, selectedBundle.SkillDecisions)
 		}
 	}
-	if strings.Contains(selectedBundle.Prompt, "Use mail tools.") || strings.Contains(selectedBundle.Prompt, "Use calendar tools.") || strings.Contains(selectedBundle.Prompt, "Use browser tools.") {
+	if strings.Contains(selectedBundle.Prompt, "Follow mail workflow.") || strings.Contains(selectedBundle.Prompt, "Follow calendar workflow.") || strings.Contains(selectedBundle.Prompt, "Follow browser workflow.") {
 		t.Fatalf("expected content-domain skill bodies to be omitted, got %q", selectedBundle.Prompt)
 	}
 }
@@ -521,28 +521,28 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 				Name:        "simple-slides",
 				Description: "Generate clean presentation slides with Marp and attach the requested files.",
 				WhenToUse:   "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
-				Prompt:      "Use simple-slides tools.",
+				Prompt:      "Follow slides workflow.",
 				Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
 			{
 				Name:        "mail",
 				Description: "Search, read, and send mail messages.",
 				WhenToUse:   "Use when the user wants to operate on real email.",
-				Prompt:      "Use mail tools.",
+				Prompt:      "Follow mail workflow.",
 				Source:      InstructionSource{Path: "skills/mail/SKILL.md", SkillName: "mail"},
 			},
 			{
 				Name:        "calendar",
 				Description: "Create, list, and update calendar events and schedules.",
 				WhenToUse:   "Use when the user wants to operate on real calendar data.",
-				Prompt:      "Use calendar tools.",
+				Prompt:      "Follow calendar workflow.",
 				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SkillName: "calendar"},
 			},
 			{
 				Name:        "browser",
 				Description: "Control the browser and inspect web pages.",
 				WhenToUse:   "Use when the user wants interactive browser control.",
-				Prompt:      "Use browser tools.",
+				Prompt:      "Follow browser workflow.",
 				Source:      InstructionSource{Path: "skills/browser/SKILL.md", SkillName: "browser"},
 			},
 		},
@@ -576,7 +576,7 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 			t.Fatalf("expected %s not to be selected for slides content mentions, got %+v", skillName, selectedBundle.SkillDecisions)
 		}
 	}
-	if strings.Contains(selectedBundle.Prompt, "Use mail tools.") || strings.Contains(selectedBundle.Prompt, "Use calendar tools.") || strings.Contains(selectedBundle.Prompt, "Use browser tools.") {
+	if strings.Contains(selectedBundle.Prompt, "Follow mail workflow.") || strings.Contains(selectedBundle.Prompt, "Follow calendar workflow.") || strings.Contains(selectedBundle.Prompt, "Follow browser workflow.") {
 		t.Fatalf("expected content-domain skill bodies to be omitted, got %q", selectedBundle.Prompt)
 	}
 }
@@ -588,14 +588,14 @@ func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
 				Name:        "site-prototype",
 				Description: "Create, publish, and update website prototypes, homepages, web apps, landing pages, and deployed sites.",
 				WhenToUse:   "Use for website, homepage, web app, site, publish, deploy, link, URL, 홈페이지, 웹사이트, 사이트, and 배포 requests.",
-				Prompt:      "Use site tools.",
+				Prompt:      "Follow site prototype workflow.",
 				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 			{
 				Name:        "docx",
 				Description: "Create, edit, and attach Word document files.",
 				WhenToUse:   "Use for Word, docx, 워드 파일, 문서, and report deliverables.",
-				Prompt:      "Use docx tools.",
+				Prompt:      "Follow docx workflow.",
 				Source:      InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"},
 			},
 		},
@@ -631,7 +631,7 @@ func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
 	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
 		t.Fatalf("expected site-prototype skipped for docx delivery, got %+v", selectedBundle.SkillDecisions)
 	}
-	if strings.Contains(selectedBundle.Prompt, "Use site tools.") {
+	if strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") {
 		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
 	}
 }
@@ -643,14 +643,14 @@ func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
 				Name:        "site-prototype",
 				Description: "Create, publish, update, and delete website prototypes.",
 				WhenToUse:   "Use for website, site, homepage, prototype, publish, deploy, update, and delete requests.",
-				Prompt:      "Use site tools.",
+				Prompt:      "Follow site prototype workflow.",
 				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 			{
 				Name:        "internkim-flow",
 				Description: "Add, find, update, or complete weekly work items and todos.",
 				WhenToUse:   "Use for 업무, 태스크, task, todo, add, update, delete, complete, and list requests.",
-				Prompt:      "Use flow task tools.",
+				Prompt:      "Follow flow task workflow.",
 				Source:      InstructionSource{Path: "skills/internkim-flow/SKILL.md", SkillName: "internkim-flow"},
 			},
 		},
@@ -678,7 +678,7 @@ func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
 	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
 		t.Fatalf("expected site-prototype skipped for flow task request, got %+v", selectedBundle.SkillDecisions)
 	}
-	if strings.Contains(selectedBundle.Prompt, "Use site tools.") {
+	if strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") {
 		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
 	}
 }
@@ -690,7 +690,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 				Name:         "site-prototype",
 				Description:  "Create, publish, and update website prototypes.",
 				WhenToUse:    "Use for website, site, publish, and deploy requests.",
-				Prompt:       "Use site tools.",
+				Prompt:       "Follow site prototype workflow.",
 				AllowedTools: []string{"site.app.status", "file.write", "site.app.build", "site.app.publish"},
 				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
@@ -698,7 +698,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 				Name:         "simple-slides",
 				Description:  "Create slide decks and presentation artifacts.",
 				WhenToUse:    "Use for slides and PPTX requests.",
-				Prompt:       "Use slides tools.",
+				Prompt:       "Follow slides workflow.",
 				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
 				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
@@ -732,7 +732,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "simple-slides", "selected") {
 		t.Fatalf("expected unrelated slides skill outside the site artifact contract to be skipped, got %+v", selectedBundle.SkillDecisions)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "Use site tools.") || strings.Contains(selectedBundle.Prompt, "Use slides tools.") {
+	if !strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") || strings.Contains(selectedBundle.Prompt, "Follow slides workflow.") {
 		t.Fatalf("expected only site instructions, got %q", selectedBundle.Prompt)
 	}
 }
@@ -751,11 +751,11 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 		t.Run(testCase.suffix, func(t *testing.T) {
 			instructionBundle := InstructionBundle{
 				Skills: []SkillInstruction{
-					{Name: "docx", Description: "Create Word documents.", Prompt: "Use docx tools.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"}},
-					{Name: "simple-slides", Description: "Create slide decks.", Prompt: "Use slides tools.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"}},
-					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Use xlsx tools.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
-					{Name: "pdf", Description: "Create PDFs.", Prompt: "Use pdf tools.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
-					{Name: "site-prototype", Description: "Create websites.", Prompt: "Use site tools.", AllowedTools: []string{"site.app.create", "site.app.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
+					{Name: "docx", Description: "Create Word documents.", Prompt: "Follow docx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"}},
+					{Name: "simple-slides", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"}},
+					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Follow xlsx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
+					{Name: "pdf", Description: "Create PDFs.", Prompt: "Follow pdf workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
+					{Name: "site-prototype", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.app.create", "site.app.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
 				},
 			}
 
@@ -792,7 +792,7 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 				Name:         "enterprise-document-maker",
 				Description:  "Create, edit, promote, and attach Word documents in .docx format for business reports.",
 				WhenToUse:    "Use for Word, docx, 워드, 보고서, and document deliverables.",
-				Prompt:       "Use document artifact tools.",
+				Prompt:       "Follow document artifact workflow.",
 				AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.attach"},
 				Completion: SkillCompletion{
 					RequiredEvidenceTools: []string{"file.promote", "file.attach"},
@@ -803,7 +803,7 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 				Name:         "public-web-builder",
 				Description:  "Create, update, build, and publish website prototypes with a public URL.",
 				WhenToUse:    "Use for website, homepage, landing page, web app, deploy, and publish requests.",
-				Prompt:       "Use web artifact tools.",
+				Prompt:       "Follow web artifact workflow.",
 				AllowedTools: []string{"file.write", "terminal.run", "site.app.create", "site.app.build", "site.app.publish"},
 				Source:       InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
 			},
@@ -864,15 +864,15 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 				Name:         "simple-slides",
 				Description:  "Generate clean presentation slides with Marp and attach the requested files.",
 				WhenToUse:    "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
-				Prompt:       "Use simple-slides tools.",
+				Prompt:       "Follow slides workflow.",
 				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
 				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
 			{
 				Name:         "internkim-flow",
-				Description:  "Manage InternKim todo tasks with flow.task tools.",
+				Description:  "Manage InternKim todo tasks with flow.task capability operations.",
 				WhenToUse:    "Use for 업무, 할 일, todo, task 등록, 목록, 완료, 수정 requests.",
-				Prompt:       "Use flow.task tools.",
+				Prompt:       "Use flow.task capability operations.",
 				AllowedTools: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
 				Source:       InstructionSource{Path: "skills/internkim-flow/SKILL.md", SkillName: "internkim-flow"},
 			},
@@ -906,7 +906,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "skipped") {
 		t.Fatalf("expected internkim-flow not to be skipped by simple-slides dominance, got %+v", selectedBundle.SkillDecisions)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "Use flow.task tools.") {
+	if !strings.Contains(selectedBundle.Prompt, "Use flow.task capability operations.") {
 		t.Fatalf("expected internkim-flow instructions in prompt, got %q", selectedBundle.Prompt)
 	}
 }
@@ -924,7 +924,7 @@ func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
 			{
 				Name:        "calendar",
 				Description: "Create or list calendar events.",
-				Prompt:      "Use calendar tools.",
+				Prompt:      "Follow calendar workflow.",
 				Source:      InstructionSource{Path: "skills/calendar/SKILL.md", SHA256: "two", SkillName: "calendar"},
 			},
 		},
@@ -944,7 +944,7 @@ func TestEmbeddingRetrieverSelectsSkillManagement(t *testing.T) {
 	if !strings.Contains(selectedBundle.Prompt, "Use skill.add and skill.remove.") {
 		t.Fatalf("expected selected skill-management body, got %q", selectedBundle.Prompt)
 	}
-	if strings.Contains(selectedBundle.Prompt, "Use calendar tools.") {
+	if strings.Contains(selectedBundle.Prompt, "Follow calendar workflow.") {
 		t.Fatalf("expected unselected skill body to stay out of prompt, got %q", selectedBundle.Prompt)
 	}
 }
@@ -992,7 +992,7 @@ func TestStructuredSkillQueryCanSkipSkillSearch(t *testing.T) {
 		Skills: []SkillInstruction{{
 			Name:        "mail",
 			Description: "Read, search, summarize, reply to, and send email messages.",
-			Prompt:      "Use mail tools.",
+			Prompt:      "Follow mail workflow.",
 		}},
 	}
 	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
@@ -1005,7 +1005,7 @@ func TestStructuredSkillQueryCanSkipSkillSearch(t *testing.T) {
 	if selectedBundle.RetrievalMode != "structured_query" || selectedBundle.IndexStatus != "empty_query" {
 		t.Fatalf("expected empty structured query, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
 	}
-	if len(selectedBundle.SkillDecisions) != 0 || strings.Contains(selectedBundle.Prompt, "Use mail tools.") {
+	if len(selectedBundle.SkillDecisions) != 0 || strings.Contains(selectedBundle.Prompt, "Follow mail workflow.") {
 		t.Fatalf("expected no selected skills, got decisions=%+v prompt=%q", selectedBundle.SkillDecisions, selectedBundle.Prompt)
 	}
 }
@@ -1024,7 +1024,7 @@ func TestStructuredSkillQuerySelectsMailSkill(t *testing.T) {
 			{
 				Name:        "calendar",
 				Description: "Create and list calendar events.",
-				Prompt:      "Use calendar tools.",
+				Prompt:      "Follow calendar workflow.",
 			},
 		},
 	}
@@ -1055,7 +1055,7 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 				Name:         "public-web-builder",
 				Description:  "Create, update, build, and publish website prototypes with public URLs.",
 				WhenToUse:    "Use for website, homepage, web app, landing page, deploy, and publish requests.",
-				Prompt:       "Use website build and publish tools.",
+				Prompt:       "Follow website build and publish workflow.",
 				AllowedTools: []string{"file.write", "terminal.run", "site.app.create", "site.app.build", "site.app.publish"},
 				Source:       InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
 			},
@@ -1129,7 +1129,7 @@ func TestContractSkillArbitrationDoesNotRunWithoutOutcomeContract(t *testing.T) 
 		Skills: []SkillInstruction{{
 			Name:         "mail",
 			Description:  "Read mail.",
-			Prompt:       "Use mail tools.",
+			Prompt:       "Follow mail workflow.",
 			AllowedTools: []string{"mail.message.search"},
 		}},
 	}
