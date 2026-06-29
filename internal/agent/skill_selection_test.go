@@ -636,6 +636,53 @@ func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
 	}
 }
 
+func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{
+				Name:        "site-prototype",
+				Description: "Create, publish, update, and delete website prototypes.",
+				WhenToUse:   "Use for website, site, homepage, prototype, publish, deploy, update, and delete requests.",
+				Prompt:      "Use site tools.",
+				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+			},
+			{
+				Name:        "internkim-flow",
+				Description: "Add, find, update, or complete weekly work items and todos.",
+				WhenToUse:   "Use for 업무, 태스크, task, todo, add, update, delete, complete, and list requests.",
+				Prompt:      "Use flow task tools.",
+				Source:      InstructionSource{Path: "skills/internkim-flow/SKILL.md", SkillName: "internkim-flow"},
+			},
+		},
+	}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{
+			{Name: "site-prototype", Score: 30, Reason: "bm25_fallback"},
+			{Name: "internkim-flow", Score: 8, Reason: "bm25_fallback"},
+		},
+		RetrievalMode: "bm25_fallback",
+		IndexStatus:   "ready",
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:    "테스트 태스크를 생성하고 수정한 다음 삭제해줘",
+		WorkKinds: []string{WorkKindFlowTask},
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			ArtifactRequirement: ArtifactRequirementNone,
+		}},
+	}, retriever)
+
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "selected") {
+		t.Fatalf("expected internkim-flow selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
+		t.Fatalf("expected site-prototype skipped for flow task request, got %+v", selectedBundle.SkillDecisions)
+	}
+	if strings.Contains(selectedBundle.Prompt, "Use site tools.") {
+		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
+	}
+}
+
 func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
