@@ -124,8 +124,6 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 	switch toolName {
 	case "file.write", "file.edit", "file.patch":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "file_change", Tool: toolName}, true
-	case "site.build":
-		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "site_build", Tool: toolName}, true
 	case "site.publish":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "site_publish", Tool: toolName}, true
 	case FileDeliverToolName:

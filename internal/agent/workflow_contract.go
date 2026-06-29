@@ -63,12 +63,6 @@ var workflowContracts = []workflowContract{
 			},
 			{
 				ObjectType:         "website",
-				Effect:             "built",
-				Description:        "current request asks for a website change, so a successful current build must be observed",
-				SuggestedNextTools: []string{TerminalRunToolName},
-			},
-			{
-				ObjectType:         "website",
 				Effect:             "published",
 				Description:        "current request asks for a website change, so a successful current publish must be observed",
 				SuggestedNextTools: []string{TerminalRunToolName},

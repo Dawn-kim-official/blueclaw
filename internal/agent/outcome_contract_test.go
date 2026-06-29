@@ -72,7 +72,7 @@ func TestOutcomeContractRequiresCurrentEffectsForSiteModification(t *testing.T) 
 		AgentRequest{
 			Prompt:    "예쁜 귤 웹사이트 퀄리티가 너무 낮아. 더 예쁘게 해줘.",
 			WorkKinds: []string{WorkKindSitePrototype},
-			ToolSet:   newTestToolSet([]string{"site.status", "file.edit", "site.build", "site.publish"}),
+			ToolSet:   newTestToolSet([]string{"site.status", "file.edit", "site.publish"}),
 		},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
 		InstructionBundle{},
@@ -83,7 +83,6 @@ func TestOutcomeContractRequiresCurrentEffectsForSiteModification(t *testing.T) 
 
 	for _, expectedEffect := range []OutcomeEffect{
 		{ObjectType: "workspace", Effect: "modified"},
-		{ObjectType: "website", Effect: "built"},
 		{ObjectType: "website", Effect: "published"},
 	} {
 		if !outcomeEffectsContain(contract.RequiredEffects, expectedEffect.ObjectType, expectedEffect.Effect) {
@@ -145,7 +144,7 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 		Skills: []SkillInstruction{{
 			Name: "site-prototype",
 			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish"},
+				RequiredEvidenceTools: []string{"site.status", "site.publish"},
 			},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
@@ -215,7 +214,7 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 			{
 				Name: "site-prototype",
 				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish"},
+					RequiredEvidenceTools: []string{"site.status", "site.publish"},
 				},
 			},
 		},
@@ -316,7 +315,7 @@ func TestOutcomeContractDoesNotPromoteSiteHintsForMessageDeleteContinuation(t *t
 			{
 				Name: "site-prototype",
 				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"site.status", "site.build", "artifact.review", "site.publish"},
+					RequiredEvidenceTools: []string{"site.status", "artifact.review", "site.publish"},
 				},
 			},
 		},
@@ -329,14 +328,14 @@ func TestOutcomeContractDoesNotPromoteSiteHintsForMessageDeleteContinuation(t *t
 		Prompt: "해",
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			ArtifactRequirement:   ArtifactRequirementNone,
-			SelectedEvidenceHints: []string{"message.delete", "message.send", "site.status", "site.build", "artifact.review", "site.publish"},
+			SelectedEvidenceHints: []string{"message.delete", "message.send", "site.status", "artifact.review", "site.publish"},
 			Source:                "execution_plan",
 		}},
 	}
 
 	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
 
-	for _, toolName := range []string{"site.status", "site.build", "artifact.review", "site.publish"} {
+	for _, toolName := range []string{"site.status", "artifact.review", "site.publish"} {
 		if stringSliceContains(contract.RequiredEvidenceTools, toolName) {
 			t.Fatalf("expected message delete continuation not to require %s, got %+v", toolName, contract)
 		}

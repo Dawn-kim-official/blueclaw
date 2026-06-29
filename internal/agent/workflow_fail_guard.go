@@ -28,11 +28,7 @@ func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnO
 	if sourceChangeIndex < 0 {
 		return nil
 	}
-	buildIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.build"}, sourceChangeIndex)
-	if buildIndex < 0 && toolAvailableForAction(request.ToolSet, "site.build") {
-		return []string{"site.build"}
-	}
-	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.publish"}, maxInt(sourceChangeIndex, buildIndex))
+	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.publish"}, sourceChangeIndex)
 	if publishIndex < 0 && toolAvailableForAction(request.ToolSet, "site.publish") {
 		return []string{"site.publish"}
 	}
