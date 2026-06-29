@@ -234,7 +234,7 @@ func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {
 	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) || expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) {
 		return true
 	}
-	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.app.") || activeGoalRequiresTool(request.ActiveGoal, FileDeliverToolName) {
+	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") || activeGoalRequiresTool(request.ActiveGoal, FileDeliverToolName) {
 		return true
 	}
 	text := strings.ToLower(strings.Join(nonEmptyStrings([]string{

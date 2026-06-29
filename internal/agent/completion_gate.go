@@ -219,15 +219,15 @@ func completionStateToolReply(state CompletionState) string {
 			return "예약을 수정했습니다."
 		case "schedule.cancel":
 			return "예약을 취소했습니다."
-		case "calendar.event.add":
+		case "calendar.add":
 			return "일정을 등록했습니다."
-		case "calendar.event.update":
+		case "calendar.update":
 			return "일정을 수정했습니다."
-		case "calendar.event.delete":
+		case "calendar.delete":
 			return "일정을 삭제했습니다."
-		case "flow.task.add":
+		case "task.add":
 			return "업무를 등록했습니다."
-		case "flow.task.update":
+		case "task.update":
 			return "업무를 수정했습니다."
 		case "google.gmail.send":
 			return "메일을 보냈습니다."
@@ -640,7 +640,7 @@ func requiredSendToolNamesForRequest(request AgentTurnRequest) []string {
 	if len(toolNames) > 0 {
 		return toolNames
 	}
-	return []string{"platform.message.send"}
+	return []string{"message.send"}
 }
 
 func sendCompletionEvidenceRequiredMessage(toolNames []string) string {

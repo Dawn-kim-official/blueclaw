@@ -3,7 +3,7 @@ package agent
 import "testing"
 
 func TestWorkflowContractDerivesFlowTaskWorkKindAndTools(t *testing.T) {
-	toolSet := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
 	request := AgentRequest{
 		Prompt:  "업무 등록해줘",
 		ToolSet: toolSet,
@@ -15,7 +15,7 @@ func TestWorkflowContractDerivesFlowTaskWorkKindAndTools(t *testing.T) {
 	}
 
 	toolNames := workflowToolNamesForWorkKinds(toolSet, workKinds)
-	for _, toolName := range []string{"flow.task.add", "flow.task.list", "flow.task.update"} {
+	for _, toolName := range []string{"task.add", "task.list", "task.update"} {
 		if !stringSliceContains(toolNames, toolName) {
 			t.Fatalf("expected workflow tool %s, got %+v", toolName, toolNames)
 		}
@@ -24,21 +24,21 @@ func TestWorkflowContractDerivesFlowTaskWorkKindAndTools(t *testing.T) {
 
 func TestWorkflowContractDerivesSitePrototypeWorkKindAndTools(t *testing.T) {
 	toolSet := newTestToolSet([]string{
-		"site.app.status",
-		"site.app.create",
-		"site.app.repair",
+		"site.status",
+		"site.create",
+		"site.repair",
 		"file.read",
 		"file.write",
 		"file.edit",
 		"file.patch",
 		"terminal.run",
-		"site.app.build",
+		"site.build",
 		"artifact.review",
-		"site.app.preview",
+		"site.preview",
 		"browser.open",
 		"browser.snapshot",
 		"browser.screenshot",
-		"site.app.publish",
+		"site.publish",
 	})
 	request := AgentRequest{
 		Prompt:  "사이트 버튼 기능 수정하고 다시 배포해줘",
@@ -51,7 +51,7 @@ func TestWorkflowContractDerivesSitePrototypeWorkKindAndTools(t *testing.T) {
 	}
 
 	toolNames := workflowToolNamesForWorkKinds(toolSet, workKinds)
-	for _, toolName := range []string{"site.app.status", "site.app.repair", "file.read", "file.write", "file.edit", "file.patch", "site.app.build", "artifact.review", "site.app.publish"} {
+	for _, toolName := range []string{"site.status", "site.repair", "file.read", "file.write", "file.edit", "file.patch", "site.build", "artifact.review", "site.publish"} {
 		if !stringSliceContains(toolNames, toolName) {
 			t.Fatalf("expected workflow tool %s, got %+v", toolName, toolNames)
 		}
@@ -59,14 +59,14 @@ func TestWorkflowContractDerivesSitePrototypeWorkKindAndTools(t *testing.T) {
 }
 
 func TestWorkflowContractSelectsFlowTaskEvidenceByIntent(t *testing.T) {
-	toolSet := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
 	tests := []struct {
 		prompt           string
 		expectedToolName string
 	}{
-		{prompt: "업무 등록해줘", expectedToolName: "flow.task.add"},
-		{prompt: "업무 목록 보여줘", expectedToolName: "flow.task.list"},
-		{prompt: "업무 완료 처리해줘", expectedToolName: "flow.task.update"},
+		{prompt: "업무 등록해줘", expectedToolName: "task.add"},
+		{prompt: "업무 목록 보여줘", expectedToolName: "task.list"},
+		{prompt: "업무 완료 처리해줘", expectedToolName: "task.update"},
 	}
 
 	for _, test := range tests {
@@ -83,13 +83,13 @@ func TestWorkflowContractSelectsFlowTaskEvidenceByIntent(t *testing.T) {
 }
 
 func TestWorkflowContractSelectsSitePrototypeEvidenceByIntent(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.app.status", "site.app.publish"})
+	toolSet := newTestToolSet([]string{"site.status", "site.publish"})
 	tests := []struct {
 		prompt           string
 		expectedToolName string
 	}{
-		{prompt: "사이트 버튼 기능 수정하고 다시 배포해줘", expectedToolName: "site.app.publish"},
-		{prompt: "사이트 상태 확인해줘", expectedToolName: "site.app.status"},
+		{prompt: "사이트 버튼 기능 수정하고 다시 배포해줘", expectedToolName: "site.publish"},
+		{prompt: "사이트 상태 확인해줘", expectedToolName: "site.status"},
 	}
 
 	for _, test := range tests {
@@ -106,7 +106,7 @@ func TestWorkflowContractSelectsSitePrototypeEvidenceByIntent(t *testing.T) {
 }
 
 func TestWorkflowContractRequiresSiteModificationEffectsByDefault(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.app.status", "file.edit", "file.patch", "file.write", "site.app.build", "site.app.publish"})
+	toolSet := newTestToolSet([]string{"site.status", "file.edit", "file.patch", "file.write", "site.build", "site.publish"})
 	request := AgentRequest{
 		Prompt:    "예쁜 귤 웹사이트 퀄리티가 너무 낮아. 더 예쁘게 해줘.",
 		ToolSet:   toolSet,
@@ -127,7 +127,7 @@ func TestWorkflowContractRequiresSiteModificationEffectsByDefault(t *testing.T) 
 }
 
 func TestWorkflowContractRequiresOnlySiteReadEffectForStatusIntent(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.app.status", "site.app.publish"})
+	toolSet := newTestToolSet([]string{"site.status", "site.publish"})
 	request := AgentRequest{
 		Prompt:    "예쁜 귤 웹사이트 주소 확인해줘",
 		ToolSet:   toolSet,
@@ -142,7 +142,7 @@ func TestWorkflowContractRequiresOnlySiteReadEffectForStatusIntent(t *testing.T)
 }
 
 func TestWorkflowContractDerivesSitePrototypeWorkKindForQualityRequest(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.app.status", "file.edit", "site.app.build", "site.app.publish"})
+	toolSet := newTestToolSet([]string{"site.status", "file.edit", "site.build", "site.publish"})
 	request := AgentRequest{
 		Prompt:  "예쁜 귤 웹사이트 퀄리티가 너무 낮잖아. 더 예쁘게 해줘.",
 		ToolSet: toolSet,

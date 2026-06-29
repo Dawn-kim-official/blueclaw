@@ -50,7 +50,7 @@ func TestTerminalRunCommandRequestTreatsCommandWithArgumentsAsExecutable(t *test
 		Arguments: []string{
 			"/workspace/tools/capability",
 			"invoke",
-			"flow.task.add",
+			"task.add",
 			`{"prompt":"test"}`,
 		},
 		WorkingDirectoryPath: "/workspace",
@@ -63,7 +63,7 @@ func TestTerminalRunCommandRequestTreatsCommandWithArgumentsAsExecutable(t *test
 	if commandRequest.ExecutableName != "/workspace/tools/capability" {
 		t.Fatalf("expected executable command, got %q", commandRequest.ExecutableName)
 	}
-	expectedArguments := []string{"invoke", "flow.task.add", `{"prompt":"test"}`}
+	expectedArguments := []string{"invoke", "task.add", `{"prompt":"test"}`}
 	if strings.Join(commandRequest.Arguments, "\n") != strings.Join(expectedArguments, "\n") {
 		t.Fatalf("expected normalized arguments %+v, got %+v", expectedArguments, commandRequest.Arguments)
 	}

@@ -299,7 +299,7 @@ func satisfiedOneShotEvidenceRequirementsCanFinalize(requirements []toolUseRequi
 
 func isOneShotCompletionEvidenceTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "calendar.event.add", "calendar.event.update", "calendar.event.delete", "flow.task.add", "flow.task.update", "schedule.create", "schedule.update", "schedule.cancel", "google.calendar.event", "google.gmail.send":
+	case "calendar.add", "calendar.update", "calendar.delete", "task.add", "task.update", "schedule.create", "schedule.update", "schedule.cancel", "google.calendar.event", "google.gmail.send":
 		return true
 	default:
 		return false

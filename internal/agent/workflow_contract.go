@@ -33,16 +33,16 @@ type workflowScope struct {
 var workflowContracts = []workflowContract{
 	{
 		WorkKind:             WorkKindSitePrototype,
-		ActiveGoalToolPrefix: "site.app.",
+		ActiveGoalToolPrefix: "site.",
 		ToolNames:            KernelToolNames(),
 		PromptMatcher:        workflowTextLooksLikeSitePrototypeWork,
 		EvidenceTools: []workflowIntentEvidenceTool{
 			{
-				ToolName: "site.app.status",
+				ToolName: "site.status",
 				Keywords: []string{"상태", "확인", "조회", "주소", "링크", "url", "status", "inspect", "check", "link"},
 			},
 		},
-		DefaultEvidenceToolName: "site.app.publish",
+		DefaultEvidenceToolName: "site.publish",
 		EffectRequirements: []workflowIntentEffectRequirement{
 			{
 				Requirements: []OutcomeEffect{{
@@ -77,25 +77,25 @@ var workflowContracts = []workflowContract{
 	},
 	{
 		WorkKind:             WorkKindCalendar,
-		ActiveGoalToolPrefix: "calendar.event.",
+		ActiveGoalToolPrefix: "calendar.",
 		ToolNames:            KernelToolNames(),
 	},
 	{
 		WorkKind:             WorkKindFlowTask,
-		ActiveGoalToolPrefix: "flow.task.",
+		ActiveGoalToolPrefix: "task.",
 		ToolNames:            KernelToolNames(),
 		PromptMatcher:        workflowTextLooksLikeFlowTaskWork,
 		EvidenceTools: []workflowIntentEvidenceTool{
 			{
-				ToolName: "flow.task.list",
+				ToolName: "task.list",
 				Keywords: []string{"목록", "리스트", "조회", "보여", "찾아", "find", "list", "show"},
 			},
 			{
-				ToolName: "flow.task.update",
+				ToolName: "task.update",
 				Keywords: []string{"수정", "변경", "완료", "처리", "마감", "상태", "update", "change", "complete", "done"},
 			},
 		},
-		DefaultEvidenceToolName: "flow.task.add",
+		DefaultEvidenceToolName: "task.add",
 	},
 }
 
@@ -299,7 +299,7 @@ func workflowTextLooksLikeFlowTaskWork(scope workflowScope) bool {
 
 func workflowTextLooksLikeSitePrototypeWork(scope workflowScope) bool {
 	text := workflowScopeText(scope)
-	if strings.Contains(text, "site.app.") {
+	if strings.Contains(text, "site.") {
 		return true
 	}
 	if !containsAny(text, []string{"사이트", "웹사이트", "홈페이지", "랜딩", "website", "site", "landing"}) {

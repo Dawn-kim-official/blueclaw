@@ -15,11 +15,11 @@ import (
 const toolRegistryVersion = "platform-message-v1"
 
 var newPlatformMessageToolNames = []string{
-	"platform.message.context",
-	"platform.message.search",
-	"platform.message.send",
-	"platform.message.update",
-	"platform.message.delete",
+	"message.context",
+	"message.search",
+	"message.send",
+	"message.update",
+	"message.delete",
 }
 
 var oldPlatformMessageToolNames = []string{
@@ -92,7 +92,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 		PlatformMessageDescriptorHash: hashCapabilityDescriptors(configuredPlatformMessageDescriptors),
 		AllowedToolHash:               hashStrings(allowedToolNames),
 		HasScheduleUpdate:             registryContainsString(allowedToolNames, "schedule.update"),
-		HasPlatformMessageDelete:      registryContainsString(configuredNames, "platform.message.delete"),
+		HasPlatformMessageDelete:      registryContainsString(configuredNames, "message.delete"),
 		HasOldMattermostPostDelete:    registryContainsString(configuredNames, "mattermost.post.delete"),
 		HasOldPlatformDMInspect:       registryContainsString(configuredNames, "platform.dm.inspect"),
 	}
@@ -108,7 +108,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) BuildToolRegistryAudit(ctx context
 	liveNames := capabilityDescriptorNames(liveDescriptors)
 	audit.LiveCapabilityHash = liveHash
 	audit.LivePlatformMessageDescriptorHash = hashCapabilityDescriptors(platformMessageCapabilityDescriptors(liveDescriptors))
-	audit.LiveHasPlatformMessageDelete = registryContainsString(liveNames, "platform.message.delete")
+	audit.LiveHasPlatformMessageDelete = registryContainsString(liveNames, "message.delete")
 	audit.LiveHasOldMattermostPostDelete = registryContainsString(liveNames, "mattermost.post.delete")
 	audit.LiveHasOldPlatformDMInspect = registryContainsString(liveNames, "platform.dm.inspect")
 
@@ -131,7 +131,7 @@ func capabilityDescriptorNames(toolDescriptors []CapabilityToolDescriptor) []str
 }
 
 func requiresLiveMessageRegistryCheck(toolNames []string) bool {
-	return registryContainsString(toolNames, "platform.message.delete") || registryContainsAnyString(toolNames, oldPlatformMessageToolNames)
+	return registryContainsString(toolNames, "message.delete") || registryContainsAnyString(toolNames, oldPlatformMessageToolNames)
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) liveCapabilityToolDescriptors(ctx context.Context) ([]CapabilityToolDescriptor, string, error) {
@@ -177,7 +177,7 @@ func platformMessageCapabilityDescriptors(toolDescriptors []CapabilityToolDescri
 }
 
 func isPlatformMessageToolName(toolName string) bool {
-	return strings.HasPrefix(strings.TrimSpace(toolName), "platform.message.")
+	return strings.HasPrefix(strings.TrimSpace(toolName), "message.")
 }
 
 func hashCapabilityDescriptors(toolDescriptors []CapabilityToolDescriptor) string {

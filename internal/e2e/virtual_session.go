@@ -981,25 +981,25 @@ func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
 
 func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 	switch toolName {
-	case "site.app.create":
-		return `{"provider":"virtual","toolName":"site.app.create","status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
-	case "site.app.publish":
-		return `{"provider":"virtual","toolName":"site.app.publish","status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.example.test"}}`
-	case "site.app.build":
-		return `{"provider":"virtual","toolName":"site.app.build","status":"ok","result":{"siteID":"site-1","status":"built","buildID":"build-1"}}`
-	case "site.app.status":
-		return `{"provider":"virtual","toolName":"site.app.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
-	case "site.app.logs":
-		return `{"provider":"virtual","toolName":"site.app.logs","status":"ok","result":{"logs":[]}}`
+	case "site.create":
+		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
+	case "site.publish":
+		return `{"provider":"virtual","toolName":"site.publish","status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.example.test"}}`
+	case "site.build":
+		return `{"provider":"virtual","toolName":"site.build","status":"ok","result":{"siteID":"site-1","status":"built","buildID":"build-1"}}`
+	case "site.status":
+		return `{"provider":"virtual","toolName":"site.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
+	case "site.logs":
+		return `{"provider":"virtual","toolName":"site.logs","status":"ok","result":{"logs":[]}}`
 	case "image.read":
 		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
 		return `{"provider":"virtual","toolName":"web.search","status":"ok","content":"BlueclawSearchStubToken virtual search result","result":{"query":"current external information acceptance test","results":[{"title":"BlueclawSearchStubToken result","url":"https://example.test/blueclaw-search-stub","snippet":"Deterministic virtual search result for BlueclawSearchStubToken."}]}}`
-	case "platform.message.send":
+	case "message.send":
 		if virtualPlatformMessageSendRequiresApproval(requestBody) {
-			return `{"provider":"virtual","toolName":"platform.message.send","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
+			return `{"provider":"virtual","toolName":"message.send","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
 		}
-		return `{"provider":"virtual","toolName":"platform.message.send","status":"ok","content":"sent virtual platform message virtual-platform-message-001","result":{"messageID":"virtual-platform-message-001","deliveryStatus":"sent"}}`
+		return `{"provider":"virtual","toolName":"message.send","status":"ok","content":"sent virtual platform message virtual-platform-message-001","result":{"messageID":"virtual-platform-message-001","deliveryStatus":"sent"}}`
 	default:
 		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true,"request":` + jsonObjectOrEmpty(requestBody) + `}}`
 	}
@@ -1322,7 +1322,7 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		}
 	}
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
-		if !eventsContain(turnResult.Events, "tool."+toolName+".requested", toolName) {
+		if !requestedToolCallPresent(turnResult.Events, toolName) {
 			return fmt.Errorf("expected requested tool %q; events: %s", toolName, summarizeEvents(turnResult.Events))
 		}
 	}
@@ -1332,7 +1332,7 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 		}
 	}
 	for toolName, expectedCount := range virtualTurn.ExpectedToolCallCounts {
-		actualCount := countEvents(turnResult.Events, "tool."+toolName+".requested")
+		actualCount := countRequestedToolCalls(turnResult.Events, toolName)
 		if actualCount != expectedCount {
 			return fmt.Errorf("expected %d requested %s calls, got %d; events: %s", expectedCount, toolName, actualCount, summarizeEvents(turnResult.Events))
 		}
@@ -1502,6 +1502,23 @@ func countEvents(events []task.TaskEvent, name string) int {
 		}
 	}
 	return count
+}
+
+func requestedToolCallPresent(events []task.TaskEvent, toolName string) bool {
+	if eventsContain(events, "tool."+toolName+".requested", toolName) {
+		return true
+	}
+	return eventsContain(events, "tool.capability.invoke.requested", capabilityOperationFragment(toolName))
+}
+
+func countRequestedToolCalls(events []task.TaskEvent, toolName string) int {
+	directCount := countEvents(events, "tool."+toolName+".requested")
+	verbCount := countEventsWithFragment(events, "tool.capability.invoke.requested", capabilityOperationFragment(toolName))
+	return directCount + verbCount
+}
+
+func capabilityOperationFragment(toolName string) string {
+	return `"operation":"` + toolName + `"`
 }
 
 func countEventsWithFragment(events []task.TaskEvent, name string, bodyFragment string) int {

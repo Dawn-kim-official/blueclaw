@@ -5,7 +5,7 @@ import "testing"
 func TestObservedResultProjectionReportsCalendarClaimWithoutCalendarFact(t *testing.T) {
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
-		AgentTurnRequest{ToolSet: newTestToolSet([]string{"calendar.event.add"})},
+		AgentTurnRequest{ToolSet: newTestToolSet([]string{"calendar.add"})},
 		[]turnObservation{newContentObservation("obs-001", "continue", "ask.input", "시간을 알려주세요.")},
 		nil,
 		turnActionDocument{
@@ -22,7 +22,7 @@ func TestObservedResultProjectionReportsCalendarClaimWithoutCalendarFact(t *test
 	if requirement.ObjectType != "calendar_event" || requirement.Effect != "scheduled" {
 		t.Fatalf("expected missing calendar scheduled fact, got %+v", requirement)
 	}
-	if len(requirement.SuggestedNextTools) != 1 || requirement.SuggestedNextTools[0] != "calendar.event.add" {
+	if len(requirement.SuggestedNextTools) != 1 || requirement.SuggestedNextTools[0] != "calendar.add" {
 		t.Fatalf("expected calendar add suggestion, got %+v", requirement.SuggestedNextTools)
 	}
 }
@@ -30,8 +30,8 @@ func TestObservedResultProjectionReportsCalendarClaimWithoutCalendarFact(t *test
 func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing.T) {
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
-		AgentTurnRequest{ToolSet: newTestToolSet([]string{"calendar.event.add"})},
-		[]turnObservation{newContentObservation("obs-001", "continue", "calendar.event.add", `{"id":"event-1","title":"미팅"}`)},
+		AgentTurnRequest{ToolSet: newTestToolSet([]string{"calendar.add"})},
+		[]turnObservation{newContentObservation("obs-001", "continue", "calendar.add", `{"id":"event-1","title":"미팅"}`)},
 		nil,
 		turnActionDocument{
 			Action:        "finish",
@@ -51,8 +51,8 @@ func TestObservedResultProjectionAcceptsCalendarClaimWithCalendarFact(t *testing
 func TestObservedResultProjectionReportsWebsitePublishClaimWithoutPublishFact(t *testing.T) {
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
-		AgentTurnRequest{ToolSet: newTestToolSet([]string{"site.app.publish"})},
-		[]turnObservation{newContentObservation("obs-001", "continue", "site.app.create", `{"siteID":"site-1","title":"Portfolio"}`)},
+		AgentTurnRequest{ToolSet: newTestToolSet([]string{"site.publish"})},
+		[]turnObservation{newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1","title":"Portfolio"}`)},
 		nil,
 		turnActionDocument{
 			Action:        "finish",
@@ -71,7 +71,7 @@ func TestObservedResultProjectionReportsWebsitePublishClaimWithoutPublishFact(t 
 }
 
 func TestObservedResultProjectionDoesNotTreatUnpublishedStatusAsPublished(t *testing.T) {
-	facts := factsFromObservation(newContentObservation("obs-001", "continue", "site.app.status", `{"siteID":"site-1","status":"unpublished"}`))
+	facts := factsFromObservation(newContentObservation("obs-001", "continue", "site.status", `{"siteID":"site-1","status":"unpublished"}`))
 
 	if projectionHasObservedFact(facts, "website", "published") {
 		t.Fatalf("expected unpublished status not to satisfy published fact, got %+v", facts)
@@ -82,14 +82,14 @@ func TestObservedResultProjectionRequiresCurrentSiteModificationEffects(t *testi
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSet([]string{"site.app.status", "file.edit", "site.app.build", "site.app.publish"}),
+			ToolSet: newTestToolSet([]string{"site.status", "file.edit", "site.build", "site.publish"}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{
 				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file.edit"}},
-				{ObjectType: "website", Effect: "built", SuggestedNextTools: []string{"site.app.build"}},
-				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.app.publish"}},
+				{ObjectType: "website", Effect: "built", SuggestedNextTools: []string{"site.build"}},
+				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.publish"}},
 			}},
 		},
-		[]turnObservation{newContentObservation("obs-001", "continue", "site.app.status", `{"siteID":"site-1","status":"published","publishedURL":"https://pretty-gyul.example"}`)},
+		[]turnObservation{newContentObservation("obs-001", "continue", "site.status", `{"siteID":"site-1","status":"published","publishedURL":"https://pretty-gyul.example"}`)},
 		nil,
 		turnActionDocument{
 			Action:        "finish",
@@ -110,17 +110,17 @@ func TestObservedResultProjectionAcceptsCurrentSiteModificationEffects(t *testin
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSet([]string{"file.edit", "site.app.build", "site.app.publish"}),
+			ToolSet: newTestToolSet([]string{"file.edit", "site.build", "site.publish"}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{
 				{ObjectType: "workspace", Effect: "modified", SuggestedNextTools: []string{"file.edit"}},
-				{ObjectType: "website", Effect: "built", SuggestedNextTools: []string{"site.app.build"}},
-				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.app.publish"}},
+				{ObjectType: "website", Effect: "built", SuggestedNextTools: []string{"site.build"}},
+				{ObjectType: "website", Effect: "published", SuggestedNextTools: []string{"site.publish"}},
 			}},
 		},
 		[]turnObservation{
 			newContentObservation("obs-001", "continue", "file.edit", `{"path":"/workspace/circles/staff/sites/pretty-gyul/draft/app/src/App.tsx"}`),
-			newContentObservation("obs-002", "continue", "site.app.build", `{"siteID":"site-1","status":"built"}`),
-			newContentObservation("obs-003", "continue", "site.app.publish", `{"siteID":"site-1","status":"published","publishedURL":"https://pretty-gyul.example"}`),
+			newContentObservation("obs-002", "continue", "site.build", `{"siteID":"site-1","status":"built"}`),
+			newContentObservation("obs-003", "continue", "site.publish", `{"siteID":"site-1","status":"published","publishedURL":"https://pretty-gyul.example"}`),
 		},
 		nil,
 		turnActionDocument{
@@ -142,14 +142,14 @@ func TestObservedResultProjectionAllowsSiteReadEffectFromStatus(t *testing.T) {
 	goalSatisfied := true
 	projection := buildObservedResultProjection(
 		AgentTurnRequest{
-			ToolSet: newTestToolSet([]string{"site.app.status"}),
+			ToolSet: newTestToolSet([]string{"site.status"}),
 			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{{
 				ObjectType:         "website",
 				Effect:             "read",
-				SuggestedNextTools: []string{"site.app.status"},
+				SuggestedNextTools: []string{"site.status"},
 			}}},
 		},
-		[]turnObservation{newContentObservation("obs-001", "continue", "site.app.status", `{"siteID":"site-1","status":"published"}`)},
+		[]turnObservation{newContentObservation("obs-001", "continue", "site.status", `{"siteID":"site-1","status":"published"}`)},
 		nil,
 		turnActionDocument{
 			Action:        "finish",

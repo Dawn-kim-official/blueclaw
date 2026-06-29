@@ -3,20 +3,21 @@ package agent
 import "strings"
 
 const (
-	TerminalRunToolName     = "terminal.run"
-	AskInputToolName        = "ask.input"
-	AskConfirmToolName      = "ask.confirm"
-	FileDeliverToolName     = "file.deliver"
-	AskChoiceToolName       = "ask.choice"
-	ArtifactDeliverToolName = "artifact.deliver"
-	FileAttachToolName      = "file.attach"
-	SkillSearchToolName     = "skill.search"
-	FileReadToolName        = "file.read"
-	FileWriteToolName       = "file.write"
-	FileEditToolName        = "file.edit"
-	FilePatchToolName       = "file.patch"
-	FilePreviewToolName     = "file.preview"
-	ImageReadToolName       = "image.read"
+	TerminalRunToolName      = "terminal.run"
+	AskInputToolName         = "ask.input"
+	AskConfirmToolName       = "ask.confirm"
+	FileDeliverToolName      = "file.deliver"
+	AskChoiceToolName        = "ask.choice"
+	ArtifactDeliverToolName  = "artifact.deliver"
+	FileAttachToolName       = "file.attach"
+	SkillSearchToolName      = "skill.search"
+	CapabilityInvokeToolName = "capability.invoke"
+	FileReadToolName         = "file.read"
+	FileWriteToolName        = "file.write"
+	FileEditToolName         = "file.edit"
+	FilePatchToolName        = "file.patch"
+	FilePreviewToolName      = "file.preview"
+	ImageReadToolName        = "image.read"
 )
 
 func KernelToolNames() []string {
@@ -26,6 +27,7 @@ func KernelToolNames() []string {
 		AskConfirmToolName,
 		FileDeliverToolName,
 		SkillSearchToolName,
+		CapabilityInvokeToolName,
 		FileReadToolName,
 		FileWriteToolName,
 		FileEditToolName,

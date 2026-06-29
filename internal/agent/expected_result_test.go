@@ -8,7 +8,7 @@ import (
 func TestObservedResultsDoNotTreatDraftSiteCreateURLAsDeliverableLink(t *testing.T) {
 	results := buildObservedResults([]turnObservation{{
 		ObservationID: "obs-001",
-		Tool:          "site.app.create",
+		Tool:          "site.create",
 		Output: ToolOutput{
 			Content: `{"siteID":"site-1","status":"draft","publishedURL":"https://portfolio.example"}`,
 		},
@@ -25,7 +25,7 @@ func TestObservedResultsDoNotTreatDraftSiteCreateURLAsDeliverableLink(t *testing
 func TestObservedResultsTreatPublishedSiteStatusAsDeliverableLink(t *testing.T) {
 	results := buildObservedResults([]turnObservation{{
 		ObservationID: "obs-001",
-		Tool:          "site.app.status",
+		Tool:          "site.status",
 		Output: ToolOutput{
 			Content: `{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example"}`,
 		},
@@ -39,7 +39,7 @@ func TestObservedResultsTreatPublishedSiteStatusAsDeliverableLink(t *testing.T) 
 func TestObservedResultsTreatPublishedSitePublishAsDeliverableLink(t *testing.T) {
 	results := buildObservedResults([]turnObservation{{
 		ObservationID: "obs-001",
-		Tool:          "site.app.publish",
+		Tool:          "site.publish",
 		Output: ToolOutput{
 			Content: `{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example"}`,
 		},
@@ -53,7 +53,7 @@ func TestObservedResultsTreatPublishedSitePublishAsDeliverableLink(t *testing.T)
 func TestObservedResultsDoNotTreatDraftSitePublishURLAsDeliverableLink(t *testing.T) {
 	results := buildObservedResults([]turnObservation{{
 		ObservationID: "obs-001",
-		Tool:          "site.app.publish",
+		Tool:          "site.publish",
 		Output: ToolOutput{
 			Content: `{"siteID":"site-1","status":"draft","publishedURL":"https://portfolio.example"}`,
 		},
@@ -67,7 +67,7 @@ func TestObservedResultsDoNotTreatDraftSitePublishURLAsDeliverableLink(t *testin
 func TestObservedResultsDoNotTreatFailedSiteStatusURLAsDeliverableLink(t *testing.T) {
 	results := buildObservedResults([]turnObservation{{
 		ObservationID: "obs-001",
-		Tool:          "site.app.status",
+		Tool:          "site.status",
 		Output: ToolOutput{
 			Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`,
 		},
@@ -128,9 +128,9 @@ func TestRequiredSiteLinkVerificationRejectsGenericURLWhenSiteToolWasUsed(t *tes
 	}
 	observedResults := []ObservedResult{{
 		Type:          ExpectedResultTypeMessage,
-		Description:   "site.app.build result: build completed",
+		Description:   "site.build result: build completed",
 		ObservationID: "obs-001",
-		ToolName:      "site.app.build",
+		ToolName:      "site.build",
 	}, {
 		Type:          ExpectedResultTypeLink,
 		Description:   "web.search result: URL: https://example.com/reference",
@@ -195,9 +195,9 @@ func TestRequiredLinkVerificationRequiresFinalMessageToUseObservedURL(t *testing
 	}
 	observedResults := []ObservedResult{{
 		Type:          ExpectedResultTypeLink,
-		Description:   "site.app.publish result: URL: https://portfolio-probe.device.example.test",
+		Description:   "site.publish result: URL: https://portfolio-probe.device.example.test",
 		ObservationID: "obs-001",
-		ToolName:      "site.app.publish",
+		ToolName:      "site.publish",
 		URL:           "https://portfolio-probe.device.example.test",
 	}}
 
@@ -229,9 +229,9 @@ func TestRequiredLinkVerificationAcceptsExactObservedURLInFinalMessage(t *testin
 	}
 	observedResults := []ObservedResult{{
 		Type:          ExpectedResultTypeLink,
-		Description:   "site.app.publish result: URL: https://portfolio-probe.device.example.test",
+		Description:   "site.publish result: URL: https://portfolio-probe.device.example.test",
 		ObservationID: "obs-001",
-		ToolName:      "site.app.publish",
+		ToolName:      "site.publish",
 		URL:           "https://portfolio-probe.device.example.test",
 	}}
 
@@ -260,9 +260,9 @@ func TestRequiredLinkVerificationAcceptsTrailingSlashDifference(t *testing.T) {
 	}
 	observedResults := []ObservedResult{{
 		Type:          ExpectedResultTypeLink,
-		Description:   "site.app.publish result: URL: https://portfolio-probe.device.example.test",
+		Description:   "site.publish result: URL: https://portfolio-probe.device.example.test",
 		ObservationID: "obs-001",
-		ToolName:      "site.app.publish",
+		ToolName:      "site.publish",
 		URL:           "https://portfolio-probe.device.example.test",
 	}}
 

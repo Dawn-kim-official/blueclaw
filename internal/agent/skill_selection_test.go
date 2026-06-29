@@ -95,9 +95,9 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 				Name:         "site-prototype",
 				Description:  "Create and publish web prototypes.",
 				WhenToUse:    "Use for website prototype requests.",
-				Prompt:       "Use site.app.create, terminal.run, and site.app.publish.",
+				Prompt:       "Use site.create, terminal.run, and site.publish.",
 				TriggerHints: []string{"웹사이트", "배포"},
-				AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+				AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
 				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 		},
@@ -105,10 +105,10 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 
 	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
 		Prompt:  "웹사이트 하나 만들어서 배포해봐",
-		ToolSet: testToolSet([]string{"terminal.run", "site.app.create", "site.app.publish"}),
+		ToolSet: testToolSet([]string{"terminal.run", "site.create", "site.publish"}),
 	})
 
-	if strings.Contains(selectedBundle.Prompt, "Use site.app.create") {
+	if strings.Contains(selectedBundle.Prompt, "Use site.create") {
 		t.Fatalf("expected trigger hint not to load full skill body, got %q", selectedBundle.Prompt)
 	}
 	for _, skillDecision := range selectedBundle.SkillDecisions {
@@ -123,15 +123,15 @@ func TestToolSetForAgentTurnHidesSelectedSkillToolsUntilExplicitlyPinned(t *test
 		"conversation.history",
 		"memory.search",
 		"terminal.run",
-		"site.app.create",
-		"site.app.publish",
+		"site.create",
+		"site.publish",
 		"schedule.create",
 	})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
 				Name:         "site-prototype",
-				AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+				AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
 			},
 			{
 				Name:         "scheduled-task",
@@ -148,7 +148,7 @@ func TestToolSetForAgentTurnHidesSelectedSkillToolsUntilExplicitlyPinned(t *test
 			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"terminal.run", "site.app.create", "site.app.publish", "schedule.create"} {
+	for _, toolName := range []string{"terminal.run", "site.create", "site.publish", "schedule.create"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected selected-skill tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -191,19 +191,19 @@ func TestToolSetForAgentTurnUsesPinnedToolsAndCoreOnly(t *testing.T) {
 }
 
 func TestToolSetForAgentTurnHidesUnrequestedSendToolForNonSendOutcome(t *testing.T) {
-	fullToolSet := testToolSet([]string{"platform.message.send", "file.write"})
+	fullToolSet := testToolSet([]string{"message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
 			Name:         "direct-message",
-			AllowedTools: []string{"platform.message.send"},
+			AllowedTools: []string{"message.send"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"platform.message.send"}}
+	contract := OutcomeContract{SelectedEvidenceHints: []string{"message.send"}}
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
 
-	if filteredToolSet.IsAllowed("platform.message.send") {
+	if filteredToolSet.IsAllowed("message.send") {
 		t.Fatalf("expected send tool to be hidden for non-send outcome, got %+v", filteredToolSet.ListToolNames())
 	}
 	if filteredToolSet.IsAllowed("file.write") {
@@ -303,7 +303,7 @@ func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 
 func TestSelectInstructionBundleKeepsSkillWhenAllowedToolIsRegisteredButHidden(t *testing.T) {
 	toolSet := NewToolSet([]string{"terminal.run"})
-	for _, toolName := range []string{"terminal.run", "site.app.create", "site.app.publish"} {
+	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
 		currentToolName := toolName
 		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess("ok"), nil
@@ -313,7 +313,7 @@ func TestSelectInstructionBundleKeepsSkillWhenAllowedToolIsRegisteredButHidden(t
 		Name:         "site-prototype",
 		Description:  "Create and publish website prototypes.",
 		Prompt:       "SITE BODY",
-		AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+		AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
 	}}}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		RetrievalMode: "test",
@@ -333,7 +333,7 @@ func TestSelectInstructionBundleKeepsSkillWhenAllowedToolIsRegisteredButHidden(t
 		t.Fatalf("expected hidden registered site skill to be selected, got %+v", selectedBundle.SkillDecisions)
 	}
 	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle, AgentRequest{Prompt: "김인턴 소개 웹사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
-	if filteredToolSet.IsAllowed("site.app.create") || filteredToolSet.IsAllowed("site.app.publish") {
+	if filteredToolSet.IsAllowed("site.create") || filteredToolSet.IsAllowed("site.publish") {
 		t.Fatalf("expected selected hidden registered skill tools to stay hidden until requested, got %+v", filteredToolSet.ListToolNames())
 	}
 }
@@ -691,7 +691,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 				Description:  "Create, publish, and update website prototypes.",
 				WhenToUse:    "Use for website, site, publish, and deploy requests.",
 				Prompt:       "Follow site prototype workflow.",
-				AllowedTools: []string{"site.app.status", "file.write", "site.app.build", "site.app.publish"},
+				AllowedTools: []string{"site.status", "file.write", "site.build", "site.publish"},
 				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 			{
@@ -717,10 +717,10 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 		Prompt:    "더 좋게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
 		WorkKinds: []string{WorkKindSitePrototype},
 		ToolSet: testToolSet([]string{
-			"site.app.status",
+			"site.status",
 			"file.write",
-			"site.app.build",
-			"site.app.publish",
+			"site.build",
+			"site.publish",
 			"terminal.run",
 			"file.attach",
 		}),
@@ -755,7 +755,7 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 					{Name: "simple-slides", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"}},
 					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Follow xlsx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
 					{Name: "pdf", Description: "Create PDFs.", Prompt: "Follow pdf workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
-					{Name: "site-prototype", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.app.create", "site.app.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
+					{Name: "site-prototype", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.create", "site.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
 				},
 			}
 
@@ -766,8 +766,8 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 					"terminal.run",
 					"file.write",
 					"file.attach",
-					"site.app.create",
-					"site.app.publish",
+					"site.create",
+					"site.publish",
 				}),
 				ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 					RequiredEvidenceTools:      []string{"file.attach"},
@@ -804,7 +804,7 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 				Description:  "Create, update, build, and publish website prototypes with a public URL.",
 				WhenToUse:    "Use for website, homepage, landing page, web app, deploy, and publish requests.",
 				Prompt:       "Follow web artifact workflow.",
-				AllowedTools: []string{"file.write", "terminal.run", "site.app.create", "site.app.build", "site.app.publish"},
+				AllowedTools: []string{"file.write", "terminal.run", "site.create", "site.build", "site.publish"},
 				Source:       InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
 			},
 		},
@@ -818,9 +818,9 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 			"file.write",
 			"file.promote",
 			"file.attach",
-			"site.app.create",
-			"site.app.build",
-			"site.app.publish",
+			"site.create",
+			"site.build",
+			"site.publish",
 		}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.attach"},
@@ -843,9 +843,9 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 			"file.write",
 			"file.promote",
 			"file.attach",
-			"site.app.create",
-			"site.app.build",
-			"site.app.publish",
+			"site.create",
+			"site.build",
+			"site.publish",
 		}),
 	}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
 
@@ -873,7 +873,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 				Description:  "Manage InternKim todo tasks with flow.task capability operations.",
 				WhenToUse:    "Use for 업무, 할 일, todo, task 등록, 목록, 완료, 수정 requests.",
 				Prompt:       "Use flow.task capability operations.",
-				AllowedTools: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+				AllowedTools: []string{"task.add", "task.list", "task.update"},
 				Source:       InstructionSource{Path: "skills/internkim-flow/SKILL.md", SkillName: "internkim-flow"},
 			},
 		},
@@ -894,9 +894,9 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 			"terminal.run",
 			"file.write",
 			"file.attach",
-			"flow.task.add",
-			"flow.task.list",
-			"flow.task.update",
+			"task.add",
+			"task.list",
+			"task.update",
 		}),
 	}, retriever)
 
@@ -1056,7 +1056,7 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 				Description:  "Create, update, build, and publish website prototypes with public URLs.",
 				WhenToUse:    "Use for website, homepage, web app, landing page, deploy, and publish requests.",
 				Prompt:       "Follow website build and publish workflow.",
-				AllowedTools: []string{"file.write", "terminal.run", "site.app.create", "site.app.build", "site.app.publish"},
+				AllowedTools: []string{"file.write", "terminal.run", "site.create", "site.build", "site.publish"},
 				Source:       InstructionSource{Path: "skills/public-web-builder/SKILL.md", SkillName: "public-web-builder"},
 			},
 			{
@@ -1093,9 +1093,9 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 			"terminal.run",
 			"file.promote",
 			"file.attach",
-			"site.app.create",
-			"site.app.build",
-			"site.app.publish",
+			"site.create",
+			"site.build",
+			"site.publish",
 		}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.attach"},
@@ -1157,7 +1157,7 @@ func TestSkillQueryRouterMessagesPrioritizeLatestRequest(t *testing.T) {
 			{Speaker: "user", Text: "example.com 스타일로 사업계획서 PPT 만들어줘."},
 		}},
 		ActiveGoal:    ActiveGoal{CurrentObjective: "example.com 발표 자료 생성"},
-		ToolSet:       testToolSet([]string{"site.app.create", "site.app.publish", "terminal.run"}),
+		ToolSet:       testToolSet([]string{"site.create", "site.publish", "terminal.run"}),
 		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
 	})
 
@@ -1184,8 +1184,8 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 		Skills: []SkillInstruction{{
 			Name:         "site-prototype",
 			Description:  "Create and publish website prototypes.",
-			Prompt:       "Use site.app.create and site.app.publish.",
-			AllowedTools: []string{"site.app.create", "site.app.publish"},
+			Prompt:       "Use site.create and site.publish.",
+			AllowedTools: []string{"site.create", "site.publish"},
 			Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 		}},
 	}
@@ -1197,7 +1197,7 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "user", Text: "https://example.com 내용으로 사업계획서 PPT 만들어줘."},
 		}},
-		ToolSet: testToolSet([]string{"site.app.create", "site.app.publish"}),
+		ToolSet: testToolSet([]string{"site.create", "site.publish"}),
 	}, retriever, router)
 
 	if len(selectedBundle.SkillQueries) != 1 || !strings.Contains(selectedBundle.SkillQueries[0], "InternKim") {
@@ -1459,7 +1459,7 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 			Name:         "site-prototype",
 			Description:  "Create and publish website prototypes.",
 			Prompt:       "SITE BODY",
-			AllowedTools: []string{"terminal.run", "site.app.create", "site.app.publish"},
+			AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
 			Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 		},
 		{Name: "extra", Description: "Extra skill.", Prompt: "EXTRA BODY"},
@@ -1478,8 +1478,8 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 		Prompt: "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘.",
 		ToolSet: testToolSet([]string{
 			"terminal.run",
-			"site.app.create",
-			"site.app.publish",
+			"site.create",
+			"site.publish",
 		}),
 	}, retriever)
 

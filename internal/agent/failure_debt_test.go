@@ -7,14 +7,14 @@ func TestActiveFailureDebtKeepsDebtAfterInspectionToolWithoutRecoveryStep(t *tes
 		{
 			ObservationID: "obs-001",
 			Action:        "continue",
-			Tool:          "site.app.publish",
+			Tool:          "site.publish",
 			Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String()},
-			ToolInputKey:  "site.app.publish\x00{\"siteID\":\"site-1\"}",
+			ToolInputKey:  "site.publish\x00{\"siteID\":\"site-1\"}",
 		},
 		{
 			ObservationID: "obs-002",
 			Action:        "continue",
-			Tool:          "site.app.status",
+			Tool:          "site.status",
 			Output:        ToolOutput{Content: `{"siteID":"site-1","status":"failed","publishedURL":"https://portfolio.example"}`},
 		},
 	})

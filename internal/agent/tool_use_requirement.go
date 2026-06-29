@@ -28,7 +28,7 @@ func deriveToolUseRequirements(request AgentTurnRequest) []toolUseRequirement {
 }
 
 func directMessageEvidenceRequired(request AgentTurnRequest) bool {
-	return requiredEvidenceContains(request.RequiredEvidenceTools, "platform.message.send")
+	return requiredEvidenceContains(request.RequiredEvidenceTools, "message.send")
 }
 
 func evidenceToolRequirements(request AgentTurnRequest) []toolUseRequirement {

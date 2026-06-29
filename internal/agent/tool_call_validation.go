@@ -254,11 +254,11 @@ func specificToolDescription(toolName string) string {
 		return `Press a key. Input: {"key":"Enter"}.`
 	case "browser.wait":
 		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
-	case "flow.task.add":
+	case "task.add":
 		return `Add a new Flow work item for the requester, or request new work for another person. Do not use this for editing, changing, completing, or updating an existing work item. Input: {"prompt":"기획안 전달","targetPersonHint":"lee"}.`
-	case "flow.task.list":
+	case "task.list":
 		return `List work items. Leave targetPersonHint EMPTY to list EVERYONE's tasks; set it to one person's name to list only that person. For "my tasks / what do I have", set targetPersonHint to the requester's own name. Weeks are relative integer offsets: weekFrom/weekTo where 0=this week (default), -1=last week; omit both for this week, set weekFrom for a range ending this week. Use before completing work when the matching task is uncertain. Input: {"targetPersonHint":"이샘플","weekFrom":-1}.`
-	case "flow.task.update":
+	case "task.update":
 		return `Update or complete an existing Flow work item. Use this for edits, status changes, "수정", "변경", and "완료". Input: {"query":"10분 회의","content":"15분 회의"} or {"query":"10분 회의"} to mark it complete. Optional status values include "예정", "진행", "완료", "일시정지", "기각", and "중단".`
 	default:
 		return ""
@@ -289,7 +289,7 @@ type terminalToolNameError struct {
 }
 
 func (errorValue terminalToolNameError) Error() string {
-	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use the fixed kernel tool schema directly, or use /workspace/tools/capability for domain capabilities."
+	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use the fixed kernel tool schema directly, or use capability.invoke for domain capabilities."
 }
 
 func isTerminalToolNameError(errorValue error) bool {
@@ -534,7 +534,7 @@ func observationSendRecipientKey(observation turnObservation) string {
 
 func isUnsafeRepeatSensitiveTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "platform.message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
+	case "message.send", "mail.message.send", "google.gmail.send", "slack.message.send":
 		return true
 	default:
 		return false
@@ -555,7 +555,7 @@ func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolNa
 	if containsAny(approvalText, []string{"rollback", "roll back", "unpublish", "delete", "remove", "take down", "삭제", "되돌", "내려", "중단"}) {
 		return false
 	}
-	if requiredEvidenceContains(request.RequiredEvidenceTools, "site.app.publish") {
+	if requiredEvidenceContains(request.RequiredEvidenceTools, "site.publish") {
 		return true
 	}
 	return containsAny(approvalText, []string{"deploy", "publish", "external", "website", "site", "배포", "웹사이트", "외부"})
@@ -579,7 +579,7 @@ func sitePublishTaskToolsAreAvailable(toolSet *ToolSet) bool {
 	for _, toolName := range toolSet.ListToolNames() {
 		toolNames[strings.TrimSpace(toolName)] = true
 	}
-	return toolNames["site.app.create"] && toolNames["site.app.publish"] && toolNames["terminal.run"]
+	return toolNames["site.create"] && toolNames["site.publish"] && toolNames["terminal.run"]
 }
 
 func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
@@ -631,7 +631,7 @@ func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput j
 }
 
 func unnecessaryAcknowledgementApprovalMessage() string {
-	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write. Perform the action directly through the relevant kernel tool or capability CLI, then finish."
+	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write. Perform the action directly through the relevant kernel tool or capability.invoke operation, then finish."
 }
 
 func isTerminalExecutionTool(toolName string) bool {

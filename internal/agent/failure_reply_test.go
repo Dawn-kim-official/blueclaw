@@ -214,15 +214,15 @@ func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 
 func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
-		failureReportDocument("recipient missing", "platform.message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+		failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 	}, textResponses: []string{
 		"recipient_resolve/not_found 단계에서 수신자를 찾지 못해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"platform.message.send", "platform.message.context"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"message.send", "message.context"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 
@@ -233,8 +233,8 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 		Prompt:                "정국에게 DM 보내줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"platform.message.send"},
-		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"platform.message.send"}},
+		RequiredEvidenceTools: []string{"message.send"},
+		OutcomeContract:       OutcomeContract{RequiredEvidenceTools: []string{"message.send"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected structured failure result: %v", errorValue)
@@ -243,7 +243,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 		t.Fatalf("expected structured failure in final reply, got %q", result.UserNotice)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "tool.platform.message.send.result", FailureCodes.NotFound.String()) {
+	if !taskEventsContain(taskEvents, "tool.message.send.result", FailureCodes.NotFound.String()) {
 		t.Fatal("expected structured tool failure event")
 	}
 }
@@ -251,15 +251,15 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
-			failureReportDocument("recipient missing", "platform.message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+			`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+			failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{"요청을 처리하지 못했습니다."},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"platform.message.send"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"message.send"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 	existingTaskRun := services.taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "conversation-1"}, "정국에게 DM 보내줘")
@@ -292,15 +292,15 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	generatedReply := "recipient_resolve/not_found 단계에서 수신자를 찾지 못했습니다."
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"platform.message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
-			failureReportDocument("recipient missing", "platform.message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
+			`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+			failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
 		textResponses: []string{generatedReply},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"platform.message.send"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"message.send"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
 	})
 

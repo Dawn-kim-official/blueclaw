@@ -214,7 +214,7 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 				return true
 			}
 		case "workspace_repaired":
-			if observation.Tool == "site.app.repair" || observation.Tool == "site.app.status" {
+			if observation.Tool == "site.repair" || observation.Tool == "site.status" {
 				return true
 			}
 		case "dependency_changed":
@@ -222,7 +222,7 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 				return true
 			}
 		case "inspected_failure":
-			if observation.Tool == "file.read" || observation.Tool == "site.app.status" {
+			if observation.Tool == "file.read" || observation.Tool == "site.status" {
 				return true
 			}
 		default:

@@ -642,7 +642,7 @@ func TestInterruptOrphanedRuntimeTaskRunsMarksRuntimeOwnedTasksInterrupted(t *te
 	if _, errorValue := taskRunService.PauseTaskRun(waitingTaskRun.TaskRunID, TaskStatusWaitingUserInput, "ask input"); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	taskEventService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.site.app.build.requested", `{"observationID":"observation-1","toolName":"site.app.build"}`)
+	taskEventService.AppendTaskEvent(runningTaskRun.TaskRunID, "tool.site.build.requested", `{"observationID":"observation-1","toolName":"site.build"}`)
 	delete(taskRunService.activeAttempts, runningTaskRun.CurrentAttemptID)
 
 	interruptedTaskRuns := taskRunService.InterruptOrphanedRuntimeTaskRuns("runtime restarted")
@@ -663,7 +663,7 @@ func TestInterruptOrphanedRuntimeTaskRunsMarksRuntimeOwnedTasksInterrupted(t *te
 	if taskAttempt.Status != TaskAttemptStatusInterrupted {
 		t.Fatalf("attempt status = %s, want interrupted", taskAttempt.Status)
 	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(runningTaskRun.TaskRunID), "tool.site.app.build.cancelled", "cancelled_by_attempt_end") {
+	if !taskEventsContain(taskRunService.ListTaskEvent(runningTaskRun.TaskRunID), "tool.site.build.cancelled", "cancelled_by_attempt_end") {
 		t.Fatal("expected open tool request to be cancelled")
 	}
 	taskRun, isFound := taskRunService.FindTaskRun(waitingTaskRun.TaskRunID)

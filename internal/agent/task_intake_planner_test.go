@@ -168,7 +168,7 @@ func TestTaskIntakePlannerFallbackDoesNotTreatInputAttachmentExtensionAsOutput(t
 
 func TestTaskIntakePlannerFallbackDoesNotInferFlowTaskWorkKind(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
-	toolRegistry := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+	toolRegistry := newTestToolSet([]string{"task.add", "task.list", "task.update"})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
 		Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
@@ -188,7 +188,7 @@ func TestTaskIntakePlannerMapsModelFlowTaskWorkKindToInitialTools(t *testing.T) 
 		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"flow task request","userFacingReply":"","workKinds":["flow_task"]}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-	toolRegistry := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+	toolRegistry := newTestToolSet([]string{"task.add", "task.list", "task.update"})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
 		Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
@@ -198,7 +198,7 @@ func TestTaskIntakePlannerMapsModelFlowTaskWorkKindToInitialTools(t *testing.T) 
 	if !decision.HasWorkKind(WorkKindFlowTask) {
 		t.Fatalf("expected model flow task work kind, got %+v", decision.WorkKinds)
 	}
-	for _, toolName := range []string{"flow.task.add", "flow.task.list", "flow.task.update"} {
+	for _, toolName := range []string{"task.add", "task.list", "task.update"} {
 		if !containsString(decision.InitialToolNames, toolName) {
 			t.Fatalf("expected initial flow tool %s, got %+v", toolName, decision.InitialToolNames)
 		}
@@ -259,9 +259,9 @@ func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T
 
 func TestTaskIntakePlannerUsesRequestedOutputFormatsToResolveArtifactKindConflict(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","taskComplexity":"normal","effortLevel":"deep","requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","workKinds":["file_delivery","site_prototype"],"initialToolNames":["site.app.status"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","taskComplexity":"normal","effortLevel":"deep","requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","workKinds":["file_delivery","site_prototype"],"initialToolNames":["site.status"],"priorTaskReference":"none"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach", "site.app.status"})
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach", "site.status"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -281,7 +281,7 @@ func TestTaskIntakePlannerUsesRequestedOutputFormatsToResolveArtifactKindConflic
 	if len(decision.ExpectedResults) != 1 || decision.ExpectedResults[0].ID != "result-1" {
 		t.Fatalf("expected quote-less site result to be removed, got %+v", decision.ExpectedResults)
 	}
-	if slices.Contains(decision.InitialToolNames, "site.app.status") {
+	if slices.Contains(decision.InitialToolNames, "site.status") {
 		t.Fatalf("expected site tool to be removed from initial tools, got %+v", decision.InitialToolNames)
 	}
 }
@@ -482,7 +482,7 @@ func TestTurnRouterNormalizesReactionEmojiNameToEnum(t *testing.T) {
 
 func TestTurnRouterPromotesTaskfulConsumeToTaskRoute(t *testing.T) {
 	router := NewTurnRouter(nil, IntakeOptions{IsEnabled: false})
-	toolSet := newTestToolSet([]string{"flow.task.add", "flow.task.list", "flow.task.update"})
+	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
 	decision := router.normalizeDecision(TurnDecision{
 		Route:            TurnRouteConsume,
 		Classification:   IntakeClassificationBoundedTask,
@@ -492,7 +492,7 @@ func TestTurnRouterPromotesTaskfulConsumeToTaskRoute(t *testing.T) {
 		ResponseLanguage: "ko",
 		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
 		WorkKinds:        []string{WorkKindFlowTask},
-		InitialToolNames: []string{"flow.task.add", "flow.task.list", "flow.task.update"},
+		InitialToolNames: []string{"task.add", "task.list", "task.update"},
 	}, router.deterministicDecision(AgentRequest{ToolSet: toolSet}), AgentRequest{
 		Prompt:  "업무 등록해줘.\n\n- 메일 페이지 앱 비밀번호 개선",
 		ToolSet: toolSet,
@@ -504,7 +504,7 @@ func TestTurnRouterPromotesTaskfulConsumeToTaskRoute(t *testing.T) {
 	if !workKindsContain(decision.WorkKinds, WorkKindFlowTask) {
 		t.Fatalf("expected flow task work kind to remain, got %+v", decision.WorkKinds)
 	}
-	if !containsString(decision.InitialToolNames, "flow.task.add") {
+	if !containsString(decision.InitialToolNames, "task.add") {
 		t.Fatalf("expected initial flow task tool to remain, got %+v", decision.InitialToolNames)
 	}
 }
@@ -999,7 +999,7 @@ func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"siteRequestEvidence":"웹사이트 하나 만들어서 배포","reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?","workKinds":["site_prototype"]}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"site.app.create", "site.app.publish"})
+	toolRegistry := newTestToolSet([]string{"site.create", "site.publish"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -1036,7 +1036,7 @@ func TestTaskIntakePlannerIncludesTemporalContext(t *testing.T) {
 	_ = planner.Plan(context.Background(), AgentRequest{
 		Prompt:        "김인턴 구조 웹사이트 만들어줘",
 		TurnStartedAt: time.Date(2026, time.May, 17, 1, 2, 3, 0, time.UTC),
-		ToolSet:       newTestToolSet([]string{"site.app.create", "site.app.publish"}),
+		ToolSet:       newTestToolSet([]string{"site.create", "site.publish"}),
 	})
 
 	if len(languageModel.requests) != 1 {
@@ -1505,7 +1505,7 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 
 func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"unsupported","taskShape":"immediate_reply","taskComplexity":"simple","effortLevel":"deep","outputKind":"site","requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","workKinds":["file_delivery","site_prototype"],"initialToolNames":["site.app.status"],"priorTaskReference":"none"}`,
+		`{"route":"start_task","classification":"unsupported","taskShape":"immediate_reply","taskComplexity":"simple","effortLevel":"deep","outputKind":"site","requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","workKinds":["file_delivery","site_prototype"],"initialToolNames":["site.status"],"priorTaskReference":"none"}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/brief/quality-brief.pdf"}}`,
@@ -1526,7 +1526,7 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 				Name:         "site-prototype",
 				Description:  "Create websites.",
 				Prompt:       "Follow site prototype workflow.",
-				AllowedTools: []string{"site.app.create", "site.app.publish"},
+				AllowedTools: []string{"site.create", "site.publish"},
 				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 			{
@@ -1543,8 +1543,8 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 		"terminal.run",
 		"file.write",
 		"file.attach",
-		"site.app.create",
-		"site.app.publish",
+		"site.create",
+		"site.publish",
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{

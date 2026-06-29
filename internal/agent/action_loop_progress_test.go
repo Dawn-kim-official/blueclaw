@@ -114,7 +114,7 @@ func TestSelectToolsCountsAsProgressAfterSuccessfulToolCall(t *testing.T) {
 	}, {
 		ObservationID: "obs-002",
 		Action:        "continue",
-		Tool:          "site.app.create",
+		Tool:          "site.create",
 		Output:        ToolOutput{Content: "created"},
 	}}
 
@@ -127,7 +127,7 @@ func TestInspectionToolSuccessDoesNotCountAsLoopProgress(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "site.app.status",
+		Tool:          "site.status",
 		Output:        ToolOutput{Content: `{"workspaceHealth":"missing_source"}`},
 	}}
 

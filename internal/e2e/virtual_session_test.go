@@ -216,10 +216,10 @@ func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 		t.Fatalf("ambient capture must not reach terminal.run; events: %s", summarizeEvents(turnResult.Events))
 	}
 	reviseResult := result.TurnResults[1]
-	if !eventsContain(reviseResult.Events, "tool.flow.task.update.requested", "flow.task.update") {
+	if !eventsContain(reviseResult.Events, "tool.task.update.requested", "task.update") {
 		t.Fatalf("expected a same-thread follow-up to update the existing task; events: %s", summarizeEvents(reviseResult.Events))
 	}
-	if eventsContain(reviseResult.Events, "tool.flow.task.add.requested", "flow.task.add") {
+	if eventsContain(reviseResult.Events, "tool.task.add.requested", "task.add") {
 		t.Fatalf("same-thread revision must update, not add a duplicate task; events: %s", summarizeEvents(reviseResult.Events))
 	}
 }
@@ -291,16 +291,16 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if countEventsWithFragment(firstTurnResult.Events, "tool.terminal.run.requested", "calendar.event.add") != 1 {
+	if countEventsWithFragment(firstTurnResult.Events, "tool.terminal.run.requested", "calendar.add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "calendar.event.update") != 1 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "calendar.update") != 1 {
 		t.Fatalf("expected one calendar update request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !eventsContain(secondTurnResult.Events, "tool.terminal.run.requested", "2026-06-13T14:00:00+09:00") {
 		t.Fatalf("expected updated time in calendar update input; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(thirdTurnResult.Events, "tool.terminal.run.requested", "calendar.event.delete") != 1 {
+	if countEventsWithFragment(thirdTurnResult.Events, "tool.terminal.run.requested", "calendar.delete") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
 	if !strings.Contains(thirdTurnResult.FinishMessage, "삭제했습니다") {
@@ -317,7 +317,7 @@ func TestAmbientDutyCalendarAcceptance(t *testing.T) {
 		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
 	}
 	turnResult := result.TurnResults[0]
-	if countEvents(turnResult.Events, "tool.calendar.event.add.requested") != 1 {
+	if countEvents(turnResult.Events, "tool.calendar.add.requested") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"calendar_upkeep"`) {
@@ -490,7 +490,7 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "tool.terminal.run.result", "publishedURL") {
 		t.Fatalf("expected site publish result to include a public URL; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !strings.Contains(turnResult.ModelContext, "site.app.create") || !strings.Contains(turnResult.ModelContext, "site.app.publish") {
+	if !strings.Contains(turnResult.ModelContext, "site.create") || !strings.Contains(turnResult.ModelContext, "site.publish") {
 		t.Fatal("expected model context to document site app capabilities")
 	}
 }
@@ -510,8 +510,8 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 	if countEvents(secondTurnResult.Events, "tool.terminal.run.requested") == 0 {
 		t.Fatalf("expected terminal.run in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "site.app.publish") == 0 {
-		t.Fatalf("expected site.app.publish capability CLI in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "site.publish") == 0 {
+		t.Fatalf("expected site.publish capability CLI in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", secondTurnResult.FinishMessage)
@@ -527,14 +527,14 @@ func TestSiteSuggestedRepairRecovery(t *testing.T) {
 	if turnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
 	}
-	if !eventsContain(turnResult.Events, "agent.suggested_next_tool_directive", "site.app.repair") {
+	if !eventsContain(turnResult.Events, "agent.suggested_next_tool_directive", "site.repair") {
 		t.Fatalf("expected suggested repair directive; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.site.app.repair.requested") != 1 {
-		t.Fatalf("expected one site.app.repair call; events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.site.repair.requested") != 1 {
+		t.Fatalf("expected one site.repair call; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.site.app.publish.requested") != 1 {
-		t.Fatalf("expected one site.app.publish call; events: %s", summarizeEvents(turnResult.Events))
+	if countEvents(turnResult.Events, "tool.site.publish.requested") != 1 {
+		t.Fatalf("expected one site.publish call; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", turnResult.FinishMessage)
@@ -564,22 +564,22 @@ func TestDirectMessageSendConfirmAcceptance(t *testing.T) {
 	if !eventsContain(firstTurnResult.Events, "confirmation.requested", "external_send") {
 		t.Fatalf("expected confirmation request before send; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEvents(firstTurnResult.Events, "tool.platform.message.send.requested") != 1 {
+	if countEvents(firstTurnResult.Events, "tool.message.send.requested") != 1 {
 		t.Fatalf("expected the send attempt to be gated for approval before delivery; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(firstTurnResult.Events, "tool.platform.message.send.result", "approval_required") {
+	if !eventsContain(firstTurnResult.Events, "tool.message.send.result", "approval_required") {
 		t.Fatalf("expected the pre-approval send attempt to be denied with approval_required; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(firstTurnResult.Events, "approval.pending_call", "platform.message.send") {
+	if !eventsContain(firstTurnResult.Events, "approval.pending_call", "message.send") {
 		t.Fatalf("expected held approval call; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEvents(secondTurnResult.Events, "tool.platform.message.send.requested") != 2 {
+	if countEvents(secondTurnResult.Events, "tool.message.send.requested") != 2 {
 		t.Fatalf("expected the gated attempt plus one approved send request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "approval.executed", "platform.message.send") {
+	if !eventsContain(secondTurnResult.Events, "approval.executed", "message.send") {
 		t.Fatalf("expected approval executed event; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.platform.message.send.result", "virtual-platform-message-001") {
+	if !eventsContain(secondTurnResult.Events, "tool.message.send.result", "virtual-platform-message-001") {
 		t.Fatalf("expected send result message id observation; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "보냈습니다") {
@@ -596,13 +596,13 @@ func TestChannelPostAcceptance(t *testing.T) {
 		t.Fatalf("expected one turn, got %+v", result)
 	}
 	turnResult := result.TurnResults[0]
-	if countEvents(turnResult.Events, "tool.platform.message.send.requested") != 1 {
+	if countEvents(turnResult.Events, "tool.message.send.requested") != 1 {
 		t.Fatalf("expected one send request, got events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.platform.message.send.requested", `"type":"channel"`) {
+	if !eventsContain(turnResult.Events, "tool.message.send.requested", `"type":"channel"`) {
 		t.Fatalf("expected channel delivery target; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if eventsContain(turnResult.Events, "tool.platform.message.send.requested", `"type":"directMessage"`) {
+	if eventsContain(turnResult.Events, "tool.message.send.requested", `"type":"directMessage"`) {
 		t.Fatalf("expected no direct message target; events: %s", summarizeEvents(turnResult.Events))
 	}
 }
@@ -616,13 +616,13 @@ func TestPlatformMessageEditAcceptance(t *testing.T) {
 		t.Fatalf("expected one turn, got %+v", result)
 	}
 	turnResult := result.TurnResults[0]
-	if countEvents(turnResult.Events, "tool.platform.message.update.requested") != 1 {
+	if countEvents(turnResult.Events, "tool.message.update.requested") != 1 {
 		t.Fatalf("expected one message update request; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.platform.message.update.requested", `"messageID":"virtual-platform-message-001"`) {
+	if !eventsContain(turnResult.Events, "tool.message.update.requested", `"messageID":"virtual-platform-message-001"`) {
 		t.Fatalf("expected message ID in update input; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.platform.message.update.requested", `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`) {
+	if !eventsContain(turnResult.Events, "tool.message.update.requested", `"text":"오늘 오후 6시에 전체 공지 회의가 있습니다."`) {
 		t.Fatalf("expected new text in update input; events: %s", summarizeEvents(turnResult.Events))
 	}
 }

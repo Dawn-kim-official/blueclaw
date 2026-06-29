@@ -341,9 +341,9 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 
 func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
-		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
-		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"need site creation"}`,
+		`{"action":"continue","toolName":"site.create","toolInput":{"slug":"demo"}}`,
+		finishMessageWithEvidence("created", "obs-002", "site.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolSet([]string{"skill.search"})
@@ -352,7 +352,7 @@ func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 	})
 	siteCreateCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{
-		Name:        "site.app.create",
+		Name:        "site.create",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"],"additionalProperties":false}`),
 	}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		siteCreateCallCount++
@@ -370,12 +370,12 @@ func TestAgentTurnRunnerSelectToolsPinsHiddenTool(t *testing.T) {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
 	if siteCreateCallCount != 1 {
-		t.Fatalf("expected site.app.create to be invoked once, got %d", siteCreateCallCount)
+		t.Fatalf("expected site.create to be invoked once, got %d", siteCreateCallCount)
 	}
 	if result.FinishMessage != "created" {
 		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_palette.applied", "site.app.create") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_palette.applied", "site.create") {
 		t.Fatal("expected tool palette apply event")
 	}
 }
@@ -426,16 +426,16 @@ func TestAgentTurnRunnerSelectToolsSuggestsCandidateForUnknownTool(t *testing.T)
 
 func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndExplicitTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
-		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"},"nextStepPlan":{"objective":"finish after creating the site","expectedTools":[],"expectedNextResults":["site created"],"doneCriteria":["site created"],"risk":"none","workingSetReason":"site.app.create should satisfy this test"}}`,
-		finishMessageWithEvidence("created", "obs-002", "site.app.create", 0),
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":["site-prototype"],"reason":"need site workflow"}`,
+		`{"action":"continue","toolName":"site.create","toolInput":{"slug":"demo"},"nextStepPlan":{"objective":"finish after creating the site","expectedTools":[],"expectedNextResults":["site created"],"doneCriteria":["site created"],"risk":"none","workingSetReason":"site.create should satisfy this test"}}`,
+		finishMessageWithEvidence("created", "obs-002", "site.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolSet([]string{"skill.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"skills":[]}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Output: ToolOutput{Content: `{"siteID":"site-1"}`}, Attachments: []FileAttachment{{DevicePath: "site://site-1", Filename: "site.json"}}}, nil
 	})
 
@@ -449,7 +449,7 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndExplicitTools(t *test
 		AvailableSkills: []SkillInstruction{{
 			Name:         "site-prototype",
 			Prompt:       "SITE WORKFLOW BODY",
-			AllowedTools: []string{"site.app.create"},
+			AllowedTools: []string{"site.create"},
 		}},
 	})
 	if errorValue != nil {
@@ -465,18 +465,18 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndExplicitTools(t *test
 
 func TestAgentTurnRunnerSteersRepeatedSelectToolsTowardConcreteToolUse(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"need site creation"}`,
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still need site creation"}`,
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
-		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"demo"}}`,
-		finishMessageWithEvidence("created", "obs-005", "site.app.create", 0),
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"need site creation"}`,
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"still need site creation"}`,
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"still selecting"}`,
+		`{"action":"continue","toolName":"site.create","toolInput":{"slug":"demo"}}`,
+		finishMessageWithEvidence("created", "obs-005", "site.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10})
 	toolRegistry := NewToolSet([]string{"skill.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"skills":[]}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"siteID":"site-1"}`), nil
 	})
 
@@ -511,10 +511,10 @@ func TestAgentTurnRunnerSteersRepeatedSelectToolsTowardConcreteToolUse(t *testin
 func TestAgentTurnRunnerSelectToolsWithExhaustedFailureDebtRunsTerminalNoTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+2/4"}}`,
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"try another tool"}`,
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still trying"}`,
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"still selecting"}`,
-		`{"action":"tool.request","toolNames":["site.app.create"],"skillNames":[],"reason":"terminal fallback should run after this"}`,
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"try another tool"}`,
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"still trying"}`,
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"still selecting"}`,
+		`{"action":"tool.request","toolNames":["site.create"],"skillNames":[],"reason":"terminal fallback should run after this"}`,
 		noToolFallbackFinishMessageDocument("I can answer from the failure context."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
@@ -522,7 +522,7 @@ func TestAgentTurnRunnerSelectToolsWithExhaustedFailureDebtRunsTerminalNoTools(t
 	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"skills":[]}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"siteID":"site-1"}`), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -556,7 +556,7 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolSet([]string{"terminal.run"})
-	for _, toolName := range []string{"terminal.run", "site.app.create"} {
+	for _, toolName := range []string{"terminal.run", "site.create"} {
 		currentToolName := toolName
 		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess("ok"), nil
@@ -569,7 +569,7 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 		Prompt:             "피피티 만들어줘",
 		ToolSet:            toolRegistry,
 		PinnedToolNames:    toolRegistry.ListToolNames(),
-		AvailableSkills:    []SkillInstruction{{Name: "simple-slides", AllowedTools: []string{"terminal.run", "site.app.create"}}},
+		AvailableSkills:    []SkillInstruction{{Name: "simple-slides", AllowedTools: []string{"terminal.run", "site.create"}}},
 		InstructionPrompt:  "Available skill index.\n\nSelected skill instructions:\nGenerate PPTX with Marp.",
 		InstructionSources: []InstructionSource{{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides", SHA256: "abc"}},
 		SkillDecisions: []SkillSelectionDecision{{
@@ -597,7 +597,7 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 	}
 	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "registeredToolCount") ||
 		!taskEventsContain(taskEvents, "agent.instructions_loaded", "hiddenDescribedToolNames") ||
-		!taskEventsContain(taskEvents, "agent.instructions_loaded", "site.app.create") {
+		!taskEventsContain(taskEvents, "agent.instructions_loaded", "site.create") {
 		t.Fatal("expected tool visibility debug fields in instructions event")
 	}
 	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "selectedSkillAllowedTools") {
@@ -660,18 +660,18 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 }
 
 func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
-	toolRegistry := newTestToolSet([]string{"site.app.publish", "file.write"})
+	toolRegistry := newTestToolSet([]string{"site.publish", "file.write"})
 	request := BuildAgentActionRequest(agentTaskState{
 		Request: AgentTurnRequest{ToolSet: toolRegistry},
 		Options: TurnOptions{RecoveryBudget: defaultRecoveryBudget()},
 		Observations: []turnObservation{{
 			ObservationID:      "obs-001",
 			Action:             "continue",
-			Tool:               "site.app.publish",
+			Tool:               "site.publish",
 			Output:             ToolOutput{Content: "starter scaffold remains"},
 			Failure:            &ToolFailure{Kind: FailureInvalidInput, Code: FailureCodes.InvalidInput.String(), Stage: "site_publish", UserSafeSummary: "starter scaffold remains"},
-			ToolInputKey:       "site.app.publish\x00{\"siteID\":\"site-1\"}",
-			AttemptFingerprint: "site.app.publish\x00{\"siteID\":\"site-1\"}\x00invalid_input",
+			ToolInputKey:       "site.publish\x00{\"siteID\":\"site-1\"}",
+			AttemptFingerprint: "site.publish\x00{\"siteID\":\"site-1\"}\x00invalid_input",
 		}},
 	})
 	schemaDocument := request.StructuredOutputSchema.Document
@@ -971,27 +971,27 @@ func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMa
 
 func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the created site","expectedTools":["site.app.build","artifact.review"],"doneCriteria":["site build succeeds"],"risk":"draft may be incomplete","workingSetReason":"creation must lead into build and review"}}`,
-		`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"review the built artifact","expectedTools":["artifact.review","site.app.publish"],"doneCriteria":["review passes"],"risk":"visual issues may block publish","workingSetReason":"build output needs review before publish"}}`,
-		`{"action":"continue","toolName":"artifact.review","toolInput":{"path":"home/sites/site-1/app/dist/index.html"},"nextStepPlan":{"objective":"publish reviewed site","expectedTools":["site.app.publish","site.app.status"],"doneCriteria":["publish succeeds"],"risk":"publish may reject stale build","workingSetReason":"review evidence allows publish"}}`,
-		`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1","message":"Publish portfolio"},"nextStepPlan":{"objective":"confirm final status","expectedTools":["site.app.status"],"doneCriteria":["status shows published URL"],"risk":"status may not reflect latest version","workingSetReason":"final status is required evidence"}}`,
-		`{"action":"continue","toolName":"site.app.status","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish with status evidence","expectedTools":[],"doneCriteria":["finish with published URL"],"risk":"none","workingSetReason":"all required evidence has been collected"}}`,
-		`{"action":"finish","message":"같은 URL에 배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"같은 URL에 배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"site.app.build"},{"observationID":"obs-003","toolName":"artifact.review"},{"observationID":"obs-004","toolName":"site.app.publish"},{"observationID":"obs-005","toolName":"site.app.status"}]}`,
+		`{"action":"continue","toolName":"site.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the created site","expectedTools":["site.build","artifact.review"],"doneCriteria":["site build succeeds"],"risk":"draft may be incomplete","workingSetReason":"creation must lead into build and review"}}`,
+		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"review the built artifact","expectedTools":["artifact.review","site.publish"],"doneCriteria":["review passes"],"risk":"visual issues may block publish","workingSetReason":"build output needs review before publish"}}`,
+		`{"action":"continue","toolName":"artifact.review","toolInput":{"path":"home/sites/site-1/app/dist/index.html"},"nextStepPlan":{"objective":"publish reviewed site","expectedTools":["site.publish","site.status"],"doneCriteria":["publish succeeds"],"risk":"publish may reject stale build","workingSetReason":"review evidence allows publish"}}`,
+		`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1","message":"Publish portfolio"},"nextStepPlan":{"objective":"confirm final status","expectedTools":["site.status"],"doneCriteria":["status shows published URL"],"risk":"status may not reflect latest version","workingSetReason":"final status is required evidence"}}`,
+		`{"action":"continue","toolName":"site.status","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish with status evidence","expectedTools":[],"doneCriteria":["finish with published URL"],"risk":"none","workingSetReason":"all required evidence has been collected"}}`,
+		`{"action":"finish","message":"같은 URL에 배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"같은 URL에 배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"site.build"},{"observationID":"obs-003","toolName":"artifact.review"},{"observationID":"obs-004","toolName":"site.publish"},{"observationID":"obs-005","toolName":"site.status"}]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 8})
-	toolRegistry := newTestToolSet([]string{"site.app.status", "site.app.create", "site.app.build", "artifact.review", "site.app.publish"})
+	toolRegistry := newTestToolSet([]string{"site.status", "site.create", "site.build", "artifact.review", "site.publish"})
 	toolCalls := []string{}
 	hasBuildQuality := false
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.app.status")
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.status")
 		return ToolSuccess(`{"siteID":"site-1","status":"published","publishedURL":"https://portfolio.example","revisionCount":1}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.app.create")
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.create")
 		return ToolSuccess(`{"siteID":"site-1","sourceWorkspacePath":"home/sites/site-1","appWorkspacePath":"home/sites/site-1/app","publishedURL":"https://portfolio.example"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.app.build")
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.build")
 		hasBuildQuality = true
 		return ToolSuccess(`{"qualityPath":"home/sites/site-1/.internkim/build-quality.json","distPath":"home/sites/site-1/app/dist"}`), nil
 	})
@@ -999,8 +999,8 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		toolCalls = append(toolCalls, "artifact.review")
 		return ToolSuccess(`{"status":"passed","blockingIssueCount":0}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.app.publish")
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.publish")
 		if !hasBuildQuality {
 			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "site_publish", "missing build-quality.json"), nil
 		}
@@ -1014,17 +1014,17 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "artifact.review", "site.app.publish"},
+		RequiredEvidenceTools: []string{"site.status", "site.build", "artifact.review", "site.publish"},
 		AvailableSkills: []SkillInstruction{{
 			Name:         "site-prototype",
-			AllowedTools: []string{"site.app.status", "site.app.create", "site.app.build", "artifact.review", "site.app.publish"},
+			AllowedTools: []string{"site.status", "site.create", "site.build", "artifact.review", "site.publish"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected site loop to succeed: %v", errorValue)
 	}
-	expectedCalls := []string{"site.app.create", "site.app.build", "artifact.review", "site.app.publish", "site.app.status"}
+	expectedCalls := []string{"site.create", "site.build", "artifact.review", "site.publish", "site.status"}
 	if strings.Join(toolCalls, ",") != strings.Join(expectedCalls, ",") {
 		t.Fatalf("expected site tool loop %v, got %v", expectedCalls, toolCalls)
 	}
@@ -1037,13 +1037,13 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 	languageModel := &sequenceLanguageModel{}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{
-		"site.app.status",
-		"site.app.create",
+		"site.status",
+		"site.create",
 		"file.write",
 		"terminal.run",
-		"site.app.build",
+		"site.build",
 		"artifact.review",
-		"site.app.publish",
+		"site.publish",
 		"file.attach",
 	})
 	request := AgentTurnRequest{
@@ -1051,18 +1051,18 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 		ConversationID:        "conversation-1",
 		Prompt:                "김인턴 너의 개인 홈페이지 하나 만들어서 배포해봐.",
 		ToolSet:               toolRegistry,
-		PinnedToolNames:       []string{"site.app.status", "site.app.create", "file.write", "site.app.build", "artifact.review", "site.app.publish"},
-		RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "site.app.publish", "file.attach"},
+		PinnedToolNames:       []string{"site.status", "site.create", "file.write", "site.build", "artifact.review", "site.publish"},
+		RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish", "file.attach"},
 		AvailableSkills: []SkillInstruction{{
 			Name: "site-prototype",
 			AllowedTools: []string{
-				"site.app.status",
-				"site.app.create",
+				"site.status",
+				"site.create",
 				"file.write",
 				"terminal.run",
-				"site.app.build",
+				"site.build",
 				"artifact.review",
-				"site.app.publish",
+				"site.publish",
 				"file.attach",
 			},
 		}},
@@ -1071,14 +1071,14 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 			OriginalInstruction: "김인턴 너의 개인 홈페이지 하나 만들어서 배포해봐.",
 			Status:              ActiveGoalStatusActive,
 			OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools: []string{"site.app.status", "site.app.build", "site.app.publish", "file.attach"},
+				RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish", "file.attach"},
 				ArtifactRequirement:   ArtifactRequirementRequired,
 			},
 		},
 	}
 
 	stepRequest := services.runner.requestForStep(context.Background(), request, agentTaskState{Request: request})
-	for _, toolName := range []string{"site.app.status", "site.app.create", "file.write", "site.app.build", "artifact.review", "site.app.publish"} {
+	for _, toolName := range []string{"site.status", "site.create", "file.write", "site.build", "artifact.review", "site.publish"} {
 		if !stepRequest.ToolSet.CanExpose(toolName) {
 			t.Fatalf("expected initial site working set to expose %s, got %+v", toolName, stepRequest.ToolExposure.ExposedToolIDs)
 		}
@@ -1088,21 +1088,21 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"site.app.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the draft before finishing","expectedTools":["site.app.build"],"doneCriteria":["build evidence exists"],"risk":"draft creation alone is not completion","workingSetReason":"site.app.build is required evidence"}}`,
-			`{"action":"finish","message":"초안이 만들어졌습니다.","replyParts":[{"type":"text","text":"초안이 만들어졌습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.app.create"}]}`,
-			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish after build evidence","expectedTools":[],"doneCriteria":["build observation exists"],"risk":"none","workingSetReason":"required evidence has been collected"}}`,
-			finishMessageWithEvidence("빌드까지 완료했습니다.", "obs-003", "site.app.build", 0),
+			`{"action":"continue","toolName":"site.create","toolInput":{"slug":"portfolio","title":"Portfolio"},"nextStepPlan":{"objective":"build the draft before finishing","expectedTools":["site.build"],"doneCriteria":["build evidence exists"],"risk":"draft creation alone is not completion","workingSetReason":"site.build is required evidence"}}`,
+			`{"action":"finish","message":"초안이 만들어졌습니다.","replyParts":[{"type":"text","text":"초안이 만들어졌습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"site.create"}]}`,
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"},"nextStepPlan":{"objective":"finish after build evidence","expectedTools":[],"doneCriteria":["build observation exists"],"risk":"none","workingSetReason":"required evidence has been collected"}}`,
+			finishMessageWithEvidence("빌드까지 완료했습니다.", "obs-003", "site.build", 0),
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 4})
-	toolRegistry := newTestToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "site.app.create", "site.app.build"})
+	toolRegistry := newTestToolSet([]string{"skill.search", "tool.describe", "ask.confirm", "site.create", "site.build"})
 	toolCalls := []string{}
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.app.create")
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.create")
 		return ToolSuccess(`{"siteID":"site-1","status":"draft"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.app.build")
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.build")
 		return ToolSuccess(`{"siteID":"site-1","distPath":"home/sites/site-1/app/dist"}`), nil
 	})
 
@@ -1113,10 +1113,10 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"site.app.build"},
+		RequiredEvidenceTools: []string{"site.build"},
 		AvailableSkills: []SkillInstruction{{
 			Name:         "site-prototype",
-			AllowedTools: []string{"site.app.create", "site.app.build"},
+			AllowedTools: []string{"site.create", "site.build"},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	})
@@ -1126,14 +1126,14 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
-	if strings.Join(toolCalls, ",") != "site.app.create,site.app.build" {
+	if strings.Join(toolCalls, ",") != "site.create,site.build" {
 		t.Fatalf("expected create then build, got %+v", toolCalls)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.completion_required", "site.app.build") {
+	if !taskEventsContain(events, "agent.completion_required", "site.build") {
 		t.Fatal("expected early finish to be rejected by completion gate")
 	}
-	if !taskEventsContain(events, "agent.tool_palette.built", "site.app.build") {
+	if !taskEventsContain(events, "agent.tool_palette.built", "site.build") {
 		t.Fatal("expected build tool to be exposed after rejected finish")
 	}
 	if !taskEventsContain(events, "agent.tool_palette.built", "deterministic") {
@@ -1146,24 +1146,24 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 		contents: []string{
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/draft/app/src/App.tsx","content":"export default function App(){return <main>Pretty</main>}"}}`,
 			`{"action":"fail","reason":"cannot continue","goalStatus":"blocked","goalSatisfied":false,"remainingWork":"build and publish still needed"}`,
-			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
-			`{"action":"continue","toolName":"site.app.publish","toolInput":{"siteID":"site-1"}}`,
-			finishMessageWithEvidence("배포했습니다: https://pretty.example", "obs-004", "site.app.publish", 0),
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
+			`{"action":"continue","toolName":"site.publish","toolInput":{"siteID":"site-1"}}`,
+			finishMessageWithEvidence("배포했습니다: https://pretty.example", "obs-004", "site.publish", 0),
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 8})
-	toolRegistry := newTestToolSet([]string{"file.write", "site.app.build", "site.app.publish"})
+	toolRegistry := newTestToolSet([]string{"file.write", "site.build", "site.publish"})
 	toolCalls := []string{}
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCalls = append(toolCalls, "file.write")
 		return ToolSuccess(`{"path":"/workspace/sites/site-1/draft/app/src/App.tsx"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.app.build")
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.build")
 		return ToolSuccess(`{"siteID":"site-1","distPath":"/workspace/sites/site-1/draft/app/dist"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		toolCalls = append(toolCalls, "site.app.publish")
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCalls = append(toolCalls, "site.publish")
 		return ToolSuccess(`{"siteID":"site-1","publishedURL":"https://pretty.example"}`), nil
 	})
 
@@ -1174,9 +1174,9 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"site.app.publish"},
+		RequiredEvidenceTools: []string{"site.publish"},
 		OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"site.app.publish"},
+			RequiredEvidenceTools: []string{"site.publish"},
 		},
 	})
 	if errorValue != nil {
@@ -1185,10 +1185,10 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
-	if strings.Join(toolCalls, ",") != "file.write,site.app.build,site.app.publish" {
+	if strings.Join(toolCalls, ",") != "file.write,site.build,site.publish" {
 		t.Fatalf("expected write then build/publish, got %+v", toolCalls)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recoverable_fail_rejected", "site.app.build") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recoverable_fail_rejected", "site.build") {
 		t.Fatal("expected recoverable fail rejection to suggest build")
 	}
 }
@@ -1206,7 +1206,7 @@ func TestSiteRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 
 	updatedRequest := requestWithStepWorkingSetTools(request, nil)
 
-	if stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.add") || stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.delete") {
+	if stringSliceContains(updatedRequest.PinnedToolNames, "calendar.add") || stringSliceContains(updatedRequest.PinnedToolNames, "calendar.delete") {
 		t.Fatalf("did not expect calendar operations pinned for site content mention, got %+v", updatedRequest.PinnedToolNames)
 	}
 }
@@ -1224,7 +1224,7 @@ func TestSlidesRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 
 	updatedRequest := requestWithStepWorkingSetTools(request, nil)
 
-	if stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.add") || stringSliceContains(updatedRequest.PinnedToolNames, "calendar.event.delete") {
+	if stringSliceContains(updatedRequest.PinnedToolNames, "calendar.add") || stringSliceContains(updatedRequest.PinnedToolNames, "calendar.delete") {
 		t.Fatalf("did not expect calendar operations pinned for slides content mention, got %+v", updatedRequest.PinnedToolNames)
 	}
 }
@@ -1232,13 +1232,13 @@ func TestSlidesRequestWithCalendarContentDoesNotPinCalendarTools(t *testing.T) {
 func TestAgentTurnRunnerDoesNotPauseBeforeRequiresApprovalToolInvoke(t *testing.T) {
 	heldInput := `{"eventID":"event-1"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"calendar.event.delete","toolInput":` + heldInput + `}`,
-		`{"action":"finish","message":"일정을 삭제했습니다.","replyParts":[{"type":"text","text":"일정을 삭제했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"calendar.event.delete"}],"qualityReview":[]}`,
+		`{"action":"continue","toolName":"calendar.delete","toolInput":` + heldInput + `}`,
+		`{"action":"finish","message":"일정을 삭제했습니다.","replyParts":[{"type":"text","text":"일정을 삭제했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"calendar.delete"}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"calendar.event.delete"})
+	toolRegistry := newTestToolSet([]string{"calendar.delete"})
 	invokedInputs := []string{}
-	toolRegistry.RegisterTool(ToolDefinition{Name: "calendar.event.delete", RequiresApproval: true}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "calendar.delete", RequiresApproval: true}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
 		return ToolSuccess(`{"eventID":"event-1","status":"deleted"}`), nil
 	})
@@ -1249,7 +1249,7 @@ func TestAgentTurnRunnerDoesNotPauseBeforeRequiresApprovalToolInvoke(t *testing.
 		Prompt:            "일정 삭제해줘",
 		ResponseLanguage:  ResponseLanguageKorean,
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"calendar.event.delete"},
+		PinnedToolNames:   []string{"calendar.delete"},
 		WorkspaceRootPath: t.TempDir(),
 	})
 	if errorValue != nil {
@@ -1265,10 +1265,10 @@ func TestAgentTurnRunnerDoesNotPauseBeforeRequiresApprovalToolInvoke(t *testing.
 	if taskEventsContain(events, "approval.pending_call", "") {
 		t.Fatalf("requiresApproval descriptor should not create pre-approval hold, events=%+v", events)
 	}
-	if !taskEventsContain(events, "tool.calendar.event.delete.requested", heldInput) {
+	if !taskEventsContain(events, "tool.calendar.delete.requested", heldInput) {
 		t.Fatalf("expected tool request event, events=%+v", events)
 	}
-	if !taskEventsContain(events, "tool.calendar.event.delete.result", "deleted") {
+	if !taskEventsContain(events, "tool.calendar.delete.result", "deleted") {
 		t.Fatalf("expected tool result event, events=%+v", events)
 	}
 }
@@ -1276,14 +1276,14 @@ func TestAgentTurnRunnerDoesNotPauseBeforeRequiresApprovalToolInvoke(t *testing.
 func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) {
 	heldInput := `{"deliveryTarget":{"type":"directMessage","personHint":"테스트"},"message":"오늘 오후 3시에 확인하자"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"platform.message.send","toolInput":` + heldInput + `}`,
-		`{"action":"finish","message":"테스트이에게 DM을 보냈습니다.","replyParts":[{"type":"text","text":"테스트이에게 DM을 보냈습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"platform.message.send"}],"qualityReview":[]}`,
+		`{"action":"continue","toolName":"message.send","toolInput":` + heldInput + `}`,
+		`{"action":"finish","message":"테스트이에게 DM을 보냈습니다.","replyParts":[{"type":"text","text":"테스트이에게 DM을 보냈습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"message.send"}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"platform.message.send"})
+	toolRegistry := newTestToolSet([]string{"message.send"})
 	invokedInputs := []string{}
 	wasExecutedBeforeSecondModel := false
-	toolRegistry.RegisterTool(ToolDefinition{Name: "platform.message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
 		if len(invokedInputs) == 1 {
 			return ToolResult{
@@ -1306,7 +1306,7 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 		Prompt:            "테스트에게 DM 보내줘",
 		ResponseLanguage:  ResponseLanguageKorean,
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"platform.message.send"},
+		PinnedToolNames:   []string{"message.send"},
 		WorkKinds:         []string{WorkKindExternalSend},
 		WorkspaceRootPath: t.TempDir(),
 	})
@@ -1338,7 +1338,7 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 		Prompt:                 "확인",
 		ResponseLanguage:       ResponseLanguageKorean,
 		ToolSet:                toolRegistry,
-		PinnedToolNames:        []string{"platform.message.send"},
+		PinnedToolNames:        []string{"message.send"},
 		WorkKinds:              []string{WorkKindExternalSend},
 		WorkspaceRootPath:      t.TempDir(),
 	})
@@ -1358,10 +1358,10 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 		t.Fatal("expected held call to execute before the approval-continuation model step")
 	}
 	secondTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)
-	if !taskEventsContain(secondTurnEvents, "approval.executed", "platform.message.send") {
+	if !taskEventsContain(secondTurnEvents, "approval.executed", "message.send") {
 		t.Fatalf("expected approval executed event, events=%+v", secondTurnEvents)
 	}
-	if !taskEventsContain(secondTurnEvents, "tool.platform.message.send.result", "message-1") {
+	if !taskEventsContain(secondTurnEvents, "tool.message.send.result", "message-1") {
 		t.Fatalf("expected deterministic send result, events=%+v", secondTurnEvents)
 	}
 }
@@ -1549,7 +1549,7 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"one"}}`,
-			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 			finishMessageDocument("continued after escalation"),
 		},
 	}
@@ -1558,11 +1558,11 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
-	toolRegistry := newTestToolSet([]string{"file.write", "site.app.build"})
+	toolRegistry := newTestToolSet([]string{"file.write", "site.build"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"path":"tmp/app/index.html"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"status":"built"}`), nil
 	})
 
@@ -1571,7 +1571,7 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 		ConversationID:    "conversation-1",
 		Prompt:            "build the site",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"file.write", "site.app.build"},
+		PinnedToolNames:   []string{"file.write", "site.build"},
 	})
 
 	if errorValue != nil {
@@ -1593,7 +1593,7 @@ func TestAgentTurnRunnerDoesNotEscalateIterationLimitForInspectionOnlyProgress(t
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"file.read","toolInput":{"path":"tmp/app/index.html"}}`,
-			`{"action":"continue","toolName":"site.app.status","toolInput":{"siteID":"site-1"}}`,
+			`{"action":"continue","toolName":"site.status","toolInput":{"siteID":"site-1"}}`,
 		},
 		textResponses: []string{"progress saved"},
 	}
@@ -1602,11 +1602,11 @@ func TestAgentTurnRunnerDoesNotEscalateIterationLimitForInspectionOnlyProgress(t
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
-	toolRegistry := newTestToolSet([]string{"file.read", "site.app.status"})
+	toolRegistry := newTestToolSet([]string{"file.read", "site.status"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.read"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"path":"tmp/app/index.html","content":"one"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.status"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"status":"draft"}`), nil
 	})
 
@@ -1615,7 +1615,7 @@ func TestAgentTurnRunnerDoesNotEscalateIterationLimitForInspectionOnlyProgress(t
 		ConversationID:    "conversation-1",
 		Prompt:            "inspect the site",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"file.read", "site.app.status"},
+		PinnedToolNames:   []string{"file.read", "site.status"},
 	})
 
 	if errorValue != nil {
@@ -1635,7 +1635,7 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/a","content":"one"}}`,
 			`{"action":"continue","toolName":"file.patch","toolInput":{"path":"tmp/app/a","patch":"two"}}`,
 			`{"action":"continue","toolName":"file.edit","toolInput":{"path":"tmp/app/a","oldText":"one","newText":"two"}}`,
-			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 			finishMessageDocument("done"),
 		},
 	}
@@ -1644,8 +1644,8 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
-	toolRegistry := newTestToolSet([]string{"file.write", "file.patch", "file.edit", "site.app.build"})
-	for _, toolName := range []string{"file.write", "file.patch", "file.edit", "site.app.build"} {
+	toolRegistry := newTestToolSet([]string{"file.write", "file.patch", "file.edit", "site.build"})
+	for _, toolName := range []string{"file.write", "file.patch", "file.edit", "site.build"} {
 		toolRegistry.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess(`{"ok":true}`), nil
 		})
@@ -1656,7 +1656,7 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "keep building",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"file.write", "file.patch", "file.edit", "site.app.build"},
+		PinnedToolNames:   []string{"file.write", "file.patch", "file.edit", "site.build"},
 	})
 
 	if errorValue != nil {
@@ -1679,7 +1679,7 @@ func TestAgentTurnRunnerCheckpointsAtExtendedIterationCeiling(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/a","content":"one"}}`,
-			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 		},
 		textResponses: []string{"progress saved"},
 	}
@@ -1688,11 +1688,11 @@ func TestAgentTurnRunnerCheckpointsAtExtendedIterationCeiling(t *testing.T) {
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
-	toolRegistry := newTestToolSet([]string{"file.write", "site.app.build"})
+	toolRegistry := newTestToolSet([]string{"file.write", "site.build"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"path":"tmp/app/a"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"status":"built"}`), nil
 	})
 
@@ -1701,7 +1701,7 @@ func TestAgentTurnRunnerCheckpointsAtExtendedIterationCeiling(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "finish extended work",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"file.write", "site.app.build"},
+		PinnedToolNames:   []string{"file.write", "site.build"},
 	})
 
 	if errorValue != nil {

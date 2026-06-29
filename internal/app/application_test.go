@@ -185,12 +185,12 @@ func TestDeriveAllowedToolNamesByProfileKeepsDomainCapabilitiesOutOfBaseline(t *
 	runtimeConfiguration.AgentProfiles = []config.AgentProfileConfiguration{
 		{Name: "default", AllowedToolNames: []string{"terminal.run"}},
 	}
-	runtimeConfiguration.Capabilities.ToolDescriptors = []config.CapabilityToolDescriptor{{Name: "site.app.create"}}
+	runtimeConfiguration.Capabilities.ToolDescriptors = []config.CapabilityToolDescriptor{{Name: "site.create"}}
 
 	allowedToolNamesByProfile := deriveAllowedToolNamesByProfile(runtimeConfiguration)
 	defaultProfileToolNames := allowedToolNamesByProfile["default"]
 
-	if containsString(defaultProfileToolNames, "site.app.create") {
+	if containsString(defaultProfileToolNames, "site.create") {
 		t.Fatalf("expected domain capability to stay out of profile baseline, got %+v", defaultProfileToolNames)
 	}
 	for _, expectedToolName := range []string{"terminal.run", "ask.input", "ask.confirm", "file.deliver", "skill.search", "file.read", "file.write", "file.edit", "file.patch", "file.preview", "image.read"} {

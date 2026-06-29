@@ -53,7 +53,23 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
 	observation := agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, trimmedToolName, toolInputKey, toolResult, workspaceRootPath, minimumModifiedAt, time.Since(invocationStartedAt).Milliseconds())
+	observation.Tool = effectiveObservationToolName(trimmedToolName, toolInput)
 	return observation
+}
+
+func effectiveObservationToolName(toolName string, toolInput json.RawMessage) string {
+	if toolName != CapabilityInvokeToolName {
+		return toolName
+	}
+	var document struct {
+		Operation string `json:"operation"`
+	}
+	if json.Unmarshal(toolInput, &document) == nil {
+		if operation := strings.TrimSpace(document.Operation); operation != "" {
+			return operation
+		}
+	}
+	return toolName
 }
 
 func toolFailureObservation(observationID string, toolName string, message string) turnObservation {
@@ -189,7 +205,7 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.Langua
 
 func shouldUseSanitizedToolPresenter(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", FileDeliverToolName, "file.read", "site.app.create", "site.app.publish", "site.app.status", "terminal.run":
+	case "browser.snapshot", "browser.observe", "browser.screenshot", "file.pick", FileDeliverToolName, "file.read", "site.create", "site.publish", "site.status", "terminal.run":
 		return true
 	default:
 		return false
@@ -220,9 +236,9 @@ func sanitizedToolResultSummary(observation turnObservation) string {
 		return attachmentResultSummary("File attached", observation.Attachments)
 	case "file.read":
 		return summarizeFileReadObservation(observation)
-	case "site.app.create":
+	case "site.create":
 		return siteToolResultSummary(observation, []string{"siteID", "slug", "title", "status", "workspacePath", "sourceWorkspacePath", "appWorkspacePath"})
-	case "site.app.publish", "site.app.status":
+	case "site.publish", "site.status":
 		return siteToolResultSummary(observation, []string{"siteID", "slug", "title", "status", "publishedURL", "currentVersionID", "liveHTTPStatus", "qualityStatus", "qualityIssueCount"})
 	case "terminal.run":
 		if summary := summarizeTerminalFailure(observation); summary != "" {

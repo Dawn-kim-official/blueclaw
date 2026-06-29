@@ -253,8 +253,8 @@ func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecut
 
 func ambientCaptureAllowedToolNames() []string {
 	return []string{
-		"flow.task.add", "flow.task.list", "flow.task.update",
-		"calendar.event.add", "calendar.event.update", "calendar.event.list",
+		"task.add", "task.list", "task.update",
+		"calendar.add", "calendar.update", "calendar.list",
 		"ask.input",
 		"conversation.history",
 	}

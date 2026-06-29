@@ -22,10 +22,10 @@ func TestStalledOnRedundantInspectionDetectsCacheHit(t *testing.T) {
 }
 
 func TestStalledRecoveryDirectiveNamesFailedToolAndForbidsAsking(t *testing.T) {
-	failedBuild := newFailureObservation("obs-001", "continue", "site.app.build", "compile error", FailureExternalService, FailureCodes.OperationFailed, "tool")
-	failedBuild.ToolInputKey = "site.app.build:lunch"
+	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "compile error", FailureExternalService, FailureCodes.OperationFailed, "tool")
+	failedBuild.ToolInputKey = "site.build:lunch"
 	directive := stalledRecoveryDirectiveObservation("obs-099", FailureDebt{LatestFailure: failedBuild})
-	if !strings.Contains(directive.Summary, "site.app.build") {
+	if !strings.Contains(directive.Summary, "site.build") {
 		t.Fatalf("expected directive to name the failed tool, got %q", directive.Summary)
 	}
 	if !strings.Contains(directive.Summary, "file.edit") || !strings.Contains(directive.Summary, "do not ask") {
@@ -36,8 +36,8 @@ func TestStalledRecoveryDirectiveNamesFailedToolAndForbidsAsking(t *testing.T) {
 func TestContinueStalledRecoveryNudgesReadLoopThenBounds(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
 	taskRunID := "task-stall-recovery"
-	failedBuild := newFailureObservation("obs-001", "continue", "site.app.build", "compile error", FailureExternalService, FailureCodes.OperationFailed, "tool")
-	failedBuild.ToolInputKey = "site.app.build:lunch"
+	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "compile error", FailureExternalService, FailureCodes.OperationFailed, "tool")
+	failedBuild.ToolInputKey = "site.build:lunch"
 	state := &agentTaskState{Observations: []turnObservation{failedBuild}}
 	tracker := newActionProgressTracker(state.Observations)
 	allowance := recoveryAllowance{CanRecover: true}
@@ -62,7 +62,7 @@ func TestContinueStalledRecoveryNudgesReadLoopThenBounds(t *testing.T) {
 	if services.runner.continueStalledRecoveryIfAllowed(taskRunID, state, &tracker, allowance) {
 		t.Fatal("expected stall recovery nudges to be bounded within an episode")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(taskRunID), "agent.stall_recovery_directive", "site.app.build") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(taskRunID), "agent.stall_recovery_directive", "site.build") {
 		t.Fatal("expected stall recovery directive events naming the failed tool")
 	}
 }
@@ -106,7 +106,7 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"one"}}`,
-			`{"action":"continue","toolName":"site.app.build","toolInput":{"siteID":"site-1"}}`,
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"two"}}`,
 			finishMessageDocument("continued after tool-call escalation"),
 		},
@@ -116,11 +116,11 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		MaxIterationCount: 10,
 		MaxToolCallCount:  2,
 	})
-	toolRegistry := newTestToolSet([]string{"file.write", "site.app.build"})
+	toolRegistry := newTestToolSet([]string{"file.write", "site.build"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"path":"tmp/app/index.html"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.app.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"status":"built"}`), nil
 	})
 
@@ -129,7 +129,7 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		ConversationID:    "conversation-1",
 		Prompt:            "build the site",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"file.write", "site.app.build"},
+		PinnedToolNames:   []string{"file.write", "site.build"},
 	})
 
 	if errorValue != nil {
@@ -145,20 +145,20 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 }
 
 func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.app.create", "site.app.status"})
+	toolSet := newTestToolSet([]string{"site.create", "site.status"})
 	base := AgentTurnRequest{ToolSet: toolSet}
 
-	afterFirst, firstResult := applyToolRequest(base, requestToolsArguments{ToolNames: []string{"site.app.create", "site.app.status"}})
+	afterFirst, firstResult := applyToolRequest(base, requestToolsArguments{ToolNames: []string{"site.create", "site.status"}})
 	if toolRequestAddedNothing(base, afterFirst, firstResult) {
 		t.Fatal("first selection of new tools should add tools")
 	}
 
-	afterSecond, secondResult := applyToolRequest(afterFirst, requestToolsArguments{ToolNames: []string{"site.app.create", "site.app.status"}})
+	afterSecond, secondResult := applyToolRequest(afterFirst, requestToolsArguments{ToolNames: []string{"site.create", "site.status"}})
 	if !toolRequestAddedNothing(afterFirst, afterSecond, secondResult) {
 		t.Fatal("re-selecting already-available tools should add nothing")
 	}
 
-	observation := redundantToolSelectionObservation(1, requestToolsArguments{ToolNames: []string{"site.app.create"}}, secondResult)
+	observation := redundantToolSelectionObservation(1, requestToolsArguments{ToolNames: []string{"site.create"}}, secondResult)
 	if !strings.Contains(observation.Summary, "already available") || !strings.Contains(observation.Summary, "call one of them now") {
 		t.Fatalf("expected a use-them-now directive, got %q", observation.Summary)
 	}
@@ -166,15 +166,15 @@ func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
 
 func TestObservedSuggestedNextToolReadsNestedHealth(t *testing.T) {
 	observations := []turnObservation{
-		newContentObservation("obs-001", "continue", "site.app.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.app.repair"}}`),
+		newContentObservation("obs-001", "continue", "site.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.repair"}}`),
 	}
 
 	suggestion, isFound := latestObservedSuggestedNextTool(observations)
-	if !isFound || suggestion.ToolName != "site.app.repair" || suggestion.ObservationID != "obs-001" {
+	if !isFound || suggestion.ToolName != "site.repair" || suggestion.ObservationID != "obs-001" {
 		t.Fatalf("expected nested site repair suggestion, got %+v found=%v", suggestion, isFound)
 	}
 
-	observations = append(observations, newContentObservation("obs-002", "continue", "site.app.repair", `{"workspaceHealth":"ready"}`))
+	observations = append(observations, newContentObservation("obs-002", "continue", "site.repair", `{"workspaceHealth":"ready"}`))
 	if _, isFound := latestObservedSuggestedNextTool(observations); isFound {
 		t.Fatal("expected suggestion to expire after the suggested tool was used")
 	}
@@ -183,7 +183,7 @@ func TestObservedSuggestedNextToolReadsNestedHealth(t *testing.T) {
 func TestObservedSuggestedNextToolReadsRecoveryPacketAllowedTools(t *testing.T) {
 	observation := completionGateObservation(1, "finish is not backed by observed results")
 	observation.RecoveryPacket = &RecoveryPacket{
-		AllowedTools: []string{"file.write", "site.app.build"},
+		AllowedTools: []string{"file.write", "site.build"},
 	}
 
 	suggestion, isFound := latestObservedSuggestedNextTool([]turnObservation{observation})
@@ -194,8 +194,8 @@ func TestObservedSuggestedNextToolReadsRecoveryPacketAllowedTools(t *testing.T) 
 
 func TestTechnicalStallDoesNotPauseForUserInput(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
-	failedBuild := newFailureObservation("obs-001", "continue", "site.app.build", "quality gate failed", FailureExternalService, FailureCodes.InvalidInput, "site_build_delivery")
-	failedBuild.ToolInputKey = "site.app.build:site-1"
+	failedBuild := newFailureObservation("obs-001", "continue", "site.build", "quality gate failed", FailureExternalService, FailureCodes.InvalidInput, "site_build_delivery")
+	failedBuild.ToolInputKey = "site.build:site-1"
 
 	if services.runner.shouldPauseForStalledRecovery("task-technical-stall", []turnObservation{failedBuild}) {
 		t.Fatal("expected technical artifact failures to block with a failure notice instead of waiting for user input")
@@ -205,11 +205,11 @@ func TestTechnicalStallDoesNotPauseForUserInput(t *testing.T) {
 func TestRequestWorkingSetPinsObservedSuggestedNextTool(t *testing.T) {
 	request := AgentTurnRequest{}
 	observations := []turnObservation{
-		newContentObservation("obs-001", "continue", "site.app.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.app.repair"}}`),
+		newContentObservation("obs-001", "continue", "site.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.repair"}}`),
 	}
 
 	updatedRequest := requestWithStepWorkingSetTools(request, observations)
-	if len(updatedRequest.PinnedToolNames) != 1 || updatedRequest.PinnedToolNames[0] != "site.app.repair" {
+	if len(updatedRequest.PinnedToolNames) != 1 || updatedRequest.PinnedToolNames[0] != "site.repair" {
 		t.Fatalf("expected observed suggested tool to be pinned, got %+v", updatedRequest.PinnedToolNames)
 	}
 }
@@ -217,9 +217,9 @@ func TestRequestWorkingSetPinsObservedSuggestedNextTool(t *testing.T) {
 func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
 	state := &agentTaskState{
-		Request: AgentTurnRequest{ToolSet: newTestToolSet([]string{"site.app.repair"})},
+		Request: AgentTurnRequest{ToolSet: newTestToolSet([]string{"site.repair"})},
 		Observations: []turnObservation{
-			newContentObservation("obs-001", "continue", "site.app.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.app.repair"}}`),
+			newContentObservation("obs-001", "continue", "site.status", `{"workspaceHealthDetails":{"suggestedNextTool":"site.repair"}}`),
 		},
 	}
 	tracker := newActionProgressTracker(nil)
@@ -228,10 +228,10 @@ func TestStalledTurnUsesSuggestedNextToolBeforeExit(t *testing.T) {
 		t.Fatal("expected suggested next tool directive")
 	}
 	lastObservation := state.Observations[len(state.Observations)-1]
-	if !strings.Contains(lastObservation.Summary, "site.app.repair") || strings.Contains(lastObservation.Summary, "finish") && !strings.Contains(lastObservation.Summary, "before") {
+	if !strings.Contains(lastObservation.Summary, "site.repair") || strings.Contains(lastObservation.Summary, "finish") && !strings.Contains(lastObservation.Summary, "before") {
 		t.Fatalf("expected directive to require suggested tool before finish, got %q", lastObservation.Summary)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent("task-suggested-next"), "agent.suggested_next_tool_directive", "site.app.repair") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent("task-suggested-next"), "agent.suggested_next_tool_directive", "site.repair") {
 		t.Fatal("expected suggested next tool event")
 	}
 }
@@ -288,7 +288,7 @@ func TestCleanRestartDiscardsPoisonedContextOnReSteerAfterStall(t *testing.T) {
 
 func TestCleanRestartPreservesDurablePublishEvidence(t *testing.T) {
 	events := []task.TaskEvent{
-		toolResultTestEvent("tool.site.app.publish.result", "obs-010", "site.app.publish", `{"publishedURL":"https://x.example.test"}`, false),
+		toolResultTestEvent("tool.site.publish.result", "obs-010", "site.publish", `{"publishedURL":"https://x.example.test"}`, false),
 		toolResultTestEvent("tool.browser.open.result", "obs-011", "browser.open", "garbage", true),
 		{Name: "agent.limit_stop", Body: "{}"},
 		{Name: "task.steer.requested", Body: "{}"},
@@ -296,7 +296,7 @@ func TestCleanRestartPreservesDurablePublishEvidence(t *testing.T) {
 	state, _ := agentTaskStateForTurn(AgentTurnRequest{IsRuntimeRestartResume: true}, TurnOptions{}, task.TaskRun{TaskRunID: "task-2"}, events)
 	hasPublish := false
 	for _, observation := range state.Observations {
-		if observation.Tool == "site.app.publish" {
+		if observation.Tool == "site.publish" {
 			hasPublish = true
 		}
 		if observation.Tool == "browser.open" {

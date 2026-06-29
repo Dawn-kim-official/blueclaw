@@ -182,7 +182,7 @@ func cleanRestartedAgentTaskState(request AgentTurnRequest, options TurnOptions,
 }
 
 func scrubRestoredGoalContext(request AgentTurnRequest) AgentTurnRequest {
-	request.ActiveGoal.KnownContext = []string{"The prior attempt on this task stalled and its working notes were cleared. Ignore the earlier trajectory and earlier tool outputs; re-ground from the current workspace state via site.app.status and the source on disk before acting."}
+	request.ActiveGoal.KnownContext = []string{"The prior attempt on this task stalled and its working notes were cleared. Ignore the earlier trajectory and earlier tool outputs; re-ground from the current workspace state via site.status and the source on disk before acting."}
 	return request
 }
 
@@ -204,7 +204,7 @@ func isDurableDeliveryObservation(observation turnObservation) bool {
 		return true
 	}
 	switch strings.TrimSpace(observation.Tool) {
-	case "site.app.publish", "site.app.promote":
+	case "site.publish", "site.promote":
 		return true
 	default:
 		return false
@@ -212,7 +212,7 @@ func isDurableDeliveryObservation(observation turnObservation) bool {
 }
 
 func regroundingObservation(index int) turnObservation {
-	message := "The previous attempt on this task stalled without finishing, and its working notes were cleared to avoid repeating the same mistakes. Your file edits on disk are preserved. Re-ground before acting: resolve the current site with site.app.status (empty input resolves the conversation's site), read the current source from disk, and continue from there. Do not trust earlier tool outputs; verify the current state first."
+	message := "The previous attempt on this task stalled without finishing, and its working notes were cleared to avoid repeating the same mistakes. Your file edits on disk are preserved. Re-ground before acting: resolve the current site with site.status (empty input resolves the conversation's site), read the current source from disk, and continue from there. Do not trust earlier tool outputs; verify the current state first."
 	observation := newContentObservation(nextObservationID(index), "policy", "", marshalEventBody(map[string]string{
 		"regrounded": "true",
 		"directive":  message,
