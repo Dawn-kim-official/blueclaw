@@ -136,7 +136,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 
 func isInteractiveCapabilityTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "user.confirm", "user.input", "ask.confirm", "ask.choice", "ask.input":
+	case "user.confirm", "user.input", "ask.confirm", "ask.input":
 		return true
 	default:
 		return false

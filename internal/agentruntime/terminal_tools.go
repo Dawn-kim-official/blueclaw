@@ -192,7 +192,7 @@ func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResul
 		"failureClass":      "workspace_permission",
 		"path":              strings.TrimSpace(workingDirectoryPath),
 		"requiredAccess":    "write",
-		"suggestedNextTool": "site.app.status",
+		"suggestedNextTool": "terminal.run",
 		"message":           message,
 	}))
 	result := agent.ToolFailureWithOutput(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "workspace_permission", message, document)
