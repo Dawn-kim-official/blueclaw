@@ -145,12 +145,29 @@ func seedGuestConfigDirectory(syncPath string, sourceDirectoryPath string, mount
 	if information, errorValue := os.Stat(sourceConfigPath); errorValue != nil || !information.IsDir() {
 		return nil
 	}
-	seedCommand := exec.Command(syncPath, "-a", "--ignore-existing", sourceConfigPath+"/", filepath.Join(mountDirectoryPath, ".blueclaw", "config")+"/")
+	guestConfigPath := filepath.Join(mountDirectoryPath, ".blueclaw", "config")
+	seedCommand := exec.Command(syncPath, "-a", "--ignore-existing", sourceConfigPath+"/", guestConfigPath+"/")
 	if output, errorValue := seedCommand.CombinedOutput(); errorValue != nil {
 		return errors.New("seed workspace guest config: " + string(output))
 	}
+	return refreshHostGeneratedGuestConfig(syncPath, sourceConfigPath, guestConfigPath)
+}
+
+func refreshHostGeneratedGuestConfig(syncPath string, sourceConfigPath string, guestConfigPath string) error {
+	for _, fileName := range hostGeneratedGuestConfigFiles {
+		sourceFilePath := filepath.Join(sourceConfigPath, fileName)
+		if _, errorValue := os.Stat(sourceFilePath); errorValue != nil {
+			continue
+		}
+		refreshCommand := exec.Command(syncPath, "-a", sourceFilePath, filepath.Join(guestConfigPath, fileName))
+		if output, errorValue := refreshCommand.CombinedOutput(); errorValue != nil {
+			return errors.New("refresh host-generated guest config: " + string(output))
+		}
+	}
 	return nil
 }
+
+var hostGeneratedGuestConfigFiles = []string{"runtime.json"}
 
 func (workspaceVolumeService WorkspaceVolumeService) imageSizeByte() int64 {
 	if workspaceVolumeService.ImageSizeByte > 0 {
