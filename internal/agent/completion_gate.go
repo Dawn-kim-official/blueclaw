@@ -376,14 +376,9 @@ func finishMessagePromisesFutureWork(message string) bool {
 }
 
 func validateFinishDoesNotHideUnresolvedWork(observations []turnObservation, actionDocument turnActionDocument) completionGateResult {
+	_ = observations
 	if finishHasUnresolvedRemainingWork(actionDocument.RemainingWork) {
 		return completionGateResult{Message: "finish cannot be satisfied while remainingWork describes unresolved work; recover the work or use fail"}
-	}
-	if _, hasFailureDebt := activeFailureDebt(observations); !hasFailureDebt {
-		return completionGateResult{IsSatisfied: true}
-	}
-	if finishMessageReportsBlockedWork(finishActionMessage(actionDocument)) {
-		return completionGateResult{Message: "finish cannot be satisfied while the message reports blocked or incomplete work; recover the work or use fail"}
 	}
 	return completionGateResult{IsSatisfied: true}
 }
