@@ -272,3 +272,42 @@ func TestRequiredLinkVerificationAcceptsTrailingSlashDifference(t *testing.T) {
 		t.Fatalf("expected satisfied verification with trailing slash difference, got %+v", verification)
 	}
 }
+
+func TestMessageResultBlocksOnceThenDelivers(t *testing.T) {
+	contract := OutcomeContract{ExpectedResults: []ExpectedResult{
+		{ID: "result-1", Type: ExpectedResultTypeMessage, Description: "self-intro text", Required: true},
+	}}
+	verification := ResultVerification{Results: []ResultVerificationItem{
+		{ID: "result-1", Status: "missing"},
+	}}
+
+	firstPass := blockingExpectedResultItems(contract, verification, nil)
+	if len(firstPass) != 1 {
+		t.Fatalf("message result should block on first verdict, got %d", len(firstPass))
+	}
+
+	priorFlag := []turnObservation{{
+		Action: "evidence_missing",
+		Output: ToolOutput{Content: "missing required expected result: result-1"},
+	}}
+	secondPass := blockingExpectedResultItems(contract, verification, priorFlag)
+	if len(secondPass) != 0 {
+		t.Fatalf("message result should deliver after one advisory round, got %d", len(secondPass))
+	}
+}
+
+func TestFileResultBlocksEveryTime(t *testing.T) {
+	contract := OutcomeContract{ExpectedResults: []ExpectedResult{
+		{ID: "doc-1", Type: ExpectedResultTypeFile, Description: "the report file", Required: true},
+	}}
+	verification := ResultVerification{Results: []ResultVerificationItem{
+		{ID: "doc-1", Status: "missing"},
+	}}
+	priorFlag := []turnObservation{{
+		Action: "evidence_missing",
+		Output: ToolOutput{Content: "missing required expected result: doc-1"},
+	}}
+	if len(blockingExpectedResultItems(contract, verification, priorFlag)) != 1 {
+		t.Fatal("checkable file result must keep blocking until observed")
+	}
+}
