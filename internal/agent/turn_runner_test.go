@@ -2181,3 +2181,24 @@ func terminalNoToolRecoveryBudgetForTest() RecoveryBudget {
 func finishMessageWithEvidence(reply string, observationID string, toolName string, attachmentIndex int) string {
 	return `{"action":"finish","message":` + strconv.Quote(reply) + `,"completionSummary":` + strconv.Quote(reply) + `,"replyParts":[{"type":"text","text":` + strconv.Quote(reply) + `}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":` + strconv.Quote(observationID) + `,"toolName":` + strconv.Quote(toolName) + `,"attachmentIndex":` + strconv.Itoa(attachmentIndex) + `}],"qualityReview":[]}`
 }
+
+func TestApprovalObservationUserFacingMessageReadsConfirmQuestion(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"ask.confirm question", `{"kind":"confirm","question":"우경 님에게 DM 보낼까요?","status":"waiting_approval"}`, "우경 님에게 DM 보낼까요?"},
+		{"userFacingMessage preferred", `{"userFacingMessage":"보낼까요?","question":"q"}`, "보낼까요?"},
+		{"message fallback", `{"message":"확인할까요?"}`, "확인할까요?"},
+		{"no prompt", `{"kind":"confirm","status":"waiting_approval"}`, ""},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			observation := turnObservation{Output: ToolOutput{Content: testCase.content}}
+			if got := approvalObservationUserFacingMessage(observation); got != testCase.want {
+				t.Fatalf("approvalObservationUserFacingMessage = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}

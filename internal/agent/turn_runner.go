@@ -932,11 +932,12 @@ func approvalObservationUserFacingMessage(observation turnObservation) string {
 	var document struct {
 		UserFacingMessage string `json:"userFacingMessage"`
 		Message           string `json:"message"`
+		Question          string `json:"question"`
 	}
 	if json.Unmarshal([]byte(observation.ContentText()), &document) != nil {
 		return ""
 	}
-	return firstNonEmptyString(document.UserFacingMessage, document.Message)
+	return firstNonEmptyString(document.UserFacingMessage, document.Message, document.Question)
 }
 
 func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, executionState ExecutionState, contextSummary TaskContextSummary, allowQualityCriteria bool) (turnActionDocument, error) {
