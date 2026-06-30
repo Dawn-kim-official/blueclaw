@@ -1095,7 +1095,7 @@ func TestEffortLimitProfileMapping(t *testing.T) {
 
 func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"too broad","userFacingReply":"Please narrow this first."}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"ambiguous target","clarificationQuestion":"Which one do you mean?","clarificationOptions":[{"key":"A","label":"First","value":"First"},{"key":"B","label":"Second","value":"Second"}],"userFacingReply":"Which one do you mean?"}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("should not run"),
@@ -1115,8 +1115,8 @@ func TestAgentKernelUsesIntakeBeforeRunningTools(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected intake-only result: %v", errorValue)
 	}
-	if result.UserNotice != "Please narrow this first." {
-		t.Fatalf("expected confirmation reply, got %q", result.UserNotice)
+	if result.UserNotice != "Which one do you mean?" {
+		t.Fatalf("expected clarification reply, got %q", result.UserNotice)
 	}
 	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
 		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)

@@ -116,27 +116,31 @@ func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
 	}
 }
 
-func TestAgentKernelPausesNeedsConfirmationIntake(t *testing.T) {
+func TestAgentKernelPausesNeedsConfirmationDisambiguation(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:            TurnRouteStartTask,
-		Classification:   IntakeClassificationNeedsConfirmation,
-		TaskComplexity:   TaskComplexityNormal,
-		EffortLevel:      EffortLevelStandard,
-		ResponseLanguage: "ko",
-		Reason:           "request appears too large for one bounded execution",
-		UserFacingReply:  "범위를 조금 좁혀서 다시 요청해 주세요.",
+		Route:                 TurnRouteStartTask,
+		Classification:        IntakeClassificationNeedsConfirmation,
+		TaskComplexity:        TaskComplexityNormal,
+		EffortLevel:           EffortLevelStandard,
+		ResponseLanguage:      "ko",
+		Reason:                "multiple matching items",
+		ClarificationQuestion: "어느 보고서를 말하는 건가요?",
+		ClarificationOptions: []ClarificationOption{
+			{Key: "A", Label: "주간보고서", Value: "주간보고서"},
+			{Key: "B", Label: "월간보고서", Value: "월간보고서"},
+		},
 	}})
 
-	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("회사 데이터 전부 정리해줘"))
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), kernelTestRequest("보고서 삭제해줘"))
 	if errorValue != nil {
-		t.Fatalf("expected intake pause to complete: %v", errorValue)
+		t.Fatalf("expected disambiguation pause to complete: %v", errorValue)
 	}
 	if result.TaskRun.Status != task.TaskStatusWaitingUserInput {
 		t.Fatalf("expected waiting user input, got %q", result.TaskRun.Status)
 	}
-	if result.UserNotice != "범위를 조금 좁혀서 다시 요청해 주세요." {
-		t.Fatalf("expected router-provided reply, got %q", result.UserNotice)
+	if result.UserNotice != "어느 보고서를 말하는 건가요?" {
+		t.Fatalf("expected clarification question, got %q", result.UserNotice)
 	}
 }
 

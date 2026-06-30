@@ -201,6 +201,9 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
 	}
+	if requestDestructiveActionSelfGatesViaCapabilityApproval(request) {
+		return false
+	}
 	if requestIsNonDestructiveSitePrototypePublish(request, requiredEvidenceTools) {
 		return false
 	}
@@ -217,6 +220,12 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 	}
 	return requestHasWorkKind(request, WorkKindDestructiveAction) ||
 		requestHasWorkKind(request, WorkKindPaidService) ||
+		requestHasWorkKind(request, WorkKindExternalSend)
+}
+
+func requestDestructiveActionSelfGatesViaCapabilityApproval(request AgentRequest) bool {
+	return requestHasWorkKind(request, WorkKindFlowTask) ||
+		requestHasWorkKind(request, WorkKindCalendar) ||
 		requestHasWorkKind(request, WorkKindExternalSend)
 }
 
