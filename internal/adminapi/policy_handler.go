@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"blueclaw/internal/identity"
 	"blueclaw/internal/policy"
 )
 
@@ -17,11 +18,16 @@ type PolicyHandler struct {
 	Validator                    policy.PolicyValidator
 	AuditHandler                 *AuditHandler
 	PersonReferenceCanonicalizer PersonReferenceCanonicalizer
+	PlatformAccountLinker        PlatformAccountLinker
 	OnPolicyReload               func(policy.PolicyDocument)
 }
 
 type PersonReferenceCanonicalizer interface {
 	CanonicalizePersonReferences(legacyPersonID string, personID string) error
+}
+
+type PlatformAccountLinker interface {
+	RememberPlatformAccount(platformAccountIdentity identity.PlatformAccountIdentity)
 }
 
 type invitePersonRequest struct {
@@ -112,10 +118,43 @@ func (policyHandler PolicyHandler) HandleInvitePerson(responseWriter http.Respon
 
 	policyHandler.PolicyWatcher.ReloadPolicyDocument(policyDocument)
 	policyHandler.notifyPolicyReload(policyDocument)
+	policyHandler.linkInvitedPersonMattermostAccount(personPolicy)
 	if backupPath != "" {
 		policyHandler.AuditHandler.RecordPolicySave(backupPath)
 	}
 	writeJSON(responseWriter, http.StatusOK, personPolicy)
+}
+
+// An invited workspace person carries their Mattermost user ID as the personID, so
+// link that platform account immediately. Without this the person resolves by name
+// but stays unlinked until Blueclaw happens to ingest a message from them, which
+// would make a freshly invited member unreachable by direct message.
+func (policyHandler PolicyHandler) linkInvitedPersonMattermostAccount(personPolicy policy.PersonPolicy) {
+	if policyHandler.PlatformAccountLinker == nil {
+		return
+	}
+	externalUserID := strings.TrimSpace(personPolicy.PersonID)
+	email := firstPersonEmail(personPolicy)
+	if externalUserID == "" || email == "" {
+		return
+	}
+	policyHandler.PlatformAccountLinker.RememberPlatformAccount(identity.PlatformAccountIdentity{
+		Platform:       "mattermost",
+		ExternalUserID: externalUserID,
+		Email:          email,
+		DisplayName:    strings.TrimSpace(personPolicy.DisplayName),
+		PersonID:       externalUserID,
+	})
+}
+
+func firstPersonEmail(personPolicy policy.PersonPolicy) string {
+	for _, email := range personPolicy.Emails {
+		trimmedEmail := strings.TrimSpace(email)
+		if trimmedEmail != "" {
+			return trimmedEmail
+		}
+	}
+	return ""
 }
 
 func (policyHandler PolicyHandler) HandleRemovePerson(responseWriter http.ResponseWriter, request *http.Request) {
