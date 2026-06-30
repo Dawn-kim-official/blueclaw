@@ -276,11 +276,17 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
 	}
-	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
+	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation && len(intakeDecision.ClarificationOptions) >= 2 {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusWaitingUserInput)
 		result.TurnRoute = turnDecision.Route
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		return result, errorValue
+	}
+	if intakeDecision.Classification == IntakeClassificationNeedsConfirmation {
+		intakeDecision.Classification = IntakeClassificationBoundedTask
+		if intakeDecision.TaskShape == "" || intakeDecision.TaskShape == TaskShapeImmediateReply || intakeDecision.TaskShape == TaskShapeApprovalGatedTask {
+			intakeDecision.TaskShape = TaskShapeMaintenanceTask
+		}
 	}
 	if intakeDecision.Classification == IntakeClassificationUnsupported {
 		result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, intakeRequest, intakeDecision, task.TaskStatusBlocked)
