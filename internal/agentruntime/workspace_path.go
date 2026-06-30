@@ -99,7 +99,7 @@ func (resolver WorkspacePathResolver) Resolve(value string, scope WorkspaceScope
 		return ResolvedWorkspacePath{}, errors.New("path is required")
 	}
 	if strings.HasPrefix(trimmedPath, "~") {
-		return ResolvedWorkspacePath{}, errors.New("home-relative shell paths are not supported; use home/<path>, tmp/<slug>, or artifacts/<slug>")
+		return resolver.resolveHome(trimmedPath, scope)
 	}
 	if isDeniedAbsoluteWorkspacePath(trimmedPath) {
 		return ResolvedWorkspacePath{}, errors.New("path is outside the supported workspace artifact contract")
@@ -127,6 +127,26 @@ func normalizedWorkspaceDirectoryPath(value string) string {
 		return filepath.ToSlash(filepath.Join("tmp", strings.TrimPrefix(cleanPath, "/tmp/")))
 	}
 	return trimmedPath
+}
+
+// The shell already exports HOME as the requester's personal workspace root, so a
+// path the model writes as ~ or ~/<path> resolves to the same place in a tool path
+// field as it does inside a shell command. This keeps the personal workspace
+// addressable by one consistent name instead of the virtual home/ prefix that a
+// shell does not understand.
+func (resolver WorkspacePathResolver) resolveHome(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
+	if value == "~" {
+		return resolver.resolvedPath(scope.RequesterRootPath, "home", workspacePathKindWorkspace, false)
+	}
+	if !strings.HasPrefix(value, "~/") {
+		return ResolvedWorkspacePath{}, errors.New("only the requester home (~ or ~/<path>) is supported")
+	}
+	suffix := filepath.Clean(strings.TrimPrefix(value, "~/"))
+	if suffix == ".." || strings.HasPrefix(suffix, "../") {
+		return ResolvedWorkspacePath{}, errors.New("relative path traversal is not supported")
+	}
+	virtualPath := filepath.ToSlash(filepath.Join("home", suffix))
+	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), virtualPath, workspacePathKindWorkspace, false)
 }
 
 func (resolver WorkspacePathResolver) resolveVirtual(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {

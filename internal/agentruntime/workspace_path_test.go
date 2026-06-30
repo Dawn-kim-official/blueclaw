@@ -13,10 +13,34 @@ func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
-	for _, path := range []string{"/tmp/a", "~/.cache/a", "/workspace/.blueclaw/tmp/a", "/workspace/private/people/person-1/tmp/a", "/workspace/private/people/person-2/tmp/a", "../escape"} {
+	for _, path := range []string{"/tmp/a", "~other/file", "/workspace/.blueclaw/tmp/a", "/workspace/private/people/person-1/tmp/a", "/workspace/private/people/person-2/tmp/a", "../escape"} {
 		if _, errorValue := resolver.Resolve(path, scope); errorValue == nil {
 			t.Fatalf("expected resolver to reject %q", path)
 		}
+	}
+}
+
+func TestWorkspacePathResolverExpandsHomeTildeToRequesterPrivateRoot(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	resolvedPath, errorValue := resolver.Resolve("~/documents/회의록.md", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "documents", "회의록.md")
+	if resolvedPath.ConcretePath != expectedConcretePath {
+		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
+	}
+	if resolvedPath.VirtualPath != "home/documents/회의록.md" {
+		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
+	}
+	homeRoot, errorValue := resolver.Resolve("~", scope)
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if homeRoot.ConcretePath != filepath.Join(workspacePath, "private", "people", "person-1") {
+		t.Fatalf("unexpected home root: %+v", homeRoot)
 	}
 }
 
