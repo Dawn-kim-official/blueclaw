@@ -192,3 +192,15 @@ func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 		t.Fatalf("expected no key without observation id, got %q", noObservation)
 	}
 }
+
+func TestCapabilityCatalogParametersListsRequiredAndOptional(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"status":{"type":"string"},"startDate":{"type":"string"}},"required":["prompt"]}`)
+	got := capabilityCatalogParameters(schema)
+	want := "prompt (required), startDate, status"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if capabilityCatalogParameters(nil) != "" {
+		t.Fatal("nil schema should yield no parameters")
+	}
+}

@@ -204,10 +204,48 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityCatalogEntries() []strin
 			continue
 		}
 		seenName[name] = true
-		entries = append(entries, name+": "+capabilityCatalogSummary(toolDescriptor.Description))
+		entry := name + ": " + capabilityCatalogSummary(toolDescriptor.Description)
+		if parameters := capabilityCatalogParameters(toolDescriptor.InputSchema); parameters != "" {
+			entry += " — input: " + parameters
+		}
+		entries = append(entries, entry)
 	}
 	sort.Strings(entries)
 	return entries
+}
+
+func capabilityCatalogParameters(inputSchema json.RawMessage) string {
+	if len(inputSchema) == 0 {
+		return ""
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if json.Unmarshal(inputSchema, &schema) != nil || len(schema.Properties) == 0 {
+		return ""
+	}
+	requiredParameter := map[string]bool{}
+	for _, name := range schema.Required {
+		requiredParameter[name] = true
+	}
+	requiredNames := []string{}
+	optionalNames := []string{}
+	for name := range schema.Properties {
+		if requiredParameter[name] {
+			requiredNames = append(requiredNames, name)
+		} else {
+			optionalNames = append(optionalNames, name)
+		}
+	}
+	sort.Strings(requiredNames)
+	sort.Strings(optionalNames)
+	parameterParts := []string{}
+	for _, name := range requiredNames {
+		parameterParts = append(parameterParts, name+" (required)")
+	}
+	parameterParts = append(parameterParts, optionalNames...)
+	return strings.Join(parameterParts, ", ")
 }
 
 func capabilityCatalogSummary(description string) string {
