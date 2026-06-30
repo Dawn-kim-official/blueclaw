@@ -55,7 +55,7 @@ func buildObservedResults(observations []turnObservation, attachments []FileAtta
 	if strings.TrimSpace(finishMessage) != "" {
 		results = append(results, ObservedResult{
 			Type:        ExpectedResultTypeMessage,
-			Description: "Final message draft: " + compactObservedResultText(finishMessage),
+			Description: "Final message draft: " + compactFinishDraftText(finishMessage),
 		})
 	}
 	return deduplicateObservedResults(results)
@@ -160,6 +160,14 @@ func compactObservedResultText(value string) string {
 		return text
 	}
 	return string([]rune(text)[:500])
+}
+
+func compactFinishDraftText(value string) string {
+	text := compactWhitespace(value)
+	if len([]rune(text)) <= 4000 {
+		return text
+	}
+	return string([]rune(text)[:4000])
 }
 
 func firstObservedURL(value string) string {
@@ -525,24 +533,36 @@ func normalizeResultVerificationOverallStatus(value string, items []ResultVerifi
 
 func blockingExpectedResultItems(contract OutcomeContract, verification ResultVerification, observations []turnObservation) []ResultVerificationItem {
 	requiredResultByID := map[string]bool{}
+	resultTypeByID := map[string]string{}
 	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
 		if result.Required {
 			requiredResultByID[result.ID] = true
 		}
+		resultTypeByID[result.ID] = result.Type
 	}
 	missingResults := []ResultVerificationItem{}
 	for _, item := range verification.Results {
 		if !requiredResultByID[item.ID] {
 			continue
 		}
-		if item.Status == "missing" || item.Status == "uncertain" && !priorUncertainResultWasReported(item.ID, observations) {
+		if expectedResultVerdictBlocksFinish(item, resultTypeByID[item.ID], observations) {
 			missingResults = append(missingResults, item)
 		}
 	}
 	return missingResults
 }
 
-func priorUncertainResultWasReported(resultID string, observations []turnObservation) bool {
+func expectedResultVerdictBlocksFinish(item ResultVerificationItem, resultType string, observations []turnObservation) bool {
+	if item.Status != "missing" && item.Status != "uncertain" {
+		return false
+	}
+	if resultType == ExpectedResultTypeMessage || item.Status == "uncertain" {
+		return !expectedResultWasPreviouslyFlagged(item.ID, observations)
+	}
+	return true
+}
+
+func expectedResultWasPreviouslyFlagged(resultID string, observations []turnObservation) bool {
 	trimmedResultID := strings.TrimSpace(resultID)
 	if trimmedResultID == "" {
 		return false
