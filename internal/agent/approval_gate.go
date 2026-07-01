@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
 	"blueclaw/internal/task"
@@ -182,6 +183,15 @@ func heldCallConfirmationWording(request AgentTurnRequest, actionDocument turnAc
 	return approvalWordingFromToolInput(request, actionDocument.ToolName, actionDocument.ToolInput)
 }
 
+func nativeToolRequiresRuntimeApproval(toolSet *ToolSet, toolName string) bool {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == "" || trimmedToolName == CapabilityInvokeToolName {
+		return false
+	}
+	definition, isFound := toolSet.ToolDefinition(trimmedToolName)
+	return isFound && definition.RequiresApproval
+}
+
 func approvalWordingFromToolInput(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
 	input := toolInput
 	if strings.TrimSpace(toolName) == CapabilityInvokeToolName {
@@ -205,14 +215,22 @@ func approvalWordingFromToolInput(request AgentTurnRequest, toolName string, too
 		Subject string   `json:"subject"`
 		Title   string   `json:"title"`
 		Summary string   `json:"summary"`
+		Path    string   `json:"path"`
 		To      []string `json:"to"`
 	}
 	if len(input) == 0 || json.Unmarshal(input, &document) != nil {
 		return ""
 	}
+	english := ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish
+	if filePath := strings.TrimSpace(document.Path); filePath != "" && strings.TrimSpace(toolName) != CapabilityInvokeToolName {
+		filename := filepath.Base(filePath)
+		if english {
+			return "Delete this file?\n\n" + filename
+		}
+		return filename + " 파일을 삭제할까요?"
+	}
 	target := firstNonEmptyString(document.RecipientHint, document.PersonHint, document.ChannelName, document.DeliveryTarget.PersonHint, document.DeliveryTarget.ChannelName, strings.Join(document.To, ", "))
 	content := firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary)
-	english := ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish
 	switch {
 	case target != "" && content != "":
 		if english {

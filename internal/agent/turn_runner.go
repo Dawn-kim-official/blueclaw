@@ -672,6 +672,9 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectUnavailableToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
+	if !request.IsApprovalContinuation && nativeToolRequiresRuntimeApproval(request.ToolSet, actionDocument.ToolName) {
+		return agentTurnRunner.requestHeldCallApproval(taskRunID, stepID, request, state, actionDocument)
+	}
 	state.ToolCallCount++
 	if state.ToolCallCount > maxToolCallCountWithRecovery(agentTurnRunner.options, state.Observations) {
 		result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(ctx, taskRunID, request, "max_tool_calls", requirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration, state.ToolCallCount)
