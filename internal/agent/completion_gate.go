@@ -159,6 +159,11 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 
 func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState) completionTransition {
 	actionDocument := completionStateFinishDocument(state)
+	if message := agentTurnRunner.generatedCompletionMessage(request, state); message != "" {
+		actionDocument.Message = message
+		actionDocument.ReplyParts = []AgentPart{{Type: AgentPartTypeText, Text: message}}
+		actionDocument.CompletionSummary = message
+	}
 	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(context.Background(), taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
@@ -208,6 +213,66 @@ func completionStateFinishMessage(state CompletionState) string {
 		return completionStateToolReply(state)
 	}
 	return "요청하신 파일을 생성해 첨부했습니다: " + strings.Join(filenames, ", ")
+}
+
+// The auto-finalize path completes a task the model left with satisfied evidence
+// but no clean finish. User-facing wording must come from the LLM (LLM-first), so
+// the deterministic completionState*Reply templates are only the fallback when the
+// model cannot produce a reply. Without this, every evidence-finalized task read as
+// "요청하신 파일을 생성해 첨부했습니다: <file>" — wrong for edits and deletes.
+func (agentTurnRunner *AgentTurnRunner) generatedCompletionMessage(request AgentTurnRequest, state CompletionState) string {
+	fallback := completionStateFinishMessage(state)
+	prompt := buildCompletionReplyPrompt(request, state)
+	if prompt == "" {
+		return fallback
+	}
+	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(context.Background(), prompt)
+	if errorValue != nil {
+		return fallback
+	}
+	reply = strings.TrimSpace(reply)
+	if reply == "" {
+		return fallback
+	}
+	if ValidateFinishMessageDelivery(reply, attachmentsFromAttachedEvidence(state.AttachedEvidence), false) != nil {
+		return fallback
+	}
+	return reply
+}
+
+func buildCompletionReplyPrompt(request AgentTurnRequest, state CompletionState) string {
+	instruction := strings.TrimSpace(request.ActiveGoal.OriginalInstruction)
+	if instruction == "" {
+		return ""
+	}
+	lines := []string{
+		"Write one concise completion reply to the user, in the same language the user wrote in.",
+		"Reflect the exact action the original request asked for: if existing content was changed, say edited/updated/added; if something was newly made, say created; if something was removed, say deleted. Never say \"created\" for an edit or delete.",
+		"If a file is attached, mention its filename naturally. No greeting and no filler — just the result.",
+		"",
+		"Original request: " + instruction,
+	}
+	if operations := completionEvidenceOperations(state); len(operations) > 0 {
+		lines = append(lines, "Capabilities that succeeded: "+strings.Join(operations, ", "))
+	}
+	if filenames := completionStateFilenames(state); len(filenames) > 0 {
+		lines = append(lines, "Attached file(s): "+strings.Join(filenames, ", "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func completionEvidenceOperations(state CompletionState) []string {
+	operations := []string{}
+	seen := map[string]bool{}
+	for _, reference := range state.EvidenceReferences {
+		name := strings.TrimSpace(reference.ToolName)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		operations = append(operations, name)
+	}
+	return operations
 }
 
 func completionStateToolReply(state CompletionState) string {
