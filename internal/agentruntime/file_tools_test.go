@@ -99,7 +99,7 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]string{
-			"path":    "home/projects/deck/presentation.md",
+			"path":    "projects/deck/presentation.md",
 			"content": "# Deck",
 		}),
 	})
@@ -119,7 +119,7 @@ func TestFileToolsAcceptVirtualHomePathsWithoutLeakingHostPath(t *testing.T) {
 	attachResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: agent.FileDeliverToolName,
 		Input: agent.MarshalToolInput(map[string]string{
-			"path": "home/projects/deck/presentation.md",
+			"path": "projects/deck/presentation.md",
 		}),
 	})
 	if errorValue != nil {
@@ -213,7 +213,7 @@ func TestFileWriteAcceptsPortablePathAndContent(t *testing.T) {
 	writeResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.write",
 		Input: agent.MarshalToolInput(map[string]any{
-			"path":    "home/projects/site/index.html",
+			"path":    "projects/site/index.html",
 			"content": "<html>ready</html>",
 		}),
 	})
@@ -251,18 +251,21 @@ func TestFileWriteDescribesContentAsExactFileBody(t *testing.T) {
 	}
 }
 
-func TestAttachmentResolutionFailureIsTerminalAndGuidesGracefulExit(t *testing.T) {
+func TestAttachmentResolutionFailureRedirectsToWorkspaceFile(t *testing.T) {
 	result := attachmentResolutionFailure("file_preview", errors.New("attachment material is not visible in this conversation"))
 	if result.Failure == nil {
 		t.Fatal("expected a failure result")
 	}
-	if result.Failure.RetryPolicy != "no_retry" {
-		t.Fatalf("expected no_retry policy, got %q", result.Failure.RetryPolicy)
+	if result.Failure.RetryPolicy == "no_retry" || result.Failure.FailureClass == "permanent" {
+		t.Fatalf("attachment failure must stay recoverable so the model can open the workspace file, got policy=%q class=%q", result.Failure.RetryPolicy, result.Failure.FailureClass)
 	}
-	for _, expected := range []string{"do not retry", "could not be opened"} {
+	for _, expected := range []string{"workspace file", "file.read"} {
 		if !strings.Contains(result.Failure.UserSafeSummary, expected) {
-			t.Fatalf("expected guidance %q in summary, got %q", expected, result.Failure.UserSafeSummary)
+			t.Fatalf("expected recovery guidance %q in summary, got %q", expected, result.Failure.UserSafeSummary)
 		}
+	}
+	if strings.Contains(result.Failure.UserSafeSummary, "do not retry") {
+		t.Fatalf("attachment failure must not tell the model to give up, got %q", result.Failure.UserSafeSummary)
 	}
 }
 
@@ -537,7 +540,7 @@ func TestFilePreviewResolvesAttachmentMaterialID(t *testing.T) {
 				MaterialID:  "mattermost:file-1",
 				Filename:    "report.html",
 				ContentType: "text/html",
-				Path:        "home/inbox/mattermost/post-1/report.html",
+				Path:        "inbox/mattermost/post-1/report.html",
 			},
 		},
 	})
@@ -572,7 +575,7 @@ func TestFilePreviewFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 				MaterialID:  "mattermost:file-1",
 				Filename:    "report.html",
 				ContentType: "text/html",
-				Path:        "home/inbox/mattermost/old/report.html",
+				Path:        "inbox/mattermost/old/report.html",
 			}},
 		},
 		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
@@ -580,14 +583,14 @@ func TestFilePreviewFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 				MaterialID:  "mattermost:file-1",
 				Filename:    "report.html",
 				ContentType: "text/html",
-				Path:        "home/inbox/mattermost/post-1/report.html",
+				Path:        "inbox/mattermost/post-1/report.html",
 			},
 		},
 	})
 
 	previewResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.preview",
-		Input:    agent.MarshalToolInput(map[string]any{"path": "home/inbox/mattermost/thread-1/post-1/report.html"}),
+		Input:    agent.MarshalToolInput(map[string]any{"path": "inbox/mattermost/thread-1/post-1/report.html"}),
 	})
 
 	if errorValue != nil {
@@ -615,7 +618,7 @@ func TestFileReadFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 				MaterialID:  "mattermost:file-1",
 				Filename:    "kim-intern-automation.html",
 				ContentType: "text/html",
-				Path:        "home/inbox/mattermost/old/kim-intern-automation.html",
+				Path:        "inbox/mattermost/old/kim-intern-automation.html",
 			}},
 		},
 		AttachmentMaterialResolver: staticAttachmentMaterialResolver{
@@ -623,14 +626,14 @@ func TestFileReadFallsBackFromStaleAttachmentPathToMaterialID(t *testing.T) {
 				MaterialID:  "mattermost:file-1",
 				Filename:    "kim-intern-automation.html",
 				ContentType: "text/html",
-				Path:        "home/inbox/mattermost/post-1/kim-intern-automation.html",
+				Path:        "inbox/mattermost/post-1/kim-intern-automation.html",
 			},
 		},
 	})
 
 	readResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.read",
-		Input:    agent.MarshalToolInput(map[string]any{"path": "home/inbox/mattermost/thread-1/post-1/kim-intern-automation.html"}),
+		Input:    agent.MarshalToolInput(map[string]any{"path": "inbox/mattermost/thread-1/post-1/kim-intern-automation.html"}),
 	})
 
 	if errorValue != nil {
@@ -1034,11 +1037,11 @@ func TestFileWriteDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected private write success, got %+v", result)
 	}
-	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "notes.md")
+	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "notes.md")
 	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "private" {
 		t.Fatalf("expected private file at %s, got %q and %v", expectedPath, string(document), errorValue)
 	}
-	if !strings.Contains(result.ContentText(), `"tmp/notes.md"`) {
+	if !strings.Contains(result.ContentText(), `"notes.md"`) {
 		t.Fatalf("expected private agent path in result, got %s", result.ContentText())
 	}
 }
@@ -1072,7 +1075,7 @@ func TestFileWriteDefaultsToCircleScopeForCircleChannel(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected circle write success, got %+v", result)
 	}
-	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "report.md")
+	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "report.md")
 	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "finance" {
 		t.Fatalf("expected finance file at %s, got %q and %v", expectedPath, string(document), errorValue)
 	}
@@ -1107,7 +1110,7 @@ func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected staff write success, got %+v", result)
 	}
-	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "status.md")
+	expectedPath := filepath.Join(workspacePath, "private", "people", "person-1", "status.md")
 	if document, errorValue := os.ReadFile(expectedPath); errorValue != nil || string(document) != "staff" {
 		t.Fatalf("expected staff file at %s, got %q and %v", expectedPath, string(document), errorValue)
 	}
@@ -1115,7 +1118,7 @@ func TestFileWriteDefaultsToStaffScopeForGeneralChannel(t *testing.T) {
 
 func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	workspacePath := t.TempDir()
-	privateDirectoryPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp")
+	privateDirectoryPath := filepath.Join(workspacePath, "private", "people", "person-1")
 	if errorValue := os.MkdirAll(privateDirectoryPath, 0700); errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -1143,8 +1146,39 @@ func TestFileAttachDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	if result.Failed() {
 		t.Fatalf("expected private delivery success, got %+v", result)
 	}
-	if result.Attachments[0].DevicePath != "/workspace/private/people/person-1/tmp/notes.md" {
+	if result.Attachments[0].DevicePath != "/workspace/private/people/person-1/notes.md" {
 		t.Fatalf("expected private device path, got %+v", result.Attachments[0])
+	}
+}
+
+func TestFileDeliverPersistsDocumentToDocuments(t *testing.T) {
+	workspacePath := t.TempDir()
+	draftDirectoryPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "deck")
+	if errorValue := os.MkdirAll(draftDirectoryPath, 0700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	writeTestFile(t, filepath.Join(draftDirectoryPath, "report.docx"), "docx-bytes")
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.FileDeliverToolName,
+		Input:    agent.MarshalToolInput(map[string]string{"path": "tmp/deck/report.docx"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("expected delivery success, got %+v", result)
+	}
+	persistedPath := filepath.Join(workspacePath, "private", "people", "person-1", "documents", "report.docx")
+	if _, errorValue := os.Stat(persistedPath); errorValue != nil {
+		t.Fatalf("expected delivered .docx auto-persisted to ~/documents, stat failed: %v", errorValue)
 	}
 }
 
@@ -1423,7 +1457,7 @@ func TestFileWriteIgnoresLegacyModeAndKeepsTaskDraftReadable(t *testing.T) {
 		t.Fatalf("expected terminal output to include written content, got %s", runResult.ContentText())
 	}
 
-	documentPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "run-mode-regression", "docx-guide", "document.json")
+	documentPath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "docx-guide", "document.json")
 	fileInformation, errorValue := os.Stat(documentPath)
 	if errorValue != nil {
 		t.Fatal(errorValue)

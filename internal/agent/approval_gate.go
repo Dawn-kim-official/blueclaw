@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 
 	"blueclaw/internal/task"
@@ -17,11 +18,6 @@ type approvalHeldCall struct {
 type approvalExecutedCall struct {
 	ToolName  string          `json:"toolName"`
 	ToolInput json.RawMessage `json:"toolInput,omitempty"`
-}
-
-type approvalToolInputSummary struct {
-	Target  string
-	Message string
 }
 
 func isApprovalRequiredObservation(observation turnObservation) bool {
@@ -46,7 +42,7 @@ func approvalObservationText(observation turnObservation) string {
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
-	confirmation := approvalConfirmationForHeldCall(request, actionDocument.ToolName, actionDocument.ToolInput)
+	confirmation := heldCallConfirmationWording(request, actionDocument)
 	heldCall := approvalHeldCall{
 		ToolName:     strings.TrimSpace(actionDocument.ToolName),
 		ToolInput:    copyJSONRawMessage(actionDocument.ToolInput),
@@ -173,95 +169,86 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 	return false
 }
 
-func approvalConfirmationForHeldCall(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
-	effectiveToolName, effectiveInput := unwrapCapabilityInvokeCall(toolName, toolInput)
-	summary := approvalToolInputSummaryFromRaw(effectiveInput)
-	if ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish {
-		return englishApprovalConfirmation(effectiveToolName, summary)
+// The approval question is user-facing wording, so it is the model's own message
+// from the same turn that issued the approval-gated tool call (LLM-first, no extra
+// model call). The model does not always know at call time that the call needs
+// approval, so when it left the message empty the confirmation is composed from the
+// content the model already placed in the tool input — the recipient and message are
+// the model's own, only the framing is deterministic, and the user is never asked to
+// approve a blank prompt.
+func heldCallConfirmationWording(request AgentTurnRequest, actionDocument turnActionDocument) string {
+	if wording := deliverableModelWording(actionDocument.Message); wording != "" {
+		return wording
 	}
-	return koreanApprovalConfirmation(effectiveToolName, summary)
+	return approvalWordingFromToolInput(request, actionDocument.ToolName, actionDocument.ToolInput)
 }
 
-func unwrapCapabilityInvokeCall(toolName string, toolInput json.RawMessage) (string, json.RawMessage) {
-	if strings.TrimSpace(toolName) != CapabilityInvokeToolName {
-		return toolName, toolInput
+func nativeToolRequiresRuntimeApproval(toolSet *ToolSet, toolName string) bool {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == "" || trimmedToolName == CapabilityInvokeToolName {
+		return false
 	}
-	var call struct {
-		Operation string          `json:"operation"`
-		Input     json.RawMessage `json:"input"`
-	}
-	if json.Unmarshal(toolInput, &call) != nil || strings.TrimSpace(call.Operation) == "" {
-		return toolName, toolInput
-	}
-	return CanonicalEvidenceToolName(strings.TrimSpace(call.Operation)), call.Input
+	definition, isFound := toolSet.ToolDefinition(trimmedToolName)
+	return isFound && definition.RequiresApproval
 }
 
-func koreanApprovalConfirmation(toolName string, summary approvalToolInputSummary) string {
-	action := koreanApprovalActionName(toolName)
-	if summary.Target != "" && summary.Message != "" {
-		return summary.Target + "에게 다음 내용을 보내도 될까요?\n\n" + summary.Message
+func approvalWordingFromToolInput(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
+	input := toolInput
+	if strings.TrimSpace(toolName) == CapabilityInvokeToolName {
+		var call struct {
+			Input json.RawMessage `json:"input"`
+		}
+		if json.Unmarshal(toolInput, &call) == nil && len(call.Input) > 0 {
+			input = call.Input
+		}
 	}
-	if summary.Target != "" {
-		return summary.Target + "에게 " + action + " 작업을 진행할까요?"
-	}
-	return action + " 작업을 진행할까요?"
-}
-
-func englishApprovalConfirmation(toolName string, summary approvalToolInputSummary) string {
-	action := englishApprovalActionName(toolName)
-	if summary.Target != "" && summary.Message != "" {
-		return "Send this to " + summary.Target + "?\n\n" + summary.Message
-	}
-	if summary.Target != "" {
-		return "Proceed with " + action + " for " + summary.Target + "?"
-	}
-	return "Proceed with " + action + "?"
-}
-
-func koreanApprovalActionName(toolName string) string {
-	switch strings.TrimSpace(toolName) {
-	case "message.send", "mattermost.message.send", "slack.message.send":
-		return "메시지 전송"
-	case "mail.message.send", "google.gmail.send":
-		return "메일 전송"
-	case "calendar.add", "calendar.update", "calendar.delete":
-		return "캘린더 변경"
-	default:
-		return strings.TrimSpace(toolName)
-	}
-}
-
-func englishApprovalActionName(toolName string) string {
-	switch strings.TrimSpace(toolName) {
-	case "message.send", "mattermost.message.send", "slack.message.send":
-		return "sending this message"
-	case "mail.message.send", "google.gmail.send":
-		return "sending this email"
-	case "calendar.add", "calendar.update", "calendar.delete":
-		return "this calendar change"
-	default:
-		return strings.TrimSpace(toolName)
-	}
-}
-
-func approvalToolInputSummaryFromRaw(toolInput json.RawMessage) approvalToolInputSummary {
 	var document struct {
+		RecipientHint  string `json:"recipientHint"`
+		PersonHint     string `json:"personHint"`
+		ChannelName    string `json:"channelName"`
 		DeliveryTarget struct {
-			PersonHint     string `json:"personHint"`
-			ChannelName    string `json:"channelName"`
-			ConversationID string `json:"conversationID"`
+			PersonHint  string `json:"personHint"`
+			ChannelName string `json:"channelName"`
 		} `json:"deliveryTarget"`
 		Message string   `json:"message"`
 		Body    string   `json:"body"`
 		Subject string   `json:"subject"`
+		Title   string   `json:"title"`
+		Summary string   `json:"summary"`
+		Path    string   `json:"path"`
 		To      []string `json:"to"`
 	}
-	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
-		return approvalToolInputSummary{}
+	if len(input) == 0 || json.Unmarshal(input, &document) != nil {
+		return ""
 	}
-	return approvalToolInputSummary{
-		Target:  firstNonEmptyString(document.DeliveryTarget.PersonHint, document.DeliveryTarget.ChannelName, document.DeliveryTarget.ConversationID, strings.Join(document.To, ", ")),
-		Message: firstNonEmptyString(document.Message, document.Subject, document.Body),
+	english := ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish
+	if filePath := strings.TrimSpace(document.Path); filePath != "" && strings.TrimSpace(toolName) != CapabilityInvokeToolName {
+		filename := filepath.Base(filePath)
+		if english {
+			return "Delete this file?\n\n" + filename
+		}
+		return filename + " 파일을 삭제할까요?"
+	}
+	target := firstNonEmptyString(document.RecipientHint, document.PersonHint, document.ChannelName, document.DeliveryTarget.PersonHint, document.DeliveryTarget.ChannelName, strings.Join(document.To, ", "))
+	content := firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary)
+	switch {
+	case target != "" && content != "":
+		if english {
+			return "Send this to " + target + "?\n\n" + content
+		}
+		return target + "에게 다음 내용을 보낼까요?\n\n" + content
+	case content != "":
+		if english {
+			return "Proceed with this?\n\n" + content
+		}
+		return "다음 내용으로 진행할까요?\n\n" + content
+	case target != "":
+		if english {
+			return "Proceed for " + target + "?"
+		}
+		return target + " 관련 작업을 진행할까요?"
+	default:
+		return ""
 	}
 }
 

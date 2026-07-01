@@ -279,6 +279,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			Validator:                    policy.PolicyValidator{},
 			AuditHandler:                 auditHandler,
 			PersonReferenceCanonicalizer: personReferenceCanonicalizer,
+			PlatformAccountLinker:        identityService,
 			OnPolicyReload: func(policyDocument policy.PolicyDocument) {
 				if database.SQL != nil {
 					_ = personRepository.UpsertPeople(policyDocument)

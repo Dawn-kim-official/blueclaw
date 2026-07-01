@@ -53,8 +53,7 @@ func TestTerminalPathGuardrailRecoveryGuidanceIncludesCorrectedWorkspaceRetry(t 
 
 	for _, expectedText := range []string{
 		"retry terminal.run",
-		"virtual workspace paths",
-		"home/<path>",
+		"~/documents",
 		"/workspace/skills/<skill>/scripts/skill_runtime.py",
 		"Do not call /opt/blueclaw",
 	} {
@@ -72,7 +71,7 @@ func TestTerminalCurrentDirectoryRecoveryGuidanceUsesSiteAppWorkspace(t *testing
 		"could not read its current working directory",
 		"site.status",
 		"appWorkspacePath",
-		"home/sites/<siteID>/app",
+		"~/documents",
 		"not source subdirectories like app/src",
 	} {
 		if !strings.Contains(guidance, expectedText) {
