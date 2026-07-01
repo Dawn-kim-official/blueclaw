@@ -55,10 +55,10 @@ func capabilityModelName(runtimeConfiguration config.RuntimeConfiguration) strin
 }
 
 const (
-	defaultHighModelName   = "google/gemini-3.5-flash"
-	defaultMediumModelName = "x-ai/grok-4.3"
-	defaultLowModelName    = "google/gemini-3.1-flash-lite"
-	defaultXLowModelName   = "xiaomi/mimo-v2.5"
+	defaultHighModelName   = "google/gemini-3.1-flash-lite"
+	defaultMediumModelName = "google/gemini-3.1-flash-lite"
+	defaultLowModelName    = "xiaomi/mimo-v2.5"
+	defaultXLowModelName   = "google/gemma-3-12b-it"
 	defaultCodingModelName = "z-ai/glm-5.2"
 )
 

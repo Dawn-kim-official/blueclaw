@@ -187,7 +187,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 }
 
 func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResult {
-	message := "current account cannot use this workspace path: terminal workingDirectoryPath " + strings.TrimSpace(workingDirectoryPath) + "; recovery: use tmp/<slug> relative to the default writable directory for draft work, then deliver accepted files with file.deliver"
+	message := "current account cannot use this workspace path: terminal workingDirectoryPath " + strings.TrimSpace(workingDirectoryPath) + "; recovery: use ~/documents for document work, then deliver accepted files with file.deliver"
 	document := json.RawMessage(marshalToolResult(map[string]any{
 		"failureClass":      "workspace_permission",
 		"path":              strings.TrimSpace(workingDirectoryPath),
@@ -503,7 +503,7 @@ func terminalRuntimeDirectories(scope WorkspaceScope, environmentVariables map[s
 func requesterOwnedRuntimeDirectory(scope WorkspaceScope, directoryPath string) workspacepath.Directory {
 	virtualPath := filepath.ToSlash(directoryPath)
 	if relativePath, errorValue := filepath.Rel(scope.RequesterRootPath, directoryPath); errorValue == nil && relativePath != "." && !strings.HasPrefix(relativePath, "..") {
-		virtualPath = filepath.ToSlash(filepath.Join("home", relativePath))
+		virtualPath = filepath.ToSlash(relativePath)
 	}
 	return workspacepath.Directory{
 		ConcretePath: directoryPath,

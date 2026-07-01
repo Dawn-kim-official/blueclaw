@@ -116,6 +116,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", errorValue.Error()), nil
 	}
+	if missing := missingRequiredCapabilityInputFields(toolDescriptor.InputSchema, toolInput); len(missing) > 0 {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", operation+" needs these input fields: "+strings.Join(missing, ", ")+". Call "+operation+" again with input set to an object that contains them."), nil
+	}
 	if errorValue := toolCatalogBuilder.validateCapabilityToolInputAccess(operation, request, toolInput); errorValue != nil {
 		return agent.ToolFailureResult(agent.FailurePermissionDenied, agent.FailureCodes.AccessDenied, "file_read_access", errorValue.Error()), nil
 	}
@@ -185,7 +188,7 @@ var genericCapabilityCatalogExcluded = map[string]bool{
 
 func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityToolDescription() string {
 	lines := []string{
-		"Invoke a workspace capability operation by name. Set operation to one of the operations below and input to that operation's parameters. Identity, approval, and delivery are handled by the runtime — never pass requester identity in input.",
+		"Invoke a workspace capability operation by name. Set operation to one of the operations below and set input to an object holding that operation's fields. Each operation lists its input fields as { name type (required), ... } — you MUST include every (required) field with a real value; an empty or partial input is rejected, so never call with input:{}. Identity, approval, and delivery are handled by the runtime — never pass requester identity in input.",
 		"",
 		"Available operations:",
 	}
@@ -207,6 +210,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityCatalogEntries() []strin
 		entry := name + ": " + capabilityCatalogSummary(toolDescriptor.Description)
 		if parameters := capabilityCatalogParameters(toolDescriptor.InputSchema); parameters != "" {
 			entry += " — input: " + parameters
+		}
+		if toolDescriptor.RequiresApproval {
+			entry += " — needs the user's approval before it runs; put a one-line confirmation of exactly what you will do in continue.message so the user sees what they are approving."
 		}
 		entries = append(entries, entry)
 	}
@@ -240,12 +246,52 @@ func capabilityCatalogParameters(inputSchema json.RawMessage) string {
 	}
 	sort.Strings(requiredNames)
 	sort.Strings(optionalNames)
-	parameterParts := []string{}
+	fields := []string{}
 	for _, name := range requiredNames {
-		parameterParts = append(parameterParts, name+" (required)")
+		fields = append(fields, name+" "+capabilityCatalogFieldType(schema.Properties[name])+" (required)")
 	}
-	parameterParts = append(parameterParts, optionalNames...)
-	return strings.Join(parameterParts, ", ")
+	for _, name := range optionalNames {
+		fields = append(fields, name+" "+capabilityCatalogFieldType(schema.Properties[name]))
+	}
+	return "{ " + strings.Join(fields, ", ") + " }"
+}
+
+func capabilityCatalogFieldType(property json.RawMessage) string {
+	var document struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(property, &document) == nil && strings.TrimSpace(document.Type) != "" {
+		return document.Type
+	}
+	return "value"
+}
+
+func missingRequiredCapabilityInputFields(inputSchema json.RawMessage, toolInput json.RawMessage) []string {
+	if len(inputSchema) == 0 {
+		return nil
+	}
+	var schema struct {
+		Required []string `json:"required"`
+	}
+	if json.Unmarshal(inputSchema, &schema) != nil || len(schema.Required) == 0 {
+		return nil
+	}
+	input := map[string]json.RawMessage{}
+	if len(toolInput) > 0 {
+		json.Unmarshal(toolInput, &input)
+	}
+	missing := []string{}
+	for _, field := range schema.Required {
+		if value, exists := input[field]; !exists || isEmptyCapabilityInputValue(value) {
+			missing = append(missing, field)
+		}
+	}
+	return missing
+}
+
+func isEmptyCapabilityInputValue(value json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(value))
+	return trimmed == "" || trimmed == "null" || trimmed == `""` || trimmed == "{}" || trimmed == "[]"
 }
 
 func capabilityCatalogSummary(description string) string {

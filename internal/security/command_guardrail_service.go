@@ -331,7 +331,7 @@ func newCommandGuardrailError(reason string, token string, resolvedPath string, 
 		ResolvedPath:         strings.TrimSpace(resolvedPath),
 		WorkspaceRootPath:    strings.TrimSpace(workspaceRootPath),
 		WorkingDirectoryPath: strings.TrimSpace(workingDirectoryPath),
-		RecoveryHint:         "use virtual workspace paths in tool fields: tmp/<slug> for draft artifact work and home/<path> for requester-private durable source work; run built-in artifact skills through /workspace/skills/<skill>/scripts/skill_runtime.py instead of runtime-internal interpreters",
+		RecoveryHint:         "use ~ paths in tool fields: do document work in ~/documents/ and save finished documents as ~/documents/<name>.<ext>; run built-in artifact skills through /workspace/skills/<skill>/scripts/skill_runtime.py instead of runtime-internal interpreters",
 	}
 }
 
