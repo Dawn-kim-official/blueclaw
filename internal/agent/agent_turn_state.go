@@ -24,11 +24,12 @@ type agentTaskState struct {
 	Attachments     []FileAttachment
 	ExecutionState  ExecutionState
 	ContextSummary  TaskContextSummary
-	IterationCount  int
-	ToolCallCount   int
-	TurnStartedAt   time.Time
-	PendingWait     *agentPendingWait
-	Requirements    []toolUseRequirement
+	IterationCount   int
+	ToolCallCount    int
+	TurnStartedAt    time.Time
+	PendingWait      *agentPendingWait
+	Requirements     []toolUseRequirement
+	LastModelMessage string
 }
 
 type agentPendingWait struct {
@@ -236,7 +237,7 @@ func advanceAgentTask(state agentTaskState) agentTransition {
 			},
 		}
 	case completionActionFinalizeWithEvidence:
-		actionDocument := completionStateFinishDocument(completionState)
+		actionDocument := completionStateFinishDocument(completionState, "")
 		return agentTransition{
 			State: state,
 			Effect: agentEffect{
