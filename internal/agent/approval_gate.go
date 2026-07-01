@@ -41,7 +41,7 @@ func approvalObservationText(observation turnObservation) string {
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
-	confirmation := heldCallConfirmationWording(actionDocument)
+	confirmation := heldCallConfirmationWording(request, actionDocument)
 	heldCall := approvalHeldCall{
 		ToolName:     strings.TrimSpace(actionDocument.ToolName),
 		ToolInput:    copyJSONRawMessage(actionDocument.ToolInput),
@@ -170,9 +170,68 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 
 // The approval question is user-facing wording, so it is the model's own message
 // from the same turn that issued the approval-gated tool call (LLM-first, no extra
-// model call). When the model left no deliverable message the wording is empty.
-func heldCallConfirmationWording(actionDocument turnActionDocument) string {
-	return deliverableModelWording(actionDocument.Message)
+// model call). The model does not always know at call time that the call needs
+// approval, so when it left the message empty the confirmation is composed from the
+// content the model already placed in the tool input — the recipient and message are
+// the model's own, only the framing is deterministic, and the user is never asked to
+// approve a blank prompt.
+func heldCallConfirmationWording(request AgentTurnRequest, actionDocument turnActionDocument) string {
+	if wording := deliverableModelWording(actionDocument.Message); wording != "" {
+		return wording
+	}
+	return approvalWordingFromToolInput(request, actionDocument.ToolName, actionDocument.ToolInput)
+}
+
+func approvalWordingFromToolInput(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
+	input := toolInput
+	if strings.TrimSpace(toolName) == CapabilityInvokeToolName {
+		var call struct {
+			Input json.RawMessage `json:"input"`
+		}
+		if json.Unmarshal(toolInput, &call) == nil && len(call.Input) > 0 {
+			input = call.Input
+		}
+	}
+	var document struct {
+		RecipientHint  string `json:"recipientHint"`
+		PersonHint     string `json:"personHint"`
+		ChannelName    string `json:"channelName"`
+		DeliveryTarget struct {
+			PersonHint  string `json:"personHint"`
+			ChannelName string `json:"channelName"`
+		} `json:"deliveryTarget"`
+		Message string   `json:"message"`
+		Body    string   `json:"body"`
+		Subject string   `json:"subject"`
+		Title   string   `json:"title"`
+		Summary string   `json:"summary"`
+		To      []string `json:"to"`
+	}
+	if len(input) == 0 || json.Unmarshal(input, &document) != nil {
+		return ""
+	}
+	target := firstNonEmptyString(document.RecipientHint, document.PersonHint, document.ChannelName, document.DeliveryTarget.PersonHint, document.DeliveryTarget.ChannelName, strings.Join(document.To, ", "))
+	content := firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary)
+	english := ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish
+	switch {
+	case target != "" && content != "":
+		if english {
+			return "Send this to " + target + "?\n\n" + content
+		}
+		return target + "에게 다음 내용을 보낼까요?\n\n" + content
+	case content != "":
+		if english {
+			return "Proceed with this?\n\n" + content
+		}
+		return "다음 내용으로 진행할까요?\n\n" + content
+	case target != "":
+		if english {
+			return "Proceed for " + target + "?"
+		}
+		return target + " 관련 작업을 진행할까요?"
+	default:
+		return ""
+	}
 }
 
 func copyJSONRawMessage(value json.RawMessage) json.RawMessage {

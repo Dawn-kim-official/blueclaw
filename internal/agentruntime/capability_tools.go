@@ -208,6 +208,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityCatalogEntries() []strin
 		if parameters := capabilityCatalogParameters(toolDescriptor.InputSchema); parameters != "" {
 			entry += " — input: " + parameters
 		}
+		if toolDescriptor.RequiresApproval {
+			entry += " — needs the user's approval before it runs; put a one-line confirmation of exactly what you will do in continue.message so the user sees what they are approving."
+		}
 		entries = append(entries, entry)
 	}
 	sort.Strings(entries)
