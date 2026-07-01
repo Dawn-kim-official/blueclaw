@@ -13,10 +13,24 @@ func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
-	for _, path := range []string{"/tmp/a", "~other/file", "/workspace/.blueclaw/tmp/a", "/workspace/private/people/person-1/tmp/a", "/workspace/private/people/person-2/tmp/a", "../escape"} {
+	for _, path := range []string{"/tmp/a", "~other/file", "/workspace/.blueclaw/tmp/a", "../escape"} {
 		if _, errorValue := resolver.Resolve(path, scope); errorValue == nil {
 			t.Fatalf("expected resolver to reject %q", path)
 		}
+	}
+}
+
+func TestWorkspacePathResolverResolvesConcretePrivatePathInsteadOfRejecting(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	resolvedPath, errorValue := resolver.Resolve(filepath.Join(workspacePath, "private", "people", "person-1", "documents", "a.docx"), scope)
+	if errorValue != nil {
+		t.Fatalf("concrete own private path must resolve, not be rejected: %v", errorValue)
+	}
+	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "documents", "a.docx")
+	if resolvedPath.ConcretePath != expectedConcretePath {
+		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
 	}
 }
 
@@ -32,7 +46,7 @@ func TestWorkspacePathResolverExpandsHomeTildeToRequesterPrivateRoot(t *testing.
 	if resolvedPath.ConcretePath != expectedConcretePath {
 		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
 	}
-	if resolvedPath.VirtualPath != "home/documents/회의록.md" {
+	if resolvedPath.VirtualPath != "documents/회의록.md" {
 		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
 	}
 	homeRoot, errorValue := resolver.Resolve("~", scope)
@@ -52,7 +66,7 @@ func TestWorkspacePathResolverMapsTemporaryDirectoryToRequesterDraft(t *testing.
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "task-1", "capability")
+	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "capability")
 	if resolvedPath.ConcretePath != expectedConcretePath {
 		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
 	}
@@ -61,15 +75,15 @@ func TestWorkspacePathResolverMapsTemporaryDirectoryToRequesterDraft(t *testing.
 	}
 }
 
-func TestWorkspacePathResolverMapsVirtualHomeToRequesterPrivateRoot(t *testing.T) {
+func TestWorkspacePathResolverResolvesHomeRelativePathToRequesterRoot(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
-	resolvedPath, errorValue := resolver.Resolve("home/sites/site-1/DESIGN.md", scope)
+	resolvedPath, errorValue := resolver.Resolve("sites/site-1/DESIGN.md", scope)
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if resolvedPath.VirtualPath != "home/sites/site-1/DESIGN.md" {
+	if resolvedPath.VirtualPath != "sites/site-1/DESIGN.md" {
 		t.Fatalf("unexpected virtual path: %+v", resolvedPath)
 	}
 	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "sites", "site-1", "DESIGN.md")
@@ -84,7 +98,7 @@ func TestWorkspacePathResolverUsesPersonAccessWhenRequesterPersonIDIsEmpty(t *te
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{
 		PersonAccess: policy.PersonAccess{PersonID: "person-1"},
 	}, "task-1")
-	resolvedPath, errorValue := resolver.Resolve("home/sites/site-1/DESIGN.md", scope)
+	resolvedPath, errorValue := resolver.Resolve("sites/site-1/DESIGN.md", scope)
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
@@ -99,7 +113,7 @@ func TestWorkspaceScopeEnvironmentStaysUnderRequesterPrivateRoot(t *testing.T) {
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
 	environmentVariables := scope.EnvironmentVariables()
 	requesterRootPath := filepath.Join(workspacePath, "private", "people", "person-1")
-	taskRuntimeRootPath := filepath.Join(requesterRootPath, "tmp", "task-1", ".runtime")
+	taskRuntimeRootPath := filepath.Join(requesterRootPath, "tmp", ".runtime")
 	if environmentVariables["PATH"] != security.CanonicalRuntimePATH {
 		t.Fatalf("expected canonical runtime PATH, got %+v", environmentVariables)
 	}

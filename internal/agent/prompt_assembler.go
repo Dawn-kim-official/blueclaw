@@ -282,20 +282,13 @@ func buildWorkspaceContextDescription(request AgentTurnRequest) string {
 		return ""
 	}
 	lines := []string{
-		"Terminal commands run as the requester POSIX identity.",
-		"Use virtual workspace paths in tool inputs; do not use concrete private POSIX paths.",
-		"Use home/<path> for requester-private durable source work.",
-		"Use tmp/<artifact-slug> for draft artifact work.",
-		"Use artifacts/<artifact-slug> for accepted final files.",
-	}
-	if personID := strings.TrimSpace(request.RequesterPersonID); personID != "" {
-		lines = append(lines, "The requester has a private POSIX home directory, but tool path fields should refer to it as home/<path>.")
-	}
-	lines = append(lines,
+		"Terminal commands run as the requester POSIX identity; ~ is your Linux home ($HOME) and your private workspace, and the same ~ path works in a tool path field and in a shell command.",
+		"Do all document work — build, edit, and deliver — directly in ~/documents/; save finished documents (Word, PDF, Excel, slides) as ~/documents/<name>.<ext> so a later edit or delete task finds them with ls ~/documents.",
+		"A concrete POSIX path under your home also resolves, so open one you see in ls output instead of giving up.",
 		"Circle-shared files live under /workspace/circles/<circleID> when the requester belongs to that circle.",
 		"/workspace/.blueclaw is service-owned runtime state and is normally not writable from terminal tools.",
-		"If unsure, inspect access with virtual-path working directories such as tmp/<slug>: id; pwd; ls -ld .; stat -c '%A %U %G %n' .; test -w .",
-	)
+		"If unsure, inspect access from a working directory such as ~/documents: id; pwd; ls -ld .; stat -c '%A %U %G %n' .; test -w .",
+	}
 	return strings.Join(lines, "\n")
 }
 

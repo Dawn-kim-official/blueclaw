@@ -251,12 +251,12 @@ func TestPromptAssemblerIncludesWritableWorkspaceContext(t *testing.T) {
 	body := joinMessageContent(messages)
 
 	for _, expected := range []string{
-		"Terminal commands run as the requester POSIX identity.",
-		"Use virtual workspace paths in tool inputs",
-		"Use home/<path> for requester-private durable source work.",
-		"Use tmp/<artifact-slug> for draft artifact work.",
-		"Use artifacts/<artifact-slug> for accepted final files.",
-		"The requester has a private POSIX home directory",
+		"Terminal commands run as the requester POSIX identity",
+		"~ is your Linux home ($HOME)",
+		"Do all document work — build, edit, and deliver — directly in ~/documents/",
+		"save finished documents (Word, PDF, Excel, slides) as ~/documents/<name>.<ext>",
+		"ls ~/documents",
+		"concrete POSIX path under your home also resolves",
 		"Circle-shared files live under /workspace/circles/<circleID>",
 		"/workspace/.blueclaw is service-owned runtime state",
 		"ls -ld .",
