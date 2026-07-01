@@ -196,7 +196,7 @@ func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 func TestCapabilityCatalogParametersListsRequiredAndOptional(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"status":{"type":"string"},"startDate":{"type":"string"}},"required":["prompt"]}`)
 	got := capabilityCatalogParameters(schema)
-	want := "prompt (required), startDate, status"
+	want := "{ prompt string (required), startDate string, status string }"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
