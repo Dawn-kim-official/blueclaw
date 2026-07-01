@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
@@ -27,24 +28,26 @@ type AttachmentMaterialResolver interface {
 }
 
 type ToolCatalogBuilder struct {
-	allowedToolNamesByProfile map[string][]string
-	fallbackAllowedToolNames  []string
-	memoryService             *memory.MemoryService
-	pinnedMemoryStore         *memory.MarkdownStore
-	memoryUpdateQueue         memory.MemoryUpdateEnqueuer
-	mcpRegistry               *mcp.McpRegistry
-	capabilityClient          capability.Client
-	capabilityToolNames       []string
-	capabilityToolDescriptors []CapabilityToolDescriptor
-	terminalService           *security.TerminalSessionService
-	workspaceActorFactory     security.WorkspaceActorFactory
-	taskRunService            *task.TaskRunService
-	taskScheduleRepository    task.TaskScheduleRepository
-	taskWaitTokenRepository   task.TaskWaitTokenRepository
-	workspaceRootPath         string
-	skillChangeHandler        func(context.Context)
-	skillRetriever            agent.SkillRetriever
-	instructionBundleLoader   func() agent.InstructionBundle
+	allowedToolNamesByProfile      map[string][]string
+	fallbackAllowedToolNames       []string
+	memoryService                  *memory.MemoryService
+	pinnedMemoryStore              *memory.MarkdownStore
+	memoryUpdateQueue              memory.MemoryUpdateEnqueuer
+	mcpRegistry                    *mcp.McpRegistry
+	capabilityClient               capability.Client
+	capabilityToolNames            []string
+	capabilityToolDescriptors      []CapabilityToolDescriptor
+	liveCapabilityInputSchema      map[string]json.RawMessage
+	liveCapabilityInputSchemaMutex sync.RWMutex
+	terminalService                *security.TerminalSessionService
+	workspaceActorFactory          security.WorkspaceActorFactory
+	taskRunService                 *task.TaskRunService
+	taskScheduleRepository         task.TaskScheduleRepository
+	taskWaitTokenRepository        task.TaskWaitTokenRepository
+	workspaceRootPath              string
+	skillChangeHandler             func(context.Context)
+	skillRetriever                 agent.SkillRetriever
+	instructionBundleLoader        func() agent.InstructionBundle
 }
 
 type toolHandlerContext struct {
@@ -132,6 +135,47 @@ func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityTools(capabilityClien
 func (toolCatalogBuilder *ToolCatalogBuilder) UseCapabilityToolDescriptors(capabilityClient capability.Client, toolDescriptors []CapabilityToolDescriptor) {
 	toolCatalogBuilder.capabilityClient = capabilityClient
 	toolCatalogBuilder.capabilityToolDescriptors = copyCapabilityToolDescriptors(toolDescriptors)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) RefreshLiveCapabilityInputSchemas(ctx context.Context) {
+	toolCatalogBuilder.liveCapabilityInputSchemaMutex.RLock()
+	alreadyHealed := len(toolCatalogBuilder.liveCapabilityInputSchema) > 0
+	toolCatalogBuilder.liveCapabilityInputSchemaMutex.RUnlock()
+	if alreadyHealed {
+		return
+	}
+	liveDescriptors, _, errorValue := toolCatalogBuilder.liveCapabilityToolDescriptors(ctx)
+	if errorValue != nil {
+		return
+	}
+	inputSchemaByName := map[string]json.RawMessage{}
+	for _, descriptor := range liveDescriptors {
+		if len(descriptor.InputSchema) > 0 {
+			inputSchemaByName[descriptor.Name] = descriptor.InputSchema
+		}
+	}
+	if len(inputSchemaByName) == 0 {
+		return
+	}
+	toolCatalogBuilder.liveCapabilityInputSchemaMutex.Lock()
+	toolCatalogBuilder.liveCapabilityInputSchema = inputSchemaByName
+	toolCatalogBuilder.liveCapabilityInputSchemaMutex.Unlock()
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) overlayLiveCapabilityInputSchemas(toolDescriptors []CapabilityToolDescriptor) {
+	toolCatalogBuilder.liveCapabilityInputSchemaMutex.RLock()
+	defer toolCatalogBuilder.liveCapabilityInputSchemaMutex.RUnlock()
+	if len(toolCatalogBuilder.liveCapabilityInputSchema) == 0 {
+		return
+	}
+	for index := range toolDescriptors {
+		if len(toolDescriptors[index].InputSchema) > 0 {
+			continue
+		}
+		if liveSchema, isFound := toolCatalogBuilder.liveCapabilityInputSchema[toolDescriptors[index].Name]; isFound {
+			toolDescriptors[index].InputSchema = liveSchema
+		}
+	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) UseTerminalService(terminalService *security.TerminalSessionService) {

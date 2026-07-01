@@ -383,6 +383,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityToolDefinitions() []Capa
 			toolDescriptors = append(toolDescriptors, CapabilityToolDescriptor{Name: toolName})
 		}
 	}
+	toolCatalogBuilder.overlayLiveCapabilityInputSchemas(toolDescriptors)
 	return toolDescriptors
 }
 
