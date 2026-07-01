@@ -425,7 +425,7 @@ func fileVisibility(path string) string {
 
 func fileDurability(path string) string {
 	normalizedPath := filepath.ToSlash(strings.TrimSpace(path))
-	if strings.Contains(normalizedPath, "/tmp/") || strings.HasPrefix(normalizedPath, "tmp/") {
+	if strings.Contains(normalizedPath, "/tmp/") {
 		return "draft"
 	}
 	return "durable"

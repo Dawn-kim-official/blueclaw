@@ -53,9 +53,6 @@ func WorkspaceScopeForRequest(workspaceRootPath string, request ToolCatalogReque
 		requesterTmpRootPath = filepath.Join(requesterRootPath, "tmp")
 		requesterArtifactRootPath = filepath.Join(requesterRootPath, "artifacts")
 		requesterDraftRootPath = requesterTmpRootPath
-		if strings.TrimSpace(taskRunID) != "" {
-			requesterDraftRootPath = filepath.Join(requesterTmpRootPath, sanitizeWorkspaceSlug(taskRunID))
-		}
 	}
 	circleRootPath := ""
 	if strings.TrimSpace(conversationScope.CircleID) != "" {
@@ -107,7 +104,7 @@ func (resolver WorkspacePathResolver) Resolve(value string, scope WorkspaceScope
 	if filepath.IsAbs(trimmedPath) {
 		return resolver.resolveAbsolute(trimmedPath, scope)
 	}
-	return resolver.resolveVirtual(trimmedPath, scope)
+	return resolver.resolveRelativeToHome(trimmedPath, scope)
 }
 
 func (resolver WorkspacePathResolver) ResolveDirectory(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
@@ -136,7 +133,7 @@ func normalizedWorkspaceDirectoryPath(value string) string {
 // shell does not understand.
 func (resolver WorkspacePathResolver) resolveHome(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
 	if value == "~" {
-		return resolver.resolvedPath(scope.RequesterRootPath, "home", workspacePathKindWorkspace, false)
+		return resolver.resolvedPath(scope.RequesterRootPath, "~", workspacePathKindWorkspace, false)
 	}
 	if !strings.HasPrefix(value, "~/") {
 		return ResolvedWorkspacePath{}, errors.New("only the requester home (~ or ~/<path>) is supported")
@@ -145,37 +142,18 @@ func (resolver WorkspacePathResolver) resolveHome(value string, scope WorkspaceS
 	if suffix == ".." || strings.HasPrefix(suffix, "../") {
 		return ResolvedWorkspacePath{}, errors.New("relative path traversal is not supported")
 	}
-	virtualPath := filepath.ToSlash(filepath.Join("home", suffix))
-	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), virtualPath, workspacePathKindWorkspace, false)
+	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), filepath.ToSlash(suffix), workspacePathKindWorkspace, false)
 }
 
-func (resolver WorkspacePathResolver) resolveVirtual(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
+// A relative path resolves against the requester's Linux home ($HOME), exactly as a
+// shell would, so ~/documents and documents name the same file. There is no virtual
+// tmp/ or artifacts/ vocabulary; a path is just a real path under the home directory.
+func (resolver WorkspacePathResolver) resolveRelativeToHome(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
 	cleanPath := filepath.Clean(value)
 	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
 		return ResolvedWorkspacePath{}, errors.New("relative path traversal is not supported")
 	}
-	if cleanPath == "tmp" {
-		return resolver.resolvedPath(scope.RequesterDraftRootPath, "tmp", workspacePathKindDraft, false)
-	}
-	if strings.HasPrefix(cleanPath, "tmp/") {
-		suffix := strings.TrimPrefix(cleanPath, "tmp/")
-		return resolver.resolvedPath(filepath.Join(scope.RequesterDraftRootPath, suffix), filepath.ToSlash(cleanPath), workspacePathKindDraft, false)
-	}
-	if cleanPath == "artifacts" {
-		return resolver.resolvedPath(scope.RequesterArtifactRootPath, "artifacts", workspacePathKindArtifact, true)
-	}
-	if strings.HasPrefix(cleanPath, "artifacts/") {
-		suffix := strings.TrimPrefix(cleanPath, "artifacts/")
-		return resolver.resolvedPath(filepath.Join(scope.RequesterArtifactRootPath, suffix), filepath.ToSlash(cleanPath), workspacePathKindArtifact, true)
-	}
-	if cleanPath == "home" {
-		return resolver.resolvedPath(scope.RequesterRootPath, "home", workspacePathKindWorkspace, false)
-	}
-	if strings.HasPrefix(cleanPath, "home/") {
-		suffix := strings.TrimPrefix(cleanPath, "home/")
-		return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), filepath.ToSlash(cleanPath), workspacePathKindWorkspace, false)
-	}
-	return resolver.resolvedPath(filepath.Join(scope.DefaultDirectoryPath, cleanPath), filepath.ToSlash(filepath.Join("tmp", cleanPath)), workspacePathKindDraft, false)
+	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, cleanPath), filepath.ToSlash(cleanPath), workspacePathKindWorkspace, false)
 }
 
 func (resolver WorkspacePathResolver) resolveAbsolute(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
@@ -202,9 +180,6 @@ func (resolver WorkspacePathResolver) resolveAbsolute(value string, scope Worksp
 	}
 	if len(parts) >= 1 && parts[0] == "skills" {
 		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindSkills}, nil
-	}
-	if len(parts) >= 3 && parts[0] == "private" && parts[1] == "people" {
-		return ResolvedWorkspacePath{}, errors.New("do not use concrete private workspace paths; use home/<path>, tmp/<slug>, or artifacts/<slug>")
 	}
 	if len(parts) >= 2 && parts[0] == "circles" {
 		return ResolvedWorkspacePath{ConcretePath: cleanPath, VirtualPath: virtualPath, Kind: workspacePathKindCircle, IsDurableArtifact: true}, nil
@@ -284,27 +259,4 @@ func (scope WorkspaceScope) EnvironmentVariables() map[string]string {
 		"BUN_INSTALL_CACHE_DIR":        filepath.Join(bunRuntimeRootPath, "cache"),
 		"npm_config_cache":             filepath.Join(runtimeRootPath, "npm"),
 	}
-}
-
-func sanitizeWorkspaceSlug(value string) string {
-	trimmedValue := strings.TrimSpace(value)
-	if trimmedValue == "" {
-		return "task"
-	}
-	builder := strings.Builder{}
-	for _, character := range trimmedValue {
-		if character >= 'a' && character <= 'z' ||
-			character >= 'A' && character <= 'Z' ||
-			character >= '0' && character <= '9' ||
-			character == '-' || character == '_' || character == '.' {
-			builder.WriteRune(character)
-		} else {
-			builder.WriteRune('-')
-		}
-	}
-	result := strings.Trim(builder.String(), "-.")
-	if result == "" {
-		return "task"
-	}
-	return result
 }

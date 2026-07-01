@@ -177,7 +177,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileDeleteToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "file.delete",
-			Description: "Delete one file from the Blueclaw workspace by its workspace path. Use the same path form as file.write and file.read, for example tmp/notes.txt or home/sites/<id>/draft/app/src/App.tsx.",
+			Description: "Delete one file from the Blueclaw workspace by its path. Use the same path form as file.write and file.read, for example ~/documents/notes.docx or ~/documents/report.pdf.",
 			RecoveryCard: agent.ToolRecoveryCard{
 				Does:       "Removes one workspace file at the requested path.",
 				Produces:   "Confirmation that the file no longer exists.",
@@ -1553,6 +1553,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context
 		return agent.FileAttachment{}, &result, nil
 	}
 	filename := attachmentFilename(input, resolvedPath.ConcretePath)
+	toolCatalogBuilder.persistDeliveredDocument(toolContext, workspaceActor, resolvedPath, filename, document, scope)
 	contentType := firstNonEmptyString(input.ContentType, mime.TypeByExtension(filepath.Ext(filename)), "application/octet-stream")
 	return agent.FileAttachment{
 		DevicePath:    toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath),
@@ -1564,6 +1565,33 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context
 	}, nil, nil
 }
 
+// A delivered document is copied into the requester's ~/documents so a later edit or
+// delete task finds it by name, independent of where the model built it. Best effort:
+// a copy failure never blocks the delivery itself.
+func (toolCatalogBuilder *ToolCatalogBuilder) persistDeliveredDocument(toolContext context.Context, workspaceActor security.WorkspaceActor, source ResolvedWorkspacePath, filename string, content []byte, scope WorkspaceScope) {
+	if !isPersistableDocumentFilename(filename) {
+		return
+	}
+	destination, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(filepath.ToSlash(filepath.Join("documents", filename)), scope)
+	if errorValue != nil || destination.ConcretePath == source.ConcretePath {
+		return
+	}
+	parentDirectory := destination.Parent()
+	if errorValue := workspaceActor.MkdirAll(toolContext, parentDirectory, workspaceDirectoryCreateMode(parentDirectory)); errorValue != nil {
+		return
+	}
+	_ = workspaceActor.WriteFile(toolContext, destination, content, workspaceFileCreateMode(destination))
+}
+
+func isPersistableDocumentFilename(filename string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filename))) {
+	case ".docx", ".doc", ".pdf", ".xlsx", ".xlsm", ".xls", ".pptx", ".ppt", ".csv":
+		return true
+	default:
+		return false
+	}
+}
+
 func attachmentFilename(input fileAttachFileInput, resolvedPath string) string {
 	if strings.TrimSpace(input.Filename) != "" {
 		return strings.TrimSpace(input.Filename)
@@ -1572,11 +1600,8 @@ func attachmentFilename(input fileAttachFileInput, resolvedPath string) string {
 }
 
 func attachmentResolutionFailure(stage string, errorValue error) agent.ToolResult {
-	summary := strings.TrimSpace(errorValue.Error()) + ". This attachment cannot be opened here; do not retry file.preview or file.read on it. Summarize from the conversation if you can, otherwise tell the user the file could not be opened."
-	result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, summary)
-	result.Failure.RetryPolicy = "no_retry"
-	result.Failure.FailureClass = "permanent"
-	return result
+	summary := strings.TrimSpace(errorValue.Error()) + ". This attachment reference is not openable in the current conversation. If it is a file you created or saved earlier, it persists as a workspace file: find it by name (for example `ls ~/documents`) and open that workspace path with file.read or file.preview, or edit it with your document skill's script. Only if no such workspace file exists, summarize from the conversation or tell the user it could not be opened."
+	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, stage, summary)
 }
 
 func resolveReadableAttachmentMaterial(toolContext context.Context, request ToolCatalogRequest, materialID string) (agent.VisibleContextMaterial, error) {

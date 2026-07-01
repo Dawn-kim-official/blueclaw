@@ -321,10 +321,6 @@ func validateTerminalToolInput(toolName string, toolInput json.RawMessage, toolS
 			return errors.New(strings.TrimSpace(toolName) + " command cannot call Blueclaw action " + toolAlias + "; call that action directly instead")
 		}
 	}
-	workingDirectoryPath := strings.TrimSpace(stringValue(inputDocument["workingDirectoryPath"]))
-	if strings.HasPrefix(workingDirectoryPath, "tmp/") && commandContainsVirtualWorkspacePath(command) {
-		return errors.New(strings.TrimSpace(toolName) + " command uses tmp/ or artifacts/ inside an already scoped tmp workingDirectoryPath; set workingDirectoryPath to tmp/<slug> and use relative paths such as . or presentation.md inside the command")
-	}
 	return nil
 }
 
@@ -336,16 +332,6 @@ func firstTerminalCommandToken(command string) string {
 		}
 	}
 	return ""
-}
-
-func commandContainsVirtualWorkspacePath(command string) bool {
-	for _, token := range terminalCommandTokens(command) {
-		token = strings.Trim(token, `"'`)
-		if strings.HasPrefix(token, "tmp/") || strings.HasPrefix(token, "artifacts/") {
-			return true
-		}
-	}
-	return false
 }
 
 func terminalCommandTokens(command string) []string {
