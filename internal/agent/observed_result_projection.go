@@ -252,14 +252,13 @@ func appendObservedAttachmentFacts(facts []ObservedFact, attachments []FileAttac
 }
 
 func missingRequirementsForFinishClaims(request AgentTurnRequest, facts []ObservedFact, actionDocument turnActionDocument) []ProjectionMissingRequirement {
-	message := finishActionMessage(actionDocument)
 	if strings.TrimSpace(actionDocument.Action) != "finish" {
 		return nil
 	}
+	// Completion is decided by the task's own contract and cited evidence, not by
+	// keyword-scanning the finish message for capability claims: that cross-contaminated
+	// unrelated tasks (a "회의록" document finish was read as a calendar-event claim).
 	requirements := requiredProjectionRequirementsFromContract(request)
-	if strings.TrimSpace(message) != "" {
-		requirements = append(requirements, claimedRequirementsFromFinishMessage(request, message)...)
-	}
 	missingRequirements := []ProjectionMissingRequirement{}
 	for _, requirement := range requirements {
 		if projectionHasObservedFact(facts, requirement.ObjectType, requirement.Effect) {
@@ -282,32 +281,6 @@ func requiredProjectionRequirementsFromContract(request AgentTurnRequest) []Proj
 	return deduplicateProjectionRequirements(requirements)
 }
 
-func claimedRequirementsFromFinishMessage(request AgentTurnRequest, message string) []ProjectionMissingRequirement {
-	requirements := []ProjectionMissingRequirement{}
-	if finishClaimsCalendarEventScheduled(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event scheduling but no successful calendar event creation was observed", "calendar_event", "scheduled", []string{"calendar.add"}))
-	}
-	if finishClaimsCalendarEventUpdated(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event update but no successful calendar event update was observed", "calendar_event", "updated", []string{"calendar.update"}))
-	}
-	if finishClaimsCalendarEventDeleted(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims calendar event deletion but no successful calendar event deletion was observed", "calendar_event", "deleted", []string{"calendar.delete"}))
-	}
-	if finishClaimsFlowTaskCreated(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims flow task creation but no successful flow task creation was observed", "flow_task", "created", []string{"task.add"}))
-	}
-	if finishClaimsFlowTaskUpdated(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims flow task update but no successful flow task update was observed", "flow_task", "updated", []string{"task.update"}))
-	}
-	if finishClaimsMessageSent(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims external message delivery but no successful send observation was observed", "message", "sent", requiredSendToolNamesForRequest(request)))
-	}
-	if finishClaimsWebsitePublished(message) {
-		requirements = append(requirements, projectionRequirement(request, "finish claims website publication but no successful site publish observation was observed", "website", "published", []string{"site.publish"}))
-	}
-	return deduplicateProjectionRequirements(requirements)
-}
-
 func projectionRequirement(request AgentTurnRequest, description string, objectType string, effect string, suggestedTools []string) ProjectionMissingRequirement {
 	return ProjectionMissingRequirement{
 		Description:        description,
@@ -326,41 +299,6 @@ func projectionSuggestedToolNames(request AgentTurnRequest, suggestedTools []str
 		return registeredTools
 	}
 	return appendUniqueStrings(nil, suggestedTools...)
-}
-
-func finishClaimsCalendarEventScheduled(message string) bool {
-	return containsAnyNormalized(message, "일정", "캘린더", "calendar", "event", "회의", "미팅", "약속") &&
-		containsAnyNormalized(message, "등록", "추가", "예약", "잡았", "잡혔", "만들", "생성", "scheduled", "added", "created", "booked")
-}
-
-func finishClaimsCalendarEventUpdated(message string) bool {
-	return containsAnyNormalized(message, "일정", "캘린더", "calendar", "event", "회의", "미팅", "약속") &&
-		containsAnyNormalized(message, "수정", "변경", "업데이트", "바꿨", "updated", "changed", "rescheduled")
-}
-
-func finishClaimsCalendarEventDeleted(message string) bool {
-	return containsAnyNormalized(message, "일정", "캘린더", "calendar", "event", "회의", "미팅", "약속") &&
-		containsAnyNormalized(message, "삭제", "취소", "cancelled", "canceled", "deleted", "removed")
-}
-
-func finishClaimsFlowTaskCreated(message string) bool {
-	return containsAnyNormalized(message, "업무", "할 일", "할일", "태스크", "task", "todo") &&
-		containsAnyNormalized(message, "등록", "추가", "만들", "생성", "created", "added")
-}
-
-func finishClaimsFlowTaskUpdated(message string) bool {
-	return containsAnyNormalized(message, "업무", "할 일", "할일", "태스크", "task", "todo") &&
-		containsAnyNormalized(message, "수정", "변경", "완료 처리", "완료로", "업데이트", "updated", "changed", "completed")
-}
-
-func finishClaimsMessageSent(message string) bool {
-	return containsAnyNormalized(message, "메시지", "메일", "이메일", "email", "message", "dm", "slack", "mattermost") &&
-		containsAnyNormalized(message, "보냈", "전송", "발송", "sent", "delivered", "emailed")
-}
-
-func finishClaimsWebsitePublished(message string) bool {
-	return containsAnyNormalized(message, "사이트", "웹사이트", "페이지", "웹", "site", "website", "page", "url", "http") &&
-		containsAnyNormalized(message, "배포", "공개", "게시", "published", "deployed", "live")
 }
 
 func projectionHasObservedFact(facts []ObservedFact, objectType string, effect string) bool {
@@ -447,16 +385,6 @@ func effectDurability(effect string) string {
 	default:
 		return ""
 	}
-}
-
-func containsAnyNormalized(text string, fragments ...string) bool {
-	normalizedText := strings.ToLower(strings.TrimSpace(text))
-	for _, fragment := range fragments {
-		if strings.Contains(normalizedText, strings.ToLower(strings.TrimSpace(fragment))) {
-			return true
-		}
-	}
-	return false
 }
 
 func deduplicateObservedFacts(facts []ObservedFact) []ObservedFact {
