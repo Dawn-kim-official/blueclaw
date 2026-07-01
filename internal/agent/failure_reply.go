@@ -139,7 +139,14 @@ func (agentTurnRunner *AgentTurnRunner) generateStallPauseNotice(taskRunID strin
 	status.TextRecoveryError = noticeStatus.TextRecoveryError
 	status.LocalRecoveryError = noticeStatus.LocalRecoveryError
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_report", marshalEventBody(failureReportEventBody("stall", failureReport, noticeStatus)))
-	return notice, status, notice.SendableMessage() != ""
+	return notice, status, stallNoticeCanReachUser(notice, noticeStatus.Source)
+}
+
+func stallNoticeCanReachUser(notice FailureNotice, source string) bool {
+	if source == "raw_error" {
+		return false
+	}
+	return notice.SendableMessage() != ""
 }
 
 func (agentTurnRunner *AgentTurnRunner) generateLimitReachedNotice(taskRunID string, request AgentTurnRequest, stopReason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (FailureNotice, limitReplyStatus, bool) {
