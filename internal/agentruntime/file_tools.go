@@ -176,8 +176,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 	})
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[fileDeleteToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
-			Name:        "file.delete",
-			Description: "Delete one file from the Blueclaw workspace by its path. Use the same path form as file.write and file.read, for example ~/documents/notes.docx or ~/documents/report.pdf.",
+			Name:             "file.delete",
+			RequiresApproval: true,
+			Description:      "Delete one file from the Blueclaw workspace by its path. Use the same path form as file.write and file.read, for example ~/documents/notes.docx or ~/documents/report.pdf. The runtime pauses for the user's approval before the file is removed, so find the file yourself and call this directly — do not ask the user which file.",
 			RecoveryCard: agent.ToolRecoveryCard{
 				Does:       "Removes one workspace file at the requested path.",
 				Produces:   "Confirmation that the file no longer exists.",
