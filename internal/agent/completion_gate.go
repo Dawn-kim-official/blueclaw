@@ -47,7 +47,7 @@ type completionTransition struct {
 	Action        completionRecommendedAction
 }
 
-func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion) completionTransition {
+func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, lastModelMessage string) completionTransition {
 	state := buildCompletionState(request, requirements, observations)
 	agentState := agentTaskState{
 		TaskRunID:       taskRunID,
@@ -67,7 +67,7 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 			return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, *transition.Effect.ToolCall)
 		}
 	case agentEffectFinish:
-		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state)
+		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state, lastModelMessage)
 	case agentEffectNone:
 		if len(transition.State.Observations) > len(observations) {
 			return agentTurnRunner.blockInvalidCompletionArtifactsFromTransition(taskRunID, observations, attachments, state, transition)
@@ -157,13 +157,8 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 	return trimmedContent + "\nrequested paths: " + strings.Join(paths, "\n")
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState) completionTransition {
-	actionDocument := completionStateFinishDocument(state)
-	if message := agentTurnRunner.generatedCompletionMessage(request, state); message != "" {
-		actionDocument.Message = message
-		actionDocument.ReplyParts = []AgentPart{{Type: AgentPartTypeText, Text: message}}
-		actionDocument.CompletionSummary = message
-	}
+func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState, lastModelMessage string) completionTransition {
+	actionDocument := completionStateFinishDocument(state, deliverableModelWording(lastModelMessage))
 	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(context.Background(), taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
 	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
 	if !completionGateResult.IsSatisfied {
@@ -193,9 +188,8 @@ func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string
 	}
 }
 
-func completionStateFinishDocument(state CompletionState) turnActionDocument {
+func completionStateFinishDocument(state CompletionState, message string) turnActionDocument {
 	goalSatisfied := true
-	message := completionStateFinishMessage(state)
 	return turnActionDocument{
 		Action:             "finish",
 		Message:            message,
@@ -207,112 +201,16 @@ func completionStateFinishDocument(state CompletionState) turnActionDocument {
 	}
 }
 
-func completionStateFinishMessage(state CompletionState) string {
-	filenames := completionStateFilenames(state)
-	if len(filenames) == 0 {
-		return completionStateToolReply(state)
-	}
-	return "요청하신 파일을 생성해 첨부했습니다: " + strings.Join(filenames, ", ")
-}
-
-// The auto-finalize path completes a task the model left with satisfied evidence
-// but no clean finish. User-facing wording must come from the LLM (LLM-first), so
-// the deterministic completionState*Reply templates are only the fallback when the
-// model cannot produce a reply. Without this, every evidence-finalized task read as
-// "요청하신 파일을 생성해 첨부했습니다: <file>" — wrong for edits and deletes.
-func (agentTurnRunner *AgentTurnRunner) generatedCompletionMessage(request AgentTurnRequest, state CompletionState) string {
-	fallback := completionStateFinishMessage(state)
-	prompt := buildCompletionReplyPrompt(request, state)
-	if prompt == "" {
-		return fallback
-	}
-	reply, errorValue := agentTurnRunner.languageModel.GenerateResponse(context.Background(), prompt)
-	if errorValue != nil {
-		return fallback
-	}
-	reply = strings.TrimSpace(reply)
-	if reply == "" {
-		return fallback
-	}
-	if ValidateFinishMessageDelivery(reply, attachmentsFromAttachedEvidence(state.AttachedEvidence), false) != nil {
-		return fallback
-	}
-	return reply
-}
-
-func buildCompletionReplyPrompt(request AgentTurnRequest, state CompletionState) string {
-	instruction := strings.TrimSpace(request.ActiveGoal.OriginalInstruction)
-	if instruction == "" {
+// Runtime-composed finish and approval wording is the model's own most-recent
+// message (LLM-first), reused from the turn that already produced it so no extra
+// model call is spent. When the model left no deliverable message the wording is
+// empty rather than a deterministic template.
+func deliverableModelWording(message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" || ValidateUserNoticeDelivery(message) != nil {
 		return ""
 	}
-	lines := []string{
-		"Write one concise completion reply to the user, in the same language the user wrote in.",
-		"Reflect the exact action the original request asked for: if existing content was changed, say edited/updated/added; if something was newly made, say created; if something was removed, say deleted. Never say \"created\" for an edit or delete.",
-		"If a file is attached, mention its filename naturally. No greeting and no filler — just the result.",
-		"",
-		"Original request: " + instruction,
-	}
-	if operations := completionEvidenceOperations(state); len(operations) > 0 {
-		lines = append(lines, "Capabilities that succeeded: "+strings.Join(operations, ", "))
-	}
-	if filenames := completionStateFilenames(state); len(filenames) > 0 {
-		lines = append(lines, "Attached file(s): "+strings.Join(filenames, ", "))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func completionEvidenceOperations(state CompletionState) []string {
-	operations := []string{}
-	seen := map[string]bool{}
-	for _, reference := range state.EvidenceReferences {
-		name := strings.TrimSpace(reference.ToolName)
-		if name == "" || seen[name] {
-			continue
-		}
-		seen[name] = true
-		operations = append(operations, name)
-	}
-	return operations
-}
-
-func completionStateToolReply(state CompletionState) string {
-	for _, reference := range state.EvidenceReferences {
-		switch strings.TrimSpace(reference.ToolName) {
-		case "schedule.create":
-			return "예약을 만들었습니다."
-		case "schedule.update":
-			return "예약을 수정했습니다."
-		case "schedule.cancel":
-			return "예약을 취소했습니다."
-		case "calendar.add":
-			return "일정을 등록했습니다."
-		case "calendar.update":
-			return "일정을 수정했습니다."
-		case "calendar.delete":
-			return "일정을 삭제했습니다."
-		case "task.add":
-			return "업무를 등록했습니다."
-		case "task.update":
-			return "업무를 수정했습니다."
-		case "google.gmail.send":
-			return "메일을 보냈습니다."
-		}
-	}
-	return "요청하신 작업을 완료했습니다."
-}
-
-func completionStateFilenames(state CompletionState) []string {
-	filenames := []string{}
-	seenFilename := map[string]bool{}
-	for _, evidence := range state.AttachedEvidence {
-		filename := strings.TrimSpace(evidence.Filename)
-		if filename == "" || seenFilename[filename] {
-			continue
-		}
-		seenFilename[filename] = true
-		filenames = append(filenames, filename)
-	}
-	return filenames
+	return message
 }
 
 func appendObservationAttachments(attachments []FileAttachment, observation turnObservation) []FileAttachment {
