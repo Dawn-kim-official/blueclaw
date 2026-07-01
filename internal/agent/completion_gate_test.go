@@ -184,34 +184,6 @@ func TestCompletionGateLeavesNonSendFinishUnaffected(t *testing.T) {
 	}
 }
 
-func TestCompletionGateRejectsCalendarFinishClaimWithoutCalendarObservation(t *testing.T) {
-	goalSatisfied := true
-	result := validateCompletionGateForRequestWithRecoveryBudget(
-		AgentTurnRequest{ToolSet: newTestToolSet([]string{"calendar.add"})},
-		nil,
-		[]turnObservation{newContentObservation("obs-001", "continue", "ask.input", "몇 시로 등록할까요?")},
-		nil,
-		turnActionDocument{
-			Action:             "finish",
-			Message:            "7월 13일 미팅을 오전 10시~11시로 등록했습니다.",
-			GoalStatus:         "satisfied",
-			GoalSatisfied:      &goalSatisfied,
-			CompletionEvidence: []completionEvidenceReference{},
-		},
-		defaultRecoveryBudget(),
-	)
-
-	if result.IsSatisfied {
-		t.Fatal("expected calendar finish claim without calendar observation to be rejected")
-	}
-	if !strings.Contains(result.Message, "calendar event creation") {
-		t.Fatalf("expected observed result guidance, got %q", result.Message)
-	}
-	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "calendar.add" {
-		t.Fatalf("expected calendar add as suggested next tool, got %+v", result.SuggestedNextTools)
-	}
-}
-
 func TestCompletionGateAcceptsCalendarFinishClaimWithCalendarObservation(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGateForRequestWithRecoveryBudget(

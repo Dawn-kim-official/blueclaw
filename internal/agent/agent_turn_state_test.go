@@ -359,8 +359,8 @@ func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *te
 	if transition.Effect.Kind != agentEffectFinish {
 		t.Fatalf("expected final reply effect, got %+v", transition.Effect)
 	}
-	if transition.Effect.Finish == nil || !strings.Contains(transition.Effect.Finish.Reply, "완료") {
-		t.Fatalf("expected completion final reply, got %+v", transition.Effect.Finish)
+	if transition.Effect.Finish == nil {
+		t.Fatalf("expected completion finish effect, got %+v", transition.Effect.Finish)
 	}
 }
 

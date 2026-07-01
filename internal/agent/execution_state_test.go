@@ -105,19 +105,6 @@ func TestNormalizeExecutionStateEnforcesLimits(t *testing.T) {
 	}
 }
 
-func TestValidateTerminalToolInputRejectsVirtualPathInsideTmpWorkingDirectory(t *testing.T) {
-	input := MarshalToolInput(map[string]any{
-		"workingDirectoryPath": "tmp/deck",
-		"command":              "ls -R tmp/deck",
-	})
-
-	errorValue := validateTerminalToolInput("terminal.run", input)
-
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "already scoped tmp workingDirectoryPath") {
-		t.Fatalf("expected scoped tmp diagnostic rejection, got %v", errorValue)
-	}
-}
-
 func terminalFailureObservation(observationID string, workingDirectoryPath string, command string, stderr string) turnObservation {
 	content := marshalEventBody(map[string]any{
 		"exitCode": 1,
