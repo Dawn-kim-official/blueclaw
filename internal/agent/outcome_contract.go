@@ -63,8 +63,11 @@ func intakeDecisionRequiresSiteEvidence(decision IntakeDecision) bool {
 	return workKindsContain(decision.WorkKinds, WorkKindSitePrototype) || expectedResultsIncludeSiteRequirement(decision.ExpectedResults)
 }
 
-func normalizeActiveGoalSiteRequirement(activeGoal ActiveGoal, currentUserMessage string) (ActiveGoal, siteRequirementNormalizationReport) {
+func normalizeActiveGoalSiteRequirement(activeGoal ActiveGoal, currentUserMessage string, isContinuation bool) (ActiveGoal, siteRequirementNormalizationReport) {
 	if !activeGoalRequiresSiteEvidence(activeGoal) {
+		return activeGoal, siteRequirementNormalizationReport{}
+	}
+	if isContinuation {
 		return activeGoal, siteRequirementNormalizationReport{}
 	}
 	if siteEvidenceQuoteMatchesMessage(activeGoal.OutcomeContract.SiteEvidenceQuote, activeGoal.OriginalInstruction) {
@@ -424,7 +427,7 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 }
 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
-	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
 	request = normalizeRequestSiteWorkKinds(request, intakeDecision)
 	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	if OutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
@@ -437,7 +440,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		if len(intakeDecision.RequiredEvidenceTools) == 0 {
 			contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(contract)...)
 		}
-		contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
+		contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request, contract.RequiredEvidenceTools)...)
 		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
@@ -454,7 +457,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(contract)...)
 	}
-	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
+	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request, contract.RequiredEvidenceTools)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, FileDeliverToolName)
@@ -561,7 +564,7 @@ func normalizeOutcomeContractSiteRequirementForRequest(request AgentRequest, con
 	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
 		activeGoal.OriginalInstruction = request.Prompt
 	}
-	activeGoal, _ = normalizeActiveGoalSiteRequirement(activeGoal, request.Prompt)
+	activeGoal, _ = normalizeActiveGoalSiteRequirement(activeGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
 	return activeGoal.OutcomeContract
 }
 
@@ -672,15 +675,16 @@ func legacyExpectedResultsForContract(request AgentRequest, intakeDecision Intak
 }
 
 func requestExpectsPublicSiteResult(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredEvidenceTools []string) bool {
-	if requestLooksLikeSitePrototypeWork(request) || hasExecutionPlan && executionPlan.PublicDeploy {
+	if requiredEvidenceContains(requiredEvidenceTools, "site.delete") {
+		return false
+	}
+	if requiredEvidenceContains(requiredEvidenceTools, "site.publish") {
 		return true
 	}
-	for _, toolName := range requiredEvidenceTools {
-		if strings.HasPrefix(strings.TrimSpace(toolName), "site.") {
-			return true
-		}
+	if hasExecutionPlan && executionPlan.PublicDeploy {
+		return true
 	}
-	return false
+	return requestLooksLikeSitePrototypeWork(request)
 }
 
 func requestExpectsFileResult(requiredEvidenceTools []string, requiredAttachmentSuffixes []string) bool {

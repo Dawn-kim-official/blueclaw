@@ -226,7 +226,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	request.ResponseLanguage = ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
 	siteNormalizationReports := []siteRequirementNormalizationReport{}
 	var activeGoalSiteReport siteRequirementNormalizationReport
-	request.ActiveGoal, activeGoalSiteReport = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	request.ActiveGoal, activeGoalSiteReport = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, activeGoalSiteReport)
 	baseInstructionBundle := agentKernel.currentInstructionBundle()
 	instructionBundle := baseInstructionBundle
