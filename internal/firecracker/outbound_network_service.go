@@ -39,6 +39,10 @@ func (HostOutboundNetworkService) PrepareOutboundNetwork(outboundNetwork Outboun
 		_ = runHostNetworkCommand("ip", "link", "delete", outboundNetwork.HostDeviceName)
 		return errorValue
 	}
+	if errorValue := ensureHostNetworkRule("iptables", "-t", "mangle", "-C", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"); errorValue != nil {
+		_ = runHostNetworkCommand("ip", "link", "delete", outboundNetwork.HostDeviceName)
+		return errorValue
+	}
 	return nil
 }
 
@@ -46,6 +50,7 @@ func (HostOutboundNetworkService) CleanupOutboundNetwork(outboundNetwork Outboun
 	if !outboundNetwork.Enabled {
 		return nil
 	}
+	_ = runHostNetworkCommand("iptables", "-t", "mangle", "-D", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu")
 	_ = runHostNetworkCommand("iptables", "-D", "FORWARD", "-o", outboundNetwork.HostDeviceName, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
 	_ = runHostNetworkCommand("iptables", "-D", "FORWARD", "-i", outboundNetwork.HostDeviceName, "-j", "ACCEPT")
 	_ = runHostNetworkCommand("iptables", "-t", "nat", "-D", "POSTROUTING", "-s", outboundNetwork.NetworkCIDR, "-j", "MASQUERADE")
