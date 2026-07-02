@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"net/http"
+	"net/http/pprof"
 	"os"
 
 	"blueclaw/internal/adminapi"
@@ -32,6 +33,8 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer := http.NewServeMux()
 
 	multiplexer.HandleFunc("GET /admin/api/health", routerDependencies.HealthHandler.HandleHealth)
+	multiplexer.HandleFunc("GET /debug/pprof/", pprof.Index)
+	multiplexer.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
 	multiplexer.HandleFunc("GET /admin/api/policy", routerDependencies.PolicyHandler.HandleGetPolicy)
 	multiplexer.HandleFunc("POST /admin/api/policy/validate", routerDependencies.PolicyHandler.HandleValidatePolicy)
 	multiplexer.HandleFunc("POST /admin/api/policy/save", routerDependencies.PolicyHandler.HandleSavePolicy)
