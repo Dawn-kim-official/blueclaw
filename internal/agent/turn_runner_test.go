@@ -568,14 +568,14 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 		Prompt:             "피피티 만들어줘",
 		ToolSet:            toolRegistry,
 		PinnedToolNames:    toolRegistry.ListToolNames(),
-		AvailableSkills:    []SkillInstruction{{Name: "simple-slides", AllowedTools: []string{"terminal.run", "site.create"}}},
+		AvailableSkills:    []SkillInstruction{{Name: "presentation", AllowedTools: []string{"terminal.run", "site.create"}}},
 		InstructionPrompt:  "Available skill index.\n\nSelected skill instructions:\nGenerate PPTX with Marp.",
-		InstructionSources: []InstructionSource{{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides", SHA256: "abc"}},
+		InstructionSources: []InstructionSource{{Path: "skills/presentation/SKILL.md", SkillName: "presentation", SHA256: "abc"}},
 		SkillDecisions: []SkillSelectionDecision{{
-			Name:   "simple-slides",
+			Name:   "presentation",
 			Status: "selected",
 			Reason: "embedding_similarity",
-			Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides", SHA256: "abc"},
+			Source: InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation", SHA256: "abc"},
 		}},
 	})
 	if errorValue != nil {
@@ -585,13 +585,13 @@ func TestAgentTurnRunnerAuditsSelectedSkillDecisions(t *testing.T) {
 		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "simple-slides") {
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "presentation") {
 		t.Fatal("expected selected skill in instructions event")
 	}
 	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "embedding_similarity") {
 		t.Fatal("expected selected skill reason in instructions event")
 	}
-	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "skills/simple-slides/SKILL.md") {
+	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "skills/presentation/SKILL.md") {
 		t.Fatal("expected selected skill source in instructions event")
 	}
 	if !taskEventsContain(taskEvents, "agent.instructions_loaded", "registeredToolCount") ||

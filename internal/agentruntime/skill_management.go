@@ -48,7 +48,7 @@ var builtInSkillNames = map[string]bool{
 	"real-estate-search":                true,
 	"scheduled-task":                    true,
 	"rhwp-edit":                         true,
-	"simple-slides":                     true,
+	"presentation":                     true,
 	"site-prototype":                    true,
 	"skill-management":                  true,
 	"zipcode-search":                    true,
