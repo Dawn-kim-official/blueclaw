@@ -12,12 +12,12 @@ import (
 	"blueclaw/internal/llm"
 )
 
-func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testing.T) {
+func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Prompt: "base",
 		Skills: []SkillInstruction{
 			{
-				Name:         "simple-slides",
+				Name:         "presentation",
 				Description:  "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
 				WhenToUse:    "Use for 피피티, 파워포인트, 발표자료, and PPTX requests.",
 				Category:     "document-generation",
@@ -25,7 +25,7 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 				Prompt:       "Generate PPTX with Marp.",
 				TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx"},
 				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Source:       InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 		},
 	}
@@ -36,9 +36,9 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 	})
 
 	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
-		t.Fatalf("expected simple-slides skill prompt for Korean PPT request, got %q", selectedBundle.Prompt)
+		t.Fatalf("expected presentation skill prompt for Korean PPT request, got %q", selectedBundle.Prompt)
 	}
-	if !strings.Contains(selectedBundle.Prompt, "Available skill index") || !strings.Contains(selectedBundle.Prompt, "simple-slides: Create presentation decks, 피피티") {
+	if !strings.Contains(selectedBundle.Prompt, "Available skill index") || !strings.Contains(selectedBundle.Prompt, "presentation: Create presentation decks, 피피티") {
 		t.Fatalf("expected compact skill index, got %q", selectedBundle.Prompt)
 	}
 	if !strings.Contains(selectedBundle.Prompt, "Available skill references") || !strings.Contains(selectedBundle.Prompt, "They are not mandatory") {
@@ -47,8 +47,8 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 	if strings.Contains(selectedBundle.Prompt, "Selected skill instructions") {
 		t.Fatalf("expected no mandatory selected skill framing, got %q", selectedBundle.Prompt)
 	}
-	if len(selectedBundle.Sources) != 1 || selectedBundle.Sources[0].SkillName != "simple-slides" {
-		t.Fatalf("expected simple-slides instruction source, got %+v", selectedBundle.Sources)
+	if len(selectedBundle.Sources) != 1 || selectedBundle.Sources[0].SkillName != "presentation" {
+		t.Fatalf("expected presentation instruction source, got %+v", selectedBundle.Sources)
 	}
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected selected skill decision, got %+v", selectedBundle.SkillDecisions)
@@ -60,13 +60,13 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 		Prompt: "base",
 		Skills: []SkillInstruction{
 			{
-				Name:         "simple-slides",
+				Name:         "presentation",
 				Description:  "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
 				WhenToUse:    "Use for 피피티 and PPTX requests.",
 				Prompt:       "Generate PPTX with Marp.",
 				TriggerHints: []string{"피피티", "pptx"},
 				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Source:       InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 		},
 	}
@@ -80,7 +80,7 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 	})
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
-		t.Fatalf("expected follow-up context to select simple-slides, got %+v", selectedBundle.SkillDecisions)
+		t.Fatalf("expected follow-up context to select presentation, got %+v", selectedBundle.SkillDecisions)
 	}
 	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
 		t.Fatalf("expected selected skill body, got %q", selectedBundle.Prompt)
@@ -269,7 +269,7 @@ func TestAgentKernelActionSchemaUsesIntakeInitialTools(t *testing.T) {
 func TestSkillSelectorOnlyChecksSkillAvailability(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
-		Name:         "simple-slides",
+		Name:         "presentation",
 		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx"},
 		AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 	}
@@ -283,7 +283,7 @@ func TestSkillSelectorOnlyChecksSkillAvailability(t *testing.T) {
 func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
-		Name:         "simple-slides",
+		Name:         "presentation",
 		TriggerHints: []string{"피피티"},
 		AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 	}
@@ -294,7 +294,7 @@ func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 
 	decision := skillSelector.Evaluate(skillInstruction, request, "default")
 	if decision.Status == "selected" {
-		t.Fatal("expected simple-slides to be skipped without file.deliver")
+		t.Fatal("expected presentation to be skipped without file.deliver")
 	}
 	if decision.Reason != "missing_allowed_tools" || len(decision.MissingTools) != 1 || decision.MissingTools[0] != "file.deliver" {
 		t.Fatalf("expected missing tool reason, got %+v", decision)
@@ -419,7 +419,7 @@ func TestSelectInstructionBundleKeepsUnselectedFullSkillBodyOutOfPrompt(t *testi
 		Prompt: "base",
 		Skills: []SkillInstruction{
 			{
-				Name:         "simple-slides",
+				Name:         "presentation",
 				Description:  "Create decks.",
 				Prompt:       "Generate PPTX with Marp.",
 				TriggerHints: []string{"피피티"},
@@ -449,11 +449,11 @@ func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name:        "simple-slides",
+				Name:        "presentation",
 				Description: "Create presentation slides, 피피티, and PPTX decks.",
 				WhenToUse:   "Use for pitch decks, 발표자료, 피피티, and PowerPoint requests.",
 				Prompt:      "Generate slides.",
-				Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
+				Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "one", SkillName: "presentation"},
 			},
 			{
 				Name:        "calendar",
@@ -472,8 +472,8 @@ func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
 	if selectedBundle.RetrievalMode != "embedding" || selectedBundle.IndexStatus != "ready" {
 		t.Fatalf("expected embedding retrieval, got mode=%q status=%q", selectedBundle.RetrievalMode, selectedBundle.IndexStatus)
 	}
-	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "simple-slides" || selectedBundle.SkillDecisions[0].Status != "selected" {
-		t.Fatalf("expected simple-slides selected, got %+v", selectedBundle.SkillDecisions)
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Name != "presentation" || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected presentation selected, got %+v", selectedBundle.SkillDecisions)
 	}
 	if !strings.Contains(selectedBundle.Prompt, "Generate slides.") {
 		t.Fatalf("expected selected skill body, got %q", selectedBundle.Prompt)
@@ -551,11 +551,11 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name:        "simple-slides",
+				Name:        "presentation",
 				Description: "Generate clean presentation slides with Marp and attach the requested files.",
 				WhenToUse:   "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
 				Prompt:      "Follow slides workflow.",
-				Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 			{
 				Name:        "mail",
@@ -586,7 +586,7 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 			{Name: "mail", Score: 30, Reason: "bm25_fallback"},
 			{Name: "calendar", Score: 29, Reason: "bm25_fallback"},
 			{Name: "browser", Score: 28, Reason: "bm25_fallback"},
-			{Name: "simple-slides", Score: 8, Reason: "bm25_fallback"},
+			{Name: "presentation", Score: 8, Reason: "bm25_fallback"},
 		},
 		RetrievalMode: "bm25_fallback",
 		IndexStatus:   "ready",
@@ -600,8 +600,8 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 		}},
 	}, retriever)
 
-	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "simple-slides", "selected") {
-		t.Fatalf("expected simple-slides selected, got %+v", selectedBundle.SkillDecisions)
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "presentation", "selected") {
+		t.Fatalf("expected presentation selected, got %+v", selectedBundle.SkillDecisions)
 	}
 	for _, skillName := range []string{"mail", "calendar", "browser"} {
 		if skillDecisionHasStatus(selectedBundle.SkillDecisions, skillName, "selected") {
@@ -723,18 +723,18 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
 			},
 			{
-				Name:         "simple-slides",
+				Name:         "presentation",
 				Description:  "Create slide decks and presentation artifacts.",
 				WhenToUse:    "Use for slides and PPTX requests.",
 				Prompt:       "Follow slides workflow.",
 				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Source:       InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 		},
 	}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		SelectedCandidates: []SkillCandidate{
-			{Name: "simple-slides", Score: 0.9, Reason: "embedding_similarity"},
+			{Name: "presentation", Score: 0.9, Reason: "embedding_similarity"},
 			{Name: "site-prototype", Score: 0.1, Reason: "embedding_similarity"},
 		},
 		RetrievalMode: "embedding",
@@ -767,7 +767,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
 		t.Fatalf("expected site-prototype selected, got %+v", selectedBundle.SkillDecisions)
 	}
-	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "simple-slides", "selected") {
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "presentation", "selected") {
 		t.Fatalf("expected unrelated slides skill outside the site artifact contract to be skipped, got %+v", selectedBundle.SkillDecisions)
 	}
 	if !strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") || strings.Contains(selectedBundle.Prompt, "Follow slides workflow.") {
@@ -781,7 +781,7 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 		expectedSkillName string
 	}{
 		{suffix: ".docx", expectedSkillName: "docx"},
-		{suffix: ".pptx", expectedSkillName: "simple-slides"},
+		{suffix: ".pptx", expectedSkillName: "presentation"},
 		{suffix: ".xlsx", expectedSkillName: "xlsx"},
 		{suffix: ".pdf", expectedSkillName: "pdf"},
 	}
@@ -790,7 +790,7 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 			instructionBundle := InstructionBundle{
 				Skills: []SkillInstruction{
 					{Name: "docx", Description: "Create Word documents.", Prompt: "Follow docx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"}},
-					{Name: "simple-slides", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"}},
+					{Name: "presentation", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"}},
 					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Follow xlsx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
 					{Name: "pdf", Description: "Create PDFs.", Prompt: "Follow pdf workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
 					{Name: "site-prototype", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.create", "site.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
@@ -903,16 +903,16 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 	}
 }
 
-func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
+func TestNonArtifactFlowTaskRequestIsNotDominatedByPresentation(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name:         "simple-slides",
+				Name:         "presentation",
 				Description:  "Generate clean presentation slides with Marp and attach the requested files.",
 				WhenToUse:    "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
 				Prompt:       "Follow slides workflow.",
 				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Source:       InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 			{
 				Name:         "internkim-flow",
@@ -926,7 +926,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 	}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		SelectedCandidates: []SkillCandidate{
-			{Name: "simple-slides", Score: 30, Reason: "test"},
+			{Name: "presentation", Score: 30, Reason: "test"},
 			{Name: "internkim-flow", Score: 8, Reason: "test"},
 		},
 		RetrievalMode: "test",
@@ -949,7 +949,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 		t.Fatalf("expected internkim-flow selected for flow task work, got %+v", selectedBundle.SkillDecisions)
 	}
 	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "skipped") {
-		t.Fatalf("expected internkim-flow not to be skipped by simple-slides dominance, got %+v", selectedBundle.SkillDecisions)
+		t.Fatalf("expected internkim-flow not to be skipped by presentation dominance, got %+v", selectedBundle.SkillDecisions)
 	}
 	if !strings.Contains(selectedBundle.Prompt, "Use flow.task capability operations.") {
 		t.Fatalf("expected internkim-flow instructions in prompt, got %q", selectedBundle.Prompt)
@@ -1006,10 +1006,10 @@ func TestEmbeddingRetrieverSelectsScheduledTaskForFiniteRepeat(t *testing.T) {
 				Source:       InstructionSource{Path: "skills/scheduled-task/SKILL.md", SHA256: "schedule", SkillName: "scheduled-task"},
 			},
 			{
-				Name:        "simple-slides",
+				Name:        "presentation",
 				Description: "Create presentation slides and PPTX decks.",
 				Prompt:      "Generate slides.",
-				Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "slides", SkillName: "simple-slides"},
+				Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "slides", SkillName: "presentation"},
 			},
 		},
 	}
@@ -1495,8 +1495,8 @@ func TestFifthRetrievedSkillIsSelectedBeforeLimit(t *testing.T) {
 
 func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 	skills := []SkillInstruction{
-		{Name: "simple-slides", Description: "Create slides.", Prompt: "SLIDES BODY"},
-		{Name: "pptx", Description: "Create PowerPoint files.", Prompt: "PPTX BODY"},
+		{Name: "presentation", Description: "Create slides.", Prompt: "SLIDES BODY"},
+		{Name: "handout", Description: "Create printable handouts.", Prompt: "HANDOUT BODY"},
 		{Name: "direct-message", Description: "Send direct messages.", Prompt: "DM BODY"},
 		{Name: "report", Description: "Write reports.", Prompt: "REPORT BODY"},
 		{
@@ -1537,11 +1537,11 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 
 func TestSkillIndexPromptStaysBoundedForManySkills(t *testing.T) {
 	skills := []SkillInstruction{{
-		Name:        "simple-slides",
+		Name:        "presentation",
 		Description: "Create presentation slides and 피피티.",
 		WhenToUse:   "Use for 피피티.",
 		Prompt:      "Generate slides.",
-		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "match", SkillName: "simple-slides"},
+		Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "match", SkillName: "presentation"},
 	}}
 	for index := 0; index < 1000; index++ {
 		skills = append(skills, SkillInstruction{
@@ -1569,7 +1569,7 @@ func TestSkillIndexPromptStaysBoundedForManySkills(t *testing.T) {
 func TestBM25FallbackIsObservableWhenEmbeddingUnavailable(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:        "simple-slides",
+			Name:        "presentation",
 			Description: "Create presentation slides and 피피티.",
 			WhenToUse:   "Use for 피피티.",
 			Prompt:      "Generate slides.",
@@ -1588,11 +1588,11 @@ func TestBM25FallbackIsObservableWhenEmbeddingUnavailable(t *testing.T) {
 func TestBM25FallbackIsObservableWhenEmbeddingDimensionMismatches(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:        "simple-slides",
+			Name:        "presentation",
 			Description: "Create presentation slides and 피피티.",
 			WhenToUse:   "Use for 피피티.",
 			Prompt:      "Generate slides.",
-			Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
+			Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "one", SkillName: "presentation"},
 		}},
 	}
 	retriever := NewEmbeddingSkillRetriever(&dimensionChangingEmbeddingProvider{}, "")
@@ -1613,14 +1613,14 @@ func TestSkillIndexRefreshesWhenSourceHashChanges(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "skill-index.json")
 	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, indexPath)
 	firstBundle := []SkillInstruction{{
-		Name:        "simple-slides",
+		Name:        "presentation",
 		Description: "Create presentation slides and 피피티.",
-		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
+		Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "one", SkillName: "presentation"},
 	}}
 	secondBundle := []SkillInstruction{{
-		Name:        "simple-slides",
+		Name:        "presentation",
 		Description: "Create presentation slides.",
-		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "two", SkillName: "simple-slides"},
+		Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "two", SkillName: "presentation"},
 	}}
 
 	retriever.Refresh(context.Background(), firstBundle)
@@ -1637,16 +1637,16 @@ func TestSkillIndexRefreshesWhenSourceHashChanges(t *testing.T) {
 
 func TestSkillIndexRefreshesWhenSearchDocumentVersionChanges(t *testing.T) {
 	indexPath := filepath.Join(t.TempDir(), "skill-index.json")
-	legacyDocument := `[{"skillName":"simple-slides","sourcePath":"skills/simple-slides/SKILL.md","sourceSHA256":"one","searchText":"Create presentation slides.","embeddingModel":"embedding.create","embedding":[1],"indexedAt":"2026-01-01T00:00:00Z"}]`
+	legacyDocument := `[{"skillName":"presentation","sourcePath":"skills/presentation/SKILL.md","sourceSHA256":"one","searchText":"Create presentation slides.","embeddingModel":"embedding.create","embedding":[1],"indexedAt":"2026-01-01T00:00:00Z"}]`
 	if errorValue := os.WriteFile(indexPath, []byte(legacyDocument), 0o644); errorValue != nil {
 		t.Fatal(errorValue)
 	}
 	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, indexPath)
 
 	retriever.Refresh(context.Background(), []SkillInstruction{{
-		Name:        "simple-slides",
+		Name:        "presentation",
 		Description: "Create presentation slides.",
-		Source:      InstructionSource{Path: "skills/simple-slides/SKILL.md", SHA256: "one", SkillName: "simple-slides"},
+		Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SHA256: "one", SkillName: "presentation"},
 	}})
 
 	document, errorValue := os.ReadFile(indexPath)

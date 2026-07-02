@@ -50,10 +50,10 @@ func TestAgentTurnRunnerGeneratesFailureReplyAfterStructuredModelFailure(t *test
 func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"fail","reason":"pptx build failed"}`,
-		recoveryDecisionDocument("browser and slide build failed", "no PPTX attachment exists", "check simple-slides temporary directory handling", "explain the exact failed stages"),
+		recoveryDecisionDocument("browser and slide build failed", "no PPTX attachment exists", "check presentation temporary directory handling", "explain the exact failed stages"),
 	}, textResponses: []string{
 		"브라우저 연결 문제와 시스템 환경 오류가 있어 파일이 생성되지 않았습니다.",
-		"PPTX는 첨부되지 않았습니다. 브라우저 열기는 Companion 미연결로 실패했고, 슬라이드 빌드는 Marp 임시 HTML 생성 권한 문제로 중단되어 simple-slides 임시 디렉터리 설정 확인이 필요합니다.",
+		"PPTX는 첨부되지 않았습니다. 브라우저 열기는 Companion 미연결로 실패했고, 슬라이드 빌드는 Marp 임시 HTML 생성 권한 문제로 중단되어 presentation 임시 디렉터리 설정 확인이 필요합니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 
@@ -391,7 +391,7 @@ func TestRequiredArtifactFailureReplyAcceptsConcreteNaturalSummary(t *testing.T)
 		newFailureObservation("obs-001", "continue", "browser_handoff.openURL", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureExternalService, FailureCodes.OperationFailed, "browser_handoff"),
 		newFailureObservation("obs-002", "continue", "terminal.run", `[ ERROR ] Failed converting Markdown. (EACCES: permission denied, open '/workspace/tmp-457-sVDK32cv3ara-.html')`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
 	}
-	reply := "PPTX는 첨부되지 않았습니다. 브라우저 열기는 Companion 미연결로 실패했고, 슬라이드 빌드는 Marp 임시 HTML 생성 권한 문제로 중단되어 simple-slides 임시 디렉터리 설정 확인이 필요합니다."
+	reply := "PPTX는 첨부되지 않았습니다. 브라우저 열기는 Companion 미연결로 실패했고, 슬라이드 빌드는 Marp 임시 HTML 생성 권한 문제로 중단되어 presentation 임시 디렉터리 설정 확인이 필요합니다."
 
 	if failureReplyIsInvalidForRequest(reply, request, "no artifact attached", observations, nil) {
 		t.Fatal("expected required artifact failure reply with concrete natural facts to be accepted")

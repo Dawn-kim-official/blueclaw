@@ -15,8 +15,8 @@ import (
 	"blueclaw/internal/task"
 )
 
-func TestSlidesScenarioDoesNotScriptToolCalls(t *testing.T) {
-	scenario := SlidesLocalMultiturnSuccessScenario(t.TempDir())
+func TestPresentationScenarioDoesNotScriptToolCalls(t *testing.T) {
+	scenario := PresentationLocalMultiturnSuccessScenario(t.TempDir())
 	if len(scenario.Turns) != 1 {
 		t.Fatalf("expected one slides turn, got %d", len(scenario.Turns))
 	}
@@ -25,7 +25,7 @@ func TestSlidesScenarioDoesNotScriptToolCalls(t *testing.T) {
 	}
 }
 
-func TestSlidesLocalMultiturnSuccessLive(t *testing.T) {
+func TestPresentationLocalMultiturnSuccessLive(t *testing.T) {
 	if !truthyEnvironmentValue(os.Getenv("BLUECLAW_E2E_LIVE")) {
 		t.Skip("set BLUECLAW_E2E_LIVE=1 to explicitly run costed live slides virtual session")
 	}
@@ -34,8 +34,8 @@ func TestSlidesLocalMultiturnSuccessLive(t *testing.T) {
 	if endpoint == "" && socketPath == "" {
 		t.Skip("set BLUECLAW_E2E_LLM_ENDPOINT or BLUECLAW_E2E_LLM_UNIX_SOCKET to run live slides virtual session")
 	}
-	scenario := SlidesLocalMultiturnSuccessScenario(t.TempDir())
-	if skillDirectoryPath := rootSimpleSlidesSkillPath(); skillDirectoryPath != "" {
+	scenario := PresentationLocalMultiturnSuccessScenario(t.TempDir())
+	if skillDirectoryPath := rootPresentationSkillPath(); skillDirectoryPath != "" {
 		scenario.Skills = nil
 		scenario.SkillDirectoryPaths = []string{skillDirectoryPath}
 	}
@@ -62,8 +62,8 @@ func TestSlidesLocalMultiturnSuccessLive(t *testing.T) {
 	}
 }
 
-func rootSimpleSlidesSkillPath() string {
-	candidatePath := filepath.Clean("../../../../assets/blueclaw-workspace/skills/simple-slides")
+func rootPresentationSkillPath() string {
+	candidatePath := filepath.Clean("../../../../assets/blueclaw-workspace/skills/presentation")
 	if _, errorValue := os.Stat(candidatePath); errorValue == nil {
 		return candidatePath
 	}
@@ -363,11 +363,11 @@ func TestCapabilityQuestionAcceptance(t *testing.T) {
 	if strings.Contains(requestedBodies[0], "queries") || strings.Contains(requestedBodies[0], "limit") {
 		t.Fatalf("expected empty skill.search input, got %s", requestedBodies[0])
 	}
-	if !eventsContain(turnResult.Events, "tool.skill.search.result", "simple-slides") {
-		t.Fatalf("expected skill.search result to include simple-slides; events: %s", summarizeEvents(turnResult.Events))
+	if !eventsContain(turnResult.Events, "tool.skill.search.result", "presentation") {
+		t.Fatalf("expected skill.search result to include presentation; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !strings.Contains(turnResult.FinishMessage, "simple-slides") {
-		t.Fatalf("expected final reply to mention simple-slides, got %q", turnResult.FinishMessage)
+	if !strings.Contains(turnResult.FinishMessage, "presentation") {
+		t.Fatalf("expected final reply to mention presentation, got %q", turnResult.FinishMessage)
 	}
 }
 
