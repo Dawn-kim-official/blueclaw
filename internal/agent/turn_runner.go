@@ -87,8 +87,8 @@ type AgentTurnRequest struct {
 	QualityAcceptanceGuidance  []string
 	PrecomputedTurnDecision    *TurnDecision
 	AmbientDuty                AmbientDutyContext
+	TaskShape                  TaskShape
 	TaskComplexity             TaskComplexity
-	WorkKinds                  []string
 	TurnStartedAt              time.Time
 	CheckpointSender           AgentCheckpointSender
 	StepBudgetContext          string
@@ -685,7 +685,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	}
 	state.Observations = agentTurnRunner.sendCheckpointMessage(ctx, taskRunID, request, actionDocument, state.Observations)
 	observationID := nextObservationID(len(state.Observations) + 1)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, request.WorkKinds, actionDocument.Message)
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)
 	observation = agentTurnRunner.resolveCalendarDuplicate(ctx, taskRunID, observationID, request, actionDocument, observation)
 	if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRunID, state.Attachments); isCancelled {
 		return toolCallActionOutcome{Result: cancelledResult, ShouldReturn: true, WasHandled: true}
@@ -1132,7 +1132,6 @@ func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
 		ActivePaths:            append([]string{}, request.ActivePaths...),
 		InstructionPrompt:      request.InstructionPrompt,
 		ActiveGoal:             request.ActiveGoal,
-		WorkKinds:              append([]string{}, request.WorkKinds...),
 		TurnStartedAt:          request.TurnStartedAt,
 		CheckpointSender:       request.CheckpointSender,
 	}

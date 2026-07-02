@@ -110,18 +110,7 @@ func requiredEvidenceMissingForSideEffect(intakeDecision IntakeDecision, outcome
 	}
 	return intakeDecision.TaskShape == TaskShapeScheduledTask ||
 		normalizeOutputKind(intakeDecision.OutputKind) != OutputKindNone ||
-		requiredEvidenceGenericWorkKindsNeedEvidence(intakeDecision.WorkKinds) ||
 		requiredEvidenceInitialToolsNeedEvidence(toolSet, intakeDecision.InitialToolNames)
-}
-
-func requiredEvidenceGenericWorkKindsNeedEvidence(workKinds []string) bool {
-	for _, workKind := range workKinds {
-		switch strings.TrimSpace(workKind) {
-		case WorkKindFileDelivery, WorkKindExternalSend, WorkKindDestructiveAction:
-			return true
-		}
-	}
-	return false
 }
 
 func requiredEvidenceInitialToolsNeedEvidence(toolSet *ToolSet, toolNames []string) bool {

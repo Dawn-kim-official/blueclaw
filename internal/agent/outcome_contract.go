@@ -12,7 +12,6 @@ type siteRequirementNormalizationReport struct {
 	Source                       string     `json:"source,omitempty"`
 	Reason                       string     `json:"reason,omitempty"`
 	SiteEvidenceQuote            string     `json:"siteEvidenceQuote,omitempty"`
-	DroppedWorkKinds             []string   `json:"droppedWorkKinds,omitempty"`
 	DroppedExpectedResultIDs     []string   `json:"droppedExpectedResultIDs,omitempty"`
 	DroppedRequiredEvidenceTools []string   `json:"droppedRequiredEvidenceTools,omitempty"`
 	DroppedRequiredEvidenceAnyOf [][]string `json:"droppedRequiredEvidenceAnyOf,omitempty"`
@@ -20,8 +19,7 @@ type siteRequirementNormalizationReport struct {
 }
 
 func (report siteRequirementNormalizationReport) HasDrops() bool {
-	return len(report.DroppedWorkKinds) > 0 ||
-		len(report.DroppedExpectedResultIDs) > 0 ||
+	return len(report.DroppedExpectedResultIDs) > 0 ||
 		len(report.DroppedRequiredEvidenceTools) > 0 ||
 		len(report.DroppedRequiredEvidenceAnyOf) > 0 ||
 		len(report.DroppedSelectedEvidenceHints) > 0
@@ -32,7 +30,6 @@ func normalizeTurnDecisionSiteRequirement(request AgentRequest, decision TurnDec
 	intakeDecision, report := normalizeIntakeDecisionSiteRequirement(request.Prompt, intakeDecision, "intake")
 	decision.ExpectedResults = intakeDecision.ExpectedResults
 	decision.SiteRequestEvidence = intakeDecision.SiteRequestEvidence
-	decision.WorkKinds = intakeDecision.WorkKinds
 	if report.HasDrops() {
 		decision.InitialToolNames, _ = removeToolNamePrefix(decision.InitialToolNames, "site.")
 	}
@@ -53,14 +50,15 @@ func normalizeIntakeDecisionSiteRequirement(currentUserMessage string, decision 
 		Reason:            "site evidence quote does not verify against current user message",
 		SiteEvidenceQuote: decision.SiteRequestEvidence,
 	}
-	decision.WorkKinds, report.DroppedWorkKinds = removeSiteWorkKinds(decision.WorkKinds)
 	decision.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(decision.ExpectedResults)
 	decision.SiteRequestEvidence = ""
 	return decision, report
 }
 
 func intakeDecisionRequiresSiteEvidence(decision IntakeDecision) bool {
-	return workKindsContain(decision.WorkKinds, WorkKindSitePrototype) || expectedResultsIncludeSiteRequirement(decision.ExpectedResults)
+	return normalizeOutputKind(decision.OutputKind) == OutputKindSite ||
+		requiredEvidenceHasPrefix(decision.RequiredEvidenceTools, "site.") ||
+		expectedResultsIncludeSiteRequirement(decision.ExpectedResults)
 }
 
 func normalizeActiveGoalSiteRequirement(activeGoal ActiveGoal, currentUserMessage string, isContinuation bool) (ActiveGoal, siteRequirementNormalizationReport) {
@@ -81,13 +79,12 @@ func normalizeActiveGoalSiteRequirement(activeGoal ActiveGoal, currentUserMessag
 		Reason:            "stored site evidence quote does not verify against original instruction or current user message",
 		SiteEvidenceQuote: activeGoal.OutcomeContract.SiteEvidenceQuote,
 	}
-	activeGoal.WorkKinds, report.DroppedWorkKinds = removeSiteWorkKinds(activeGoal.WorkKinds)
 	activeGoal.OutcomeContract, report = stripOutcomeContractSiteRequirements(activeGoal.OutcomeContract, report)
 	return activeGoal, report
 }
 
 func activeGoalRequiresSiteEvidence(activeGoal ActiveGoal) bool {
-	return workKindsContain(activeGoal.WorkKinds, WorkKindSitePrototype) || outcomeContractHasSiteRequirement(activeGoal.OutcomeContract)
+	return outcomeContractHasSiteRequirement(activeGoal.OutcomeContract)
 }
 
 func outcomeContractHasSiteRequirement(contract OutcomeContract) bool {
@@ -101,19 +98,6 @@ func stripOutcomeContractSiteRequirements(contract OutcomeContract, report siteR
 	contract.ExpectedResults, report.DroppedExpectedResultIDs = removeSiteExpectedResults(contract.ExpectedResults)
 	contract.SiteEvidenceQuote = ""
 	return normalizeOutcomeContract(contract), report
-}
-
-func removeSiteWorkKinds(workKinds []string) ([]string, []string) {
-	filteredWorkKinds := []string{}
-	droppedWorkKinds := []string{}
-	for _, workKind := range workKinds {
-		if strings.TrimSpace(workKind) == WorkKindSitePrototype {
-			droppedWorkKinds = appendUniqueStrings(droppedWorkKinds, WorkKindSitePrototype)
-			continue
-		}
-		filteredWorkKinds = appendUniqueStrings(filteredWorkKinds, workKind)
-	}
-	return filteredWorkKinds, droppedWorkKinds
 }
 
 func removeSiteExpectedResults(results []ExpectedResult) ([]ExpectedResult, []string) {
@@ -204,14 +188,8 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 	if intakeDecision.Classification != IntakeClassificationBoundedTask {
 		return false
 	}
-	if requestDestructiveActionSelfGatesViaCapabilityApproval(request) {
-		return false
-	}
 	if requestIsNonDestructiveSitePrototypePublish(request, requiredEvidenceTools) {
 		return false
-	}
-	if hasTool(request.ToolSet, "site.publish") && requestHasWorkKind(request, WorkKindDestructiveAction) {
-		return true
 	}
 	if intakeDecision.TaskShape == TaskShapeApprovalGatedTask {
 		return true
@@ -221,15 +199,7 @@ func shouldBuildExecutionPlanForConfirmation(request AgentRequest, intakeDecisio
 			return true
 		}
 	}
-	return requestHasWorkKind(request, WorkKindDestructiveAction) ||
-		requestHasWorkKind(request, WorkKindPaidService) ||
-		requestHasWorkKind(request, WorkKindExternalSend)
-}
-
-func requestDestructiveActionSelfGatesViaCapabilityApproval(request AgentRequest) bool {
-	return requestHasWorkKind(request, WorkKindFlowTask) ||
-		requestHasWorkKind(request, WorkKindCalendar) ||
-		requestHasWorkKind(request, WorkKindExternalSend)
+	return false
 }
 
 func confirmationRiskyEvidenceTool(toolName string) bool {
@@ -251,30 +221,24 @@ func requestIsNonDestructiveSitePrototypePublish(request AgentRequest, requiredE
 	if !requestLooksLikeSitePrototypeWork(request) {
 		return false
 	}
-	if requestHasWorkKind(request, WorkKindDestructiveAction) || requestHasWorkKind(request, WorkKindPaidService) {
-		return false
-	}
 	return true
 }
 
 func requestLooksLikeSitePrototypeWork(request AgentRequest) bool {
-	return requestHasWorkKind(request, WorkKindSitePrototype) || activeGoalRequiresToolPrefix(request.ActiveGoal, "site.")
+	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") || activeGoalMentionsToolPrefix(request.ActiveGoal, "site.")
 }
 
 func requestLooksLikeCalendarWork(request AgentRequest) bool {
-	return requestHasWorkKind(request, WorkKindCalendar)
+	return activeGoalRequiresToolPrefix(request.ActiveGoal, "calendar.") || activeGoalMentionsToolPrefix(request.ActiveGoal, "calendar.")
 }
 
 func requestLooksLikeFlowTaskWork(request AgentRequest) bool {
-	return requestMatchesWorkflowKind(request, WorkKindFlowTask)
+	return activeGoalRequiresToolPrefix(request.ActiveGoal, "task.") || activeGoalMentionsToolPrefix(request.ActiveGoal, "task.")
 }
 
 func requestLooksLikeSlidesArtifactWork(request AgentRequest) bool {
-	return requestHasWorkKind(request, WorkKindSlidesArtifact)
-}
-
-func requestHasWorkKind(request AgentRequest, workKind string) bool {
-	return workKindsContain(request.WorkKinds, workKind)
+	return outcomeContractMentionsAttachmentSuffix(request.ActiveGoal.OutcomeContract, ".pptx") ||
+		outcomeContractMentionsAttachmentSuffix(request.ActiveGoal.OutcomeContract, ".ppt")
 }
 
 func toolSetForOutcomeReference(toolSet *ToolSet, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
@@ -313,7 +277,6 @@ func outcomeAllowsSiteTools(request AgentRequest, executionPlan ExecutionPlan, h
 
 func outcomeAllowsExternalSendTools(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) bool {
 	return contractRequiresSendTool(outcomeContract) ||
-		requestHasWorkKind(request, WorkKindExternalSend) ||
 		(hasExecutionPlan && (executionPlan.ExternalSend || executionPlan.ThirdPartyExternalSend))
 }
 
@@ -324,6 +287,23 @@ func outcomeAllowsVisualArtifactReview(request AgentRequest, outcomeContract Out
 		expectedResultIncludesType(outcomeContract, ExpectedResultTypeLink) ||
 		requestLooksLikeSitePrototypeWork(request) ||
 		requestLooksLikeSlidesArtifactWork(request)
+}
+
+func outcomeContractMentionsAttachmentSuffix(contract OutcomeContract, suffix string) bool {
+	normalizedSuffix := strings.ToLower(strings.TrimSpace(suffix))
+	for _, candidateSuffix := range contract.RequiredAttachmentSuffixes {
+		if strings.ToLower(strings.TrimSpace(candidateSuffix)) == normalizedSuffix {
+			return true
+		}
+	}
+	for _, result := range contract.ExpectedResults {
+		for _, hint := range result.AcceptanceHints {
+			if strings.ToLower(strings.TrimSpace(hint)) == normalizedSuffix {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func selectedSkillNames(skillDecisions []SkillSelectionDecision) map[string]bool {
@@ -428,7 +408,6 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
 	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
-	request = normalizeRequestSiteWorkKinds(request, intakeDecision)
 	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
 	if OutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
@@ -440,7 +419,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		if len(intakeDecision.RequiredEvidenceTools) == 0 {
 			contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(contract)...)
 		}
-		contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request, contract.RequiredEvidenceTools)...)
+		contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
 			contract.ArtifactRequirement = artifactRequirementForOutcomeContract(intakeDecision, contract)
@@ -457,7 +436,7 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(contract)...)
 	}
-	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request, contract.RequiredEvidenceTools)...)
+	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, FileDeliverToolName)
@@ -467,26 +446,6 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	contract.SiteEvidenceQuote = siteEvidenceQuoteForOutcomeContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)
 	contract.Source = outcomeContractSource(hasExecutionPlan, requiredAttachmentSuffixes)
 	return sanitizeOutcomeContractForRequest(request, executionPlan, hasExecutionPlan, contract)
-}
-
-func normalizeRequestSiteWorkKinds(request AgentRequest, intakeDecision IntakeDecision) AgentRequest {
-	if !workKindsContain(request.WorkKinds, WorkKindSitePrototype) {
-		return request
-	}
-	if requestPromptMatchesWorkflowKind(request, WorkKindSitePrototype) {
-		return request
-	}
-	if siteEvidenceQuoteMatchesMessage(intakeDecision.SiteRequestEvidence, request.Prompt) {
-		return request
-	}
-	if siteEvidenceQuoteMatchesMessage(request.ActiveGoal.OutcomeContract.SiteEvidenceQuote, request.ActiveGoal.OriginalInstruction) {
-		return request
-	}
-	if siteEvidenceQuoteMatchesMessage(request.ActiveGoal.OutcomeContract.SiteEvidenceQuote, request.Prompt) {
-		return request
-	}
-	request.WorkKinds, _ = removeSiteWorkKinds(request.WorkKinds)
-	return request
 }
 
 func siteEvidenceQuoteForOutcomeContract(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) string {
@@ -525,7 +484,8 @@ func attachmentSuffixesForOutcomeContract(request AgentRequest, executionPlan Ex
 	if !requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) {
 		return append([]string{}, requiredAttachmentSuffixes...)
 	}
-	if requestHasWorkKind(request, WorkKindFileDelivery) {
+	if activeGoalRequiresTool(request.ActiveGoal, FileDeliverToolName) ||
+		expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) {
 		return append([]string{}, requiredAttachmentSuffixes...)
 	}
 	return nil
@@ -538,7 +498,7 @@ func requestExpectsSiteLinkResult(request AgentRequest, executionPlan ExecutionP
 func sanitizeOutcomeContractForRequest(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) OutcomeContract {
 	contract = normalizeOutcomeContract(contract)
 	contract = normalizeOutcomeContractSiteRequirementForRequest(request, contract)
-	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !requestHasWorkKind(request, WorkKindFileDelivery) {
+	if requestExpectsSiteLinkResult(request, executionPlan, hasExecutionPlan) && !outcomeContractExpectsFileResult(contract) {
 		contract = removeImplicitSiteFileContract(contract)
 	}
 	if outcomeContractRequiresPublicLinkOnly(contract) {
@@ -554,7 +514,7 @@ func normalizeOutcomeContractSiteRequirementForRequest(request AgentRequest, con
 	if !outcomeContractHasSiteRequirement(contract) {
 		return contract
 	}
-	if requestHasWorkKind(request, WorkKindSitePrototype) {
+	if requiredEvidenceContains(outcomeContractRequiredToolNames(contract), "site.delete") {
 		return contract
 	}
 	activeGoal := ActiveGoal{
@@ -566,6 +526,13 @@ func normalizeOutcomeContractSiteRequirementForRequest(request AgentRequest, con
 	}
 	activeGoal, _ = normalizeActiveGoalSiteRequirement(activeGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
 	return activeGoal.OutcomeContract
+}
+
+func outcomeContractExpectsFileResult(contract OutcomeContract) bool {
+	return len(contract.RequiredAttachmentSuffixes) > 0 ||
+		evidenceToolsContainArtifactDelivery(contract.RequiredEvidenceTools) ||
+		evidenceAnyOfContainsArtifactDelivery(contract.RequiredEvidenceAnyOf) ||
+		expectedResultIncludesType(contract, ExpectedResultTypeFile)
 }
 
 func outcomeContractRequiresPlatformMessageMaintenance(contract OutcomeContract) bool {
@@ -857,12 +824,6 @@ func evidenceHintMatchesOutcome(toolName string, request AgentRequest, intakeDec
 	if strings.HasPrefix(trimmedToolName, "schedule.") {
 		return intakeDecision.TaskShape == TaskShapeScheduledTask
 	}
-	if strings.HasPrefix(trimmedToolName, "calendar.") {
-		return requestLooksLikeCalendarWork(request)
-	}
-	if workflowEvidenceHintMatchesRequest(trimmedToolName, request) {
-		return true
-	}
 	return false
 }
 
@@ -984,7 +945,6 @@ func outcomeContractSource(hasExecutionPlan bool, requiredAttachmentSuffixes []s
 func activeGoalForTurn(request AgentRequest, outcomeContract OutcomeContract, executionPlan ExecutionPlan, hasExecutionPlan bool) ActiveGoal {
 	activeGoal := request.ActiveGoal
 	activeGoal.OutcomeContract = normalizeOutcomeContract(outcomeContract)
-	activeGoal.WorkKinds = appendUniqueStrings(activeGoal.WorkKinds, request.WorkKinds...)
 	if strings.TrimSpace(activeGoal.OriginalInstruction) == "" {
 		activeGoal.OriginalInstruction = strings.TrimSpace(request.Prompt)
 	}
@@ -1023,7 +983,6 @@ func activeGoalFromIntakeOnly(taskRunID string, request AgentRequest, intakeDeci
 		TaskRunID:           strings.TrimSpace(taskRunID),
 		OriginalInstruction: strings.TrimSpace(request.Prompt),
 		CurrentObjective:    strings.TrimSpace(intakeDecision.Reason),
-		WorkKinds:           append([]string{}, intakeDecision.WorkKinds...),
 		Status:              activeGoalStatusForTaskStatus(status),
 	}
 }
