@@ -10,7 +10,7 @@ func TestSkillLoaderParsesFrontmatterMetadata(t *testing.T) {
 	directoryPath := t.TempDir()
 	documentPath := filepath.Join(directoryPath, "SKILL.md")
 	document := `---
-name: simple-slides
+name: presentation
 description: Create presentation decks.
 when_to_use: Use for 피피티, PowerPoint, and slide deck requests.
 category: document-generation
@@ -61,7 +61,7 @@ Build slides.
 		t.Fatal(errorValue)
 	}
 
-	if skillBundle.Name != "simple-slides" {
+	if skillBundle.Name != "presentation" {
 		t.Fatalf("expected name from frontmatter, got %q", skillBundle.Name)
 	}
 	if skillBundle.Description != "Create presentation decks." {

@@ -382,8 +382,8 @@ func virtualTruncatedCallError(errorValue error) string {
 
 func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionScenario, error) {
 	switch strings.TrimSpace(name) {
-	case "", "slides", "slides_local_multiturn_success":
-		return SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath), nil
+	case "", "presentation", "presentation_local_multiturn_success":
+		return PresentationLocalMultiturnSuccessScenario(artifactDirectoryPath), nil
 	case "memory", "memory_guided_followup":
 		return MemoryGuidedFollowupScenario(artifactDirectoryPath), nil
 	case "plain_question_acceptance":

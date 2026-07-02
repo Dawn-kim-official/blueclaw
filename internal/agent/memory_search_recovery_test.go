@@ -85,9 +85,9 @@ func TestTerminalModuleNotFoundRecoveryGuidanceUsesSkillRuntime(t *testing.T) {
 	guidance := recoveryGuidanceContent(observation)
 
 	for _, expectedText := range []string{
-		"/workspace/skills/pptx/scripts/skill_runtime.py",
+		"/workspace/skills/presentation/scripts/skill_runtime.py",
 		"do not probe or install python-pptx with system Python",
-		"/workspace/skills/simple-slides/scripts/build.sh",
+		"/workspace/skills/presentation/scripts/build.sh",
 	} {
 		if !strings.Contains(guidance, expectedText) {
 			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)

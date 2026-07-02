@@ -150,7 +150,7 @@ func terminalPythonDependencyRecoveryGuidance(observation turnObservation) strin
 	summary := observation.FailureSummary()
 	switch {
 	case strings.Contains(summary, "ModuleNotFoundError: No module named 'pptx'"):
-		return "Recovery route: do not probe or install python-pptx with system Python. Use the PPTX skill wrapper instead: work in ~/documents, then run python3 /workspace/skills/pptx/scripts/skill_runtime.py python /workspace/skills/pptx/scripts/create_pptx.py deck.json deck.pptx, or use /workspace/skills/simple-slides/scripts/build.sh after writing DESIGN.md and presentation.md."
+		return "Recovery route: do not probe or install python-pptx with system Python. Use the presentation skill wrapper instead: work in ~/documents, then run python3 /workspace/skills/presentation/scripts/skill_runtime.py python /workspace/skills/presentation/scripts/validate_pptx.py deck.pptx, or use /workspace/skills/presentation/scripts/build.sh after writing DESIGN.md and presentation.md."
 	case strings.Contains(summary, "ModuleNotFoundError: No module named 'docx'"):
 		return "Recovery route: do not probe or install python-docx with system Python. Use python3 /workspace/skills/docx/scripts/skill_runtime.py python /workspace/skills/docx/scripts/create_docx.py document.json document.docx from ~/documents."
 	case strings.Contains(summary, "ModuleNotFoundError: No module named 'openpyxl'"):

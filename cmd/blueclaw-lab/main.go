@@ -42,7 +42,7 @@ func main() {
 	configurationPath := flag.String("configuration", "config/lab.example.json", "lab configuration path")
 	mode := flag.String("mode", "", "lab mode override")
 	dryRun := flag.Bool("dry-run", false, "print commands without executing them")
-	virtualScenarioName := flag.String("scenario", "slides", "virtual session scenario name")
+	virtualScenarioName := flag.String("scenario", "presentation", "virtual session scenario name")
 	virtualArtifactDirectoryPath := flag.String("artifact-dir", ".artifacts/blueclaw-e2e", "virtual session artifact directory")
 	flag.Parse()
 
@@ -356,10 +356,10 @@ func isLiveVirtualScenario(scenario e2e.VirtualSessionScenario) bool {
 }
 
 func defaultSkillDirectoryPath(scenarioName string) string {
-	if scenarioName != "slides_local_multiturn_success" {
+	if scenarioName != "presentation_local_multiturn_success" {
 		return ""
 	}
-	candidatePath := filepath.Clean("../../assets/blueclaw-workspace/skills/simple-slides")
+	candidatePath := filepath.Clean("../../assets/blueclaw-workspace/skills/presentation")
 	if _, errorValue := os.Stat(candidatePath); errorValue == nil {
 		return candidatePath
 	}
