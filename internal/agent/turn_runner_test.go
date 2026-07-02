@@ -1366,6 +1366,20 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	}
 }
 
+func TestNextApprovalExecutionObservationIDUsesHighestExistingObservationID(t *testing.T) {
+	taskEvents := []task.TaskEvent{
+		{Name: "tool.site.status.result", Body: `{"observationID":"obs-001"}`},
+		{Name: "agent.checkpoint.sent", Body: `{"observationID":"obs-002"}`},
+		{Name: "tool.capability.invoke.result", Body: `{"observationID":"obs-003"}`},
+	}
+
+	observationID := nextApprovalExecutionObservationID(taskEvents)
+
+	if observationID != "obs-004" {
+		t.Fatalf("expected obs-004, got %q", observationID)
+	}
+}
+
 func TestAgentTurnRunnerSteersStalledTurnBeforeStopping(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"unknown"}`,

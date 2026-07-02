@@ -1154,8 +1154,11 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 			},
 			{
 				Prompt: "확인",
+				RouterRequiredEvidence: []string{
+					"site.delete",
+				},
 				ActionResponses: []string{
-					actionFinishMessage("Local Fleet Studio 테스트 웹사이트를 삭제했습니다.", "obs-003:site.delete:0"),
+					actionFinishMessage("Local Fleet Studio 테스트 웹사이트를 삭제했습니다.", "obs-004:site.delete:0"),
 				},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.delete", Count: 2},

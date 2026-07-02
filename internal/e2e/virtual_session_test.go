@@ -512,8 +512,6 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 }
 
 func TestSiteLifecycleAcceptance(t *testing.T) {
-	t.Skip("pending structured requiredEvidence support for per-turn site.delete completion")
-
 	result, errorValue := RunVirtualSession(context.Background(), SiteLifecycleAcceptanceScenario(t.TempDir()))
 	if errorValue != nil {
 		t.Fatalf("expected site lifecycle acceptance scenario to pass: %v", errorValue)
