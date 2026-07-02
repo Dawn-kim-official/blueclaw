@@ -256,7 +256,7 @@ func (scope WorkspaceScope) EnvironmentVariables() map[string]string {
 		"XDG_RUNTIME_DIR":              filepath.Join(runtimeRootPath, "runtime"),
 		"BUN_TMPDIR":                   filepath.Join(bunRuntimeRootPath, "tmp"),
 		"BUN_INSTALL":                  filepath.Join(bunRuntimeRootPath, "install"),
-		"BUN_INSTALL_CACHE_DIR":        filepath.Join(bunRuntimeRootPath, "cache"),
+		"BUN_INSTALL_CACHE_DIR":        filepath.Join(scope.DependencyCacheRootPath, "bun"),
 		"npm_config_cache":             filepath.Join(runtimeRootPath, "npm"),
 	}
 }

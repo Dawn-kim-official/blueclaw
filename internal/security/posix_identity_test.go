@@ -148,6 +148,9 @@ func TestPOSIXStateForPolicyKeepsSharedRootReadOnlyButPublicAndCacheWritable(t *
 	if !hasPOSIXDirectory(state, "/workspace/shared/cache/dependencies", "blueclaw", "bc_shared", "2775") {
 		t.Fatalf("expected dependency cache to be group writable (2775), got %+v", state.Directories)
 	}
+	if !hasPOSIXDirectory(state, "/workspace/shared/cache/dependencies/bun", "blueclaw", "bc_shared", "2775") {
+		t.Fatalf("expected bun dependency cache to be group writable (2775), got %+v", state.Directories)
+	}
 }
 
 func hasPOSIXDirectory(state POSIXState, path string, owner string, group string, modeText string) bool {

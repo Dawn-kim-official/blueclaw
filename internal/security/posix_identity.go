@@ -142,7 +142,7 @@ func applyPOSIXEnvironment(environmentVariables map[string]string, identity Exec
 	setDefaultEnvironmentValue(result, "XDG_RUNTIME_DIR", runtimeRootPath+"/runtime")
 	setDefaultEnvironmentValue(result, "BUN_TMPDIR", runtimeRootPath+"/bun/tmp")
 	setDefaultEnvironmentValue(result, "BUN_INSTALL", runtimeRootPath+"/bun/install")
-	setDefaultEnvironmentValue(result, "BUN_INSTALL_CACHE_DIR", runtimeRootPath+"/bun/cache")
+	setDefaultEnvironmentValue(result, "BUN_INSTALL_CACHE_DIR", dependencyCachePath+"/bun")
 	setDefaultEnvironmentValue(result, "npm_config_cache", runtimeRootPath+"/npm")
 	setDefaultEnvironmentValue(result, "GOMODCACHE", dependencyCachePath+"/go/pkg/mod")
 	setDefaultEnvironmentValue(result, "GOCACHE", dependencyCachePath+"/go/build")
@@ -169,6 +169,7 @@ func POSIXStateForPolicy(policyDocument policy.PolicyDocument, workspaceRootPath
 			{Path: workspaceRootPath + "/shared/public", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
 			{Path: workspaceRootPath + "/shared/cache", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
 			{Path: workspaceRootPath + "/shared/cache/dependencies", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
+			{Path: workspaceRootPath + "/shared/cache/dependencies/bun", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
 		},
 	}
 
