@@ -798,13 +798,13 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{{
-			Name:         "simple-slides",
+			Name:         "presentation",
 			Description:  "Create presentation decks, 피피티, 파워포인트, 발표자료, and PPTX files.",
 			WhenToUse:    "Use for 피피티 and PPTX requests.",
 			Prompt:       "Create and attach PPTX files.",
 			TriggerHints: []string{"피피티", "pptx"},
 			AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
-			Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+			Source:       InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 		}}}
 	})
 	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
@@ -1407,7 +1407,7 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{
 			Skills: []SkillInstruction{{
-				Name:         "simple-slides",
+				Name:         "presentation",
 				Description:  "Create presentation slides.",
 				WhenToUse:    "Use for 피피티 and PPTX requests.",
 				Prompt:       "Create and attach PPTX files.",
@@ -1416,7 +1416,7 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 				Completion: SkillCompletion{
 					RequiredEvidenceTools: []string{"file.deliver"},
 				},
-				Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
+				Source: InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			}},
 		}
 	})

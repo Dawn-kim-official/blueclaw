@@ -8,12 +8,12 @@ import (
 func TestSelectedRequiredAttachmentSuffixesStayAdvisoryForSlides(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name: "simple-slides",
+			Name: "presentation",
 			Completion: SkillCompletion{
 				RequiredAttachmentSuffixes: []string{".pptx", ".pdf", ".html", "-notes.txt"},
 			},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "presentation", Status: "selected"}},
 	}
 
 	suffixes := selectedRequiredAttachmentSuffixes(instructionBundle, "Hermes Agent 장단점 분석 6장 ppt 만들어줘. html만 주면 돼")
@@ -598,8 +598,8 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 func TestAgentTurnToolSetKeepsPinnedWebAndSkillTools(t *testing.T) {
 	toolSet := testToolSet([]string{"web.search", "web.fetch", "terminal.run", "file.write"})
 	instructionBundle := InstructionBundle{
-		Skills:         []SkillInstruction{{Name: "simple-slides", AllowedTools: []string{"terminal.run", "file.write"}}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
+		Skills:         []SkillInstruction{{Name: "presentation", AllowedTools: []string{"terminal.run", "file.write"}}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "presentation", Status: "selected"}},
 	}
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, AgentRequest{
