@@ -312,6 +312,36 @@ func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request 
 	return turnDecision, nil
 }
 
+const requiredEvidenceReaskInstruction = "This request was already classified as side-effect work but requiredEvidence came back empty, which is not allowed. This task performs a side effect and its completion must be observable. Set requiredEvidence to one or more exact names copied from Registered requiredEvidence names above whose successful observation proves this side effect happened; never use capability.invoke. requiredEvidence must not be empty for this decision."
+
+func (turnRouter TurnRouter) ReaskRequiredEvidence(ctx context.Context, request AgentRequest) (TurnDecision, error) {
+	if turnRouter.languageModel == nil {
+		return TurnDecision{}, errors.New("intake language model unavailable for required evidence re-ask")
+	}
+	messages := append(turnRouter.buildMessages(request), llm.Message{
+		Role:    "system",
+		Content: requiredEvidenceReaskInstruction,
+	})
+	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+		Messages: messages,
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               "blueclaw_turn_router",
+			Document:           turnRouterSchema(request),
+			IsStrictlyEnforced: true,
+		},
+	})
+	if errorValue != nil {
+		return TurnDecision{}, errorValue
+	}
+
+	var turnDecision TurnDecision
+	errorValue = json.Unmarshal([]byte(structuredResponse.Content), &turnDecision)
+	if errorValue != nil {
+		return TurnDecision{}, errorValue
+	}
+	return turnDecision, nil
+}
+
 func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	toolDescriptions := "No tools are available."
 	if request.ToolSet != nil && len(request.ToolSet.ListToolNames()) > 0 {

@@ -3,6 +3,7 @@ package agent
 import "strings"
 
 const requiredEvidenceInvalidEventName = "agent.required_evidence_invalid"
+const requiredEvidenceReaskEventName = "agent.required_evidence_reask"
 
 const (
 	requiredEvidenceToolKindCapabilityOperation = "capability_operation"
@@ -14,6 +15,13 @@ type requiredEvidenceValidationReport struct {
 	InvalidEvidence  []string          `json:"invalidEvidence,omitempty"`
 	EvidenceKinds    map[string]string `json:"evidenceKinds,omitempty"`
 	Reason           string            `json:"reason,omitempty"`
+}
+
+type requiredEvidenceReaskReport struct {
+	WasAttempted       bool     `json:"wasAttempted"`
+	DidRecoverEvidence bool     `json:"didRecoverEvidence"`
+	RecoveredEvidence  []string `json:"recoveredEvidence,omitempty"`
+	Reason             string   `json:"reason,omitempty"`
 }
 
 func validateRequiredEvidenceTools(toolSet *ToolSet, toolNames []string) requiredEvidenceValidationReport {
