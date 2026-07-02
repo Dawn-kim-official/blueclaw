@@ -84,7 +84,7 @@ func TestWorkflowContractRequiresSiteModificationEffectsByDefault(t *testing.T) 
 		WorkKinds: []string{WorkKindSitePrototype},
 	}
 
-	requirements := requiredWorkflowEffectRequirementsForRequest(request)
+	requirements := requiredWorkflowEffectRequirementsForRequest(request, nil)
 
 	for _, expectedEffect := range []OutcomeEffect{
 		{ObjectType: "workspace", Effect: "modified"},
@@ -104,7 +104,7 @@ func TestWorkflowContractRequiresOnlySiteReadEffectForStatusIntent(t *testing.T)
 		WorkKinds: []string{WorkKindSitePrototype},
 	}
 
-	requirements := requiredWorkflowEffectRequirementsForRequest(request)
+	requirements := requiredWorkflowEffectRequirementsForRequest(request, nil)
 
 	if len(requirements) != 1 || requirements[0].ObjectType != "website" || requirements[0].Effect != "read" {
 		t.Fatalf("expected only website read effect, got %+v", requirements)

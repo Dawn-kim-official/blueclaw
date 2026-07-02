@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"blueclaw/internal/task"
@@ -105,13 +106,31 @@ func (agentTurnRunner *AgentTurnRunner) executeApprovedHeldCall(ctx context.Cont
 }
 
 func nextApprovalExecutionObservationID(taskEvents []task.TaskEvent) string {
-	count := 0
+	highestObservationIndex := 0
 	for _, taskEvent := range taskEvents {
 		if strings.HasPrefix(taskEvent.Name, "tool.") && strings.HasSuffix(taskEvent.Name, ".result") {
-			count++
+			var observation struct {
+				ObservationID string `json:"observationID"`
+			}
+			if json.Unmarshal([]byte(taskEvent.Body), &observation) != nil {
+				continue
+			}
+			observationIndex, isValid := observationIndexFromID(observation.ObservationID)
+			if isValid && observationIndex > highestObservationIndex {
+				highestObservationIndex = observationIndex
+			}
 		}
 	}
-	return nextObservationID(count + 1)
+	return nextObservationID(highestObservationIndex + 1)
+}
+
+func observationIndexFromID(observationID string) (int, bool) {
+	trimmedObservationID := strings.TrimSpace(observationID)
+	if !strings.HasPrefix(trimmedObservationID, "obs-") {
+		return 0, false
+	}
+	observationIndex, errorValue := strconv.Atoi(strings.TrimPrefix(trimmedObservationID, "obs-"))
+	return observationIndex, errorValue == nil
 }
 
 func requestWithHeldCallTool(request AgentTurnRequest, toolName string) AgentTurnRequest {

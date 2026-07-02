@@ -1154,11 +1154,23 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 		"initialToolNames":       scenario.InitialToolNames,
 		"priorTaskReference":     "none",
 	}
+	if virtualTurnExpectsEvent(virtualTurn, "confirmation.reply_classified") {
+		routerDocument["approval"] = "approve"
+	}
 	encodedDocument, errorValue := json.Marshal(routerDocument)
 	if errorValue != nil {
 		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","outputKind":null,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scripted scenario default","userFacingReply":"","workKinds":[],"initialToolNames":[],"priorTaskReference":"none"}`
 	}
 	return string(encodedDocument)
+}
+
+func virtualTurnExpectsEvent(virtualTurn VirtualTurn, eventName string) bool {
+	for _, expectedEventName := range virtualTurn.ExpectedEvents {
+		if expectedEventName == eventName {
+			return true
+		}
+	}
+	return false
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {

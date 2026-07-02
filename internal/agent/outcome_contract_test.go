@@ -115,6 +115,36 @@ func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
 	}
 }
 
+func TestOutcomeContractDoesNotRequirePublicLinkForSiteDelete(t *testing.T) {
+	contract := outcomeContractForRequest(
+		AgentRequest{
+			Prompt:    "방금 배포한 테스트 웹사이트를 삭제해줘",
+			WorkKinds: []string{WorkKindSitePrototype},
+			ToolSet:   newTestToolSet([]string{"site.delete"}),
+		},
+		IntakeDecision{
+			Classification:        IntakeClassificationBoundedTask,
+			TaskShape:             TaskShapeMaintenanceTask,
+			RequiredEvidenceTools: []string{"site.delete"},
+			SiteRequestEvidence:   "테스트 웹사이트를 삭제",
+		},
+		InstructionBundle{},
+		ExecutionPlan{},
+		false,
+		nil,
+	)
+
+	if expectedResultsContain(contract.ExpectedResults, ExpectedResultTypeLink, "public URL") {
+		t.Fatalf("expected site delete not to require public link result, got %+v", contract.ExpectedResults)
+	}
+	if !stringSliceContains(contract.RequiredEvidenceTools, "site.delete") {
+		t.Fatalf("expected site.delete evidence to remain, got %+v", contract.RequiredEvidenceTools)
+	}
+	if !outcomeEffectsContain(contract.RequiredEffects, "website", "deleted") {
+		t.Fatalf("expected site delete to require deleted website effect, got %+v", contract.RequiredEffects)
+	}
+}
+
 func TestOutcomeContractRequiresCurrentEffectsForSiteModification(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
@@ -757,7 +787,7 @@ func TestOutcomeContractStripsStaleUnverifiableSiteRequirement(t *testing.T) {
 		},
 	}
 
-	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, false)
 	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
 
 	if !report.HasDrops() {
@@ -809,7 +839,7 @@ func TestOutcomeContractPreservesGenuineSiteGoalContinuation(t *testing.T) {
 		},
 	}
 
-	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, false)
 	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
 
 	if report.HasDrops() {
@@ -828,6 +858,35 @@ func TestOutcomeContractPreservesGenuineSiteGoalContinuation(t *testing.T) {
 	}
 	if contract.SiteEvidenceQuote != "웹사이트 만들어서 배포" {
 		t.Fatalf("expected site evidence quote to remain, got %+v", contract)
+	}
+}
+
+func TestOutcomeContractPreservesSiteGoalDuringApprovalContinuation(t *testing.T) {
+	request := AgentRequest{
+		Prompt:                 "확인",
+		IsApprovalContinuation: true,
+		ActiveGoal: ActiveGoal{
+			OriginalInstruction: "방금 배포한 Local Fleet Studio 테스트 웹사이트를 삭제해줘.",
+			WorkKinds:           []string{WorkKindSitePrototype},
+			OutcomeContract: OutcomeContract{
+				RequiredEvidenceTools: []string{"site.delete"},
+				SelectedEvidenceHints: []string{"site.delete"},
+				SiteEvidenceQuote:     "Local Fleet Studio 웹사이트 생성 배포 수정 삭제",
+			},
+		},
+	}
+
+	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, true)
+	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, InstructionBundle{}, ExecutionPlan{}, false, nil)
+
+	if report.HasDrops() {
+		t.Fatalf("expected approval continuation to keep active site goal, got %+v", report)
+	}
+	if !workKindsContain(normalizedActiveGoal.WorkKinds, WorkKindSitePrototype) {
+		t.Fatalf("expected site work kind to remain, got %+v", normalizedActiveGoal.WorkKinds)
+	}
+	if !stringSliceContains(contract.RequiredEvidenceTools, "site.delete") {
+		t.Fatalf("expected site.delete evidence to remain, got %+v", contract)
 	}
 }
 

@@ -24,10 +24,11 @@ type workflowIntentEffectRequirement struct {
 }
 
 type workflowScope struct {
-	Prompt     string
-	ActiveGoal ActiveGoal
-	WorkKinds  []string
-	ToolSet    *ToolSet
+	Prompt                string
+	ActiveGoal            ActiveGoal
+	WorkKinds             []string
+	RequiredEvidenceTools []string
+	ToolSet               *ToolSet
 }
 
 var workflowContracts = []workflowContract{
@@ -95,10 +96,11 @@ var workflowContracts = []workflowContract{
 
 func workflowScopeFromAgentRequest(request AgentRequest) workflowScope {
 	return workflowScope{
-		Prompt:     request.Prompt,
-		ActiveGoal: request.ActiveGoal,
-		WorkKinds:  append([]string{}, request.WorkKinds...),
-		ToolSet:    request.ToolSet,
+		Prompt:                request.Prompt,
+		ActiveGoal:            request.ActiveGoal,
+		WorkKinds:             append([]string{}, request.WorkKinds...),
+		RequiredEvidenceTools: appendUniqueStrings(request.ActiveGoal.OutcomeContract.RequiredEvidenceTools),
+		ToolSet:               request.ToolSet,
 	}
 }
 
@@ -166,8 +168,9 @@ func requestPromptMatchesWorkflowKind(request AgentRequest, workKind string) boo
 	return false
 }
 
-func requiredWorkflowEffectRequirementsForRequest(request AgentRequest) []OutcomeEffect {
+func requiredWorkflowEffectRequirementsForRequest(request AgentRequest, requiredEvidenceTools []string) []OutcomeEffect {
 	scope := workflowScopeFromAgentRequest(request)
+	scope.RequiredEvidenceTools = appendUniqueStrings(scope.RequiredEvidenceTools, requiredEvidenceTools...)
 	requirements := []OutcomeEffect{}
 	for _, contract := range workflowContracts {
 		if !workflowScopeMatchesContract(scope, contract) {
@@ -232,6 +235,14 @@ func workflowEvidenceToolForScope(scope workflowScope, contract workflowContract
 }
 
 func workflowEffectRequirementsForScope(scope workflowScope, contract workflowContract) []OutcomeEffect {
+	if requiredEvidenceContains(scope.RequiredEvidenceTools, "site.delete") {
+		return []OutcomeEffect{{
+			ObjectType:         "website",
+			Effect:             "deleted",
+			Description:        "current request asks to delete a website, so a successful site.delete observation must be observed",
+			SuggestedNextTools: []string{SkillSearchToolName},
+		}}
+	}
 	text := workflowScopeText(scope)
 	for _, effectRequirement := range contract.EffectRequirements {
 		if containsAny(text, effectRequirement.Keywords) {
