@@ -304,9 +304,16 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, evidenceValidationReport, turnDecision.Route)
 		return result, errorValue
 	}
+	var requiredEvidenceReask requiredEvidenceReaskReport
 	if missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); strings.TrimSpace(missingEvidenceReport.Reason) != "" {
-		result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, missingEvidenceReport, turnDecision.Route)
-		return result, errorValue
+		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(responseContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet)
+		if stillMissingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); strings.TrimSpace(stillMissingEvidenceReport.Reason) != "" {
+			result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, stillMissingEvidenceReport, turnDecision.Route)
+			if strings.TrimSpace(result.TaskRun.TaskRunID) != "" {
+				agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceReaskEventName, marshalEventBody(requiredEvidenceReask))
+			}
+			return result, errorValue
+		}
 	}
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
@@ -370,10 +377,33 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+		if requiredEvidenceReask.WasAttempted {
+			agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceReaskEventName, marshalEventBody(requiredEvidenceReask))
+		}
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}
 	return result, errorValue
+}
+
+func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
+	turnRouter := NewTurnRouter(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
+	reaskDecision, errorValue := turnRouter.ReaskRequiredEvidence(responseContext, intakeRequest)
+	if errorValue != nil {
+		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: errorValue.Error()}
+	}
+	reaskIntakeDecision := reaskDecision.IntakeDecision()
+	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, reaskIntakeDecision.RequiredEvidenceTools)
+	if len(reaskIntakeDecision.RequiredEvidenceTools) == 0 || evidenceValidationReport.HasInvalidEvidence() {
+		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: "re-ask still returned no valid required evidence"}
+	}
+	intakeDecision.RequiredEvidenceTools = appendUniqueStrings(intakeDecision.RequiredEvidenceTools, reaskIntakeDecision.RequiredEvidenceTools...)
+	rebuiltOutcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
+	return intakeDecision, rebuiltOutcomeContract, requiredEvidenceReaskReport{
+		WasAttempted:       true,
+		DidRecoverEvidence: true,
+		RecoveredEvidence:  reaskIntakeDecision.RequiredEvidenceTools,
+	}
 }
 
 func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx context.Context, baseInstructionBundle InstructionBundle, request AgentRequest, intakeDecision IntakeDecision) InstructionBundle {

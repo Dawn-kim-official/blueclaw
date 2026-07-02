@@ -224,6 +224,133 @@ func TestAgentKernelBlocksSideEffectWithoutRequiredEvidence(t *testing.T) {
 	}
 }
 
+type turnRouterDecisionLanguageModel struct {
+	initialDecision TurnDecision
+	reaskDecision   TurnDecision
+	reaskCallCount  int
+}
+
+func (model *turnRouterDecisionLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("intake model only serves structured routing")
+}
+
+func (model *turnRouterDecisionLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if structuredResponseRequest.StructuredOutputSchema.Name != "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: "{}"}, nil
+	}
+	decision := model.initialDecision
+	if turnRouterRequestIsRequiredEvidenceReask(structuredResponseRequest) {
+		model.reaskCallCount++
+		decision = model.reaskDecision
+	}
+	document, errorValue := json.Marshal(decision)
+	if errorValue != nil {
+		return llm.StructuredResponse{}, errorValue
+	}
+	return llm.StructuredResponse{Content: string(document)}, nil
+}
+
+func turnRouterRequestIsRequiredEvidenceReask(structuredResponseRequest llm.StructuredResponseRequest) bool {
+	for _, message := range structuredResponseRequest.Messages {
+		if strings.Contains(message.Content, requiredEvidenceReaskInstruction) {
+			return true
+		}
+	}
+	return false
+}
+
+func sideEffectMissingEvidenceDecision() TurnDecision {
+	return TurnDecision{
+		Route:            TurnRouteStartTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		TaskComplexity:   TaskComplexitySimple,
+		EffortLevel:      EffortLevelStandard,
+		InitialToolNames: []string{TerminalRunToolName},
+		ResponseLanguage: "ko",
+		Reason:           "side effect tool planned without evidence",
+	}
+}
+
+func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: sideEffectMissingEvidenceDecision(),
+		reaskDecision:   TurnDecision{RequiredEvidenceTools: []string{TerminalRunToolName}},
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+
+	toolCallCount := 0
+	toolSet := newTestToolSet([]string{TerminalRunToolName})
+	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+	})
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
+		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
+	}}
+	agentKernel.UseLanguageModelProvider(languageModel)
+
+	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
+	request.ToolSet = toolSet
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected re-ask recovery to run the task: %v", errorValue)
+	}
+	if result.TaskRun.Status == task.TaskStatusBlocked {
+		t.Fatalf("expected task to proceed after re-ask recovered evidence, got blocked")
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected terminal.run to run once, got %d", toolCallCount)
+	}
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected exactly one re-ask call, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"didRecoverEvidence":true`) {
+		t.Fatal("expected reask event reporting recovered evidence")
+	}
+	if !taskEventsContain(taskEvents, "agent.intake", TerminalRunToolName) {
+		t.Fatal("expected rebuilt intake decision to carry the recovered evidence")
+	}
+}
+
+func TestAgentKernelBlocksWhenReaskStillReturnsNoEvidence(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	intakeLanguageModel := &turnRouterDecisionLanguageModel{
+		initialDecision: sideEffectMissingEvidenceDecision(),
+		reaskDecision:   sideEffectMissingEvidenceDecision(),
+	}
+	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
+	agentKernel.UseLanguageModelProvider(staticReplyProvider{content: "완료 근거가 없어 작업을 진행할 수 없습니다."})
+
+	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
+	request.ToolSet = newTestToolSet([]string{TerminalRunToolName})
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected still-missing evidence to block cleanly: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task run, got %q", result.TaskRun.Status)
+	}
+	if intakeLanguageModel.reaskCallCount != 1 {
+		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, requiredEvidenceInvalidEventName, "side-effect task has no required evidence") {
+		t.Fatal("expected missing required evidence event")
+	}
+	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"wasAttempted":true`) {
+		t.Fatal("expected reask event reporting the attempt")
+	}
+	if taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"didRecoverEvidence":true`) {
+		t.Fatal("did not expect reask event to report recovered evidence")
+	}
+}
+
 func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
