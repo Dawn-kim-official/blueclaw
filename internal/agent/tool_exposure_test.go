@@ -381,11 +381,11 @@ func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T)
 	toolSet := testToolSet(toolIDs)
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
-			{Name: "simple-slides", AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.deliver", "artifact.review"}},
+			{Name: "presentation", AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.deliver", "artifact.review"}},
 			{Name: "site-prototype", AllowedTools: []string{"site.status", "site.create", "site.build", "site.publish", "terminal.run", "file.write", "artifact.review"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{
-			{Name: "simple-slides", Status: "selected"},
+			{Name: "presentation", Status: "selected"},
 			{Name: "site-prototype", Status: "selected"},
 		},
 	}
@@ -773,10 +773,10 @@ func TestFallbackHidesSelectedSkillToolsUntilRequested(t *testing.T) {
 	toolSet := testToolSet(append(slideToolNames, "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "tool.describe"))
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "simple-slides",
+			Name:         "presentation",
 			AllowedTools: slideToolNames,
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "presentation", Status: "selected"}},
 	}
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})

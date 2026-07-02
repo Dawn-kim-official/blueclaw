@@ -195,7 +195,7 @@ func parseLiveVirtualSessionTestArguments(t *testing.T, baseURL string) virtualS
 		"--llm-model", "test-model",
 		"--seed", "123",
 		"--temperature", "0.25",
-	}, "slides", t.TempDir())
+	}, "presentation", t.TempDir())
 	if errorValue != nil {
 		t.Fatalf("expected parse to succeed: %v", errorValue)
 	}
