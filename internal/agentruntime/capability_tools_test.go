@@ -193,6 +193,100 @@ func TestCapabilityToolIdempotencyKeyOnlyForSendTools(t *testing.T) {
 	}
 }
 
+func TestCapabilityInvokeSchemaListsOperationEnumAndRequiresInput(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local"}, []CapabilityToolDescriptor{{
+		Name:        "calendar.add",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
+	}, {
+		Name:        "task.add",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"]}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolDefinition, isFound := toolRegistry.ToolDefinition(agent.CapabilityInvokeToolName)
+	if !isFound {
+		t.Fatal("expected capability.invoke tool definition")
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if errorValue := json.Unmarshal(toolDefinition.InputSchema, &schema); errorValue != nil {
+		t.Fatalf("expected capability.invoke schema: %v", errorValue)
+	}
+	if !containsTestString(schema.Properties["operation"].Enum, "calendar.add") || !containsTestString(schema.Properties["operation"].Enum, "task.add") {
+		t.Fatalf("expected capability operations in enum, got %+v", schema.Properties["operation"].Enum)
+	}
+	if !containsTestString(schema.Required, "operation") || !containsTestString(schema.Required, "input") {
+		t.Fatalf("expected operation and input to be required, got %+v", schema.Required)
+	}
+}
+
+func TestCapabilityInvokeMissingRequiredFieldsIncludesDescriptorRecoveryHint(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:        "calendar.add",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"},"endISO":{"type":"string"},"timeZone":{"type":"string"}},"required":["title","startISO","endISO"]}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.CapabilityInvokeToolName,
+		Input:    json.RawMessage(`{"operation":"calendar.add","input":{}}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected missing input failure, got %s", result.ContentText())
+	}
+	if httpClient.requestPath != "" {
+		t.Fatalf("missing input must fail before capabilityd call, got path %s", httpClient.requestPath)
+	}
+	if result.Failure == nil || len(result.Failure.RecoveryHints) != 1 {
+		t.Fatalf("expected recovery hint, got %+v", result.Failure)
+	}
+	recoveryHint := result.Failure.RecoveryHints[0]
+	for _, expected := range []string{"capability.invoke", "operation=calendar.add", "title string", "startISO string", "endISO string"} {
+		if !strings.Contains(recoveryHint.Action+" "+recoveryHint.Reason, expected) {
+			t.Fatalf("expected recovery hint to contain %q, got %+v", expected, recoveryHint)
+		}
+	}
+	if !containsTestString(recoveryHint.ToolNames, agent.CapabilityInvokeToolName) {
+		t.Fatalf("expected capability.invoke recovery tool, got %+v", recoveryHint.ToolNames)
+	}
+}
+
+func TestCapabilityInvokeRejectsMissingInputObject(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:        "calendar.add",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.CapabilityInvokeToolName,
+		Input:    json.RawMessage(`{"operation":"calendar.add"}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || !strings.Contains(result.ContentText(), "requires input to be an object") {
+		t.Fatalf("expected missing input object failure, got %s", result.ContentText())
+	}
+	if httpClient.requestPath != "" {
+		t.Fatalf("missing input object must fail before capabilityd call, got path %s", httpClient.requestPath)
+	}
+}
+
 func TestCapabilityCatalogParametersListsRequiredAndOptional(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"status":{"type":"string"},"startDate":{"type":"string"}},"required":["prompt"]}`)
 	got := capabilityCatalogParameters(schema)
