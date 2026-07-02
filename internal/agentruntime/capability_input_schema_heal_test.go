@@ -26,7 +26,7 @@ func TestCapabilityCatalogHealsNameOnlyDescriptorFromLiveSchema(t *testing.T) {
 	if len(entriesAfter) != 1 {
 		t.Fatalf("expected one catalog entry, got %v", entriesAfter)
 	}
-	wantHint := "input: endISO (required), startISO (required), title (required), timeZone"
+	wantHint := "input: { endISO string (required), startISO string (required), title string (required), timeZone string }"
 	if !strings.Contains(entriesAfter[0], wantHint) {
 		t.Fatalf("stale name-only descriptor should be healed from the live schema; want substring %q, got %q", wantHint, entriesAfter[0])
 	}

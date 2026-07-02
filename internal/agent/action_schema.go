@@ -178,6 +178,9 @@ func toolInputSchema(toolDefinition ToolDefinition) any {
 	if len(toolDefinition.InputSchema) > 0 {
 		var schema any
 		if json.Unmarshal(toolDefinition.InputSchema, &schema) == nil {
+			if strings.TrimSpace(toolDefinition.Name) == CapabilityInvokeToolName {
+				return portableCapabilityInvokeInputSchema(schema)
+			}
 			return portableNestedSchema(schema)
 		}
 	}
@@ -188,6 +191,19 @@ func toolInputSchema(toolDefinition ToolDefinition) any {
 		}
 	}
 	return objectSchema()
+}
+
+func portableCapabilityInvokeInputSchema(value any) any {
+	normalizedSchema := portableNestedSchema(value)
+	sourceDocument, isSourceDocument := value.(map[string]any)
+	normalizedDocument, isNormalizedDocument := normalizedSchema.(map[string]any)
+	if !isSourceDocument || !isNormalizedDocument {
+		return normalizedSchema
+	}
+	if requiredFields, isFound := sourceDocument["required"]; isFound {
+		normalizedDocument["required"] = requiredFields
+	}
+	return normalizedDocument
 }
 
 func portableNestedSchema(value any) any {
