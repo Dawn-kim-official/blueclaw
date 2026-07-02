@@ -3,7 +3,7 @@ package agent
 import "testing"
 
 func TestGoogleWorkspaceAvoidanceDoesNotRequireBrowserEvidence(t *testing.T) {
-	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"browser.open", "browser.snapshot", "file.deliver"})
 
 	requirements := deriveToolUseRequirements(AgentTurnRequest{
 		Prompt:  "구글 워크스페이스는 쓰지 말고 Marp로 로컬 PPTX PDF HTML notes 파일을 첨부해줘.",

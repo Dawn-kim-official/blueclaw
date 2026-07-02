@@ -84,11 +84,7 @@ func requestHasToolName(request AgentRequest, toolName string) bool {
 	if request.ToolSet == nil {
 		return false
 	}
-	trimmedToolName := strings.TrimSpace(toolName)
-	if trimmedToolName == "" {
-		return false
-	}
-	return request.ToolSet.IsRegistered(trimmedToolName) && request.ToolSet.CanExpose(trimmedToolName)
+	return requestToolSetCanReachTool(request.ToolSet, toolName)
 }
 
 func requestHasToolPrefix(request AgentRequest, toolPrefix string) bool {
@@ -100,11 +96,23 @@ func requestHasToolPrefix(request AgentRequest, toolPrefix string) bool {
 		return false
 	}
 	for _, toolName := range request.ToolSet.ListRegisteredToolNames() {
-		if strings.HasPrefix(toolName, trimmedToolPrefix) && request.ToolSet.CanExpose(toolName) {
+		if strings.HasPrefix(toolName, trimmedToolPrefix) && requestToolSetCanReachTool(request.ToolSet, toolName) {
 			return true
 		}
 	}
 	return false
+}
+
+func requestToolSetCanReachTool(toolSet *ToolSet, toolName string) bool {
+	trimmedToolName := strings.TrimSpace(toolName)
+	if trimmedToolName == "" || toolSet == nil || !toolSet.IsRegistered(trimmedToolName) {
+		return false
+	}
+	if toolSet.IsAllowed(trimmedToolName) {
+		return true
+	}
+	_, isValidEvidence := requiredEvidenceToolKind(toolSet, trimmedToolName)
+	return isValidEvidence
 }
 
 func normalizeSkillSelectionText(value string) string {

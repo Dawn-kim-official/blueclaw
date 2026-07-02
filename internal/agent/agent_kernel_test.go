@@ -76,26 +76,27 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
-		Route:            TurnRouteConsume,
-		Classification:   IntakeClassificationBoundedTask,
-		TaskShape:        TaskShapeResearchTask,
-		TaskComplexity:   TaskComplexitySimple,
-		EffortLevel:      EffortLevelStandard,
-		ResponseLanguage: "ko",
-		Reason:           "사용자가 명시적으로 업무 등록을 요청함",
-		WorkKinds:        []string{WorkKindFlowTask},
-		InitialToolNames: []string{"task.add", "task.list", "task.update"},
+		Route:                 TurnRouteConsume,
+		Classification:        IntakeClassificationBoundedTask,
+		TaskShape:             TaskShapeResearchTask,
+		TaskComplexity:        TaskComplexitySimple,
+		EffortLevel:           EffortLevelStandard,
+		ResponseLanguage:      "ko",
+		Reason:                "사용자가 명시적으로 업무 등록을 요청함",
+		WorkKinds:             []string{WorkKindFlowTask},
+		RequiredEvidenceTools: []string{"task.add"},
+		InitialToolNames:      []string{CapabilityInvokeToolName},
 	}})
 
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
+	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
 	toolSet.RegisterTool(ToolDefinition{Name: "task.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"taskID":"task-1","content":"메일 페이지 앱 비밀번호 개선"}`), nil
 	})
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"task.add","toolInput":{"prompt":"메일 페이지 앱 비밀번호 개선"}}`,
-		finishMessageDocument("업무를 등록했습니다."),
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"task.add","input":{"prompt":"메일 페이지 앱 비밀번호 개선"}}}`,
+		finishMessageWithEvidence("업무를 등록했습니다.", "obs-001", "task.add", 0),
 	}}
 	agentKernel.UseLanguageModelProvider(languageModel)
 
@@ -165,6 +166,63 @@ func TestAgentKernelBlocksUnsupportedIntake(t *testing.T) {
 	}
 	if result.UserNotice != "이 요청은 현재 권한 범위 밖이라 진행할 수 없어요." {
 		t.Fatalf("expected router-provided reply, got %q", result.UserNotice)
+	}
+}
+
+func TestAgentKernelBlocksInvalidRequiredEvidence(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
+		Route:                 TurnRouteStartTask,
+		Classification:        IntakeClassificationBoundedTask,
+		TaskShape:             TaskShapeMaintenanceTask,
+		TaskComplexity:        TaskComplexitySimple,
+		EffortLevel:           EffortLevelStandard,
+		RequiredEvidenceTools: []string{"calendar.create"},
+		WorkKinds:             []string{WorkKindCalendar},
+		ResponseLanguage:      "ko",
+		Reason:                "calendar event creation",
+	}})
+	agentKernel.UseLanguageModelProvider(staticReplyProvider{content: "일정 등록 도구 연결이 맞지 않아 작업을 진행할 수 없습니다."})
+	request := kernelTestRequest("7월 6일 오후 1시 스타트업월드컵 일정 추가")
+	request.ToolSet = newTestToolSet([]string{"calendar.add", CapabilityInvokeToolName})
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected invalid evidence to block cleanly: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task run, got %q", result.TaskRun.Status)
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceInvalidEventName, "calendar.create") {
+		t.Fatal("expected invalid required evidence event")
+	}
+}
+
+func TestAgentKernelBlocksSideEffectWithoutRequiredEvidence(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
+		Route:            TurnRouteStartTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeMaintenanceTask,
+		TaskComplexity:   TaskComplexitySimple,
+		EffortLevel:      EffortLevelStandard,
+		InitialToolNames: []string{TerminalRunToolName},
+		ResponseLanguage: "ko",
+		Reason:           "side effect tool planned without evidence",
+	}})
+	agentKernel.UseLanguageModelProvider(staticReplyProvider{content: "완료 근거가 없어 작업을 진행할 수 없습니다."})
+	request := kernelTestRequest("7월 6일 오후 1시 스타트업월드컵 일정 추가")
+	request.ToolSet = newTestToolSet([]string{TerminalRunToolName})
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected missing evidence to block cleanly: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusBlocked {
+		t.Fatalf("expected blocked task run, got %q", result.TaskRun.Status)
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceInvalidEventName, "side-effect task has no required evidence") {
+		t.Fatal("expected missing required evidence event")
 	}
 }
 

@@ -97,6 +97,8 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 		return append(siteObservationFacts(observation, "created"), siteWorkspaceModifiedFacts(observation)...)
 	case "site.status":
 		return siteStatusFacts(observation)
+	case "site.delete":
+		return siteObservationFacts(observation, "deleted")
 	case AskInputToolName, AskChoiceToolName, AskConfirmToolName:
 		return toolObjectFact(observation, "user_input", "requested")
 	default:

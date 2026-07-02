@@ -221,7 +221,7 @@ func TestAgentTurnRunnerRejectsRequiredFileWithoutAttachmentEvidence(t *testing.
 		ConversationID:    "conversation-1",
 		Prompt:            "파일 만들어서 보내줘",
 		RequiredEvidenceTools: []string{
-			"file.attach",
+			"file.deliver",
 		},
 		OutcomeContract: OutcomeContract{
 			ArtifactRequirement: ArtifactRequirementRequired,
@@ -248,13 +248,13 @@ func TestAgentTurnRunnerRejectsRequiredFileWithoutAttachmentEvidence(t *testing.
 
 func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"DESIGN.md"}}`,
-		finishMessageWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"DESIGN.md"}}`,
+		finishMessageWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.deliver", 0),
 		`{"action":"fail","reason":"html attachment missing"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -270,7 +270,7 @@ func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T)
 		Prompt:                     "html만 주면 돼",
 		ToolSet:                    toolRegistry,
 		PinnedToolNames:            toolRegistry.ListToolNames(),
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".html"},
 	})
 	if errorValue != nil {
@@ -286,12 +286,12 @@ func TestAgentTurnRunnerRejectsHtmlClaimBackedByMarkdownAttachment(t *testing.T)
 
 func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
-		finishMessageWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.html"}}`,
+		finishMessageWithEvidence("HTML 파일을 전달해 드립니다.", "obs-001", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -308,7 +308,7 @@ func TestAgentTurnRunnerAcceptsHtmlRequestWithHtmlAttachment(t *testing.T) {
 		Prompt:                     "html만 주면 돼",
 		ToolSet:                    toolRegistry,
 		PinnedToolNames:            toolRegistry.ListToolNames(),
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".html"},
 	})
 	if errorValue != nil {
@@ -401,12 +401,12 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("PPT 못 만들어요"),
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
-		finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-002", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-002", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -422,7 +422,7 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *test
 		Prompt:                "피피티 만들어줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"file.attach"},
+		RequiredEvidenceTools: []string{"file.deliver"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected required evidence to recover: %v", errorValue)
@@ -433,7 +433,7 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *test
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.attach") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.deliver") {
 		t.Fatal("expected completion required event for selected skill evidence")
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.evidence_missing", "evidence_missing") {
@@ -444,15 +444,15 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *test
 func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
-		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-002", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.html"}}`,
+		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-002", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.write", "file.deliver"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"path":"tmp/deck/presentation.md","sizeBytes":6}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -468,7 +468,7 @@ func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *t
 		Prompt:                "html 만들어줘",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"file.write", "file.attach"},
+		RequiredEvidenceTools: []string{"file.write", "file.deliver"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected required evidence to recover: %v", errorValue)
@@ -484,14 +484,14 @@ func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *t
 
 func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"DESIGN.md"}}`,
-		finishMessageWithEvidence("첨부했습니다.", "obs-001", "file.attach", 0),
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.pptx"}}`,
-		finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"DESIGN.md"}}`,
+		finishMessageWithEvidence("첨부했습니다.", "obs-001", "file.deliver", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
 			Path string `json:"path"`
 		}
@@ -513,7 +513,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
 		PinnedToolNames:            toolRegistry.ListToolNames(),
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 	})
 	if errorValue != nil {
@@ -539,12 +539,12 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "presentation.md"), "Hermes Agent 장단점 분석")
 	writeAgentTestFile(t, filepath.Join(artifactDirectoryPath, "deck.html"), "<html><body>Hermes Agent 장단점 분석</body></html>")
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.html"}}`,
-		finishMessageWithEvidence("deck.html 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.html"}}`,
+		finishMessageWithEvidence("deck.html 파일을 첨부했습니다.", "obs-001", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -561,7 +561,7 @@ func TestAgentTurnRunnerAcceptsReadableFileAttachObservation(t *testing.T) {
 		WorkspaceRootPath:     workspaceRootPath,
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"file.attach"},
+		RequiredEvidenceTools: []string{"file.deliver"},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected completed turn without runner error: %v", errorValue)
@@ -590,8 +590,8 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 
 	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("unused")}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
 			Path string `json:"path"`
 		}
@@ -613,7 +613,7 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
 	})
 	if errorValue != nil {
@@ -629,8 +629,8 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	if !taskEventsContain(taskEvents, "agent.completion_state_transition", "attach_existing_artifacts") {
 		t.Fatal("expected completion state attachment transition")
 	}
-	if !taskEventsContain(taskEvents, "tool.file.attach.requested", "deck.pptx") {
-		t.Fatal("expected automatic file.attach request")
+	if !taskEventsContain(taskEvents, "tool.file.deliver.requested", "deck.pptx") {
+		t.Fatal("expected automatic file.deliver request")
 	}
 	if len(languageModel.requests) != 0 {
 		t.Fatalf("expected completion state to avoid model calls, got %d", len(languageModel.requests))
@@ -645,7 +645,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build another deck"}}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.deliver"})
 	terminalCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
@@ -656,7 +656,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 		writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
 		return ToolSuccess(`{"exitCode":0,"stdout":"built","stderr":"","timedOut":false}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
 			Path string `json:"path"`
 		}
@@ -674,7 +674,7 @@ func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 		ToolSet:                    toolRegistry,
 		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
 	})
 	if errorValue != nil {
@@ -704,9 +704,9 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 		`{"action":"fail","reason":"attachment unavailable"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
 	attachmentCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		attachmentCallCount++
 		return ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, "tool", "attachment unavailable"), nil
 	})
@@ -719,7 +719,7 @@ func TestAgentTurnRunnerDoesNotRepeatFailedAutomaticAttachment(t *testing.T) {
 		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 	})
 	if errorValue != nil {
@@ -743,9 +743,9 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 		`{"action":"fail","reason":"artifact invalid"}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
 	attachmentCallCount := 0
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		attachmentCallCount++
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
@@ -764,7 +764,7 @@ func TestAgentTurnRunnerAttachesReadableImperfectArtifactCandidate(t *testing.T)
 		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 	})
 	if errorValue != nil {
@@ -793,8 +793,8 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 
 	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("unused")}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		var request struct {
 			Path string `json:"path"`
 		}
@@ -813,7 +813,7 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 		PinnedToolNames:            toolRegistry.ListToolNames(),
 		WorkspaceRootPath:          workspaceRootPath,
 		TurnStartedAt:              turnStartedAt,
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx", ".pdf"},
 	})
 	if errorValue != nil {
@@ -945,6 +945,99 @@ func TestCompletionGateDoesNotWaiveFlowTaskEvidenceWithNoToolFallback(t *testing
 	}
 	if !strings.Contains(result.Message, "task.add") {
 		t.Fatalf("expected missing flow task evidence message, got %q", result.Message)
+	}
+}
+
+func TestCompletionGateDoesNotSatisfyCalendarAddWithScheduleCreate(t *testing.T) {
+	goalSatisfied := true
+	request := AgentTurnRequest{
+		RequiredEvidenceTools: []string{"calendar.add"},
+		ToolSet:               newTestToolSet([]string{"calendar.add", "schedule.create"}),
+	}
+	result := validateCompletionGateForRequestWithRecoveryBudget(
+		request,
+		deriveToolUseRequirements(request),
+		[]turnObservation{
+			newContentObservation("obs-001", "continue", "schedule.create", `{"taskScheduleID":"schedule-1"}`),
+			newFailureObservation("obs-002", "continue", "calendar.add", "calendar add failed", FailureExternalService, FailureCodes.OperationFailed, "calendar_add"),
+		},
+		nil,
+		turnActionDocument{
+			Action:        "finish",
+			Message:       "일정을 추가했습니다.",
+			GoalStatus:    "satisfied",
+			GoalSatisfied: &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{{
+				ObservationID: "obs-001",
+				ToolName:      "schedule.create",
+			}},
+		},
+		defaultRecoveryBudget(),
+	)
+
+	if result.IsSatisfied {
+		t.Fatal("expected schedule.create not to satisfy calendar.add")
+	}
+	if !strings.Contains(result.Message, "calendar.add") {
+		t.Fatalf("expected missing calendar.add evidence message, got %q", result.Message)
+	}
+}
+
+func TestCompletionGateDoesNotTreatApprovalAsRequiredEvidence(t *testing.T) {
+	goalSatisfied := true
+	request := AgentTurnRequest{
+		RequiredEvidenceTools: []string{"calendar.add"},
+		ToolSet:               newTestToolSet([]string{"calendar.add", AskConfirmToolName}),
+	}
+	result := validateCompletionGateForRequestWithRecoveryBudget(
+		request,
+		deriveToolUseRequirements(request),
+		[]turnObservation{newContentObservation("obs-001", "continue", AskConfirmToolName, `{"approved":true}`)},
+		nil,
+		turnActionDocument{
+			Action:        "finish",
+			Message:       "승인받아 일정을 추가했습니다.",
+			GoalStatus:    "satisfied",
+			GoalSatisfied: &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{{
+				ObservationID: "obs-001",
+				ToolName:      AskConfirmToolName,
+			}},
+		},
+		defaultRecoveryBudget(),
+	)
+
+	if result.IsSatisfied {
+		t.Fatal("expected approval observation not to satisfy calendar.add")
+	}
+}
+
+func TestCompletionGateRequiresFileDeliverEvidenceEvenWhenFileExists(t *testing.T) {
+	goalSatisfied := true
+	request := AgentTurnRequest{
+		RequiredEvidenceTools: []string{FileDeliverToolName},
+		ToolSet:               newTestToolSet([]string{FileDeliverToolName}),
+	}
+	result := validateCompletionGateForRequestWithRecoveryBudget(
+		request,
+		deriveToolUseRequirements(request),
+		[]turnObservation{newContentObservation("obs-001", "continue", FileWriteToolName, `{"path":"tmp/report.pdf"}`)},
+		nil,
+		turnActionDocument{
+			Action:             "finish",
+			Message:            "파일을 만들었습니다.",
+			GoalStatus:         "satisfied",
+			GoalSatisfied:      &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{},
+		},
+		defaultRecoveryBudget(),
+	)
+
+	if result.IsSatisfied {
+		t.Fatal("expected file deliver evidence to be required")
+	}
+	if !strings.Contains(result.Message, FileDeliverToolName) {
+		t.Fatalf("expected file.deliver evidence message, got %q", result.Message)
 	}
 }
 
@@ -1101,14 +1194,14 @@ func TestCompletionContractVerifierSkipsEmptyContract(t *testing.T) {
 func TestCompletionContractVerifierRejectsMissingAttachmentEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contractVerifications: []string{
-			`{"satisfied":false,"reason":"The user requested an attached file, but no file attachment evidence exists.","missingDescription":"Attach the generated file before finishing.","suggestedNextTools":["file.attach"]}`,
+			`{"satisfied":false,"reason":"The user requested an attached file, but no file attachment evidence exists.","missingDescription":"Attach the generated file before finishing.","suggestedNextTools":["file.deliver"]}`,
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	goalSatisfied := true
 
 	result := services.runner.validateCompletionGateForRequestWithExpectedResults(context.Background(), "task-1", AgentTurnRequest{
-		ToolSet: newTestToolSet([]string{"file.attach"}),
+		ToolSet: newTestToolSet([]string{"file.deliver"}),
 		OutcomeContract: OutcomeContract{
 			ArtifactRequirement: ArtifactRequirementPreferred,
 		},
@@ -1126,8 +1219,8 @@ func TestCompletionContractVerifierRejectsMissingAttachmentEvidence(t *testing.T
 	if !strings.Contains(result.Message, "Attach the generated file before finishing.") {
 		t.Fatalf("expected verifier missing description in gate message, got %q", result.Message)
 	}
-	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "file.attach" {
-		t.Fatalf("expected verifier to suggest file.attach, got %+v", result.SuggestedNextTools)
+	if len(result.SuggestedNextTools) != 1 || result.SuggestedNextTools[0] != "file.deliver" {
+		t.Fatalf("expected verifier to suggest file.deliver, got %+v", result.SuggestedNextTools)
 	}
 	if len(languageModel.contractRequests) != 1 {
 		t.Fatalf("expected one contract verifier call, got %d", len(languageModel.contractRequests))
@@ -1145,7 +1238,7 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
-	toolRegistry := newTestToolSet([]string{"site.publish", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"site.publish", "file.deliver"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.publish"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"status":"published","publishedURL":"https://portfolio.example"}`), nil
 	})
@@ -1157,9 +1250,9 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
-		RequiredEvidenceTools: []string{"file.attach"},
+		RequiredEvidenceTools: []string{"file.deliver"},
 		OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools: []string{"file.attach"},
+			RequiredEvidenceTools: []string{"file.deliver"},
 			ExpectedResults: []ExpectedResult{{
 				ID:          "site-public-link",
 				Type:        ExpectedResultTypeLink,
@@ -1182,21 +1275,21 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		resultVerifications: []string{
-			`{"overallStatus":"satisfied","summary":"PPTX attached","results":[{"id":"attached-file","status":"satisfied","reason":"file.attach returned an attachment.","citedObservationIDs":["obs-003"],"missingDescription":"","suggestedNextTools":[]}]}`,
+			`{"overallStatus":"satisfied","summary":"PPTX attached","results":[{"id":"attached-file","status":"satisfied","reason":"file.deliver returned an attachment.","citedObservationIDs":["obs-003"],"missingDescription":"","suggestedNextTools":[]}]}`,
 		},
 		contents: []string{
-			`{"action":"continue","toolName":"file.promote","toolInput":{"path":"tmp/deck/build/deck.pptx","destinationDirectoryPath":"artifacts/deck","overwrite":true},"nextStepPlan":{"objective":"attach promoted file","expectedTools":["file.attach"],"expectedNextResults":["attached pptx"],"doneCriteria":["file attached"],"risk":"none","workingSetReason":"file deliverable requires attachment"}}`,
+			`{"action":"continue","toolName":"file.promote","toolInput":{"path":"tmp/deck/build/deck.pptx","destinationDirectoryPath":"artifacts/deck","overwrite":true},"nextStepPlan":{"objective":"attach promoted file","expectedTools":["file.deliver"],"expectedNextResults":["attached pptx"],"doneCriteria":["file attached"],"risk":"none","workingSetReason":"file deliverable requires attachment"}}`,
 			`{"action":"finish","message":"PPTX를 첨부했습니다.","replyParts":[{"type":"text","text":"PPTX를 첨부했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.promote"}]}`,
-			`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"},"nextStepPlan":{"objective":"finish","expectedTools":[],"expectedNextResults":["final message"],"doneCriteria":["attached file delivered"],"risk":"none","workingSetReason":"attachment now exists"}}`,
-			finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.attach", 0),
+			`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.pptx"},"nextStepPlan":{"objective":"finish","expectedTools":[],"expectedNextResults":["final message"],"doneCriteria":["attached file delivered"],"risk":"none","workingSetReason":"attachment now exists"}}`,
+			finishMessageWithEvidence("PPTX를 첨부했습니다.", "obs-003", "file.deliver", 0),
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6})
-	toolRegistry := newTestToolSet([]string{"file.promote", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"file.promote", "file.deliver"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.promote"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"path":"artifacts/deck/deck.pptx"}`), nil
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -1230,11 +1323,11 @@ func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.attach") {
-		t.Fatal("expected completion gate to require file.attach")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "file.deliver") {
+		t.Fatal("expected completion gate to require file.deliver")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.file.attach.requested", "deck.pptx") {
-		t.Fatal("expected file.attach after promoted-only finish was rejected")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.file.deliver.requested", "deck.pptx") {
+		t.Fatal("expected file.deliver after promoted-only finish was rejected")
 	}
 }
 
@@ -1435,7 +1528,7 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 40, RecoveryAttemptLimit: 3})
 	terminalCallCount := 0
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.deliver"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		terminalCallCount++
 		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "terminal_run", `{"exitCode":1,"stderr":"EACCES: permission denied, open 'deck.html'"}`), nil
@@ -1447,7 +1540,7 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 		Prompt:                     "피피티 만들어줘",
 		ToolSet:                    toolRegistry,
 		PinnedToolNames:            toolRegistry.ListToolNames(),
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 	})
 	if errorValue != nil {

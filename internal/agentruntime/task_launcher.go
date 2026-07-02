@@ -169,6 +169,7 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 	if record.Error != "" {
 		return taskLauncher.completeLaunchFailure(ctx, request, normalizedProfileName, nil, record.StepName, launchRecords, errorFromStepRecord(record)), nil
 	}
+	taskLauncher.toolCatalogBuilder.RefreshLiveCapabilityInputSchemas(ctx)
 	toolSet, record := runLaunchStep(ctx, execution, buildToolSetLaunchStep{})
 	launchRecords = append(launchRecords, record)
 	toolNames := toolSet.ListToolNames()

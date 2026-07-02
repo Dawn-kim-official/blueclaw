@@ -304,6 +304,15 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return confirmationResult, errorValue
 	}
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
+	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, outcomeContract.RequiredEvidenceTools)
+	if evidenceValidationReport.HasInvalidEvidence() {
+		result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, evidenceValidationReport, turnDecision.Route)
+		return result, errorValue
+	}
+	if missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); strings.TrimSpace(missingEvidenceReport.Reason) != "" {
+		result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, missingEvidenceReport, turnDecision.Route)
+		return result, errorValue
+	}
 	requiredEvidenceTools := outcomeContract.RequiredEvidenceTools
 	requiredAttachmentSuffixes = outcomeContract.RequiredAttachmentSuffixes
 
@@ -538,6 +547,19 @@ func (agentKernel *AgentKernel) completeIntakeOnlyRequest(responseContext contex
 	agentKernel.appendGoalLifecycleEvent(blockedTaskRun, activeGoalFromIntakeOnly(taskRun.TaskRunID, request, intakeDecision, status))
 	blockedTaskRun.Result = finishMessage
 	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: finishMessage, ToolNames: toolNamesForEvent(request.ToolSet)}, nil
+}
+
+func (agentKernel *AgentKernel) completeInvalidRequiredEvidenceRequest(responseContext context.Context, request AgentRequest, intakeDecision IntakeDecision, report requiredEvidenceValidationReport, route TurnRoute) (AgentTurnResult, error) {
+	intakeDecision.Classification = IntakeClassificationUnsupported
+	intakeDecision.TaskShape = TaskShapeImmediateReply
+	intakeDecision.Reason = firstNonEmptyString(strings.TrimSpace(report.Reason), "required evidence is invalid")
+	intakeDecision.UserFacingReply = ""
+	result, errorValue := agentKernel.completeIntakeOnlyRequest(responseContext, request, intakeDecision, task.TaskStatusBlocked)
+	result.TurnRoute = route
+	if strings.TrimSpace(result.TaskRun.TaskRunID) != "" {
+		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceInvalidEventName, marshalEventBody(report))
+	}
+	return result, errorValue
 }
 
 func (agentKernel *AgentKernel) createTaskRunForRequest(request AgentRequest) task.TaskRun {
