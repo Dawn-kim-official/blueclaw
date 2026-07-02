@@ -266,6 +266,39 @@ func TestRunCommandTimeoutKillsChildProcesses(t *testing.T) {
 	}
 }
 
+func TestAwaitCommandCompletionAbandonsUnreapableCommand(t *testing.T) {
+	ctx, cancelFunction := context.WithCancel(context.Background())
+	cancelFunction()
+	runResult := make(chan error)
+
+	startedAt := time.Now()
+	errorValue, abandoned := awaitCommandCompletion(ctx, runResult, 500*time.Millisecond)
+	elapsed := time.Since(startedAt)
+
+	if !abandoned {
+		t.Fatalf("expected command to be reported as abandoned, got errorValue=%v", errorValue)
+	}
+	if elapsed > 1500*time.Millisecond {
+		t.Fatalf("expected abandonment to resolve within grace period, took %s", elapsed)
+	}
+}
+
+func TestRunCommandTimedOutResultIncludesPartialOutput(t *testing.T) {
+	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
+
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
+		Command:       "sh -c 'printf partial; sleep 30'",
+		TimeoutSecond: 1,
+	})
+
+	if errorValue == nil || !commandResult.TimedOut {
+		t.Fatalf("expected timed out command result, got result=%+v error=%v", commandResult, errorValue)
+	}
+	if !strings.Contains(commandResult.Stdout, "partial") {
+		t.Fatalf("expected partial stdout to be preserved, got %+v", commandResult)
+	}
+}
+
 func TestRunCommandIncludesProcessErrorWhenStderrIsEmpty(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
