@@ -216,10 +216,10 @@ func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 		t.Fatalf("ambient capture must not reach terminal.run; events: %s", summarizeEvents(turnResult.Events))
 	}
 	reviseResult := result.TurnResults[1]
-	if !eventsContain(reviseResult.Events, "tool.task.update.requested", "task.update") {
+	if !requestedToolCallPresent(reviseResult.Events, "task.update") {
 		t.Fatalf("expected a same-thread follow-up to update the existing task; events: %s", summarizeEvents(reviseResult.Events))
 	}
-	if eventsContain(reviseResult.Events, "tool.task.add.requested", "task.add") {
+	if countRequestedToolCalls(reviseResult.Events, "task.add") > 0 {
 		t.Fatalf("same-thread revision must update, not add a duplicate task; events: %s", summarizeEvents(reviseResult.Events))
 	}
 }
@@ -317,7 +317,7 @@ func TestAmbientDutyCalendarAcceptance(t *testing.T) {
 		t.Fatalf("expected one turn result, got %d", len(result.TurnResults))
 	}
 	turnResult := result.TurnResults[0]
-	if countEvents(turnResult.Events, "tool.calendar.add.requested") != 1 {
+	if countRequestedToolCalls(turnResult.Events, "calendar.add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !eventsContain(turnResult.Events, "agent.ambient_duty_launch", `"dutyName":"calendar_upkeep"`) {

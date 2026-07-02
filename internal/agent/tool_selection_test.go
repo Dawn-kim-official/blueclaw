@@ -3,7 +3,7 @@ package agent
 import "testing"
 
 func TestApplyToolRequestNormalizesContinueActionToolNames(t *testing.T) {
-	request := AgentTurnRequest{ToolSet: testToolSet([]string{"file.attach", "file.promote", "terminal.run"})}
+	request := AgentTurnRequest{ToolSet: testToolSet([]string{"file.deliver", "file.promote", "terminal.run"})}
 
 	updatedRequest, result := applyToolRequest(request, requestToolsArguments{
 		ToolNames: []string{"continue__file_attach", "continue__file_promote", "terminal.run"},
@@ -12,7 +12,7 @@ func TestApplyToolRequestNormalizesContinueActionToolNames(t *testing.T) {
 	if len(result.UnknownToolNames) != 0 {
 		t.Fatalf("expected no unknown tools, got %+v", result.UnknownToolNames)
 	}
-	for _, toolName := range []string{"file.attach", "file.promote", "terminal.run"} {
+	for _, toolName := range []string{"file.deliver", "file.promote", "terminal.run"} {
 		if !containsString(result.PinnedToolNames, toolName) {
 			t.Fatalf("expected result to pin %s, got %+v", toolName, result.PinnedToolNames)
 		}
@@ -23,7 +23,7 @@ func TestApplyToolRequestNormalizesContinueActionToolNames(t *testing.T) {
 }
 
 func TestApplyToolRequestKeepsUnknownSyntheticToolNameUnknown(t *testing.T) {
-	request := AgentTurnRequest{ToolSet: testToolSet([]string{"file.attach"})}
+	request := AgentTurnRequest{ToolSet: testToolSet([]string{"file.deliver"})}
 
 	_, result := applyToolRequest(request, requestToolsArguments{
 		ToolNames: []string{"continue__spreadsheet_export"},

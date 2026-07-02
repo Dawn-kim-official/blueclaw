@@ -60,38 +60,6 @@ func isMultiPersonConversation(event PlatformInboundEvent) bool {
 	return true
 }
 
-func ambientCaptureTurnDecision(dutyName string, responseLanguage string) *agent.TurnDecision {
-	return &agent.TurnDecision{
-		Route:            agent.TurnRouteStartTask,
-		Classification:   agent.IntakeClassificationBoundedTask,
-		TaskShape:        agent.TaskShapeMaintenanceTask,
-		TaskComplexity:   agent.TaskComplexitySimple,
-		EffortLevel:      agent.EffortLevelStandard,
-		WorkKinds:        ambientCaptureWorkKinds(dutyName),
-		InitialToolNames: ambientCaptureInitialToolNames(dutyName),
-		ResponseLanguage: responseLanguage,
-		Reason:           "ambient_duty_capture",
-	}
-}
-
-func ambientCaptureWorkKinds(dutyName string) []string {
-	if strings.TrimSpace(dutyName) == "calendar_upkeep" {
-		return []string{agent.WorkKindCalendar}
-	}
-	return nil
-}
-
-func ambientCaptureInitialToolNames(dutyName string) []string {
-	switch strings.TrimSpace(dutyName) {
-	case "calendar_upkeep":
-		return []string{"calendar.add", "calendar.update", "calendar.list"}
-	case "team_flow_update":
-		return []string{"task.add", "task.list", "task.update"}
-	default:
-		return nil
-	}
-}
-
 func ambientDutyContextFromAddressingDecision(decision agent.AddressingDecision) agent.AmbientDutyContext {
 	if !decision.DutyMatch || decision.DutyConfidence < ambientDutyLaunchConfidenceThreshold {
 		return agent.AmbientDutyContext{}
