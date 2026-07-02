@@ -5,15 +5,30 @@ import (
 	"testing"
 )
 
-func TestSitePublishPrerequisiteRejectsPublishAfterCreateWithoutBuild(t *testing.T) {
-	observation, isRejected := sitePublishPrerequisiteFailure(
+func TestSitePublishPrerequisiteAllowsPublishAfterCreateWithoutBuild(t *testing.T) {
+	_, isRejected := sitePublishPrerequisiteFailure(
 		[]turnObservation{newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`)},
 		sitePublishActionDocument(),
 		"obs-002",
 	)
 
+	if isRejected {
+		t.Fatal("expected site.create alone not to require a rebuild before publish")
+	}
+}
+
+func TestSitePublishPrerequisiteRejectsPublishAfterAppSourceChangeWithoutBuild(t *testing.T) {
+	observation, isRejected := sitePublishPrerequisiteFailure(
+		[]turnObservation{
+			newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`),
+			newContentObservation("obs-002", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/app/src/App.tsx"}`),
+		},
+		sitePublishActionDocument(),
+		"obs-003",
+	)
+
 	if !isRejected {
-		t.Fatal("expected site.publish to be rejected until the site is built")
+		t.Fatal("expected site.publish to be rejected until the site is rebuilt")
 	}
 	if observation.Tool != "site.publish" {
 		t.Fatalf("expected site.publish failure observation, got %q", observation.Tool)
@@ -23,14 +38,58 @@ func TestSitePublishPrerequisiteRejectsPublishAfterCreateWithoutBuild(t *testing
 	}
 }
 
+func TestSitePublishPrerequisiteAllowsPublishAfterContentOnlyChange(t *testing.T) {
+	_, isRejected := sitePublishPrerequisiteFailure(
+		[]turnObservation{
+			newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`),
+			newContentObservation("obs-002", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/app/public/site-content.json"}`),
+		},
+		sitePublishActionDocument(),
+		"obs-003",
+	)
+
+	if isRejected {
+		t.Fatal("expected site.publish to be allowed after a content-only change under app/public/")
+	}
+}
+
+func TestSitePublishPrerequisiteAllowsPublishAfterDesignOrControlFileChange(t *testing.T) {
+	_, isRejected := sitePublishPrerequisiteFailure(
+		[]turnObservation{
+			newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`),
+			newContentObservation("obs-002", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/DESIGN.md"}`),
+		},
+		sitePublishActionDocument(),
+		"obs-003",
+	)
+
+	if isRejected {
+		t.Fatal("expected site.publish to be allowed after a DESIGN.md change")
+	}
+
+	_, isRejectedForControlFile := sitePublishPrerequisiteFailure(
+		[]turnObservation{
+			newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`),
+			newContentObservation("obs-002", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/.internkim/notes.json"}`),
+		},
+		sitePublishActionDocument(),
+		"obs-003",
+	)
+
+	if isRejectedForControlFile {
+		t.Fatal("expected site.publish to be allowed after a .internkim/ control file change")
+	}
+}
+
 func TestSitePublishPrerequisiteAllowsPublishAfterBuild(t *testing.T) {
 	_, isRejected := sitePublishPrerequisiteFailure(
 		[]turnObservation{
 			newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`),
-			siteBuildObservation("obs-002", "home/sites/site-1/draft/app", "bun scripts/build.ts"),
+			newContentObservation("obs-002", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/app/src/App.tsx"}`),
+			siteBuildObservation("obs-003", "home/sites/site-1/draft/app", "bun scripts/build.ts"),
 		},
 		sitePublishActionDocument(),
-		"obs-003",
+		"obs-004",
 	)
 
 	if isRejected {
@@ -42,10 +101,11 @@ func TestSitePublishPrerequisiteAllowsPublishAfterStaticOutputBuild(t *testing.T
 	_, isRejected := sitePublishPrerequisiteFailure(
 		[]turnObservation{
 			newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`),
-			siteBuildObservation("obs-002", "home/sites/site-1/draft/app", "mkdir -p dist && printf '<!doctype html>' > dist/index.html"),
+			newContentObservation("obs-002", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/app/src/App.tsx"}`),
+			siteBuildObservation("obs-003", "home/sites/site-1/draft/app", "mkdir -p dist && printf '<!doctype html>' > dist/index.html"),
 		},
 		sitePublishActionDocument(),
-		"obs-003",
+		"obs-004",
 	)
 
 	if isRejected {
@@ -57,11 +117,12 @@ func TestSitePublishPrerequisiteRequiresRebuildAfterSourceChange(t *testing.T) {
 	_, isRejected := sitePublishPrerequisiteFailure(
 		[]turnObservation{
 			newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`),
-			siteBuildObservation("obs-002", "home/sites/site-1/draft/app", "bun scripts/build.ts"),
-			newContentObservation("obs-003", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/app/src/App.tsx"}`),
+			newContentObservation("obs-002", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/app/src/App.tsx"}`),
+			siteBuildObservation("obs-003", "home/sites/site-1/draft/app", "bun scripts/build.ts"),
+			newContentObservation("obs-004", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/app/src/App.tsx"}`),
 		},
 		sitePublishActionDocument(),
-		"obs-004",
+		"obs-005",
 	)
 
 	if !isRejected {
@@ -79,20 +140,23 @@ func TestSitePublishPrerequisiteAllowsPublishWithoutObservedSourceChange(t *test
 
 func TestSiteBuiltRecoveryPreconditionRequiresSiteBuildCommand(t *testing.T) {
 	failedPublish, isRejected := sitePublishPrerequisiteFailure(
-		[]turnObservation{newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`)},
+		[]turnObservation{
+			newContentObservation("obs-001", "continue", "site.create", `{"siteID":"site-1"}`),
+			newContentObservation("obs-002", "continue", FileWriteToolName, `{"path":"home/sites/site-1/draft/app/src/App.tsx"}`),
+		},
 		sitePublishActionDocument(),
-		"obs-002",
+		"obs-003",
 	)
 	if !isRejected {
 		t.Fatal("expected missing build rejection")
 	}
 
-	grepOnly := siteBuildObservation("obs-003", "home/sites/site-1/draft/app", "grep -q Local dist/index.html")
+	grepOnly := siteBuildObservation("obs-004", "home/sites/site-1/draft/app", "grep -q Local dist/index.html")
 	if len(missingRecoveryPreconditions(failedPublish, []turnObservation{failedPublish, grepOnly})) == 0 {
 		t.Fatal("expected grep-only terminal.run not to satisfy site_built")
 	}
 
-	build := siteBuildObservation("obs-004", "home/sites/site-1/draft/app", "bun scripts/build.ts")
+	build := siteBuildObservation("obs-005", "home/sites/site-1/draft/app", "bun scripts/build.ts")
 	if missing := missingRecoveryPreconditions(failedPublish, []turnObservation{failedPublish, build}); len(missing) != 0 {
 		t.Fatalf("expected site build to satisfy precondition, got %+v", missing)
 	}

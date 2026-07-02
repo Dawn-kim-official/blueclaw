@@ -989,12 +989,12 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 		Turns: []VirtualTurn{{
 			Prompt: "테스트용 'Local Fleet Studio' 단일 페이지 소개 웹사이트를 만들어서 배포해줘. 첫 화면 제목은 'Local Fleet Studio', 보조 문구는 '로컬 플릿 웹사이트 생성 배포 테스트', 섹션은 서비스 소개, 장점 3개, 문의 CTA만 넣어줘. 추가 질문하지 말고 합리적인 기본값으로 진행해줘.",
 			ActionResponses: []string{
-				actionInvokeCapabilityTool("site.create", `{"slug":"demo","title":"Local Fleet Studio","prompt":"Single-page introduction website with hero title Local Fleet Studio, subtitle 로컬 플릿 웹사이트 생성 배포 테스트, service overview, three advantages, and contact CTA.","designBrief":"Clean black-on-white validation landing page","prototypeScope":"single static page"}`),
-				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main><h1>Local Fleet Studio</h1><p>로컬 플릿 웹사이트 생성 배포 테스트</p></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`),
+				actionInvokeCapabilityTool("site.create", `{"slug":"demo","title":"Local Fleet Studio","content":{"siteName":"Local Fleet Studio","tagline":"로컬 플릿 웹사이트 생성 배포 테스트","sections":[{"title":"서비스 소개","body":"Local Fleet Studio는 로컬 플릿 환경에서 웹사이트 생성과 배포 과정을 검증하는 테스트 서비스입니다."},{"title":"장점","body":"빠른 프로토타입 생성, 안전한 배포 검증, 손쉬운 재배포까지 세 가지 장점을 제공합니다."},{"title":"문의","body":"자세한 내용이 궁금하시면 지금 바로 문의해 주세요."}]},"designBrief":"Clean black-on-white validation landing page","prototypeScope":"single static page"}`),
 				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Initial Local Fleet Studio website"}`),
-				actionFinishMessage("Local Fleet Studio 웹사이트 프로토타입을 배포했습니다: https://demo.device.example.test", "obs-003:site.publish:0"),
+				actionFinishMessage("Local Fleet Studio 웹사이트 프로토타입을 배포했습니다: https://demo.device.example.test", "obs-002:site.publish:0"),
 			},
 			ExpectedSelectedSkills: []string{"site-prototype"},
+			ExpectedToolCallCounts: map[string]int{"terminal.run": 0},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.capability.invoke.requested", BodyFragment: "site.create", Count: 1},
 				{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
@@ -1030,12 +1030,12 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 			{
 				Prompt: "Build and deploy a single-page Local Fleet Studio website. Use the heading 'Local Fleet Studio' and subtitle 'Local fleet create deploy test'. Include a short service overview and three feature bullets. Do not ask follow-up questions.",
 				ActionResponses: []string{
-					actionInvokeCapabilityTool("site.create", `{"slug":"demo","title":"Local Fleet Studio","prompt":"Single-page Local Fleet Studio website with a service overview and three feature bullets.","designBrief":"Clean validation landing page","prototypeScope":"single static page"}`),
-					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main><h1>Local Fleet Studio</h1><p>Local fleet create deploy test</p></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`),
+					actionInvokeCapabilityTool("site.create", `{"slug":"demo","title":"Local Fleet Studio","content":{"siteName":"Local Fleet Studio","tagline":"Local fleet create deploy test","sections":[{"title":"Overview","body":"Local Fleet Studio validates local fleet website creation and deployment."},{"title":"Features","body":"Fast prototyping, safe deploy verification, and easy redeploys."}]},"designBrief":"Clean validation landing page","prototypeScope":"single static page"}`),
 					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Initial Local Fleet Studio site"}`),
-					actionFinishMessage("Deployed the Local Fleet Studio site: https://demo.device.example.test", "obs-003:site.publish:0"),
+					actionFinishMessage("Deployed the Local Fleet Studio site: https://demo.device.example.test", "obs-002:site.publish:0"),
 				},
 				ExpectedSelectedSkills: []string{"site-prototype"},
+				ExpectedToolCallCounts: map[string]int{"terminal.run": 0},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.create", Count: 1},
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
@@ -1049,15 +1049,14 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 				Prompt: "Update the same Local Fleet Studio website heading to say 'Local Fleet Studio Updated' and add the subtitle 'Redeploy verification passed', then redeploy the same site. Do not create a new site.",
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("site.status", `{"siteID":"site-1"}`),
-					actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main><h1>Local Fleet Studio Updated</h1><p>Redeploy verification passed</p></main>;\n}\n"}`),
-					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main><h1>Local Fleet Studio Updated</h1><p>Redeploy verification passed</p></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`),
+					actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/public/site-content.json","content":"{\"siteName\":\"Local Fleet Studio Updated\",\"tagline\":\"Redeploy verification passed\"}"}`),
 					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Update heading to Local Fleet Studio Updated"}`),
-					actionFinishMessage("Updated and redeployed the site: https://demo.device.example.test", "obs-002:file.write:0", "obs-004:site.publish:0"),
+					actionFinishMessage("Updated and redeployed the site: https://demo.device.example.test", "obs-002:file.write:0", "obs-003:site.publish:0"),
 				},
+				ExpectedToolCallCounts: map[string]int{"terminal.run": 0},
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.status", Count: 1},
 					{Name: "tool.file.write.requested", BodyFragment: "Local Fleet Studio Updated", Count: 1},
-					{Name: "tool.terminal.run.requested", BodyFragment: "dist/index.html", Count: 1},
 					{Name: "tool.capability.invoke.requested", BodyFragment: "site.publish", Count: 1},
 					{Name: "tool.capability.invoke.result", BodyFragment: "device.example.test", Count: 1},
 				},
@@ -1066,6 +1065,45 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 				ExpectedReplyFragments: []string{"https://demo.device.example.test"},
 			},
 		},
+	}
+}
+
+func SiteCustomStructureAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                   "site_custom_structure_acceptance",
+		ArtifactDirectoryPath:  artifactDirectoryPath,
+		RouterRequiredEvidence: []string{"site.publish"},
+		RouterSiteEvidence:     "Local Fleet Studio",
+		Skills:                 []agent.SkillInstruction{sitePrototypeSkill()},
+		AllowedTools:           agent.KernelToolNames(),
+		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
+		InitialToolNames:       []string{"terminal.run"},
+		Turns: []VirtualTurn{{
+			Prompt: "Local Fleet Studio 웹사이트 레이아웃을 두 칼럼 커스텀 구조로 바꿔서 다시 배포해줘.",
+			ActionResponses: []string{
+				actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main className=\"custom-layout\"><section className=\"column\">Local Fleet Studio</section><section className=\"column\">Two-column custom layout</section></main>;\n}\n"}`),
+				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Publish custom two-column layout"}`),
+				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main class=\"custom-layout\"><section>Local Fleet Studio</section><section>Two-column custom layout</section></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`),
+				actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Publish custom two-column layout"}`),
+				actionFinishMessage("커스텀 레이아웃을 빌드하고 다시 배포했습니다: https://demo.device.example.test", "obs-004:site.publish:0"),
+			},
+			ExpectedToolCallCounts: map[string]int{"terminal.run": 1, "file.write": 1, "site.publish": 1},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "agent.site_publish_prerequisite_rejected", BodyFragment: "", Count: 1},
+				{Name: "tool.file.write.requested", BodyFragment: "custom-layout", Count: 1},
+				{Name: "tool.terminal.run.requested", BodyFragment: "dist/index.html", Count: 1},
+				{Name: "tool.capability.invoke.result", BodyFragment: "device.example.test", Count: 1},
+			},
+			ExpectedEvents:         []string{"agent.site_publish_prerequisite_rejected"},
+			ExpectedModelContexts:  []string{"site.publish requires a fresh build", "app/src", "app/public/site-content.json"},
+			ForbiddenModelContexts: []string{"home/sites/site-1"},
+			ExpectedReplyFragments: []string{"https://demo.device.example.test"},
+			ForbiddenReplyFragments: []string{
+				"죄송",
+				"완료하지 못",
+				"오류가 발생",
+			},
+		}},
 	}
 }
 

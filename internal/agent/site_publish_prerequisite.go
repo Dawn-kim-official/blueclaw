@@ -15,7 +15,7 @@ func sitePublishPrerequisiteFailure(observations []turnObservation, actionDocume
 	if siteHasFreshBuild(observations) {
 		return turnObservation{}, false
 	}
-	message := "site.publish requires a successful site build after the latest site source change. Run terminal.run with workingDirectoryPath set to the site's appWorkspacePath and command \"bun scripts/build.ts\", then retry " + operationName + "."
+	message := "site.publish requires a fresh build only after a structural change under the site's app/src or scaffold/app config files. Content edits to app/public/site-content.json publish directly without a build. Since a build-requiring change was made, run terminal.run with workingDirectoryPath set to the site's appWorkspacePath and command \"bun scripts/build.ts\", then retry " + operationName + "."
 	observation := newFailureObservation(observationID, "continue", operationName, message, FailureInvalidInput, FailureCodes.InvalidInput, "workflow_prerequisite")
 	observation.ToolInputKey = canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 	observation.AttemptFingerprint = attemptFingerprint(observation.ToolInputKey, observation.FailureCode())
@@ -70,10 +70,8 @@ func latestSuccessfulSiteBuildObservationIndexAfter(observations []turnObservati
 
 func observationIsSiteSourceChange(observation turnObservation) bool {
 	switch strings.TrimSpace(observation.Tool) {
-	case "site.create", "site.repair", "site.restore":
-		return true
 	case FileWriteToolName, FileEditToolName, FilePatchToolName, FileDeleteToolName:
-		return pathLooksLikeSiteWorkspace(observationPath(observation))
+		return pathRequiresSiteBuildBeforePublish(observationPath(observation))
 	default:
 		return false
 	}
@@ -193,6 +191,34 @@ func pathLooksLikeSiteWorkspace(path string) bool {
 func pathLooksLikeSiteAppWorkspace(path string) bool {
 	normalizedPath := strings.TrimSuffix(strings.TrimSpace(filepathSlash(path)), "/")
 	return pathLooksLikeSiteWorkspace(normalizedPath) && strings.HasSuffix(normalizedPath, "/app")
+}
+
+func pathRequiresSiteBuildBeforePublish(path string) bool {
+	normalizedPath := strings.TrimSpace(filepathSlash(path))
+	if !pathLooksLikeSiteWorkspace(normalizedPath) {
+		return false
+	}
+	if pathIsSiteDesignOrControlFile(normalizedPath) {
+		return false
+	}
+	appRelativePath, isUnderSiteAppDirectory := siteAppRelativePath(normalizedPath)
+	if !isUnderSiteAppDirectory {
+		return false
+	}
+	return !strings.HasPrefix(appRelativePath, "public/")
+}
+
+func pathIsSiteDesignOrControlFile(path string) bool {
+	return strings.HasSuffix(path, "/DESIGN.md") || strings.Contains(path, "/.internkim/")
+}
+
+func siteAppRelativePath(path string) (string, bool) {
+	const appDirectorySegment = "/app/"
+	appDirectoryIndex := strings.Index(path, appDirectorySegment)
+	if appDirectoryIndex < 0 {
+		return "", false
+	}
+	return path[appDirectoryIndex+len(appDirectorySegment):], true
 }
 
 func filepathSlash(path string) string {
