@@ -151,7 +151,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(tool
 		Definition: agent.ToolDefinition{
 			Name:        agent.CapabilityInvokeToolName,
 			Description: toolCatalogBuilder.genericCapabilityToolDescription(),
-			InputSchema: genericCapabilityInvokeInputSchema(toolCatalogBuilder.genericCapabilityOperationNames()),
+			InputSchema: genericCapabilityInvokeInputSchema(toolCatalogBuilder.genericCapabilityOperationNames(request)),
 		},
 		Availability: agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable},
 		Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
@@ -166,11 +166,13 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(tool
 			if operation == "" {
 				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires an operation name"), nil
 			}
-			if !isJSONInputObject(call.Input) {
-				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires input to be an object for operation "+operation), nil
-			}
 			if !toolRegistry.IsRegistered(operation) {
 				return toolCatalogBuilder.unknownCapabilityOperationResult(operation), nil
+			}
+			call.Input = normalizeCapabilityInvokeInput(call.Input)
+			if !isJSONInputObject(call.Input) {
+				toolDescriptor, _ := toolCatalogBuilder.capabilityToolDescriptorByName(operation)
+				return capabilityInputNotObjectFailure(operation, toolDescriptor), nil
 			}
 			return toolRegistry.InvokeRegistered(toolContext, agent.ToolInvocation{ToolName: operation, Input: call.Input})
 		},
@@ -223,12 +225,15 @@ func (toolCatalogBuilder *ToolCatalogBuilder) capabilityCatalogEntries() []strin
 	return entries
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityOperationNames() []string {
+func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityOperationNames(request ToolCatalogRequest) []string {
 	operationNames := []string{}
 	seenName := map[string]bool{}
 	for _, toolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
 		name := strings.TrimSpace(toolDescriptor.Name)
 		if name == "" || genericCapabilityCatalogExcluded[name] || seenName[name] {
+			continue
+		}
+		if capabilityToolAvailability(toolDescriptor, request).Status == agent.ToolAvailabilityDenied {
 			continue
 		}
 		seenName[name] = true
@@ -330,6 +335,44 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 	return result
 }
 
+func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) agent.ToolResult {
+	message := "capability.invoke requires input to be an object for operation " + operation + ". Call capability.invoke again with operation=" + operation + " and input set to a JSON object, not a string and not null."
+	result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message)
+	if result.Failure == nil {
+		return result
+	}
+	requiredFields := requiredFieldsFromSchema(toolDescriptor.InputSchema)
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	result.Failure.FailureClass = "schema"
+	result.Failure.RetryPolicy = "different_input"
+	result.Failure.RecoveryHints = []agent.RecoveryHint{{
+		Action:    "Retry capability.invoke with operation=" + operation + " and input as a JSON object (not a string, not null) holding that operation's fields.",
+		ToolNames: []string{agent.CapabilityInvokeToolName},
+		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, requiredFields) + ".",
+	}}
+	return result
+}
+
+func requiredFieldsFromSchema(inputSchema json.RawMessage) []string {
+	var schema struct {
+		Required []string `json:"required"`
+	}
+	if json.Unmarshal(inputSchema, &schema) != nil {
+		return nil
+	}
+	return schema.Required
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) capabilityToolDescriptorByName(operation string) (CapabilityToolDescriptor, bool) {
+	for _, toolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
+		if strings.TrimSpace(toolDescriptor.Name) == operation {
+			return toolDescriptor, true
+		}
+	}
+	return CapabilityToolDescriptor{}, false
+}
+
 func capabilityRequiredInputDescription(inputSchema json.RawMessage, requiredFields []string) string {
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
@@ -351,10 +394,7 @@ func capabilityInvokeWrapperExample(operation string, inputSchema json.RawMessag
 		"operation": operation,
 		"input":     input,
 	}
-	encoded, errorValue := json.Marshal(document)
-	if errorValue != nil {
-		return `{"operation":"` + operation + `","input":{}}`
-	}
+	encoded, _ := json.Marshal(document)
 	return string(encoded)
 }
 
@@ -375,6 +415,21 @@ func capabilityPlaceholderValue(inputSchema json.RawMessage, field string) any {
 	default:
 		return "<real " + field + ">"
 	}
+}
+
+func normalizeCapabilityInvokeInput(input json.RawMessage) json.RawMessage {
+	if isJSONInputObject(input) {
+		return input
+	}
+	var stringifiedInput string
+	if json.Unmarshal(input, &stringifiedInput) != nil {
+		return input
+	}
+	innerInput := json.RawMessage(stringifiedInput)
+	if !isJSONInputObject(innerInput) {
+		return input
+	}
+	return innerInput
 }
 
 func isJSONInputObject(input json.RawMessage) bool {
@@ -418,10 +473,7 @@ func genericCapabilityInvokeInputSchema(operationNames []string) json.RawMessage
 	if len(operationNames) > 0 {
 		document["properties"].(map[string]any)["operation"].(map[string]any)["enum"] = operationNames
 	}
-	encoded, errorValue := json.Marshal(document)
-	if errorValue != nil {
-		return json.RawMessage(`{"type":"object","properties":{"operation":{"type":"string"},"input":{"type":"object"}},"required":["operation","input"]}`)
-	}
+	encoded, _ := json.Marshal(document)
 	return encoded
 }
 
