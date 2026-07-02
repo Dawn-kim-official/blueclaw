@@ -121,6 +121,28 @@ func TestCapabilityInvokeActionSchemaPreservesWrapperRequiredFields(t *testing.T
 	}
 }
 
+func TestActionSchemaPreservesRequiredFieldsOnArrayOfNestedObjects(t *testing.T) {
+	schemaDocument := buildActionSchemaFromToolDefinitions([]ToolDefinition{{
+		Name:        "calendar.add",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}},"required":["items"]}`),
+	}}, false, nil, false, false)
+
+	continueVariant := actionSchemaVariant(t, schemaDocument, "continue")
+	properties := mapFromAny(continueVariant["properties"])
+	toolInput := mapFromAny(properties["toolInput"])
+	topLevelRequired := stringSliceFromAny(toolInput["required"])
+	if !containsString(topLevelRequired, "items") {
+		t.Fatalf("expected top-level required to include items, got %+v in %s", topLevelRequired, schemaDocument)
+	}
+	toolInputProperties := mapFromAny(toolInput["properties"])
+	itemsProperty := mapFromAny(toolInputProperties["items"])
+	arrayItemSchema := mapFromAny(itemsProperty["items"])
+	nestedRequired := stringSliceFromAny(arrayItemSchema["required"])
+	if !containsString(nestedRequired, "name") {
+		t.Fatalf("expected required to be preserved two levels deep on array item objects, got %+v in %s", nestedRequired, schemaDocument)
+	}
+}
+
 func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T) {
 	seed := int64(88)
 	temperature := 0.5
