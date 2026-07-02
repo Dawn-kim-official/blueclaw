@@ -40,8 +40,7 @@ func (HostOutboundNetworkService) PrepareOutboundNetwork(outboundNetwork Outboun
 		return errorValue
 	}
 	if errorValue := ensureHostNetworkRule("iptables", "-t", "mangle", "-C", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu"); errorValue != nil {
-		_ = runHostNetworkCommand("ip", "link", "delete", outboundNetwork.HostDeviceName)
-		return errorValue
+		fmt.Println("forwarded TCP MSS clamp unavailable; continuing without it:", errorValue)
 	}
 	return nil
 }
