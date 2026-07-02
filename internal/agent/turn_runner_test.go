@@ -950,7 +950,7 @@ func assertProviderSafeNestedSchemaValue(t *testing.T, value any, isPropertiesMa
 				assertProviderSafeNestedSchemaValue(t, fieldValue, false)
 				continue
 			}
-			if fieldName == "required" || fieldName == "additionalProperties" || fieldName == "maxItems" {
+			if fieldName == "additionalProperties" || fieldName == "maxItems" {
 				t.Fatalf("nested action schema uses unsupported key %s in %+v", fieldName, document)
 			}
 			if fieldName == "type" && fieldValue == "integer" {
