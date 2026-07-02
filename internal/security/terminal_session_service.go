@@ -1,10 +1,10 @@
 package security
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
@@ -22,6 +22,8 @@ const (
 	terminalRunToolName      = "terminal.run"
 	defaultRTKExecutablePath = "/workspace/.blueclaw/runtime/current/bin/rtk"
 	defaultRTKRewriteTimeout = 10 * time.Second
+	commandAbandonGrace      = 5 * time.Second
+	commandReaperInterval    = 30 * time.Second
 )
 
 type CommandResult struct {
@@ -104,12 +106,26 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 		command.Stdin = strings.NewReader(commandPlan.Stdin)
 	}
 
-	var standardOutputBuffer bytes.Buffer
-	var standardErrorBuffer bytes.Buffer
-	command.Stdout = &standardOutputBuffer
-	command.Stderr = &standardErrorBuffer
+	standardOutputBuffer := newOutputRingBuffer(terminalSessionService.outputMaxBytes())
+	standardErrorBuffer := newOutputRingBuffer(terminalSessionService.outputMaxBytes())
+	command.Stdout = standardOutputBuffer
+	command.Stderr = standardErrorBuffer
 
-	errorValue = command.Run()
+	runResult := make(chan error, 1)
+	go func() {
+		runResult <- command.Run()
+	}()
+
+	errorValue, isAbandoned := awaitCommandCompletion(ctx, runResult, command.WaitDelay+commandAbandonGrace)
+	if isAbandoned {
+		terminalSessionService.abandonUnreapableProcessGroup(command, runResult)
+		return CommandResult{
+			ExitCode: -1,
+			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
+			Stderr:   truncateString(standardErrorBuffer.String(), terminalSessionService.outputMaxBytes()),
+			TimedOut: true,
+		}, errors.New("command timed out")
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		return CommandResult{
 			ExitCode: -1,
@@ -152,6 +168,43 @@ func configureCommandGroupKill(command *exec.Cmd) {
 		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 	}
 	command.WaitDelay = 2 * time.Second
+}
+
+func awaitCommandCompletion(ctx context.Context, runResult <-chan error, abandonGrace time.Duration) (errorValue error, abandoned bool) {
+	select {
+	case errorValue = <-runResult:
+		return errorValue, false
+	case <-ctx.Done():
+	}
+
+	select {
+	case errorValue = <-runResult:
+		return errorValue, false
+	case <-time.After(abandonGrace):
+		return nil, true
+	}
+}
+
+func (terminalSessionService *TerminalSessionService) abandonUnreapableProcessGroup(command *exec.Cmd, runResult <-chan error) {
+	if command.Process == nil {
+		return
+	}
+	processGroupID := command.Process.Pid
+	slog.Warn("terminal.run abandoned unreapable process group", "pgid", processGroupID, "command", command.Path)
+
+	go func() {
+		ticker := time.NewTicker(commandReaperInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runResult:
+				slog.Info("abandoned process group reaped", "pgid", processGroupID)
+				return
+			case <-ticker.C:
+				_ = syscall.Kill(-processGroupID, syscall.SIGKILL)
+			}
+		}
+	}()
 }
 
 func (terminalSessionService *TerminalSessionService) runPreToolUseHooks(commandRequest CommandRequest) (CommandRequest, error) {
