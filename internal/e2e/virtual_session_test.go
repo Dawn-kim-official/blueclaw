@@ -497,14 +497,40 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 	if secondTurnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected second turn success, got %s", secondTurnResult.TaskStatus)
 	}
-	if countEvents(secondTurnResult.Events, "tool.terminal.run.requested") == 0 {
-		t.Fatalf("expected terminal.run in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	if countEvents(secondTurnResult.Events, "tool.terminal.run.requested") != 0 {
+		t.Fatalf("expected no terminal.run for a content-only edit in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if countEventsWithFragment(secondTurnResult.Events, "tool.file.write.requested", "site-content.json") == 0 {
+		t.Fatalf("expected a content-only site-content.json edit in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if countEventsWithFragment(secondTurnResult.Events, "tool.capability.invoke.requested", "site.publish") == 0 {
 		t.Fatalf("expected site.publish capability invocation in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "https://") {
 		t.Fatalf("expected final assistant message to contain a URL, got %q", secondTurnResult.FinishMessage)
+	}
+}
+
+func TestSiteCustomStructureAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), SiteCustomStructureAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected site custom structure acceptance scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if turnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
+	}
+	if !eventsContain(turnResult.Events, "agent.site_publish_prerequisite_rejected", "") {
+		t.Fatalf("expected the first site.publish attempt to be rejected by the prerequisite gate; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEvents(turnResult.Events, "tool.terminal.run.requested") != 1 {
+		t.Fatalf("expected exactly one terminal.run build after the app/src change; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEventsWithFragment(turnResult.Events, "tool.capability.invoke.requested", "site.publish") != 1 {
+		t.Fatalf("expected site.publish to succeed only after the rebuild; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if !strings.Contains(turnResult.FinishMessage, "https://") {
+		t.Fatalf("expected final assistant message to contain a URL, got %q", turnResult.FinishMessage)
 	}
 }
 

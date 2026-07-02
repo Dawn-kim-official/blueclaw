@@ -426,6 +426,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_edit_redeploy_acceptance":
 		return SiteEditRedeployAcceptanceScenario(artifactDirectoryPath), nil
+	case "site_custom_structure_acceptance":
+		return SiteCustomStructureAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_lifecycle_acceptance":
 		return SiteLifecycleAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_suggested_repair_recovery":
@@ -986,7 +988,7 @@ func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
 func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 	switch toolName {
 	case "site.create":
-		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
+		return `{"provider":"virtual","toolName":"site.create","status":"ok","result":{"siteID":"site-1","slug":"demo","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app","sourceFiles":` + virtualSiteCreateSourceFiles(requestBody) + `}}`
 	case "site.publish":
 		return `{"provider":"virtual","toolName":"site.publish","status":"ok","result":{"siteID":"site-1","status":"published","publishedURL":"https://demo.device.example.test"}}`
 	case "site.status":
@@ -1010,6 +1012,22 @@ func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 	default:
 		return `{"provider":"virtual","toolName":` + quote(toolName) + `,"status":"ok","result":{"toolName":` + quote(toolName) + `,"ok":true,"request":` + jsonObjectOrEmpty(requestBody) + `}}`
 	}
+}
+
+func virtualSiteCreateSourceFiles(requestBody []byte) string {
+	var request struct {
+		Input struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"input"`
+	}
+	if json.Unmarshal(requestBody, &request) != nil || len(request.Input.Content) == 0 {
+		return `[{"path":"app/public/site-content.json","content":"{}"}]`
+	}
+	encodedContent, errorValue := json.Marshal(string(request.Input.Content))
+	if errorValue != nil {
+		return `[{"path":"app/public/site-content.json","content":"{}"}]`
+	}
+	return `[{"path":"app/public/site-content.json","content":` + string(encodedContent) + `}]`
 }
 
 func jsonObjectOrEmpty(document []byte) string {
