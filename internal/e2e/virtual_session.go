@@ -50,6 +50,7 @@ type VirtualSessionScenario struct {
 	InitialToolNames          []string
 	InitialMemory             []memory.MemoryFact
 	RouterWorkKinds           []string
+	RouterRequiredEvidence    []string
 	RouterEffortLevel         string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
@@ -70,6 +71,7 @@ type VirtualTurn struct {
 	ContextMessages           []connectors.VisibleContextMessage
 	ContextMaterials          []connectors.InputAttachment
 	ActionResponses           []string
+	RouterRequiredEvidence    []string
 	ExpectedSelectedSkills    []string
 	ExpectedToolCalls         []string
 	ExpectedEvents            []string
@@ -1057,7 +1059,10 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 	}
 	for index, virtualTurn := range harness.scenario.Turns {
 		if harness.scriptedModel != nil {
-			harness.scriptedModel.EnqueueActionResponses(virtualTurn.ActionResponses...)
+			if len(virtualTurn.RouterRequiredEvidence) > 0 {
+				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
+			}
+			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
 		}
 		turnResult, errorValue := harness.runTurn(ctx, index, virtualTurn)
 		if errorValue != nil {
@@ -1096,32 +1101,45 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}
-	if len(scenario.RouterWorkKinds) == 0 && len(scenario.InitialToolNames) == 0 {
+	if len(scenario.RouterWorkKinds) == 0 && len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 {
 		return defaultResponses
 	}
+	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
+	return defaultResponses
+}
+
+func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn VirtualTurn) string {
 	effortLevel := strings.TrimSpace(scenario.RouterEffortLevel)
 	if effortLevel == "" {
 		effortLevel = "standard"
+	}
+	requiredEvidence := scenario.RouterRequiredEvidence
+	if len(virtualTurn.RouterRequiredEvidence) > 0 {
+		requiredEvidence = virtualTurn.RouterRequiredEvidence
 	}
 	routerDocument := map[string]any{
 		"route":                  "start_task",
 		"classification":         "bounded_task",
 		"taskShape":              "maintenance_task",
+		"taskComplexity":         "normal",
 		"effortLevel":            effortLevel,
+		"outputKind":             nil,
 		"requestedOutputFormats": nil,
+		"expectedResults":        []any{},
+		"requiredEvidence":       requiredEvidence,
 		"siteRequestEvidence":    scenario.RouterSiteEvidence,
 		"responseLanguage":       "ko",
 		"reason":                 "scripted scenario default",
 		"userFacingReply":        "",
 		"workKinds":              scenario.RouterWorkKinds,
 		"initialToolNames":       scenario.InitialToolNames,
+		"priorTaskReference":     "none",
 	}
 	encodedDocument, errorValue := json.Marshal(routerDocument)
 	if errorValue != nil {
-		return nil
+		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","outputKind":null,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scripted scenario default","userFacingReply":"","workKinds":[],"initialToolNames":[],"priorTaskReference":"none"}`
 	}
-	defaultResponses["blueclaw_turn_router"] = string(encodedDocument)
-	return defaultResponses
+	return string(encodedDocument)
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {
@@ -1299,7 +1317,7 @@ func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTu
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
 		results = append(results, VirtualInformationalAssertion{
 			Name:      "expected tool call " + toolName,
-			Satisfied: eventsContain(turnResult.Events, "tool."+toolName+".requested", toolName),
+			Satisfied: requestedToolCallPresent(turnResult.Events, toolName),
 			Detail:    toolName,
 		})
 	}

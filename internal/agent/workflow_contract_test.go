@@ -1,9 +1,12 @@
 package agent
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestWorkflowContractDerivesFlowTaskWorkKindAndTools(t *testing.T) {
-	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
+	toolSet := newTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
 	request := AgentRequest{
 		Prompt:  "업무 등록해줘",
 		ToolSet: toolSet,
@@ -15,23 +18,21 @@ func TestWorkflowContractDerivesFlowTaskWorkKindAndTools(t *testing.T) {
 	}
 
 	toolNames := workflowToolNamesForWorkKinds(toolSet, workKinds)
+	if !stringSliceContains(toolNames, CapabilityInvokeToolName) {
+		t.Fatalf("expected workflow to prepare capability.invoke, got %+v", toolNames)
+	}
 	for _, toolName := range []string{"task.add", "task.list", "task.update"} {
-		if !stringSliceContains(toolNames, toolName) {
-			t.Fatalf("expected workflow tool %s, got %+v", toolName, toolNames)
+		if stringSliceContains(toolNames, toolName) {
+			t.Fatalf("expected capability operation %s to stay hidden from direct workflow tools, got %+v", toolName, toolNames)
 		}
 	}
 }
 
 func TestWorkflowContractDerivesSitePrototypeWorkKindAndTools(t *testing.T) {
-	toolSet := newTestToolSet([]string{
+	toolSet := newTestCapabilityToolSet([]string{
 		"site.status",
 		"site.create",
 		"site.repair",
-		"file.read",
-		"file.write",
-		"file.edit",
-		"file.patch",
-		"terminal.run",
 		"artifact.review",
 		"site.preview",
 		"browser.open",
@@ -39,6 +40,19 @@ func TestWorkflowContractDerivesSitePrototypeWorkKindAndTools(t *testing.T) {
 		"browser.screenshot",
 		"site.publish",
 	})
+	for _, toolName := range []string{
+		"file.read",
+		"file.write",
+		"file.edit",
+		"file.patch",
+		"terminal.run",
+	} {
+		currentToolName := toolName
+		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		})
+	}
+	toolSet = toolSet.WithAdditionalAllowedToolNames([]string{"file.read", "file.write", "file.edit", "file.patch", "terminal.run"})
 	request := AgentRequest{
 		Prompt:  "사이트 버튼 기능 수정하고 다시 배포해줘",
 		ToolSet: toolSet,
@@ -50,56 +64,14 @@ func TestWorkflowContractDerivesSitePrototypeWorkKindAndTools(t *testing.T) {
 	}
 
 	toolNames := workflowToolNamesForWorkKinds(toolSet, workKinds)
-	for _, toolName := range []string{"site.status", "site.repair", "file.read", "file.write", "file.edit", "file.patch", "artifact.review", "site.publish"} {
+	for _, toolName := range []string{CapabilityInvokeToolName, "file.read", "file.write", "file.edit", "file.patch", "terminal.run"} {
 		if !stringSliceContains(toolNames, toolName) {
 			t.Fatalf("expected workflow tool %s, got %+v", toolName, toolNames)
 		}
 	}
-}
-
-func TestWorkflowContractSelectsFlowTaskEvidenceByIntent(t *testing.T) {
-	toolSet := newTestToolSet([]string{"task.add", "task.list", "task.update"})
-	tests := []struct {
-		prompt           string
-		expectedToolName string
-	}{
-		{prompt: "업무 등록해줘", expectedToolName: "task.add"},
-		{prompt: "업무 목록 보여줘", expectedToolName: "task.list"},
-		{prompt: "업무 완료 처리해줘", expectedToolName: "task.update"},
-	}
-
-	for _, test := range tests {
-		request := AgentRequest{
-			Prompt:    test.prompt,
-			ToolSet:   toolSet,
-			WorkKinds: []string{WorkKindFlowTask},
-		}
-		toolNames := requiredWorkflowEvidenceToolsForRequest(request)
-		if len(toolNames) != 1 || toolNames[0] != test.expectedToolName {
-			t.Fatalf("expected evidence tool %s for %q, got %+v", test.expectedToolName, test.prompt, toolNames)
-		}
-	}
-}
-
-func TestWorkflowContractSelectsSitePrototypeEvidenceByIntent(t *testing.T) {
-	toolSet := newTestToolSet([]string{"site.status", "site.publish"})
-	tests := []struct {
-		prompt           string
-		expectedToolName string
-	}{
-		{prompt: "사이트 버튼 기능 수정하고 다시 배포해줘", expectedToolName: "site.publish"},
-		{prompt: "사이트 상태 확인해줘", expectedToolName: "site.status"},
-	}
-
-	for _, test := range tests {
-		request := AgentRequest{
-			Prompt:    test.prompt,
-			ToolSet:   toolSet,
-			WorkKinds: []string{WorkKindSitePrototype},
-		}
-		toolNames := requiredWorkflowEvidenceToolsForRequest(request)
-		if len(toolNames) != 1 || toolNames[0] != test.expectedToolName {
-			t.Fatalf("expected evidence tool %s for %q, got %+v", test.expectedToolName, test.prompt, toolNames)
+	for _, toolName := range []string{"site.status", "site.repair", "artifact.review", "site.publish"} {
+		if stringSliceContains(toolNames, toolName) {
+			t.Fatalf("expected capability operation %s to stay hidden from direct workflow tools, got %+v", toolName, toolNames)
 		}
 	}
 }

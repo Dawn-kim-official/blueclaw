@@ -43,7 +43,7 @@ func taskShapeForSelectedSkills(instructionBundle InstructionBundle) TaskShape {
 func selectedSkillsNeedBoundedExecution(instructionBundle InstructionBundle, classification IntakeClassification) bool {
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
 		if classification == IntakeClassificationQuickReply {
-			if skillSupportsToolPrefix(skillInstruction, "schedule.") {
+			if selectedSkillRequiresCompletionEvidence(skillInstruction) {
 				return true
 			}
 			continue
@@ -71,8 +71,7 @@ func selectedSkillInstructionList(instructionBundle InstructionBundle) []SkillIn
 
 func selectedSkillRequiresCompletionEvidence(skillInstruction SkillInstruction) bool {
 	return len(skillInstruction.Completion.RequiredEvidenceTools) > 0 ||
-		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0 ||
-		skillSupportsToolPrefix(skillInstruction, "schedule.")
+		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0
 }
 
 func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, allowedTools []string) bool {
