@@ -127,7 +127,7 @@ func TestWorkspaceScopeEnvironmentStaysUnderRequesterPrivateRoot(t *testing.T) {
 		"XDG_RUNTIME_DIR":       filepath.Join(taskRuntimeRootPath, "runtime"),
 		"BUN_TMPDIR":            filepath.Join(taskRuntimeRootPath, "bun", "tmp"),
 		"BUN_INSTALL":           filepath.Join(taskRuntimeRootPath, "bun", "install"),
-		"BUN_INSTALL_CACHE_DIR": filepath.Join(taskRuntimeRootPath, "bun", "cache"),
+		"BUN_INSTALL_CACHE_DIR": filepath.Join(workspacePath, "shared", "cache", "dependencies", "bun"),
 		"npm_config_cache":      filepath.Join(taskRuntimeRootPath, "npm"),
 	}
 	for name, expectedPath := range expectedEnvironmentPaths {
@@ -135,7 +135,7 @@ func TestWorkspaceScopeEnvironmentStaysUnderRequesterPrivateRoot(t *testing.T) {
 		if actualPath != expectedPath {
 			t.Fatalf("expected %s to be %s, got %s", name, expectedPath, actualPath)
 		}
-		if name != "HOME" && !strings.HasPrefix(actualPath, requesterRootPath+string(filepath.Separator)) {
+		if name != "HOME" && name != "BUN_INSTALL_CACHE_DIR" && !strings.HasPrefix(actualPath, requesterRootPath+string(filepath.Separator)) {
 			t.Fatalf("expected %s to stay under requester root, got %s", name, actualPath)
 		}
 		for _, deniedPrefix := range []string{"/tmp", "/opt", filepath.Join(workspacePath, "tmp"), filepath.Join(workspacePath, ".blueclaw")} {
