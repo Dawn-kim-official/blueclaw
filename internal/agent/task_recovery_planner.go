@@ -15,15 +15,10 @@ func shouldRetryUnsupportedLocalArtifact(request AgentRequest, decision IntakeDe
 	if decision.Classification != IntakeClassificationUnsupported {
 		return false
 	}
-	if decision.HasWorkKind(WorkKindDestructiveAction) {
-		return false
-	}
 	if !hasAllTools(request.ToolSet, []string{TerminalRunToolName, FileDeliverToolName}) {
 		return false
 	}
-	return hasArtifactOutputFormat(decision.RequestedOutputFormats) ||
-		decision.HasWorkKind(WorkKindSlidesArtifact) ||
-		decision.HasWorkKind(WorkKindFileDelivery)
+	return normalizeOutputKind(decision.OutputKind) == OutputKindFile || hasArtifactOutputFormat(decision.RequestedOutputFormats)
 }
 
 func hasArtifactOutputFormat(formats []string) bool {

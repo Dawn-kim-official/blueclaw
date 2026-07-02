@@ -38,7 +38,6 @@ type LLMContextInput struct {
 	ToolSet               *ToolSet
 	RequiredEvidenceTools []string
 	OutcomeContract       OutcomeContract
-	WorkKinds             []string
 	ExtraSections         []string
 }
 
@@ -288,6 +287,5 @@ func agentTurnRequestForContext(input LLMContextInput) AgentTurnRequest {
 		ToolSet:               input.ToolSet,
 		RequiredEvidenceTools: append([]string{}, input.RequiredEvidenceTools...),
 		OutcomeContract:       input.OutcomeContract,
-		WorkKinds:             append([]string{}, input.WorkKinds...),
 	}
 }

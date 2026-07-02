@@ -49,8 +49,7 @@ func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []t
 }
 
 func turnRequestLooksLikeSitePrototypeWork(request AgentTurnRequest) bool {
-	return workKindsContain(request.WorkKinds, WorkKindSitePrototype) ||
-		activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") ||
+	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") ||
 		contractRequiresToolPrefix(request.OutcomeContract, "site.") ||
 		requiredEvidenceContains(request.RequiredEvidenceTools, "site.publish")
 }
@@ -63,8 +62,7 @@ func sitePublishIsRequired(request AgentTurnRequest) bool {
 }
 
 func turnRequestLooksLikeFileDeliveryWork(request AgentTurnRequest) bool {
-	return workKindsContain(request.WorkKinds, WorkKindFileDelivery) ||
-		len(request.RequiredAttachmentSuffixes) > 0 ||
+	return len(request.RequiredAttachmentSuffixes) > 0 ||
 		len(request.OutcomeContract.RequiredAttachmentSuffixes) > 0 ||
 		requiredEvidenceContains(request.RequiredEvidenceTools, FileDeliverToolName) ||
 		requiredEvidenceContains(request.OutcomeContract.RequiredEvidenceTools, FileDeliverToolName) ||

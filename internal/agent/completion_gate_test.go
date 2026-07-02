@@ -77,7 +77,6 @@ func TestCompletionGateRejectsExternalSendFinishWithoutSendEvidence(t *testing.T
 	goalSatisfied := true
 	result := validateCompletionGateForRequestWithRecoveryBudget(
 		AgentTurnRequest{
-			WorkKinds:             []string{WorkKindExternalSend},
 			RequiredEvidenceTools: []string{"mail.message.send"},
 		},
 		nil,
@@ -140,7 +139,7 @@ func TestCompletionGateRejectsRequiredSendToolFinishWithSuggestedNextTools(t *te
 func TestCompletionGateAcceptsExternalSendFinishWithSendEvidence(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGateForRequestWithRecoveryBudget(
-		AgentTurnRequest{WorkKinds: []string{WorkKindExternalSend}},
+		AgentTurnRequest{RequiredEvidenceTools: []string{"message.send"}},
 		nil,
 		[]turnObservation{newContentObservation("obs-001", "continue", "message.send", "sent")},
 		nil,
@@ -374,7 +373,7 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "구글 서치바에 hello world라고 치고 스크린샷",
-		WorkKinds:         []string{WorkKindBrowserSession},
+		TaskShape:         TaskShapeBrowserHandoffTask,
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -919,7 +918,6 @@ func TestAgentTurnRunnerNoToolFallbackWaivesFailedRequiredEvidence(t *testing.T)
 func TestCompletionGateDoesNotWaiveFlowTaskEvidenceWithNoToolFallback(t *testing.T) {
 	goalSatisfied := true
 	request := AgentTurnRequest{
-		WorkKinds:             []string{WorkKindFlowTask},
 		RequiredEvidenceTools: []string{"task.add"},
 		ToolSet:               newTestToolSet([]string{"task.add"}),
 	}
@@ -927,7 +925,7 @@ func TestCompletionGateDoesNotWaiveFlowTaskEvidenceWithNoToolFallback(t *testing
 		request,
 		deriveToolUseRequirements(request),
 		[]turnObservation{
-			newFailureObservation("obs-001", "continue", "task.add", "flow task add failed", FailureExternalService, FailureCodes.OperationFailed, "flow_task_add"),
+			newFailureObservation("obs-001", "continue", "task.add", "task add failed", FailureExternalService, FailureCodes.OperationFailed, "task_add"),
 		},
 		nil,
 		turnActionDocument{
@@ -1094,7 +1092,6 @@ func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityRevie
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "사이트를 배포해줘",
-		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 		OutcomeContract: OutcomeContract{ExpectedResults: []ExpectedResult{{
@@ -1144,7 +1141,6 @@ func TestAgentTurnRunnerExpectedResultVerifierBlocksEarlyFinish(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "개인 홈페이지 만들어서 배포해줘",
-		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 		OutcomeContract: OutcomeContract{
@@ -1247,7 +1243,6 @@ func TestAgentTurnRunnerExpectedResultsDoNotRequireLegacyToolEvidenceFirst(t *te
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "개인 홈페이지 배포해줘",
-		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"file.deliver"},
@@ -1371,7 +1366,6 @@ func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) 
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "사이트 빌드해서 배포 준비해줘",
-		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.build"},

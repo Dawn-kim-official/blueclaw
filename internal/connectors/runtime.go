@@ -1876,10 +1876,6 @@ func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEven
 	intakeDecision := latestIntakeDecision(taskEvents)
 	requestedOutputFormats := appendUniqueConnectorStrings([]string{}, intakeDecision.RequestedOutputFormats...)
 	requestedOutputFormats = appendUniqueConnectorStrings(requestedOutputFormats, outputFormatsFromAttachmentSuffixes(activeGoal.OutcomeContract.RequiredAttachmentSuffixes)...)
-	workKinds := appendUniqueConnectorStrings(activeGoal.WorkKinds, intakeDecision.WorkKinds...)
-	if len(requestedOutputFormats) > 0 {
-		workKinds = appendUniqueConnectorStrings(workKinds, agent.WorkKindFileDelivery)
-	}
 	return agent.PriorTaskContext{
 		TaskRunID:              strings.TrimSpace(taskRun.TaskRunID),
 		Status:                 string(taskRun.Status),
@@ -1888,7 +1884,6 @@ func priorTaskContextForTaskRun(taskRun task.TaskRun, taskEvents []task.TaskEven
 		FailureReason:          strings.TrimSpace(taskRun.FailureReason),
 		OutcomeContract:        activeGoal.OutcomeContract,
 		RequestedOutputFormats: requestedOutputFormats,
-		WorkKinds:              workKinds,
 	}
 }
 

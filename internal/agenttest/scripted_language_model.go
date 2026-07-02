@@ -92,7 +92,7 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 	defer languageModel.mutex.Unlock()
 	languageModel.requests = append(languageModel.requests, request)
 	schemaName := strings.TrimSpace(request.StructuredOutputSchema.Name)
-	if response, isFound := languageModel.popStructuredResponse(schemaName, request.StructuredOutputSchema.Document); isFound {
+	if response, isFound := languageModel.popStructuredResponse(schemaName); isFound {
 		return languageModel.structuredResponse(response), nil
 	}
 	if schemaName == "blueclaw_agent_turn_action" {
@@ -136,150 +136,14 @@ func defaultSkillSearchQueriesResponse(request llm.StructuredResponseRequest) st
 	return string(document)
 }
 
-func (languageModel *ScriptedLanguageModel) popStructuredResponse(schemaName string, schemaDocument string) (string, bool) {
+func (languageModel *ScriptedLanguageModel) popStructuredResponse(schemaName string) (string, bool) {
 	responses := languageModel.structuredResponsesBySchema[schemaName]
 	if len(responses) == 0 {
-		return languageModel.popLegacyTurnRouterResponse(schemaName, schemaDocument)
+		return "", false
 	}
 	response := responses[0]
 	languageModel.structuredResponsesBySchema[schemaName] = responses[1:]
 	return response, true
-}
-
-func (languageModel *ScriptedLanguageModel) popLegacyTurnRouterResponse(schemaName string, schemaDocument string) (string, bool) {
-	if schemaName != "blueclaw_turn_router" {
-		return "", false
-	}
-	if strings.Contains(schemaDocument, `"approval"`) {
-		if response, isFound := languageModel.popConfirmationReplyResponse(); isFound {
-			return response, true
-		}
-	}
-	if strings.Contains(schemaDocument, `"choices"`) {
-		if response, isFound := languageModel.popChoiceReplyResponse(); isFound {
-			return response, true
-		}
-	}
-	responses := languageModel.structuredResponsesBySchema["blueclaw_task_intake_effort"]
-	if len(responses) == 0 {
-		return "", false
-	}
-	response := responses[0]
-	languageModel.structuredResponsesBySchema["blueclaw_task_intake_effort"] = responses[1:]
-	return legacyIntakeResponseAsTurnRouterResponse(response), true
-}
-
-func (languageModel *ScriptedLanguageModel) popConfirmationReplyResponse() (string, bool) {
-	responses := languageModel.structuredResponsesBySchema["blueclaw_confirmation_reply_decision"]
-	if len(responses) == 0 {
-		return "", false
-	}
-	response := responses[0]
-	languageModel.structuredResponsesBySchema["blueclaw_confirmation_reply_decision"] = responses[1:]
-	return legacyConfirmationResponseAsTurnRouterResponse(response), true
-}
-
-func (languageModel *ScriptedLanguageModel) popChoiceReplyResponse() (string, bool) {
-	responses := languageModel.structuredResponsesBySchema["blueclaw_choice_reply_decision"]
-	if len(responses) == 0 {
-		return "", false
-	}
-	response := responses[0]
-	languageModel.structuredResponsesBySchema["blueclaw_choice_reply_decision"] = responses[1:]
-	return legacyChoiceResponseAsTurnRouterResponse(response), true
-}
-
-func legacyIntakeResponseAsTurnRouterResponse(response string) string {
-	document := map[string]any{}
-	if errorValue := json.Unmarshal([]byte(response), &document); errorValue != nil {
-		return response
-	}
-	encodedResponse, errorValue := json.Marshal(document)
-	if errorValue != nil {
-		return response
-	}
-	return string(encodedResponse)
-}
-
-func legacyConfirmationResponseAsTurnRouterResponse(response string) string {
-	document := map[string]any{}
-	if errorValue := json.Unmarshal([]byte(response), &document); errorValue != nil {
-		return response
-	}
-	decision := stringMapValue(document, "decision")
-	approval := "unclear"
-	route := "consume"
-	switch decision {
-	case "approved":
-		approval = "approve"
-		route = "continue_task"
-	case "rejected":
-		approval = "reject"
-	case "question":
-		approval = "unclear"
-		route = "answer_question"
-	case "modify":
-		approval = "unclear"
-		route = "revise_task"
-	case "unrelated":
-		approval = "unclear"
-		route = "start_task"
-	}
-	return turnRouterCompatibilityResponse(route, "bounded_task", "maintenance_task", "standard", document, map[string]any{"approval": approval})
-}
-
-func legacyChoiceResponseAsTurnRouterResponse(response string) string {
-	document := map[string]any{}
-	if errorValue := json.Unmarshal([]byte(response), &document); errorValue != nil {
-		return response
-	}
-	choices := []string{}
-	if choice := stringMapValue(document, "choice"); choice != "" {
-		choices = append(choices, choice)
-	}
-	if rawChoices, isFound := document["choices"].([]any); isFound {
-		for _, rawChoice := range rawChoices {
-			choice, isString := rawChoice.(string)
-			if isString && strings.TrimSpace(choice) != "" {
-				choices = append(choices, strings.TrimSpace(choice))
-			}
-		}
-	}
-	route := "continue_task"
-	if stringMapValue(document, "status") != "resolved" {
-		route = "clarify"
-		choices = nil
-	}
-	return turnRouterCompatibilityResponse(route, "bounded_task", "maintenance_task", "standard", document, map[string]any{"choices": choices})
-}
-
-func turnRouterCompatibilityResponse(route string, classification string, taskShape string, effortLevel string, source map[string]any, additions map[string]any) string {
-	document := map[string]any{
-		"route":                  route,
-		"classification":         classification,
-		"taskShape":              taskShape,
-		"taskComplexity":         "normal",
-		"effortLevel":            effortLevel,
-		"outputKind":             nil,
-		"requestedOutputFormats": nil,
-		"expectedResults":        []any{},
-		"requiredEvidence":       []string{},
-		"siteRequestEvidence":    "",
-		"responseLanguage":       "ko",
-		"reason":                 stringMapValue(source, "reason"),
-		"userFacingReply":        "",
-		"workKinds":              []string{},
-		"initialToolNames":       []string{},
-		"priorTaskReference":     "none",
-	}
-	for key, value := range additions {
-		document[key] = value
-	}
-	encodedResponse, errorValue := json.Marshal(document)
-	if errorValue != nil {
-		return `{"route":"clarify","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"compatibility fallback","userFacingReply":""}`
-	}
-	return string(encodedResponse)
 }
 
 func (languageModel *ScriptedLanguageModel) popActionResponse() (string, error) {
@@ -317,7 +181,6 @@ func mergeDefaultResponses(defaultResponses map[string]string) map[string]string
 	mergedResponses := map[string]string{
 		"blueclaw_skill_search_queries":        `{"queries":[]}`,
 		"blueclaw_turn_router":                 `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
-		"blueclaw_task_intake_effort":          `{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
 		"blueclaw_execution_plan":              `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
 		"blueclaw_confirmation_message":        `{"reply":"확인했습니다. 승인하면 진행하겠습니다."}`,
 		"blueclaw_confirmation_reply_decision": `{"decision":"approved","reason":"scripted test default approval"}`,

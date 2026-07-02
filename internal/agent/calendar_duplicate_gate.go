@@ -54,7 +54,7 @@ func (agentTurnRunner *AgentTurnRunner) resolveCalendarDuplicate(ctx context.Con
 		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
 	}
 	forcedToolInput := calendarAddInputWithAllowDuplicate(actionDocument.ToolInput)
-	return agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, forcedToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, request.WorkKinds, actionDocument.Message)
+	return agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, forcedToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)
 }
 
 func parseCalendarDuplicateCandidates(observation turnObservation) ([]calendarListedEvent, bool) {
