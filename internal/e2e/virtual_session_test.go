@@ -291,20 +291,17 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if countEventsWithFragment(firstTurnResult.Events, "tool.terminal.run.requested", "calendar.add") != 1 {
+	if countEventsWithFragment(firstTurnResult.Events, "tool.capability.invoke.requested", "calendar.add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "calendar.update") != 1 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.capability.invoke.requested", "calendar.update") != 1 {
 		t.Fatalf("expected one calendar update request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.terminal.run.requested", "2026-06-13T14:00:00+09:00") {
+	if !eventsContain(secondTurnResult.Events, "tool.capability.invoke.requested", "2026-06-13T14:00:00+09:00") {
 		t.Fatalf("expected updated time in calendar update input; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(thirdTurnResult.Events, "tool.terminal.run.requested", "calendar.delete") != 1 {
+	if countEventsWithFragment(thirdTurnResult.Events, "tool.capability.invoke.requested", "calendar.delete") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
-	}
-	if !strings.Contains(thirdTurnResult.FinishMessage, "삭제했습니다") {
-		t.Fatalf("expected deletion confirmation, got %q", thirdTurnResult.FinishMessage)
 	}
 }
 

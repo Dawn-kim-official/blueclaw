@@ -107,7 +107,7 @@ func openRouterContentForSchema(schemaName string) string {
 	case "blueclaw_skill_search_queries":
 		return `{"queries":[]}`
 	case "blueclaw_turn_router":
-		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"fake live router","userFacingReply":"","workKinds":[]}`
+		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":null,"siteRequestEvidence":"","responseLanguage":"ko","reason":"fake live router","userFacingReply":""}`
 	case "blueclaw_agent_turn_action":
 		return `{"action":"finish","message":"fake live reply from OpenRouter","completionSummary":"fake live reply from OpenRouter","replyParts":[{"type":"text","text":"fake live reply from OpenRouter"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":[],"qualityReview":[],"executionStateUpdate":{}}`
 	default:

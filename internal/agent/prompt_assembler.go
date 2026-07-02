@@ -52,7 +52,6 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		ToolSet:               input.RuntimeRequest.ToolSet,
 		RequiredEvidenceTools: append([]string{}, input.RuntimeRequest.RequiredEvidenceTools...),
 		OutcomeContract:       input.RuntimeRequest.OutcomeContract,
-		WorkKinds:             append([]string{}, input.RuntimeRequest.WorkKinds...),
 	})
 	return compactMessages([]llm.Message{
 		systemMessage(input.BaseInstruction),

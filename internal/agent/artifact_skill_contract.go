@@ -87,7 +87,7 @@ func artifactContractRequirementsForRequest(request AgentRequest) []artifactCont
 	for _, format := range artifactFormatsForRequest(request) {
 		requirements = appendUniqueArtifactContractRequirements(requirements, artifactContractRequirement{Kind: artifactContractKindFile, Format: format})
 	}
-	if requestHasWorkKind(request, WorkKindSlidesArtifact) {
+	if requestNeedsSlidesArtifactContract(request) {
 		requirements = appendUniqueArtifactContractRequirements(requirements, artifactContractRequirement{Kind: artifactContractKindSlides})
 	}
 	return requirements
@@ -120,16 +120,18 @@ func artifactFormatsForAttachmentSuffixes(suffixes []string) []string {
 }
 
 func requestNeedsSiteArtifactContract(request AgentRequest) bool {
-	if requestHasWorkKind(request, WorkKindSitePrototype) || activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") {
+	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") {
 		return true
 	}
 	if outcomeContractHasSiteEffect(request.ActiveGoal.OutcomeContract) {
 		return true
 	}
-	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) && workflowTextLooksLikeSitePrototypeWork(workflowScopeFromAgentRequest(request)) {
-		return true
-	}
 	return expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) && activeGoalMentionsToolPrefix(request.ActiveGoal, "site.")
+}
+
+func requestNeedsSlidesArtifactContract(request AgentRequest) bool {
+	return outcomeContractMentionsAttachmentSuffix(request.ActiveGoal.OutcomeContract, ".pptx") ||
+		outcomeContractMentionsAttachmentSuffix(request.ActiveGoal.OutcomeContract, ".ppt")
 }
 
 func outcomeContractHasSiteEffect(contract OutcomeContract) bool {

@@ -602,11 +602,6 @@ func shouldRequireCompanionBrowser(toolContext context.Context, toolName string,
 	case "browser.handoff", "browser.screenshot":
 		return true
 	}
-	for _, workKind := range agent.WorkKindsFromContext(toolContext) {
-		if workKind == agent.WorkKindUserBrowser {
-			return true
-		}
-	}
 	return browserInputUsesPrivateURL(toolInput)
 }
 

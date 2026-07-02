@@ -167,7 +167,6 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
 		AmbientDuty:             request.AmbientDuty,
 		TaskComplexity:          request.TaskComplexity,
-		WorkKinds:               append([]string{}, request.WorkKinds...),
 		TurnStartedAt:           request.TurnStartedAt,
 		CheckpointSender:        request.CheckpointSender,
 	})
@@ -246,8 +245,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
-	intakeDecision.WorkKinds = appendUniqueStrings(intakeDecision.WorkKinds, deterministicWorkflowWorkKindsForRequest(intakeRequest)...)
-	intakeDecision.InitialToolNames = registeredToolNamesOnly(turnToolSet, appendUniqueStrings(intakeDecision.InitialToolNames, workflowToolNamesForWorkKinds(turnToolSet, intakeDecision.WorkKinds)...))
 	intakeDecision = promoteSitePrototypeEffort(intakeRequest, intakeDecision)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
@@ -265,8 +262,6 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		intakeRequest.ActiveGoal = request.ActiveGoal
 		intakeDecision = agentKernel.restoreEscalatedEffortForContinuation(intakeRequest, intakeDecision)
 	}
-	request.WorkKinds = appendUniqueStrings(append([]string{}, intakeDecision.WorkKinds...), request.ActiveGoal.WorkKinds...)
-	intakeRequest.WorkKinds = request.WorkKinds
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	instructionBundle = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
@@ -355,8 +350,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		ScheduledRun:               request.ScheduledRun,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		AmbientDuty:                request.AmbientDuty,
+		TaskShape:                  intakeDecision.TaskShape,
 		TaskComplexity:             intakeDecision.TaskComplexity,
-		WorkKinds:                  append([]string{}, request.WorkKinds...),
 		TurnStartedAt:              request.TurnStartedAt,
 		CheckpointSender:           request.CheckpointSender,
 	}
@@ -366,7 +361,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
 		agentKernel.taskArtifactService,
-		agentKernel.taskLanguageModelForTier(resolvedTaskModelTier(intakeDecision.TaskComplexity, turnOptions.EffortLevel, turnRequest.WorkKinds)),
+		agentKernel.taskLanguageModelForTier(resolvedTaskModelTier(intakeDecision.TaskComplexity, turnOptions.EffortLevel)),
 		agentKernel.languageModel,
 		turnOptions,
 	)
@@ -446,7 +441,6 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 			return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 		}
 		waitingGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingUserInput, evidenceHints, nil)
-		waitingGoal.WorkKinds = append([]string{}, request.WorkKinds...)
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(waitingGoal))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_user_input", marshalEventBody(waitingGoal))
 		agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.clarification_requested", reply)
@@ -468,7 +462,6 @@ func (agentKernel *AgentKernel) applyConfirmationGate(responseContext context.Co
 		return AgentTurnResult{}, false, ExecutionPlan{}, false, errorValue
 	}
 	approvalGoal := activeGoalFromExecutionPlan(taskRun.TaskRunID, executionPlan, ActiveGoalStatusWaitingApproval, evidenceHints, nil)
-	approvalGoal.WorkKinds = append([]string{}, request.WorkKinds...)
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.created", marshalEventBody(approvalGoal))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "agent.goal.waiting_approval", marshalEventBody(approvalGoal))
 	agentKernel.AppendTaskEvent(taskRun.TaskRunID, "confirmation.requested", marshalEventBody(map[string]string{
@@ -655,12 +648,8 @@ func taskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) model
 	return higherModelTier(complexityModelTier(taskComplexity), effortModelTierFloor(effortLevel))
 }
 
-func resolvedTaskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel, workKinds []string) modelTier {
-	tier := taskModelTier(taskComplexity, effortLevel)
-	if tier == modelTierHigh && workKindsContain(workKinds, WorkKindCoding) {
-		return modelTierCoding
-	}
-	return tier
+func resolvedTaskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) modelTier {
+	return taskModelTier(taskComplexity, effortLevel)
 }
 
 func (agentKernel *AgentKernel) taskLanguageModelForTier(tier modelTier) llm.LanguageModelProvider {
@@ -707,10 +696,13 @@ func promoteSitePrototypeEffort(request AgentRequest, intakeDecision IntakeDecis
 }
 
 func intakeDecisionHasSitePrototypeEvidence(request AgentRequest, intakeDecision IntakeDecision) bool {
-	if intakeDecision.HasWorkKind(WorkKindSitePrototype) {
+	if strings.TrimSpace(intakeDecision.SiteRequestEvidence) != "" {
 		return true
 	}
-	if strings.TrimSpace(intakeDecision.SiteRequestEvidence) != "" {
+	if normalizeOutputKind(intakeDecision.OutputKind) == OutputKindSite {
+		return true
+	}
+	if requiredEvidenceHasPrefix(intakeDecision.RequiredEvidenceTools, "site.") {
 		return true
 	}
 	return activeGoalRequiresToolPrefix(request.ActiveGoal, "site.")
