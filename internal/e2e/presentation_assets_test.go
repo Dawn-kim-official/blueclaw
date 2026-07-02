@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-func TestSimpleSlidesAssetsStayPureSkill(t *testing.T) {
-	skillDirectoryPath := rootSimpleSlidesSkillPath()
+func TestPresentationAssetsStayPureSkill(t *testing.T) {
+	skillDirectoryPath := rootPresentationSkillPath()
 	if skillDirectoryPath == "" {
-		t.Skip("root simple-slides skill is unavailable")
+		t.Skip("root presentation skill is unavailable")
 	}
 
 	assertMissingPath(t, filepath.Join(skillDirectoryPath, "scripts", "create_deck.py"))
@@ -43,7 +43,7 @@ func TestSimpleSlidesAssetsStayPureSkill(t *testing.T) {
 	if !strings.Contains(skillDocument, "slides.html` is the source of truth") {
 		t.Fatal("SKILL.md should make slides.html the source of truth")
 	}
-	if !strings.Contains(skillDocument, "/workspace/skills/simple-slides/scripts/build.sh") {
+	if !strings.Contains(skillDocument, "/workspace/skills/presentation/scripts/build.sh") {
 		t.Fatal("SKILL.md should guide agents to run the bundled build script from scripts")
 	}
 	if !strings.Contains(skillDocument, "FORMATS=html") {
@@ -86,10 +86,10 @@ func TestSimpleSlidesAssetsStayPureSkill(t *testing.T) {
 	}
 }
 
-func TestSimpleSlidesSkillCarriesDesignGuidanceWithoutTemplateAsset(t *testing.T) {
-	skillDirectoryPath := rootSimpleSlidesSkillPath()
+func TestPresentationSkillCarriesDesignGuidanceWithoutTemplateAsset(t *testing.T) {
+	skillDirectoryPath := rootPresentationSkillPath()
 	if skillDirectoryPath == "" {
-		t.Skip("root simple-slides skill is unavailable")
+		t.Skip("root presentation skill is unavailable")
 	}
 
 	skillDocument := readTestFile(t, filepath.Join(skillDirectoryPath, "SKILL.md"))

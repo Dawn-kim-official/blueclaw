@@ -11,19 +11,19 @@ func actionInvokeCapabilityTool(toolName string, input string) string {
 	return actionCallTool("capability.invoke", `{"operation":`+quote(toolName)+`,"input":`+input+`}`)
 }
 
-func SlidesLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSessionScenario {
+func PresentationLocalMultiturnSuccessScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
-		Name:                  "slides_local_multiturn_success",
+		Name:                  "presentation_local_multiturn_success",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []agent.SkillInstruction{simpleSlidesSkill()},
+		Skills:                []agent.SkillInstruction{presentationSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "terminal.run", "file.write", "file.attach"},
 		Turns: []VirtualTurn{{
 			Prompt:                 "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐",
-			ExpectedSelectedSkills: []string{"simple-slides"},
+			ExpectedSelectedSkills: []string{"presentation"},
 			ExpectedToolCalls:      []string{"terminal.run", "file.attach"},
 			ExpectedEventCounts: []VirtualEventCount{
 				{Name: "tool.terminal.run.requested", BodyFragment: "NAME=", Count: 1},
-				{Name: "tool.terminal.run.requested", BodyFragment: "/workspace/skills/simple-slides/scripts/build.sh", Count: 1},
+				{Name: "tool.terminal.run.requested", BodyFragment: "/workspace/skills/presentation/scripts/build.sh", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Building requested formats", Count: 1},
 				{Name: "tool.terminal.run.result", BodyFragment: "Slide render review", Count: 1},
 				{Name: "tool.file.attach.result", BodyFragment: `"output"`, Count: 1},
@@ -122,7 +122,7 @@ func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessi
 	return VirtualSessionScenario{
 		Name:                  "tool_permission_hides_skill",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []agent.SkillInstruction{simpleSlidesSkill()},
+		Skills:                []agent.SkillInstruction{presentationSkill()},
 		AllowedTools:          []string{"memory.search", "file.write"},
 		Turns: []VirtualTurn{{
 			Prompt: "피피티 만들어줘",
@@ -716,22 +716,22 @@ func CapabilityQuestionAcceptanceScenario(artifactDirectoryPath string) VirtualS
 	return VirtualSessionScenario{
 		Name:                  "capability_question_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []agent.SkillInstruction{simpleSlidesSkill(), scheduledTaskSkill(), sitePrototypeSkill()},
+		Skills:                []agent.SkillInstruction{presentationSkill(), scheduledTaskSkill(), sitePrototypeSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", "skill.search"},
 		Turns: []VirtualTurn{{
 			Prompt: "너는 무엇을 할 수 있어?",
 			ActionResponses: []string{
 				actionCallTool("skill.search", `{}`),
-				actionFinishMessage("사용 가능한 skill에는 simple-slides, scheduled-task, site-prototype이 있습니다.", "obs-001:skill.search:0"),
+				actionFinishMessage("사용 가능한 skill에는 presentation, scheduled-task, site-prototype이 있습니다.", "obs-001:skill.search:0"),
 			},
 			ExpectedToolCalls: []string{"skill.search"},
 			ExpectedToolCallCounts: map[string]int{
 				"skill.search": 1,
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.skill.search.result", BodyFragment: "simple-slides", Count: 1},
+				{Name: "tool.skill.search.result", BodyFragment: "presentation", Count: 1},
 			},
-			ExpectedReplyFragments: []string{"simple-slides"},
+			ExpectedReplyFragments: []string{"presentation"},
 		}},
 	}
 }
@@ -1327,23 +1327,23 @@ func PlatformMessageEditAcceptanceScenario(artifactDirectoryPath string) Virtual
 	}
 }
 
-func simpleSlidesSkill() agent.SkillInstruction {
+func presentationSkill() agent.SkillInstruction {
 	return agent.SkillInstruction{
-		Name:        "simple-slides",
+		Name:        "presentation",
 		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
 		Category:    "document-generation",
 		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/simple-slides/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/simple-slides/scripts/build.sh for html-only requests, promote build outputs with file.promote, then file.attach only promoted generated files. Do not use Google Workspace unless a google tool is explicitly available.",
+		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh for html-only requests, promote build outputs with file.promote, then file.attach only promoted generated files. Do not use Google Workspace unless a google tool is explicitly available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},
 		AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
 		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		Source: agent.InstructionSource{
-			Path:      "skills/simple-slides/SKILL.md",
-			SkillName: "simple-slides",
+			Path:      "skills/presentation/SKILL.md",
+			SkillName: "presentation",
 			ByteSize:  512,
-			SHA256:    "virtual-simple-slides",
+			SHA256:    "virtual-presentation",
 		},
 	}
 }

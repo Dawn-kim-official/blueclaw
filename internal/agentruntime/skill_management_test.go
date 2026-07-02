@@ -213,7 +213,7 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 	for _, input := range []map[string]string{
 		{"name": "../escape", "content": userSkillDocument("escape")},
-		{"name": "simple-slides", "content": userSkillDocument("simple-slides")},
+		{"name": "presentation", "content": userSkillDocument("presentation")},
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: "skill.add",
