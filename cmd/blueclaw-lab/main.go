@@ -132,7 +132,7 @@ func parseVirtualSessionArguments(arguments []string, defaultScenarioName string
 	artifactDirectoryPath := flagSet.String("artifact-dir", defaultArtifactDirectoryPath, "virtual session artifact directory")
 	languageModelEndpoint := flagSet.String("llm-endpoint", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_ENDPOINT"), capability.DefaultEndpoint), "live LLM capability endpoint")
 	languageModelSocket := flagSet.String("llm-unix-socket", os.Getenv("BLUECLAW_E2E_LLM_UNIX_SOCKET"), "live LLM capability unix socket path")
-	languageModelName := flagSet.String("llm-model", firstNonEmptyString(os.Getenv("INTERNKIM_E2E_MODEL"), os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "google/gemma-4-31b-it:free"), "live LLM model name")
+	languageModelName := flagSet.String("llm-model", firstNonEmptyString(os.Getenv("INTERNKIM_E2E_MODEL"), os.Getenv("BLUECLAW_E2E_LLM_MODEL"), "xiaomi/mimo-v2.5"), "live LLM model name")
 	executionMode := flagSet.String("llm-execution-mode", firstNonEmptyString(os.Getenv("BLUECLAW_E2E_LLM_EXECUTION_MODE"), "auto"), "live LLM execution mode")
 	seed := flagSet.Int64("seed", 0, "generation seed for live LLM calls")
 	temperature := flagSet.Float64("temperature", 0, "generation temperature for live LLM calls")
@@ -190,7 +190,7 @@ func runVirtualSession(ctx context.Context, arguments virtualSessionArguments) e
 		languageModel := llm.OpenRouterClient{
 			APIKey:         openRouterAPIKey,
 			BaseURL:        firstNonEmptyString(os.Getenv("OPENROUTER_BASE_URL"), llm.DefaultOpenRouterChatCompletionsURL),
-			ModelName:      firstNonEmptyString(arguments.LanguageModelName, "google/gemma-4-31b-it:free"),
+			ModelName:      firstNonEmptyString(arguments.LanguageModelName, "xiaomi/mimo-v2.5"),
 			AttemptCount:   3,
 			InitialBackoff: 750 * time.Millisecond,
 			GenerationOptions: llm.GenerationOptions{

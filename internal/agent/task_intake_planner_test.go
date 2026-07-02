@@ -57,6 +57,9 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requestedOutputFormats"`) {
 		t.Fatalf("expected requested output formats in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
+	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"requiredEvidence"`) {
+		t.Fatalf("expected required evidence in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
+	}
 	if !strings.Contains(languageModel.requests[0].StructuredOutputSchema.Document, `"outputKind"`) {
 		t.Fatalf("expected output kind in intake schema, got %s", languageModel.requests[0].StructuredOutputSchema.Document)
 	}
@@ -84,6 +87,35 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "set it to null for reading, summarizing, searching, or analyzing an input attachment") {
 		t.Fatal("expected intake prompt to separate input attachments from file deliverables")
 	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Do not use capability.invoke as requiredEvidence") {
+		t.Fatal("expected intake prompt to require effective operation evidence")
+	}
+}
+
+func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"simple","effortLevel":"standard","outputKind":null,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["calendar.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar add","userFacingReply":"","workKinds":["calendar"],"initialToolNames":["calendar.add"],"priorTaskReference":"none"}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := NewToolSet([]string{CapabilityInvokeToolName})
+	for _, toolName := range []string{CapabilityInvokeToolName, "calendar.add"} {
+		currentToolName := toolName
+		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		})
+	}
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "7월 6일 오후 1시 스타트업월드컵 일정 추가",
+		ToolSet: toolRegistry,
+	})
+
+	if len(decision.RequiredEvidenceTools) != 1 || decision.RequiredEvidenceTools[0] != "calendar.add" {
+		t.Fatalf("expected calendar.add required evidence, got %+v", decision.RequiredEvidenceTools)
+	}
+	if containsString(decision.InitialToolNames, "calendar.add") {
+		t.Fatalf("expected hidden capability operation to stay out of initial tools, got %+v", decision.InitialToolNames)
+	}
 }
 
 func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
@@ -99,7 +131,7 @@ func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 			Prompt:                 "기업 문서 가이드를 워드 파일로 만들어줘",
 			RequestedOutputFormats: []string{"docx"},
 			OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools:      []string{"file.attach"},
+				RequiredEvidenceTools:      []string{"file.deliver"},
 				RequiredAttachmentSuffixes: []string{".docx"},
 				ArtifactRequirement:        ArtifactRequirementRequired,
 			},
@@ -120,7 +152,7 @@ func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 
 func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
 		Prompt:  "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
@@ -146,8 +178,8 @@ func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
 	if !decision.HasWorkKind(WorkKindFileDelivery) {
 		t.Fatalf("expected file delivery work kind, got %+v", decision.WorkKinds)
 	}
-	if !slices.Contains(decision.InitialToolNames, "file.attach") {
-		t.Fatalf("expected file.attach to be prepared, got %+v", decision.InitialToolNames)
+	if !slices.Contains(decision.InitialToolNames, "file.deliver") {
+		t.Fatalf("expected file.deliver to be prepared, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -183,9 +215,9 @@ func TestTaskIntakePlannerFallbackDoesNotInferFlowTaskWorkKind(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerMapsModelFlowTaskWorkKindToInitialTools(t *testing.T) {
+func TestTaskIntakePlannerKeepsModelFlowTaskWorkKindWithoutInitialToolFallback(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"flow task request","userFacingReply":"","workKinds":["flow_task"]}`,
+		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"requiredEvidence":["task.add"],"reason":"flow task request","userFacingReply":"","workKinds":["flow_task"]}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestToolSet([]string{"task.add", "task.list", "task.update"})
@@ -198,10 +230,11 @@ func TestTaskIntakePlannerMapsModelFlowTaskWorkKindToInitialTools(t *testing.T) 
 	if !decision.HasWorkKind(WorkKindFlowTask) {
 		t.Fatalf("expected model flow task work kind, got %+v", decision.WorkKinds)
 	}
-	for _, toolName := range []string{"task.add", "task.list", "task.update"} {
-		if !containsString(decision.InitialToolNames, toolName) {
-			t.Fatalf("expected initial flow tool %s, got %+v", toolName, decision.InitialToolNames)
-		}
+	if !containsString(decision.RequiredEvidenceTools, "task.add") {
+		t.Fatalf("expected task.add required evidence, got %+v", decision.RequiredEvidenceTools)
+	}
+	if len(decision.InitialToolNames) != 0 {
+		t.Fatalf("expected flow work kind not to pin legacy initial tools, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -209,7 +242,7 @@ func TestTaskIntakePlannerKeepsStructuredOutputFormats(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","requestedOutputFormats":["html"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -229,7 +262,7 @@ func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"unsupported","taskShape":"immediate_reply","taskComplexity":"simple","effortLevel":"deep","outputKind":"file","requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","workKinds":[],"priorTaskReference":"none"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -249,7 +282,7 @@ func TestTaskIntakePlannerUsesStructuredArtifactEnumForFileDelivery(t *testing.T
 	if !decision.HasWorkKind(WorkKindFileDelivery) {
 		t.Fatalf("expected file delivery work kind, got %+v", decision.WorkKinds)
 	}
-	if !slices.Contains(decision.InitialToolNames, "file.attach") {
+	if !slices.Contains(decision.InitialToolNames, "file.deliver") {
 		t.Fatalf("expected file delivery tools from enum result, got %+v", decision.InitialToolNames)
 	}
 	if decision.UserFacingReply != "" {
@@ -261,7 +294,7 @@ func TestTaskIntakePlannerUsesRequestedOutputFormatsToResolveArtifactKindConflic
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","taskComplexity":"normal","effortLevel":"deep","requestedOutputFormats":["pdf"],"expectedResults":[{"id":"result-1","type":"file","description":"PDF document","required":true},{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"conflicted artifact kind","userFacingReply":"","workKinds":["file_delivery","site_prototype"],"initialToolNames":["site.status"],"priorTaskReference":"none"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach", "site.status"})
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver", "site.status"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -588,7 +621,7 @@ func TestTurnRouterApproveForcesContinuation(t *testing.T) {
 }
 
 func TestTaskRecoveryPlannerPromotesArtifactRetryDespitePriorFailureRefusal(t *testing.T) {
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
 	decision := (TaskRecoveryPlanner{}).Plan(AgentRequest{
 		Prompt:  "다시 해봐 이제 될 거야",
 		ToolSet: toolRegistry,
@@ -691,7 +724,7 @@ func TestTaskIntakePlannerTreatsLocalArtifactConfirmationAsBoundedTask(t *testin
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":["pdf"],"reason":"asks for generated files","userFacingReply":"승인하시겠습니까?","workKinds":["slides_artifact","file_delivery"]}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -741,8 +774,8 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 		`{"classification":"unsupported","taskShape":"scheduled_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"background loops are unsupported","userFacingReply":"지원하지 않습니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
-		finishMessageDocument("1분 간격으로 10번 보내도록 예약했습니다."),
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
+		finishMessageWithEvidence("1분 간격으로 10번 보내도록 예약했습니다.", "obs-001", "schedule.create", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -753,13 +786,11 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 			WhenToUse:    "Use for reminders, interval messages, 1분에 한 번씩, 10번, finite repeated message, and repeat N times requests.",
 			Prompt:       "Use schedule.create with taskInstruction for the run-time work, intervalSecond, repeatPolicy, and maxRunCount.",
 			AllowedTools: []string{"schedule.create"},
+			Completion:   SkillCompletion{RequiredEvidenceTools: []string{"schedule.create"}},
 			Source:       InstructionSource{Path: "skills/scheduled-task/SKILL.md", SkillName: "scheduled-task"},
 		}}}
 	})
-	toolRegistry := newTestToolSet([]string{"schedule.create"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess("scheduled"), nil
-	})
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
 
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
 		RequesterPersonID: "person-1",
@@ -770,21 +801,24 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 	if errorValue != nil {
 		t.Fatalf("expected promoted scheduled task: %v", errorValue)
 	}
-	if result.FinishMessage != "1분 간격으로 10번 보내도록 예약했습니다." {
-		t.Fatalf("expected schedule final reply, got %q", result.FinishMessage)
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed scheduled task, got %s", result.TaskRun.Status)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
 		t.Fatal("expected selected scheduled skill to promote intake")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "schedule.create") {
+		t.Fatal("expected schedule evidence to finalize completion")
 	}
 }
 
 func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"deep","requestedOutputFormats":["pptx"],"initialToolNames":["file.attach"],"reason":"previous permission failure","userFacingReply":"Gamma나 Canva를 사용하세요."}`,
+		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"deep","requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"reason":"previous permission failure","userFacingReply":"Gamma나 Canva를 사용하세요."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
-		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
+		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -795,12 +829,12 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 			WhenToUse:    "Use for 피피티 and PPTX requests.",
 			Prompt:       "Create and attach PPTX files.",
 			TriggerHints: []string{"피피티", "pptx"},
-			AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+			AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 			Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 		}}}
 	})
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -832,15 +866,15 @@ func TestAgentKernelPromotesSelectedArtifactSkillOverIntakeRefusal(t *testing.T)
 
 func TestAgentKernelRetriesArtifactFromOutputFormatWithoutSelectedSkill(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"standard","requestedOutputFormats":["pptx"],"initialToolNames":["file.attach"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
+		`{"classification":"unsupported","taskShape":"immediate_reply","effortLevel":"standard","requestedOutputFormats":["pptx"],"initialToolNames":["file.deliver"],"responseLanguage":"ko","reason":"previous permission failure","userFacingReply":"PPTX 파일 생성은 불가능합니다."}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
-		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/deck/deck.pptx"}}`,
+		finishMessageWithEvidence("deck.pptx 파일을 첨부했습니다.", "obs-001", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.promote", "file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -877,12 +911,12 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
-		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
+		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -902,7 +936,7 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 			Status:    string(task.TaskStatusFailed),
 			Prompt:    "기업 문서 가이드를 워드 파일로 만들어줘",
 			OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools:      []string{"file.attach"},
+				RequiredEvidenceTools:      []string{"file.deliver"},
 				RequiredAttachmentSuffixes: []string{".docx"},
 				ExpectedResults: []ExpectedResult{{
 					ID:          "attached-file",
@@ -941,16 +975,16 @@ func TestAgentKernelRecoversPriorTaskAttachmentContract(t *testing.T) {
 
 func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":["docx"],"responseLanguage":"ko","reason":"latest message asks for the prior Word file as an attachment","userFacingReply":"","workKinds":["file_delivery"],"initialToolNames":["file.attach"],"priorTaskReference":"outcome_recovery"}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","taskComplexity":"normal","effortLevel":"standard","requestedOutputFormats":["docx"],"responseLanguage":"ko","reason":"latest message asks for the prior Word file as an attachment","userFacingReply":"","workKinds":["file_delivery"],"initialToolNames":["file.deliver"],"priorTaskReference":"outcome_recovery"}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("기존 작업이 이미 완료되어 파일이 준비되었습니다."),
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
-		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/company-guide/company-guide.docx"}}`,
+		finishMessageWithEvidence("company-guide.docx 파일을 첨부했습니다.", "obs-002", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -1052,7 +1086,7 @@ func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"reason":"destructive","userFacingReply":"승인하시겠습니까?"}`,
 	}}
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
@@ -1405,19 +1439,19 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 				WhenToUse:    "Use for 피피티 and PPTX requests.",
 				Prompt:       "Create and attach PPTX files.",
 				TriggerHints: []string{"피피티"},
-				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"file.attach"},
+					RequiredEvidenceTools: []string{"file.deliver"},
 				},
 				Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			}},
 		}
 	})
-	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.attach"})
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
 	for _, toolName := range toolRegistry.ListToolNames() {
 		currentToolName := toolName
 		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			if currentToolName == "file.attach" {
+			if currentToolName == "file.deliver" {
 				return ToolResult{
 					Output: ToolOutput{Content: "attached"},
 					Attachments: []FileAttachment{{
@@ -1449,11 +1483,11 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 
 func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","outputKind":"file","requestedOutputFormats":["html"],"initialToolNames":["file.attach"],"reason":"explicit html output","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"research_task","effortLevel":"standard","outputKind":"file","requestedOutputFormats":["html"],"initialToolNames":["file.deliver"],"reason":"explicit html output","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"deck.html"}}`,
-		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.html"}}`,
+		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-001", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -1462,14 +1496,14 @@ func TestAgentKernelUsesStructuredOutputFormatsForAttachmentRequirements(t *test
 			Name:         "html-attachment",
 			Description:  "Attach HTML deliverables.",
 			WhenToUse:    "Use for html output requests.",
-			Prompt:       "Use file.attach for HTML deliverables.",
+			Prompt:       "Use file.deliver for HTML deliverables.",
 			TriggerHints: []string{"html"},
-			AllowedTools: []string{"file.attach"},
+			AllowedTools: []string{"file.deliver"},
 			Source:       InstructionSource{Path: "skills/html-attachment/SKILL.md", SkillName: "html-attachment"},
 		}}}
 	})
-	toolRegistry := newTestToolSet([]string{"file.attach"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{
@@ -1508,8 +1542,8 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 		`{"route":"start_task","classification":"unsupported","taskShape":"immediate_reply","taskComplexity":"simple","effortLevel":"deep","outputKind":"site","requestedOutputFormats":["pdf"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"mistaken unsupported file artifact","userFacingReply":"PDF 생성은 지원하지 않습니다.","workKinds":["file_delivery","site_prototype"],"initialToolNames":["site.status"],"priorTaskReference":"none"}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"file.attach","toolInput":{"path":"artifacts/brief/quality-brief.pdf"}}`,
-		finishMessageWithEvidence("PDF 파일을 첨부했습니다: quality-brief.pdf", "obs-001", "file.attach", 0),
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"artifacts/brief/quality-brief.pdf"}}`,
+		finishMessageWithEvidence("PDF 파일을 첨부했습니다: quality-brief.pdf", "obs-001", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(staticSkillRetriever{result: SkillRetrievalResult{
@@ -1534,7 +1568,7 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 				Description:  "Create, verify, and attach PDF documents.",
 				WhenToUse:    "Use for PDF deliverables, reports, briefs, and .pdf file artifacts.",
 				Prompt:       "Follow pdf workflow.",
-				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 				Source:       InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"},
 			},
 		}}
@@ -1542,11 +1576,11 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 	toolRegistry := newTestToolSet([]string{
 		"terminal.run",
 		"file.write",
-		"file.attach",
+		"file.deliver",
 		"site.create",
 		"site.publish",
 	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "file.attach"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "file attached"},
 			Attachments: []FileAttachment{{

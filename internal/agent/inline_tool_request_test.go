@@ -26,7 +26,7 @@ func TestApplyInlineToolRequestPinsToolsAndSkillsFromContinueAction(t *testing.T
 
 func TestApplyInlineToolRequestNormalizesContinueActionToolNames(t *testing.T) {
 	services := newTurnRunnerTestServices(&sequenceLanguageModel{}, TurnOptions{})
-	request := AgentTurnRequest{ToolSet: testToolSet([]string{"skill.search", "file.attach", "file.promote"})}
+	request := AgentTurnRequest{ToolSet: testToolSet([]string{"skill.search", "file.deliver", "file.promote"})}
 	state := agentTaskState{Request: request}
 	actionDocument := turnActionDocument{
 		Action:       "continue",
@@ -36,7 +36,7 @@ func TestApplyInlineToolRequestNormalizesContinueActionToolNames(t *testing.T) {
 
 	updatedRequest := services.runner.applyInlineToolRequest("task-1", request, &state, actionDocument)
 
-	for _, toolName := range []string{"file.attach", "file.promote"} {
+	for _, toolName := range []string{"file.deliver", "file.promote"} {
 		if !containsString(updatedRequest.PinnedToolNames, toolName) {
 			t.Fatalf("expected inline requestTools to pin %s, got %+v", toolName, updatedRequest.PinnedToolNames)
 		}

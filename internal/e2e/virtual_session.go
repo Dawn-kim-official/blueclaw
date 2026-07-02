@@ -50,6 +50,7 @@ type VirtualSessionScenario struct {
 	InitialToolNames          []string
 	InitialMemory             []memory.MemoryFact
 	RouterWorkKinds           []string
+	RouterRequiredEvidence    []string
 	RouterEffortLevel         string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
@@ -70,6 +71,7 @@ type VirtualTurn struct {
 	ContextMessages           []connectors.VisibleContextMessage
 	ContextMaterials          []connectors.InputAttachment
 	ActionResponses           []string
+	RouterRequiredEvidence    []string
 	ExpectedSelectedSkills    []string
 	ExpectedToolCalls         []string
 	ExpectedEvents            []string
@@ -424,6 +426,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_edit_redeploy_acceptance":
 		return SiteEditRedeployAcceptanceScenario(artifactDirectoryPath), nil
+	case "site_lifecycle_acceptance":
+		return SiteLifecycleAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_suggested_repair_recovery":
 		return SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath), nil
 	case "ask_choice_reply_acceptance":
@@ -989,6 +993,11 @@ func virtualCapabilityResponse(toolName string, requestBody []byte) string {
 		return `{"provider":"virtual","toolName":"site.status","status":"ok","result":{"siteID":"site-1","slug":"demo","status":"draft","workspacePath":"/workspace/circles/staff/sites/demo","sourceWorkspacePath":"/workspace/circles/staff/sites/demo/draft","appWorkspacePath":"/workspace/circles/staff/sites/demo/draft/app"}}`
 	case "site.logs":
 		return `{"provider":"virtual","toolName":"site.logs","status":"ok","result":{"logs":[]}}`
+	case "site.delete":
+		if virtualCapabilityRequestNeedsApproval(requestBody) {
+			return `{"provider":"virtual","toolName":"site.delete","status":"denied","content":"requires approval","message":"requires approval","errorCode":"approval_required","failureStage":"authorization","result":{"errorCode":"approval_required","failureStage":"authorization","message":"requires approval"}}`
+		}
+		return `{"provider":"virtual","toolName":"site.delete","status":"ok","content":"deleted virtual site","result":{"siteID":"site-1","slug":"demo","status":"deleted"}}`
 	case "image.read":
 		return `{"provider":"virtual","toolName":"image.read","status":"ok","content":"image loaded","result":{"attachments":[{"devicePath":"/workspace/circles/staff/inbox/virtual/virtual-conversation-1/virtual-message-001/mascot.png","filename":"mascot.png","contentType":"image/png","sizeBytes":13,"contentBase64":"dmlydHVhbC1pbWFnZQ=="}]}}`
 	case "web.search":
@@ -1032,6 +1041,18 @@ func virtualPlatformMessageSendRequiresApproval(requestBody []byte) bool {
 	return strings.TrimSpace(requestDocument.Input.DeliveryTarget.Type) == "directMessage" && !requestDocument.Context.IsApprovalContinuation
 }
 
+func virtualCapabilityRequestNeedsApproval(requestBody []byte) bool {
+	var requestDocument struct {
+		Context struct {
+			IsApprovalContinuation bool `json:"isApprovalContinuation"`
+		} `json:"context"`
+	}
+	if len(requestBody) == 0 || json.Unmarshal(requestBody, &requestDocument) != nil {
+		return false
+	}
+	return !requestDocument.Context.IsApprovalContinuation
+}
+
 func streamProgressObserver(writer io.Writer) func(task.RawTurnEvent) {
 	return func(rawTurnEvent task.RawTurnEvent) {
 		switch {
@@ -1057,7 +1078,10 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 	}
 	for index, virtualTurn := range harness.scenario.Turns {
 		if harness.scriptedModel != nil {
-			harness.scriptedModel.EnqueueActionResponses(virtualTurn.ActionResponses...)
+			if len(virtualTurn.RouterRequiredEvidence) > 0 {
+				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
+			}
+			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
 		}
 		turnResult, errorValue := harness.runTurn(ctx, index, virtualTurn)
 		if errorValue != nil {
@@ -1096,32 +1120,45 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}
-	if len(scenario.RouterWorkKinds) == 0 && len(scenario.InitialToolNames) == 0 {
+	if len(scenario.RouterWorkKinds) == 0 && len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 {
 		return defaultResponses
 	}
+	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
+	return defaultResponses
+}
+
+func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn VirtualTurn) string {
 	effortLevel := strings.TrimSpace(scenario.RouterEffortLevel)
 	if effortLevel == "" {
 		effortLevel = "standard"
+	}
+	requiredEvidence := scenario.RouterRequiredEvidence
+	if len(virtualTurn.RouterRequiredEvidence) > 0 {
+		requiredEvidence = virtualTurn.RouterRequiredEvidence
 	}
 	routerDocument := map[string]any{
 		"route":                  "start_task",
 		"classification":         "bounded_task",
 		"taskShape":              "maintenance_task",
+		"taskComplexity":         "normal",
 		"effortLevel":            effortLevel,
+		"outputKind":             nil,
 		"requestedOutputFormats": nil,
+		"expectedResults":        []any{},
+		"requiredEvidence":       requiredEvidence,
 		"siteRequestEvidence":    scenario.RouterSiteEvidence,
 		"responseLanguage":       "ko",
 		"reason":                 "scripted scenario default",
 		"userFacingReply":        "",
 		"workKinds":              scenario.RouterWorkKinds,
 		"initialToolNames":       scenario.InitialToolNames,
+		"priorTaskReference":     "none",
 	}
 	encodedDocument, errorValue := json.Marshal(routerDocument)
 	if errorValue != nil {
-		return nil
+		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","outputKind":null,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scripted scenario default","userFacingReply":"","workKinds":[],"initialToolNames":[],"priorTaskReference":"none"}`
 	}
-	defaultResponses["blueclaw_turn_router"] = string(encodedDocument)
-	return defaultResponses
+	return string(encodedDocument)
 }
 
 func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, virtualTurn VirtualTurn) (VirtualTurnResult, error) {
@@ -1299,7 +1336,7 @@ func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTu
 	for _, toolName := range virtualTurn.ExpectedToolCalls {
 		results = append(results, VirtualInformationalAssertion{
 			Name:      "expected tool call " + toolName,
-			Satisfied: eventsContain(turnResult.Events, "tool."+toolName+".requested", toolName),
+			Satisfied: requestedToolCallPresent(turnResult.Events, toolName),
 			Detail:    toolName,
 		})
 	}

@@ -166,29 +166,6 @@ func requestPromptMatchesWorkflowKind(request AgentRequest, workKind string) boo
 	return false
 }
 
-func requiredWorkflowEvidenceToolsForRequest(request AgentRequest) []string {
-	scope := workflowScopeFromAgentRequest(request)
-	toolNames := []string{}
-	for _, contract := range workflowContracts {
-		if !workflowScopeMatchesContract(scope, contract) {
-			continue
-		}
-		toolName := workflowEvidenceToolForScope(scope, contract)
-		if toolName == "" || !workflowEvidenceToolCanBeSatisfied(scope.ToolSet, toolName) {
-			continue
-		}
-		toolNames = appendUniqueStrings(toolNames, toolName)
-	}
-	return toolNames
-}
-
-func workflowEvidenceToolCanBeSatisfied(toolSet *ToolSet, toolName string) bool {
-	if hasTool(toolSet, toolName) {
-		return true
-	}
-	return hasTool(toolSet, TerminalRunToolName) && strings.Contains(strings.TrimSpace(toolName), ".")
-}
-
 func requiredWorkflowEffectRequirementsForRequest(request AgentRequest) []OutcomeEffect {
 	scope := workflowScopeFromAgentRequest(request)
 	requirements := []OutcomeEffect{}

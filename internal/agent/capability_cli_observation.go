@@ -52,6 +52,8 @@ func factsFromCapabilityObservation(observation turnObservation) []ObservedFact 
 		return append(siteObservationFacts(observation, "created"), siteWorkspaceModifiedFacts(observation)...)
 	case "site.status":
 		return siteStatusFacts(observation)
+	case "site.delete":
+		return siteObservationFacts(observation, "deleted")
 	default:
 		if isSendEvidenceTool(observation.Tool) {
 			return toolObjectFact(observation, "message", "sent")

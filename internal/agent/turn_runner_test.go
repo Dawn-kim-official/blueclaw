@@ -1044,7 +1044,7 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 		"site.build",
 		"artifact.review",
 		"site.publish",
-		"file.attach",
+		"file.deliver",
 	})
 	request := AgentTurnRequest{
 		RequesterPersonID:     "person-1",
@@ -1052,7 +1052,7 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 		Prompt:                "김인턴 너의 개인 홈페이지 하나 만들어서 배포해봐.",
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       []string{"site.status", "site.create", "file.write", "site.build", "artifact.review", "site.publish"},
-		RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish", "file.attach"},
+		RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish", "file.deliver"},
 		AvailableSkills: []SkillInstruction{{
 			Name: "site-prototype",
 			AllowedTools: []string{
@@ -1063,7 +1063,7 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 				"site.build",
 				"artifact.review",
 				"site.publish",
-				"file.attach",
+				"file.deliver",
 			},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
@@ -1071,7 +1071,7 @@ func TestAgentTurnRunnerSiteWorkingSetKeepsCreationRouteWithRequiredEvidence(t *
 			OriginalInstruction: "김인턴 너의 개인 홈페이지 하나 만들어서 배포해봐.",
 			Status:              ActiveGoalStatusActive,
 			OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish", "file.attach"},
+				RequiredEvidenceTools: []string{"site.status", "site.build", "site.publish", "file.deliver"},
 				ArtifactRequirement:   ArtifactRequirementRequired,
 			},
 		},

@@ -24,7 +24,7 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 				Tags:         []string{"slides", "pptx"},
 				Prompt:       "Generate PPTX with Marp.",
 				TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx"},
-				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
 		},
@@ -32,7 +32,7 @@ func TestSelectInstructionBundleIncludesSimpleSlidesForKoreanPPTRequest(t *testi
 
 	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
 		Prompt:  "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
-		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.attach"}),
+		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"}),
 	})
 
 	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
@@ -65,7 +65,7 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 				WhenToUse:    "Use for 피피티 and PPTX requests.",
 				Prompt:       "Generate PPTX with Marp.",
 				TriggerHints: []string{"피피티", "pptx"},
-				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
 		},
@@ -76,7 +76,7 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "user", Text: "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐"},
 		}},
-		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.attach"}),
+		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"}),
 	})
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
@@ -271,9 +271,9 @@ func TestSkillSelectorOnlyChecksSkillAvailability(t *testing.T) {
 	skillInstruction := SkillInstruction{
 		Name:         "simple-slides",
 		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx"},
-		AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+		AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 	}
-	request := AgentRequest{Prompt: "피피티 만들어줘", ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.attach"})}
+	request := AgentRequest{Prompt: "피피티 만들어줘", ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"})}
 
 	if skillSelector.ShouldInclude(skillInstruction, request) {
 		t.Fatal("expected prompt hints not to select skills outside retrieval")
@@ -285,7 +285,7 @@ func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 	skillInstruction := SkillInstruction{
 		Name:         "simple-slides",
 		TriggerHints: []string{"피피티"},
-		AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+		AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 	}
 	request := AgentRequest{
 		Prompt:  "피피티 만들어줘",
@@ -294,16 +294,16 @@ func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
 
 	decision := skillSelector.Evaluate(skillInstruction, request, "default")
 	if decision.Status == "selected" {
-		t.Fatal("expected simple-slides to be skipped without file.attach")
+		t.Fatal("expected simple-slides to be skipped without file.deliver")
 	}
-	if decision.Reason != "missing_allowed_tools" || len(decision.MissingTools) != 1 || decision.MissingTools[0] != "file.attach" {
+	if decision.Reason != "missing_allowed_tools" || len(decision.MissingTools) != 1 || decision.MissingTools[0] != "file.deliver" {
 		t.Fatalf("expected missing tool reason, got %+v", decision)
 	}
 }
 
-func TestSelectInstructionBundleKeepsSkillWhenAllowedToolIsRegisteredButHidden(t *testing.T) {
-	toolSet := NewToolSet([]string{"terminal.run"})
-	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
+func TestSelectInstructionBundleKeepsSkillWhenCapabilityOperationIsRegisteredButHidden(t *testing.T) {
+	toolSet := NewToolSet([]string{"terminal.run", CapabilityInvokeToolName})
+	for _, toolName := range []string{"terminal.run", CapabilityInvokeToolName, "site.create", "site.publish"} {
 		currentToolName := toolName
 		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess("ok"), nil
@@ -335,6 +335,39 @@ func TestSelectInstructionBundleKeepsSkillWhenAllowedToolIsRegisteredButHidden(t
 	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle, AgentRequest{Prompt: "김인턴 소개 웹사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
 	if filteredToolSet.IsAllowed("site.create") || filteredToolSet.IsAllowed("site.publish") {
 		t.Fatalf("expected selected hidden registered skill tools to stay hidden until requested, got %+v", filteredToolSet.ListToolNames())
+	}
+}
+
+func TestSelectInstructionBundleSkipsHiddenOperationWithoutCapabilityInvoke(t *testing.T) {
+	toolSet := NewToolSet([]string{"terminal.run"})
+	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
+		currentToolName := toolName
+		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+			return ToolSuccess("ok"), nil
+		})
+	}
+	instructionBundle := InstructionBundle{Skills: []SkillInstruction{{
+		Name:         "site-prototype",
+		Description:  "Create and publish website prototypes.",
+		Prompt:       "SITE BODY",
+		AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
+	}}}
+	retriever := staticSkillRetriever{result: SkillRetrievalResult{
+		RetrievalMode: "test",
+		SelectedCandidates: []SkillCandidate{{
+			Name:   "site-prototype",
+			Score:  1,
+			Reason: "test",
+		}},
+	}}
+
+	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+		Prompt:  "김인턴 소개 웹사이트 만들어줘",
+		ToolSet: toolSet,
+	}, retriever)
+
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status == "selected" {
+		t.Fatalf("expected hidden operation skill to be skipped without capability.invoke, got %+v", selectedBundle.SkillDecisions)
 	}
 }
 
@@ -562,7 +595,7 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 		Prompt:    "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘",
 		WorkKinds: []string{WorkKindSlidesArtifact, WorkKindFileDelivery},
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredEvidenceTools:      []string{"file.deliver"},
 			RequiredAttachmentSuffixes: []string{".pptx"},
 			ArtifactRequirement:        ArtifactRequirementRequired,
 		}},
@@ -615,7 +648,7 @@ func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
 			WorkKindFileDelivery,
 		},
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredEvidenceTools:      []string{"file.deliver"},
 			RequiredAttachmentSuffixes: []string{".docx"},
 			ArtifactRequirement:        ArtifactRequirementRequired,
 		}},
@@ -699,7 +732,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 				Description:  "Create slide decks and presentation artifacts.",
 				WhenToUse:    "Use for slides and PPTX requests.",
 				Prompt:       "Follow slides workflow.",
-				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
 		},
@@ -722,7 +755,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 			"site.build",
 			"site.publish",
 			"terminal.run",
-			"file.attach",
+			"file.deliver",
 		}),
 	}, retriever)
 
@@ -751,10 +784,10 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 		t.Run(testCase.suffix, func(t *testing.T) {
 			instructionBundle := InstructionBundle{
 				Skills: []SkillInstruction{
-					{Name: "docx", Description: "Create Word documents.", Prompt: "Follow docx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"}},
-					{Name: "simple-slides", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"}},
-					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Follow xlsx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
-					{Name: "pdf", Description: "Create PDFs.", Prompt: "Follow pdf workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.attach"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
+					{Name: "docx", Description: "Create Word documents.", Prompt: "Follow docx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"}},
+					{Name: "simple-slides", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"}},
+					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Follow xlsx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
+					{Name: "pdf", Description: "Create PDFs.", Prompt: "Follow pdf workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
 					{Name: "site-prototype", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.create", "site.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
 				},
 			}
@@ -765,12 +798,12 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 				ToolSet: testToolSet([]string{
 					"terminal.run",
 					"file.write",
-					"file.attach",
+					"file.deliver",
 					"site.create",
 					"site.publish",
 				}),
 				ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-					RequiredEvidenceTools:      []string{"file.attach"},
+					RequiredEvidenceTools:      []string{"file.deliver"},
 					RequiredAttachmentSuffixes: []string{testCase.suffix},
 				}},
 			}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
@@ -793,9 +826,9 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 				Description:  "Create, edit, promote, and attach Word documents in .docx format for business reports.",
 				WhenToUse:    "Use for Word, docx, 워드, 보고서, and document deliverables.",
 				Prompt:       "Follow document artifact workflow.",
-				AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.attach"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.deliver"},
 				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"file.promote", "file.attach"},
+					RequiredEvidenceTools: []string{"file.promote", "file.deliver"},
 				},
 				Source: InstructionSource{Path: "skills/enterprise-document-maker/SKILL.md", SkillName: "enterprise-document-maker"},
 			},
@@ -817,13 +850,13 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 			"terminal.run",
 			"file.write",
 			"file.promote",
-			"file.attach",
+			"file.deliver",
 			"site.create",
 			"site.build",
 			"site.publish",
 		}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredEvidenceTools:      []string{"file.deliver"},
 			RequiredAttachmentSuffixes: []string{".docx"},
 		}},
 	}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
@@ -842,7 +875,7 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 			"terminal.run",
 			"file.write",
 			"file.promote",
-			"file.attach",
+			"file.deliver",
 			"site.create",
 			"site.build",
 			"site.publish",
@@ -865,7 +898,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 				Description:  "Generate clean presentation slides with Marp and attach the requested files.",
 				WhenToUse:    "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
 				Prompt:       "Follow slides workflow.",
-				AllowedTools: []string{"terminal.run", "file.write", "file.attach"},
+				AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 				Source:       InstructionSource{Path: "skills/simple-slides/SKILL.md", SkillName: "simple-slides"},
 			},
 			{
@@ -893,7 +926,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 		ToolSet: testToolSet([]string{
 			"terminal.run",
 			"file.write",
-			"file.attach",
+			"file.deliver",
 			"task.add",
 			"task.list",
 			"task.update",
@@ -1064,9 +1097,9 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 				Description:  "Create, verify, promote, and attach Word documents in .docx format.",
 				WhenToUse:    "Use for Word documents, .docx files, memos, reports, and enterprise document deliverables.",
 				Prompt:       "Create the document, validate it, promote it, then attach it.",
-				AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
+				AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.deliver"},
 				Completion: SkillCompletion{
-					RequiredEvidenceTools: []string{"file.promote", "file.attach"},
+					RequiredEvidenceTools: []string{"file.promote", "file.deliver"},
 				},
 				Source: InstructionSource{Path: "skills/enterprise-document-maker/SKILL.md", SkillName: "enterprise-document-maker"},
 			},
@@ -1082,7 +1115,7 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 	}}
 	languageModel := &schemaStructuredLanguageModel{contentBySchema: map[string]string{
 		"blueclaw_skill_search_queries":       `{"queries":[{"description":"Recover and attach the requested .docx enterprise guide file."}]}`,
-		"blueclaw_contract_skill_arbitration": `{"selectedSkillNames":["enterprise-document-maker"],"rejectedSkillNames":["public-web-builder"],"requiredNextToolNames":["file.write","terminal.run","file.promote","file.attach"],"expectedEvidence":["file.attach"],"unmetPreconditions":[],"reason":"The outcome contract requires a .docx attachment, not a public website."}`,
+		"blueclaw_contract_skill_arbitration": `{"selectedSkillNames":["enterprise-document-maker"],"rejectedSkillNames":["public-web-builder"],"requiredNextToolNames":["file.write","terminal.run","file.promote","file.deliver"],"expectedEvidence":["file.deliver"],"unmetPreconditions":[],"reason":"The outcome contract requires a .docx attachment, not a public website."}`,
 	}}
 
 	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
@@ -1092,13 +1125,13 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 			"file.write",
 			"terminal.run",
 			"file.promote",
-			"file.attach",
+			"file.deliver",
 			"site.create",
 			"site.build",
 			"site.publish",
 		}),
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredEvidenceTools:      []string{"file.deliver"},
 			RequiredAttachmentSuffixes: []string{".docx"},
 			ArtifactRequirement:        ArtifactRequirementRequired,
 			ExpectedResults: []ExpectedResult{{

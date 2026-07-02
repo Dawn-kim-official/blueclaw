@@ -110,6 +110,34 @@ func TestObservedResultProjectionAllowsSiteReadEffectFromStatus(t *testing.T) {
 	}
 }
 
+func TestObservedResultProjectionAllowsSiteDeleteEffect(t *testing.T) {
+	goalSatisfied := true
+	projection := buildObservedResultProjection(
+		AgentTurnRequest{
+			ToolSet: newTestToolSet([]string{"site.delete"}),
+			OutcomeContract: OutcomeContract{RequiredEffects: []OutcomeEffect{{
+				ObjectType:         "website",
+				Effect:             "deleted",
+				SuggestedNextTools: []string{"site.delete"},
+			}}},
+		},
+		[]turnObservation{newContentObservation("obs-001", "continue", "site.delete", `{"siteID":"site-1","status":"deleted"}`)},
+		nil,
+		turnActionDocument{
+			Action:        "finish",
+			Message:       "사이트를 삭제했습니다.",
+			GoalSatisfied: &goalSatisfied,
+		},
+	)
+
+	if len(projection.MissingRequirements) != 0 {
+		t.Fatalf("expected no missing requirements, got %+v", projection.MissingRequirements)
+	}
+	if !projectionHasObservedFact(projection.ObservedFacts, "website", "deleted") {
+		t.Fatalf("expected website deleted fact, got %+v", projection.ObservedFacts)
+	}
+}
+
 func projectionMissingRequirementContains(requirements []ProjectionMissingRequirement, objectType string, effect string) bool {
 	for _, requirement := range requirements {
 		if requirement.ObjectType == objectType && requirement.Effect == effect {

@@ -221,6 +221,10 @@ func recoveryPreconditionSatisfied(precondition string, failedObservation turnOb
 			if observation.Tool == "terminal.run" && terminalInputLooksLikeDependencyChange(observation.ToolInputKey) {
 				return true
 			}
+		case siteBuiltRecoveryPrecondition:
+			if observation.Tool == "terminal.run" && terminalObservationIsSiteBuild(observation) {
+				return true
+			}
 		case "inspected_failure":
 			if observation.Tool == "file.read" || observation.Tool == "site.status" {
 				return true
