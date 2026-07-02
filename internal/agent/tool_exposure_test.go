@@ -48,7 +48,7 @@ func TestToolExposureFallsBackWhenSelectionIsEmptyOrInvalid(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "slides", Status: "selected"}},
 	}
 
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘", WorkKinds: []string{WorkKindSlidesArtifact}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: []string{"unknown.tool"}}, ToolExposureEvent{})
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{SelectedToolIDs: []string{"unknown.tool"}}, ToolExposureEvent{})
 
 	for _, toolID := range []string{"skill.search", "memory.remember"} {
 		if !filteredToolSet.IsAllowed(toolID) {
@@ -111,7 +111,7 @@ func TestPinnedCalendarWorkRequestExposesTaskAndCalendarTools(t *testing.T) {
 
 func TestStepWorkingSetPinsCalendarToolsWithoutFlowTaskTools(t *testing.T) {
 	request := requestWithStepWorkingSetTools(AgentTurnRequest{
-		WorkKinds: []string{WorkKindCalendar},
+		RequiredEvidenceTools: []string{"calendar.add", "calendar.list", "calendar.update", "calendar.delete"},
 	}, nil)
 
 	for _, toolName := range []string{"calendar.add", "calendar.list", "calendar.update", "calendar.delete"} {
@@ -128,7 +128,7 @@ func TestStepWorkingSetPinsCalendarToolsWithoutFlowTaskTools(t *testing.T) {
 
 func TestStepWorkingSetPinsFlowTaskToolsWithoutCalendarTools(t *testing.T) {
 	request := requestWithStepWorkingSetTools(AgentTurnRequest{
-		WorkKinds: []string{WorkKindFlowTask},
+		RequiredEvidenceTools: []string{"task.add", "task.list", "task.update"},
 	}, nil)
 
 	for _, toolName := range []string{"task.add", "task.list", "task.update"} {
@@ -145,7 +145,7 @@ func TestStepWorkingSetPinsFlowTaskToolsWithoutCalendarTools(t *testing.T) {
 
 func TestStepWorkingSetPinsSitePrototypeToolsWithoutCalendarOrFlowTaskTools(t *testing.T) {
 	request := requestWithStepWorkingSetTools(AgentTurnRequest{
-		WorkKinds: []string{WorkKindSitePrototype},
+		RequiredEvidenceTools: []string{"site.status", "site.create", "site.repair", "file.read", "file.write", "file.edit", "file.patch", "terminal.run", "site.build", "artifact.review", "site.publish"},
 	}, nil)
 
 	for _, toolName := range []string{"site.status", "site.create", "site.repair", "file.read", "file.write", "file.edit", "file.patch", "terminal.run", "site.build", "artifact.review", "site.publish"} {
@@ -341,7 +341,6 @@ func TestPinnedPaletteTruncatesToolsByOrder(t *testing.T) {
 	}
 	request := AgentRequest{
 		Prompt:          "개인 홈페이지 만들고 배포해줘",
-		WorkKinds:       []string{WorkKindSitePrototype},
 		PinnedToolNames: siteToolIDs,
 	}
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, OutcomeContract{})
@@ -780,7 +779,7 @@ func TestFallbackHidesSelectedSkillToolsUntilRequested(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "simple-slides", Status: "selected"}},
 	}
 
-	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘", WorkKinds: []string{WorkKindSlidesArtifact}}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, AgentRequest{Prompt: "발표자료 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
 	for _, toolName := range slideToolNames {
 		if filteredToolSet.IsAllowed(toolName) {

@@ -592,8 +592,7 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 		IndexStatus:   "ready",
 	}}
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt:    "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘",
-		WorkKinds: []string{WorkKindSlidesArtifact, WorkKindFileDelivery},
+		Prompt: "메일, 일정, 브라우저 제어 능력을 소개하는 5장짜리 발표자료를 PPTX로 첨부해줘",
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.deliver"},
 			RequiredAttachmentSuffixes: []string{".pptx"},
@@ -644,9 +643,6 @@ func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
-		WorkKinds: []string{
-			WorkKindFileDelivery,
-		},
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.deliver"},
 			RequiredAttachmentSuffixes: []string{".docx"},
@@ -698,8 +694,7 @@ func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
 	}}
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt:    "테스트 태스크를 생성하고 수정한 다음 삭제해줘",
-		WorkKinds: []string{WorkKindFlowTask},
+		Prompt: "테스트 태스크를 생성하고 수정한 다음 삭제해줘",
 		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
 			ArtifactRequirement: ArtifactRequirementNone,
 		}},
@@ -747,8 +742,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 	}}
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt:    "더 좋게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
-		WorkKinds: []string{WorkKindSitePrototype},
+		Prompt: "더 좋게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
 		ToolSet: testToolSet([]string{
 			"site.status",
 			"file.write",
@@ -757,6 +751,17 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 			"terminal.run",
 			"file.deliver",
 		}),
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"site.publish"},
+			SelectedEvidenceHints: []string{"site.status", "file.write", "site.build", "site.publish"},
+			ExpectedResults: []ExpectedResult{{
+				ID:          "site-public-link",
+				Type:        ExpectedResultTypeLink,
+				Description: "public URL",
+				Required:    true,
+			}},
+			SiteEvidenceQuote: "웹사이트",
+		}},
 	}, retriever)
 
 	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
@@ -793,8 +798,7 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 			}
 
 			selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-				Prompt:    "첨부파일로 줘",
-				WorkKinds: []string{WorkKindFileDelivery},
+				Prompt: "첨부파일로 줘",
 				ToolSet: testToolSet([]string{
 					"terminal.run",
 					"file.write",
@@ -844,8 +848,7 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 	}
 
 	fileBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt:    "첨부파일로 줘",
-		WorkKinds: []string{WorkKindFileDelivery},
+		Prompt: "첨부파일로 줘",
 		ToolSet: testToolSet([]string{
 			"terminal.run",
 			"file.write",
@@ -869,8 +872,7 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 	}
 
 	siteBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt:    "더 예쁜 웹사이트로 고쳐서 다시 배포해줘",
-		WorkKinds: []string{WorkKindSitePrototype},
+		Prompt: "더 예쁜 웹사이트로 고쳐서 다시 배포해줘",
 		ToolSet: testToolSet([]string{
 			"terminal.run",
 			"file.write",
@@ -880,6 +882,17 @@ func TestArtifactContractSelectionUsesSkillMetadataNotBuiltinNames(t *testing.T)
 			"site.build",
 			"site.publish",
 		}),
+		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"site.publish"},
+			SelectedEvidenceHints: []string{"site.create", "site.build", "site.publish"},
+			ExpectedResults: []ExpectedResult{{
+				ID:          "site-public-link",
+				Type:        ExpectedResultTypeLink,
+				Description: "public URL",
+				Required:    true,
+			}},
+			SiteEvidenceQuote: "웹사이트",
+		}},
 	}, staticSkillRetriever{result: SkillRetrievalResult{RetrievalMode: "embedding", IndexStatus: "ready"}})
 
 	if !skillDecisionHasStatus(siteBundle.SkillDecisions, "public-web-builder", "selected") {
@@ -921,8 +934,7 @@ func TestNonArtifactFlowTaskRequestIsNotDominatedBySimpleSlides(t *testing.T) {
 	}}
 
 	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
-		Prompt:    "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
-		WorkKinds: []string{WorkKindFlowTask},
+		Prompt: "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
 		ToolSet: testToolSet([]string{
 			"terminal.run",
 			"file.write",
@@ -1119,8 +1131,7 @@ func TestContractSkillArbitrationSelectsUsefulCandidateFromTopK(t *testing.T) {
 	}}
 
 	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
-		Prompt:    "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
-		WorkKinds: []string{WorkKindFileDelivery},
+		Prompt: "링크로 전달된 적 없어. 첨부파일로 줘야지 그리고.",
 		ToolSet: testToolSet([]string{
 			"file.write",
 			"terminal.run",

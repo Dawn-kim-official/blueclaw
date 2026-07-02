@@ -101,13 +101,12 @@ func TestSitePrototypeContinuationDoesNotBuildConfirmationPlan(t *testing.T) {
 func TestDestructiveSiteManagementStillBuildsConfirmationPlan(t *testing.T) {
 	toolSet := newTestToolSet([]string{"site.create", "site.publish", "terminal.run"})
 	request := AgentRequest{
-		Prompt:    "이 사이트 내려줘",
-		ToolSet:   toolSet,
-		WorkKinds: []string{WorkKindDestructiveAction},
+		Prompt:  "이 사이트 내려줘",
+		ToolSet: toolSet,
 	}
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
-		TaskShape:      TaskShapeMaintenanceTask,
+		TaskShape:      TaskShapeApprovalGatedTask,
 	}
 
 	if !shouldBuildExecutionPlanForConfirmation(request, decision, []string{"site.publish"}) {

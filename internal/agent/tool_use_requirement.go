@@ -81,9 +81,9 @@ func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
 	if !hasToolPrefix(request.ToolSet, "browser.") {
 		return false
 	}
-	return workKindsContain(request.WorkKinds, WorkKindBrowserSession)
+	return request.TaskShape == TaskShapeBrowserHandoffTask || requiredEvidenceHasPrefix(request.RequiredEvidenceTools, "browser.")
 }
 
 func requestOnlyOpensBrowser(request AgentTurnRequest) bool {
-	return request.TaskComplexity == TaskComplexitySimple && workKindsContain(request.WorkKinds, WorkKindBrowserSession)
+	return request.TaskComplexity == TaskComplexitySimple && requestRequiresBrowserEvidence(request)
 }

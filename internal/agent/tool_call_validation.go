@@ -616,6 +616,15 @@ func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName s
 	return false
 }
 
+func requiredEvidenceHasPrefix(requiredEvidenceTools []string, prefix string) bool {
+	for _, toolName := range requiredEvidenceTools {
+		if strings.HasPrefix(strings.TrimSpace(toolName), prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func unnecessarySiteApprovalMessage() string {
 	return "Approval is not required for website create, build, or publish capability operations. Continue with the website capability operations directly. Ask approval only before rollback, unpublish, or delete."
 }

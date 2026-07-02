@@ -5,7 +5,6 @@ import "testing"
 func TestRecoverableWorkflowNextToolsSuggestsFileDeliveryAfterSourceProgress(t *testing.T) {
 	toolSet := newTestToolSet([]string{"terminal.run", FileDeliverToolName})
 	request := AgentTurnRequest{
-		WorkKinds:                  []string{WorkKindFileDelivery},
 		RequiredAttachmentSuffixes: []string{".docx"},
 		ToolSet:                    toolSet,
 	}
@@ -23,7 +22,6 @@ func TestRecoverableWorkflowNextToolsSuggestsFileDeliveryAfterSourceProgress(t *
 func TestRecoverableWorkflowNextToolsStopsAfterDeliver(t *testing.T) {
 	toolSet := newTestToolSet([]string{"terminal.run", FileDeliverToolName})
 	request := AgentTurnRequest{
-		WorkKinds:                  []string{WorkKindFileDelivery},
 		RequiredAttachmentSuffixes: []string{".docx"},
 		ToolSet:                    toolSet,
 	}

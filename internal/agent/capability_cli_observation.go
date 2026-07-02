@@ -35,11 +35,11 @@ func factsFromCapabilityObservation(observation turnObservation) []ObservedFact 
 	case "calendar.delete":
 		return toolObjectFact(observation, "calendar_event", "deleted")
 	case "task.add":
-		return toolObjectFact(observation, "flow_task", "created")
+		return toolObjectFact(observation, "task", "created")
 	case "task.update":
-		return toolObjectFact(observation, "flow_task", "updated")
+		return toolObjectFact(observation, "task", "updated")
 	case "task.delete":
-		return toolObjectFact(observation, "flow_task", "deleted")
+		return toolObjectFact(observation, "task", "deleted")
 	case "schedule.create":
 		return toolObjectFact(observation, "schedule", "created")
 	case "schedule.update":

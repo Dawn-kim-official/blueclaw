@@ -138,7 +138,6 @@ func FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath string) Virtual
 	return VirtualSessionScenario{
 		Name:                  "file_write_legacy_mode_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindCoding},
 		AllowedTools:          []string{"file.write", "terminal.run"},
 		InitialToolNames:      []string{"file.write", "terminal.run"},
 		Turns: []VirtualTurn{{
@@ -349,7 +348,6 @@ func CodingImageVisionFallbackScenario(artifactDirectoryPath string) VirtualSess
 	return VirtualSessionScenario{
 		Name:                     "coding_image_vision_fallback",
 		ArtifactDirectoryPath:    artifactDirectoryPath,
-		RouterWorkKinds:          []string{agent.WorkKindCoding},
 		RouterEffortLevel:        "deep",
 		CodingTierVisionFallback: true,
 		AllowedTools:             []string{"conversation.history", "memory.search"},
@@ -472,7 +470,6 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 	return VirtualSessionScenario{
 		Name:                  "calendar_event_lifecycle_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindCalendar},
 		Skills:                []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:          agent.KernelToolNames(),
 		CapabilityToolNames:   []string{"calendar.add", "calendar.update", "calendar.delete"},
@@ -521,7 +518,6 @@ func CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath string)
 	return VirtualSessionScenario{
 		Name:                  "calendar_false_finish_recovery_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindCalendar},
 		Skills:                []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
 		CapabilityToolNames:   []string{"calendar.add"},
@@ -554,7 +550,6 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 	return VirtualSessionScenario{
 		Name:                   "ambient_duty_calendar_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
-		RouterWorkKinds:        []string{agent.WorkKindCalendar},
 		RouterRequiredEvidence: []string{"calendar.add"},
 		AddressingResponse:     `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
 		Skills:                 []agent.SkillInstruction{calendarSkill()},
@@ -985,9 +980,8 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 	return VirtualSessionScenario{
 		Name:                   "site_prototype_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
-		RouterWorkKinds:        []string{agent.WorkKindSitePrototype},
 		RouterRequiredEvidence: []string{"site.publish"},
-		RouterSiteEvidence:     "Local Fleet Studio 소개 웹사이트를 만들어서 배포",
+		RouterSiteEvidence:     "Local Fleet Studio",
 		Skills:                 []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:           agent.KernelToolNames(),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
@@ -1026,9 +1020,8 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 	return VirtualSessionScenario{
 		Name:                   "site_edit_redeploy_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
-		RouterWorkKinds:        []string{agent.WorkKindSitePrototype},
 		RouterRequiredEvidence: []string{"site.publish"},
-		RouterSiteEvidence:     "Build and deploy a Local Fleet Studio site",
+		RouterSiteEvidence:     "Local Fleet Studio website",
 		Skills:                 []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:           agent.KernelToolNames(),
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
@@ -1080,8 +1073,7 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 	return VirtualSessionScenario{
 		Name:                      "site_lifecycle_acceptance",
 		ArtifactDirectoryPath:     artifactDirectoryPath,
-		RouterWorkKinds:           []string{agent.WorkKindSitePrototype},
-		RouterSiteEvidence:        "Local Fleet Studio 웹사이트 생성 배포 수정 삭제",
+		RouterSiteEvidence:        "Local Fleet Studio",
 		Skills:                    []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:              agent.KernelToolNames(),
 		CapabilityToolNames:       sitePrototypeCapabilityToolNames(),
@@ -1176,9 +1168,8 @@ func SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath string) VirtualSe
 	return VirtualSessionScenario{
 		Name:                   "site_suggested_repair_recovery",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
-		RouterWorkKinds:        []string{agent.WorkKindSitePrototype},
 		RouterRequiredEvidence: []string{"site.publish"},
-		RouterSiteEvidence:     "Improve and redeploy an existing site",
+		RouterSiteEvidence:     "웹사이트 퀄리티가 너무 낮잖아",
 		Skills:                 []agent.SkillInstruction{sitePrototypeSkill()},
 		AllowedTools:           []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName, "file.write", "terminal.run"},
 		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
@@ -1248,7 +1239,6 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 	return VirtualSessionScenario{
 		Name:                   "dm_send_confirm_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
-		RouterWorkKinds:        []string{agent.WorkKindExternalSend},
 		RouterRequiredEvidence: []string{"message.send"},
 		AllowedTools:           []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
 		InitialToolNames:       []string{agent.CapabilityInvokeToolName},
