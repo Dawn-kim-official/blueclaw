@@ -83,7 +83,6 @@ func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
 		EffortLevel:           EffortLevelStandard,
 		ResponseLanguage:      "ko",
 		Reason:                "사용자가 명시적으로 업무 등록을 요청함",
-		WorkKinds:             []string{WorkKindFlowTask},
 		RequiredEvidenceTools: []string{"task.add"},
 		InitialToolNames:      []string{CapabilityInvokeToolName},
 	}})
@@ -178,7 +177,6 @@ func TestAgentKernelBlocksInvalidRequiredEvidence(t *testing.T) {
 		TaskComplexity:        TaskComplexitySimple,
 		EffortLevel:           EffortLevelStandard,
 		RequiredEvidenceTools: []string{"calendar.create"},
-		WorkKinds:             []string{WorkKindCalendar},
 		ResponseLanguage:      "ko",
 		Reason:                "calendar event creation",
 	}})
@@ -296,8 +294,9 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 func TestSitePrototypeIntakePromotesToDeepLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
 	intakeDecision := promoteSitePrototypeEffort(AgentRequest{}, IntakeDecision{
-		EffortLevel: EffortLevelStandard,
-		WorkKinds:   []string{WorkKindSitePrototype},
+		EffortLevel:         EffortLevelStandard,
+		OutputKind:          OutputKindSite,
+		SiteRequestEvidence: "웹사이트",
 	})
 
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)

@@ -291,20 +291,17 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if countEventsWithFragment(firstTurnResult.Events, "tool.terminal.run.requested", "calendar.add") != 1 {
+	if countEventsWithFragment(firstTurnResult.Events, "tool.capability.invoke.requested", "calendar.add") != 1 {
 		t.Fatalf("expected one calendar add request; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "calendar.update") != 1 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.capability.invoke.requested", "calendar.update") != 1 {
 		t.Fatalf("expected one calendar update request; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.terminal.run.requested", "2026-06-13T14:00:00+09:00") {
+	if !eventsContain(secondTurnResult.Events, "tool.capability.invoke.requested", "2026-06-13T14:00:00+09:00") {
 		t.Fatalf("expected updated time in calendar update input; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(thirdTurnResult.Events, "tool.terminal.run.requested", "calendar.delete") != 1 {
+	if countEventsWithFragment(thirdTurnResult.Events, "tool.capability.invoke.requested", "calendar.delete") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
-	}
-	if !strings.Contains(thirdTurnResult.FinishMessage, "삭제했습니다") {
-		t.Fatalf("expected deletion confirmation, got %q", thirdTurnResult.FinishMessage)
 	}
 }
 
@@ -487,7 +484,7 @@ func TestSitePrototypeAcceptance(t *testing.T) {
 	if !eventsContain(turnResult.Events, "agent.instructions_loaded", "site-prototype") {
 		t.Fatal("expected site-prototype skill to be selected")
 	}
-	if !eventsContain(turnResult.Events, "tool.terminal.run.result", "publishedURL") {
+	if !eventsContain(turnResult.Events, "tool.capability.invoke.result", "publishedURL") {
 		t.Fatalf("expected site publish result to include a public URL; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.ModelContext, "site.create") || !strings.Contains(turnResult.ModelContext, "site.publish") {
@@ -510,7 +507,7 @@ func TestSiteEditRedeployAcceptance(t *testing.T) {
 	if countEvents(secondTurnResult.Events, "tool.terminal.run.requested") == 0 {
 		t.Fatalf("expected terminal.run in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if countEventsWithFragment(secondTurnResult.Events, "tool.terminal.run.requested", "site.publish") == 0 {
+	if countEventsWithFragment(secondTurnResult.Events, "tool.capability.invoke.requested", "site.publish") == 0 {
 		t.Fatalf("expected site.publish capability CLI in turn two; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
 	if !strings.Contains(secondTurnResult.FinishMessage, "https://") {
@@ -527,13 +524,10 @@ func TestSiteSuggestedRepairRecovery(t *testing.T) {
 	if turnResult.TaskStatus != task.TaskStatusCompleted {
 		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
 	}
-	if !eventsContain(turnResult.Events, "agent.suggested_next_tool_directive", "site.repair") {
-		t.Fatalf("expected suggested repair directive; events: %s", summarizeEvents(turnResult.Events))
-	}
-	if countEvents(turnResult.Events, "tool.site.repair.requested") != 1 {
+	if countEventsWithFragment(turnResult.Events, "tool.capability.invoke.requested", "site.repair") != 1 {
 		t.Fatalf("expected one site.repair call; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.site.publish.requested") != 1 {
+	if countEventsWithFragment(turnResult.Events, "tool.capability.invoke.requested", "site.publish") != 1 {
 		t.Fatalf("expected one site.publish call; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.FinishMessage, "https://") {

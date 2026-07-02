@@ -224,10 +224,7 @@ func dominantArtifactSkill(request AgentRequest, skillInstructions []SkillInstru
 }
 
 func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {
-	if requestPromptMatchesWorkflowKind(request, WorkKindFlowTask) && !requestHasWorkKind(request, WorkKindSitePrototype) && !requestHasWorkKind(request, WorkKindSlidesArtifact) && !requestHasWorkKind(request, WorkKindFileDelivery) {
-		return false
-	}
-	if requestHasWorkKind(request, WorkKindSitePrototype) || requestHasWorkKind(request, WorkKindSlidesArtifact) || requestHasWorkKind(request, WorkKindFileDelivery) {
+	if len(artifactContractRequirementsForRequest(request)) > 0 {
 		return true
 	}
 	if expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) || expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeLink) {

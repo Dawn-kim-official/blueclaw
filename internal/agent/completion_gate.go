@@ -91,7 +91,7 @@ func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifacts(ctx context.Co
 
 func (agentTurnRunner *AgentTurnRunner) attachCompletionArtifactsFromEffect(ctx context.Context, taskRunID string, request AgentTurnRequest, observations []turnObservation, attachments []FileAttachment, state CompletionState, invocation ToolInvocation) completionTransition {
 	agentTurnRunner.appendValidityReview(taskRunID, "pre_attach", state.ValidityState)
-	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), invocation.ToolName, invocation.Input, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, request.WorkKinds, "")
+	observation := agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, nextObservationID(len(observations)+1), invocation.ToolName, invocation.Input, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, "")
 	if observation.Failed() {
 		observation = withObservationContent(observation, completionAttachmentFailureContent(observation.ContentText(), state.AttachmentPaths))
 	}
@@ -548,8 +548,7 @@ func expectedResultRequiresTool(contract OutcomeContract, toolName string) bool 
 }
 
 func externalSendCompletionEvidenceRequired(request AgentTurnRequest) bool {
-	return workKindsContain(request.WorkKinds, WorkKindExternalSend) ||
-		contractRequiresSendTool(request.OutcomeContract) ||
+	return contractRequiresSendTool(request.OutcomeContract) ||
 		sendToolNamesContain(request.RequiredEvidenceTools)
 }
 

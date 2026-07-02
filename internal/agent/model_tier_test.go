@@ -41,23 +41,20 @@ func TestTaskModelTierKeepsSimpleAndNormalCheap(t *testing.T) {
 	}
 }
 
-func TestResolvedTaskModelTierRoutesCodingHighToCoding(t *testing.T) {
-	codingKinds := []string{WorkKindCoding}
+func TestResolvedTaskModelTierUsesComplexityAndEffort(t *testing.T) {
 	cases := []struct {
 		complexity TaskComplexity
 		effort     EffortLevel
-		workKinds  []string
 		want       modelTier
 	}{
-		{TaskComplexityComplex, EffortLevelDeep, codingKinds, modelTierCoding},
-		{TaskComplexitySimple, EffortLevelDeep, codingKinds, modelTierCoding},
-		{TaskComplexityComplex, EffortLevelDeep, nil, modelTierHigh},
-		{TaskComplexityComplex, EffortLevelStandard, codingKinds, modelTierMedium},
-		{TaskComplexitySimple, EffortLevelQuick, codingKinds, modelTierXLow},
+		{TaskComplexityComplex, EffortLevelDeep, modelTierHigh},
+		{TaskComplexitySimple, EffortLevelDeep, modelTierHigh},
+		{TaskComplexityComplex, EffortLevelStandard, modelTierMedium},
+		{TaskComplexitySimple, EffortLevelQuick, modelTierXLow},
 	}
 	for _, testCase := range cases {
-		if tier := resolvedTaskModelTier(testCase.complexity, testCase.effort, testCase.workKinds); tier != testCase.want {
-			t.Fatalf("complexity %q effort %q kinds %v: expected %q, got %q", testCase.complexity, testCase.effort, testCase.workKinds, testCase.want, tier)
+		if tier := resolvedTaskModelTier(testCase.complexity, testCase.effort); tier != testCase.want {
+			t.Fatalf("complexity %q effort %q: expected %q, got %q", testCase.complexity, testCase.effort, testCase.want, tier)
 		}
 	}
 }
