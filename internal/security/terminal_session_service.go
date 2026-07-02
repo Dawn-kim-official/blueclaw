@@ -1,14 +1,19 @@
 package security
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -101,7 +106,8 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 	command := exec.CommandContext(ctx, commandPlan.ExecutablePath, commandPlan.Arguments...)
 	configureCommandGroupKill(command)
 	command.Dir = commandPlan.WorkingDirectoryPath
-	command.Env = mapEnvironmentVariables(commandPlan.EnvironmentVariables)
+	scopeMarker := nextTerminalCommandScopeMarker()
+	command.Env = append(mapEnvironmentVariables(commandPlan.EnvironmentVariables), scopeMarker)
 	if strings.TrimSpace(commandPlan.Stdin) != "" {
 		command.Stdin = strings.NewReader(commandPlan.Stdin)
 	}
@@ -118,7 +124,7 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 
 	errorValue, isAbandoned := awaitCommandCompletion(ctx, runResult, command.WaitDelay+commandAbandonGrace)
 	if isAbandoned {
-		terminalSessionService.abandonUnreapableProcessGroup(command, runResult)
+		terminalSessionService.abandonUnreapableProcessGroup(command, runResult, scopeMarker)
 		return CommandResult{
 			ExitCode: -1,
 			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
@@ -127,6 +133,7 @@ func (terminalSessionService *TerminalSessionService) RunCommand(ctx context.Con
 		}, errors.New("command timed out")
 	}
 	if ctx.Err() == context.DeadlineExceeded {
+		sweepEscapedCommandProcesses(scopeMarker)
 		return CommandResult{
 			ExitCode: -1,
 			Stdout:   truncateString(standardOutputBuffer.String(), terminalSessionService.outputMaxBytes()),
@@ -185,12 +192,13 @@ func awaitCommandCompletion(ctx context.Context, runResult <-chan error, abandon
 	}
 }
 
-func (terminalSessionService *TerminalSessionService) abandonUnreapableProcessGroup(command *exec.Cmd, runResult <-chan error) {
+func (terminalSessionService *TerminalSessionService) abandonUnreapableProcessGroup(command *exec.Cmd, runResult <-chan error, scopeMarker string) {
 	if command.Process == nil {
 		return
 	}
 	processGroupID := command.Process.Pid
 	slog.Warn("terminal.run abandoned unreapable process group", "pgid", processGroupID, "command", command.Path)
+	sweepEscapedCommandProcesses(scopeMarker)
 
 	go func() {
 		ticker := time.NewTicker(commandReaperInterval)
@@ -199,12 +207,57 @@ func (terminalSessionService *TerminalSessionService) abandonUnreapableProcessGr
 			select {
 			case <-runResult:
 				slog.Info("abandoned process group reaped", "pgid", processGroupID)
+				sweepEscapedCommandProcesses(scopeMarker)
 				return
 			case <-ticker.C:
 				_ = syscall.Kill(-processGroupID, syscall.SIGKILL)
+				sweepEscapedCommandProcesses(scopeMarker)
 			}
 		}
 	}()
+}
+
+var terminalCommandScopeCounter atomic.Uint64
+
+func nextTerminalCommandScopeMarker() string {
+	return fmt.Sprintf("BLUECLAW_TERMINAL_SCOPE=%d-%d", os.Getpid(), terminalCommandScopeCounter.Add(1))
+}
+
+func sweepEscapedCommandProcesses(scopeMarker string) {
+	processIDs := processIDsWithEnvironmentMarker("/proc", scopeMarker)
+	killedCount := 0
+	for _, processID := range processIDs {
+		if syscall.Kill(-processID, syscall.SIGKILL) == nil || syscall.Kill(processID, syscall.SIGKILL) == nil {
+			killedCount++
+		}
+	}
+	if killedCount > 0 {
+		slog.Warn("terminal.run killed escaped command processes", "count", killedCount, "scope", scopeMarker)
+	}
+}
+
+func processIDsWithEnvironmentMarker(procRootPath string, scopeMarker string) []int {
+	entries, errorValue := os.ReadDir(procRootPath)
+	if errorValue != nil {
+		return nil
+	}
+	markerRecord := append([]byte(scopeMarker), 0)
+	ownProcessID := os.Getpid()
+	var processIDs []int
+	for _, entry := range entries {
+		processID, errorValue := strconv.Atoi(entry.Name())
+		if errorValue != nil || processID == ownProcessID {
+			continue
+		}
+		environ, errorValue := os.ReadFile(filepath.Join(procRootPath, entry.Name(), "environ"))
+		if errorValue != nil {
+			continue
+		}
+		if bytes.Contains(environ, markerRecord) {
+			processIDs = append(processIDs, processID)
+		}
+	}
+	return processIDs
 }
 
 func (terminalSessionService *TerminalSessionService) runPreToolUseHooks(commandRequest CommandRequest) (CommandRequest, error) {

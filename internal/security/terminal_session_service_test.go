@@ -299,6 +299,32 @@ func TestRunCommandTimedOutResultIncludesPartialOutput(t *testing.T) {
 	}
 }
 
+func TestProcessIDsWithEnvironmentMarkerMatchesExactRecords(t *testing.T) {
+	procRootPath := t.TempDir()
+	writeFakeProcessEnviron(t, procRootPath, "101", "PATH=/bin\x00BLUECLAW_TERMINAL_SCOPE=7-3\x00HOME=/tmp\x00")
+	writeFakeProcessEnviron(t, procRootPath, "102", "BLUECLAW_TERMINAL_SCOPE=7-30\x00")
+	writeFakeProcessEnviron(t, procRootPath, "103", "OTHER=1\x00")
+	if errorValue := os.MkdirAll(filepath.Join(procRootPath, "not-a-pid"), 0o755); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	processIDs := processIDsWithEnvironmentMarker(procRootPath, "BLUECLAW_TERMINAL_SCOPE=7-3")
+
+	if len(processIDs) != 1 || processIDs[0] != 101 {
+		t.Fatalf("expected only process 101 to match, got %v", processIDs)
+	}
+}
+
+func writeFakeProcessEnviron(t *testing.T, procRootPath string, processID string, environ string) {
+	t.Helper()
+	if errorValue := os.MkdirAll(filepath.Join(procRootPath, processID), 0o755); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := os.WriteFile(filepath.Join(procRootPath, processID, "environ"), []byte(environ), 0o644); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+}
+
 func TestRunCommandIncludesProcessErrorWhenStderrIsEmpty(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
