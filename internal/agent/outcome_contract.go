@@ -430,12 +430,13 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 	if OutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
 		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, intakeDecision.RequiredEvidenceTools...)
 		contract.SelectedEvidenceHints = appendUniqueStrings(contract.SelectedEvidenceHints, selectedEvidenceHints...)
 		contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedEvidenceToolsForRequestContinuation(request, contract, selectedEvidenceHints)...)
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForRequest(request, instructionBundle)...)
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
-		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredWorkflowEvidenceToolsForRequest(request)...)
+		if len(intakeDecision.RequiredEvidenceTools) == 0 {
+			contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(contract)...)
+		}
 		contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 		contract.ExpectedResults = appendExpectedResults(contract.ExpectedResults, legacyExpectedResultsForContract(request, intakeDecision, executionPlan, hasExecutionPlan, contract)...)
 		if strings.TrimSpace(contract.ArtifactRequirement) == "" || contract.ArtifactRequirement == ArtifactRequirementNone {
@@ -447,10 +448,12 @@ func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecisi
 		SelectedEvidenceHints:      appendUniqueStrings(outcomeContractToolNames(request.ActiveGoal.OutcomeContract), selectedEvidenceHintTools(instructionBundle)...),
 		RequiredAttachmentSuffixes: append([]string{}, requiredAttachmentSuffixes...),
 	}
-	contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
-	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, selectedSiteEvidenceToolsForRequest(request, instructionBundle)...)
-	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForRequest(request, contract, contract.SelectedEvidenceHints)...)
-	contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredWorkflowEvidenceToolsForRequest(request)...)
+	if len(intakeDecision.RequiredEvidenceTools) > 0 {
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, intakeDecision.RequiredEvidenceTools...)
+	} else {
+		contract.RequiredEvidenceTools = outcomeEvidenceTools(request, intakeDecision, executionPlan, hasExecutionPlan, contract.SelectedEvidenceHints, requiredAttachmentSuffixes)
+		contract.RequiredEvidenceTools = appendUniqueStrings(contract.RequiredEvidenceTools, requiredSendEvidenceToolsForContract(contract)...)
+	}
 	contract.RequiredEffects = appendOutcomeEffects(contract.RequiredEffects, requiredWorkflowEffectRequirementsForRequest(request)...)
 	contract.SelectedEvidenceHints = filterStaleOutcomeHints(request, executionPlan, hasExecutionPlan, contract, contract.SelectedEvidenceHints)
 	if len(requiredAttachmentSuffixes) > 0 {
@@ -481,20 +484,6 @@ func normalizeRequestSiteWorkKinds(request AgentRequest, intakeDecision IntakeDe
 	}
 	request.WorkKinds, _ = removeSiteWorkKinds(request.WorkKinds)
 	return request
-}
-
-func selectedSiteEvidenceToolsForRequest(request AgentRequest, instructionBundle InstructionBundle) []string {
-	if !requestLooksLikeSitePrototypeWork(request) {
-		return nil
-	}
-	toolNames := []string{}
-	for _, toolName := range selectedEvidenceHintTools(instructionBundle) {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if strings.HasPrefix(trimmedToolName, "site.") {
-			toolNames = appendUniqueStrings(toolNames, trimmedToolName)
-		}
-	}
-	return toolNames
 }
 
 func siteEvidenceQuoteForOutcomeContract(request AgentRequest, intakeDecision IntakeDecision, executionPlan ExecutionPlan, hasExecutionPlan bool, contract OutcomeContract) string {
@@ -800,18 +789,11 @@ func outcomeEvidenceTools(request AgentRequest, intakeDecision IntakeDecision, e
 	return toolNames
 }
 
-func requiredSendEvidenceToolsForRequest(request AgentRequest, contract OutcomeContract, evidenceHints []string) []string {
+func requiredSendEvidenceToolsForContract(contract OutcomeContract) []string {
 	if contractRequiresSendTool(contract) {
 		return sendEvidenceToolsFromValues(outcomeContractRequiredToolNames(contract))
 	}
-	if !requestHasWorkKind(request, WorkKindExternalSend) {
-		return nil
-	}
-	toolNames := sendEvidenceToolsFromValues(evidenceHints)
-	if len(toolNames) > 0 {
-		return toolNames
-	}
-	return singleAvailableSendEvidenceTool(request.ToolSet)
+	return nil
 }
 
 func sendEvidenceToolsFromValues(values []string) []string {

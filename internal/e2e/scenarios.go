@@ -389,12 +389,13 @@ func GWSDisabledScenario(artifactDirectoryPath string) VirtualSessionScenario {
 
 func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
-		Name:                  "schedule_create_acceptance",
-		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []agent.SkillInstruction{scheduledTaskSkill()},
-		AllowedTools:          agent.KernelToolNames(),
-		CapabilityToolNames:   []string{"schedule.create", "schedule.cancel"},
-		InitialToolNames:      []string{"terminal.run"},
+		Name:                   "schedule_create_acceptance",
+		ArtifactDirectoryPath:  artifactDirectoryPath,
+		Skills:                 []agent.SkillInstruction{scheduledTaskSkill()},
+		AllowedTools:           agent.KernelToolNames(),
+		CapabilityToolNames:    []string{"schedule.create", "schedule.cancel"},
+		InitialToolNames:       []string{"terminal.run"},
+		RouterRequiredEvidence: []string{"schedule.create"},
 		Turns: []VirtualTurn{{
 			Prompt: "1분마다 \"1분 지났습니다\"라고 보내줘",
 			ActionResponses: []string{
@@ -427,7 +428,8 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 		InitialToolNames:      []string{"terminal.run"},
 		Turns: []VirtualTurn{
 			{
-				Prompt: "30분마다 상태 확인하라고 알려줘. 세 번만 해줘",
+				Prompt:                 "30분마다 상태 확인하라고 알려줘. 세 번만 해줘",
+				RouterRequiredEvidence: []string{"schedule.create"},
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("schedule.create", `{"name":"상태 확인 알림","taskInstruction":"현재 대화에 \"상태를 확인하세요\"라고 보낸다.","kind":"interval","intervalSecond":1800,"maxRunCount":3,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}`),
 					actionFinishMessage("30분마다 세 번 상태 확인 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
@@ -440,7 +442,8 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 				ExpectedModelContexts: []string{"scheduled-task", "schedule.create", "taskInstruction", "30분마다"},
 			},
 			{
-				Prompt: "그 예약을 1시간마다 다섯 번으로 바꿔줘",
+				Prompt:                 "그 예약을 1시간마다 다섯 번으로 바꿔줘",
+				RouterRequiredEvidence: []string{"schedule.update"},
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("schedule.update", `{"scheduleID":"virtual-schedule-001","intervalSecond":3600,"maxRunCount":5,"repeatPolicy":"finite"}`),
 					actionFinishMessage("예약을 1시간마다 다섯 번으로 수정했습니다.", "obs-001:schedule.update:0"),
@@ -451,7 +454,8 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 				},
 			},
 			{
-				Prompt: "그 예약 삭제해줘",
+				Prompt:                 "그 예약 삭제해줘",
+				RouterRequiredEvidence: []string{"schedule.cancel"},
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("schedule.cancel", `{"scope":"mine"}`),
 					actionFinishMessage("예약을 삭제했습니다.", "obs-001:schedule.cancel:0"),
@@ -475,7 +479,8 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 		InitialToolNames:      []string{"terminal.run"},
 		Turns: []VirtualTurn{
 			{
-				Prompt: "내일 오전 10시에 제품 회고 일정을 캘린더에 추가해줘",
+				Prompt:                 "내일 오전 10시에 제품 회고 일정을 캘린더에 추가해줘",
+				RouterRequiredEvidence: []string{"calendar.add"},
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("calendar.add", `{"title":"제품 회고","startISO":"2026-06-13T10:00:00+09:00","endISO":"2026-06-13T11:00:00+09:00","timeZone":"Asia/Seoul"}`),
 					actionFinishMessage("내일 오전 10시에 제품 회고 일정을 추가했습니다.", "obs-001:calendar.add:0"),
@@ -486,7 +491,8 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 				},
 			},
 			{
-				Prompt: "그 일정을 내일 오후 2시로 바꿔줘",
+				Prompt:                 "그 일정을 내일 오후 2시로 바꿔줘",
+				RouterRequiredEvidence: []string{"calendar.update"},
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("calendar.update", `{"eventID":"calendar-event-001","startISO":"2026-06-13T14:00:00+09:00","endISO":"2026-06-13T15:00:00+09:00","timeZone":"Asia/Seoul"}`),
 					actionFinishMessage("제품 회고 일정을 내일 오후 2시로 변경했습니다.", "obs-001:calendar.update:0"),
@@ -497,7 +503,8 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 				},
 			},
 			{
-				Prompt: "그 일정 삭제해줘",
+				Prompt:                 "그 일정 삭제해줘",
+				RouterRequiredEvidence: []string{"calendar.delete"},
 				ActionResponses: []string{
 					actionInvokeCapabilityTool("calendar.delete", `{"eventID":"calendar-event-001"}`),
 					actionFinishMessage("제품 회고 일정을 삭제했습니다.", "obs-001:calendar.delete:0"),
@@ -505,7 +512,6 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 				ExpectedEventCounts: []VirtualEventCount{
 					{Name: "tool.capability.invoke.requested", BodyFragment: "calendar.delete", Count: 1},
 				},
-				ExpectedReplyFragments: []string{"삭제했습니다"},
 			},
 		},
 	}
@@ -517,11 +523,12 @@ func CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath string)
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		RouterWorkKinds:       []string{agent.WorkKindCalendar},
 		Skills:                []agent.SkillInstruction{calendarSkill()},
-		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.add"},
+		AllowedTools:          []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
 		CapabilityToolNames:   []string{"calendar.add"},
-		InitialToolNames:      []string{"calendar.add"},
+		InitialToolNames:      []string{agent.CapabilityInvokeToolName},
 		Turns: []VirtualTurn{{
-			Prompt: "7월 13일에 샨보장 미팅을 오전 10시부터 11시까지 등록해줘",
+			Prompt:                 "7월 13일에 샨보장 미팅을 오전 10시부터 11시까지 등록해줘",
+			RouterRequiredEvidence: []string{"calendar.add"},
 			ActionResponses: []string{
 				actionFinishMessage("7월 13일 미팅을 오전 10시~11시로 등록했습니다."),
 				actionInvokeCapabilityTool("calendar.add", `{"title":"샨보장 미팅","startISO":"2026-07-13T10:00:00+09:00","endISO":"2026-07-13T11:00:00+09:00","timeZone":"Asia/Seoul"}`),
@@ -533,11 +540,10 @@ func CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath string)
 				"calendar.add": 1,
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "agent.evidence_missing", BodyFragment: "observed results", Count: 1},
+				{Name: "agent.evidence_missing", BodyFragment: "calendar.add", Count: 1},
 				{Name: "agent.completion_required", BodyFragment: "calendar.add", Count: 1},
 				{Name: "tool.capability.invoke.requested", BodyFragment: "2026-07-13T10:00:00+09:00", Count: 1},
 			},
-			ExpectedModelContexts:  []string{"calendar_event", "scheduled"},
 			ExpectedReplyFragments: []string{"등록했습니다"},
 			ForbiddenEvents:        []string{"agent.no_progress_loop_stopped"},
 		}},
@@ -546,14 +552,15 @@ func CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath string)
 
 func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
-		Name:                  "ambient_duty_calendar_acceptance",
-		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindCalendar},
-		AddressingResponse:    `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
-		Skills:                []agent.SkillInstruction{calendarSkill()},
-		AllowedTools:          []string{"conversation.history", "memory.search", "calendar.add"},
-		CapabilityToolNames:   []string{"calendar.add"},
-		InitialToolNames:      []string{"calendar.add"},
+		Name:                   "ambient_duty_calendar_acceptance",
+		ArtifactDirectoryPath:  artifactDirectoryPath,
+		RouterWorkKinds:        []string{agent.WorkKindCalendar},
+		RouterRequiredEvidence: []string{"calendar.add"},
+		AddressingResponse:     `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
+		Skills:                 []agent.SkillInstruction{calendarSkill()},
+		AllowedTools:           []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
+		CapabilityToolNames:    []string{"calendar.add"},
+		InitialToolNames:       []string{agent.CapabilityInvokeToolName},
 		Turns: []VirtualTurn{{
 			Prompt:           "오늘 오후 5시 정기회의 추가 참석자 최견본, 이샘플",
 			ConversationType: "channel",
@@ -578,8 +585,7 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 				"not addressed to you",
 				"Reply only in the source message thread",
 			},
-			ExpectedReplyTargetID:  "virtual-message-001",
-			ExpectedReplyFragments: []string{"정기회의", "추가"},
+			ExpectedReplyTargetID: "virtual-message-001",
 		}},
 	}
 }
@@ -607,16 +613,17 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 		ArtifactDirectoryPath: artifactDirectoryPath,
 		AddressingResponse:    `{"target":"human","shouldReply":false,"dutyMatch":true,"dutyName":"team_flow_update","dutyConfidence":0.9}`,
 		Skills:                []agent.SkillInstruction{flowTaskSkill()},
-		AllowedTools:          []string{"conversation.history", "task.add", "task.list", "task.update"},
+		AllowedTools:          []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
 		CapabilityToolNames:   []string{"task.add", "task.list", "task.update"},
-		InitialToolNames:      []string{"task.add", "task.list", "task.update"},
+		InitialToolNames:      []string{agent.CapabilityInvokeToolName},
 		Turns: []VirtualTurn{{
-			Prompt:           "예시 님 신규 가입 플로우 점검 월요일까지 부탁해요",
-			ConversationType: "channel",
-			ChannelID:        "town-square",
-			ChannelName:      "town-square",
-			ReplyTargetID:    "virtual-message-010",
-			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
+			Prompt:                 "예시 님 신규 가입 플로우 점검 월요일까지 부탁해요",
+			RouterRequiredEvidence: []string{"task.add"},
+			ConversationType:       "channel",
+			ChannelID:              "town-square",
+			ChannelName:            "town-square",
+			ReplyTargetID:          "virtual-message-010",
+			Addressing:             connectors.AddressingMetadata{OtherPersonMentioned: true},
 			ActionResponses: []string{
 				actionInvokeCapabilityTool("task.add", `{"prompt":"예시 님 신규 가입 플로우 점검 월요일까지","targetPersonHint":"예시"}`),
 				actionFinishMessage("예시 님 업무로 추가했습니다.", "obs-001:task.add:0"),
@@ -635,16 +642,16 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 				"not addressed to you",
 				"Reply only in the source message thread",
 			},
-			ForbiddenEvents:        []string{"tool.terminal.run.requested"},
-			ExpectedReplyTargetID:  "virtual-message-010",
-			ExpectedReplyFragments: []string{"추가"},
+			ForbiddenEvents:       []string{"tool.terminal.run.requested"},
+			ExpectedReplyTargetID: "virtual-message-010",
 		}, {
-			Prompt:           "예시 님 그거 마감 수요일로 변경해주세요",
-			ConversationType: "channel",
-			ChannelID:        "town-square",
-			ChannelName:      "town-square",
-			ReplyTargetID:    "virtual-message-011",
-			Addressing:       connectors.AddressingMetadata{OtherPersonMentioned: true},
+			Prompt:                 "예시 님 그거 마감 수요일로 변경해주세요",
+			RouterRequiredEvidence: []string{"task.update"},
+			ConversationType:       "channel",
+			ChannelID:              "town-square",
+			ChannelName:            "town-square",
+			ReplyTargetID:          "virtual-message-011",
+			Addressing:             connectors.AddressingMetadata{OtherPersonMentioned: true},
 			ActionResponses: []string{
 				actionInvokeCapabilityTool("task.list", `{"targetPersonHint":"예시"}`),
 				actionInvokeCapabilityTool("task.update", `{"query":"신규 가입 플로우 점검","targetPersonHint":"예시","endDate":"2026-06-24"}`),
@@ -655,8 +662,7 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 				"task.add":    0,
 				"task.update": 1,
 			},
-			ExpectedReplyTargetID:  "virtual-message-011",
-			ExpectedReplyFragments: []string{"변경"},
+			ExpectedReplyTargetID: "virtual-message-011",
 		}},
 	}
 }

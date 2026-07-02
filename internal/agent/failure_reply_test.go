@@ -61,7 +61,7 @@ func TestAgentTurnRunnerRepairsInvalidFailureReply(t *testing.T) {
 		RequesterPersonID:          "person-1",
 		ConversationID:             "conversation-1",
 		Prompt:                     "https://example.com 보고 사업계획서 ppt로 만들어줘",
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	})
@@ -348,7 +348,7 @@ func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
 func TestRequiredArtifactFailureReplyRejectsTextFallbackOffer(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
@@ -365,7 +365,7 @@ func TestRequiredArtifactFailureReplyRejectsTextFallbackOffer(t *testing.T) {
 func TestRequiredArtifactFailureReplyRejectsGenericFailureSummary(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:                     "https://example.com 보고 사업계획서 발표자료 ppt로 만들어줘",
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
@@ -383,7 +383,7 @@ func TestRequiredArtifactFailureReplyRejectsGenericFailureSummary(t *testing.T) 
 func TestRequiredArtifactFailureReplyAcceptsConcreteNaturalSummary(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:                     "https://example.com 보고 사업계획서 발표자료 ppt로 만들어줘",
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}
@@ -401,7 +401,7 @@ func TestRequiredArtifactFailureReplyAcceptsConcreteNaturalSummary(t *testing.T)
 func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
 	request := AgentTurnRequest{
 		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 		RequiredAttachmentSuffixes: []string{".pptx"},
 		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
 	}

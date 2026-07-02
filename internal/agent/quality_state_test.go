@@ -43,12 +43,12 @@ func TestQualityReviewRejectsFailedCriterion(t *testing.T) {
 	review := []qualityReviewItem{{
 		ID:       "all-requested-formats-are-attached",
 		Passed:   false,
-		Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach"}},
+		Evidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.deliver"}},
 	}}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.attach",
+		Tool:          "file.deliver",
 		Output:        ToolOutput{Content: "file attached"},
 	}}
 
@@ -99,7 +99,7 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 
 func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 	criteria := normalizeQualityCriteria([]string{"HTML artifact is attached."})
-	evidence := []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach", AttachmentIndex: intPointer(0)}}
+	evidence := []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.deliver", AttachmentIndex: intPointer(0)}}
 	actionDocument := turnActionDocument{
 		Action:             "finish",
 		GoalStatus:         "satisfied",
@@ -115,7 +115,7 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.attach",
+		Tool:          "file.deliver",
 		Output:        ToolOutput{Content: "file attached"},
 		Attachments: []FileAttachment{{
 			Filename:   "hermes-analysis.html",
@@ -126,7 +126,7 @@ func TestCompletionGateRejectsSandboxArtifactLocator(t *testing.T) {
 	result := validateCompletionGateForRequest(AgentTurnRequest{
 		QualityAcceptanceGuidance: []string{"deliver the requested HTML"},
 	}, []toolUseRequirement{{
-		ToolName:           "file.attach",
+		ToolName:           "file.deliver",
 		RequiresAttachment: true,
 		AttachmentSuffixes: []string{".html"},
 	}}, observations, criteria, actionDocument)
@@ -144,13 +144,13 @@ func TestCompletionGateRejectsUnattachedArtifactFilename(t *testing.T) {
 		Action:             "finish",
 		GoalStatus:         "satisfied",
 		GoalSatisfied:      boolPointer(true),
-		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.attach", AttachmentIndex: intPointer(0)}},
+		CompletionEvidence: []completionEvidenceReference{{ObservationID: "obs-001", ToolName: "file.deliver", AttachmentIndex: intPointer(0)}},
 		Message:            "요청하신 파일을 생성해 첨부했습니다: Hermes_Agent_Analysis.html",
 	}
 	observations := []turnObservation{{
 		ObservationID: "obs-001",
 		Action:        "continue",
-		Tool:          "file.attach",
+		Tool:          "file.deliver",
 		Output:        ToolOutput{Content: "file attached"},
 		Attachments: []FileAttachment{{
 			Filename:   "hermes-analysis.html",
@@ -159,7 +159,7 @@ func TestCompletionGateRejectsUnattachedArtifactFilename(t *testing.T) {
 	}}
 
 	result := validateCompletionGateForRequest(AgentTurnRequest{}, []toolUseRequirement{{
-		ToolName:           "file.attach",
+		ToolName:           "file.deliver",
 		RequiresAttachment: true,
 		AttachmentSuffixes: []string{".html"},
 	}}, observations, nil, actionDocument)

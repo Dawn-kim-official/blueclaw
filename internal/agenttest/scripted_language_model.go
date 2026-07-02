@@ -48,6 +48,22 @@ func (languageModel *ScriptedLanguageModel) EnqueueActionResponses(actionRespons
 	languageModel.actionResponses = append(languageModel.actionResponses, actionResponses...)
 }
 
+func (languageModel *ScriptedLanguageModel) SetActionResponses(actionResponses ...string) {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	languageModel.actionResponses = append([]string{}, actionResponses...)
+}
+
+func (languageModel *ScriptedLanguageModel) EnqueueStructuredResponses(schemaName string, responses ...string) {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	trimmedSchemaName := strings.TrimSpace(schemaName)
+	if trimmedSchemaName == "" {
+		return
+	}
+	languageModel.structuredResponsesBySchema[trimmedSchemaName] = append(languageModel.structuredResponsesBySchema[trimmedSchemaName], responses...)
+}
+
 func (languageModel *ScriptedLanguageModel) RequestCount() int {
 	languageModel.mutex.Lock()
 	defer languageModel.mutex.Unlock()
@@ -242,11 +258,19 @@ func turnRouterCompatibilityResponse(route string, classification string, taskSh
 		"route":                  route,
 		"classification":         classification,
 		"taskShape":              taskShape,
+		"taskComplexity":         "normal",
 		"effortLevel":            effortLevel,
+		"outputKind":             nil,
 		"requestedOutputFormats": nil,
+		"expectedResults":        []any{},
+		"requiredEvidence":       []string{},
+		"siteRequestEvidence":    "",
 		"responseLanguage":       "ko",
 		"reason":                 stringMapValue(source, "reason"),
 		"userFacingReply":        "",
+		"workKinds":              []string{},
+		"initialToolNames":       []string{},
+		"priorTaskReference":     "none",
 	}
 	for key, value := range additions {
 		document[key] = value
