@@ -443,7 +443,6 @@ func TestAgentTurnRunnerSelectToolsPinsSkillInstructionsAndExplicitTools(t *test
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "make site",
-		WorkKinds:         []string{WorkKindSitePrototype},
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 		AvailableSkills: []SkillInstruction{{
@@ -845,7 +844,7 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "브라우저 열어줘.",
 		TaskComplexity:    TaskComplexitySimple,
-		WorkKinds:         []string{WorkKindBrowserSession},
+		TaskShape:         TaskShapeBrowserHandoffTask,
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})
@@ -879,7 +878,7 @@ func TestAgentTurnRunnerRejectsBrowserFollowUpReplyWithoutToolEvidence(t *testin
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "다시 열어봐",
-		WorkKinds:         []string{WorkKindBrowserSession},
+		TaskShape:         TaskShapeBrowserHandoffTask,
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "사용자", Text: "구글 클라우드 콘솔에서 credential.json 받는 거 도와줘"},
 			{Speaker: "김인턴", Text: "Companion 브라우저 연결이 필요합니다."},
@@ -1011,7 +1010,6 @@ func TestAgentTurnRunnerSiteLoopBuildsReviewsPublishesBeforeFinish(t *testing.T)
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "개인 홈페이지 만들고 배포해줘",
-		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.status", "site.build", "artifact.review", "site.publish"},
@@ -1110,7 +1108,6 @@ func TestAgentTurnRunnerReselectsToolsAfterRejectedSiteFinish(t *testing.T) {
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "개인 홈페이지 만들고 배포해줘",
-		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.build"},
@@ -1171,7 +1168,6 @@ func TestAgentTurnRunnerRejectsFailAfterSiteSourceWriteBeforeBuildPublish(t *tes
 		RequesterPersonID:     "person-1",
 		ConversationID:        "conversation-1",
 		Prompt:                "사이트 더 예쁘게 수정하고 배포해줘",
-		WorkKinds:             []string{WorkKindSitePrototype},
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"site.publish"},
@@ -1301,14 +1297,14 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	})
 
 	firstResult, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "우경에게 DM 보내줘",
-		ResponseLanguage:  ResponseLanguageKorean,
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"message.send"},
-		WorkKinds:         []string{WorkKindExternalSend},
-		WorkspaceRootPath: t.TempDir(),
+		RequesterPersonID:     "person-1",
+		ConversationID:        "conversation-1",
+		Prompt:                "우경에게 DM 보내줘",
+		ResponseLanguage:      ResponseLanguageKorean,
+		ToolSet:               toolRegistry,
+		PinnedToolNames:       []string{"message.send"},
+		RequiredEvidenceTools: []string{"message.send"},
+		WorkspaceRootPath:     t.TempDir(),
 	})
 	if errorValue != nil {
 		t.Fatalf("expected first turn to pause: %v", errorValue)
@@ -1339,7 +1335,7 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 		ResponseLanguage:       ResponseLanguageKorean,
 		ToolSet:                toolRegistry,
 		PinnedToolNames:        []string{"message.send"},
-		WorkKinds:              []string{WorkKindExternalSend},
+		RequiredEvidenceTools:  []string{"message.send"},
 		WorkspaceRootPath:      t.TempDir(),
 	})
 	if errorValue != nil {
@@ -1460,7 +1456,7 @@ func TestAgentTurnRunnerDoesNotDeliverAttachmentsWhenFinalizerFails(t *testing.T
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "스크린샷 줘",
-		WorkKinds:         []string{WorkKindBrowserSession},
+		TaskShape:         TaskShapeBrowserHandoffTask,
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
 	})

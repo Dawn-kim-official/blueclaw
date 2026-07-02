@@ -15,15 +15,15 @@ import (
 type agentAction = turnActionDocument
 
 type agentTaskState struct {
-	TaskRunID       string
-	Status          task.TaskStatus
-	Request         AgentTurnRequest
-	Options         TurnOptions
-	Observations    []turnObservation
-	QualityCriteria []qualityCriterion
-	Attachments     []FileAttachment
-	ExecutionState  ExecutionState
-	ContextSummary  TaskContextSummary
+	TaskRunID        string
+	Status           task.TaskStatus
+	Request          AgentTurnRequest
+	Options          TurnOptions
+	Observations     []turnObservation
+	QualityCriteria  []qualityCriterion
+	Attachments      []FileAttachment
+	ExecutionState   ExecutionState
+	ContextSummary   TaskContextSummary
 	IterationCount   int
 	ToolCallCount    int
 	TurnStartedAt    time.Time

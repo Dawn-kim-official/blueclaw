@@ -29,7 +29,6 @@ func TestExternalSendExposesPinnedSendTools(t *testing.T) {
 	toolSet := testToolSet([]string{"skill.search", "ask.confirm", "message.send", "mail.message.send"})
 	request := AgentRequest{
 		Prompt:          "이동하님께 DM 보내줘",
-		WorkKinds:       []string{WorkKindExternalSend},
 		PinnedToolNames: []string{"message.send", "mail.message.send"},
 		ToolSet:         toolSet,
 	}

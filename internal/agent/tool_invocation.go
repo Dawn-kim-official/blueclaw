@@ -30,7 +30,7 @@ func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, 
 	successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)] = observation
 }
 
-func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolSet, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time, responseLanguage string, workKinds []string, userFacingMessage string) turnObservation {
+func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegistry *ToolSet, taskRunID string, observationID string, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time, responseLanguage string, userFacingMessage string) turnObservation {
 	trimmedToolName := strings.TrimSpace(toolName)
 	toolInputKey := canonicalToolCallKey(trimmedToolName, toolInput)
 	if toolRegistry == nil {
@@ -46,7 +46,7 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	}))
 	unregisterTool := agentTurnRunner.taskRunService.RegisterTaskRunTool(taskRunID, observationID, trimmedToolName)
 	defer unregisterTool()
-	toolContext := WithUserFacingMessage(WithObservationID(WithWorkKinds(WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage), workKinds), observationID), userFacingMessage)
+	toolContext := WithUserFacingMessage(WithObservationID(WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage), observationID), userFacingMessage)
 	invocationStartedAt := time.Now()
 	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
 	if errorValue != nil {

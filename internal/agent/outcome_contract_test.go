@@ -49,18 +49,16 @@ func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 	}
 }
 
-func TestOutcomeContractUsesIntakeRequiredEvidenceBeforeWorkKindFallback(t *testing.T) {
+func TestOutcomeContractUsesIntakeRequiredEvidenceWithoutToolFallback(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:    "내일 오후 3시에 이 메시지 보내줘",
-			WorkKinds: []string{WorkKindFlowTask},
-			ToolSet:   newTestToolSet([]string{"task.add", "schedule.create"}),
+			Prompt:  "내일 오후 3시에 이 메시지 보내줘",
+			ToolSet: newTestToolSet([]string{"task.add", "schedule.create"}),
 		},
 		IntakeDecision{
 			Classification:        IntakeClassificationBoundedTask,
 			TaskShape:             TaskShapeScheduledTask,
 			RequiredEvidenceTools: []string{"schedule.create"},
-			WorkKinds:             []string{WorkKindFlowTask},
 		},
 		InstructionBundle{},
 		ExecutionPlan{},
@@ -72,7 +70,7 @@ func TestOutcomeContractUsesIntakeRequiredEvidenceBeforeWorkKindFallback(t *test
 		t.Fatalf("expected schedule.create required evidence, got %+v", contract.RequiredEvidenceTools)
 	}
 	if stringSliceContains(contract.RequiredEvidenceTools, "task.add") {
-		t.Fatalf("expected explicit required evidence not to add workKind fallback, got %+v", contract.RequiredEvidenceTools)
+		t.Fatalf("expected explicit required evidence not to add fallback evidence, got %+v", contract.RequiredEvidenceTools)
 	}
 }
 
@@ -118,9 +116,8 @@ func TestOutcomeContractCreatesExpectedResultsForSitePublish(t *testing.T) {
 func TestOutcomeContractRequiresCurrentEffectsForSiteModification(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:    "예쁜 귤 웹사이트 퀄리티가 너무 낮아. 더 예쁘게 해줘.",
-			WorkKinds: []string{WorkKindSitePrototype},
-			ToolSet:   newTestToolSet([]string{"site.status", "file.edit", "site.publish"}),
+			Prompt:  "예쁜 귤 웹사이트 퀄리티가 너무 낮아. 더 예쁘게 해줘.",
+			ToolSet: newTestToolSet([]string{"site.status", "file.edit", "site.publish"}),
 		},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
 		InstructionBundle{},
@@ -129,13 +126,8 @@ func TestOutcomeContractRequiresCurrentEffectsForSiteModification(t *testing.T) 
 		nil,
 	)
 
-	for _, expectedEffect := range []OutcomeEffect{
-		{ObjectType: "workspace", Effect: "modified"},
-		{ObjectType: "website", Effect: "published"},
-	} {
-		if !outcomeEffectsContain(contract.RequiredEffects, expectedEffect.ObjectType, expectedEffect.Effect) {
-			t.Fatalf("expected required effect %+v, got %+v", expectedEffect, contract.RequiredEffects)
-		}
+	if len(contract.RequiredEffects) != 0 {
+		t.Fatalf("expected no text-derived site effects without explicit contract, got %+v", contract.RequiredEffects)
 	}
 }
 
@@ -228,7 +220,7 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 
 func TestOutcomeContractKeepsExplicitWebsiteHTMLFileRequest(t *testing.T) {
 	contract := outcomeContractForRequest(
-		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘", WorkKinds: []string{WorkKindSitePrototype, WorkKindFileDelivery}},
+		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘"},
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, RequestedOutputFormats: []string{"html"}, SiteRequestEvidence: "개인 홈페이지를 만들어서 배포"},
 		InstructionBundle{},
 		ExecutionPlan{PublicDeploy: true},
@@ -453,9 +445,8 @@ func TestOutcomeContractRequiresSendEvidenceForExternalSendPlan(t *testing.T) {
 func TestOutcomeContractUsesIntakeSendEvidenceForExternalSend(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:    "동하에게 테스트라고 DM 보내줘",
-			ToolSet:   testToolSet([]string{"message.send"}),
-			WorkKinds: []string{WorkKindExternalSend},
+			Prompt:  "동하에게 테스트라고 DM 보내줘",
+			ToolSet: testToolSet([]string{"message.send"}),
 		},
 		IntakeDecision{
 			Classification:        IntakeClassificationBoundedTask,
@@ -476,9 +467,8 @@ func TestOutcomeContractUsesIntakeSendEvidenceForExternalSend(t *testing.T) {
 func TestOutcomeContractUsesIntakeFlowTaskAddEvidence(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:    "업무 등록해줘\n- 메일 페이지 앱 비밀번호 개선하기",
-			ToolSet:   testToolSet([]string{"task.add", "task.list", "task.update"}),
-			WorkKinds: []string{WorkKindFlowTask},
+			Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호 개선하기",
+			ToolSet: testToolSet([]string{"task.add", "task.list", "task.update"}),
 		},
 		IntakeDecision{
 			Classification:        IntakeClassificationBoundedTask,
@@ -496,23 +486,20 @@ func TestOutcomeContractUsesIntakeFlowTaskAddEvidence(t *testing.T) {
 	}
 }
 
-func TestOutcomeContractDoesNotDeriveEvidenceFromDomainWorkKinds(t *testing.T) {
+func TestOutcomeContractDoesNotDeriveEvidenceFromPromptAndAvailableTools(t *testing.T) {
 	tests := []struct {
 		name      string
 		prompt    string
-		workKinds []string
 		toolNames []string
 	}{
 		{
 			name:      "flow task",
 			prompt:    "업무 등록해줘",
-			workKinds: []string{WorkKindFlowTask},
 			toolNames: []string{"task.add"},
 		},
 		{
 			name:      "external send",
 			prompt:    "동하에게 테스트라고 DM 보내줘",
-			workKinds: []string{WorkKindExternalSend},
 			toolNames: []string{"message.send"},
 		},
 	}
@@ -520,9 +507,8 @@ func TestOutcomeContractDoesNotDeriveEvidenceFromDomainWorkKinds(t *testing.T) {
 	for _, test := range tests {
 		contract := outcomeContractForRequest(
 			AgentRequest{
-				Prompt:    test.prompt,
-				ToolSet:   testToolSet(test.toolNames),
-				WorkKinds: test.workKinds,
+				Prompt:  test.prompt,
+				ToolSet: testToolSet(test.toolNames),
 			},
 			IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
 			InstructionBundle{},
@@ -531,7 +517,7 @@ func TestOutcomeContractDoesNotDeriveEvidenceFromDomainWorkKinds(t *testing.T) {
 			nil,
 		)
 		if len(contract.RequiredEvidenceTools) != 0 {
-			t.Fatalf("expected %s workKind not to derive evidence, got %+v", test.name, contract.RequiredEvidenceTools)
+			t.Fatalf("expected %s prompt and available tools not to derive evidence, got %+v", test.name, contract.RequiredEvidenceTools)
 		}
 	}
 }
@@ -548,11 +534,10 @@ func TestOutcomeContractSelectsOneFlowTaskEvidenceHintForCurrentOperation(t *tes
 	}
 	contract := outcomeContractForRequest(
 		AgentRequest{
-			Prompt:    "이번 주 업무 목록 보여줘",
-			ToolSet:   testToolSet([]string{"task.add", "task.list", "task.update"}),
-			WorkKinds: []string{WorkKindFlowTask},
+			Prompt:  "이번 주 업무 목록 보여줘",
+			ToolSet: testToolSet([]string{"task.add", "task.list", "task.update"}),
 		},
-		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask},
+		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask, RequiredEvidenceTools: []string{"task.list"}},
 		instructionBundle,
 		ExecutionPlan{},
 		false,
@@ -606,7 +591,10 @@ func TestAgentTurnToolSetKeepsPinnedWebAndSkillTools(t *testing.T) {
 func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "site.create", "site.publish"})
 
-	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "웹사이트 하나 만들어서 배포해줘", WorkKinds: []string{WorkKindSitePrototype}}, ExecutionPlan{}, false, OutcomeContract{SiteEvidenceQuote: "웹사이트 하나 만들어서 배포해줘"})
+	filteredToolSet := toolSetForOutcomeReference(toolSet, AgentRequest{Prompt: "웹사이트 하나 만들어서 배포해줘"}, ExecutionPlan{}, false, OutcomeContract{
+		RequiredEvidenceTools: []string{"site.create", "site.publish"},
+		SiteEvidenceQuote:     "웹사이트 하나 만들어서 배포해줘",
+	})
 
 	for _, toolName := range []string{"site.create", "site.publish"} {
 		if !filteredToolSet.IsAllowed(toolName) {
@@ -618,8 +606,7 @@ func TestOutcomeReferenceToolSetKeepsSiteToolsForSiteGoal(t *testing.T) {
 func TestOutcomeReferenceToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.create", "site.publish"})
 	request := AgentRequest{
-		Prompt:    "다시 해봐 그럼 될 거야",
-		WorkKinds: []string{WorkKindSitePrototype},
+		Prompt: "다시 해봐 그럼 될 거야",
 		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.create", "terminal.run", "site.publish"},
 			SiteEvidenceQuote:     "웹사이트 하나 만들어서 배포해줘",
@@ -646,7 +633,6 @@ func TestAgentTurnToolSetKeepsPinnedActiveGoalEvidenceToolsForContinuation(t *te
 	}
 	request := AgentRequest{
 		Prompt:          "다시 해봐 그럼 될 거야",
-		WorkKinds:       []string{WorkKindSitePrototype},
 		PinnedToolNames: []string{"terminal.run", "site.create", "site.publish"},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			SelectedEvidenceHints: []string{"site.create", "terminal.run", "site.publish"},
@@ -678,7 +664,6 @@ func TestAgentTurnToolSetKeepsPinnedSelectedSkillToolsWhenActiveGoalWasAttachmen
 	}
 	request := AgentRequest{
 		Prompt:          "다시 해봐",
-		WorkKinds:       []string{WorkKindSitePrototype},
 		PinnedToolNames: []string{"terminal.run", "site.create", "site.publish"},
 		ActiveGoal: ActiveGoal{OriginalInstruction: "개인 홈페이지를 만들어서 배포해줘", OutcomeContract: OutcomeContract{
 			RequiredEvidenceTools:      []string{"file.deliver"},
@@ -738,11 +723,9 @@ func TestOutcomeContractStripsStaleUnverifiableSiteRequirement(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt:    "버튼 색 바꿔줘",
-		WorkKinds: []string{WorkKindSitePrototype},
+		Prompt: "버튼 색 바꿔줘",
 		ActiveGoal: ActiveGoal{
 			OriginalInstruction: "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스",
-			WorkKinds:           []string{WorkKindSitePrototype},
 			OutcomeContract: OutcomeContract{
 				RequiredEvidenceTools: []string{"site.create", "site.publish"},
 				SelectedEvidenceHints: []string{"site.create", "terminal.run", "site.publish"},
@@ -757,14 +740,11 @@ func TestOutcomeContractStripsStaleUnverifiableSiteRequirement(t *testing.T) {
 		},
 	}
 
-	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	_, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
 	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
 
 	if !report.HasDrops() {
 		t.Fatalf("expected stale site normalization report, got %+v", report)
-	}
-	if workKindsContain(normalizedActiveGoal.WorkKinds, WorkKindSitePrototype) {
-		t.Fatalf("expected stale active goal work kind to be stripped, got %+v", normalizedActiveGoal.WorkKinds)
 	}
 	for _, toolName := range []string{"site.create", "site.publish"} {
 		if stringSliceContains(contract.RequiredEvidenceTools, toolName) {
@@ -790,11 +770,9 @@ func TestOutcomeContractPreservesGenuineSiteGoalContinuation(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
 	}
 	request := AgentRequest{
-		Prompt:    "버튼 색 바꿔줘",
-		WorkKinds: []string{WorkKindSitePrototype},
+		Prompt: "버튼 색 바꿔줘",
 		ActiveGoal: ActiveGoal{
 			OriginalInstruction: "포트폴리오 웹사이트 만들어서 배포해줘",
-			WorkKinds:           []string{WorkKindSitePrototype},
 			OutcomeContract: OutcomeContract{
 				RequiredEvidenceTools: []string{"site.create", "site.publish"},
 				SelectedEvidenceHints: []string{"site.create", "terminal.run", "site.publish"},
@@ -809,14 +787,11 @@ func TestOutcomeContractPreservesGenuineSiteGoalContinuation(t *testing.T) {
 		},
 	}
 
-	normalizedActiveGoal, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
+	_, report := normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt)
 	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeMaintenanceTask}, instructionBundle, ExecutionPlan{}, false, nil)
 
 	if report.HasDrops() {
 		t.Fatalf("expected genuine site continuation to keep requirements, got %+v", report)
-	}
-	if !workKindsContain(normalizedActiveGoal.WorkKinds, WorkKindSitePrototype) {
-		t.Fatalf("expected genuine active goal work kind to remain, got %+v", normalizedActiveGoal.WorkKinds)
 	}
 	for _, toolName := range []string{"site.create", "site.publish"} {
 		if !stringSliceContains(contract.RequiredEvidenceTools, toolName) {

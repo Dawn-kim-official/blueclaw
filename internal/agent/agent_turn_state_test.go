@@ -342,7 +342,7 @@ func TestAdvanceAgentTaskReturnsAttachExistingArtifactEffect(t *testing.T) {
 
 func TestAdvanceAgentTaskReturnsFinishMessageEffectForSatisfiedBrowserOpen(t *testing.T) {
 	state := agentTaskState{
-		Request: AgentTurnRequest{Prompt: "open browser", TaskComplexity: TaskComplexitySimple, WorkKinds: []string{WorkKindBrowserSession}},
+		Request: AgentTurnRequest{Prompt: "open browser", TaskShape: TaskShapeBrowserHandoffTask, TaskComplexity: TaskComplexitySimple},
 		Requirements: []toolUseRequirement{{
 			ToolName: "browser.open",
 		}},

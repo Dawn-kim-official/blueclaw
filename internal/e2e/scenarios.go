@@ -138,7 +138,6 @@ func FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath string) Virtual
 	return VirtualSessionScenario{
 		Name:                  "file_write_legacy_mode_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindCoding},
 		AllowedTools:          []string{"file.write", "terminal.run"},
 		InitialToolNames:      []string{"file.write", "terminal.run"},
 		Turns: []VirtualTurn{{
@@ -349,7 +348,6 @@ func CodingImageVisionFallbackScenario(artifactDirectoryPath string) VirtualSess
 	return VirtualSessionScenario{
 		Name:                     "coding_image_vision_fallback",
 		ArtifactDirectoryPath:    artifactDirectoryPath,
-		RouterWorkKinds:          []string{agent.WorkKindCoding},
 		RouterEffortLevel:        "deep",
 		CodingTierVisionFallback: true,
 		AllowedTools:             []string{"conversation.history", "memory.search"},
@@ -472,7 +470,6 @@ func CalendarEventLifecycleAcceptanceScenario(artifactDirectoryPath string) Virt
 	return VirtualSessionScenario{
 		Name:                  "calendar_event_lifecycle_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindCalendar},
 		Skills:                []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:          agent.KernelToolNames(),
 		CapabilityToolNames:   []string{"calendar.add", "calendar.update", "calendar.delete"},
@@ -521,7 +518,6 @@ func CalendarFalseFinishRecoveryAcceptanceScenario(artifactDirectoryPath string)
 	return VirtualSessionScenario{
 		Name:                  "calendar_false_finish_recovery_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindCalendar},
 		Skills:                []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
 		CapabilityToolNames:   []string{"calendar.add"},
@@ -554,7 +550,6 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 	return VirtualSessionScenario{
 		Name:                   "ambient_duty_calendar_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
-		RouterWorkKinds:        []string{agent.WorkKindCalendar},
 		RouterRequiredEvidence: []string{"calendar.add"},
 		AddressingResponse:     `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
 		Skills:                 []agent.SkillInstruction{calendarSkill()},
@@ -983,14 +978,14 @@ func scheduledTaskSkill() agent.SkillInstruction {
 
 func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
-		Name:                  "site_prototype_acceptance",
-		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindSitePrototype},
-		RouterSiteEvidence:    "웹사이트 하나 만들어서 배포",
-		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:          agent.KernelToolNames(),
-		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
-		InitialToolNames:      []string{"terminal.run"},
+		Name:                   "site_artifact_acceptance",
+		ArtifactDirectoryPath:  artifactDirectoryPath,
+		RouterRequiredEvidence: []string{"site.publish"},
+		RouterSiteEvidence:     "웹사이트 하나 만들어서 배포",
+		Skills:                 []agent.SkillInstruction{sitePrototypeSkill()},
+		AllowedTools:           agent.KernelToolNames(),
+		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
+		InitialToolNames:       []string{"terminal.run"},
 		Turns: []VirtualTurn{{
 			Prompt: "웹사이트 하나 만들어서 배포해봐",
 			ActionResponses: []string{
@@ -1021,14 +1016,14 @@ func SitePrototypeAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 
 func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
-		Name:                  "site_edit_redeploy_acceptance",
-		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindSitePrototype},
-		RouterSiteEvidence:    "Build and deploy a simple site",
-		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:          agent.KernelToolNames(),
-		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
-		InitialToolNames:      []string{"terminal.run"},
+		Name:                   "site_edit_redeploy_acceptance",
+		ArtifactDirectoryPath:  artifactDirectoryPath,
+		RouterRequiredEvidence: []string{"site.publish"},
+		RouterSiteEvidence:     "Build and deploy a simple site",
+		Skills:                 []agent.SkillInstruction{sitePrototypeSkill()},
+		AllowedTools:           agent.KernelToolNames(),
+		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
+		InitialToolNames:       []string{"terminal.run"},
 		Turns: []VirtualTurn{
 			{
 				Prompt: "Build and deploy a simple site.",
@@ -1049,7 +1044,9 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 				ExpectedReplyFragments: []string{"https://demo.device.intern.kim"},
 			},
 			{
-				Prompt: "Update the heading to say Hello World.",
+				Prompt:                 "Update the heading to say Hello World.",
+				RouterRequiredEvidence: []string{"site.publish"},
+				RouterSiteEvidence:     "Update the heading to say Hello World.",
 				ActionResponses: []string{
 					actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><h1>Hello World</h1></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":30}`),
 					actionInvokeCapabilityTool("site.publish", `{"siteID":"site-1","message":"Update heading to Hello World"}`),
@@ -1070,14 +1067,14 @@ func SiteEditRedeployAcceptanceScenario(artifactDirectoryPath string) VirtualSes
 
 func SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath string) VirtualSessionScenario {
 	return VirtualSessionScenario{
-		Name:                  "site_suggested_repair_recovery",
-		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindSitePrototype},
-		RouterSiteEvidence:    "Improve and redeploy an existing site",
-		Skills:                []agent.SkillInstruction{sitePrototypeSkill()},
-		AllowedTools:          append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
-		CapabilityToolNames:   sitePrototypeCapabilityToolNames(),
-		InitialToolNames:      []string{"site.status", "file.write", "terminal.run", "site.publish"},
+		Name:                   "site_suggested_repair_recovery",
+		ArtifactDirectoryPath:  artifactDirectoryPath,
+		RouterRequiredEvidence: []string{"site.publish"},
+		RouterSiteEvidence:     "웹사이트 퀄리티가 너무 낮잖아",
+		Skills:                 []agent.SkillInstruction{sitePrototypeSkill()},
+		AllowedTools:           append([]string{"conversation.history", "memory.search"}, sitePrototypeToolNames()...),
+		CapabilityToolNames:    sitePrototypeCapabilityToolNames(),
+		InitialToolNames:       []string{"site.status", "file.write", "terminal.run", "site.publish"},
 		Turns: []VirtualTurn{{
 			Prompt: "더 예쁘게 해달라구. 웹사이트 퀄리티가 너무 낮잖아.",
 			ActionResponses: []string{
@@ -1099,7 +1096,7 @@ func SiteSuggestedRepairRecoveryScenario(artifactDirectoryPath string) VirtualSe
 				"terminal.run": 1,
 				"site.publish": 1,
 			},
-			ExpectedEvents:         []string{"agent.suggested_next_tool_directive", "agent.completion_required"},
+			ExpectedEvents:         []string{"agent.completion_required"},
 			ExpectedModelContexts:  []string{"site.repair", "/workspace/circles/staff/sites/demo/draft"},
 			ForbiddenModelContexts: []string{"home/sites/site-1"},
 			ExpectedReplyFragments: []string{"https://demo.device.intern.kim"},
@@ -1143,7 +1140,6 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 	return VirtualSessionScenario{
 		Name:                  "dm_send_confirm_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		RouterWorkKinds:       []string{agent.WorkKindExternalSend},
 		AllowedTools:          []string{"conversation.history", "memory.search", "message.send"},
 		InitialToolNames:      []string{"message.send"},
 		CapabilityToolDescriptors: []agentruntime.CapabilityToolDescriptor{{

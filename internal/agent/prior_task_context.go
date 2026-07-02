@@ -13,7 +13,6 @@ func normalizePriorTaskContext(context PriorTaskContext) PriorTaskContext {
 	context.FailureReason = strings.TrimSpace(context.FailureReason)
 	context.OutcomeContract = normalizeOutcomeContract(context.OutcomeContract)
 	context.RequestedOutputFormats = normalizeRequestedOutputFormats(context.RequestedOutputFormats)
-	context.WorkKinds = normalizeWorkKinds(context.WorkKinds)
 	return context
 }
 
@@ -37,8 +36,7 @@ func priorTaskContextHasContent(context PriorTaskContext) bool {
 	return strings.TrimSpace(context.TaskRunID) != "" ||
 		strings.TrimSpace(context.Prompt) != "" ||
 		OutcomeContractHasRequirements(context.OutcomeContract) ||
-		len(context.RequestedOutputFormats) > 0 ||
-		len(context.WorkKinds) > 0
+		len(context.RequestedOutputFormats) > 0
 }
 
 func applyPriorTaskOutcomeRecovery(request AgentRequest, decision IntakeDecision) (AgentRequest, IntakeDecision) {
@@ -51,24 +49,18 @@ func applyPriorTaskOutcomeRecovery(request AgentRequest, decision IntakeDecision
 		return request, decision
 	}
 	priorTask.RequestedOutputFormats = normalizeRequestedOutputFormats(appendUniqueStrings(priorTask.RequestedOutputFormats, decision.RequestedOutputFormats...))
-	priorTask.WorkKinds = normalizeWorkKinds(appendUniqueStrings(priorTask.WorkKinds, decision.WorkKinds...))
 	contract := outcomeContractFromPriorTask(priorTask)
 	if !OutcomeContractHasRequirements(contract) {
 		decision.PriorTaskReference = PriorTaskReferenceNone
 		return request, decision
 	}
-	if len(priorTask.RequestedOutputFormats) > 0 {
-		priorTask.WorkKinds = appendUniqueStrings(priorTask.WorkKinds, WorkKindFileDelivery)
-	}
 	request.ActiveGoal = ActiveGoal{
 		OriginalInstruction: firstNonEmptyString(priorTask.Prompt, request.Prompt),
 		CurrentObjective:    request.Prompt,
 		KnownContext:        priorTaskKnownContext(priorTask),
-		WorkKinds:           append([]string{}, priorTask.WorkKinds...),
 		OutcomeContract:     contract,
 		Status:              ActiveGoalStatusActive,
 	}
-	decision.WorkKinds = normalizeWorkKinds(appendUniqueStrings(decision.WorkKinds, priorTask.WorkKinds...))
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(appendUniqueStrings(decision.RequestedOutputFormats, priorTask.RequestedOutputFormats...))
 	decision.InitialToolNames = appendUniqueStrings(decision.InitialToolNames, contract.SelectedEvidenceHints...)
 	decision.InitialToolNames = appendUniqueStrings(decision.InitialToolNames, outcomeContractRequiredToolNames(contract)...)

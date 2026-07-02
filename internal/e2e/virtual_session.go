@@ -49,7 +49,6 @@ type VirtualSessionScenario struct {
 	CapabilityToolDescriptors []agentruntime.CapabilityToolDescriptor
 	InitialToolNames          []string
 	InitialMemory             []memory.MemoryFact
-	RouterWorkKinds           []string
 	RouterRequiredEvidence    []string
 	RouterEffortLevel         string
 	CodingTierVisionFallback  bool
@@ -72,6 +71,7 @@ type VirtualTurn struct {
 	ContextMaterials          []connectors.InputAttachment
 	ActionResponses           []string
 	RouterRequiredEvidence    []string
+	RouterSiteEvidence        string
 	ExpectedSelectedSkills    []string
 	ExpectedToolCalls         []string
 	ExpectedEvents            []string
@@ -422,7 +422,7 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return FailureExplanationAcceptanceScenario(artifactDirectoryPath), nil
 	case "one_time_schedule_acceptance":
 		return OneTimeScheduleAcceptanceScenario(artifactDirectoryPath), nil
-	case "site_prototype_acceptance":
+	case "site_artifact_acceptance":
 		return SitePrototypeAcceptanceScenario(artifactDirectoryPath), nil
 	case "site_edit_redeploy_acceptance":
 		return SiteEditRedeployAcceptanceScenario(artifactDirectoryPath), nil
@@ -1059,7 +1059,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 	}
 	for index, virtualTurn := range harness.scenario.Turns {
 		if harness.scriptedModel != nil {
-			if len(virtualTurn.RouterRequiredEvidence) > 0 {
+			if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
 			}
 			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
@@ -1101,7 +1101,7 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}
-	if len(scenario.RouterWorkKinds) == 0 && len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 {
+	if len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 {
 		return defaultResponses
 	}
 	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
@@ -1117,6 +1117,10 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 	if len(virtualTurn.RouterRequiredEvidence) > 0 {
 		requiredEvidence = virtualTurn.RouterRequiredEvidence
 	}
+	siteEvidence := scenario.RouterSiteEvidence
+	if strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" {
+		siteEvidence = virtualTurn.RouterSiteEvidence
+	}
 	routerDocument := map[string]any{
 		"route":                  "start_task",
 		"classification":         "bounded_task",
@@ -1127,17 +1131,16 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 		"requestedOutputFormats": nil,
 		"expectedResults":        []any{},
 		"requiredEvidence":       requiredEvidence,
-		"siteRequestEvidence":    scenario.RouterSiteEvidence,
+		"siteRequestEvidence":    siteEvidence,
 		"responseLanguage":       "ko",
 		"reason":                 "scripted scenario default",
 		"userFacingReply":        "",
-		"workKinds":              scenario.RouterWorkKinds,
 		"initialToolNames":       scenario.InitialToolNames,
 		"priorTaskReference":     "none",
 	}
 	encodedDocument, errorValue := json.Marshal(routerDocument)
 	if errorValue != nil {
-		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","outputKind":null,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scripted scenario default","userFacingReply":"","workKinds":[],"initialToolNames":[],"priorTaskReference":"none"}`
+		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","outputKind":null,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scripted scenario default","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`
 	}
 	return string(encodedDocument)
 }
