@@ -372,7 +372,7 @@ func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T)
 		"terminal.run",
 		"file.write",
 		"file.promote",
-		"file.attach",
+		"file.deliver",
 		"artifact.review",
 		"site.status",
 		"site.create",
@@ -382,7 +382,7 @@ func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T)
 	toolSet := testToolSet(toolIDs)
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
-			{Name: "simple-slides", AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.attach", "artifact.review"}},
+			{Name: "simple-slides", AllowedTools: []string{"terminal.run", "file.write", "file.promote", "file.deliver", "artifact.review"}},
 			{Name: "site-prototype", AllowedTools: []string{"site.status", "site.create", "site.build", "site.publish", "terminal.run", "file.write", "artifact.review"}},
 		},
 		SkillDecisions: []SkillSelectionDecision{
@@ -393,11 +393,11 @@ func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T)
 	contract := OutcomeContract{
 		ArtifactRequirement:        ArtifactRequirementRequired,
 		RequiredAttachmentSuffixes: []string{".pptx"},
-		RequiredEvidenceTools:      []string{"file.attach"},
+		RequiredEvidenceTools:      []string{"file.deliver"},
 	}
 	request := AgentRequest{
 		Prompt:          "PPTX 발표자료 만들어 첨부해줘",
-		PinnedToolNames: []string{"terminal.run", "file.write", "file.promote", "file.attach", "artifact.review"},
+		PinnedToolNames: []string{"terminal.run", "file.write", "file.promote", "file.deliver", "artifact.review"},
 	}
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
@@ -407,7 +407,7 @@ func TestPinnedPaletteKeepsRequestedFileWorkflowAheadOfOtherSkills(t *testing.T)
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract, selection, event)
 
-	for _, toolID := range []string{"terminal.run", "file.write", "file.promote", "file.attach", "artifact.review"} {
+	for _, toolID := range []string{"terminal.run", "file.write", "file.promote", "file.deliver", "artifact.review"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected selected file workflow tool %s to be exposed, got %+v", toolID, event.ExposedToolIDs)
 		}
@@ -423,7 +423,7 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 		"site.status",
 		"site.repair",
 		"artifact.review",
-		"file.attach",
+		"file.deliver",
 		"file.promote",
 		"file.read",
 		"skill.search",
@@ -432,7 +432,7 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 	contract := OutcomeContract{
 		ArtifactRequirement:        ArtifactRequirementRequired,
 		RequiredAttachmentSuffixes: []string{".pptx"},
-		SelectedEvidenceHints:      []string{"file.promote", "file.attach"},
+		SelectedEvidenceHints:      []string{"file.promote", "file.deliver"},
 		ExpectedResults: []ExpectedResult{{
 			ID:          "attached-file",
 			Type:        ExpectedResultTypeFile,
@@ -457,7 +457,7 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 	}
 	request := AgentRequest{
 		Prompt:          "PPTX 파일 첨부해줘",
-		PinnedToolNames: []string{"file.promote", "file.attach"},
+		PinnedToolNames: []string{"file.promote", "file.deliver"},
 	}
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract, []turnObservation{observation})
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
@@ -467,7 +467,7 @@ func TestRecoveryWorkingSetKeepsPendingFileDeliveryTools(t *testing.T) {
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract, selection, event, []turnObservation{observation})
 
-	for _, toolID := range []string{"terminal.run", "artifact.review", "file.attach", "file.promote"} {
+	for _, toolID := range []string{"terminal.run", "artifact.review", "file.deliver", "file.promote"} {
 		if !filteredToolSet.IsAllowed(toolID) {
 			t.Fatalf("expected recovery working set to expose %s, got %+v", toolID, event.ExposedToolIDs)
 		}
@@ -484,26 +484,26 @@ func TestStepWorkingSetKeepsFileCreationToolsAfterAttachPathFailure(t *testing.T
 		"terminal.run",
 		"artifact.review",
 		"file.promote",
-		"file.attach",
+		"file.deliver",
 	})
 	request := requestWithStepWorkingSetTools(AgentTurnRequest{
 		Prompt:  "첨부파일로 줘",
 		ToolSet: toolSet,
 		AvailableSkills: []SkillInstruction{{
 			Name:         "enterprise-document-maker",
-			AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
+			AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.deliver"},
 			Completion: SkillCompletion{
-				RequiredEvidenceTools: []string{"file.promote", "file.attach"},
+				RequiredEvidenceTools: []string{"file.promote", "file.deliver"},
 			},
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "enterprise-document-maker", Status: "selected"}},
 		PinnedToolNames: []string{
-			"file.attach",
+			"file.deliver",
 		},
 		OutcomeContract: OutcomeContract{
 			ArtifactRequirement:        ArtifactRequirementRequired,
 			RequiredAttachmentSuffixes: []string{".docx"},
-			RequiredEvidenceTools:      []string{"file.attach"},
+			RequiredEvidenceTools:      []string{"file.deliver"},
 			ExpectedResults: []ExpectedResult{{
 				ID:       "docx-guide",
 				Type:     ExpectedResultTypeFile,
@@ -511,7 +511,7 @@ func TestStepWorkingSetKeepsFileCreationToolsAfterAttachPathFailure(t *testing.T
 			}},
 		},
 	}, []turnObservation{
-		newFailureObservation("obs-001", "continue", "file.attach", "stat artifacts/guide.docx: no such file or directory", FailureInvalidInput, FailureCodes.InvalidInput, "file_attach"),
+		newFailureObservation("obs-001", "continue", "file.deliver", "stat artifacts/guide.docx: no such file or directory", FailureInvalidInput, FailureCodes.InvalidInput, "file_attach"),
 	})
 	selectionRequest := buildToolSelectionRequest(toolSet, instructionBundleFromTurnRequest(request), agentRequestFromTurnRequest(request), ExecutionPlan{}, false, request.OutcomeContract)
 	selection, event, isDeterministic := deterministicToolSelectionDecision(selectionRequest)
@@ -521,7 +521,7 @@ func TestStepWorkingSetKeepsFileCreationToolsAfterAttachPathFailure(t *testing.T
 
 	filteredToolSet, event := toolSetForAgentTurnWithExposure(toolSet, instructionBundleFromTurnRequest(request), agentRequestFromTurnRequest(request), ExecutionPlan{}, false, request.OutcomeContract, selection, event)
 
-	for _, toolID := range []string{"file.write", "terminal.run", "file.promote", "file.attach"} {
+	for _, toolID := range []string{"file.write", "terminal.run", "file.promote", "file.deliver"} {
 		if !containsString(request.PinnedToolNames, toolID) {
 			t.Fatalf("expected pending delivery pin %s, got %+v", toolID, request.PinnedToolNames)
 		}
@@ -741,12 +741,12 @@ func TestPlannedToolsDropRepeatedFileRead(t *testing.T) {
 		newFailureObservation("obs-001", "policy", "file.read", "Already read tmp/deck/presentation.md lines 1-400.", FailurePolicyBlocked, FailureCodes.PolicyBlocked, "file_read_repeat"),
 	}
 
-	toolNames := filterExhaustedRecoveryToolNames([]string{"file.read", "terminal.run", "file.attach"}, observations)
+	toolNames := filterExhaustedRecoveryToolNames([]string{"file.read", "terminal.run", "file.deliver"}, observations)
 
 	if stringSliceContains(toolNames, "file.read") {
 		t.Fatalf("expected repeated file.read to be removed, got %+v", toolNames)
 	}
-	for _, toolName := range []string{"terminal.run", "file.attach"} {
+	for _, toolName := range []string{"terminal.run", "file.deliver"} {
 		if !stringSliceContains(toolNames, toolName) {
 			t.Fatalf("expected %s to remain available, got %+v", toolName, toolNames)
 		}
@@ -770,7 +770,7 @@ func TestFallbackHidesUnrequestedCapabilityTools(t *testing.T) {
 }
 
 func TestFallbackHidesSelectedSkillToolsUntilRequested(t *testing.T) {
-	slideToolNames := []string{"terminal.run", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach", "artifact.review"}
+	slideToolNames := []string{"terminal.run", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.deliver", "artifact.review"}
 	toolSet := testToolSet(append(slideToolNames, "skill.search", "ask.confirm", "ask.choice", "ask.input", "memory.search", "conversation.history", "memory.remember", "tool.describe"))
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{

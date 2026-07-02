@@ -35,6 +35,13 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
+	if observation, isRejected := sitePublishPrerequisiteFailure(state.Observations, actionDocument, nextObservationID(len(state.Observations)+1)); isRejected {
+		state.Observations = append(state.Observations, observation)
+		agentTurnRunner.appendEvent(taskRunID, "agent.site_publish_prerequisite_rejected", marshalEventBody(observation))
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "site_publish_prerequisite_rejected", observation.ContentText())
+		result, shouldStop := stopForNoProgress(stepID)
+		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	}
 	return toolCallActionOutcome{}
 }
 
@@ -126,9 +133,12 @@ func repeatedFileReadObservation(observations []turnObservation, actionDocument 
 		return turnObservation{}, false
 	}
 	recoveryDirective := stalledReadRecoveryDirective(observations)
-	for _, observation := range observations {
+	for index, observation := range observations {
 		fileContext, isFileRead := progressFileContextFromObservation(observation)
 		if !isFileRead || fileContext.Path != requestedRange.Path {
+			continue
+		}
+		if hasNewerFileMutationObservation(observations[index+1:], requestedRange.Path) {
 			continue
 		}
 		for _, readRange := range fileContext.ReadRanges {
@@ -145,6 +155,35 @@ func repeatedFileReadObservation(observations []turnObservation, actionDocument 
 		}
 	}
 	return turnObservation{}, false
+}
+
+func hasNewerFileMutationObservation(observations []turnObservation, path string) bool {
+	for _, observation := range observations {
+		if observation.Failed() || !isFileMutationTool(observation.Tool) {
+			continue
+		}
+		if observationOutputPath(observation) == path {
+			return true
+		}
+	}
+	return false
+}
+
+func isFileMutationTool(toolName string) bool {
+	switch strings.TrimSpace(toolName) {
+	case FileWriteToolName, FileEditToolName, FilePatchToolName:
+		return true
+	default:
+		return false
+	}
+}
+
+func observationOutputPath(observation turnObservation) string {
+	payload := map[string]any{}
+	if json.Unmarshal([]byte(observation.ContentText()), &payload) != nil {
+		return ""
+	}
+	return strings.TrimSpace(stringField(payload, "path"))
 }
 
 func stalledReadRecoveryDirective(observations []turnObservation) string {

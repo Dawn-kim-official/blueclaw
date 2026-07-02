@@ -23,8 +23,8 @@ func TestCompletionStateFindsNewestArtifactByRequiredSuffix(t *testing.T) {
 	}
 
 	state := buildCompletionState(
-		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.attach"})},
-		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.deliver"})},
+		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
 		nil,
 	)
 
@@ -39,10 +39,10 @@ func TestCompletionStateFindsNewestArtifactByRequiredSuffix(t *testing.T) {
 func TestCompletionStateFinalizesWhenRequiredAttachmentEvidenceExists(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{},
-		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx", ".pdf"}}},
+		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx", ".pdf"}}},
 		[]turnObservation{{
 			ObservationID: "obs-001",
-			Tool:          "file.attach",
+			Tool:          "file.deliver",
 			Attachments: []FileAttachment{
 				{DevicePath: "artifacts/deck/deck.pptx", Filename: "deck.pptx"},
 				{DevicePath: "artifacts/deck/deck.pdf", Filename: "deck.pdf"},
@@ -54,11 +54,11 @@ func TestCompletionStateFinalizesWhenRequiredAttachmentEvidenceExists(t *testing
 		t.Fatalf("expected finalize action, got %+v", state)
 	}
 	if len(state.EvidenceReferences) != 2 {
-		t.Fatalf("expected file.attach evidence reference, got %+v", state.EvidenceReferences)
+		t.Fatalf("expected file.deliver evidence reference, got %+v", state.EvidenceReferences)
 	}
 	for _, reference := range state.EvidenceReferences {
 		if reference.ObservationID != "obs-001" || reference.AttachmentIndex == nil {
-			t.Fatalf("expected exact file.attach evidence reference, got %+v", state.EvidenceReferences)
+			t.Fatalf("expected exact file.deliver evidence reference, got %+v", state.EvidenceReferences)
 		}
 	}
 }
@@ -66,10 +66,10 @@ func TestCompletionStateFinalizesWhenRequiredAttachmentEvidenceExists(t *testing
 func TestCompletionStateUsesAttachmentIndexesForRequiredSuffixEvidence(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{},
-		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
 		[]turnObservation{{
 			ObservationID: "obs-001",
-			Tool:          "file.attach",
+			Tool:          "file.deliver",
 			Attachments: []FileAttachment{
 				{DevicePath: "artifacts/deck/DESIGN.md", Filename: "DESIGN.md"},
 				{DevicePath: "artifacts/deck/deck.pptx", Filename: "deck.pptx"},
@@ -91,10 +91,10 @@ func TestCompletionStateUsesAttachmentIndexesForRequiredSuffixEvidence(t *testin
 func TestCompletionStateValidatesAttachedEvidenceFromPayload(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{WorkspaceRootPath: t.TempDir()},
-		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".txt"}}},
+		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".txt"}}},
 		[]turnObservation{{
 			ObservationID: "obs-001",
-			Tool:          "file.attach",
+			Tool:          "file.deliver",
 			Attachments: []FileAttachment{{
 				DevicePath:    "/workspace/private/people/person-1/artifacts/deck/note.txt",
 				Filename:      "note.txt",
@@ -121,9 +121,9 @@ func TestCompletionStateDoesNotRepeatFailedAttachment(t *testing.T) {
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 
 	state := buildCompletionState(
-		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.attach"})},
-		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
-		[]turnObservation{newFailureObservation("obs-001", "continue", "file.attach", filepath.Join(artifactDirectoryPath, "deck.pptx"), FailureUnknown, FailureCodes.OperationFailed, "file_attach")},
+		AgentTurnRequest{WorkspaceRootPath: workspaceRootPath, ToolSet: newTestToolSet([]string{"file.deliver"})},
+		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		[]turnObservation{newFailureObservation("obs-001", "continue", "file.deliver", filepath.Join(artifactDirectoryPath, "deck.pptx"), FailureUnknown, FailureCodes.OperationFailed, "file_attach")},
 	)
 
 	if state.RecommendedAction != completionActionContinueWork {
@@ -146,10 +146,10 @@ func TestCompletionStateIgnoresArtifactsOlderThanTurn(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{
 			WorkspaceRootPath: workspaceRootPath,
-			ToolSet:           newTestToolSet([]string{"file.attach"}),
+			ToolSet:           newTestToolSet([]string{"file.deliver"}),
 			TurnStartedAt:     time.Now().Add(-time.Minute),
 		},
-		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
 		nil,
 	)
 
@@ -174,10 +174,10 @@ func TestCompletionStateFindsArtifactsNewerThanTurn(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{
 			WorkspaceRootPath: workspaceRootPath,
-			ToolSet:           newTestToolSet([]string{"file.attach"}),
+			ToolSet:           newTestToolSet([]string{"file.deliver"}),
 			TurnStartedAt:     turnStartedAt,
 		},
-		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx", ".pdf"}}},
+		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx", ".pdf"}}},
 		nil,
 	)
 
@@ -197,10 +197,10 @@ func TestCompletionStateAllowsReadableImperfectArtifactCandidate(t *testing.T) {
 	state := buildCompletionState(
 		AgentTurnRequest{
 			WorkspaceRootPath: workspaceRootPath,
-			ToolSet:           newTestToolSet([]string{"file.attach"}),
+			ToolSet:           newTestToolSet([]string{"file.deliver"}),
 			TurnStartedAt:     time.Now().Add(-time.Minute),
 		},
-		[]toolUseRequirement{{ToolName: "file.attach", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
+		[]toolUseRequirement{{ToolName: "file.deliver", RequiresAttachment: true, AttachmentSuffixes: []string{".pptx"}}},
 		nil,
 	)
 

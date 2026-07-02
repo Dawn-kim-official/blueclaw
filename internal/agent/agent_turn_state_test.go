@@ -270,13 +270,13 @@ func TestApplyToolResultAppendsObservationDeterministically(t *testing.T) {
 		}},
 	}
 
-	nextState := applyToolResult(state, ToolInvocation{ToolName: "file.attach", Input: json.RawMessage(`{"path":"file.html"}`)}, result)
+	nextState := applyToolResult(state, ToolInvocation{ToolName: "file.deliver", Input: json.RawMessage(`{"path":"file.html"}`)}, result)
 
 	if len(nextState.Observations) != 1 {
 		t.Fatalf("expected one observation, got %+v", nextState.Observations)
 	}
 	observation := nextState.Observations[0]
-	if observation.ObservationID != "obs-001" || observation.Tool != "file.attach" || observation.ContentText() != "attached" {
+	if observation.ObservationID != "obs-001" || observation.Tool != "file.deliver" || observation.ContentText() != "attached" {
 		t.Fatalf("unexpected observation: %+v", observation)
 	}
 	if len(nextState.Attachments) != 1 || nextState.Attachments[0].Filename != "file.html" {

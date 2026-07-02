@@ -986,9 +986,6 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 
 	connectorRuntime.logger.Info("connector."+platform+".agent.started", slog.String("messageID", event.MessageID))
 	precomputedTurnDecision := precomputedTurnDecisionForLaunch(turnDecision, hasPendingConfirmation, askTurnDecision, hasAskTurnDecision)
-	if precomputedTurnDecision == nil && addressingLaunch.AmbientDuty.IsMatch && !isApprovalContinuation && !hasActiveGoal {
-		precomputedTurnDecision = ambientCaptureTurnDecision(addressingLaunch.AmbientDuty.Name, responseLanguageForEvent(event))
-	}
 	taskStartedAt := time.Now()
 	conversationTurn := ConversationTurn{
 		Platform:                  platform,

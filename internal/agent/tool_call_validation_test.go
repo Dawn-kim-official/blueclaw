@@ -521,6 +521,34 @@ func TestRepeatedFileReadObservationReturnsCachedOverlappingRange(t *testing.T) 
 	}
 }
 
+func TestRepeatedFileReadObservationIgnoresCacheAfterFileWrite(t *testing.T) {
+	path := "home/sites/site-1/draft/app/src/prototype-data.ts"
+	observations := []turnObservation{
+		{
+			ObservationID: "obs-001",
+			Action:        "continue",
+			Tool:          FileReadToolName,
+			Output:        ToolOutput{Content: `{"path":"` + path + `","content":"old","startLine":1,"endLine":20,"totalLines":20,"sizeBytes":1000}`},
+		},
+		{
+			ObservationID: "obs-002",
+			Action:        "continue",
+			Tool:          FileWriteToolName,
+			Output:        ToolOutput{Content: `{"path":"` + path + `","sizeBytes":1200}`},
+		},
+	}
+	actionDocument := turnActionDocument{
+		ToolName:  FileReadToolName,
+		ToolInput: json.RawMessage(`{"path":"` + path + `","startLine":1,"lineCount":20}`),
+	}
+
+	_, isRepeated := repeatedFileReadObservation(observations, actionDocument, "obs-003")
+
+	if isRepeated {
+		t.Fatal("expected file.read cache to be ignored after a newer file.write")
+	}
+}
+
 func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsTrueForMemoryConfirm(t *testing.T) {
 	toolInput := json.RawMessage(`{"userFacingMessage":"안젤라 바보라는 내용을 기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}`)
 

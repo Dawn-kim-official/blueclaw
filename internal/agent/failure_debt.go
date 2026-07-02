@@ -215,6 +215,10 @@ func toolCanSatisfyRecoveryPrecondition(failedObservation turnObservation, toolN
 			if toolName == "site.repair" {
 				return true
 			}
+		case siteBuiltRecoveryPrecondition:
+			if toolName == "terminal.run" {
+				return true
+			}
 		}
 	}
 	return false
