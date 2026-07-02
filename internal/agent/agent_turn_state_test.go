@@ -101,6 +101,26 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	}
 }
 
+func TestCapabilityInvokeActionSchemaPreservesWrapperRequiredFields(t *testing.T) {
+	schemaDocument := buildActionSchemaFromToolDefinitions([]ToolDefinition{{
+		Name:        CapabilityInvokeToolName,
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"operation":{"type":"string","enum":["calendar.add"]},"input":{"type":"object"}},"required":["operation","input"]}`),
+	}}, false, nil, false, false)
+
+	continueVariant := actionSchemaVariant(t, schemaDocument, "continue")
+	properties := mapFromAny(continueVariant["properties"])
+	toolInput := mapFromAny(properties["toolInput"])
+	requiredFields := stringSliceFromAny(toolInput["required"])
+	if !containsString(requiredFields, "operation") || !containsString(requiredFields, "input") {
+		t.Fatalf("expected capability.invoke wrapper fields to stay required, got %+v in %s", requiredFields, schemaDocument)
+	}
+	toolInputProperties := mapFromAny(toolInput["properties"])
+	operationProperty := mapFromAny(toolInputProperties["operation"])
+	if !containsString(stringSliceFromAny(operationProperty["enum"]), "calendar.add") {
+		t.Fatalf("expected operation enum to be preserved, got %+v", operationProperty)
+	}
+}
+
 func TestBuildAgentActionRequestGenerationOptionsDoNotChangeSchema(t *testing.T) {
 	seed := int64(88)
 	temperature := 0.5
