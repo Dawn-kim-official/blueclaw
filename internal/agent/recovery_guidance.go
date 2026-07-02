@@ -97,6 +97,9 @@ func recoveryGuidanceContent(observation turnObservation) string {
 	if browserGuidance := browserPublicFetchRecoveryGuidance(observation); browserGuidance != "" {
 		parts = append(parts, browserGuidance)
 	}
+	if sitePublishGuidance := sitePublishPrerequisiteRecoveryGuidance(observation); sitePublishGuidance != "" {
+		parts = append(parts, sitePublishGuidance)
+	}
 	for _, recoveryRoute := range recoveryRoutesForObservation(observation) {
 		parts = append(parts, recoveryRoute.Guidance())
 	}
@@ -108,6 +111,18 @@ func browserPublicFetchRecoveryGuidance(observation turnObservation) string {
 		return ""
 	}
 	return "Recovery route: browser capability operations run on the user's Companion and are only for sign-in, page interaction, screenshots, or pages that block fetching. To read or copy public web page content, use web.fetch (or web.search) instead of a browser; only fall back to the browser handoff when fetching fails or the user explicitly asks for a visible browser. Do not pass a tool name or a localhost address as the browser URL."
+}
+
+func sitePublishPrerequisiteRecoveryGuidance(observation turnObservation) string {
+	if strings.TrimSpace(observation.FailureStage()) != "workflow_prerequisite" {
+		return ""
+	}
+	switch strings.TrimSpace(observation.Tool) {
+	case "site.publish", "site.preview":
+		return "Recovery route: for content-only changes, edit the site's app/public/site-content.json and publish directly, no build needed. A build is only required after a structural change under app/src or scaffold/app config files."
+	default:
+		return ""
+	}
 }
 
 func terminalPathRecoveryGuidance(observation turnObservation) string {
