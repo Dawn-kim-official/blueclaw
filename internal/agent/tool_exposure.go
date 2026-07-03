@@ -19,14 +19,15 @@ type droppedToolGroup struct {
 }
 
 type ToolExposureEvent struct {
-	SelectedToolIDs        []string           `json:"selectedToolIDs,omitempty"`
-	ValidSelectedToolIDs   []string           `json:"validSelectedToolIDs,omitempty"`
-	SelectionReason        string             `json:"selectionReason,omitempty"`
-	SelectionSource        string             `json:"selectionSource,omitempty"`
-	SelectionFailureReason string             `json:"selectionFailureReason,omitempty"`
-	UsedFallbackGroups     bool               `json:"usedFallbackGroups"`
-	ExposedToolIDs         []string           `json:"exposedToolIDs"`
-	DroppedGroups          []droppedToolGroup `json:"droppedGroups,omitempty"`
+	SelectedToolIDs          []string           `json:"selectedToolIDs,omitempty"`
+	ValidSelectedToolIDs     []string           `json:"validSelectedToolIDs,omitempty"`
+	SelectionReason          string             `json:"selectionReason,omitempty"`
+	SelectionSource          string             `json:"selectionSource,omitempty"`
+	SelectionFailureReason   string             `json:"selectionFailureReason,omitempty"`
+	UsedFallbackGroups       bool               `json:"usedFallbackGroups"`
+	ExposedToolIDs           []string           `json:"exposedToolIDs"`
+	PromotedOperationToolIDs []string           `json:"promotedOperationToolIDs,omitempty"`
+	DroppedGroups            []droppedToolGroup `json:"droppedGroups,omitempty"`
 }
 
 type ToolSelectionDecision struct {
@@ -104,15 +105,63 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	if toolSet == nil {
 		return nil, selectionEvent
 	}
+	recentObservations := []turnObservation{}
+	if len(observations) > 0 {
+		recentObservations = observations[0]
+	}
 	kernelGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()})
-	exposedToolIDs := stableUniqueToolIDs(kernelGroup.ToolIDs)
+	promotedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "promoted operations", ToolIDs: promotedCapabilityOperationNames(toolSet, recentObservations)})
+	exposedToolIDs := stableUniqueToolIDs(append(append([]string{}, kernelGroup.ToolIDs...), promotedGroup.ToolIDs...))
 	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, "fixed_kernel")
 	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, "Blueclaw exposes the same compact kernel tools on every turn")
 	selectionEvent.ValidSelectedToolIDs = nil
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
+	selectionEvent.PromotedOperationToolIDs = append([]string{}, promotedGroup.ToolIDs...)
 	selectionEvent.DroppedGroups = nil
 	selectionEvent.UsedFallbackGroups = false
 	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
+}
+
+// maxPromotedCapabilityOperationCount bounds the exposed tool count when a
+// task racks up several distinct invalid_input failures.
+const maxPromotedCapabilityOperationCount = 2
+
+// promotedCapabilityOperationNames recomputes promotion from observation
+// history every step (no new persistent state): an operation that failed
+// capability.invoke input validation gets its own flat-schema tool for the
+// rest of the task, since a lite model that cannot fill the nested
+// {operation, input:{...}} shape can still fill a flat one. Most recent
+// distinct failures win when more than maxPromotedCapabilityOperationCount
+// operations have failed.
+func promotedCapabilityOperationNames(toolSet *ToolSet, observations []turnObservation) []string {
+	promotedOperationNames := []string{}
+	for index := len(observations) - 1; index >= 0 && len(promotedOperationNames) < maxPromotedCapabilityOperationCount; index-- {
+		operationName := promotableCapabilityOperationName(toolSet, observations[index])
+		if operationName == "" || stringSliceContains(promotedOperationNames, operationName) {
+			continue
+		}
+		promotedOperationNames = append(promotedOperationNames, operationName)
+	}
+	return promotedOperationNames
+}
+
+// promotableCapabilityOperationName returns the operation name when the
+// observation is an invalid_input failure on a registered capability
+// operation. effectiveObservationToolName already unwraps capability.invoke
+// observations down to the attempted operation name, so this only filters
+// for registered, non-kernel, non-capability.invoke names.
+func promotableCapabilityOperationName(toolSet *ToolSet, observation turnObservation) string {
+	if observation.Failure == nil || observation.FailureCode() != FailureCodes.InvalidInput.String() {
+		return ""
+	}
+	operationName := strings.TrimSpace(observation.Tool)
+	if operationName == "" || operationName == CapabilityInvokeToolName || IsKernelToolName(operationName) {
+		return ""
+	}
+	if toolSet == nil || !toolSet.IsRegistered(operationName) {
+		return ""
+	}
+	return operationName
 }
 
 func selectedRegisteredToolGroup(toolSet *ToolSet, selectedToolIDs []string) toolExposureGroup {

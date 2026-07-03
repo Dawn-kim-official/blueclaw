@@ -318,8 +318,8 @@ func isEmptyCapabilityInputValue(value json.RawMessage) bool {
 }
 
 func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, missing []string) agent.ToolResult {
-	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call capability.invoke again with operation=" + operation + " and input set to an object that contains them."
-	result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message)
+	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call capability.invoke again with operation=" + operation + " and input set to an object that contains them. See inputSkeleton in this failure's data for a fillable template."
+	result := agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, missing))
 	if result.Failure == nil {
 		return result
 	}
@@ -336,12 +336,12 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 }
 
 func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) agent.ToolResult {
-	message := "capability.invoke requires input to be an object for operation " + operation + ". Call capability.invoke again with operation=" + operation + " and input set to a JSON object, not a string and not null."
-	result := agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message)
+	requiredFields := requiredFieldsFromSchema(toolDescriptor.InputSchema)
+	message := "capability.invoke requires input to be an object for operation " + operation + ". Call capability.invoke again with operation=" + operation + " and input set to a JSON object, not a string and not null. See inputSkeleton in this failure's data for a fillable template."
+	result := agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, requiredFields))
 	if result.Failure == nil {
 		return result
 	}
-	requiredFields := requiredFieldsFromSchema(toolDescriptor.InputSchema)
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	result.Failure.FailureClass = "schema"
@@ -415,6 +415,39 @@ func capabilityPlaceholderValue(inputSchema json.RawMessage, field string) any {
 	default:
 		return "<real " + field + ">"
 	}
+}
+
+func capabilityInputSkeletonData(inputSchema json.RawMessage, requiredFields []string) json.RawMessage {
+	if len(requiredFields) == 0 {
+		return nil
+	}
+	encoded, errorValue := json.Marshal(map[string]any{"inputSkeleton": capabilityInputSkeleton(inputSchema, requiredFields)})
+	if errorValue != nil {
+		return nil
+	}
+	return encoded
+}
+
+func capabilityInputSkeleton(inputSchema json.RawMessage, requiredFields []string) map[string]string {
+	var schema struct {
+		Properties map[string]struct {
+			Type        string `json:"type"`
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	json.Unmarshal(inputSchema, &schema)
+	skeleton := map[string]string{}
+	for _, field := range requiredFields {
+		property := schema.Properties[field]
+		fieldType := firstNonEmptyString(property.Type, "value")
+		description := strings.TrimSpace(property.Description)
+		if description == "" {
+			skeleton[field] = "<" + fieldType + ">"
+			continue
+		}
+		skeleton[field] = "<" + fieldType + ": " + description + ">"
+	}
+	return skeleton
 }
 
 func normalizeCapabilityInvokeInput(input json.RawMessage) json.RawMessage {
