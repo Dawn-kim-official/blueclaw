@@ -170,6 +170,9 @@ func POSIXStateForPolicy(policyDocument policy.PolicyDocument, workspaceRootPath
 			{Path: workspaceRootPath + "/shared/cache", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
 			{Path: workspaceRootPath + "/shared/cache/dependencies", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
 			{Path: workspaceRootPath + "/shared/cache/dependencies/bun", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
+			{Path: workspaceRootPath + "/shared/cache/dependencies/uv", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
+			{Path: workspaceRootPath + "/shared/cache/weather", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
+			{Path: workspaceRootPath + "/shared/cache/weather/open-meteo-v1", Owner: blueclawServiceUserName, Group: posixSharedGroupName, ModeText: "2775"},
 		},
 	}
 
