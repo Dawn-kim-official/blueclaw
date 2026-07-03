@@ -167,7 +167,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(tool
 				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires an operation name"), nil
 			}
 			if !toolRegistry.IsRegistered(operation) {
-				return toolCatalogBuilder.unknownCapabilityOperationResult(operation), nil
+				return toolCatalogBuilder.unknownCapabilityOperationResult(operation, request.PersonAccess.Circles), nil
 			}
 			call.Input = normalizeCapabilityInvokeInput(call.Input)
 			if !isJSONInputObject(call.Input) {
@@ -477,13 +477,51 @@ func genericCapabilityInvokeInputSchema(operationNames []string) json.RawMessage
 	return encoded
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) unknownCapabilityOperationResult(operation string) agent.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) unknownCapabilityOperationResult(operation string, requesterCircles []string) agent.ToolResult {
 	message := "operation \"" + operation + "\" is not a valid capability operation."
 	if suggestions := toolCatalogBuilder.suggestCapabilityOperations(operation); len(suggestions) > 0 {
 		message += " Did you mean: " + strings.Join(suggestions, ", ") + "?"
 	}
 	message += " Use an exact operation name from this tool's available operations list."
-	return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability.invoke", message)
+	matchingSkill, hasMatchingSkill := toolCatalogBuilder.matchingSkillForUnknownOperation(operation, requesterCircles)
+	if !hasMatchingSkill {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability.invoke", message)
+	}
+	skillName := strings.TrimSpace(matchingSkill.Name)
+	message += " \"" + skillName + "\" is a skill, not a capability operation; use the skill workflow instead."
+	data := marshalToolResult(map[string]string{
+		"code":              "unknown_operation",
+		"operation":         operation,
+		"matchingSkillName": skillName,
+		"skillDescription":  strings.TrimSpace(matchingSkill.Description),
+	})
+	return agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability.invoke", message, json.RawMessage(data))
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) matchingSkillForUnknownOperation(operation string, requesterCircles []string) (agent.SkillInstruction, bool) {
+	if toolCatalogBuilder.instructionBundleLoader == nil {
+		return agent.SkillInstruction{}, false
+	}
+	instructionBundle := toolCatalogBuilder.instructionBundleLoader()
+	visibleSkillInstructions := agent.VisibleSkillInstructionsForRequester(instructionBundle.Skills, requesterCircles)
+	domainSegments, finalSegment := capabilityOperationSegments(operation)
+	firstSegment := strings.SplitN(operation, ".", 2)[0]
+	fallbackMatch := agent.SkillInstruction{}
+	hasFallbackMatch := false
+	for _, skillInstruction := range visibleSkillInstructions {
+		skillName := strings.TrimSpace(skillInstruction.Name)
+		if skillName == "" {
+			continue
+		}
+		if skillName == firstSegment {
+			return skillInstruction, true
+		}
+		if !hasFallbackMatch && (domainSegments[skillName] || skillName == finalSegment) {
+			fallbackMatch = skillInstruction
+			hasFallbackMatch = true
+		}
+	}
+	return fallbackMatch, hasFallbackMatch
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) suggestCapabilityOperations(operation string) []string {
