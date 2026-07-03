@@ -349,17 +349,21 @@ func actorToolFailure(operation string, stage string, virtualPath string, errorV
 		failureKind = agent.FailureNotFound
 		failureCode = agent.FailureCodes.NotFound
 	}
-	result := agent.ToolFailureWithOutput(failureKind, failureCode, stage, message, json.RawMessage(marshalToolResult(map[string]any{
+	result := agent.ToolFailureWithOutput(failureKind, failureCode, stage, message, json.RawMessage(marshalToolResult(actorFailureDataFields(operation, stage, virtualPath, errorValue))))
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	return result
+}
+
+func actorFailureDataFields(operation string, stage string, virtualPath string, errorValue error) map[string]any {
+	return map[string]any{
 		"operation":   operation,
 		"stage":       stage,
 		"virtualPath": virtualPath,
 		"code":        actorFailureCode(errorValue),
 		"detail":      actorFailureDetail(errorValue),
 		"actorUser":   actorFailureUser(errorValue),
-	})))
-	result.Failure.Retryable = true
-	result.Failure.SafeRetry = true
-	return result
+	}
 }
 
 func actorFailureMessage(operation string, virtualPath string, errorValue error) string {
