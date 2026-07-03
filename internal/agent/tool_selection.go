@@ -91,6 +91,10 @@ func normalizeContinueActionToolName(toolName string, toolSet *ToolSet) (string,
 	if toolSet.IsRegistered(decodedToolName) {
 		return decodedToolName, true
 	}
+	canonicalToolName := CanonicalEvidenceToolName(decodedToolName)
+	if toolSet.IsRegistered(canonicalToolName) {
+		return canonicalToolName, true
+	}
 	return "", false
 }
 

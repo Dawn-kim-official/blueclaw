@@ -106,8 +106,8 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"one"}}`,
-			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"two"}}`,
+			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
 			finishMessageDocument("continued after tool-call escalation"),
 		},
 	}
@@ -116,7 +116,7 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		MaxIterationCount: 10,
 		MaxToolCallCount:  2,
 	})
-	toolRegistry := newTestToolSet([]string{"file.write", "site.build"})
+	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file.write"}, []string{"site.build"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"path":"tmp/app/index.html"}`), nil
 	})
@@ -159,7 +159,7 @@ func TestRedundantToolSelectionIsDetectedWithUseNowDirective(t *testing.T) {
 	}
 
 	observation := redundantToolSelectionObservation(1, requestToolsArguments{ToolNames: []string{"site.create"}}, secondResult)
-	if !strings.Contains(observation.Summary, "already available") || !strings.Contains(observation.Summary, "call one of them now") {
+	if !strings.Contains(observation.Summary, "already available") || !strings.Contains(observation.Summary, "use one now to make progress") {
 		t.Fatalf("expected a use-them-now directive, got %q", observation.Summary)
 	}
 }

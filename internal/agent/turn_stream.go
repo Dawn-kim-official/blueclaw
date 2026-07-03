@@ -62,10 +62,23 @@ func decodeTurnEvent(rawTurnEvent task.RawTurnEvent) (TurnEvent, bool) {
 		checkpointBody := decodeCheckpointEventBody(rawTurnEvent.Body)
 		return TurnEvent{Kind: TurnEventReply, Message: checkpointBody.Message, ToolName: checkpointBody.ToolName}, true
 	}
-	if toolName := artifactManifestToolNameFromEvent(rawTurnEvent.Name); toolName != "" {
-		return TurnEvent{Kind: TurnEventTool, ToolName: toolName, Body: rawTurnEvent.Body}, true
+	if artifactManifestToolNameFromEvent(rawTurnEvent.Name) != "" {
+		return TurnEvent{Kind: TurnEventTool, ToolName: toolResultEventToolName(rawTurnEvent.Body), Body: rawTurnEvent.Body}, true
 	}
 	return TurnEvent{}, false
+}
+
+// toolResultEventToolName reads the effective operation name from a tool
+// result observation body, so a capability.invoke call reports the wrapped
+// operation (e.g. "site.publish") instead of the neutral kernel verb name.
+func toolResultEventToolName(body string) string {
+	var document struct {
+		Tool string `json:"tool"`
+	}
+	if json.Unmarshal([]byte(body), &document) != nil {
+		return ""
+	}
+	return document.Tool
 }
 
 func decodeCheckpointEventBody(body string) checkpointEventBody {

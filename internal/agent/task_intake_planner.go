@@ -1246,12 +1246,17 @@ func isDigitString(value string) bool {
 	return true
 }
 
+// Domain tools (browser.*, web.*, user.*, ...) are registered but never
+// directly exposed in the action schema now that capability.invoke is the
+// only path to them, so this checks registration, not action-schema
+// allow-listing, to answer "does this ToolSet's domain support this class of
+// capability at all".
 func hasToolPrefix(toolRegistry *ToolSet, prefix string) bool {
 	if toolRegistry == nil {
 		return false
 	}
-	for _, toolName := range toolRegistry.ListToolNames() {
-		if strings.HasPrefix(toolName, prefix) {
+	for _, toolDefinition := range toolRegistry.ListRegisteredToolDefinitions() {
+		if strings.HasPrefix(strings.TrimSpace(toolDefinition.Name), prefix) {
 			return true
 		}
 	}

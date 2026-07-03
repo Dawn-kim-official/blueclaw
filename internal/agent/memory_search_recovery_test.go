@@ -102,9 +102,9 @@ func TestMemoryInstructionsDescribeWebSearchRecoveryBoundary(t *testing.T) {
 	}
 	prompt := instructions[0].Prompt
 	for _, expectedText := range []string{
-		"memory.search is unavailable",
-		"public, current, or external sources",
-		"Do not use web.search to replace private person memory",
+		"capability.invoke for public web information",
+		"public, current, or external",
+		"Do not use public web lookup to replace private person memory",
 	} {
 		if !strings.Contains(prompt, expectedText) {
 			t.Fatalf("expected memory prompt to contain %q, got %q", expectedText, prompt)
@@ -119,7 +119,7 @@ func TestMemoryInstructionsRequireRememberForDurableUpdates(t *testing.T) {
 	}
 	prompt := instructions[0].Prompt
 	for _, expectedText := range []string{
-		"future conversations",
+		"the runtime memory pipeline handles durable storage",
 		"explicitly asks you to remember",
 		"durable preference, fact, or context update",
 		"non-exhaustive examples",
@@ -133,8 +133,8 @@ func TestMemoryInstructionsRequireRememberForDurableUpdates(t *testing.T) {
 func TestSystemInstructionAllowsWebSearchAfterMemorySearchUnavailable(t *testing.T) {
 	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
 	for _, expectedText := range []string{
-		"memory.search is unavailable",
-		"public, current, or external",
+		"capability.invoke tool to run the operation",
+		"capability.invoke runs every domain operation",
 	} {
 		if !strings.Contains(instruction, expectedText) {
 			t.Fatalf("expected system instruction to contain %q, got %q", expectedText, instruction)

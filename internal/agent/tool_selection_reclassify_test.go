@@ -25,8 +25,8 @@ func TestSelectToolsReclassifiesSkillNameThatIsRegisteredTool(t *testing.T) {
 	}
 }
 
-func TestExternalSendExposesPinnedSendTools(t *testing.T) {
-	toolSet := testToolSet([]string{"skill.search", "ask.confirm", "message.send", "mail.message.send"})
+func TestExternalSendReachesPinnedSendOperationsOnlyThroughCapabilityInvoke(t *testing.T) {
+	toolSet := newTestCapabilityToolSet([]string{"message.send", "mail.message.send"})
 	request := AgentRequest{
 		Prompt:          "이동하님께 DM 보내줘",
 		PinnedToolNames: []string{"message.send", "mail.message.send"},
@@ -35,9 +35,12 @@ func TestExternalSendExposesPinnedSendTools(t *testing.T) {
 
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{}, ToolSelectionDecision{}, ToolExposureEvent{})
 
-	for _, toolName := range []string{"message.send", "mail.message.send"} {
-		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected pinned send tool %s to be exposed, got %+v", toolName, filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed(CapabilityInvokeToolName) {
+		t.Fatalf("expected capability.invoke to stay exposed as the only path to pinned send operations, got %+v", filteredToolSet.ListToolNames())
+	}
+	for _, operationName := range []string{"message.send", "mail.message.send"} {
+		if filteredToolSet.IsAllowed(operationName) {
+			t.Fatalf("expected pinned domain operation %s to stay reachable only through capability.invoke, got %+v", operationName, filteredToolSet.ListToolNames())
 		}
 	}
 }

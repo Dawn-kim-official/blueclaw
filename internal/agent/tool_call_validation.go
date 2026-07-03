@@ -91,7 +91,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName) {
+	if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) {
 		observation := turnObservation{
 			ObservationID: nextObservationID(len(state.Observations) + 1),
 			Action:        "policy",
@@ -305,6 +305,7 @@ func specificToolDescription(toolName string) string {
 }
 
 func validateBrowserToolInput(toolName string, toolInput json.RawMessage) error {
+	toolName, toolInput = effectiveActionToolNameAndInput(toolName, toolInput)
 	switch strings.TrimSpace(toolName) {
 	case "browser.open":
 		return validateRequiredToolInputFields(toolName, toolInput, "url")
@@ -484,7 +485,8 @@ func parseToolInputDocument(toolName string, toolInput json.RawMessage) (map[str
 }
 
 func canonicalToolCallKey(toolName string, toolInput json.RawMessage) string {
-	return strings.TrimSpace(toolName) + "\x00" + canonicalToolInput(toolInput)
+	effectiveToolName, effectiveToolInput := effectiveActionToolNameAndInput(toolName, toolInput)
+	return strings.TrimSpace(effectiveToolName) + "\x00" + canonicalToolInput(effectiveToolInput)
 }
 
 func canonicalToolInput(toolInput json.RawMessage) string {
@@ -502,14 +504,16 @@ func canonicalToolInput(toolInput json.RawMessage) string {
 	return string(content)
 }
 
-func handlesDuplicateSuccessfulToolCall(toolName string) bool {
-	if strings.TrimSpace(toolName) == "terminal.run" {
+func handlesDuplicateSuccessfulToolCall(toolName string, toolInput json.RawMessage) bool {
+	effectiveToolName, _ := effectiveActionToolNameAndInput(toolName, toolInput)
+	if strings.TrimSpace(effectiveToolName) == "terminal.run" {
 		return true
 	}
-	return isOneShotCompletionEvidenceTool(toolName)
+	return isOneShotCompletionEvidenceTool(effectiveToolName)
 }
 
 func previousSuccessfulExternalSend(observations []turnObservation, toolName string, toolInput json.RawMessage) (turnObservation, bool) {
+	toolName, toolInput = effectiveActionToolNameAndInput(toolName, toolInput)
 	if !isUnsafeRepeatSensitiveTool(toolName) {
 		return turnObservation{}, false
 	}
@@ -596,15 +600,14 @@ func requestHasSelectedSiteArtifactSkill(request AgentTurnRequest) bool {
 	return false
 }
 
+// site.create and site.publish are domain operations reached only through
+// capability.invoke now, so availability means registration, not action-schema
+// allow-listing; terminal.run stays a directly-allowed kernel tool either way.
 func sitePublishTaskToolsAreAvailable(toolSet *ToolSet) bool {
 	if toolSet == nil {
 		return false
 	}
-	toolNames := map[string]bool{}
-	for _, toolName := range toolSet.ListToolNames() {
-		toolNames[strings.TrimSpace(toolName)] = true
-	}
-	return toolNames["site.create"] && toolNames["site.publish"] && toolNames["terminal.run"]
+	return toolSet.IsRegistered("site.create") && toolSet.IsRegistered("site.publish") && toolSet.IsRegistered("terminal.run")
 }
 
 func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
