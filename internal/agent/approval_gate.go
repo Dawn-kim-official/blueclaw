@@ -197,9 +197,22 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 // approve a blank prompt.
 func heldCallConfirmationWording(request AgentTurnRequest, actionDocument turnActionDocument) string {
 	if wording := deliverableModelWording(actionDocument.Message); wording != "" {
-		return wording
+		return approvalQuestionFramedWording(wording, request.ResponseLanguage)
 	}
 	return approvalWordingFromToolInput(request, actionDocument.ToolName, actionDocument.ToolInput)
+}
+
+// The model did not know at call time that the call pauses for approval, so its
+// message often reads as a progress statement; the user still needs to see an
+// actual question to know a reply is expected.
+func approvalQuestionFramedWording(wording string, responseLanguage string) string {
+	if strings.HasSuffix(strings.TrimSpace(wording), "?") {
+		return wording
+	}
+	if ResolveResponseLanguage(responseLanguage) == ResponseLanguageEnglish {
+		return wording + "\n\nProceed?"
+	}
+	return wording + "\n\n진행할까요?"
 }
 
 func nativeToolRequiresRuntimeApproval(toolSet *ToolSet, toolName string) bool {
