@@ -1,0 +1,70 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"blueclaw/internal/config"
+	"blueclaw/internal/llm"
+)
+
+func TestLowTierEscalatesToMediumThroughRealCapabilityTransport(t *testing.T) {
+	requestedModels := []string{}
+	var requestedModelsLock sync.Mutex
+	server := httptest.NewServer(http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		if !strings.HasSuffix(request.URL.Path, "/llm/structured") {
+			http.Error(responseWriter, "unexpected path "+request.URL.Path, http.StatusNotFound)
+			return
+		}
+		var document map[string]any
+		if errorValue := json.NewDecoder(request.Body).Decode(&document); errorValue != nil {
+			http.Error(responseWriter, errorValue.Error(), http.StatusBadRequest)
+			return
+		}
+		modelName, _ := document["model"].(string)
+		requestedModelsLock.Lock()
+		requestedModels = append(requestedModels, modelName)
+		requestedModelsLock.Unlock()
+		if modelName == "vendor/low" {
+			http.Error(responseWriter, "provider returned error (502)", http.StatusBadGateway)
+			return
+		}
+		json.NewEncoder(responseWriter).Encode(map[string]any{
+			"provider": "openrouter",
+			"model":    modelName,
+			"content":  `{"action":"finish"}`,
+		})
+	}))
+	defer server.Close()
+
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.Capabilities.Endpoint = server.URL
+	runtimeConfiguration.LanguageModel.Capability.LowModel = "vendor/low"
+	runtimeConfiguration.LanguageModel.Capability.MediumModel = "vendor/medium"
+
+	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
+	response, errorValue := providers.Low.GenerateStructuredResponse(context.Background(), llm.StructuredResponseRequest{
+		Messages: []llm.Message{{Role: "user", Content: "test"}},
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:     "blueclaw_agent_turn_action",
+			Document: `{"type":"object"}`,
+		},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected the low tier to escalate to medium and succeed, got error: %v (models requested: %v)", errorValue, requestedModels)
+	}
+	if !response.UsedFallback {
+		t.Fatalf("expected UsedFallback to be marked, got %+v (models requested: %v)", response, requestedModels)
+	}
+	requestedModelsLock.Lock()
+	defer requestedModelsLock.Unlock()
+	if len(requestedModels) < 2 || requestedModels[len(requestedModels)-1] != "vendor/medium" {
+		t.Fatalf("expected a final vendor/medium request after vendor/low failures, got %v", requestedModels)
+	}
+}
