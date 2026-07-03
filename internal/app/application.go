@@ -834,9 +834,19 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	highModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High)
 	codingModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Coding)
 
+	lowWithFallback := llm.LanguageModelProvider(lowModel)
+	if tierNames.Medium != tierNames.Low {
+		lowWithFallback = llm.FallbackLanguageModelProvider{
+			PrimaryProvider:  lowModel,
+			FallbackProvider: mediumModel,
+			PrimaryLabel:     "low",
+			FallbackLabel:    "medium",
+			Logger:           logger,
+		}
+	}
 	xLowWithFallback := llm.FallbackLanguageModelProvider{
 		PrimaryProvider:  xLowModel,
-		FallbackProvider: lowModel,
+		FallbackProvider: lowWithFallback,
 		PrimaryLabel:     "xlow",
 		FallbackLabel:    "low",
 		Logger:           logger,
@@ -866,7 +876,7 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		Logger:           logger,
 	}
 	return taskTierLanguageModelProviders{
-		Low:    lowModel,
+		Low:    lowWithFallback,
 		XLow:   xLowWithFallback,
 		Medium: mediumWithFallback,
 		High:   highWithFallback,
