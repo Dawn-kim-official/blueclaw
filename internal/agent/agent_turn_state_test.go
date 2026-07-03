@@ -219,6 +219,16 @@ func TestParseAgentActionResponseNormalizesUntypedFinishReplyParts(t *testing.T)
 	}
 }
 
+func TestParseAgentActionResponseCoercesStringCompletionEvidenceIDs(t *testing.T) {
+	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"action":"finish","message":"완료했습니다.","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":"obs-005, obs-008","qualityReview":[]}`})
+	if errorValue != nil {
+		t.Fatalf("expected string completionEvidenceIDs to parse: %v", errorValue)
+	}
+	if len(action.CompletionEvidenceIDs) != 2 || action.CompletionEvidenceIDs[0] != "obs-005" || action.CompletionEvidenceIDs[1] != "obs-008" {
+		t.Fatalf("expected coerced evidence IDs, got %+v", action.CompletionEvidenceIDs)
+	}
+}
+
 func TestParseAgentActionResponseNormalizesNestedFinishBlock(t *testing.T) {
 	action, errorValue := ParseAgentActionResponse(llm.StructuredResponse{Content: `{"executionStateUpdate":{"goal":"answer user"},"finish":{"message":"done","replyParts":[{"type":"text","text":"done"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001"],"qualityReview":[{"id":"complete","passed":true,"evidenceIDs":["obs-001"]}]}}`})
 	if errorValue != nil {

@@ -424,10 +424,38 @@ func normalizeAgentActionResponseScalarContent(content []byte) ([]byte, error) {
 		return nil, errorValue
 	}
 	didChange := normalizeJSONStringBooleanField(document, "goalSatisfied")
+	for _, fieldName := range []string{"completionEvidenceIDs", "qualityCriteria", "toolNames", "skillNames", "requestTools", "requestSkills"} {
+		if normalizeJSONStringToArrayField(document, fieldName) {
+			didChange = true
+		}
+	}
 	if !didChange {
 		return content, nil
 	}
 	return json.Marshal(document)
+}
+
+func normalizeJSONStringToArrayField(document map[string]json.RawMessage, fieldName string) bool {
+	fieldValue, isPresent := document[fieldName]
+	if !isPresent {
+		return false
+	}
+	var stringValue string
+	if json.Unmarshal(fieldValue, &stringValue) != nil {
+		return false
+	}
+	arrayValue := []string{}
+	for _, item := range strings.Split(stringValue, ",") {
+		if trimmedItem := strings.TrimSpace(item); trimmedItem != "" {
+			arrayValue = append(arrayValue, trimmedItem)
+		}
+	}
+	marshaledValue, errorValue := json.Marshal(arrayValue)
+	if errorValue != nil {
+		return false
+	}
+	document[fieldName] = marshaledValue
+	return true
 }
 
 func normalizeJSONStringBooleanField(document map[string]json.RawMessage, fieldName string) bool {
