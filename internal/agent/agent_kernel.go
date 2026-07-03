@@ -299,13 +299,20 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		return confirmationResult, errorValue
 	}
 	outcomeContract := outcomeContractForRequest(request, intakeDecision, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
+	isDeterministicResume := request.IsApprovalContinuation || request.IsRuntimeRestartResume
 	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, outcomeContract.RequiredEvidenceTools)
+	prunedEvidenceReport := requiredEvidenceValidationReport{}
 	if evidenceValidationReport.HasInvalidEvidence() {
-		result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, evidenceValidationReport, turnDecision.Route)
-		return result, errorValue
+		if !isDeterministicResume {
+			result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, evidenceValidationReport, turnDecision.Route)
+			return result, errorValue
+		}
+		outcomeContract.RequiredEvidenceTools = requiredEvidenceToolsWithout(outcomeContract.RequiredEvidenceTools, evidenceValidationReport.InvalidEvidence)
+		prunedEvidenceReport = evidenceValidationReport
+		prunedEvidenceReport.Reason = "invalid required evidence pruned so the approved or resumed task keeps executing"
 	}
 	var requiredEvidenceReask requiredEvidenceReaskReport
-	if missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); strings.TrimSpace(missingEvidenceReport.Reason) != "" {
+	if missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); !isDeterministicResume && strings.TrimSpace(missingEvidenceReport.Reason) != "" {
 		intakeDecision, outcomeContract, requiredEvidenceReask = agentKernel.reaskMissingRequiredEvidenceOnce(responseContext, request, intakeRequest, intakeDecision, outcomeContract, instructionBundle, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, turnToolSet)
 		if stillMissingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); strings.TrimSpace(stillMissingEvidenceReport.Reason) != "" {
 			result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, stillMissingEvidenceReport, turnDecision.Route)
@@ -377,6 +384,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
 	if result.TaskRun.TaskRunID != "" {
 		agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, "agent.intake", marshalEventBody(intakeDecision))
+		if prunedEvidenceReport.HasInvalidEvidence() {
+			agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceInvalidEventName, marshalEventBody(prunedEvidenceReport))
+		}
 		if requiredEvidenceReask.WasAttempted {
 			agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceReaskEventName, marshalEventBody(requiredEvidenceReask))
 		}
