@@ -342,17 +342,20 @@ func TestTaskIntakePlannerAcceptsVerbatimSiteEvidence(t *testing.T) {
 
 func TestAgentKernelRecordsSiteRequirementNormalizationEvent(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","taskComplexity":"simple","effortLevel":"standard","requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","taskComplexity":"simple","effortLevel":"standard","requestedOutputFormats":null,"expectedResults":[{"id":"site-public-link","type":"link","description":"public URL","required":true}],"requiredEvidence":["calendar.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"calendar work","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		finishMessageDocument("일정을 추가했습니다."),
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"어반브랜딩 미팅","location":"코엑스"}}}`,
+		finishMessageWithEvidence("일정을 추가했습니다.", "obs-001", "calendar.add", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 
+	toolSet := newTestCapabilityToolSet([]string{"calendar.add"})
 	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "19일 오후 6시 어반브랜딩 미팅 추가 위치는 코엑스",
+		ToolSet:           toolSet,
 	})
 	if errorValue != nil {
 		t.Fatalf("expected normalized intake to run: %v", errorValue)
@@ -1004,7 +1007,7 @@ func TestAgentKernelRecoversLegacyPriorAttachmentContractFromIntakeOutput(t *tes
 
 func TestTaskIntakePlannerTreatsSupportedSitePrototypeConfirmationAsBoundedTask(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","requestedOutputFormats":null,"siteRequestEvidence":"웹사이트 하나 만들어서 배포","reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
+		`{"classification":"needs_confirmation","taskShape":"approval_gated_task","effortLevel":"deep","outputKind":"site","requestedOutputFormats":null,"requiredEvidence":["site.create","site.publish"],"siteRequestEvidence":"웹사이트 하나 만들어서 배포","reason":"publishing needs approval","userFacingReply":"승인해주시겠어요?"}`,
 	}}
 	toolRegistry := newTestToolSet([]string{"site.create", "site.publish"})
 	for _, toolName := range toolRegistry.ListToolNames() {
@@ -1181,7 +1184,7 @@ func TestAgentKernelQuickReplyExposesToolsButAllowsToolFreeReply(t *testing.T) {
 		finishMessageDocument("hello"),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"expensive"})
+	toolRegistry := newTestToolSet([]string{"expensive", "ask.input"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "expensive"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("expensive result"), nil
 	})
@@ -1215,11 +1218,11 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 		`{"classification":"bounded_task","taskShape":"tool_task","effortLevel":"standard","requestedOutputFormats":null,"reason":"needs tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","message":"확인 중입니다.","toolName":"alpha","toolInput":{"value":"one"},"nextStepPlan":{"objective":"finish after alpha","expectedTools":[],"doneCriteria":["alpha succeeds"],"risk":"none","workingSetReason":"alpha provides the answer"}}`,
+		`{"action":"continue","message":"확인 중입니다.","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{"value":"one"}}}`,
 		finishMessageWithEvidence("done", "obs-002", "alpha", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"alpha"})
+	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("alpha result"), nil
 	})
@@ -1230,7 +1233,6 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "확인해줘",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"alpha"},
 		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
 			checkpoints = append(checkpoints, checkpoint)
 			return nil
@@ -1245,7 +1247,7 @@ func TestAgentKernelRunTurnPreservesCheckpointSender(t *testing.T) {
 	if len(checkpoints) != 1 || checkpoints[0].Message != "확인 중입니다." {
 		t.Fatalf("expected checkpoint sender to be preserved, got %+v", checkpoints)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.sent", "alpha") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.sent", "capability.invoke") {
 		t.Fatal("expected checkpoint sent event")
 	}
 }
@@ -1255,12 +1257,12 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"initialToolNames":["primary.lookup","backup.lookup"],"reason":"quick with useful tool","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"primary.lookup","toolInput":{"query":"hello"}}`,
-		`{"action":"continue","toolName":"backup.lookup","toolInput":{"query":"hello"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"primary.lookup","input":{"query":"hello"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"backup.lookup","input":{"query":"hello"}}}`,
 		finishMessageWithEvidence("backup answer", "obs-003", "backup.lookup", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"primary.lookup", "backup.lookup"})
+	toolRegistry := newTestCapabilityToolSet([]string{"primary.lookup", "backup.lookup"})
 	primaryCallCount := 0
 	backupCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "primary.lookup"}, func(context.Context, ToolInvocation) (ToolResult, error) {
@@ -1322,11 +1324,11 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"initialToolNames":["math.calculate"],"responseLanguage":"ko","reason":"calculation","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"math.calculate","toolInput":{"expression":"1+1"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"math.calculate","input":{"expression":"1+1"}}}`,
 		finishMessageWithEvidence("2", "obs-001", "math.calculate", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"math.calculate"})
+	toolRegistry := newTestCapabilityToolSet([]string{"math.calculate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "math.calculate"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"expression":"1+1","result":"2"}`), nil
 	})
@@ -1343,7 +1345,7 @@ func TestAgentKernelQuickReplyCanUseCalculatorTool(t *testing.T) {
 	if result.FinishMessage != "2" {
 		t.Fatalf("expected calculator final reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.math.calculate.result", "result") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.result", "math.calculate") {
 		t.Fatal("expected calculator tool event")
 	}
 }
@@ -1354,11 +1356,11 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("아래 세 가지 중 하나를 선택해 주세요.\n\n1. 선택지 1\n2. 선택지 2\n3. 선택지 3"),
-		`{"action":"continue","toolName":"ask.choice","toolInput":{"question":"아래 세 가지 중 하나를 선택해 주세요.","options":["선택지 1","선택지 2","선택지 3"],"recommendedOptionKey":"1","selectionMode":"single"},"nextStepPlan":{"objective":"wait for the user choice","expectedTools":[],"expectedNextResults":["사용자가 선택지를 고름"],"doneCriteria":["ask.choice is displayed"],"risk":"none","workingSetReason":"ask.choice provides the requested options"}}`,
+		`{"action":"continue","toolName":"ask.input","toolInput":{"question":"아래 세 가지 중 하나를 선택해 주세요.","options":["선택지 1","선택지 2","선택지 3"],"recommendedOptionKey":"1","selectionMode":"single"}}`,
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
-	toolRegistry := newTestToolSet([]string{"ask.choice"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.choice"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
+	toolRegistry := newTestToolSet([]string{"ask.input"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "ask.input"}, func(toolContext context.Context, invocation ToolInvocation) (ToolResult, error) {
 		taskRunID := TaskRunIDFromContext(toolContext)
 		if taskRunID == "" {
 			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "ask_choice", "missing task run"), nil
@@ -1384,17 +1386,28 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 		t.Fatalf("expected waiting user input, got %s", result.TaskRun.Status)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.completion_required", "ask.choice") {
+	if !taskEventsContain(events, "agent.completion_required", "ask.input") {
 		t.Fatalf("expected text-only finish to be rejected, got %+v", events)
 	}
 	if !taskEventsContain(events, "ask.requested", `"selectionMode":"single"`) {
-		t.Fatalf("expected ask.choice request event, got %+v", events)
+		t.Fatalf("expected ask.input request event, got %+v", events)
 	}
 	if len(replyLanguageModel.requests) != 2 {
 		t.Fatalf("expected finish rejection then ask.choice action, got %d requests", len(replyLanguageModel.requests))
 	}
 }
 
+// FLAGGED for human review: cb2f10f ("gate completion on required evidence") broadened
+// selectedSkillsNeedBoundedExecution's quick_reply branch from a schedule.-prefix check to
+// any selectedSkillRequiresCompletionEvidence, which now promotes this scenario's intake
+// classification away from "quick_reply" (the assertion below fails on that label alone).
+// FinishMessage still equals the model's unverified "deck created too early" text with no
+// file.deliver call ever made and no error — i.e. promotion changed the recorded label but
+// this harness path (RunAgentRequest short-circuiting on a same-turn final reply) does not
+// appear to route through the new evidence gate at all, which is the exact premature-finish
+// scenario this test was written to catch. Left failing pending a decision on whether that
+// gate gap is real (fix the quick-reply/intake short-circuit path) or this harness just
+// doesn't exercise the full turn loop the gate depends on (update the assertion instead).
 func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceHint(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,

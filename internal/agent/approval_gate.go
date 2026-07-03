@@ -236,6 +236,12 @@ func approvalQuestionFramedWording(wording string, responseLanguage string) stri
 	return wording + "\n\n진행할까요?"
 }
 
+// Scoped to native kernel tools only (e.g. file.delete). Capability-routed
+// operations are approval-gated server-side by capabilityd, which returns
+// approval_required in the tool result; turn_runner intercepts that after
+// the attempted invocation (isApprovalRequiredObservation), so pre-gating
+// capability.invoke here would duplicate and bypass that single source of
+// truth (see commit 8f418da).
 func nativeToolRequiresRuntimeApproval(toolSet *ToolSet, toolName string) bool {
 	trimmedToolName := strings.TrimSpace(toolName)
 	if trimmedToolName == "" || trimmedToolName == CapabilityInvokeToolName {

@@ -12,20 +12,21 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 	if !hasFailureDebt {
 		return "", toolCallActionOutcome{}
 	}
-	if isAllowed, reason := recoveryChoiceIsAllowed(failureDebt, state.Observations, actionDocument.ToolName); !isAllowed {
+	effectiveToolName := effectiveObservationToolName(actionDocument.ToolName, actionDocument.ToolInput)
+	if isAllowed, reason := recoveryChoiceIsAllowed(failureDebt, state.Observations, effectiveToolName); !isAllowed {
 		observation := recoveryChoiceRejectedObservation(len(state.Observations)+1, failureDebt.LatestFailure, reason)
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_choice_rejected", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+actionDocument.ToolName, observation.ContentText())
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_choice_rejected "+effectiveToolName, observation.ContentText())
 		result, shouldStop := stopForNoProgress(stepID)
 		return "", toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	recoveryStep := classifyRecoveryStep(failureDebt, actionDocument.ToolName)
+	recoveryStep := classifyRecoveryStep(failureDebt, effectiveToolName)
 	if !recoveryBudgetAllowsStep(state.Observations, agentTurnRunner.options.RecoveryBudget, recoveryStep) {
 		observation := recoveryBudgetExhaustedObservation(len(state.Observations)+1, failureDebt.LatestFailure, recoveryStep)
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_budget_exhausted", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_budget_exhausted "+actionDocument.ToolName, observation.ContentText())
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_budget_exhausted "+effectiveToolName, observation.ContentText())
 		if recoveryToolBudgetExhaustedForRequest(state.Observations, request.ToolSet, agentTurnRunner.options.RecoveryBudget, failureDebt) {
 			result := agentTurnRunner.runTerminalNoToolsStep(ctx, taskRunID, stepID, request, state, "recovery_tool_budget_exhausted")
 			return "", toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
@@ -36,7 +37,7 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 	agentTurnRunner.appendEvent(taskRunID, "agent.recovery_attempt", marshalEventBody(map[string]any{
 		"status":       "started",
 		"recoveryStep": recoveryStep,
-		"toolName":     strings.TrimSpace(actionDocument.ToolName),
+		"toolName":     effectiveToolName,
 		"debt":         failureDebt,
 	}))
 	return recoveryStep, toolCallActionOutcome{}

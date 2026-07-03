@@ -53,7 +53,7 @@ func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
 	}
 }
 
-func TestToolSetDescriptionsShowRegisteredCatalogWhileActionSchemaUsesExposedTools(t *testing.T) {
+func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool", "denied.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "visible.tool", Description: "Visible"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("ok"), nil
@@ -77,34 +77,33 @@ func TestToolSetDescriptionsShowRegisteredCatalogWhileActionSchemaUsesExposedToo
 	if !strings.Contains(descriptions, "visible.tool") || !strings.Contains(actionSchema, "visible.tool") {
 		t.Fatalf("expected visible tool in prompt and schema, got prompt=%s schema=%s", descriptions, actionSchema)
 	}
-	if !strings.Contains(descriptions, "hidden.tool") || strings.Contains(actionSchema, "hidden.tool") {
-		t.Fatalf("expected hidden tool in prompt catalog but not action schema, got prompt=%s schema=%s", descriptions, actionSchema)
-	}
-	if !strings.Contains(descriptions, "hidden.tool: Hidden [hidden, available]") {
-		t.Fatalf("expected hidden visibility marker, got prompt=%s", descriptions)
+	// hidden.tool is registered but not allowed; domain operations reach the model
+	// only through capability.invoke now, so the catalog no longer lists them.
+	if strings.Contains(descriptions, "hidden.tool") || strings.Contains(actionSchema, "hidden.tool") {
+		t.Fatalf("expected registered-but-not-allowed tool to stay out of both surfaces, got prompt=%s schema=%s", descriptions, actionSchema)
 	}
 	if strings.Contains(descriptions, "denied.tool") || strings.Contains(actionSchema, "denied.tool") {
 		t.Fatalf("expected denied tool to stay hidden, got prompt=%s schema=%s", descriptions, actionSchema)
 	}
-	if got := strings.Join(toolSet.ListHiddenDescribedToolNames(), ","); got != "hidden.tool" {
-		t.Fatalf("expected hidden described tool names, got %q", got)
+	if hiddenToolNames := toolSet.ListHiddenDescribedToolNames(); len(hiddenToolNames) != 0 {
+		t.Fatalf("expected no hidden described tools now that the catalog only shows exposed kernel tools, got %+v", hiddenToolNames)
 	}
 }
 
-func TestToolSetDoesNotExposeAskConfirm(t *testing.T) {
-	toolSet := NewToolSet([]string{"ask.confirm"})
-	toolSet.RegisterTool(ToolDefinition{Name: "ask.confirm", Description: "Confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+func TestToolSetExposesAskConfirmAsAFixedKernelTool(t *testing.T) {
+	toolSet := NewToolSet([]string{AskConfirmToolName})
+	toolSet.RegisterTool(ToolDefinition{Name: AskConfirmToolName, Description: "Confirm"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("ok"), nil
 	})
 
 	descriptions := toolSet.Descriptions()
 	actionSchema := toolSet.ActionSchema(false, nil, false)
 
-	if toolSet.IsAllowed("ask.confirm") || toolSet.CanExpose("ask.confirm") {
-		t.Fatalf("expected ask.confirm not to be model-callable, names=%+v", toolSet.ListToolNames())
+	if !toolSet.IsAllowed(AskConfirmToolName) || !toolSet.CanExpose(AskConfirmToolName) {
+		t.Fatalf("expected ask.confirm to be model-callable as a fixed kernel tool, names=%+v", toolSet.ListToolNames())
 	}
-	if strings.Contains(descriptions, "ask.confirm") || strings.Contains(actionSchema, "ask.confirm") {
-		t.Fatalf("expected ask.confirm to stay out of prompt surfaces, prompt=%s schema=%s", descriptions, actionSchema)
+	if !strings.Contains(descriptions, AskConfirmToolName) || !strings.Contains(actionSchema, AskConfirmToolName) {
+		t.Fatalf("expected ask.confirm in both prompt surfaces, prompt=%s schema=%s", descriptions, actionSchema)
 	}
 }
 

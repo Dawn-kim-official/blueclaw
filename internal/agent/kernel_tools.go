@@ -1,6 +1,9 @@
 package agent
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 const (
 	TerminalRunToolName      = "terminal.run"
@@ -68,4 +71,26 @@ func ToolNamesMatch(leftToolName string, rightToolName string) bool {
 
 func IsArtifactDeliveryTool(toolName string) bool {
 	return CanonicalEvidenceToolName(toolName) == FileDeliverToolName
+}
+
+// effectiveActionToolNameAndInput unwraps a capability.invoke call to the
+// underlying operation name and its nested input, so operation-specific
+// validation and dedup logic never has to special-case the neutral kernel
+// verb. Non-capability calls pass through unchanged.
+func effectiveActionToolNameAndInput(toolName string, toolInput json.RawMessage) (string, json.RawMessage) {
+	if strings.TrimSpace(toolName) != CapabilityInvokeToolName {
+		return toolName, toolInput
+	}
+	var document struct {
+		Operation string          `json:"operation"`
+		Input     json.RawMessage `json:"input"`
+	}
+	if json.Unmarshal(toolInput, &document) != nil {
+		return toolName, toolInput
+	}
+	operation := strings.TrimSpace(document.Operation)
+	if operation == "" {
+		return toolName, toolInput
+	}
+	return operation, document.Input
 }

@@ -118,7 +118,7 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 	}
 }
 
-func TestToolSetForAgentTurnHidesSelectedSkillToolsUntilExplicitlyPinned(t *testing.T) {
+func TestToolSetForAgentTurnExposesKernelToolsRegardlessOfSkillSelection(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
@@ -143,19 +143,18 @@ func TestToolSetForAgentTurnHidesSelectedSkillToolsUntilExplicitlyPinned(t *test
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"conversation.history", "memory.search"} {
-		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
-		}
+	// terminal.run is the only kernel tool in this fixture; conversation.history and memory.search are not kernel tools.
+	if !filteredToolSet.IsAllowed("terminal.run") {
+		t.Fatalf("expected kernel tool terminal.run to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
-	for _, toolName := range []string{"terminal.run", "site.create", "site.publish", "schedule.create"} {
+	for _, toolName := range []string{"conversation.history", "memory.search", "site.create", "site.publish", "schedule.create"} {
 		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected selected-skill tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected non-kernel tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
 
-func TestToolSetForAgentTurnUsesPinnedToolsAndCoreOnly(t *testing.T) {
+func TestToolSetForAgentTurnIgnoresPinningForNonKernelTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
@@ -178,19 +177,20 @@ func TestToolSetForAgentTurnUsesPinnedToolsAndCoreOnly(t *testing.T) {
 		PinnedToolNames: []string{"schedule.create"},
 	}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"conversation.history", "memory.search", "schedule.create"} {
+	for _, toolName := range []string{"terminal.run", "file.write"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"math.calculate", "terminal.run", "file.write", "mail.message.search"} {
+	// schedule.create is pinned, but pinning no longer exposes non-kernel tools directly.
+	for _, toolName := range []string{"conversation.history", "memory.search", "math.calculate", "schedule.create", "mail.message.search"} {
 		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected unrequested tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected non-kernel tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
 
-func TestToolSetForAgentTurnHidesUnrequestedSendToolForNonSendOutcome(t *testing.T) {
+func TestToolSetForAgentTurnHidesSendToolButKeepsKernelToolForNonSendOutcome(t *testing.T) {
 	fullToolSet := testToolSet([]string{"message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -204,14 +204,14 @@ func TestToolSetForAgentTurnHidesUnrequestedSendToolForNonSendOutcome(t *testing
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
 
 	if filteredToolSet.IsAllowed("message.send") {
-		t.Fatalf("expected send tool to be hidden for non-send outcome, got %+v", filteredToolSet.ListToolNames())
+		t.Fatalf("expected send tool to stay hidden outside capability.invoke, got %+v", filteredToolSet.ListToolNames())
 	}
-	if filteredToolSet.IsAllowed("file.write") {
-		t.Fatalf("expected unrequested file tool to be hidden, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("file.write") {
+		t.Fatalf("expected kernel tool file.write to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
-func TestAgentKernelActionSchemaUsesIntakeInitialTools(t *testing.T) {
+func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"initialToolNames":["schedule.create"],"reason":"schedule request","userFacingReply":""}`,
 	}}
@@ -240,7 +240,11 @@ func TestAgentKernelActionSchemaUsesIntakeInitialTools(t *testing.T) {
 			},
 		}}
 	})
-	toolRegistry := testToolSet([]string{"schedule.create", "mail.message.search", "math.calculate", "ask.input"})
+	// schedule.create, mail.message.search, and math.calculate are non-kernel operations only reachable via capability.invoke.
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "math.calculate"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: AskInputToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolResult{}, nil
+	})
 
 	_, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
 		RequesterPersonID: "person-1",
@@ -255,14 +259,15 @@ func TestAgentKernelActionSchemaUsesIntakeInitialTools(t *testing.T) {
 		t.Fatal("expected action request")
 	}
 	actionSchema := replyLanguageModel.requests[0].StructuredOutputSchema.Document
-	if !strings.Contains(actionSchema, `"toolName":{"enum":["schedule.create"]`) {
-		t.Fatalf("expected intake initial tool in action schema, got %s", actionSchema)
+	for _, kernelToolName := range []string{CapabilityInvokeToolName, AskInputToolName} {
+		if !strings.Contains(actionSchema, kernelToolName) {
+			t.Fatalf("expected kernel tool %s in action schema regardless of intake initial tools, got %s", kernelToolName, actionSchema)
+		}
 	}
-	if strings.Contains(actionSchema, "mail.message.search") {
-		t.Fatalf("expected unselected skill tool to be hidden from action schema, got %s", actionSchema)
-	}
-	if strings.Contains(actionSchema, "math.calculate") || strings.Contains(actionSchema, "ask.input") {
-		t.Fatalf("expected deterministic initial tool palette to hide unrequested tools, got %s", actionSchema)
+	for _, domainToolName := range []string{"schedule.create", "mail.message.search", "math.calculate"} {
+		if strings.Contains(actionSchema, `"toolName":{"enum":["`+domainToolName+`"`) {
+			t.Fatalf("expected %s not to be directly callable outside capability.invoke, got %s", domainToolName, actionSchema)
+		}
 	}
 }
 
@@ -483,6 +488,10 @@ func TestEmbeddingRetrieverSelectsStandardSkill(t *testing.T) {
 	}
 }
 
+// FLAGGED for human review: fails without a text-based fallback in requestNeedsSiteArtifactContract
+// that a278758 ("Remove work kind routing") deliberately deleted; restoring it reintroduces the
+// keyword-scan pattern the codebase moved away from twice. Left failing pending a decision on
+// whether dominance suppression should gain a new structured signal instead. See task report.
 func TestSiteArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{

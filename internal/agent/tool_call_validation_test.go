@@ -54,12 +54,12 @@ func TestValidateTerminalToolInputRejectsRegisteredToolNameAsCommand(t *testing.
 
 func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"첫 번째"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"두 번째"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"첫 번째"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"두 번째"}}}`,
 		finishMessageWithEvidence("첫 번째 메시지를 보냈습니다.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestToolSet([]string{"message.send"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
@@ -92,12 +92,12 @@ func TestAgentTurnRunnerRejectsSecondDMSendAfterSuccess(t *testing.T) {
 
 func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}}`,
 		finishMessageWithEvidence("샘플와 정국에게 DM을 보냈습니다.", "obs-001", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
-	toolRegistry := newTestToolSet([]string{"message.send"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	sendCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		sendCallCount++
@@ -127,18 +127,18 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
-		`{"action":"continue","toolName":"message.context","toolInput":{}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.context","input":{}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.context","input":{}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}}`,
 		failureReportDocument("mattermost still unavailable", "message.send", "정국", FailureCodes.Unavailable.String(), "mattermost_lookup", "temporary user lookup timeout"),
 		recoveryDecisionDocument("Mattermost lookup failed after retry", "mattermost_lookup/unavailable was returned twice", "check Mattermost availability before retrying", "report the failed stage and code"),
 	}, textResponses: []string{
 		"mattermost_lookup/unavailable 단계에서 Mattermost 조회가 계속 실패해 DM을 보내지 못했습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, RecoveryAttemptLimit: 3})
-	toolRegistry := newTestToolSet([]string{"message.send", "message.context"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	callCount := 0
 	sendInputs := []string{}
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
@@ -176,15 +176,15 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}`,
-		`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"확인 부탁해"}}}`,
 		failureReportDocument("send failed", "message.send", "샘플", FailureCodes.OperationFailed.String(), "message_send", "Mattermost returned 503 after post create"),
 		recoveryDecisionDocument("message send failed", "message_send/operation_failed was returned", "inspect delivery state before retrying", "report the failed stage and avoid duplicate send claims"),
 	}, textResponses: []string{
 		"message_send/operation_failed 단계에서 전송이 실패했습니다. 중복 전송 위험 때문에 같은 메시지를 다시 보내지는 않았습니다.",
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 2, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"message.send", "message.context"})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	callCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
@@ -250,13 +250,13 @@ func TestAgentTurnRunnerRejectsUnavailableToolBeforeInvoke(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.fill","toolInput":{"target":"@e5","text":"hello world"}}`,
-		`{"action":"continue","toolName":"browser.press","toolInput":{}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.fill","input":{"target":"@e5","text":"hello world"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.press","input":{}}}`,
 		finishMessageWithEvidence("searched", "obs-001", "browser.fill", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	pressCallCount := 0
-	toolRegistry := newTestToolSet([]string{"browser.fill", "browser.press"})
+	toolRegistry := newTestCapabilityToolSet([]string{"browser.fill", "browser.press"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.fill"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"ok":true}`), nil
 	})
@@ -288,13 +288,13 @@ func TestAgentTurnRunnerRejectsEmptyBrowserPressAfterFill(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.snapshot","toolInput":{}}`,
-		`{"action":"continue","toolName":"browser.fill","toolInput":{}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.snapshot","input":{}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.fill","input":{}}}`,
 		finishMessageWithEvidence("filled", "obs-001", "browser.snapshot", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	fillCallCount := 0
-	toolRegistry := newTestToolSet([]string{"browser.snapshot", "browser.fill"})
+	toolRegistry := newTestCapabilityToolSet([]string{"browser.snapshot", "browser.fill"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"snapshotText":"- textbox \"Google 검색\" [ref=e5]"}`), nil
 	})
@@ -326,13 +326,13 @@ func TestAgentTurnRunnerRejectsBrowserFillWithoutRequiredInput(t *testing.T) {
 
 func TestAgentTurnRunnerRejectsEmptyGoogleNavigate(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"browser.open","toolInput":{}}`,
-		`{"action":"continue","toolName":"browser.open","toolInput":{"url":"https://www.google.com"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.open","input":{}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"browser.open","input":{"url":"https://www.google.com"}}}`,
 		finishMessageWithEvidence("opened", "obs-002", "browser.open", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	navigateCallCount := 0
-	toolRegistry := newTestToolSet([]string{"browser.open"})
+	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.open"}, func(_ context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		navigateCallCount++
 		return ToolSuccess(`{"url":"https://www.google.com"}`), nil
@@ -591,13 +591,13 @@ func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForUnrelatedC
 
 func TestAgentTurnRunnerRejectsRepeatedScheduleCreateWithoutExecutingAgain(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}`,
-		`{"action":"continue","toolName":"schedule.create","toolInput":{"timeZone":"Asia/Seoul","maxRunCount":10,"repeatPolicy":"finite","intervalSecond":60,"kind":"interval","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다."}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"timeZone":"Asia/Seoul","maxRunCount":10,"repeatPolicy":"finite","intervalSecond":60,"kind":"interval","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다."}}}`,
 		finishMessageDocument("예약을 만들었습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
 	toolCallCount := 0
-	toolRegistry := newTestToolSet([]string{"schedule.create"})
+	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10}`), nil
