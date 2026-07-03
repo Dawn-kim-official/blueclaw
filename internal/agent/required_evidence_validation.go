@@ -48,6 +48,20 @@ func (report requiredEvidenceValidationReport) HasInvalidEvidence() bool {
 	return len(report.InvalidEvidence) > 0
 }
 
+func requiredEvidenceToolsWithout(toolNames []string, excludedToolNames []string) []string {
+	excludedSet := map[string]bool{}
+	for _, toolName := range excludedToolNames {
+		excludedSet[strings.TrimSpace(toolName)] = true
+	}
+	keptToolNames := []string{}
+	for _, toolName := range toolNames {
+		if !excludedSet[strings.TrimSpace(toolName)] {
+			keptToolNames = append(keptToolNames, toolName)
+		}
+	}
+	return keptToolNames
+}
+
 func addRequiredEvidenceKind(evidenceKinds map[string]string, toolName string, toolKind string) map[string]string {
 	if evidenceKinds == nil {
 		evidenceKinds = map[string]string{}

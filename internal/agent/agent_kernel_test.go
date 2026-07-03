@@ -196,6 +196,61 @@ func TestAgentKernelBlocksInvalidRequiredEvidence(t *testing.T) {
 	}
 }
 
+func TestAgentKernelPrunesInvalidEvidenceOnApprovalContinuation(t *testing.T) {
+	agentKernel, taskRunService := newKernelTestServices()
+	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
+		Route:                 TurnRouteContinueTask,
+		Classification:        IntakeClassificationBoundedTask,
+		TaskShape:             TaskShapeMaintenanceTask,
+		TaskComplexity:        TaskComplexitySimple,
+		EffortLevel:           EffortLevelStandard,
+		RequiredEvidenceTools: []string{"delete_website_artifact"},
+		ResponseLanguage:      "ko",
+		Reason:                "approval reply classified with hallucinated evidence",
+	}})
+
+	toolCallCount := 0
+	toolSet := newTestToolSet([]string{CapabilityInvokeToolName})
+	toolSet.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"deleted":true}`), nil
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.delete","input":{"siteID":"site-1"}}}`,
+		finishMessageWithEvidence("웹사이트를 삭제했습니다.", "obs-001", "site.delete", 0),
+	}})
+
+	request := kernelTestRequest("응 확인했어, 진행해줘")
+	request.ToolSet = toolSet
+	request.IsApprovalContinuation = true
+	request.ActiveGoal = ActiveGoal{
+		GoalID:              "goal-approval-continuation",
+		TaskRunID:           "task-approval-continuation",
+		OriginalInstruction: "테스트 웹사이트를 삭제해줘",
+		CurrentObjective:    "site.delete 승인 후 실행",
+		Status:              ActiveGoalStatusActive,
+		OutcomeContract:     OutcomeContract{RequiredEvidenceTools: []string{"site.delete"}},
+	}
+
+	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
+	if errorValue != nil {
+		t.Fatalf("expected approval continuation to run: %v", errorValue)
+	}
+	if result.TaskRun.Status == task.TaskStatusBlocked {
+		t.Fatal("expected approval continuation to survive invalid intake evidence, got blocked")
+	}
+	if toolCallCount != 1 {
+		t.Fatalf("expected the approved capability call to run once, got %d", toolCallCount)
+	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, requiredEvidenceInvalidEventName, "delete_website_artifact") {
+		t.Fatal("expected pruned invalid evidence event")
+	}
+	if !taskEventsContain(taskEvents, requiredEvidenceInvalidEventName, "pruned") {
+		t.Fatal("expected prune reason on the invalid evidence event")
+	}
+}
+
 func TestAgentKernelBlocksSideEffectWithoutRequiredEvidence(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
