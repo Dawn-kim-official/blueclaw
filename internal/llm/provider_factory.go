@@ -57,7 +57,7 @@ func capabilityModelName(runtimeConfiguration config.RuntimeConfiguration) strin
 const (
 	defaultHighModelName   = "google/gemini-3.1-flash-lite"
 	defaultMediumModelName = "google/gemini-3.1-flash-lite"
-	defaultLowModelName    = "google/gemini-3.1-flash-lite"
+	defaultLowModelName    = "google/gemini-2.5-flash-lite"
 	defaultXLowModelName   = "google/gemma-3-12b-it"
 	defaultCodingModelName = "z-ai/glm-5.2"
 )
