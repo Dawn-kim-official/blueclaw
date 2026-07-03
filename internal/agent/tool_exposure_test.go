@@ -137,6 +137,109 @@ func TestToolSelectionContextUsesCompactCards(t *testing.T) {
 	}
 }
 
+func newExposureTestToolSet(capabilityOperations map[string]json.RawMessage) *ToolSet {
+	toolSet := NewToolSet(KernelToolNames())
+	for _, kernelToolName := range KernelToolNames() {
+		toolSet.RegisterBoundTool(BoundTool{
+			Definition: ToolDefinition{Name: kernelToolName},
+			Handler:    func(context.Context, ToolInvocation) (ToolResult, error) { return ToolSuccess("ok"), nil },
+		})
+	}
+	for operationName, inputSchema := range capabilityOperations {
+		toolSet.RegisterBoundTool(BoundTool{
+			Definition: ToolDefinition{Name: operationName, InputSchema: inputSchema},
+			Handler:    func(context.Context, ToolInvocation) (ToolResult, error) { return ToolSuccess("ok"), nil },
+		})
+	}
+	return toolSet
+}
+
+func invalidInputCapabilityObservation(observationID string, operationName string) turnObservation {
+	return newFailureObservation(observationID, "continue", operationName, operationName+" needs these input fields: slug.", FailureInvalidInput, FailureCodes.InvalidInput, "capability_input")
+}
+
+func TestPromotedOperationExposedWithFlatSchemaAfterInvalidInputFailure(t *testing.T) {
+	siteCreateSchema := json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`)
+	toolSet := newExposureTestToolSet(map[string]json.RawMessage{"site.create": siteCreateSchema})
+	observations := []turnObservation{invalidInputCapabilityObservation("obs-001", "site.create")}
+
+	filteredToolSet, event := toolSetForAgentTurnWithExposure(
+		toolSet,
+		InstructionBundle{},
+		AgentRequest{Prompt: "build the mealkit reservation site"},
+		ExecutionPlan{},
+		false,
+		OutcomeContract{},
+		ToolSelectionDecision{},
+		ToolExposureEvent{},
+		observations,
+	)
+
+	if !filteredToolSet.IsAllowed("site.create") {
+		t.Fatalf("expected promoted site.create to be exposed, got %+v", filteredToolSet.ListToolNames())
+	}
+	toolDefinition, isFound := filteredToolSet.ToolDefinition("site.create")
+	if !isFound || string(toolDefinition.InputSchema) != string(siteCreateSchema) {
+		t.Fatalf("expected promoted tool to use its own flat input schema, got %+v", toolDefinition)
+	}
+	if !stringSliceContains(event.PromotedOperationToolIDs, "site.create") {
+		t.Fatalf("expected exposure event to record the promoted operation, got %+v", event)
+	}
+	for _, kernelToolName := range KernelToolNames() {
+		if !filteredToolSet.IsAllowed(kernelToolName) {
+			t.Fatalf("expected kernel tool %s to remain exposed, got %+v", kernelToolName, filteredToolSet.ListToolNames())
+		}
+	}
+}
+
+func TestPromotedCapabilityOperationCapAtTwoMostRecentWins(t *testing.T) {
+	toolSet := newExposureTestToolSet(map[string]json.RawMessage{
+		"site.create":  json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`),
+		"calendar.add": json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
+		"task.add":     json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"}},"required":["prompt"]}`),
+	})
+	observations := []turnObservation{
+		invalidInputCapabilityObservation("obs-001", "site.create"),
+		invalidInputCapabilityObservation("obs-002", "calendar.add"),
+		invalidInputCapabilityObservation("obs-003", "task.add"),
+	}
+
+	promoted := promotedCapabilityOperationNames(toolSet, observations)
+
+	if len(promoted) != 2 {
+		t.Fatalf("expected promotion cap of 2, got %+v", promoted)
+	}
+	if !stringSliceContains(promoted, "task.add") || !stringSliceContains(promoted, "calendar.add") {
+		t.Fatalf("expected the two most recent failures to win, got %+v", promoted)
+	}
+	if stringSliceContains(promoted, "site.create") {
+		t.Fatalf("expected the oldest failure to be dropped under the cap, got %+v", promoted)
+	}
+}
+
+func TestPromotedCapabilityOperationIgnoresUnregisteredOperation(t *testing.T) {
+	toolSet := newExposureTestToolSet(nil)
+	observations := []turnObservation{invalidInputCapabilityObservation("obs-001", "site.remove")}
+
+	if promoted := promotedCapabilityOperationNames(toolSet, observations); len(promoted) != 0 {
+		t.Fatalf("expected unregistered operation to be ignored, got %+v", promoted)
+	}
+}
+
+func TestPromotedCapabilityOperationIgnoresKernelToolAndUnrelatedFailures(t *testing.T) {
+	toolSet := newExposureTestToolSet(map[string]json.RawMessage{
+		"site.create": json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`),
+	})
+	observations := []turnObservation{
+		newFailureObservation("obs-001", "continue", "file.edit", "oldText must match exactly once", FailureInvalidInput, FailureCodes.InvalidInput, "file_edit"),
+		newFailureObservation("obs-002", "continue", "web.search", "temporarily unavailable", FailureExternalService, FailureCodes.OperationFailed, "web_search"),
+	}
+
+	if promoted := promotedCapabilityOperationNames(toolSet, observations); len(promoted) != 0 {
+		t.Fatalf("expected unrelated kernel/non-schema failures not to promote anything, got %+v", promoted)
+	}
+}
+
 func TestFileToolCardsSeparateWriteEditAndPatchRoles(t *testing.T) {
 	toolSet := NewToolSet([]string{"file.write", "file.edit", "file.patch"})
 	handler := func(context.Context, ToolInvocation) (ToolResult, error) {
