@@ -262,6 +262,46 @@ func TestCapabilityInvokeMissingRequiredFieldsIncludesDescriptorRecoveryHint(t *
 	}
 }
 
+func TestCapabilityInvokeMissingInputIncludesInputSkeleton(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:        "site.create",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string","description":"URL identifier"},"prompt":{"type":"string"}},"required":["slug","prompt"]}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.CapabilityInvokeToolName,
+		Input:    json.RawMessage(`{"operation":"site.create","input":{}}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected missing input failure, got %s", result.ContentText())
+	}
+	if httpClient.requestPath != "" {
+		t.Fatalf("missing input must fail before capabilityd call, got path %s", httpClient.requestPath)
+	}
+	if !strings.Contains(result.ContentText(), "inputSkeleton") {
+		t.Fatalf("expected failure message to point at inputSkeleton, got %s", result.ContentText())
+	}
+	var payload struct {
+		InputSkeleton map[string]string `json:"inputSkeleton"`
+	}
+	if errorValue := json.Unmarshal(result.Output.Data, &payload); errorValue != nil {
+		t.Fatalf("expected structured inputSkeleton data, got %s: %v", result.Output.Data, errorValue)
+	}
+	if payload.InputSkeleton["slug"] != "<string: URL identifier>" {
+		t.Fatalf("expected described placeholder for slug, got %+v", payload.InputSkeleton)
+	}
+	if payload.InputSkeleton["prompt"] != "<string>" {
+		t.Fatalf("expected typed placeholder for prompt, got %+v", payload.InputSkeleton)
+	}
+}
+
 func TestCapabilityInvokeRejectsMissingInputObject(t *testing.T) {
 	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
 	toolCatalogBuilder := NewToolCatalogBuilder()
