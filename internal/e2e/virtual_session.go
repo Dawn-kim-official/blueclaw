@@ -72,6 +72,7 @@ type VirtualTurn struct {
 	ActionResponses           []string
 	RouterRequiredEvidence    []string
 	RouterSiteEvidence        string
+	RouterApproval            string
 	ExpectedSelectedSkills    []string
 	ExpectedToolCalls         []string
 	ExpectedEvents            []string
@@ -1096,7 +1097,9 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 	}
 	for index, virtualTurn := range harness.scenario.Turns {
 		if harness.scriptedModel != nil {
-			if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" {
+			if strings.TrimSpace(virtualTurn.RouterApproval) != "" {
+				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioApprovalRouterResponse(virtualTurn.RouterApproval))
+			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
 			}
 			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
@@ -1143,6 +1146,25 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	}
 	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
 	return defaultResponses
+}
+
+func scenarioApprovalRouterResponse(approval string) string {
+	routerDocument := map[string]any{
+		"route":            "continue_task",
+		"classification":   "bounded_task",
+		"taskShape":        "maintenance_task",
+		"taskComplexity":   "normal",
+		"effortLevel":      "standard",
+		"approval":         strings.TrimSpace(approval),
+		"responseLanguage": "ko",
+		"reason":           "scripted approval reply classification",
+		"userFacingReply":  "",
+	}
+	document, errorValue := json.Marshal(routerDocument)
+	if errorValue != nil {
+		return "{}"
+	}
+	return string(document)
 }
 
 func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn VirtualTurn) string {
