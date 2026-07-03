@@ -293,9 +293,9 @@ func maxToolCallCountWithRecovery(options TurnOptions, observations []turnObserv
 	return options.MaxToolCallCount + recoveryToolBudgetTotal(options.RecoveryBudget)
 }
 
-func repeatedFailedAttemptObservation(index int, failedObservation turnObservation) turnObservation {
+func repeatedFailedAttemptObservation(index int, failedObservation turnObservation, originalInstruction string) turnObservation {
 	content := "This exact tool/input/error fingerprint already failed. Do not repeat it. Change the input, use another route or adjacent tool, answer without tools using failureResolution=no_tool_fallback if enough context exists, or fail after recovery budget is exhausted."
-	observation := recoveryGuidanceObservation(index, failedObservation)
+	observation := recoveryGuidanceObservation(index, failedObservation, originalInstruction)
 	observation.Action = "policy"
 	observation = withObservationContent(observation, content+" "+observation.ContentText())
 	observation.Summary = observation.ContentText()
@@ -304,9 +304,9 @@ func repeatedFailedAttemptObservation(index int, failedObservation turnObservati
 	return observation
 }
 
-func recoveryBudgetExhaustedObservation(index int, failedObservation turnObservation, recoveryStep string) turnObservation {
+func recoveryBudgetExhaustedObservation(index int, failedObservation turnObservation, recoveryStep string, originalInstruction string) turnObservation {
 	content := "The recovery budget for " + strings.TrimSpace(recoveryStep) + " is exhausted. Choose another recovery step, answer without tools using failureResolution=no_tool_fallback if enough context exists, or return fail if no recovery tool budget remains."
-	observation := recoveryGuidanceObservation(index, failedObservation)
+	observation := recoveryGuidanceObservation(index, failedObservation, originalInstruction)
 	observation.Action = "policy"
 	observation = withObservationContent(observation, content+" "+observation.ContentText())
 	observation.Summary = observation.ContentText()

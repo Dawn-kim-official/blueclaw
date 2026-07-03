@@ -114,7 +114,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 			result, shouldStop := stopForNoProgress(stepID)
 			return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 		}
-		observation := repeatedFailedAttemptObservation(len(state.Observations)+1, duplicateFailure)
+		observation := repeatedFailedAttemptObservation(len(state.Observations)+1, duplicateFailure, firstNonEmptyString(state.Request.ActiveGoal.OriginalInstruction, state.Request.Prompt))
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.failed_fingerprint_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "failed_fingerprint_rejected "+actionDocument.ToolName, observation.ContentText())

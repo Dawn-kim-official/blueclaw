@@ -47,8 +47,8 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 
 func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 	failure := newFailureObservation("obs-001", "continue", "message.send", "failed", FailureExternalService, FailureCodes.OperationFailed, "message_send")
-	passiveGuidance := recoveryGuidanceObservation(2, failure)
-	spentGuidance := recoveryGuidanceObservation(3, failure)
+	passiveGuidance := recoveryGuidanceObservation(2, failure, "")
+	spentGuidance := recoveryGuidanceObservation(3, failure, "")
 	spentGuidance.RecoveryAttemptSpent = true
 	retryObservation := failure
 	retryObservation.ObservationID = "obs-004"

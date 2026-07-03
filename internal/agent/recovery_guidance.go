@@ -23,7 +23,7 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 	}
 	recoveryStep := classifyRecoveryStep(failureDebt, effectiveToolName)
 	if !recoveryBudgetAllowsStep(state.Observations, agentTurnRunner.options.RecoveryBudget, recoveryStep) {
-		observation := recoveryBudgetExhaustedObservation(len(state.Observations)+1, failureDebt.LatestFailure, recoveryStep)
+		observation := recoveryBudgetExhaustedObservation(len(state.Observations)+1, failureDebt.LatestFailure, recoveryStep, firstNonEmptyString(request.ActiveGoal.OriginalInstruction, request.Prompt))
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.recovery_budget_exhausted", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "recovery_budget_exhausted "+effectiveToolName, observation.ContentText())
@@ -43,9 +43,9 @@ func (agentTurnRunner *AgentTurnRunner) prepareRecoveryAttempt(ctx context.Conte
 	return recoveryStep, toolCallActionOutcome{}
 }
 
-func recoveryGuidanceObservation(index int, observation turnObservation) turnObservation {
+func recoveryGuidanceObservation(index int, observation turnObservation, originalInstruction string) turnObservation {
 	packet := buildRecoveryPacket(observation)
-	content := recoveryGuidanceContent(observation) + " " + recoveryPacketContent(packet)
+	content := recoveryGuidanceContent(observation, originalInstruction) + " " + recoveryPacketContent(packet)
 	return turnObservation{
 		ObservationID:        nextObservationID(index),
 		Action:               "recovery_guidance",
@@ -75,8 +75,11 @@ func recoveryChoiceRejectedObservation(index int, failedObservation turnObservat
 	}
 }
 
-func recoveryGuidanceContent(observation turnObservation) string {
+func recoveryGuidanceContent(observation turnObservation, originalInstruction string) string {
 	parts := []string{"Analyze the latest failed tool result before responding."}
+	if instruction := strings.TrimSpace(originalInstruction); instruction != "" {
+		parts = append(parts, "The user's original request is still: \""+instruction+"\". Recover toward that request; do not drift into an unrelated question or topic because of this failure.")
+	}
 	if observation.FailureCode() != "" {
 		parts = append(parts, "errorCode="+observation.FailureCode())
 	}

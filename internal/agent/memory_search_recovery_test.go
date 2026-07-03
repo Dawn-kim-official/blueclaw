@@ -16,7 +16,7 @@ func TestMemorySearchWebSearchIsAlternateRecoveryRoute(t *testing.T) {
 
 func TestMemorySearchUnavailableRecoveryGuidanceIncludesWebSearchRoute(t *testing.T) {
 	observation := newFailureObservation("obs-001", "continue", "memory.search", "Persistent memory search is unavailable.", FailureDependencyUnavailable, FailureCodes.Unavailable, "graphiti_search")
-	guidance := recoveryGuidanceContent(observation)
+	guidance := recoveryGuidanceContent(observation, "")
 
 	for _, expectedText := range []string{
 		"web.search",
@@ -31,7 +31,7 @@ func TestMemorySearchUnavailableRecoveryGuidanceIncludesWebSearchRoute(t *testin
 
 func TestNonMemoryFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
 	observation := newFailureObservation("obs-001", "continue", "terminal.run", "command failed", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
-	guidance := recoveryGuidanceContent(observation)
+	guidance := recoveryGuidanceContent(observation, "")
 
 	if strings.Contains(guidance, "web.search") {
 		t.Fatalf("expected non-memory failure not to include web route, got %q", guidance)
@@ -40,7 +40,7 @@ func TestNonMemoryFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
 
 func TestNonMemoryUnavailableFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
 	observation := newFailureObservation("obs-001", "continue", "terminal.run", "terminal unavailable", FailureDependencyUnavailable, FailureCodes.Unavailable, "terminal_run")
-	guidance := recoveryGuidanceContent(observation)
+	guidance := recoveryGuidanceContent(observation, "")
 
 	if strings.Contains(guidance, "web.search") {
 		t.Fatalf("expected non-memory unavailable failure not to include web route, got %q", guidance)
@@ -49,7 +49,7 @@ func TestNonMemoryUnavailableFailureDoesNotIncludeWebSearchRoute(t *testing.T) {
 
 func TestTerminalPathGuardrailRecoveryGuidanceIncludesCorrectedWorkspaceRetry(t *testing.T) {
 	observation := newFailureObservation("obs-001", "continue", "terminal.run", "command path escapes workspace root", FailureInvalidInput, FailureCodes.InvalidInput, "terminal_path_guardrail")
-	guidance := recoveryGuidanceContent(observation)
+	guidance := recoveryGuidanceContent(observation, "")
 
 	for _, expectedText := range []string{
 		"retry terminal.run",
@@ -65,7 +65,7 @@ func TestTerminalPathGuardrailRecoveryGuidanceIncludesCorrectedWorkspaceRetry(t 
 
 func TestTerminalCurrentDirectoryRecoveryGuidanceUsesSiteAppWorkspace(t *testing.T) {
 	observation := newFailureObservation("obs-001", "continue", "terminal.run", "CouldntReadCurrentDirectory", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
-	guidance := recoveryGuidanceContent(observation)
+	guidance := recoveryGuidanceContent(observation, "")
 
 	for _, expectedText := range []string{
 		"could not read its current working directory",
@@ -82,7 +82,7 @@ func TestTerminalCurrentDirectoryRecoveryGuidanceUsesSiteAppWorkspace(t *testing
 
 func TestTerminalModuleNotFoundRecoveryGuidanceUsesSkillRuntime(t *testing.T) {
 	observation := newFailureObservation("obs-001", "continue", "terminal.run", "ModuleNotFoundError: No module named 'pptx'", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
-	guidance := recoveryGuidanceContent(observation)
+	guidance := recoveryGuidanceContent(observation, "")
 
 	for _, expectedText := range []string{
 		"/workspace/skills/presentation/scripts/skill_runtime.py",
