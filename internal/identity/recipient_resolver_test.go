@@ -30,6 +30,9 @@ func TestResolveRecipientByPartialKoreanName(test *testing.T) {
 	if resolution.Recipient.ExternalUserID != "mm-rain" {
 		test.Fatalf("expected mattermost account, got %+v", resolution.Recipient)
 	}
+	if resolution.Recipient.Username != "rain" {
+		test.Fatalf("expected mattermost username, got %+v", resolution.Recipient)
+	}
 }
 
 func TestResolveRecipientPrefersExactMatchOverContains(test *testing.T) {

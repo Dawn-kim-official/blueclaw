@@ -21,6 +21,7 @@ type RecipientCandidate struct {
 	DisplayName    string   `json:"displayName"`
 	Emails         []string `json:"emails,omitempty"`
 	ExternalUserID string   `json:"externalUserID,omitempty"`
+	Username       string   `json:"username,omitempty"`
 }
 
 type RecipientResolution struct {
@@ -136,6 +137,7 @@ func recipientCandidates(platform string, people []policy.PersonPolicy, platform
 		matchValues := append([]string{candidate.PersonID, candidate.DisplayName}, candidate.Emails...)
 		for _, account := range accountsByPersonID[candidate.PersonID] {
 			candidate.ExternalUserID = account.ExternalUserID
+			candidate.Username = strings.TrimSpace(account.DisplayName)
 			matchValues = append(matchValues, account.DisplayName, account.Email)
 		}
 		candidates = append(candidates, scoredRecipientCandidate{candidate: candidate, matchValues: matchValues})
