@@ -1397,23 +1397,23 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 	}
 }
 
-// FLAGGED for human review: cb2f10f ("gate completion on required evidence") broadened
-// selectedSkillsNeedBoundedExecution's quick_reply branch from a schedule.-prefix check to
-// any selectedSkillRequiresCompletionEvidence, which now promotes this scenario's intake
-// classification away from "quick_reply" (the assertion below fails on that label alone).
-// FinishMessage still equals the model's unverified "deck created too early" text with no
-// file.deliver call ever made and no error — i.e. promotion changed the recorded label but
-// this harness path (RunAgentRequest short-circuiting on a same-turn final reply) does not
-// appear to route through the new evidence gate at all, which is the exact premature-finish
-// scenario this test was written to catch. Left failing pending a decision on whether that
-// gate gap is real (fix the quick-reply/intake short-circuit path) or this harness just
-// doesn't exercise the full turn loop the gate depends on (update the assertion instead).
-func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceHint(t *testing.T) {
+// promoteIntakeDecisionForSelectedSkills upgrades an intake model's "quick_reply" guess to
+// a bounded task whenever the selected skill's own completion contract requires evidence
+// (e.g. an actual file.deliver call), and carries that requirement into the outcome
+// contract directly rather than leaving it an advisory hint — otherwise a same-turn "finish"
+// claiming the deliverable was produced would be accepted with no corroborating evidence at
+// all. Confirms the fix for the gap cb2f10f ("gate completion on required evidence") left
+// open: promoting the classification alone did not stop the turn from short-circuiting on
+// an unverified same-turn finish, because (a) the turn route was still fixed to "consume"
+// from before the promotion happened, and (b) the skill's required evidence tool stayed a
+// hint with no independent signal (e.g. a requested attachment suffix) to promote it.
+func TestAgentKernelPromotedQuickReplyRejectsUnverifiedFinishAndCompletesOnRealEvidence(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("deck created too early"),
+		`{"action":"continue","message":"deck attached: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
@@ -1457,13 +1457,22 @@ func TestAgentKernelDoesNotPromoteQuickReplyOnlyBecauseSelectedSkillHasEvidenceH
 		ToolSet:           toolRegistry,
 	})
 	if errorValue != nil {
-		t.Fatalf("expected quick reply: %v", errorValue)
+		t.Fatalf("expected recovered completion: %v", errorValue)
 	}
-	if result.FinishMessage != "deck created too early" {
-		t.Fatalf("expected final reply, got %q", result.FinishMessage)
+	if result.FinishMessage == "deck created too early" {
+		t.Fatal("expected the unverified same-turn finish to be rejected, not accepted")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "quick_reply") {
-		t.Fatal("expected quick reply intake event")
+	if !strings.Contains(result.FinishMessage, "deck.pptx") {
+		t.Fatalf("expected artifact-aware reply after real file.deliver evidence, got %q", result.FinishMessage)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
+		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
+		t.Fatal("expected the selected skill's evidence requirement to promote the intake classification to bounded_task")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.evidence_missing", "evidence_missing") {
+		t.Fatal("expected the premature finish to be rejected as missing evidence")
 	}
 }
 
