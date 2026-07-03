@@ -215,7 +215,7 @@ func (agentKernel *AgentKernel) taskRunForLaunchFailure(request AgentTurnRequest
 }
 
 func (agentKernel *AgentKernel) RouteTurn(responseContext context.Context, request AgentRequest) TurnDecision {
-	return NewTurnRouter(agentKernel.intakeLanguageModel, agentKernel.intakeOptions).Plan(responseContext, request)
+	return NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions).Plan(responseContext, request)
 }
 
 func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context, request AgentRequest) (AgentTurnResult, error) {
@@ -234,13 +234,13 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		instructionBundle,
 		request,
 		agentKernel.skillRetriever,
-		NewSkillSearchQueryRouter(agentKernel.intakeLanguageModel),
+		NewSkillSearchQueryRouter(agentKernel.classificationLanguageModel()),
 	)
 	instructionBundle = instructionBundleWithPinnedSkills(instructionBundle, request)
 	turnToolSet := request.ToolSet
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
-	turnRouter := NewTurnRouter(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
+	turnRouter := NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions)
 	turnDecision := turnRouter.Plan(responseContext, intakeRequest)
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
@@ -397,7 +397,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 }
 
 func (agentKernel *AgentKernel) reaskMissingRequiredEvidenceOnce(responseContext context.Context, request AgentRequest, intakeRequest AgentRequest, intakeDecision IntakeDecision, outcomeContract OutcomeContract, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, turnToolSet *ToolSet) (IntakeDecision, OutcomeContract, requiredEvidenceReaskReport) {
-	turnRouter := NewTurnRouter(agentKernel.intakeLanguageModel, agentKernel.intakeOptions)
+	turnRouter := NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions)
 	reaskDecision, errorValue := turnRouter.ReaskRequiredEvidence(responseContext, intakeRequest)
 	if errorValue != nil {
 		return intakeDecision, outcomeContract, requiredEvidenceReaskReport{WasAttempted: true, Reason: errorValue.Error()}
@@ -430,7 +430,7 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 		baseInstructionBundle,
 		selectionRequest,
 		agentKernel.skillRetriever,
-		NewSkillSearchQueryRouter(agentKernel.intakeLanguageModel),
+		NewSkillSearchQueryRouter(agentKernel.classificationLanguageModel()),
 	)
 	return instructionBundleWithPinnedSkills(instructionBundle, selectionRequest)
 }
@@ -710,6 +710,16 @@ func (agentKernel *AgentKernel) taskLanguageModelForTier(tier modelTier) llm.Lan
 		if agentKernel.codingTaskLanguageModel != nil {
 			return agentKernel.codingTaskLanguageModel
 		}
+	}
+	return agentKernel.languageModel
+}
+
+func (agentKernel *AgentKernel) classificationLanguageModel() llm.LanguageModelProvider {
+	if agentKernel.xLowTaskLanguageModel != nil {
+		return agentKernel.xLowTaskLanguageModel
+	}
+	if agentKernel.intakeLanguageModel != nil {
+		return agentKernel.intakeLanguageModel
 	}
 	return agentKernel.languageModel
 }
