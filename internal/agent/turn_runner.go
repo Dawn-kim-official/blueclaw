@@ -590,7 +590,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				continue
 			}
 			if failureDebt, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt && !recoveryToolBudgetExhaustedForRequest(state.Observations, request.ToolSet, agentTurnRunner.options.RecoveryBudget, failureDebt) {
-				observation := recoveryGuidanceObservation(len(state.Observations)+1, failureDebt.LatestFailure)
+				originalInstruction := firstNonEmptyString(request.ActiveGoal.OriginalInstruction, request.Prompt)
+				observation := recoveryGuidanceObservation(len(state.Observations)+1, failureDebt.LatestFailure, originalInstruction)
 				observation = withObservationContent(observation, "FailureDebt is still active. Try a different recovery step within budget, answer without tools using failureResolution=no_tool_fallback if enough context exists, or fail only after recovery budget is exhausted. "+observation.ContentText())
 				observation.Summary = observation.ContentText()
 				state.Observations = append(state.Observations, observation)
@@ -670,6 +671,9 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return outcome
 	}
 	if outcome := agentTurnRunner.rejectUnavailableToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
+		return outcome
+	}
+	if outcome := agentTurnRunner.rejectUnrelatedAskAction(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
 	if !request.IsApprovalContinuation && nativeToolRequiresRuntimeApproval(request.ToolSet, actionDocument.ToolName) {
@@ -1256,12 +1260,40 @@ func stalledExitDirectiveObservation(observationID string, observations []turnOb
 		failedTool = strings.TrimSpace(failureDebt.LatestFailure.Tool)
 	}
 	message := "You are repeating actions without making progress. Stop retrying the same thing and stop re-emitting a finish that keeps getting rejected. Take one of two exits now: either take a genuinely different action that changes workspace, tool, or evidence state; or, if you cannot obtain what you need because a tool keeps failing or the required evidence is unavailable, end immediately with fail and failureResolution=failure_report, giving the user a short honest explanation of what you could not do. Do not loop and do not ask the user how to proceed."
+	missingOperationName := latestMissingRequiredEvidenceOperationName(observations)
+	if missingOperationName != "" {
+		message = "You have not yet called capability.invoke with operation=\"" + missingOperationName + "\". Call it now with the appropriate input before attempting to finish again. If it is genuinely not needed for this request, end with fail and failureResolution=failure_report, explaining why in the user reply. Do not re-emit finish again without this evidence."
+	}
 	observation := newContentObservation(observationID, "policy", "", marshalEventBody(map[string]string{
-		"directive":  message,
-		"failedTool": failedTool,
+		"directive":                message,
+		"failedTool":               failedTool,
+		"missingEvidenceOperation": missingOperationName,
 	}))
 	observation.Summary = message
 	return observation
+}
+
+const missingRequiredEvidenceObservationMarker = "requires successful observation for "
+
+func latestMissingRequiredEvidenceOperationName(observations []turnObservation) string {
+	for index := len(observations) - 1; index >= 0; index-- {
+		observation := observations[index]
+		if observation.Action != "evidence_missing" {
+			continue
+		}
+		if operationName := missingRequiredEvidenceOperationNameFromMessage(observation.Summary); operationName != "" {
+			return operationName
+		}
+	}
+	return ""
+}
+
+func missingRequiredEvidenceOperationNameFromMessage(message string) string {
+	markerIndex := strings.Index(message, missingRequiredEvidenceObservationMarker)
+	if markerIndex < 0 {
+		return ""
+	}
+	return strings.TrimSpace(message[markerIndex+len(missingRequiredEvidenceObservationMarker):])
 }
 
 func stalledOnRedundantInspection(observations []turnObservation) bool {
@@ -1460,7 +1492,7 @@ func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount 
 		budgetLine += fmt.Sprintf(" Time: %s/%s elapsed.", roundedSeconds(elapsed), roundedSeconds(maxElapsed))
 	}
 	if level == "finalize" {
-		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it."
+		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it. If there is no deliverable to build, register or finish with whatever concrete result you already have now (for example task.add for clearly identified items, or finish) instead of continuing to search."
 	}
 	if level == "consolidate" {
 		return budgetLine + " Consolidate completed work, reuse existing observations, and prefer direct edit/build/publish or file delivery over additional inspection."

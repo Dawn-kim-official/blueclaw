@@ -79,6 +79,40 @@ func TestFailureNoticePromptUsesCompactContextOnly(t *testing.T) {
 	}
 }
 
+func TestFailureNoticePromptForcesCompletedSummaryOnMaxElapsedLimit(t *testing.T) {
+	report := FailureReport{
+		Phase:            "limit",
+		StopReason:       "max_elapsed",
+		CompletedSummary: "- message.search: found 3 candidate messages about the Q3 launch\n- skill.search: matched \"weekly-report\" skill",
+		OriginalRequest:  "이번 주 업무 관련 메시지 찾아줘",
+		ResponseLanguage: ResponseLanguageKorean,
+	}
+
+	prompt := buildFailureNoticePrompt(report)
+
+	if !strings.Contains(prompt, "concrete findings") {
+		t.Fatalf("expected prompt to require concrete findings from completedSummary, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "found 3 candidate messages") {
+		t.Fatalf("expected prompt to carry completedSummary content, got %q", prompt)
+	}
+}
+
+func TestFailureNoticePromptDoesNotForceCompletedSummaryWithoutData(t *testing.T) {
+	report := FailureReport{
+		Phase:            "limit",
+		StopReason:       "max_elapsed",
+		OriginalRequest:  "이번 주 업무 관련 메시지 찾아줘",
+		ResponseLanguage: ResponseLanguageKorean,
+	}
+
+	prompt := buildFailureNoticePrompt(report)
+
+	if strings.Contains(prompt, "concrete findings") {
+		t.Fatalf("expected no completedSummary instruction without data, got %q", prompt)
+	}
+}
+
 func TestFailureNoticeGeneratorFallsBackToRedactedRawError(t *testing.T) {
 	notice, status := (FailureNoticeGenerator{LanguageModel: failingLanguageModel{}}).Generate(context.Background(), FailureReport{
 		Phase:             "launch",
