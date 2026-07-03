@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -419,4 +420,46 @@ func taskEventsContainApplicationEvent(taskEvents []task.TaskEvent, name string)
 		}
 	}
 	return false
+}
+
+func TestResolveTaskTierLanguageModelProvidersEscalateLowToMedium(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.Capability.LowModel = "vendor/low"
+	runtimeConfiguration.LanguageModel.Capability.MediumModel = "vendor/medium"
+	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
+
+	lowProvider, isFallbackProvider := providers.Low.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected low tier to escalate on failure, got %T", providers.Low)
+	}
+	if lowProvider.PrimaryLabel != "low" || lowProvider.FallbackLabel != "medium" {
+		t.Fatalf("expected low/medium labels, got %q/%q", lowProvider.PrimaryLabel, lowProvider.FallbackLabel)
+	}
+
+	xLowProvider, isFallbackProvider := providers.XLow.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected xlow tier fallback provider, got %T", providers.XLow)
+	}
+	if _, xLowClimbsTheLadder := xLowProvider.FallbackProvider.(llm.FallbackLanguageModelProvider); !xLowClimbsTheLadder {
+		t.Fatalf("expected xlow to fall into the low-to-medium ladder, got %T", xLowProvider.FallbackProvider)
+	}
+
+	mediumProvider, isFallbackProvider := providers.Medium.(llm.FallbackLanguageModelProvider)
+	if !isFallbackProvider {
+		t.Fatalf("expected medium tier fallback provider, got %T", providers.Medium)
+	}
+	if _, mediumWouldRetryItself := mediumProvider.FallbackProvider.(llm.FallbackLanguageModelProvider); mediumWouldRetryItself {
+		t.Fatalf("expected medium to fall back to the bare low model without climbing back up, got %T", mediumProvider.FallbackProvider)
+	}
+}
+
+func TestResolveTaskTierLanguageModelProvidersKeepsBareLowWhenMediumMatchesLow(t *testing.T) {
+	runtimeConfiguration := config.RuntimeConfiguration{}
+	runtimeConfiguration.LanguageModel.Capability.LowModel = "vendor/shared"
+	runtimeConfiguration.LanguageModel.Capability.MediumModel = "vendor/shared"
+	providers := resolveTaskTierLanguageModelProviders(runtimeConfiguration, slog.New(slog.DiscardHandler))
+
+	if _, isFallbackProvider := providers.Low.(llm.FallbackLanguageModelProvider); isFallbackProvider {
+		t.Fatal("expected bare low provider when the medium model equals the low model")
+	}
 }
