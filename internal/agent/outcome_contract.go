@@ -408,7 +408,8 @@ func selectedEvidenceToolsForRequestContinuation(request AgentRequest, contract 
 
 func outcomeContractForRequest(request AgentRequest, intakeDecision IntakeDecision, instructionBundle InstructionBundle, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) OutcomeContract {
 	request.ActiveGoal, _ = normalizeActiveGoalSiteRequirement(request.ActiveGoal, request.Prompt, request.IsApprovalContinuation || request.IsRuntimeRestartResume)
-	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes)
+	requestExplicitlyAsksForFileBeyondSite := requestMentionsFileBeyondSiteEvidence(request, intakeDecision)
+	requiredAttachmentSuffixes = attachmentSuffixesForOutcomeContract(request, executionPlan, hasExecutionPlan, requiredAttachmentSuffixes, requestExplicitlyAsksForFileBeyondSite)
 	if OutcomeContractHasRequirements(request.ActiveGoal.OutcomeContract) {
 		contract := request.ActiveGoal.OutcomeContract
 		selectedEvidenceHints := selectedEvidenceHintTools(instructionBundle)
@@ -477,7 +478,7 @@ func filterStaleOutcomeHints(request AgentRequest, executionPlan ExecutionPlan, 
 	return filteredToolNames
 }
 
-func attachmentSuffixesForOutcomeContract(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string) []string {
+func attachmentSuffixesForOutcomeContract(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, requiredAttachmentSuffixes []string, requestExplicitlyAsksForFileBeyondSite bool) []string {
 	if len(requiredAttachmentSuffixes) == 0 {
 		return nil
 	}
@@ -485,10 +486,24 @@ func attachmentSuffixesForOutcomeContract(request AgentRequest, executionPlan Ex
 		return append([]string{}, requiredAttachmentSuffixes...)
 	}
 	if activeGoalRequiresTool(request.ActiveGoal, FileDeliverToolName) ||
-		expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) {
+		expectedResultIncludesType(request.ActiveGoal.OutcomeContract, ExpectedResultTypeFile) ||
+		requestExplicitlyAsksForFileBeyondSite {
 		return append([]string{}, requiredAttachmentSuffixes...)
 	}
 	return nil
+}
+
+// requestMentionsFileBeyondSiteEvidence reports whether the user's message has content
+// beyond the quoted site request itself, meaning the requested output format (e.g. "html")
+// most likely names a separate file attachment the user explicitly asked for rather than
+// just describing the site's own tech format.
+func requestMentionsFileBeyondSiteEvidence(request AgentRequest, intakeDecision IntakeDecision) bool {
+	normalizedQuote := trimSiteEvidencePunctuation(normalizeSiteEvidenceText(intakeDecision.SiteRequestEvidence))
+	if normalizedQuote == "" {
+		return false
+	}
+	normalizedPrompt := trimSiteEvidencePunctuation(normalizeSiteEvidenceText(request.Prompt))
+	return normalizedPrompt != normalizedQuote
 }
 
 func requestExpectsSiteLinkResult(request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool) bool {
