@@ -53,7 +53,7 @@ func (fallbackLanguageModelProvider FallbackLanguageModelProvider) logFallback(c
 		return
 	}
 	fallbackLanguageModelProvider.Logger.Warn(
-		"language model call failed; falling back to lower tier",
+		"language model call failed; falling back to alternate tier",
 		"callKind", callKind,
 		"failedTier", fallbackLanguageModelProvider.PrimaryLabel,
 		"fallbackTier", fallbackLanguageModelProvider.FallbackLabel,
