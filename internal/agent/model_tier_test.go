@@ -93,3 +93,36 @@ func TestTaskLanguageModelFallsBackToBaseWhenTierUnset(t *testing.T) {
 		}
 	}
 }
+
+func TestClassificationLanguageModelPrefersXLow(t *testing.T) {
+	kernel := &AgentKernel{
+		languageModel:         labeledLanguageModel{label: "low"},
+		intakeLanguageModel:   labeledLanguageModel{label: "intake"},
+		xLowTaskLanguageModel: labeledLanguageModel{label: "xlow"},
+	}
+
+	selected := kernel.classificationLanguageModel()
+	response, _ := selected.GenerateResponse(context.Background(), "")
+	if response != "xlow" {
+		t.Fatalf("expected xlow classification model, got %q", response)
+	}
+}
+
+func TestClassificationLanguageModelFallsBackToIntakeThenBase(t *testing.T) {
+	kernel := &AgentKernel{
+		languageModel:       labeledLanguageModel{label: "low"},
+		intakeLanguageModel: labeledLanguageModel{label: "intake"},
+	}
+	selected := kernel.classificationLanguageModel()
+	response, _ := selected.GenerateResponse(context.Background(), "")
+	if response != "intake" {
+		t.Fatalf("expected intake classification fallback, got %q", response)
+	}
+
+	kernel.intakeLanguageModel = nil
+	selected = kernel.classificationLanguageModel()
+	response, _ = selected.GenerateResponse(context.Background(), "")
+	if response != "low" {
+		t.Fatalf("expected base classification fallback, got %q", response)
+	}
+}

@@ -96,10 +96,7 @@ func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request 
 }
 
 func (agentKernel *AgentKernel) addressingLanguageModel() llm.LanguageModelProvider {
-	if agentKernel.intakeLanguageModel != nil {
-		return agentKernel.intakeLanguageModel
-	}
-	return agentKernel.languageModel
+	return agentKernel.classificationLanguageModel()
 }
 
 func addressingClassificationMessages(request AddressingClassificationRequest) []llm.Message {
