@@ -1229,6 +1229,108 @@ func TestFileDeliverCanDeliverDraftOutput(t *testing.T) {
 	}
 }
 
+func TestFileDeliverResolvesSamePathSpellingsAsTerminalWrite(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	runResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command": "mkdir -p ~/documents && printf docx-bytes > ~/documents/report.docx",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runResult.Failed() {
+		t.Fatalf("expected terminal.run success, got %s", runResult.ContentText())
+	}
+
+	expectedDevicePath := "/workspace/private/people/person-1/documents/report.docx"
+	for _, path := range []string{
+		"~/documents/report.docx",
+		"documents/report.docx",
+		"/workspace/private/people/person-1/documents/report.docx",
+	} {
+		deliverResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+			ToolName: agent.FileDeliverToolName,
+			Input:    agent.MarshalToolInput(map[string]string{"path": path}),
+		})
+		if errorValue != nil {
+			t.Fatal(errorValue)
+		}
+		if deliverResult.Failed() {
+			t.Fatalf("expected file.deliver success for path spelling %q, got %s", path, deliverResult.ContentText())
+		}
+		if len(deliverResult.Attachments) != 1 || deliverResult.Attachments[0].DevicePath != expectedDevicePath {
+			t.Fatalf("expected delivery of the terminal-written file for path spelling %q, got %+v", path, deliverResult.Attachments)
+		}
+	}
+}
+
+func TestFileDeliverNotFoundIncludesCandidateFiles(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		ConversationID:    "dm:channel-1",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+	})
+
+	runResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command": "mkdir -p ~/documents && printf docx-bytes > ~/documents/'Han River Ops 2026 Q2 Operations Review.docx'",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if runResult.Failed() {
+		t.Fatalf("expected terminal.run success, got %s", runResult.ContentText())
+	}
+
+	deliverResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.FileDeliverToolName,
+		Input:    agent.MarshalToolInput(map[string]string{"path": "~/documents/Q2 Operations Review.docx"}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !deliverResult.Failed() || deliverResult.Failure.Code != "not_found" {
+		t.Fatalf("expected not_found failure, got %+v", deliverResult)
+	}
+	var failureData struct {
+		CandidateFiles []string `json:"candidateFiles"`
+	}
+	if errorValue := json.Unmarshal(deliverResult.Output.Data, &failureData); errorValue != nil {
+		t.Fatalf("expected structured failure data, got error %v for %s", errorValue, string(deliverResult.Output.Data))
+	}
+	expectedCandidatePath := "documents/Han River Ops 2026 Q2 Operations Review.docx"
+	found := false
+	for _, candidatePath := range failureData.CandidateFiles {
+		if candidatePath == expectedCandidatePath {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected candidateFiles to include %q, got %+v", expectedCandidatePath, failureData.CandidateFiles)
+	}
+}
+
 func TestFileWriteProtectsManagedSitePackageManifest(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(workspacePath)

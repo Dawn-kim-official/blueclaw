@@ -1541,7 +1541,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context
 	}
 	fileInformation, errorValue := workspaceActor.Stat(toolContext, resolvedPath)
 	if errorValue != nil {
-		result := actorToolFailure("stat", "file_deliver", resolvedPath.VirtualPath, errorValue)
+		result := toolCatalogBuilder.fileDeliverStatFailure(toolContext, workspaceActor, handlerContext, scope, resolvedPath, errorValue)
 		return agent.FileAttachment{}, &result, nil
 	}
 	if !fileInformation.IsRegular {
@@ -1564,6 +1564,85 @@ func (toolCatalogBuilder *ToolCatalogBuilder) fileAttachment(toolContext context
 		Title:         strings.TrimSpace(input.Title),
 		ContentBase64: base64.StdEncoding.EncodeToString(document),
 	}, nil, nil
+}
+
+const fileDeliverCandidateFileLimit = 8
+
+// A not_found stat failure otherwise forces the model to guess a corrected path across
+// several retries. Listing what actually exists nearby lets it recover in one step.
+func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverStatFailure(toolContext context.Context, workspaceActor security.WorkspaceActor, handlerContext toolHandlerContext, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath, errorValue error) agent.ToolResult {
+	result := actorToolFailure("stat", "file_deliver", resolvedPath.VirtualPath, errorValue)
+	if actorFailureCode(errorValue) != security.ActorErrorCodeNotFound {
+		return result
+	}
+	candidateFiles := toolCatalogBuilder.fileDeliverCandidateFiles(toolContext, workspaceActor, handlerContext, scope, resolvedPath)
+	if len(candidateFiles) == 0 {
+		return result
+	}
+	dataFields := actorFailureDataFields("stat", "file_deliver", resolvedPath.VirtualPath, errorValue)
+	dataFields["candidateFiles"] = candidateFiles
+	result.Output.Data = json.RawMessage(marshalToolResult(dataFields))
+	return result
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) fileDeliverCandidateFiles(toolContext context.Context, workspaceActor security.WorkspaceActor, handlerContext toolHandlerContext, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath) []string {
+	executionIdentity := toolCatalogBuilder.executionIdentityForRequester(handlerContext.request)
+	candidateFiles := []string{}
+	for _, directory := range fileDeliverCandidateDirectories(toolCatalogBuilder.workspaceRootPath, scope, resolvedPath) {
+		for _, filename := range toolCatalogBuilder.directoryEntryNames(toolContext, workspaceActor, executionIdentity, directory.ConcretePath) {
+			candidatePath := filepath.ToSlash(filepath.Join(directory.VirtualPath, filename))
+			if stringSliceContains(candidateFiles, candidatePath) {
+				continue
+			}
+			candidateFiles = append(candidateFiles, candidatePath)
+			if len(candidateFiles) >= fileDeliverCandidateFileLimit {
+				return candidateFiles
+			}
+		}
+	}
+	return candidateFiles
+}
+
+func fileDeliverCandidateDirectories(workspaceRootPath string, scope WorkspaceScope, resolvedPath ResolvedWorkspacePath) []workspacepath.Directory {
+	requestedDirectory := resolvedPath.Parent()
+	directories := []workspacepath.Directory{requestedDirectory}
+	documentsDirectory, errorValue := NewWorkspacePathResolver(workspaceRootPath).ResolveDirectory("documents", scope)
+	if errorValue == nil && documentsDirectory.ConcretePath != requestedDirectory.ConcretePath {
+		directories = append(directories, workspacepath.Directory(documentsDirectory))
+	}
+	return directories
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) directoryEntryNames(toolContext context.Context, workspaceActor security.WorkspaceActor, executionIdentity security.ExecutionIdentity, directoryConcretePath string) []string {
+	commandResult, errorValue := workspaceActor.Run(toolContext, security.CommandRequest{
+		Command:           "ls -1A -- " + shellSingleQuoted(directoryConcretePath),
+		ExecutionIdentity: executionIdentity,
+		TimeoutSecond:     5,
+	})
+	if errorValue != nil || commandResult.ExitCode != 0 {
+		return nil
+	}
+	filenames := []string{}
+	for _, line := range strings.Split(commandResult.Stdout, "\n") {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine != "" {
+			filenames = append(filenames, trimmedLine)
+		}
+	}
+	return filenames
+}
+
+func shellSingleQuoted(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+func stringSliceContains(values []string, value string) bool {
+	for _, existingValue := range values {
+		if existingValue == value {
+			return true
+		}
+	}
+	return false
 }
 
 // A delivered document is copied into the requester's ~/documents so a later edit or
