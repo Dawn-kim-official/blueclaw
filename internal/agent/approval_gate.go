@@ -199,7 +199,28 @@ func heldCallConfirmationWording(request AgentTurnRequest, actionDocument turnAc
 	if wording := deliverableModelWording(actionDocument.Message); wording != "" {
 		return approvalQuestionFramedWording(wording, request.ResponseLanguage)
 	}
-	return approvalWordingFromToolInput(request, actionDocument.ToolName, actionDocument.ToolInput)
+	if wording := approvalWordingFromToolInput(request, actionDocument.ToolName, actionDocument.ToolInput); wording != "" {
+		return wording
+	}
+	return approvalOperationWording(request, actionDocument.ToolName, actionDocument.ToolInput)
+}
+
+// An empty confirmation gets suppressed by the connector and the task then waits
+// for an approval the user never saw, so the question must never be empty.
+func approvalOperationWording(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
+	operation := strings.TrimSpace(toolName)
+	if operation == CapabilityInvokeToolName {
+		var call struct {
+			Operation string `json:"operation"`
+		}
+		if json.Unmarshal(toolInput, &call) == nil && strings.TrimSpace(call.Operation) != "" {
+			operation = strings.TrimSpace(call.Operation)
+		}
+	}
+	if ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish {
+		return "Approve running " + operation + "?"
+	}
+	return operation + " 작업을 진행할까요?"
 }
 
 // The model did not know at call time that the call pauses for approval, so its
@@ -247,6 +268,7 @@ func approvalWordingFromToolInput(request AgentTurnRequest, toolName string, too
 		Subject string   `json:"subject"`
 		Title   string   `json:"title"`
 		Summary string   `json:"summary"`
+		Reason  string   `json:"reason"`
 		Path    string   `json:"path"`
 		To      []string `json:"to"`
 	}
@@ -262,7 +284,7 @@ func approvalWordingFromToolInput(request AgentTurnRequest, toolName string, too
 		return filename + " 파일을 삭제할까요?"
 	}
 	target := firstNonEmptyString(document.RecipientHint, document.PersonHint, document.ChannelName, document.DeliveryTarget.PersonHint, document.DeliveryTarget.ChannelName, strings.Join(document.To, ", "))
-	content := firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary)
+	content := firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary, document.Reason)
 	switch {
 	case target != "" && content != "":
 		if english {
