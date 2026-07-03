@@ -456,7 +456,17 @@ func failureNoticeFramingInstruction(phase string) string {
 	if phase == "stall" {
 		return "You are writing a short user-facing notice that the task is paused because repeated attempts stopped making progress. Explain in plain terms what is stuck, then end with one concrete question asking how the user wants to proceed."
 	}
+	if phase == "limit" {
+		return "You are writing a short user-facing notice that the run stopped because it reached its time or step limit."
+	}
 	return "You are writing a short user-facing failure notice."
+}
+
+func failureNoticeCompletedSummaryInstruction(report FailureReport) string {
+	if report.Phase != "limit" || strings.TrimSpace(report.CompletedSummary) == "" {
+		return ""
+	}
+	return "completedSummary in the compact failure context lists concrete partial findings already gathered before the limit was reached. Your reply must state those concrete findings for the user first; only mention the time/step limit as the reason work stopped. Do not promise automatic follow-up, since this run will not resume on its own."
 }
 
 func buildFailureNoticePrompt(report FailureReport) string {
@@ -464,12 +474,17 @@ func buildFailureNoticePrompt(report FailureReport) string {
 		failureNoticeFramingInstruction(report.Phase),
 		responseLanguageInstruction(report.ResponseLanguage),
 		"Use only the compact failure context below. Do not infer from earlier conversation history.",
+	}
+	if completedSummaryInstruction := failureNoticeCompletedSummaryInstruction(report); completedSummaryInstruction != "" {
+		sections = append(sections, completedSummaryInstruction)
+	}
+	sections = append(sections,
 		"Write one or two natural sentences.",
 		"Keep the notice under 600 Korean characters or an equivalent short length.",
 		"Preserve the safe meaning of the failure, but do not expose provider errors, stack traces, internal service URLs, internal filesystem paths, tokens, or serialized reply status.",
 		"Do not claim an attachment or completed artifact exists unless attachment filenames are listed.",
-		"Compact failure context:\n" + marshalEventBody(report),
-	}
+		"Compact failure context:\n"+marshalEventBody(report),
+	)
 	return strings.Join(sections, "\n\n")
 }
 
