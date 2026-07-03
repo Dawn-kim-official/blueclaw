@@ -1110,16 +1110,6 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, EffortLevel: agent.EffortLevelQuick, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true
 		}
 	}
-	if decision, isFound := deterministicConfirmationReplyDecision(event); isFound {
-		connectorRuntime.agentKernel.AppendTaskEvent(approval.TaskRun.TaskRunID, "confirmation.reply_classified", marshalConnectorEventBody(map[string]any{
-			"messageID":   event.MessageID,
-			"route":       decision.Route,
-			"approval":    decision.Approval,
-			"reason":      decision.Reason,
-			"replyPrompt": strings.TrimSpace(event.Prompt),
-		}))
-		return approval, decision, true
-	}
 	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
 		RequesterPersonID: personID,
 		ConversationID:    event.ConversationID,
@@ -1144,40 +1134,6 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		connectorRuntime.logger.Info("connector."+platform+".confirmation.accepted", slog.String("messageID", event.MessageID), slog.String("taskRunID", approval.TaskRun.TaskRunID))
 	}
 	return approval, decision, true
-}
-
-func deterministicConfirmationReplyDecision(event PlatformInboundEvent) (agent.TurnDecision, bool) {
-	switch deterministicConfirmationReplyKind(event.Prompt) {
-	case "confirm":
-		approvalSignal := agent.ApprovalSignalApprove
-		return agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, EffortLevel: agent.EffortLevelStandard, ResponseLanguage: responseLanguageForEvent(event), Reason: "deterministic_confirm"}, true
-	case "cancel":
-		approvalSignal := agent.ApprovalSignalReject
-		return agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, EffortLevel: agent.EffortLevelQuick, ResponseLanguage: responseLanguageForEvent(event), Reason: "deterministic_cancel"}, true
-	default:
-		return agent.TurnDecision{}, false
-	}
-}
-
-func deterministicConfirmationReplyKind(reply string) string {
-	normalizedReply := strings.TrimSpace(strings.ToLower(reply))
-	confirmReplies := map[string]bool{
-		"ㅇ": true, "응": true, "네": true, "예": true, "확인": true, "승인": true,
-		"좋아": true, "그래": true, "진행": true, "진행해": true, "진행해줘": true, "해": true, "해줘": true,
-		"approved": true, "approve": true, "confirm": true, "yes": true, "y": true, "ok": true, "okay": true, "go ahead": true,
-	}
-	cancelReplies := map[string]bool{
-		"ㄴ": true, "아니": true, "아니오": true, "취소": true, "취소해": true, "취소해줘": true, "거절": true,
-		"하지마": true, "하지 마": true, "안돼": true, "안 돼": true, "멈춰": true,
-		"rejected": true, "reject": true, "cancel": true, "no": true, "n": true, "stop": true,
-	}
-	if confirmReplies[normalizedReply] {
-		return "confirm"
-	}
-	if cancelReplies[normalizedReply] {
-		return "cancel"
-	}
-	return ""
 }
 
 func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, platform string, personID string, event PlatformInboundEvent, taskWaitResolution inboundTaskWaitResolution) (PlatformInboundEvent, agent.TurnDecision, bool) {

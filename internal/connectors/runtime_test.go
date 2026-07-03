@@ -2275,18 +2275,22 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	}
 }
 
-func TestConnectorRuntimeHandlesDeterministicConfirmationReplyBeforeRouter(t *testing.T) {
+func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T) {
 	invokedTools := []string{}
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":""}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
 			},
 			"blueclaw_confirmation_message": {
 				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
+			},
+			"blueclaw_confirmation_reply_decision": {
+				`{"decision":"approved","reason":"user confirmed with a short affirmative reply."}`,
 			},
 		},
 		ActionResponses: []string{
@@ -2322,20 +2326,20 @@ func TestConnectorRuntimeHandlesDeterministicConfirmationReplyBeforeRouter(t *te
 	secondEvent.Prompt = "확인"
 	secondResult, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, secondEvent)
 	if errorValue != nil {
-		t.Fatalf("expected deterministic approval reply to process: %v", errorValue)
+		t.Fatalf("expected short approval reply to process: %v", errorValue)
 	}
 
 	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.TaskRunID == "" {
 		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
-	if connectorContainsSchemaName(languageModel.Requests(), "blueclaw_confirmation_reply_decision") {
-		t.Fatalf("deterministic confirmation reply must not call confirmation router, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
-	}
-	if !connectorTaskEventsContain(connectorRuntime, firstResult.TaskRunID, "confirmation.reply_classified", "deterministic_confirm") {
-		t.Fatal("expected deterministic confirmation classification event")
+	if !connectorContainsSchemaName(languageModel.Requests(), "blueclaw_confirmation_reply_decision") {
+		t.Fatalf("expected short reply to route through the confirmation router, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
+	}
+	if len(adapter.sentReplies) != 2 || adapter.sentReplies[1].message != "내일 휴가 일정을 캘린더에서 삭제했습니다." {
+		t.Fatalf("expected final approved reply, got %+v", adapter.sentReplies)
 	}
 }
 

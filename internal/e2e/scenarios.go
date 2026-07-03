@@ -1184,10 +1184,8 @@ func SiteLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessio
 				ExpectedTaskStatus:     task.TaskStatusWaitingApproval,
 			},
 			{
-				Prompt: "확인",
-				RouterRequiredEvidence: []string{
-					"site.delete",
-				},
+				Prompt:         "확인",
+				RouterApproval: "approve",
 				ActionResponses: []string{
 					actionFinishMessage("Local Fleet Studio 테스트 웹사이트를 삭제했습니다.", "obs-004:site.delete:0"),
 				},
@@ -1300,7 +1298,8 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			ExpectedReplyFragments: []string{"우경", "오늘 오후 3시에 확인하자"},
 			ExpectedTaskStatus:     task.TaskStatusWaitingApproval,
 		}, {
-			Prompt: "확인",
+			Prompt:         "확인",
+			RouterApproval: "approve",
 			ActionResponses: []string{
 				actionFinishMessage("우경이에게 DM을 보냈습니다.", "obs-002:message.send:0"),
 			},
