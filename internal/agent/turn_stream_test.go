@@ -7,8 +7,8 @@ import (
 	"blueclaw/internal/task"
 )
 
-func continueWithMessageDocument(toolName string, message string) string {
-	return `{"action":"continue","toolName":"` + toolName + `","toolInput":{},"message":"` + message + `"}`
+func continueWithMessageDocument(operationName string, message string) string {
+	return `{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"` + operationName + `","input":{}},"message":"` + message + `"}`
 }
 
 func collectTurnEvents(events <-chan TurnEvent) []TurnEvent {
@@ -25,7 +25,7 @@ func TestStreamTurnEmitsOrderedEventsEndingWithFinal(t *testing.T) {
 		finishMessageDocument("마지막 답변"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"alpha"})
+	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("alpha result"), nil
 	})
@@ -90,7 +90,7 @@ func TestStreamTurnAbandonedConsumerDoesNotPanic(t *testing.T) {
 	contents = append(contents, finishMessageDocument("끝"))
 	languageModel := &sequenceLanguageModel{contents: contents}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"alpha"})
+	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("alpha result"), nil
 	})
@@ -121,7 +121,7 @@ func turnRequestWithTool(services turnRunnerTestServices) AgentTurnRequest {
 }
 
 func toolRegistryWithAlpha() *ToolSet {
-	toolRegistry := newTestToolSet([]string{"alpha"})
+	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("alpha result"), nil
 	})

@@ -244,6 +244,13 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 	}
 }
 
+// FLAGGED for human review: pre-existing bug, unrelated to the fixed-kernel/capability.invoke
+// collapse (predates it — this test exists as far back as 93ff158). attachmentSuffixesForOutcomeContract
+// only inspects request.ActiveGoal for an explicit file requirement and never sees
+// intakeDecision.RequestedOutputFormats (the "html" passed in here), so an explicit output-format
+// request on a fresh site request silently drops its required attachment suffix. Left failing
+// pending a decision on whether attachmentSuffixesForOutcomeContract should also accept the intake
+// decision's requested output formats as a signal.
 func TestOutcomeContractKeepsExplicitWebsiteHTMLFileRequest(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘"},
@@ -595,7 +602,7 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 	}
 }
 
-func TestAgentTurnToolSetKeepsPinnedWebAndSkillTools(t *testing.T) {
+func TestAgentTurnToolSetOnlyExposesKernelToolsDespitePinning(t *testing.T) {
 	toolSet := testToolSet([]string{"web.search", "web.fetch", "terminal.run", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills:         []SkillInstruction{{Name: "presentation", AllowedTools: []string{"terminal.run", "file.write"}}},
@@ -607,9 +614,15 @@ func TestAgentTurnToolSetKeepsPinnedWebAndSkillTools(t *testing.T) {
 		PinnedToolNames: []string{"web.search", "web.fetch", "terminal.run", "file.write"},
 	}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"web.search", "web.fetch", "terminal.run", "file.write"} {
+	for _, toolName := range []string{"terminal.run", "file.write"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected %s to remain available with selected skills, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+	// web.search and web.fetch are non-kernel; pinning cannot expose them directly, only capability.invoke reaches them.
+	for _, toolName := range []string{"web.search", "web.fetch"} {
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected non-kernel pinned tool %s to stay out of the action schema, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -648,7 +661,7 @@ func TestOutcomeReferenceToolSetKeepsActiveGoalEvidenceToolsForContinuation(t *t
 	}
 }
 
-func TestAgentTurnToolSetKeepsPinnedActiveGoalEvidenceToolsForContinuation(t *testing.T) {
+func TestAgentTurnToolSetHidesSiteToolsForActiveGoalContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.create", "site.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -669,14 +682,18 @@ func TestAgentTurnToolSetKeepsPinnedActiveGoalEvidenceToolsForContinuation(t *te
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
-		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected %s to remain available for selected site continuation, got %+v", toolName, filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("terminal.run") {
+		t.Fatalf("expected kernel tool terminal.run to remain available, got %+v", filteredToolSet.ListToolNames())
+	}
+	// Continuation of an active site goal no longer keeps site.* exposed directly; capability.invoke is the only path.
+	for _, toolName := range []string{"site.create", "site.publish"} {
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to stay out of the action schema even for an active site continuation, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
 
-func TestAgentTurnToolSetKeepsPinnedSelectedSkillToolsWhenActiveGoalWasAttachmentFallback(t *testing.T) {
+func TestAgentTurnToolSetHidesSelectedSiteSkillToolsWhenActiveGoalWasAttachmentFallback(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "file.deliver", "site.create", "site.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -703,9 +720,15 @@ func TestAgentTurnToolSetKeepsPinnedSelectedSkillToolsWhenActiveGoalWasAttachmen
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
+	for _, toolName := range []string{"terminal.run", "file.deliver"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected %s to be exposed after selected site skill, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
+	}
+	// A selected site skill no longer exposes site.* directly; the model reaches it only through capability.invoke.
+	for _, toolName := range []string{"site.create", "site.publish"} {
+		if filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected %s to stay out of the action schema after selected site skill, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -883,7 +906,7 @@ func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing
 	}
 }
 
-func TestAgentTurnToolSetKeepsPinnedActiveSendToolForActiveSendContinuation(t *testing.T) {
+func TestAgentTurnToolSetHidesSendToolForActiveSendContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"ask.confirm", "message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -907,8 +930,12 @@ func TestAgentTurnToolSetKeepsPinnedActiveSendToolForActiveSendContinuation(t *t
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	if !filteredToolSet.IsAllowed("message.send") {
-		t.Fatalf("expected active send tool to remain available for continuation, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("ask.confirm") {
+		t.Fatalf("expected kernel tool ask.confirm to remain available, got %+v", filteredToolSet.ListToolNames())
+	}
+	// Even an active send continuation reaches message.send only through capability.invoke now.
+	if filteredToolSet.IsAllowed("message.send") {
+		t.Fatalf("expected message.send to stay out of the action schema for continuation, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 

@@ -9,11 +9,11 @@ import (
 
 func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"alpha","toolInput":{"value":"one"}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"alpha","input":{"value":"one"}}}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryBudget: exhaustedRecoveryBudgetForTest()})
-	toolRegistry := newTestToolSet([]string{"alpha"})
+	toolRegistry := newTestCapabilityToolSet([]string{"alpha"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "alpha"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("alpha result"), nil
 	})
@@ -28,21 +28,21 @@ func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 	if errorValue != nil {
 		t.Fatalf("expected turn to succeed: %v", errorValue)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.alpha.requested", `"value":"one"`) {
-		t.Fatal("expected requested tool event with input summary")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.requested", `"operation":"alpha"`) {
+		t.Fatal("expected requested tool event with the wrapped operation and input")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.alpha.result", "alpha result") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.result", "alpha result") {
 		t.Fatal("expected result tool event")
 	}
 }
 
 func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"unstable","toolInput":{}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"unstable","input":{}}}`,
 		finishMessageDocument("handled failure"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
-	toolRegistry := newTestToolSet([]string{"unstable"})
+	toolRegistry := newTestCapabilityToolSet([]string{"unstable"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "unstable"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, errors.New("tool failed")
 	})
@@ -60,18 +60,18 @@ func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	if result.FinishMessage != "handled failure" {
 		t.Fatalf("expected final reply after failure, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.unstable.result", "tool failed") {
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.result", "tool failed") {
 		t.Fatal("expected the tool failure to be recorded as an observation the model can answer from")
 	}
 }
 
 func TestAgentTurnRunnerStoresLargeToolResultAsArtifact(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"large","toolInput":{}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"large","input":{}}}`,
 		finishMessageDocument("summarized"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{ToolResultMaxBytes: 8})
-	toolRegistry := newTestToolSet([]string{"large"})
+	toolRegistry := newTestCapabilityToolSet([]string{"large"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "large"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(strings.Repeat("x", 32)), nil
 	})

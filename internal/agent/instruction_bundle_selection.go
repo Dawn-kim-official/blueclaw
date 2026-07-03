@@ -234,7 +234,7 @@ func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {
 		return true
 	}
 	text := strings.ToLower(strings.Join(nonEmptyStrings([]string{
-		request.Prompt,
+		skillSelectionPrompt(request),
 		request.ActiveGoal.OriginalInstruction,
 		request.ActiveGoal.CurrentObjective,
 	}), "\n"))
