@@ -16,7 +16,27 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	decision.EffortLevel = LargerEffortLevel(decision.EffortLevel, defaultEffortLevel)
 	decision.Reason = "selected skill requires bounded completion evidence"
 	decision.UserFacingReply = ""
+	// The promotion itself came from a selected skill's completion contract, not from the
+	// intake model's own judgment, so that contract's evidence requirements have to become
+	// hard requirements here directly. Leaving them as advisory hints would let the finish
+	// gate accept a completion with no independent corroborating signal (e.g. a requested
+	// attachment suffix) to promote the hint on its own, defeating the whole promotion.
+	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
+		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
+			continue
+		}
+		decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools, skillInstruction.Completion.RequiredEvidenceTools...)
+		decision.RequestedOutputFormats = appendUniqueStrings(decision.RequestedOutputFormats, attachmentSuffixFormats(skillInstruction.Completion.RequiredAttachmentSuffixes)...)
+	}
 	return decision
+}
+
+func attachmentSuffixFormats(suffixes []string) []string {
+	formats := []string{}
+	for _, suffix := range suffixes {
+		formats = append(formats, strings.TrimPrefix(strings.ToLower(strings.TrimSpace(suffix)), "."))
+	}
+	return normalizeRequestedOutputFormats(formats)
 }
 
 func canPromoteIntakeDecisionForSelectedSkills(decision IntakeDecision) bool {
@@ -536,6 +556,7 @@ func buildSelectedSkillInstructionPrompt(skillInstructions []SkillInstruction) s
 	parts := []string{
 		"Available skill references:",
 		"These skills/tools are available if they fit the user's current goal. They are not mandatory. Do not change the requested output type to match a skill.",
+		"Multiple skills may be selected at once, but only use the ones this specific request actually needs. Mentioning a topic (e.g. email, calendar, browsing) is not the same as being asked to act on it — ignore skills whose subject matter is not the actual task.",
 	}
 	for _, skillInstruction := range skillInstructions {
 		if strings.TrimSpace(skillInstruction.Prompt) != "" {

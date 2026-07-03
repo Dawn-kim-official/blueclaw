@@ -244,13 +244,6 @@ func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T
 	}
 }
 
-// FLAGGED for human review: pre-existing bug, unrelated to the fixed-kernel/capability.invoke
-// collapse (predates it — this test exists as far back as 93ff158). attachmentSuffixesForOutcomeContract
-// only inspects request.ActiveGoal for an explicit file requirement and never sees
-// intakeDecision.RequestedOutputFormats (the "html" passed in here), so an explicit output-format
-// request on a fresh site request silently drops its required attachment suffix. Left failing
-// pending a decision on whether attachmentSuffixesForOutcomeContract should also accept the intake
-// decision's requested output formats as a signal.
 func TestOutcomeContractKeepsExplicitWebsiteHTMLFileRequest(t *testing.T) {
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "개인 홈페이지를 만들어서 배포하고 HTML 파일도 첨부해줘"},
