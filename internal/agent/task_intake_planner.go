@@ -282,11 +282,11 @@ func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) Tur
 	}
 	defaultDecision := turnRouter.deterministicDecision(request)
 	if !turnRouter.options.IsEnabled || turnRouter.languageModel == nil {
-		return defaultDecision
+		return busyRouteSteerOnActiveTask(defaultDecision, request)
 	}
 	turnDecision, errorValue := turnRouter.planWithLanguageModel(ctx, request)
 	if errorValue != nil {
-		return defaultDecision
+		return busyRouteSteerOnActiveTask(defaultDecision, request)
 	}
 	return turnRouter.normalizeDecision(turnDecision, defaultDecision, request)
 }
@@ -669,6 +669,15 @@ func expectedResultsSchema() map[string]any {
 			"additionalProperties": false,
 		},
 	}
+}
+
+// busyRouteSteerOnActiveTask marks a deterministic fallback decision as steer whenever a task
+// is already active, so an intake-planner outage never falls back to launching a duplicate task.
+func busyRouteSteerOnActiveTask(decision TurnDecision, request AgentRequest) TurnDecision {
+	if strings.TrimSpace(request.ActiveTask.TaskRunID) != "" {
+		decision.BusyRoute = BusyRouteSteer
+	}
+	return decision
 }
 
 func normalizeBusyRoute(busyRoute BusyRoute, turnRoute TurnRoute, request AgentRequest) BusyRoute {

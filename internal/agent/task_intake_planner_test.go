@@ -642,6 +642,29 @@ func TestTaskIntakePlannerFallsBackDeterministically(t *testing.T) {
 	}
 }
 
+func TestTaskIntakePlannerFallsBackToSteerWhenActiveTaskKnown(t *testing.T) {
+	router := NewTurnRouter(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
+
+	decision := router.Plan(context.Background(), AgentRequest{
+		Prompt:     "아니야 하지마",
+		ActiveTask: ActiveTaskContext{TaskRunID: "task-1", Prompt: "report 만들어줘"},
+	})
+
+	if decision.BusyRoute != BusyRouteSteer {
+		t.Fatalf("expected classification failure to fall back to steer when a task is active, got %q", decision.BusyRoute)
+	}
+}
+
+func TestTaskIntakePlannerDoesNotSetBusyRouteWithoutActiveTask(t *testing.T) {
+	router := NewTurnRouter(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
+
+	decision := router.Plan(context.Background(), AgentRequest{Prompt: "please analyze the whole repo"})
+
+	if decision.BusyRoute != "" {
+		t.Fatalf("expected no busyRoute without an active task, got %q", decision.BusyRoute)
+	}
+}
+
 func TestTaskIntakePlannerFallbackDefaultsUncertainWorkToStandard(t *testing.T) {
 	planner := NewTaskIntakePlanner(failingLanguageModel{}, IntakeOptions{IsEnabled: true})
 	toolRegistry := newTestToolSet([]string{"memory.search"})

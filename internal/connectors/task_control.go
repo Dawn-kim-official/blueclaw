@@ -156,8 +156,37 @@ func (connectorRuntime *ConnectorRuntime) taskRunWasCancelled(taskRunID string) 
 	return isFound && taskRun.Status == task.TaskStatusCancelled
 }
 
-func shouldProcessBeforeConversationLock(event PlatformInboundEvent) bool {
-	return exactTaskControlIntent(event.Prompt) != agent.TaskControlIntentNone || exactDebugControlRequested(event.Prompt)
+// shouldProcessBeforeConversationLock decides whether an inbound message should skip
+// waiting behind the per-conversation lock. Exact task-control/debug commands always
+// bypass; beyond that, a message gets the same treatment only when it looks like it
+// continues, corrects, cancels, or asks about a task the sender already has running here
+// -- otherwise the current task's execution could finish before the message is even
+// classified, silently turning a correction into a duplicate task.
+func (connectorRuntime *ConnectorRuntime) shouldProcessBeforeConversationLock(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) bool {
+	if exactTaskControlIntent(event.Prompt) != agent.TaskControlIntentNone || exactDebugControlRequested(event.Prompt) {
+		return true
+	}
+	return connectorRuntime.looksLikeActiveTaskFollowUp(ctx, adapter, event)
+}
+
+func (connectorRuntime *ConnectorRuntime) looksLikeActiveTaskFollowUp(ctx context.Context, adapter PlatformAdapter, event PlatformInboundEvent) bool {
+	personID, isFound := connectorRuntime.identityService.ResolvePersonIDByPlatformAccount(adapter.Name(), event.SenderID)
+	if !isFound {
+		return false
+	}
+	activeTaskRun, isFound := connectorRuntime.latestCurrentConversationActiveTask(personID, event.ConversationID)
+	if !isFound {
+		return false
+	}
+	isRelated, errorValue := connectorRuntime.agentKernel.ClassifyActiveTaskFollowUp(ctx, agent.ActiveTaskFollowUpClassificationRequest{
+		ActiveTaskPrompt: activeTaskRun.Prompt,
+		ActiveTaskStatus: string(activeTaskRun.Status),
+		LatestMessage:    event.Prompt,
+	})
+	if errorValue != nil {
+		return false
+	}
+	return isRelated
 }
 
 func exactTaskControlIntent(prompt string) agent.TaskControlIntent {
