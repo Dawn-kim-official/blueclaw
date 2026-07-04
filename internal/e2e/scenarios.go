@@ -103,7 +103,8 @@ func WebSearchAcceptanceScenario(artifactDirectoryPath string) VirtualSessionSce
 		AllowedTools:          []string{"conversation.history", "memory.search", "web.search"},
 		CapabilityToolNames:   []string{"web.search"},
 		Turns: []VirtualTurn{{
-			Prompt: "오늘 기준으로 외부 검색이 필요한 정보를 찾아서 핵심만 알려줘",
+			Prompt:                 "오늘 기준으로 외부 검색이 필요한 정보를 찾아서 핵심만 알려줘",
+			RouterRequiredEvidence: []string{"web.search"},
 			ActionResponses: []string{
 				`{"action":"tool.request","toolNames":["web.search"],"skillNames":[],"reason":"외부 최신 정보 검색이 필요합니다."}`,
 				actionCallTool("web.search", `{"query":"current external information acceptance test","limit":1}`),
@@ -141,7 +142,8 @@ func FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath string) Virtual
 		AllowedTools:          []string{"file.write", "terminal.run"},
 		InitialToolNames:      []string{"file.write", "terminal.run"},
 		Turns: []VirtualTurn{{
-			Prompt: "중간 JSON 파일을 만들고 터미널에서 읽히는지 확인해줘.",
+			Prompt:                 "중간 JSON 파일을 만들고 터미널에서 읽히는지 확인해줘.",
+			RouterRequiredEvidence: []string{"file.write"},
 			ActionResponses: []string{
 				actionCallTool("file.write", `{"path":"tmp/docx-guide/document.json","content":"{\"title\":\"readable\"}\n","mode":644}`),
 				actionCallTool("terminal.run", `{"workingDirectoryPath":"tmp/docx-guide","command":"cat document.json","timeoutSecond":30}`),
@@ -149,7 +151,7 @@ func FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath string) Virtual
 			},
 			ExpectedToolCalls: []string{"file.write", "terminal.run"},
 			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
-				PathGlob:          "private/people/person-1/tmp/*/docx-guide/document.json",
+				PathGlob:          "private/people/person-1/tmp/docx-guide/document.json",
 				ContainsFragments: []string{"readable"},
 			}},
 			ExpectedReplyFragments: []string{"확인"},

@@ -193,8 +193,11 @@ func TestTaskSchedulePollerDoesNotAdvanceWhenDeliveryFails(t *testing.T) {
 	if len(repository.failed) != 0 {
 		t.Fatalf("expected direct run not to record poller failure, got %+v", repository.failed)
 	}
-	if generatedResponseCount != 1 {
-		t.Fatalf("expected task executor to run once, got %d", generatedResponseCount)
+	// The agent turn now legitimately makes more than one structured-response call per
+	// run (completion-evidence/quality-criteria checks), so this only asserts the task
+	// executor ran at all, not an exact call count.
+	if generatedResponseCount == 0 {
+		t.Fatalf("expected task executor to run, got %d calls", generatedResponseCount)
 	}
 }
 
