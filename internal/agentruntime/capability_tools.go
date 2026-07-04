@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/url"
 	"sort"
 	"strings"
@@ -829,52 +828,10 @@ func (toolCatalogBuilder *ToolCatalogBuilder) validateCapabilityToolInputAccess(
 	return nil
 }
 
+// No working direct/on-device browser backend exists today, so every
+// browser.* call must route through companion regardless of context.
 func shouldRequireCompanionBrowser(toolContext context.Context, toolName string, toolInput json.RawMessage) bool {
-	trimmedToolName := strings.TrimSpace(toolName)
-	if !strings.HasPrefix(trimmedToolName, "browser.") {
-		return false
-	}
-	switch trimmedToolName {
-	case "browser.handoff", "browser.screenshot":
-		return true
-	}
-	return browserInputUsesPrivateURL(toolInput)
-}
-
-func containsAny(value string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if strings.Contains(value, candidate) {
-			return true
-		}
-	}
-	return false
-}
-
-func browserInputUsesPrivateURL(toolInput json.RawMessage) bool {
-	var input struct {
-		URL      string `json:"url"`
-		StartURL string `json:"startURL"`
-	}
-	if json.Unmarshal(toolInput, &input) != nil {
-		return false
-	}
-	return isPrivateBrowserURL(firstNonEmptyString(input.URL, input.StartURL))
-}
-
-func isPrivateBrowserURL(value string) bool {
-	parsedURL, errorValue := url.Parse(strings.TrimSpace(value))
-	if errorValue != nil || parsedURL.Hostname() == "" {
-		return false
-	}
-	hostname := strings.ToLower(strings.TrimSpace(parsedURL.Hostname()))
-	if hostname == "localhost" || strings.HasSuffix(hostname, ".local") {
-		return true
-	}
-	ipAddress := net.ParseIP(hostname)
-	if ipAddress == nil {
-		return false
-	}
-	return ipAddress.IsLoopback() || ipAddress.IsPrivate() || ipAddress.IsLinkLocalUnicast()
+	return strings.HasPrefix(strings.TrimSpace(toolName), "browser.")
 }
 
 func capabilityAttachments(result json.RawMessage) []agent.FileAttachment {
