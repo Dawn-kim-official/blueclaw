@@ -2264,8 +2264,9 @@ func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testin
 
 func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"conversation.history","input":{"limit":20}}}`,
-		connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
+		`{"action":"tool.request","toolNames":["conversation.history"],"skillNames":[],"reason":"required for the requested task"}`,
+		`{"action":"continue","toolName":"conversation.history","toolInput":{"limit":20}}`,
+		connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-002", "conversation.history", 0),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testInboundEvent("message-1")
@@ -2325,7 +2326,7 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 	if taskSchedule.Platform != event.Platform || taskSchedule.ConversationID != event.ConversationID || taskSchedule.ReplyTargetID != event.ReplyTargetID {
 		t.Fatalf("expected connector context delivery target, got %+v", taskSchedule)
 	}
-	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "예약을 만들었습니다." {
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "매일 아침 7시에 조사해서 알려드릴게요." {
 		t.Fatalf("expected confirmation reply, got %+v", adapter.sentReplies)
 	}
 }
@@ -2336,7 +2337,7 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
-				`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","approval":"approve"}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
@@ -2344,13 +2345,11 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 			"blueclaw_confirmation_message": {
 				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
-			"blueclaw_confirmation_reply_decision": {
-				`{"decision":"approved","reason":"user explicitly confirms the pending calendar deletion."}`,
-			},
 		},
 		ActionResponses: []string{
+			`{"action":"tool.request","toolNames":["calendar.delete"],"skillNames":[],"reason":"required for the approved calendar deletion"}`,
 			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-002", "calendar.delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2361,6 +2360,9 @@ func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t 
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			if request.URL.Path == "/v1/capabilities" {
+				return testCapabilityRegistrySelfHealResponse(), nil
+			}
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -2419,7 +2421,7 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
-				`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":""}`,
+				`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"approved calendar tool work","userFacingReply":"","approval":"approve"}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다. 이미 사용자가 확인했습니다."}`,
@@ -2427,13 +2429,11 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 			"blueclaw_confirmation_message": {
 				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
 			},
-			"blueclaw_confirmation_reply_decision": {
-				`{"decision":"approved","reason":"user confirmed with a short affirmative reply."}`,
-			},
 		},
 		ActionResponses: []string{
+			`{"action":"tool.request","toolNames":["calendar.delete"],"skillNames":[],"reason":"required for the approved calendar deletion"}`,
 			`{"action":"continue","toolName":"calendar.delete","toolInput":{"eventID":"event-1","userConfirmed":true}}`,
-			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-001", "calendar.delete", 0),
+			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에서 삭제했습니다.", "obs-002", "calendar.delete", 0),
 		},
 	})
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
@@ -2444,6 +2444,9 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			if request.URL.Path == "/v1/capabilities" {
+				return testCapabilityRegistrySelfHealResponse(), nil
+			}
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -2470,8 +2473,8 @@ func TestConnectorRuntimeRoutesShortConfirmationReplyThroughRouter(t *testing.T)
 	if secondResult.TaskRunID != firstResult.TaskRunID || secondResult.TaskRunID == "" {
 		t.Fatalf("expected approved continuation to reuse task, got first=%q second=%q", firstResult.TaskRunID, secondResult.TaskRunID)
 	}
-	if !connectorContainsSchemaName(languageModel.Requests(), "blueclaw_confirmation_reply_decision") {
-		t.Fatalf("expected short reply to route through the confirmation router, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
+	if connectorSchemaIndexAfter(languageModel.Requests(), "blueclaw_turn_router", 1) < 0 {
+		t.Fatalf("expected short reply to route through the turn router, got schemas=%+v", connectorRequestSchemaNames(languageModel.Requests()))
 	}
 	if len(invokedTools) != 1 || invokedTools[0] != "calendar.delete/invoke" {
 		t.Fatalf("expected calendar delete tool invocation, got %+v", invokedTools)
@@ -2486,15 +2489,13 @@ func TestConnectorRuntimeAnswersPendingConfirmationQuestionWithoutLaunching(t *t
 		StructuredResponsesBySchema: map[string][]string{
 			"blueclaw_turn_router": {
 				`{"classification":"bounded_task","taskShape":"approval_gated_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar delete needs approval first","userFacingReply":""}`,
+				`{"route":"answer_question","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"user asked a follow-up instead of approving","userFacingReply":""}`,
 			},
 			"blueclaw_execution_plan": {
 				`{"originalInstruction":"내일 휴가 일정을 캘린더에서 삭제해줘","summary":"내일 휴가 일정을 삭제합니다.","targets":["calendar event"],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":true,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"내일 휴가 일정을 캘린더에서 삭제합니다."}`,
 			},
 			"blueclaw_confirmation_message": {
 				`{"reply":"내일 휴가 일정을 캘린더에서 삭제하는 것으로 이해했습니다. 승인하면 바로 진행하겠습니다."}`,
-			},
-			"blueclaw_confirmation_reply_decision": {
-				`{"decision":"question","reason":"user asked a follow-up instead of approving"}`,
 			},
 			"blueclaw_reply": {
 				`{"reply":"요청하신 작업은 취소했습니다."}`,
@@ -2827,7 +2828,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 			`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
 		}},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"calendar.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
+			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}}`,
 			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.add", 0),
 		},
 	})
@@ -2839,6 +2840,9 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			if request.URL.Path == "/v1/capabilities" {
+				return testCapabilityRegistrySelfHealResponse(), nil
+			}
 			invokedTools = append(invokedTools, strings.TrimPrefix(request.URL.Path, "/v1/tools/"))
 			return &http.Response{
 				StatusCode: http.StatusOK,
@@ -2881,6 +2885,9 @@ func TestConnectorRuntimeReadsTypedCapabilityToolResponse(t *testing.T) {
 	connectorRuntime.UseCapabilityTools(capability.Client{
 		Endpoint: "http://capability.test",
 		HTTPClient: testHTTPDoer(func(request *http.Request) (*http.Response, error) {
+			if request.URL.Path == "/v1/capabilities" {
+				return testCapabilityRegistrySelfHealResponse(), nil
+			}
 			if request.URL.Path != "/v1/tools/browser.snapshot/invoke" {
 				t.Fatalf("unexpected capability path: %s", request.URL.Path)
 			}
@@ -3662,6 +3669,14 @@ type testHTTPDoer func(*http.Request) (*http.Response, error)
 
 func (doer testHTTPDoer) Do(request *http.Request) (*http.Response, error) {
 	return doer(request)
+}
+
+func testCapabilityRegistrySelfHealResponse() *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"deviceCapabilities":[]}`)),
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}
 }
 
 func structuredMessagesContain(messages []llm.Message, fragment string) bool {
