@@ -96,5 +96,22 @@ func effectiveActionToolNameAndInput(toolName string, toolInput json.RawMessage)
 	if operation == "" {
 		return toolName, toolInput
 	}
-	return operation, document.Input
+	return operation, unwrapStringifiedOperationInput(document.Input)
+}
+
+// unwrapStringifiedOperationInput accepts the capability.invoke input contract
+// where the operation parameters arrive as one JSON object encoded in a string,
+// mirroring the runtime handler's normalization so validation and dedup logic
+// see the same object either way.
+func unwrapStringifiedOperationInput(input json.RawMessage) json.RawMessage {
+	var stringifiedInput string
+	if json.Unmarshal(input, &stringifiedInput) != nil {
+		return input
+	}
+	innerInput := json.RawMessage(strings.TrimSpace(stringifiedInput))
+	var probe map[string]json.RawMessage
+	if json.Unmarshal(innerInput, &probe) != nil {
+		return input
+	}
+	return innerInput
 }
