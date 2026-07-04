@@ -29,7 +29,6 @@ func KernelToolNames() []string {
 		TerminalRunToolName,
 		AskInputToolName,
 		AskConfirmToolName,
-		AskChoiceToolName,
 		FileDeliverToolName,
 		SkillSearchToolName,
 		CapabilityInvokeToolName,
