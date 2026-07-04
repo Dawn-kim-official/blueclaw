@@ -68,6 +68,11 @@ func TestConnectorRuntimeSuppressesStaleRetryWhileOriginalTaskIsRunning(t *testi
 		release: make(chan struct{}),
 	}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	// Classification calls (e.g. skill-search-query) fall back to the main language
+	// model when no intake model is configured, which would block on the same channel
+	// as the task turn itself and fire "started" before the task is source-tagged. Give
+	// classification its own non-blocking model so "started" reflects the actual turn.
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(testLanguageModel{reply: "classified"})
 	event := testInboundEvent("message-stale-retry")
 	firstResultChannel := make(chan ConnectorRuntimeResult, 1)
 	firstErrorChannel := make(chan error, 1)
@@ -2259,7 +2264,7 @@ func TestConnectorRuntimeFetchesInitialVisibleContextFromHistoryCursor(t *testin
 
 func TestConnectorRuntimeRunsAgentHistoryToolAndSendsOneFinishMessage(t *testing.T) {
 	languageModel := agenttest.NewActionScriptedLanguageModel(
-		`{"action":"continue","toolName":"conversation.history","toolInput":{"limit":20}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"conversation.history","input":{"limit":20}}}`,
 		connectorFinishMessageWithEvidence("이전 대화를 확인했습니다", "obs-001", "conversation.history", 0),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)

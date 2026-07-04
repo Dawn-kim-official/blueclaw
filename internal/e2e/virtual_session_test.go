@@ -244,9 +244,9 @@ func TestScheduleCreateAcceptance(t *testing.T) {
 		t.Fatalf("expected schedule acceptance scenario to pass: %v", errorValue)
 	}
 	turnResult := result.TurnResults[0]
-	if !eventsContain(turnResult.Events, "tool.terminal.run.requested", "schedule.create") ||
-		!eventsContain(turnResult.Events, "tool.terminal.run.result", "intervalSecond") {
-		t.Fatalf("expected terminal capability schedule create; events: %s", summarizeEvents(turnResult.Events))
+	if !eventsContain(turnResult.Events, "tool.capability.invoke.requested", "schedule.create") ||
+		!eventsContain(turnResult.Events, "tool.capability.invoke.result", "intervalSecond") {
+		t.Fatalf("expected capability schedule create; events: %s", summarizeEvents(turnResult.Events))
 	}
 	if !strings.Contains(turnResult.ModelContext, "schedule.create") {
 		t.Fatal("expected model context to document schedule.create capability")
@@ -264,16 +264,16 @@ func TestScheduleLifecycleAcceptance(t *testing.T) {
 	firstTurnResult := result.TurnResults[0]
 	secondTurnResult := result.TurnResults[1]
 	thirdTurnResult := result.TurnResults[2]
-	if !eventsContain(firstTurnResult.Events, "tool.terminal.run.requested", "schedule.create") ||
-		!eventsContain(firstTurnResult.Events, "tool.terminal.run.result", "intervalSecond") {
-		t.Fatalf("expected initial interval schedule through terminal capability CLI; events: %s", summarizeEvents(firstTurnResult.Events))
+	if !eventsContain(firstTurnResult.Events, "tool.capability.invoke.requested", "schedule.create") ||
+		!eventsContain(firstTurnResult.Events, "tool.capability.invoke.result", "intervalSecond") {
+		t.Fatalf("expected initial interval schedule through the capability kernel; events: %s", summarizeEvents(firstTurnResult.Events))
 	}
-	if !eventsContain(secondTurnResult.Events, "tool.terminal.run.requested", "schedule.update") ||
-		!eventsContain(secondTurnResult.Events, "tool.terminal.run.result", "intervalSecond") {
-		t.Fatalf("expected modification through terminal capability CLI; events: %s", summarizeEvents(secondTurnResult.Events))
+	if !eventsContain(secondTurnResult.Events, "tool.capability.invoke.requested", "schedule.update") ||
+		!eventsContain(secondTurnResult.Events, "tool.capability.invoke.result", "intervalSecond") {
+		t.Fatalf("expected modification through the capability kernel; events: %s", summarizeEvents(secondTurnResult.Events))
 	}
-	if !eventsContain(thirdTurnResult.Events, "tool.terminal.run.requested", "schedule.cancel") {
-		t.Fatalf("expected deletion through terminal capability CLI; events: %s", summarizeEvents(thirdTurnResult.Events))
+	if !eventsContain(thirdTurnResult.Events, "tool.capability.invoke.requested", "schedule.cancel") {
+		t.Fatalf("expected deletion through the capability kernel; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
 	if activeScheduleCount(result.TaskSchedules) != 0 {
 		t.Fatalf("expected zero active schedules, got %+v", result.TaskSchedules)
