@@ -15,22 +15,6 @@ func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, p
 	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
 }
 
-type ApprovalReplyDecision struct {
-	IsApproval bool   `json:"isApproval"`
-	Reason     string `json:"reason"`
-}
-
-func (agentKernel *AgentKernel) ClassifyApprovalReply(responseContext context.Context, pendingPrompt string, approvalQuestion string, reply string) (ApprovalReplyDecision, error) {
-	decision, errorValue := agentKernel.ClassifyConfirmationReply(responseContext, pendingPrompt, approvalQuestion, reply)
-	if errorValue != nil {
-		return ApprovalReplyDecision{}, errorValue
-	}
-	return ApprovalReplyDecision{
-		IsApproval: decision.Decision == "approved",
-		Reason:     decision.Reason,
-	}, nil
-}
-
 func (agentKernel *AgentKernel) GenerateReplyWithMemory(responseContext context.Context, prompt string, memoryFacts []memory.MemoryFact) (string, error) {
 	return agentKernel.GenerateReplyWithContext(responseContext, prompt, VisibleContext{}, memoryFacts)
 }

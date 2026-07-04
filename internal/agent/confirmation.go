@@ -160,41 +160,6 @@ func (agentKernel *AgentKernel) generateConfirmationUserMessage(responseContext 
 	return reply, nil
 }
 
-func (agentKernel *AgentKernel) ClassifyConfirmationReply(responseContext context.Context, pendingPrompt string, confirmationQuestion string, reply string) (ConfirmationReplyDecision, error) {
-	classificationLanguageModel := agentKernel.addressingLanguageModel()
-	if classificationLanguageModel == nil {
-		return ConfirmationReplyDecision{}, errors.New("language model provider is not configured")
-	}
-	structuredResponse, errorValue := classificationLanguageModel.GenerateStructuredResponse(
-		responseContext,
-		llm.StructuredResponseRequest{
-			Messages: confirmationReplyMessages(pendingPrompt, confirmationQuestion, reply),
-			StructuredOutputSchema: llm.StructuredOutputSchema{
-				Name:               "blueclaw_confirmation_reply_decision",
-				Document:           `{"type":"object","properties":{"decision":{"type":"string","enum":["approved","rejected","modify","question","unrelated"]},"reason":{"type":"string"}},"required":["decision","reason"],"additionalProperties":false}`,
-				IsStrictlyEnforced: true,
-			},
-		},
-	)
-	if errorValue != nil {
-		return ConfirmationReplyDecision{}, errorValue
-	}
-	var decision ConfirmationReplyDecision
-	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &decision); errorValue != nil {
-		return ConfirmationReplyDecision{}, errorValue
-	}
-	if strings.TrimSpace(decision.Decision) == "" {
-		var legacyDecision ApprovalReplyDecision
-		if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &legacyDecision); errorValue == nil && legacyDecision.IsApproval {
-			decision.Decision = "approved"
-			decision.Reason = legacyDecision.Reason
-		}
-	}
-	decision.Decision = strings.TrimSpace(decision.Decision)
-	decision.Reason = strings.TrimSpace(decision.Reason)
-	return decision, nil
-}
-
 func (agentKernel *AgentKernel) ResolveChoiceReply(responseContext context.Context, request ChoiceReplyRequest) (ChoiceReplyDecision, error) {
 	if agentKernel.languageModel == nil {
 		return ChoiceReplyDecision{}, errors.New("language model provider is not configured")
@@ -267,31 +232,6 @@ func choiceReplyMessages(request ChoiceReplyRequest) []llm.Message {
 			strings.Join(optionLines, "\n"),
 			"",
 			"Latest user reply: " + strings.TrimSpace(request.Reply),
-		}, "\n")},
-	}
-}
-
-func confirmationReplyMessages(pendingPrompt string, confirmationQuestion string, reply string) []llm.Message {
-	return []llm.Message{
-		{Role: "system", Content: strings.Join([]string{
-			"Classify the latest user message against a pending confirmation.",
-			"Return approved only when the latest message clearly authorizes the pending action.",
-			"Return rejected for cancellation or refusal.",
-			"Return modify when the user changes any condition of the pending action.",
-			"Return question when the user asks about the pending action.",
-			"Return unrelated for a separate new request.",
-			"Short Korean affirmatives such as 응, 네, 좋아, 진행해, 해줘, 그래, 해 are approvals only when they answer this confirmation question.",
-		}, "\n")},
-		{Role: "system", Content: (LLMContextBuilder{}).Build(LLMContextInput{})},
-		{Role: "user", Content: strings.Join([]string{
-			"Pending task:",
-			strings.TrimSpace(pendingPrompt),
-			"",
-			"Confirmation question:",
-			strings.TrimSpace(confirmationQuestion),
-			"",
-			"Latest user message:",
-			strings.TrimSpace(reply),
 		}, "\n")},
 	}
 }
