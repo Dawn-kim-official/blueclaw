@@ -525,7 +525,7 @@ func TestInteractiveBrowserCapabilityUsesCompanion(t *testing.T) {
 	}
 }
 
-func TestPublicBrowserCapabilityWithRequesterKeepsDeviceFallback(t *testing.T) {
+func TestPublicBrowserCapabilityWithRequesterUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
@@ -552,12 +552,16 @@ func TestPublicBrowserCapabilityWithRequesterKeepsDeviceFallback(t *testing.T) {
 	if toolResult.Failed() {
 		t.Fatalf("expected browser capability success, got %+v", toolResult)
 	}
-	var requestDocument map[string]any
+	var requestDocument struct {
+		ExecutionMode        string `json:"executionMode"`
+		RequiresUserPresence bool   `json:"requiresUserPresence"`
+		PrivacyClass         string `json:"privacyClass"`
+	}
 	if errorValue := json.Unmarshal([]byte(httpClient.requestBody), &requestDocument); errorValue != nil {
 		t.Fatalf("expected browser capability request json: %v", errorValue)
 	}
-	if _, isFound := requestDocument["executionMode"]; isFound {
-		t.Fatalf("expected public requester browser capability to keep automatic fallback, got body=%s", httpClient.requestBody)
+	if requestDocument.ExecutionMode != "companion" || !requestDocument.RequiresUserPresence || requestDocument.PrivacyClass != "user_browser" {
+		t.Fatalf("expected public requester browser capability to require companion, got %+v body=%s", requestDocument, httpClient.requestBody)
 	}
 }
 
@@ -666,7 +670,7 @@ func TestCapabilityDenialPreservesRecoveryAction(t *testing.T) {
 	}
 }
 
-func TestPublicBrowserCapabilityKeepsDeviceFallback(t *testing.T) {
+func TestPublicBrowserCapabilityUsesCompanion(t *testing.T) {
 	httpClient := &recordingHTTPClient{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseCapabilityTools(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []string{"browser.open"})
@@ -686,15 +690,16 @@ func TestPublicBrowserCapabilityKeepsDeviceFallback(t *testing.T) {
 	if toolResult.Failed() {
 		t.Fatalf("expected browser capability success, got %+v", toolResult)
 	}
-	var requestDocument map[string]any
+	var requestDocument struct {
+		ExecutionMode        string `json:"executionMode"`
+		RequiresUserPresence bool   `json:"requiresUserPresence"`
+		PrivacyClass         string `json:"privacyClass"`
+	}
 	if errorValue := json.Unmarshal([]byte(httpClient.requestBody), &requestDocument); errorValue != nil {
 		t.Fatalf("expected browser capability request json: %v", errorValue)
 	}
-	if _, isFound := requestDocument["executionMode"]; isFound {
-		t.Fatalf("expected public browser capability to keep automatic fallback, got body=%s", httpClient.requestBody)
-	}
-	if _, isFound := requestDocument["requiresUserPresence"]; isFound {
-		t.Fatalf("expected public browser capability to avoid user presence, got body=%s", httpClient.requestBody)
+	if requestDocument.ExecutionMode != "companion" || !requestDocument.RequiresUserPresence || requestDocument.PrivacyClass != "user_browser" {
+		t.Fatalf("expected public browser capability to require companion, got %+v body=%s", requestDocument, httpClient.requestBody)
 	}
 }
 
