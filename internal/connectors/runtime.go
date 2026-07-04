@@ -704,7 +704,7 @@ func (connectorRuntime *ConnectorRuntime) processQueuedConnectorEvent(ctx contex
 	}
 	connectorRuntime.logConnectorQueueWait(event)
 	lock := connectorRuntime.conversationLock(event.Platform + ":" + event.ConversationID)
-	if shouldProcessBeforeConversationLock(event) {
+	if connectorRuntime.shouldProcessBeforeConversationLock(ctx, adapter, event) {
 		connectorRuntime.processQueuedConnectorEventWithAdapter(ctx, adapter, queuedEvent)
 		return
 	}
