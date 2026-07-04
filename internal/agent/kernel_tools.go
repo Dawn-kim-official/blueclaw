@@ -6,22 +6,24 @@ import (
 )
 
 const (
-	TerminalRunToolName      = "terminal.run"
-	AskInputToolName         = "ask.input"
-	AskConfirmToolName       = "ask.confirm"
-	FileDeliverToolName      = "file.deliver"
-	AskChoiceToolName        = "ask.choice"
-	ArtifactDeliverToolName  = "artifact.deliver"
-	FileAttachToolName       = "file.attach"
-	SkillSearchToolName      = "skill.search"
-	CapabilityInvokeToolName = "capability.invoke"
-	FileReadToolName         = "file.read"
-	FileWriteToolName        = "file.write"
-	FileDeleteToolName       = "file.delete"
-	FileEditToolName         = "file.edit"
-	FilePatchToolName        = "file.patch"
-	FilePreviewToolName      = "file.preview"
-	ImageReadToolName        = "image.read"
+	TerminalRunToolName         = "terminal.run"
+	AskInputToolName            = "ask.input"
+	AskConfirmToolName          = "ask.confirm"
+	FileDeliverToolName         = "file.deliver"
+	AskChoiceToolName           = "ask.choice"
+	ArtifactDeliverToolName     = "artifact.deliver"
+	FileAttachToolName          = "file.attach"
+	SkillSearchToolName         = "skill.search"
+	CapabilityInvokeToolName    = "capability.invoke"
+	FileReadToolName            = "file.read"
+	FileWriteToolName           = "file.write"
+	FileDeleteToolName          = "file.delete"
+	FileEditToolName            = "file.edit"
+	FilePatchToolName           = "file.patch"
+	FilePreviewToolName         = "file.preview"
+	ImageReadToolName           = "image.read"
+	ConversationHistoryToolName = "conversation.history"
+	TaskHistoryToolName         = "task.history"
 )
 
 func KernelToolNames() []string {
@@ -39,6 +41,8 @@ func KernelToolNames() []string {
 		FilePatchToolName,
 		FilePreviewToolName,
 		ImageReadToolName,
+		ConversationHistoryToolName,
+		TaskHistoryToolName,
 	}
 }
 
