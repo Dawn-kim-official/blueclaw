@@ -473,7 +473,7 @@ func validateExpectedResultCompletionGate(request AgentTurnRequest, observations
 	if errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
 	}
-	if externalSendCompletionEvidenceRequired(request) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
+	if externalSendCompletionEvidenceRequired(request) && !outcomeContractRequiresPublicLinkOnly(request.OutcomeContract) && !hasSendCompletionEvidence(observations, actionDocument.CompletionEvidence) {
 		requiredSendToolNames := requiredSendToolNamesForRequest(request)
 		return completionGateResult{
 			Message:            sendCompletionEvidenceRequiredMessage(requiredSendToolNames),
