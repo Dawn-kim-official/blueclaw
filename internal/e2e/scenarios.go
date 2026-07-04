@@ -1253,24 +1253,23 @@ func AskChoiceReplyAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 	return VirtualSessionScenario{
 		Name:                  "ask_choice_reply_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AllowedTools:          []string{"conversation.history", "memory.search", "ask.choice"},
+		AllowedTools:          []string{"conversation.history", "memory.search", "ask.input"},
 		Turns: []VirtualTurn{{
 			Prompt: "둘 중 하나 고르게 해줘",
 			ActionResponses: []string{
-				actionCallToolWithMessage("ask.choice", "어느 쪽으로 진행할까요?", `{"options":[{"key":"1","label":"첫 번째","shortLabel":"첫 번째"},{"key":"2","label":"두 번째"}],"recommendedOptionKey":"1","selectionMode":"single"}`),
+				actionCallToolWithMessage("ask.input", "어느 쪽으로 진행할까요?", `{"question":"어느 쪽으로 진행할까요?","choices":["첫 번째","두 번째"]}`),
 			},
-			ExpectedToolCalls:      []string{"ask.choice"},
+			ExpectedToolCalls:      []string{"ask.input"},
 			ExpectedEvents:         []string{"ask.requested"},
 			ExpectedReplyFragments: []string{"어느 쪽으로 진행할까요?"},
-			ExpectedModelContexts:  []string{`"shortLabel":{"description":"버튼에 표시할 1~3단어 단답; label은 본문에 길게 설명 가능","type":"string"}`, `"recommendedOptionKey"`},
+			ExpectedModelContexts:  []string{"choices"},
 		}, {
-			Prompt: "2",
+			Prompt: "두 번째",
 			ActionResponses: []string{
 				actionFinishMessage("두 번째로 진행하겠습니다."),
 			},
 			ExpectedEvents:         []string{"ask.resolved"},
 			ExpectedReplyFragments: []string{"두 번째"},
-			ExpectedModelContexts:  []string{"User selected: 2 / 두 번째"},
 		}},
 	}
 }

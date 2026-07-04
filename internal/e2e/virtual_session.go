@@ -1099,7 +1099,7 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		if harness.scriptedModel != nil {
 			if strings.TrimSpace(virtualTurn.RouterApproval) != "" {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioApprovalRouterResponse(virtualTurn.RouterApproval))
-			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" {
+			} else if len(virtualTurn.RouterRequiredEvidence) > 0 || strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" || virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
 				harness.scriptedModel.EnqueueStructuredResponses("blueclaw_turn_router", scenarioTurnRouterResponse(harness.scenario, virtualTurn))
 			}
 			harness.scriptedModel.SetActionResponses(virtualTurn.ActionResponses...)
@@ -1180,8 +1180,12 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 	if strings.TrimSpace(virtualTurn.RouterSiteEvidence) != "" {
 		siteEvidence = virtualTurn.RouterSiteEvidence
 	}
+	route := "start_task"
+	if virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
+		route = "continue_task"
+	}
 	routerDocument := map[string]any{
-		"route":                  "start_task",
+		"route":                  route,
 		"classification":         "bounded_task",
 		"taskShape":              "maintenance_task",
 		"taskComplexity":         "normal",

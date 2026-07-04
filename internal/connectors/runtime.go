@@ -2261,7 +2261,7 @@ func normalizedAskInteractionKind(kind string) string {
 		return "ask_choice_single"
 	case "choice_multiple":
 		return "ask_choice_multiple"
-	case "input":
+	case "input", "input_choice":
 		return "ask_input"
 	default:
 		return strings.TrimSpace(kind)
