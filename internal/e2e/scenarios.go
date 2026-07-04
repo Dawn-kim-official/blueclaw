@@ -676,7 +676,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 				Prompt: "간단한 메모 정리 custom skill을 등록해줘",
 				ActionResponses: []string{
 					actionSelectTools("skill.add"),
-					actionInvokeCapabilityTool("skill.add", skillAddToolInput(skillName, skillContent)),
+					actionCallTool("skill.add", skillAddToolInput(skillName, skillContent)),
 					actionFinishMessage("memo-helper skill을 등록했습니다.", "obs-002:skill.add:0"),
 				},
 				ExpectedToolCalls: []string{"skill.add"},
@@ -685,7 +685,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 					"skill.remove": 0,
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.capability.invoke.result", BodyFragment: "created", Count: 1},
+					{Name: "tool.skill.add.result", BodyFragment: "created", Count: 1},
 				},
 				ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
 					PathGlob:          ".agents/skills/memo-helper/SKILL.md",
@@ -697,7 +697,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 				Prompt: "방금 등록한 memo-helper skill 삭제해줘",
 				ActionResponses: []string{
 					actionSelectTools("skill.remove"),
-					actionInvokeCapabilityTool("skill.remove", `{"name":"memo-helper"}`),
+					actionCallTool("skill.remove", `{"name":"memo-helper"}`),
 					actionFinishMessage("memo-helper skill을 삭제했습니다.", "obs-002:skill.remove:0"),
 				},
 				ExpectedToolCalls: []string{"skill.remove"},
@@ -706,7 +706,7 @@ func SkillLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 					"skill.remove": 1,
 				},
 				ExpectedEventCounts: []VirtualEventCount{
-					{Name: "tool.capability.invoke.result", BodyFragment: "removed", Count: 1},
+					{Name: "tool.skill.remove.result", BodyFragment: "removed", Count: 1},
 				},
 				ExpectedReplyFragments: []string{"memo-helper", "삭제"},
 			},
@@ -783,8 +783,9 @@ func MemoryExplicitToolAcceptanceScenario(artifactDirectoryPath string) VirtualS
 			{
 				Prompt: "Please remember that my preferred language is Korean.",
 				ActionResponses: []string{
+					actionSelectTools("memory.remember"),
 					actionCallTool("memory.remember", `{"content":"preferred language is Korean"}`),
-					actionFinishMessage("Remembered: your preferred language is Korean.", "obs-001:memory.remember:0"),
+					actionFinishMessage("Remembered: your preferred language is Korean.", "obs-002:memory.remember:0"),
 				},
 				ExpectedToolCalls: []string{"memory.remember"},
 				ExpectedToolCallCounts: map[string]int{
