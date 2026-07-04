@@ -183,7 +183,10 @@ func TestConnectorRuntimeAllowsWaitingTaskContinuationWhenQuiesced(t *testing.T)
 	}
 }
 
-func TestOnlyExactStopCommandsBypassConversationLock(t *testing.T) {
+func TestExactStopCommandsAndActiveTaskFollowUpsBypassConversationLock(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{reply: "ok"})
+	ctx := context.Background()
+
 	stopEvent := testInboundEvent("message-stop")
 	stopEvent.Prompt = "/stop"
 	koreanStopEvent := testInboundEvent("message-stop-ko")
@@ -194,17 +197,72 @@ func TestOnlyExactStopCommandsBypassConversationLock(t *testing.T) {
 	askEvent.LegacyFields = map[string]interface{}{"askAction": "confirm"}
 	askEvent.Prompt = "approved"
 
-	if !shouldProcessBeforeConversationLock(stopEvent) {
+	if !connectorRuntime.shouldProcessBeforeConversationLock(ctx, adapter, stopEvent) {
 		t.Fatal("expected exact stop command to bypass conversation lock")
 	}
-	if shouldProcessBeforeConversationLock(koreanStopEvent) {
-		t.Fatal("korean stop alias should not bypass conversation lock")
+	if connectorRuntime.shouldProcessBeforeConversationLock(ctx, adapter, koreanStopEvent) {
+		t.Fatal("korean stop alias without an active task should not bypass conversation lock")
 	}
-	if shouldProcessBeforeConversationLock(stopUnderscoreEvent) {
-		t.Fatal("underscore stop alias should not bypass conversation lock")
+	if connectorRuntime.shouldProcessBeforeConversationLock(ctx, adapter, stopUnderscoreEvent) {
+		t.Fatal("underscore stop alias without an active task should not bypass conversation lock")
 	}
-	if shouldProcessBeforeConversationLock(askEvent) {
-		t.Fatal("ask interaction should keep conversation lock ordering")
+	if connectorRuntime.shouldProcessBeforeConversationLock(ctx, adapter, askEvent) {
+		t.Fatal("ask interaction without an active task should keep conversation lock ordering")
+	}
+}
+
+func TestActiveTaskFollowUpBypassesConversationLockWhenClassifiedAsRelated(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		DefaultResponsesBySchema: map[string]string{
+			"blueclaw_active_task_followup": `{"relatesToActiveTask":true}`,
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	if _, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
+
+	event := testInboundEvent("message-correction")
+	event.Prompt = "아니야 하지마"
+
+	if !connectorRuntime.shouldProcessBeforeConversationLock(context.Background(), adapter, event) {
+		t.Fatal("expected message classified as related to the active task to bypass conversation lock")
+	}
+}
+
+func TestActiveTaskFollowUpDoesNotBypassConversationLockWhenClassifiedAsUnrelated(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		DefaultResponsesBySchema: map[string]string{
+			"blueclaw_active_task_followup": `{"relatesToActiveTask":false}`,
+		},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	if _, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
+
+	event := testInboundEvent("message-unrelated")
+	event.Prompt = "오늘 날씨 어때"
+
+	if connectorRuntime.shouldProcessBeforeConversationLock(context.Background(), adapter, event) {
+		t.Fatal("expected unrelated message to keep conversation lock ordering")
+	}
+}
+
+func TestActiveTaskFollowUpClassificationErrorDoesNotBypassConversationLock(t *testing.T) {
+	connectorRuntime, adapter := newTestConnectorRuntime(t, testLanguageModel{errorValue: errors.New("model unavailable")})
+	if _, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "보고서 작성"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	connectorRuntime.identityService.RememberPlatformAccount(identity.PlatformAccountIdentity{Platform: "test", ExternalUserID: "sender-user", Email: "invited@example.com", PersonID: "person-1"})
+
+	event := testInboundEvent("message-correction-error")
+	event.Prompt = "아니야 하지마"
+
+	if connectorRuntime.shouldProcessBeforeConversationLock(context.Background(), adapter, event) {
+		t.Fatal("expected classification failure to keep the safer conversation-lock ordering instead of bypassing")
 	}
 }
 
@@ -689,6 +747,81 @@ func TestConnectorRuntimeBusyCancelStopsActiveTaskWithoutNewTask(t *testing.T) {
 	}
 	if !connectorTaskEventsContain(connectorRuntime, activeTaskRun.TaskRunID, "task.cancel.requested", "message-busy-cancel") {
 		t.Fatal("expected cancel request event")
+	}
+}
+
+func TestConnectorRuntimeFinishedTaskFollowUpDoesNotCreateNewTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		DefaultResponsesBySchema: map[string]string{
+			"blueclaw_active_task_followup": `{"relatesToActiveTask":true}`,
+		},
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_reply": {
+				`{"reply":"그 작업은 이미 끝났습니다. 되돌릴까요, 아니면 새로 시작할까요?"}`,
+			},
+		},
+	})
+	taskRunRepository := newTestTaskRunRepository()
+	finishedTaskRun := task.TaskRun{
+		TaskRunID:            "task-finished",
+		RequesterPersonID:    "person-1",
+		OriginConversationID: "direct-1",
+		Status:               task.TaskStatusCompleted,
+		Prompt:               "보고서 작성",
+		CreatedAt:            time.Now().Add(-time.Minute),
+		UpdatedAt:            time.Now(),
+	}
+	taskRunRepository.taskRuns[finishedTaskRun.TaskRunID] = finishedTaskRun
+	connectorRuntime, adapter, _ := newRepositoryBackedTestConnectorRuntime(t, languageModel, taskRunRepository)
+
+	event := testInboundEvent("message-after-finish")
+	event.Prompt = "아니야 하지마"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected finished task follow-up to process: %v", errorValue)
+	}
+	if result.Reason != "busy_finished_followup" || result.TaskRunID != finishedTaskRun.TaskRunID {
+		t.Fatalf("expected finished task follow-up result, got %+v", result)
+	}
+	if len(connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1")) != 1 {
+		t.Fatalf("expected no new task run to be created, got %+v", connectorRuntime.agentKernel.ListTaskRunByPersonID("person-1"))
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "그 작업은 이미 끝났습니다. 되돌릴까요, 아니면 새로 시작할까요?" {
+		t.Fatalf("expected finished task follow-up reply, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeUnrelatedMessageAfterFinishedTaskStartsNewTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		DefaultResponsesBySchema: map[string]string{
+			"blueclaw_active_task_followup": `{"relatesToActiveTask":false}`,
+		},
+	})
+	taskRunRepository := newTestTaskRunRepository()
+	finishedTaskRun := task.TaskRun{
+		TaskRunID:            "task-finished",
+		RequesterPersonID:    "person-1",
+		OriginConversationID: "direct-1",
+		Status:               task.TaskStatusCompleted,
+		Prompt:               "보고서 작성",
+		CreatedAt:            time.Now().Add(-time.Minute),
+		UpdatedAt:            time.Now(),
+	}
+	taskRunRepository.taskRuns[finishedTaskRun.TaskRunID] = finishedTaskRun
+	connectorRuntime, adapter, _ := newRepositoryBackedTestConnectorRuntime(t, languageModel, taskRunRepository)
+
+	event := testInboundEvent("message-new-topic")
+	event.Prompt = "다른 걸 도와줘"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+
+	if errorValue != nil {
+		t.Fatalf("expected unrelated message to process: %v", errorValue)
+	}
+	if result.TaskRunID == "" || result.TaskRunID == finishedTaskRun.TaskRunID {
+		t.Fatalf("expected a new task run for an unrelated message, got %+v", result)
 	}
 }
 
