@@ -973,22 +973,6 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunI
 
 func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
 	plannedRequest := requestWithStepWorkingSetTools(request, state.Observations)
-	requestArguments := buildToolSelectionRequest(
-		plannedRequest.ToolSet,
-		instructionBundleFromTurnRequest(plannedRequest),
-		agentRequestFromTurnRequest(plannedRequest),
-		ExecutionPlan{},
-		false,
-		plannedRequest.OutcomeContract,
-		state.Observations,
-	)
-	selectionDecision, exposureEvent := ToolSelectionDecision{}, ToolExposureEvent{}
-	if deterministicDecision, deterministicEvent, isDeterministic := deterministicToolSelectionDecision(requestArguments); isDeterministic {
-		selectionDecision = deterministicDecision
-		exposureEvent = deterministicEvent
-	} else {
-		exposureEvent.SelectionSource = "deterministic_palette"
-	}
 	filteredToolSet, exposureEvent := toolSetForAgentTurnWithExposure(
 		plannedRequest.ToolSet,
 		instructionBundleFromTurnRequest(plannedRequest),
@@ -996,8 +980,7 @@ func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, reques
 		ExecutionPlan{},
 		false,
 		plannedRequest.OutcomeContract,
-		selectionDecision,
-		exposureEvent,
+		ToolExposureEvent{SelectionSource: "deterministic_palette"},
 		state.Observations,
 	)
 	iterationRequest := plannedRequest

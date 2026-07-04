@@ -27,68 +27,8 @@ type ToolExposureEvent struct {
 	UsedFallbackGroups       bool               `json:"usedFallbackGroups"`
 	ExposedToolIDs           []string           `json:"exposedToolIDs"`
 	PromotedOperationToolIDs []string           `json:"promotedOperationToolIDs,omitempty"`
+	PinnedGroupToolIDs       []string           `json:"pinnedGroupToolIDs,omitempty"`
 	DroppedGroups            []droppedToolGroup `json:"droppedGroups,omitempty"`
-}
-
-type ToolSelectionDecision struct {
-	SelectedToolIDs []string `json:"selectedToolIDs"`
-	Reason          string   `json:"reason"`
-}
-
-type toolSelectionRequest struct {
-	Prompt          string
-	VisibleContext  VisibleContext
-	ActiveGoal      ActiveGoal
-	OutcomeSummary  string
-	RecentProgress  string
-	ToolSet         *ToolSet
-	CoreGroups      []toolExposureGroup
-	CandidateGroups []toolExposureGroup
-}
-
-func buildToolSelectionRequest(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, observations ...[]turnObservation) toolSelectionRequest {
-	recentObservations := []turnObservation{}
-	if len(observations) > 0 {
-		recentObservations = observations[0]
-	}
-	coreGroups := collectCoreGroups(toolSet)
-	candidateGroups := collectOptionalCandidateGroups(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, recentObservations)
-	return toolSelectionRequest{
-		Prompt:          request.Prompt,
-		VisibleContext:  request.VisibleContext,
-		ActiveGoal:      activeGoalForTurn(request, outcomeContract, executionPlan, hasExecutionPlan),
-		OutcomeSummary:  outcomeContractSummary(outcomeContract),
-		RecentProgress:  toolSelectionRecentProgress(recentObservations),
-		ToolSet:         toolSet,
-		CoreGroups:      coreGroups,
-		CandidateGroups: candidateGroups,
-	}
-}
-
-func deterministicToolSelectionDecision(request toolSelectionRequest) (ToolSelectionDecision, ToolExposureEvent, bool) {
-	return ToolSelectionDecision{}, ToolExposureEvent{}, false
-}
-
-func deterministicToolSelection(toolIDs []string, reason string) (ToolSelectionDecision, ToolExposureEvent) {
-	selection := ToolSelectionDecision{
-		SelectedToolIDs: stableUniqueToolIDs(toolIDs),
-		Reason:          reason,
-	}
-	event := ToolExposureEvent{
-		SelectedToolIDs: append([]string{}, selection.SelectedToolIDs...),
-		SelectionReason: reason,
-		SelectionSource: "deterministic",
-	}
-	return selection, event
-}
-
-func firstGroupToolIDs(groups []toolExposureGroup, groupName string) []string {
-	for _, group := range groups {
-		if group.Name == groupName {
-			return append([]string{}, group.ToolIDs...)
-		}
-	}
-	return nil
 }
 
 func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
@@ -97,11 +37,7 @@ func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
 	}
 }
 
-func collectOptionalCandidateGroups(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, observations []turnObservation) []toolExposureGroup {
-	return nil
-}
-
-func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selection ToolSelectionDecision, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
+func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
 	if toolSet == nil {
 		return nil, selectionEvent
 	}
@@ -111,12 +47,14 @@ func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle Instruc
 	}
 	kernelGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()})
 	promotedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "promoted operations", ToolIDs: promotedCapabilityOperationNames(toolSet, recentObservations)})
-	exposedToolIDs := stableUniqueToolIDs(append(append([]string{}, kernelGroup.ToolIDs...), promotedGroup.ToolIDs...))
+	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "requested tools", ToolIDs: request.PinnedToolNames})
+	exposedToolIDs := stableUniqueToolIDs(append(append(append([]string{}, kernelGroup.ToolIDs...), promotedGroup.ToolIDs...), pinnedGroup.ToolIDs...))
 	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, "fixed_kernel")
 	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, "Blueclaw exposes the same compact kernel tools on every turn")
 	selectionEvent.ValidSelectedToolIDs = nil
 	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
 	selectionEvent.PromotedOperationToolIDs = append([]string{}, promotedGroup.ToolIDs...)
+	selectionEvent.PinnedGroupToolIDs = append([]string{}, pinnedGroup.ToolIDs...)
 	selectionEvent.DroppedGroups = nil
 	selectionEvent.UsedFallbackGroups = false
 	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
@@ -164,13 +102,6 @@ func promotableCapabilityOperationName(toolSet *ToolSet, observation turnObserva
 	return operationName
 }
 
-func selectedRegisteredToolGroup(toolSet *ToolSet, selectedToolIDs []string) toolExposureGroup {
-	if toolSet == nil || len(selectedToolIDs) == 0 {
-		return toolExposureGroup{}
-	}
-	return filterGroupTools(toolSet, toolExposureGroup{Name: "G0 selected tools", ToolIDs: stableUniqueToolIDs(selectedToolIDs)})
-}
-
 func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
 	if len(exposedToolIDs) > 0 {
 		return exposedToolIDs
@@ -178,70 +109,9 @@ func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
 	return []string{"__blueclaw_no_callable_tools__"}
 }
 
-func fallbackToolExposureGroups(coreGroups []toolExposureGroup, candidateGroups []toolExposureGroup) []toolExposureGroup {
-	orderedGroups := []toolExposureGroup{}
-	orderedGroups = append(orderedGroups, candidateGroupsWithName(candidateGroups, "G4 recovery/pinned candidates")...)
-	orderedGroups = append(orderedGroups, coreGroups...)
-	return orderedGroups
-}
-
-func candidateGroupsWithName(groups []toolExposureGroup, name string) []toolExposureGroup {
-	matchingGroups := []toolExposureGroup{}
-	for _, group := range groups {
-		if group.Name == name {
-			matchingGroups = append(matchingGroups, group)
-		}
-	}
-	return matchingGroups
-}
-
-func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selections ...ToolSelectionDecision) *ToolSet {
-	selection := ToolSelectionDecision{}
-	if len(selections) > 0 {
-		selection = selections[0]
-	}
-	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, selection, ToolExposureEvent{})
+func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, ToolExposureEvent{})
 	return filteredToolSet
-}
-
-func applyGroupCap(groups []toolExposureGroup, limit int) ([]string, []droppedToolGroup) {
-	exposedToolIDs := []string{}
-	droppedGroups := []droppedToolGroup{}
-	for _, group := range groups {
-		groupToolIDs := stableUniqueToolIDs(group.ToolIDs)
-		if len(groupToolIDs) == 0 {
-			continue
-		}
-		remaining := limit - len(exposedToolIDs)
-		if remaining <= 0 {
-			droppedGroups = append(droppedGroups, droppedToolGroup{Name: group.Name, ToolIDs: groupToolIDs})
-			continue
-		}
-		if len(groupToolIDs) <= remaining {
-			exposedToolIDs = appendUniqueStrings(exposedToolIDs, groupToolIDs...)
-			continue
-		}
-		exposedToolIDs = appendUniqueStrings(exposedToolIDs, groupToolIDs[:remaining]...)
-		droppedGroups = append(droppedGroups, droppedToolGroup{Name: group.Name, ToolIDs: groupToolIDs[remaining:], IsPartial: true})
-	}
-	return exposedToolIDs, droppedGroups
-}
-
-func selectedOptionalGroup(selectedToolIDs []string, candidateGroups []toolExposureGroup) toolExposureGroup {
-	candidateToolIDByID := map[string]bool{}
-	for _, group := range candidateGroups {
-		for _, toolID := range group.ToolIDs {
-			candidateToolIDByID[strings.TrimSpace(toolID)] = true
-		}
-	}
-	validToolIDs := []string{}
-	for _, toolID := range selectedToolIDs {
-		trimmedToolID := strings.TrimSpace(toolID)
-		if candidateToolIDByID[trimmedToolID] {
-			validToolIDs = appendUniqueStrings(validToolIDs, trimmedToolID)
-		}
-	}
-	return toolExposureGroup{Name: "G0 selected", ToolIDs: validToolIDs}
 }
 
 func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGroup {

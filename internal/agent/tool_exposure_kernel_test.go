@@ -16,7 +16,6 @@ func TestToolExposureUsesFixedKernelOnly(t *testing.T) {
 		ExecutionPlan{},
 		false,
 		OutcomeContract{},
-		ToolSelectionDecision{SelectedToolIDs: []string{"site.create"}},
 		ToolExposureEvent{},
 	)
 

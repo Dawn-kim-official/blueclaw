@@ -170,7 +170,6 @@ func TestPromotedOperationExposedWithFlatSchemaAfterInvalidInputFailure(t *testi
 		ExecutionPlan{},
 		false,
 		OutcomeContract{},
-		ToolSelectionDecision{},
 		ToolExposureEvent{},
 		observations,
 	)

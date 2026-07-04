@@ -595,7 +595,7 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 	}
 }
 
-func TestAgentTurnToolSetOnlyExposesKernelToolsDespitePinning(t *testing.T) {
+func TestAgentTurnToolSetExposesPinnedNonKernelTools(t *testing.T) {
 	toolSet := testToolSet([]string{"web.search", "web.fetch", "terminal.run", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills:         []SkillInstruction{{Name: "presentation", AllowedTools: []string{"terminal.run", "file.write"}}},
@@ -607,15 +607,10 @@ func TestAgentTurnToolSetOnlyExposesKernelToolsDespitePinning(t *testing.T) {
 		PinnedToolNames: []string{"web.search", "web.fetch", "terminal.run", "file.write"},
 	}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"terminal.run", "file.write"} {
+	// web.search and web.fetch are non-kernel, but a prior tool.request pinned them for this turn.
+	for _, toolName := range []string{"terminal.run", "file.write", "web.search", "web.fetch"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
-		}
-	}
-	// web.search and web.fetch are non-kernel; pinning cannot expose them directly, only capability.invoke reaches them.
-	for _, toolName := range []string{"web.search", "web.fetch"} {
-		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected non-kernel pinned tool %s to stay out of the action schema, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected pinned tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -675,13 +670,10 @@ func TestAgentTurnToolSetHidesSiteToolsForActiveGoalContinuation(t *testing.T) {
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	if !filteredToolSet.IsAllowed("terminal.run") {
-		t.Fatalf("expected kernel tool terminal.run to remain available, got %+v", filteredToolSet.ListToolNames())
-	}
-	// Continuation of an active site goal no longer keeps site.* exposed directly; capability.invoke is the only path.
-	for _, toolName := range []string{"site.create", "site.publish"} {
-		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected %s to stay out of the action schema even for an active site continuation, got %+v", toolName, filteredToolSet.ListToolNames())
+	// Continuation of an active site goal keeps site.* exposed because it is still pinned.
+	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected pinned tool %s to remain available for an active site continuation, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -713,15 +705,10 @@ func TestAgentTurnToolSetHidesSelectedSiteSkillToolsWhenActiveGoalWasAttachmentF
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	for _, toolName := range []string{"terminal.run", "file.deliver"} {
+	// A selected site skill keeps site.* exposed because it is still pinned, alongside the kernel tools.
+	for _, toolName := range []string{"terminal.run", "file.deliver", "site.create", "site.publish"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
-		}
-	}
-	// A selected site skill no longer exposes site.* directly; the model reaches it only through capability.invoke.
-	for _, toolName := range []string{"site.create", "site.publish"} {
-		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected %s to stay out of the action schema after selected site skill, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected pinned tool %s to remain available after selected site skill, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -899,7 +886,7 @@ func TestOutcomeContractRequiresSendEvidenceForActiveSendContinuation(t *testing
 	}
 }
 
-func TestAgentTurnToolSetHidesSendToolForActiveSendContinuation(t *testing.T) {
+func TestAgentTurnToolSetExposesSendToolForActiveSendContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"ask.confirm", "message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -923,12 +910,11 @@ func TestAgentTurnToolSetHidesSendToolForActiveSendContinuation(t *testing.T) {
 
 	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
 
-	if !filteredToolSet.IsAllowed("ask.confirm") {
-		t.Fatalf("expected kernel tool ask.confirm to remain available, got %+v", filteredToolSet.ListToolNames())
-	}
-	// Even an active send continuation reaches message.send only through capability.invoke now.
-	if filteredToolSet.IsAllowed("message.send") {
-		t.Fatalf("expected message.send to stay out of the action schema for continuation, got %+v", filteredToolSet.ListToolNames())
+	// An active send continuation keeps message.send exposed because it is still pinned.
+	for _, toolName := range []string{"ask.confirm", "message.send"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected pinned tool %s to remain available for continuation, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
 	}
 }
 

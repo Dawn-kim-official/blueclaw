@@ -154,7 +154,7 @@ func TestToolSetForAgentTurnExposesKernelToolsRegardlessOfSkillSelection(t *test
 	}
 }
 
-func TestToolSetForAgentTurnIgnoresPinningForNonKernelTools(t *testing.T) {
+func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
@@ -177,15 +177,16 @@ func TestToolSetForAgentTurnIgnoresPinningForNonKernelTools(t *testing.T) {
 		PinnedToolNames: []string{"schedule.create"},
 	}, ExecutionPlan{}, false, OutcomeContract{})
 
-	for _, toolName := range []string{"terminal.run", "file.write"} {
+	// schedule.create is pinned by a prior tool.request, so it joins the kernel tools in the schema.
+	for _, toolName := range []string{"terminal.run", "file.write", "schedule.create"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	// schedule.create is pinned, but pinning no longer exposes non-kernel tools directly.
-	for _, toolName := range []string{"conversation.history", "memory.search", "math.calculate", "schedule.create", "mail.message.search"} {
+	// Skill selection alone (without pinning) still does not expose a non-kernel tool.
+	for _, toolName := range []string{"conversation.history", "memory.search", "math.calculate", "mail.message.search"} {
 		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected non-kernel tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected unpinned non-kernel tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
