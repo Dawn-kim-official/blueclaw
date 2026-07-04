@@ -479,10 +479,12 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		decision.Reason = firstNonEmptyString(decision.Reason, "synthetic connector verification probe")
 		decision.UserFacingReply = ""
 	}
+	wasReclassifiedAwayFromConfirmation := false
 	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision.IntakeDecision()) {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = firstNonEmptyString(decision.Reason, "local workspace artifact generation can run as bounded tool work")
 		decision.UserFacingReply = ""
+		wasReclassifiedAwayFromConfirmation = true
 	}
 	decision.OutputKind = modelOutputKind
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
@@ -498,12 +500,13 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.Reason = "available site.app capability operations can create and publish the requested prototype"
 		decision.UserFacingReply = ""
+		wasReclassifiedAwayFromConfirmation = true
 	}
 	normalizedTaskShape := normalizeTaskShape(decision.TaskShape)
 	if normalizedTaskShape == "" {
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
 	}
-	if decision.Classification == IntakeClassificationBoundedTask && normalizedTaskShape == TaskShapeApprovalGatedTask {
+	if wasReclassifiedAwayFromConfirmation && normalizedTaskShape == TaskShapeApprovalGatedTask {
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
 	}
 	decision.TaskShape = normalizedTaskShape
