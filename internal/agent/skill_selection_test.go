@@ -143,11 +143,13 @@ func TestToolSetForAgentTurnExposesKernelToolsRegardlessOfSkillSelection(t *test
 
 	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
 
-	// terminal.run is the only kernel tool in this fixture; conversation.history and memory.search are not kernel tools.
-	if !filteredToolSet.IsAllowed("terminal.run") {
-		t.Fatalf("expected kernel tool terminal.run to remain available, got %+v", filteredToolSet.ListToolNames())
+	// terminal.run and conversation.history are kernel tools in this fixture; memory.search is not.
+	for _, toolName := range []string{"terminal.run", "conversation.history"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+		}
 	}
-	for _, toolName := range []string{"conversation.history", "memory.search", "site.create", "site.publish", "schedule.create"} {
+	for _, toolName := range []string{"memory.search", "site.create", "site.publish", "schedule.create"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected non-kernel tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
@@ -178,13 +180,14 @@ func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 	}, ExecutionPlan{}, false, OutcomeContract{})
 
 	// schedule.create is pinned by a prior tool.request, so it joins the kernel tools in the schema.
-	for _, toolName := range []string{"terminal.run", "file.write", "schedule.create"} {
+	// conversation.history is always available as a kernel tool, pinning or not.
+	for _, toolName := range []string{"terminal.run", "file.write", "schedule.create", "conversation.history"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 	// Skill selection alone (without pinning) still does not expose a non-kernel tool.
-	for _, toolName := range []string{"conversation.history", "memory.search", "math.calculate", "mail.message.search"} {
+	for _, toolName := range []string{"memory.search", "math.calculate", "mail.message.search"} {
 		if filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected unpinned non-kernel tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
