@@ -3,14 +3,18 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"blueclaw/internal/access"
 	"blueclaw/internal/agent"
 	"blueclaw/internal/security"
 	"blueclaw/internal/workspacepath"
 )
+
+var terminalRunHeartbeatInterval = 60 * time.Second
 
 type terminalSessionToolInput struct {
 	Action               string            `json:"action"`
@@ -154,24 +158,36 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 	if !toolCatalogBuilder.canAccessWorkspacePath(handlerContext.request.PersonAccess, access.ActionWrite, input.WorkingDirectoryPath) {
 		return terminalWorkspaceAccessFailure(input.WorkingDirectoryPath), nil
 	}
+	actorStartedAt := time.Now()
 	workspaceActor, actorFailure := toolCatalogBuilder.workspaceActorForRequest(toolContext, handlerContext.request)
 	if actorFailure != nil {
 		return *actorFailure, nil
 	}
+	slog.Info("terminal.run actor acquired", "durationMs", time.Since(actorStartedAt).Milliseconds())
+	workingDirectoryStartedAt := time.Now()
 	if errorValue := workspaceActor.MkdirAll(toolContext, workspacepath.Directory(workingDirectory), workspaceDirectoryCreateMode(workspacepath.Directory(workingDirectory))); errorValue != nil {
 		return actorToolFailure("mkdir_all", "terminal_working_directory", workingDirectory.VirtualPath, errorValue), nil
 	}
+	slog.Info("terminal.run working directory prepared", "durationMs", time.Since(workingDirectoryStartedAt).Milliseconds())
+	materializeStartedAt := time.Now()
 	if toolFailure := toolCatalogBuilder.materializeTerminalRuntimeDirectories(toolContext, workspaceActor, scope, input.EnvironmentVariables); toolFailure != nil {
 		return *toolFailure, nil
 	}
+	slog.Info("terminal.run runtime directories materialized", "durationMs", time.Since(materializeStartedAt).Milliseconds())
 	if toolFailure := terminalSourceWriteMisuseFailure(input.Command); toolFailure != nil {
 		return *toolFailure, nil
 	}
+	preflightStartedAt := time.Now()
 	if toolFailure := preflightNodePackageBuild(toolContext, workspaceActor, workspacepath.Directory(workingDirectory), input.Command); toolFailure != nil {
 		return *toolFailure, nil
 	}
+	slog.Info("terminal.run node package build preflighted", "durationMs", time.Since(preflightStartedAt).Milliseconds())
 	input.ExecutionIdentity = toolCatalogBuilder.executionIdentityForRequester(handlerContext.request)
+	runStartedAt := time.Now()
+	stopHeartbeat := toolCatalogBuilder.startTerminalRunHeartbeat(toolContext, input.Command)
 	commandResult, errorValue := workspaceActor.Run(toolContext, input)
+	stopHeartbeat()
+	slog.Info("terminal.run command completed", "durationMs", time.Since(runStartedAt).Milliseconds(), "exitCode", commandResult.ExitCode, "timedOut", commandResult.TimedOut)
 	content := marshalToolResult(commandResult)
 	if errorValue != nil {
 		if security.IsCommandPathGuardrailError(errorValue) {
@@ -182,8 +198,41 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		}
 		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", content, json.RawMessage(content)), nil
 	}
-	_ = toolContext
 	return agent.ToolSuccess(content), nil
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) startTerminalRunHeartbeat(toolContext context.Context, command string) func() {
+	taskRunID := agent.TaskRunIDFromContext(toolContext)
+	if taskRunID == "" || toolCatalogBuilder.taskRunService == nil {
+		return func() {}
+	}
+	commandHead := terminalCommandHead(command)
+	startedAt := time.Now()
+	stopChannel := make(chan struct{})
+	go func() {
+		heartbeatTicker := time.NewTicker(terminalRunHeartbeatInterval)
+		defer heartbeatTicker.Stop()
+		for {
+			select {
+			case <-stopChannel:
+				return
+			case <-heartbeatTicker.C:
+				toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "terminal.run.heartbeat", marshalToolResult(map[string]any{
+					"elapsedSeconds": int(time.Since(startedAt).Seconds()),
+					"command":        commandHead,
+				}))
+			}
+		}
+	}()
+	return func() { close(stopChannel) }
+}
+
+func terminalCommandHead(command string) string {
+	commandRunes := []rune(strings.TrimSpace(command))
+	if len(commandRunes) <= 80 {
+		return string(commandRunes)
+	}
+	return string(commandRunes[:80])
 }
 
 func terminalWorkspaceAccessFailure(workingDirectoryPath string) agent.ToolResult {
