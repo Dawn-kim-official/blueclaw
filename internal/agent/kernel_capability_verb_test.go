@@ -46,3 +46,21 @@ func TestEffectiveObservationToolNameReturnsCapabilityInvokeOperationVerbatim(t 
 		t.Fatalf("expected verb name kept when operation missing, got %q", got)
 	}
 }
+
+func TestEffectiveActionToolNameAndInputUnwrapsStringifiedInput(t *testing.T) {
+	toolName, toolInput := effectiveActionToolNameAndInput(CapabilityInvokeToolName, json.RawMessage(`{"operation":"site.create","input":"{\"slug\":\"team-dashboard\"}"}`))
+	if toolName != "site.create" {
+		t.Fatalf("expected operation site.create, got %q", toolName)
+	}
+	if string(toolInput) != `{"slug":"team-dashboard"}` {
+		t.Fatalf("expected unwrapped object input, got %s", toolInput)
+	}
+	toolName, toolInput = effectiveActionToolNameAndInput(CapabilityInvokeToolName, json.RawMessage(`{"operation":"site.create","input":{"slug":"team-dashboard"}}`))
+	if toolName != "site.create" || string(toolInput) != `{"slug":"team-dashboard"}` {
+		t.Fatalf("expected object input passthrough, got %q %s", toolName, toolInput)
+	}
+	toolName, toolInput = effectiveActionToolNameAndInput(CapabilityInvokeToolName, json.RawMessage(`{"operation":"site.create","input":"not json"}`))
+	if toolName != "site.create" || string(toolInput) != `"not json"` {
+		t.Fatalf("expected non-JSON string input passthrough, got %q %s", toolName, toolInput)
+	}
+}

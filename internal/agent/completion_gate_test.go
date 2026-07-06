@@ -161,6 +161,42 @@ func TestCompletionGateAcceptsExternalSendFinishWithSendEvidence(t *testing.T) {
 	}
 }
 
+func TestCompletionGateAllowsSitePublishFinishWithoutStraySendEvidence(t *testing.T) {
+	goalSatisfied := true
+	request := AgentTurnRequest{
+		RequiredEvidenceTools: []string{"site.create", "site.publish", "message.send", "site.status"},
+		OutcomeContract: OutcomeContract{
+			RequiredEvidenceTools: []string{"site.create", "site.publish", "message.send", "site.status"},
+			ExpectedResults: []ExpectedResult{
+				{ID: "site-public-link", Type: ExpectedResultTypeLink, Description: "public site URL", Required: true},
+				{ID: "final-message", Type: ExpectedResultTypeMessage, Description: "final reply to the user", Required: true},
+			},
+		},
+	}
+	observations := []turnObservation{
+		newContentObservation("obs-004", "continue", "site.publish", `{"siteID":"site-1","status":"published","publishedURL":"https://banchan-table.example.test"}`),
+	}
+	result := validateExpectedResultCompletionGate(
+		request,
+		observations,
+		nil,
+		turnActionDocument{
+			Action:        "finish",
+			Message:       "게시했습니다. https://banchan-table.example.test",
+			GoalStatus:    "satisfied",
+			GoalSatisfied: &goalSatisfied,
+			CompletionEvidence: []completionEvidenceReference{{
+				ObservationID: "obs-004",
+			}},
+		},
+		defaultRecoveryBudget(),
+	)
+
+	if !result.IsSatisfied {
+		t.Fatalf("expected site finish backed by a successful site.publish observation to pass without message.send evidence, got %q", result.Message)
+	}
+}
+
 func TestCompletionGateLeavesNonSendFinishUnaffected(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGateForRequestWithRecoveryBudget(

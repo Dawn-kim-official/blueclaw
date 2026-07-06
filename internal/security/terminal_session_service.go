@@ -31,6 +31,8 @@ const (
 	commandReaperInterval    = 30 * time.Second
 )
 
+var commandWaitHeartbeatInterval = 60 * time.Second
+
 type CommandResult struct {
 	ExitCode int    `json:"exitCode"`
 	Stdout   string `json:"stdout"`
@@ -178,17 +180,23 @@ func configureCommandGroupKill(command *exec.Cmd) {
 }
 
 func awaitCommandCompletion(ctx context.Context, runResult <-chan error, abandonGrace time.Duration) (errorValue error, abandoned bool) {
-	select {
-	case errorValue = <-runResult:
-		return errorValue, false
-	case <-ctx.Done():
-	}
-
-	select {
-	case errorValue = <-runResult:
-		return errorValue, false
-	case <-time.After(abandonGrace):
-		return nil, true
+	heartbeatTicker := time.NewTicker(commandWaitHeartbeatInterval)
+	defer heartbeatTicker.Stop()
+	waitStartedAt := time.Now()
+	for {
+		select {
+		case errorValue = <-runResult:
+			return errorValue, false
+		case <-heartbeatTicker.C:
+			slog.Info("terminal.run command still running", "elapsedSeconds", int(time.Since(waitStartedAt).Seconds()))
+		case <-ctx.Done():
+			select {
+			case errorValue = <-runResult:
+				return errorValue, false
+			case <-time.After(abandonGrace):
+				return nil, true
+			}
+		}
 	}
 }
 
