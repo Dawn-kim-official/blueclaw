@@ -926,8 +926,10 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	if hasPendingConfirmation && !isApprovalContinuation && turnDecision.Route == agent.TurnRouteAnswerQuestion {
 		return connectorRuntime.handlePendingConfirmationQuestion(ctx, platform, adapter, event, replyTarget, pendingApproval, turnDecision, sendReply)
 	}
+	didSupersedePendingConfirmation := false
 	if hasPendingConfirmation && !isApprovalContinuation {
 		connectorRuntime.cancelPendingConfirmation(event, pendingApproval, turnDecision)
+		didSupersedePendingConfirmation = true
 	}
 	if connectorRuntime.shouldIgnoreOrphanAskAction(personID, platform, event, hasPendingConfirmation, taskWaitResolution) {
 		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", "ask_no_pending_interaction"))
@@ -936,7 +938,15 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	pendingAskInteraction, hasPendingAskInteraction := connectorRuntime.findPendingAskInteraction(personID, platform, event, taskWaitResolution)
 	previousPrompt := event.Prompt
 	event, askTurnDecision, hasAskTurnDecision := connectorRuntime.resolveAskReply(ctx, platform, personID, event, taskWaitResolution)
-	if hasPendingAskInteraction && askReplyConsumesInteraction(pendingAskInteraction, previousPrompt, event, askTurnDecision, hasAskTurnDecision) {
+	didSupersedePendingAsk := false
+	if hasPendingAskInteraction && askReplySupersedesInteraction(askTurnDecision, hasAskTurnDecision) {
+		connectorRuntime.supersedePendingAskInteraction(event, pendingAskInteraction, askTurnDecision)
+		connectorRuntime.resolveTaskWaitToken(taskWaitResolution)
+		pendingAskInteraction = AskInteraction{}
+		hasPendingAskInteraction = false
+		taskWaitResolution = inboundTaskWaitResolution{}
+		didSupersedePendingAsk = true
+	} else if hasPendingAskInteraction && askReplyConsumesInteraction(pendingAskInteraction, previousPrompt, event, askTurnDecision, hasAskTurnDecision) {
 		connectorRuntime.appendAskResolvedEvent(pendingAskInteraction, event, askTurnDecision)
 		connectorRuntime.resolveAskInteractionMessage(ctx, adapter, event, pendingAskInteraction.TaskRunID, pendingAskInteraction)
 		connectorRuntime.resolveTaskWaitToken(taskWaitResolution)
@@ -961,7 +971,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		connectorRuntime.logger.Info("connector."+platform+".ingress.deferred", slog.String("messageID", event.MessageID), slog.String("reason", "task_intake_quiesced"))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "task_intake_quiesced"}, nil
 	}
-	if !isApprovalContinuation && !hasPendingAskInteraction {
+	if !isApprovalContinuation && !hasPendingAskInteraction && !didSupersedePendingAsk && !didSupersedePendingConfirmation {
 		busyResult, errorValue := connectorRuntime.handleBusyMessageIfNeeded(ctx, platform, event, replyTarget, personID, sendReply)
 		if errorValue != nil {
 			return ConnectorRuntimeResult{}, errorValue
@@ -1390,6 +1400,25 @@ func askReplyConsumesInteraction(interaction AskInteraction, previousPrompt stri
 	}
 }
 
+func askReplySupersedesInteraction(decision agent.TurnDecision, hasDecision bool) bool {
+	return hasDecision && decision.Route == agent.TurnRouteStartTask
+}
+
+func (connectorRuntime *ConnectorRuntime) supersedePendingAskInteraction(event PlatformInboundEvent, interaction AskInteraction, decision agent.TurnDecision) {
+	taskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(interaction.TaskRunID)
+	if isFound {
+		_, _ = connectorRuntime.agentKernel.CancelTask(taskRun.TaskRunID, taskRun.RequesterPersonID, "superseded_by_new_message")
+		connectorRuntime.resolveOpenTaskWaitsForTaskRun(taskRun.RequesterPersonID, event.Platform, taskRun.OriginConversationID, taskRun.TaskRunID)
+	}
+	connectorRuntime.agentKernel.AppendTaskEvent(interaction.TaskRunID, "ask.superseded_by_message", marshalConnectorEventBody(map[string]string{
+		"interactionID":   strings.TrimSpace(interaction.InteractionID),
+		"messageID":       strings.TrimSpace(event.MessageID),
+		"route":           strings.TrimSpace(string(decision.Route)),
+		"reason":          strings.TrimSpace(decision.Reason),
+		"latestUserInput": strings.TrimSpace(event.Prompt),
+	}))
+}
+
 func (connectorRuntime *ConnectorRuntime) appendAskResolvedEvent(interaction AskInteraction, event PlatformInboundEvent, decision agent.TurnDecision) {
 	connectorRuntime.agentKernel.AppendTaskEvent(interaction.TaskRunID, "ask.resolved", marshalConnectorEventBody(map[string]any{
 		"interactionID": strings.TrimSpace(interaction.InteractionID),
@@ -1564,6 +1593,25 @@ func (connectorRuntime *ConnectorRuntime) resolveTaskWaitToken(taskWaitResolutio
 	}
 	if errorValue := connectorRuntime.taskWaitTokenRepository.ResolveTaskWait(taskWaitResolution.TaskWaitToken.WaitID, time.Now().UTC()); errorValue != nil {
 		connectorRuntime.logger.Warn("connector.wait.resolve_failed", slog.String("waitID", taskWaitResolution.TaskWaitToken.WaitID), slog.String("error", errorValue.Error()))
+	}
+}
+
+func (connectorRuntime *ConnectorRuntime) resolveOpenTaskWaitsForTaskRun(personID string, platform string, conversationID string, taskRunID string) {
+	if connectorRuntime.taskWaitTokenRepository == nil {
+		return
+	}
+	taskWaitTokens, errorValue := connectorRuntime.taskWaitTokenRepository.FindOpenByPersonAndConversation(personID, platform, conversationID)
+	if errorValue != nil {
+		connectorRuntime.logger.Warn("connector.wait.lookup_failed", slog.String("taskRunID", taskRunID), slog.String("error", errorValue.Error()))
+		return
+	}
+	for _, taskWaitToken := range taskWaitTokens {
+		if taskWaitToken.TaskRunID != strings.TrimSpace(taskRunID) {
+			continue
+		}
+		if errorValue := connectorRuntime.taskWaitTokenRepository.ResolveTaskWait(taskWaitToken.WaitID, time.Now().UTC()); errorValue != nil {
+			connectorRuntime.logger.Warn("connector.wait.resolve_failed", slog.String("waitID", taskWaitToken.WaitID), slog.String("error", errorValue.Error()))
+		}
 	}
 }
 

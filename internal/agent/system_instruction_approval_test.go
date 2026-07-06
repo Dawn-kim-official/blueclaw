@@ -43,3 +43,17 @@ func TestSystemInstructionRestrictsCheckpointsAndRequiresRecovery(t *testing.T) 
 		}
 	}
 }
+
+func TestSystemInstructionGuidesApprovalMessageAsNaturalQuestion(t *testing.T) {
+	instruction := buildAgentSystemInstruction(AgentTurnRequest{})
+
+	for _, expected := range []string{
+		"natural user-facing question",
+		"테스트에게 다음 내용을 보낼까요?",
+		"instead of naming internal tools or operations",
+	} {
+		if !strings.Contains(instruction, expected) {
+			t.Fatalf("expected system instruction to contain %q, got %s", expected, instruction)
+		}
+	}
+}

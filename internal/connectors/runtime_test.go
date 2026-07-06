@@ -386,6 +386,51 @@ func TestConnectorRuntimeSingleOpenWaitFallbackContinuesTask(t *testing.T) {
 	}
 }
 
+func TestConnectorRuntimePendingInputStartTaskSupersedesWaitingTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message is an independent question","userFacingReply":""}`,
+			},
+		},
+		ActionResponses: []string{connectorFinishMessage("휴게소 들러도 괜찮습니다.")},
+	})
+	connectorRuntime, adapter, taskRunService, taskWaitRepository := newWaitRoutingTestConnectorRuntime(t, languageModel)
+	waitingTaskRun := createWaitingInputTaskRun(t, taskRunService, "어느 채널에 보낼까요?", "single-interaction")
+	if errorValue := taskWaitRepository.InsertTaskWaitToken(waitRoutingTaskWaitToken(waitingTaskRun, "single-dispatch", "single-interaction")); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-new-question")
+	event.ReplyTargetID = "unmatched-reply-target"
+	event.Prompt = "휴게소 가야해?"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected independent question to process: %v", errorValue)
+	}
+
+	if result.TaskRunID == "" || result.TaskRunID == waitingTaskRun.TaskRunID {
+		t.Fatalf("expected new task result, got %+v", result)
+	}
+	waitingTaskRun, _ = connectorRuntime.agentKernel.FindTaskRun(waitingTaskRun.TaskRunID)
+	if waitingTaskRun.Status != task.TaskStatusCancelled || waitingTaskRun.FailureReason != "superseded_by_new_message" {
+		t.Fatalf("expected waiting task superseded, got %+v", waitingTaskRun)
+	}
+	openWaits, errorValue := taskWaitRepository.FindOpenByPersonAndConversation("person-1", "test", "direct-1")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if len(openWaits) != 0 {
+		t.Fatalf("expected superseded wait token to close, got %+v", openWaits)
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "휴게소 들러도 괜찮습니다." {
+		t.Fatalf("expected latest-message reply only, got %+v", adapter.sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, waitingTaskRun.TaskRunID, "ask.superseded_by_message", "message-new-question") {
+		t.Fatal("expected ask superseded event")
+	}
+}
+
 func TestConnectorRuntimeWritesResolvesAndExpiresTaskWaitRecord(t *testing.T) {
 	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
 		StructuredResponsesBySchema: map[string][]string{
@@ -869,6 +914,46 @@ func TestConnectorRuntimeBusyReplaceCancelsActiveTaskAndStartsNewTask(t *testing
 	}
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "새 작업으로 진행했습니다." {
 		t.Fatalf("expected replacement reply, got %+v", adapter.sentReplies)
+	}
+}
+
+func TestConnectorRuntimeBusyNewTaskSupersedesActiveTaskAndStartsNewTask(t *testing.T) {
+	languageModel := agenttest.NewScriptedLanguageModel(agenttest.ScriptedLanguageModelOptions{
+		StructuredResponsesBySchema: map[string][]string{
+			"blueclaw_turn_router": {
+				`{"route":"start_task","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"latest message is independent","userFacingReply":"","busyRoute":"new_task","busyInstruction":""}`,
+				`{"route":"answer_question","classification":"quick_reply","taskShape":"immediate_reply","effortLevel":"quick","requestedOutputFormats":null,"responseLanguage":"ko","reason":"answer latest question","userFacingReply":""}`,
+			},
+		},
+		ActionResponses: []string{connectorFinishMessage("휴게소 들러도 괜찮습니다.")},
+	})
+	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
+	connectorRuntime.agentKernel.UseIntakeLanguageModelProvider(languageModel)
+	connectorRuntime.agentKernel.UseIntakeOptions(agent.IntakeOptions{IsEnabled: true})
+	activeTaskRun, errorValue := connectorRuntime.agentKernel.RunTask("person-1", "direct-1", "경산 영남대 근처 맛집 추천")
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	event := testInboundEvent("message-independent-question")
+	event.Prompt = "휴게소 가야해?"
+
+	result, errorValue := connectorRuntime.HandleInboundEvent(context.Background(), adapter, event)
+	if errorValue != nil {
+		t.Fatalf("expected independent question to process: %v", errorValue)
+	}
+
+	cancelledTaskRun, isFound := connectorRuntime.agentKernel.FindTaskRun(activeTaskRun.TaskRunID)
+	if !isFound || cancelledTaskRun.Status != task.TaskStatusCancelled || cancelledTaskRun.FailureReason != "superseded_by_new_message" {
+		t.Fatalf("expected active task superseded, got found=%v task=%+v", isFound, cancelledTaskRun)
+	}
+	if result.TaskRunID == "" || result.TaskRunID == activeTaskRun.TaskRunID {
+		t.Fatalf("expected new task result, got %+v", result)
+	}
+	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "휴게소 들러도 괜찮습니다." {
+		t.Fatalf("expected latest task reply only, got %+v", adapter.sentReplies)
+	}
+	if !connectorTaskEventsContain(connectorRuntime, activeTaskRun.TaskRunID, "task.superseded_by_message", "message-independent-question") {
+		t.Fatal("expected superseded event")
 	}
 }
 

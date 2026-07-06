@@ -110,6 +110,9 @@ func (languageModel *ScriptedLanguageModel) GenerateStructuredResponse(_ context
 		if schemaName == "blueclaw_contract_verifier" {
 			return languageModel.structuredResponse(defaultContractVerificationResponse()), nil
 		}
+		if schemaName == "blueclaw_approval_question" {
+			return languageModel.structuredResponse(defaultApprovalQuestionResponse(request)), nil
+		}
 		return llm.StructuredResponse{}, fmt.Errorf("scripted language model has no %s response", schemaName)
 	}
 	if schemaName == "blueclaw_skill_search_queries" && response == `{"queries":[]}` {
@@ -216,6 +219,68 @@ func defaultResultVerificationResponse(request llm.StructuredResponseRequest) st
 
 func defaultContractVerificationResponse() string {
 	return `{"satisfied":true,"reason":"scripted test default","missingDescription":"","suggestedNextTools":[]}`
+}
+
+type approvalQuestionContextDocument struct {
+	OriginalRequest string            `json:"originalRequest"`
+	ModelDraft      string            `json:"modelDraft"`
+	ActionDetails   map[string]string `json:"actionDetails"`
+}
+
+func defaultApprovalQuestionResponse(request llm.StructuredResponseRequest) string {
+	contextDocument := approvalQuestionContextFromRequest(request)
+	details := contextDocument.ActionDetails
+	target := strings.TrimSpace(details["target"])
+	content := strings.TrimSpace(firstNonEmpty(details["message"], details["content"], details["title"], details["reason"]))
+	question := defaultApprovalQuestionFromContext(contextDocument, target, content)
+	document, errorValue := json.Marshal(map[string]string{"question": question})
+	if errorValue != nil {
+		return `{"question":"승인할까요?"}`
+	}
+	return string(document)
+}
+
+func defaultApprovalQuestionFromContext(contextDocument approvalQuestionContextDocument, target string, content string) string {
+	if target != "" && content != "" {
+		return target + "에게 다음 내용을 보낼까요?\n\n" + content
+	}
+	if draftQuestion := approvalQuestionFromDraft(contextDocument.ModelDraft); draftQuestion != "" {
+		return draftQuestion
+	}
+	if requestQuestion := approvalQuestionFromDraft(contextDocument.OriginalRequest); requestQuestion != "" {
+		return requestQuestion
+	}
+	if content != "" {
+		return content + "\n\n진행할까요?"
+	}
+	return "승인할까요?"
+}
+
+func approvalQuestionContextFromRequest(request llm.StructuredResponseRequest) approvalQuestionContextDocument {
+	for index := len(request.Messages) - 1; index >= 0; index-- {
+		var contextDocument approvalQuestionContextDocument
+		if json.Unmarshal([]byte(request.Messages[index].Content), &contextDocument) == nil {
+			return contextDocument
+		}
+	}
+	return approvalQuestionContextDocument{}
+}
+
+func approvalQuestionFromDraft(value string) string {
+	trimmedValue := strings.Trim(strings.TrimSpace(value), ".。")
+	if trimmedValue == "" {
+		return ""
+	}
+	if strings.HasSuffix(trimmedValue, "?") || strings.HasSuffix(trimmedValue, "？") {
+		return trimmedValue
+	}
+	if strings.HasSuffix(trimmedValue, "합니다") {
+		return strings.TrimSuffix(trimmedValue, "합니다") + "할까요?"
+	}
+	if strings.HasSuffix(trimmedValue, "해줘") {
+		return strings.TrimSuffix(trimmedValue, "해줘") + "할까요?"
+	}
+	return trimmedValue + "?"
 }
 
 func expectedResultIDsFromRequest(request llm.StructuredResponseRequest) []string {
