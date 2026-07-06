@@ -435,6 +435,61 @@ func shellSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
+func TestRunCommandTimeoutReturnsFailureResultWithPartialOutput(t *testing.T) {
+	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
+	startedAt := time.Now()
+
+	commandResult, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
+		Command:       "echo before-stall; sleep 30",
+		TimeoutSecond: 1,
+	})
+
+	if errorValue == nil {
+		t.Fatalf("expected timeout error, got result=%+v", commandResult)
+	}
+	if !commandResult.TimedOut {
+		t.Fatalf("expected timed out command result, got %+v", commandResult)
+	}
+	if commandResult.ExitCode != -1 {
+		t.Fatalf("expected exit code -1 on timeout, got %d", commandResult.ExitCode)
+	}
+	if !strings.Contains(commandResult.Stdout, "before-stall") {
+		t.Fatalf("expected partial stdout preserved on timeout, got %q", commandResult.Stdout)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 10*time.Second {
+		t.Fatalf("expected timeout result within enforcement bound, took %s", elapsed)
+	}
+}
+
+func TestAwaitCommandCompletionAbandonsSilentCommand(t *testing.T) {
+	expiredContext, cancelFunction := context.WithCancel(context.Background())
+	cancelFunction()
+	runResult := make(chan error)
+	startedAt := time.Now()
+
+	errorValue, abandoned := awaitCommandCompletion(expiredContext, runResult, 50*time.Millisecond)
+
+	if !abandoned {
+		t.Fatalf("expected abandoned completion, got error=%v", errorValue)
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("expected abandonment within grace, took %s", elapsed)
+	}
+}
+
+func TestAwaitCommandCompletionReturnsResultDeliveredDuringGrace(t *testing.T) {
+	expiredContext, cancelFunction := context.WithCancel(context.Background())
+	cancelFunction()
+	runResult := make(chan error, 1)
+	runResult <- nil
+
+	errorValue, abandoned := awaitCommandCompletion(expiredContext, runResult, time.Second)
+
+	if abandoned || errorValue != nil {
+		t.Fatalf("expected delivered run result, got abandoned=%v error=%v", abandoned, errorValue)
+	}
+}
+
 func testTerminalConfiguration(t *testing.T) config.TerminalConfiguration {
 	t.Helper()
 	workspaceRootPath := t.TempDir()

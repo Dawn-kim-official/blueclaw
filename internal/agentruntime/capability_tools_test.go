@@ -481,3 +481,49 @@ func TestCapabilityCatalogParametersListsRequiredAndOptional(t *testing.T) {
 		t.Fatal("nil schema should yield no parameters")
 	}
 }
+
+func TestCapabilityInvokeSchemaDeclaresInputAsJSONEncodedString(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local"}, []CapabilityToolDescriptor{{
+		Name:        "site.create",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+
+	toolDefinition, isFound := toolRegistry.ToolDefinition(agent.CapabilityInvokeToolName)
+	if !isFound {
+		t.Fatal("expected capability.invoke tool definition")
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+	}
+	if errorValue := json.Unmarshal(toolDefinition.InputSchema, &schema); errorValue != nil {
+		t.Fatalf("expected capability.invoke schema: %v", errorValue)
+	}
+	if schema.Properties["input"].Type != "string" {
+		t.Fatalf("expected input declared as a JSON-encoded string so strict structured output can fill it, got %q", schema.Properties["input"].Type)
+	}
+}
+
+func TestCapabilityInvokeWrapperExampleEncodesInputAsString(t *testing.T) {
+	example := capabilityInvokeWrapperExample("site.create", json.RawMessage(`{"type":"object","properties":{"slug":{"type":"string"}},"required":["slug"]}`), []string{"slug"})
+	var document struct {
+		Operation string `json:"operation"`
+		Input     string `json:"input"`
+	}
+	if errorValue := json.Unmarshal([]byte(example), &document); errorValue != nil {
+		t.Fatalf("expected wrapper example with string input, got %s: %v", example, errorValue)
+	}
+	if document.Operation != "site.create" {
+		t.Fatalf("expected operation site.create, got %q", document.Operation)
+	}
+	var input map[string]string
+	if errorValue := json.Unmarshal([]byte(document.Input), &input); errorValue != nil {
+		t.Fatalf("expected input to hold a JSON object, got %q: %v", document.Input, errorValue)
+	}
+	if input["slug"] == "" {
+		t.Fatalf("expected slug placeholder in example input, got %+v", input)
+	}
+}

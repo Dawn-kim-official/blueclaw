@@ -192,7 +192,7 @@ var genericCapabilityCatalogExcluded = map[string]bool{
 
 func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityToolDescription() string {
 	lines := []string{
-		"Invoke a workspace capability operation by name. Set operation to one of the operations below and set input to an object holding that operation's fields. Each operation lists its input fields as { name type (required), ... } — you MUST include every (required) field with a real value; an empty or partial input is rejected, so never call with input:{}. Identity, approval, and delivery are handled by the runtime — never pass requester identity in input.",
+		`Invoke a workspace capability operation by name. Set operation to one of the operations below and set input to that operation's fields as one JSON object written inside a string, for example input: "{\"slug\":\"team-dashboard\"}". Each operation lists its input fields as { name type (required), ... } — you MUST include every (required) field with a real value; an empty or partial input is rejected, so never call with input:"{}". Identity, approval, and delivery are handled by the runtime — never pass requester identity in input.`,
 		"",
 		"Available operations:",
 	}
@@ -317,7 +317,7 @@ func isEmptyCapabilityInputValue(value json.RawMessage) bool {
 }
 
 func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, missing []string) agent.ToolResult {
-	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call capability.invoke again with operation=" + operation + " and input set to an object that contains them. See inputSkeleton in this failure's data for a fillable template."
+	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call capability.invoke again with operation=" + operation + " and input set to a JSON object (written inside a string) that contains them. See inputSkeleton in this failure's data for a fillable template."
 	result := agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, missing))
 	if result.Failure == nil {
 		return result
@@ -327,16 +327,16 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "Retry capability.invoke with operation=" + operation + " and input as an object containing real values for required fields: " + capabilityRequiredInputDescription(toolDescriptor.InputSchema, missing) + ".",
+		Action:    "Retry capability.invoke with operation=" + operation + " and input as a string-wrapped JSON object containing real values for required fields: " + capabilityRequiredInputDescription(toolDescriptor.InputSchema, missing) + ".",
 		ToolNames: []string{agent.CapabilityInvokeToolName},
-		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, missing) + ". Do not pass input as a JSON string or an empty object.",
+		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, missing) + ". Never send an empty input.",
 	}}
 	return result
 }
 
 func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) agent.ToolResult {
 	requiredFields := requiredFieldsFromSchema(toolDescriptor.InputSchema)
-	message := "capability.invoke requires input to be an object for operation " + operation + ". Call capability.invoke again with operation=" + operation + " and input set to a JSON object, not a string and not null. See inputSkeleton in this failure's data for a fillable template."
+	message := "capability.invoke requires input to be an object for operation " + operation + ". Call capability.invoke again with operation=" + operation + " and input set to one JSON object, written directly or inside a string, not null and not prose. See inputSkeleton in this failure's data for a fillable template."
 	result := agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, requiredFields))
 	if result.Failure == nil {
 		return result
@@ -346,7 +346,7 @@ func capabilityInputNotObjectFailure(operation string, toolDescriptor Capability
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "Retry capability.invoke with operation=" + operation + " and input as a JSON object (not a string, not null) holding that operation's fields.",
+		Action:    "Retry capability.invoke with operation=" + operation + " and input as one JSON object, written directly or inside a string, holding that operation's fields.",
 		ToolNames: []string{agent.CapabilityInvokeToolName},
 		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, requiredFields) + ".",
 	}}
@@ -389,9 +389,10 @@ func capabilityInvokeWrapperExample(operation string, inputSchema json.RawMessag
 	for _, field := range requiredFields {
 		input[field] = capabilityPlaceholderValue(inputSchema, field)
 	}
+	encodedInput, _ := json.Marshal(input)
 	document := map[string]any{
 		"operation": operation,
-		"input":     input,
+		"input":     string(encodedInput),
 	}
 	encoded, _ := json.Marshal(document)
 	return string(encoded)
@@ -496,8 +497,8 @@ func genericCapabilityInvokeInputSchema(operationNames []string) json.RawMessage
 				"description": "The capability operation name from the available operations list in this tool's description.",
 			},
 			"input": map[string]any{
-				"type":        "object",
-				"description": "The parameters object for the chosen operation. Use the operation's field names from this tool's available operations list.",
+				"type":        "string",
+				"description": `The parameters for the chosen operation as one JSON object written inside this string, for example "{\"slug\":\"team-dashboard\",\"title\":\"Team Dashboard\"}". Use the operation's field names from this tool's available operations list and give every required field a real value.`,
 			},
 		},
 		"required": []string{"operation", "input"},
