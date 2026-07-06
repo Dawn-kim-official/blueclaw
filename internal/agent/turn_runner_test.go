@@ -1285,12 +1285,13 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	heldInput := `{"deliveryTarget":{"type":"directMessage","personHint":"우경"},"message":"오늘 오후 3시에 확인하자"}`
 	languageModel := &sequenceLanguageModel{contents: []string{
 		capabilityInvokeAction("continue", "", "message.send", heldInput),
+		`{"question":"우경에게 다음 내용을 보낼까요?\n\n오늘 오후 3시에 확인하자"}`,
 		`{"action":"finish","message":"우경이에게 DM을 보냈습니다.","replyParts":[{"type":"text","text":"우경이에게 DM을 보냈습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-002","toolName":"message.send"}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	invokedInputs := []string{}
-	wasExecutedBeforeSecondModel := false
+	wasExecutedBeforeApprovalContinuationModel := false
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		invokedInputs = append(invokedInputs, string(invocation.Input))
 		if len(invokedInputs) == 1 {
@@ -1304,7 +1305,7 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 				},
 			}, nil
 		}
-		wasExecutedBeforeSecondModel = len(languageModel.requests) == 1
+		wasExecutedBeforeApprovalContinuationModel = len(languageModel.requests) == 2
 		return ToolSuccess(`{"messageID":"message-1","deliveryStatus":"sent"}`), nil
 	})
 
@@ -1362,7 +1363,7 @@ func TestAgentTurnRunnerApprovalRequiredPausesAndExecutesHeldCall(t *testing.T) 
 	if invokedInputs[0] != heldInput || invokedInputs[1] != heldInput {
 		t.Fatalf("expected exact held input to be reused, got %+v", invokedInputs)
 	}
-	if !wasExecutedBeforeSecondModel {
+	if !wasExecutedBeforeApprovalContinuationModel {
 		t.Fatal("expected held call to execute before the approval-continuation model step")
 	}
 	secondTurnEvents := services.taskEventService.ListTaskEvent(firstResult.TaskRun.TaskRunID)

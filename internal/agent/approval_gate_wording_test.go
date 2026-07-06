@@ -1,79 +1,114 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 )
 
-func TestHeldCallConfirmationWordingFramesDeclarativeModelMessageAsQuestion(t *testing.T) {
-	request := AgentTurnRequest{ResponseLanguage: "ko"}
-	actionDocument := turnActionDocument{
-		Message:   "'Local Fleet Studio' 테스트 웹사이트 삭제를 시작합니다.",
-		ToolName:  CapabilityInvokeToolName,
-		ToolInput: json.RawMessage(`{"operation":"site.delete","input":{"siteID":"site-1"}}`),
-	}
-
-	confirmation := heldCallConfirmationWording(request, actionDocument)
-	if !strings.HasPrefix(confirmation, "'Local Fleet Studio' 테스트 웹사이트 삭제를 시작합니다.") {
-		t.Fatalf("expected the model wording to lead the confirmation, got %q", confirmation)
-	}
-	if !strings.HasSuffix(confirmation, "진행할까요?") {
-		t.Fatalf("expected a question frame on the declarative wording, got %q", confirmation)
-	}
-}
-
-func TestHeldCallConfirmationWordingKeepsQuestionModelMessage(t *testing.T) {
+func TestHeldCallConfirmationWordingRewritesQuestionDraftThroughModel(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"question":"테스트 웹사이트를 삭제할까요?"}`,
+	}}
+	agentTurnRunner := &AgentTurnRunner{languageModel: languageModel}
 	request := AgentTurnRequest{ResponseLanguage: "ko"}
 	actionDocument := turnActionDocument{
 		Message:  "테스트 웹사이트를 삭제할까요?",
 		ToolName: CapabilityInvokeToolName,
 	}
 
-	confirmation := heldCallConfirmationWording(request, actionDocument)
+	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)
+
+	if errorValue != nil {
+		t.Fatalf("expected no error: %v", errorValue)
+	}
 	if confirmation != "테스트 웹사이트를 삭제할까요?" {
-		t.Fatalf("expected question wording to stay untouched, got %q", confirmation)
+		t.Fatalf("expected model-generated question, got %q", confirmation)
+	}
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected one approval-question model call, got %d", len(languageModel.requests))
+	}
+	if !strings.Contains(structuredRequestText(languageModel.requests[0]), "테스트 웹사이트를 삭제할까요?") {
+		t.Fatalf("expected model draft in approval question prompt, got %s", structuredRequestText(languageModel.requests[0]))
 	}
 }
 
-func TestHeldCallConfirmationWordingUsesModelReasonWhenMessageIsEmpty(t *testing.T) {
-	request := AgentTurnRequest{ResponseLanguage: "ko"}
+func TestHeldCallConfirmationWordingAsksModelForDeclarativeDraft(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"question":"'Local Fleet Studio' 테스트 웹사이트를 삭제할까요?"}`,
+	}}
+	agentTurnRunner := &AgentTurnRunner{languageModel: languageModel}
+	request := AgentTurnRequest{
+		Prompt:           "'Local Fleet Studio' 테스트 웹사이트 삭제해줘",
+		ResponseLanguage: ResponseLanguageKorean,
+	}
+	actionDocument := turnActionDocument{
+		Message:   "'Local Fleet Studio' 테스트 웹사이트 삭제를 시작합니다.",
+		ToolName:  CapabilityInvokeToolName,
+		ToolInput: json.RawMessage(`{"operation":"site.delete","input":{"siteID":"site-1","slug":"local-fleet-studio"}}`),
+	}
+
+	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)
+
+	if errorValue != nil {
+		t.Fatalf("expected no error: %v", errorValue)
+	}
+	if confirmation != "'Local Fleet Studio' 테스트 웹사이트를 삭제할까요?" {
+		t.Fatalf("expected model-generated question, got %q", confirmation)
+	}
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected one approval-question model call, got %d", len(languageModel.requests))
+	}
+	if languageModel.requests[0].StructuredOutputSchema.Name != "blueclaw_approval_question" {
+		t.Fatalf("expected approval question schema, got %q", languageModel.requests[0].StructuredOutputSchema.Name)
+	}
+}
+
+func TestHeldCallConfirmationWordingUsesActionFactsAsModelInput(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"question":"우경에게 다음 내용을 보낼까요?\n\n오늘 오후 3시에 확인하자"}`,
+	}}
+	agentTurnRunner := &AgentTurnRunner{languageModel: languageModel}
+	request := AgentTurnRequest{
+		Prompt:           "우경에게 DM 보내줘",
+		ResponseLanguage: ResponseLanguageKorean,
+	}
 	actionDocument := turnActionDocument{
 		ToolName:  CapabilityInvokeToolName,
-		ToolInput: json.RawMessage(`{"operation":"site.delete","input":{"siteID":"site-1","slug":"demo","confirm":"DELETE","reason":"사용자의 웹사이트 삭제 요청"}}`),
+		ToolInput: json.RawMessage(`{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"우경"},"message":"오늘 오후 3시에 확인하자"}}`),
 	}
 
-	confirmation := heldCallConfirmationWording(request, actionDocument)
-	if !strings.Contains(confirmation, "사용자의 웹사이트 삭제 요청") {
-		t.Fatalf("expected the model reason inside the confirmation, got %q", confirmation)
+	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)
+
+	if errorValue != nil {
+		t.Fatalf("expected no error: %v", errorValue)
 	}
-	if !strings.Contains(confirmation, "?") {
-		t.Fatalf("expected a question, got %q", confirmation)
+	if confirmation != "우경에게 다음 내용을 보낼까요?\n\n오늘 오후 3시에 확인하자" {
+		t.Fatalf("expected model-generated question with message content, got %q", confirmation)
+	}
+	requestText := structuredRequestText(languageModel.requests[0])
+	for _, expected := range []string{"우경", "오늘 오후 3시에 확인하자", "Do not mention internal tool names"} {
+		if !strings.Contains(requestText, expected) {
+			t.Fatalf("expected approval question prompt to contain %q, got %s", expected, requestText)
+		}
 	}
 }
 
-func TestHeldCallConfirmationWordingNeverReturnsEmpty(t *testing.T) {
-	request := AgentTurnRequest{ResponseLanguage: "ko"}
+func TestHeldCallConfirmationWordingRejectsEmptyModelQuestion(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"question":" "}`,
+	}}
+	agentTurnRunner := &AgentTurnRunner{languageModel: languageModel}
+	request := AgentTurnRequest{ResponseLanguage: ResponseLanguageKorean}
 	actionDocument := turnActionDocument{
 		ToolName:  CapabilityInvokeToolName,
-		ToolInput: json.RawMessage(`{"operation":"site.delete","input":{"siteID":"site-1","confirm":"DELETE"}}`),
+		ToolInput: json.RawMessage(`{"operation":"site.delete","input":{"siteID":"site-1"}}`),
 	}
 
-	confirmation := heldCallConfirmationWording(request, actionDocument)
-	if confirmation != "site.delete 작업을 진행할까요?" {
-		t.Fatalf("expected the operation fallback question, got %q", confirmation)
-	}
-}
+	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)
 
-func TestHeldCallConfirmationWordingFramesEnglishDeclarativeMessage(t *testing.T) {
-	request := AgentTurnRequest{ResponseLanguage: "en"}
-	actionDocument := turnActionDocument{
-		Message:  "Deleting the Local Fleet Studio test website.",
-		ToolName: CapabilityInvokeToolName,
-	}
-
-	confirmation := heldCallConfirmationWording(request, actionDocument)
-	if !strings.HasSuffix(confirmation, "Proceed?") {
-		t.Fatalf("expected an English question frame, got %q", confirmation)
+	if errorValue == nil {
+		t.Fatalf("expected empty generated question to fail, got confirmation %q", confirmation)
 	}
 }

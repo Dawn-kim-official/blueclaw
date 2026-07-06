@@ -13,6 +13,7 @@ type taskReplyDecisionKind string
 const (
 	taskReplyDecisionConsume                 taskReplyDecisionKind = "consume"
 	taskReplyDecisionSuppressCancelled       taskReplyDecisionKind = "suppress_cancelled"
+	taskReplyDecisionSuppressSuperseded      taskReplyDecisionKind = "suppress_superseded"
 	taskReplyDecisionSendUserNotice          taskReplyDecisionKind = "send_user_notice"
 	taskReplyDecisionSuppressArtifactLocator taskReplyDecisionKind = "suppress_artifact_locator"
 	taskReplyDecisionSendFinal               taskReplyDecisionKind = "send_final"
@@ -36,6 +37,9 @@ func decideTaskReply(turnResult agent.AgentTurnResult, isCancelledBeforeSend boo
 	}
 	if turnResult.TaskRun.Status == task.TaskStatusCancelled || isCancelledBeforeSend {
 		return taskReplyDecision{Kind: taskReplyDecisionSuppressCancelled, Reason: "task_cancelled"}
+	}
+	if turnResult.TaskRun.Status == task.TaskStatusInterrupted && strings.TrimSpace(turnResult.TaskRun.FailureReason) == "superseded_by_new_message" {
+		return taskReplyDecision{Kind: taskReplyDecisionSuppressSuperseded, Reason: "superseded_by_new_message"}
 	}
 	if turnResult.TaskRun.Status != task.TaskStatusCompleted {
 		return taskReplyDecision{Kind: taskReplyDecisionSendUserNotice, Reason: "task_not_completed"}
@@ -66,6 +70,12 @@ func (connectorRuntime *ConnectorRuntime) dispatchTaskReply(
 		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "task.stop.outbox_suppressed", marshalConnectorEventBody(map[string]string{
 			"messageID": event.MessageID,
 			"reason":    "task was cancelled before final reply send",
+		}))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
+	case taskReplyDecisionSuppressSuperseded:
+		connectorRuntime.agentKernel.AppendTaskEvent(taskRunID, "connector.reply.suppressed", marshalConnectorEventBody(map[string]string{
+			"messageID": event.MessageID,
+			"reason":    decision.Reason,
 		}))
 		return ConnectorRuntimeResult{Handled: true, Platform: platform, TaskRunID: taskRunID, Reason: decision.Reason}, nil
 	case taskReplyDecisionSendUserNotice:

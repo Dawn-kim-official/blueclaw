@@ -125,6 +125,36 @@ func TestAgentTurnRunnerAllowsSendToDifferentRecipients(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"휴게소 가도 돼요."}}}`,
+		noToolFallbackFinishMessageDocument("휴게소 들러도 괜찮습니다."),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		t.Fatal("message.send must not run without external send intent")
+		return ToolResult{}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "휴게소 가야해?",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to recover from rejected message.send: %v", errorValue)
+	}
+	if result.FinishMessage != "휴게소 들러도 괜찮습니다." {
+		t.Fatalf("expected final reply in current conversation, got %q", result.FinishMessage)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.external_send_intent_rejected", "finish.message") {
+		t.Fatal("expected external send intent rejection event")
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}}`,

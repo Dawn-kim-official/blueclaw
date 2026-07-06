@@ -53,6 +53,7 @@ func (connectorRuntime *ConnectorRuntime) handleBusyMessageIfNeeded(
 	case agent.BusyRouteCancel:
 		return connectorRuntime.handleBusyCancelMessage(ctx, platform, event, replyTarget, activeTaskRun, decision, sendReply)
 	case agent.BusyRouteNewTask:
+		connectorRuntime.supersedeBusyTask(event, platform, activeTaskRun, decision)
 		return busyMessageResult{clearActiveGoal: true}, nil
 	case agent.BusyRouteUnrelated:
 		return busyMessageResult{connectorResult: ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: "busy_unrelated"}, isHandled: true}, nil
@@ -203,6 +204,16 @@ func (connectorRuntime *ConnectorRuntime) replySteerResumeUnavailable(
 func (connectorRuntime *ConnectorRuntime) replaceBusyTask(event PlatformInboundEvent, activeTaskRun task.TaskRun, decision agent.TurnDecision) {
 	_, _ = connectorRuntime.agentKernel.CancelTask(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "task replaced by newer user instruction")
 	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.replaced", marshalConnectorEventBody(map[string]string{
+		"messageID":       event.MessageID,
+		"reason":          strings.TrimSpace(decision.Reason),
+		"latestUserInput": strings.TrimSpace(event.Prompt),
+	}))
+}
+
+func (connectorRuntime *ConnectorRuntime) supersedeBusyTask(event PlatformInboundEvent, platform string, activeTaskRun task.TaskRun, decision agent.TurnDecision) {
+	_, _ = connectorRuntime.agentKernel.CancelTask(activeTaskRun.TaskRunID, activeTaskRun.RequesterPersonID, "superseded_by_new_message")
+	connectorRuntime.resolveOpenTaskWaitsForTaskRun(activeTaskRun.RequesterPersonID, platform, activeTaskRun.OriginConversationID, activeTaskRun.TaskRunID)
+	connectorRuntime.agentKernel.AppendTaskEvent(activeTaskRun.TaskRunID, "task.superseded_by_message", marshalConnectorEventBody(map[string]string{
 		"messageID":       event.MessageID,
 		"reason":          strings.TrimSpace(decision.Reason),
 		"latestUserInput": strings.TrimSpace(event.Prompt),
