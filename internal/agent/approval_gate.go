@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"blueclaw/internal/llm"
 	"blueclaw/internal/task"
 )
 
@@ -42,8 +44,12 @@ func approvalObservationText(observation turnObservation) string {
 	}, " "))
 }
 
-func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
-	confirmation := heldCallConfirmationWording(request, actionDocument)
+func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {
+	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(ctx, request, actionDocument)
+	if errorValue != nil {
+		result, _ := agentTurnRunner.failTurn(taskRunID, request, errorValue.Error(), state.Observations, state.Attachments, state.ExecutionState)
+		return toolCallActionOutcome{Result: result, ShouldReturn: true, WasHandled: true}
+	}
 	heldCall := approvalHeldCall{
 		ToolName:     strings.TrimSpace(actionDocument.ToolName),
 		ToolInput:    copyJSONRawMessage(actionDocument.ToolInput),
@@ -188,54 +194,6 @@ func approvalHeldCallExecutedAfter(taskEvents []task.TaskEvent, toolName string)
 	return false
 }
 
-// The approval question is user-facing wording, so it is the model's own message
-// from the same turn that issued the approval-gated tool call (LLM-first, no extra
-// model call). The model does not always know at call time that the call needs
-// approval, so when it left the message empty the confirmation is composed from the
-// content the model already placed in the tool input — the recipient and message are
-// the model's own, only the framing is deterministic, and the user is never asked to
-// approve a blank prompt.
-func heldCallConfirmationWording(request AgentTurnRequest, actionDocument turnActionDocument) string {
-	if wording := deliverableModelWording(actionDocument.Message); wording != "" {
-		return approvalQuestionFramedWording(wording, request.ResponseLanguage)
-	}
-	if wording := approvalWordingFromToolInput(request, actionDocument.ToolName, actionDocument.ToolInput); wording != "" {
-		return wording
-	}
-	return approvalOperationWording(request, actionDocument.ToolName, actionDocument.ToolInput)
-}
-
-// An empty confirmation gets suppressed by the connector and the task then waits
-// for an approval the user never saw, so the question must never be empty.
-func approvalOperationWording(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
-	operation := strings.TrimSpace(toolName)
-	if operation == CapabilityInvokeToolName {
-		var call struct {
-			Operation string `json:"operation"`
-		}
-		if json.Unmarshal(toolInput, &call) == nil && strings.TrimSpace(call.Operation) != "" {
-			operation = strings.TrimSpace(call.Operation)
-		}
-	}
-	if ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish {
-		return "Approve running " + operation + "?"
-	}
-	return operation + " 작업을 진행할까요?"
-}
-
-// The model did not know at call time that the call pauses for approval, so its
-// message often reads as a progress statement; the user still needs to see an
-// actual question to know a reply is expected.
-func approvalQuestionFramedWording(wording string, responseLanguage string) string {
-	if strings.HasSuffix(strings.TrimSpace(wording), "?") {
-		return wording
-	}
-	if ResolveResponseLanguage(responseLanguage) == ResponseLanguageEnglish {
-		return wording + "\n\nProceed?"
-	}
-	return wording + "\n\n진행할까요?"
-}
-
 // Scoped to native kernel tools only (e.g. file.delete). Capability-routed
 // operations are approval-gated server-side by capabilityd, which returns
 // approval_required in the tool result; turn_runner intercepts that after
@@ -251,65 +209,139 @@ func nativeToolRequiresRuntimeApproval(toolSet *ToolSet, toolName string) bool {
 	return isFound && definition.RequiresApproval
 }
 
-func approvalWordingFromToolInput(request AgentTurnRequest, toolName string, toolInput json.RawMessage) string {
-	input := toolInput
-	if strings.TrimSpace(toolName) == CapabilityInvokeToolName {
-		var call struct {
-			Input json.RawMessage `json:"input"`
-		}
-		if json.Unmarshal(toolInput, &call) == nil && len(call.Input) > 0 {
-			input = call.Input
-		}
+type approvalQuestionContextDocument struct {
+	ResponseLanguage string            `json:"responseLanguage,omitempty"`
+	OriginalRequest  string            `json:"originalRequest,omitempty"`
+	ModelDraft       string            `json:"modelDraft,omitempty"`
+	Operation        string            `json:"operation,omitempty"`
+	ActionDetails    map[string]string `json:"actionDetails,omitempty"`
+}
+
+type approvalQuestionResponseDocument struct {
+	Question string `json:"question"`
+}
+
+type approvalQuestionActionInput struct {
+	RecipientHint  string `json:"recipientHint"`
+	PersonHint     string `json:"personHint"`
+	ChannelName    string `json:"channelName"`
+	DeliveryTarget struct {
+		Type        string `json:"type"`
+		PersonHint  string `json:"personHint"`
+		ChannelName string `json:"channelName"`
+	} `json:"deliveryTarget"`
+	Message    string   `json:"message"`
+	Body       string   `json:"body"`
+	Subject    string   `json:"subject"`
+	Title      string   `json:"title"`
+	Summary    string   `json:"summary"`
+	Reason     string   `json:"reason"`
+	Path       string   `json:"path"`
+	DevicePath string   `json:"devicePath"`
+	TargetPath string   `json:"targetPath"`
+	Slug       string   `json:"slug"`
+	SiteID     string   `json:"siteID"`
+	EventID    string   `json:"eventID"`
+	To         []string `json:"to"`
+	People     []string `json:"people"`
+}
+
+func (agentTurnRunner *AgentTurnRunner) heldCallConfirmationWording(ctx context.Context, request AgentTurnRequest, actionDocument turnActionDocument) (string, error) {
+	modelDraft := deliverableModelWording(actionDocument.Message)
+	return agentTurnRunner.generateHeldCallConfirmationWording(ctx, request, actionDocument, modelDraft)
+}
+
+func (agentTurnRunner *AgentTurnRunner) generateHeldCallConfirmationWording(ctx context.Context, request AgentTurnRequest, actionDocument turnActionDocument, modelDraft string) (string, error) {
+	if agentTurnRunner.languageModel == nil {
+		return "", errors.New("language model provider is not configured")
 	}
-	var document struct {
-		RecipientHint  string `json:"recipientHint"`
-		PersonHint     string `json:"personHint"`
-		ChannelName    string `json:"channelName"`
-		DeliveryTarget struct {
-			PersonHint  string `json:"personHint"`
-			ChannelName string `json:"channelName"`
-		} `json:"deliveryTarget"`
-		Message string   `json:"message"`
-		Body    string   `json:"body"`
-		Subject string   `json:"subject"`
-		Title   string   `json:"title"`
-		Summary string   `json:"summary"`
-		Reason  string   `json:"reason"`
-		Path    string   `json:"path"`
-		To      []string `json:"to"`
+	contextDocument := approvalQuestionContext(request, actionDocument, modelDraft)
+	contextDocumentBytes, errorValue := json.Marshal(contextDocument)
+	if errorValue != nil {
+		return "", errorValue
 	}
-	if len(input) == 0 || json.Unmarshal(input, &document) != nil {
-		return ""
+	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+		Messages: []llm.Message{
+			{Role: "system", Content: strings.Join([]string{
+				"Write exactly one concise user-facing approval question for Blueclaw.",
+				"The question asks whether to perform the pending action.",
+				"Use the original request, model draft, and action details to phrase the target, content, file, event, or site naturally.",
+				"Include consequential details when present so the user can approve a concrete action.",
+				"Do not mention internal tool names, operation identifiers, JSON, schemas, approval gates, runtime, or implementation details.",
+				"Do not answer the question, report status, or explain the policy.",
+			}, "\n")},
+			{Role: "system", Content: responseLanguageInstruction(request.ResponseLanguage)},
+			{Role: "user", Content: string(contextDocumentBytes)},
+		},
+		StructuredOutputSchema: llm.StructuredOutputSchema{
+			Name:               "blueclaw_approval_question",
+			Document:           `{"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}`,
+			IsStrictlyEnforced: true,
+		},
+	})
+	if errorValue != nil {
+		return "", errorValue
 	}
-	english := ResolveResponseLanguage(request.ResponseLanguage) == ResponseLanguageEnglish
-	if filePath := strings.TrimSpace(document.Path); filePath != "" && strings.TrimSpace(toolName) != CapabilityInvokeToolName {
-		filename := filepath.Base(filePath)
-		if english {
-			return "Delete this file?\n\n" + filename
-		}
-		return filename + " 파일을 삭제할까요?"
+	var responseDocument approvalQuestionResponseDocument
+	if errorValue := json.Unmarshal([]byte(structuredResponse.Content), &responseDocument); errorValue != nil {
+		return "", errorValue
 	}
-	target := firstNonEmptyString(document.RecipientHint, document.PersonHint, document.ChannelName, document.DeliveryTarget.PersonHint, document.DeliveryTarget.ChannelName, strings.Join(document.To, ", "))
-	content := firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary, document.Reason)
-	switch {
-	case target != "" && content != "":
-		if english {
-			return "Send this to " + target + "?\n\n" + content
-		}
-		return target + "에게 다음 내용을 보낼까요?\n\n" + content
-	case content != "":
-		if english {
-			return "Proceed with this?\n\n" + content
-		}
-		return "다음 내용으로 진행할까요?\n\n" + content
-	case target != "":
-		if english {
-			return "Proceed for " + target + "?"
-		}
-		return target + " 관련 작업을 진행할까요?"
-	default:
-		return ""
+	question := strings.TrimSpace(responseDocument.Question)
+	if question == "" {
+		return "", errors.New("approval question is empty")
 	}
+	return question, nil
+}
+
+func approvalQuestionContext(request AgentTurnRequest, actionDocument turnActionDocument, modelDraft string) approvalQuestionContextDocument {
+	operation, input := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
+	return approvalQuestionContextDocument{
+		ResponseLanguage: strings.TrimSpace(request.ResponseLanguage),
+		OriginalRequest:  strings.TrimSpace(request.Prompt),
+		ModelDraft:       strings.TrimSpace(modelDraft),
+		Operation:        strings.TrimSpace(operation),
+		ActionDetails:    approvalQuestionActionDetails(input),
+	}
+}
+
+func approvalQuestionActionDetails(input json.RawMessage) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	var document approvalQuestionActionInput
+	if json.Unmarshal(input, &document) != nil {
+		return nil
+	}
+	details := map[string]string{}
+	approvalQuestionSetDetail(details, "target", firstNonEmptyString(document.RecipientHint, document.PersonHint, document.ChannelName, document.DeliveryTarget.PersonHint, document.DeliveryTarget.ChannelName, strings.Join(trimNonEmptyConfirmationStrings(document.To), ", "), strings.Join(trimNonEmptyConfirmationStrings(document.People), ", ")))
+	approvalQuestionSetDetail(details, "deliveryTargetType", document.DeliveryTarget.Type)
+	approvalQuestionSetDetail(details, "content", firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary, document.Reason))
+	approvalQuestionSetDetail(details, "message", document.Message)
+	approvalQuestionSetDetail(details, "subject", document.Subject)
+	approvalQuestionSetDetail(details, "body", document.Body)
+	approvalQuestionSetDetail(details, "title", document.Title)
+	approvalQuestionSetDetail(details, "summary", document.Summary)
+	approvalQuestionSetDetail(details, "reason", document.Reason)
+	approvalQuestionSetDetail(details, "slug", document.Slug)
+	approvalQuestionSetDetail(details, "siteID", document.SiteID)
+	approvalQuestionSetDetail(details, "eventID", document.EventID)
+	filePath := firstNonEmptyString(document.Path, document.DevicePath, document.TargetPath)
+	approvalQuestionSetDetail(details, "path", filePath)
+	if strings.TrimSpace(filePath) != "" {
+		approvalQuestionSetDetail(details, "fileName", filepath.Base(filePath))
+	}
+	if len(details) == 0 {
+		return nil
+	}
+	return details
+}
+
+func approvalQuestionSetDetail(details map[string]string, key string, value string) {
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedValue == "" {
+		return
+	}
+	details[key] = trimmedValue
 }
 
 func copyJSONRawMessage(value json.RawMessage) json.RawMessage {

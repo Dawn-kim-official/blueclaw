@@ -17,6 +17,16 @@ func TestDecideTaskReplySuppressesCancelledTask(t *testing.T) {
 	}
 }
 
+func TestDecideTaskReplySuppressesSupersededInterruptedTask(t *testing.T) {
+	decision := decideTaskReply(agent.AgentTurnResult{
+		TaskRun: task.TaskRun{Status: task.TaskStatusInterrupted, FailureReason: "superseded_by_new_message"},
+	}, false)
+
+	if decision.Kind != taskReplyDecisionSuppressSuperseded || decision.Reason != "superseded_by_new_message" {
+		t.Fatalf("expected superseded suppression, got %+v", decision)
+	}
+}
+
 func TestDecideTaskReplyDoesNotInspectAttachmentClaimText(t *testing.T) {
 	decision := decideTaskReply(agent.AgentTurnResult{
 		TaskRun:       task.TaskRun{Status: task.TaskStatusCompleted},

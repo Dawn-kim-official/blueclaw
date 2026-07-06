@@ -35,6 +35,13 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
+	if observation, isRejected := unrequestedPlatformMessageSendObservation(request, actionDocument, nextObservationID(len(state.Observations)+1)); isRejected {
+		state.Observations = append(state.Observations, observation)
+		agentTurnRunner.appendEvent(taskRunID, "agent.external_send_intent_rejected", marshalEventBody(observation))
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "external_send_intent_rejected "+actionDocument.ToolName, observation.ContentText())
+		result, shouldStop := stopForNoProgress(stepID)
+		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	}
 	if observation, isRejected := sitePublishPrerequisiteFailure(state.Observations, actionDocument, nextObservationID(len(state.Observations)+1)); isRejected {
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.site_publish_prerequisite_rejected", marshalEventBody(observation))
@@ -669,6 +676,65 @@ func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput j
 
 func unnecessaryAcknowledgementApprovalMessage() string {
 	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write. Perform the action directly through the relevant kernel tool or capability.invoke operation, then finish."
+}
+
+func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
+	toolName, toolInput := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
+	if strings.TrimSpace(toolName) != "message.send" {
+		return turnObservation{}, false
+	}
+	if requestRequiresPlatformMessageSend(request) {
+		return turnObservation{}, false
+	}
+	if promptLooksLikePlatformMessageSendRequest(request.Prompt) || promptLooksLikePlatformMessageSendRequest(request.ActiveGoal.OriginalInstruction) {
+		return turnObservation{}, false
+	}
+	deliveryType := platformMessageSendDeliveryType(toolInput)
+	message := "message.send is only for explicit platform delivery requests. The latest user message does not ask to send a separate platform message; answer in the current conversation with finish.message instead."
+	if deliveryType != "" {
+		message += " Requested deliveryTarget.type was " + deliveryType + "."
+	}
+	return newFailureObservation(observationID, "policy", strings.TrimSpace(toolName), message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy"), true
+}
+
+func requestRequiresPlatformMessageSend(request AgentTurnRequest) bool {
+	if requiredEvidenceContains(request.RequiredEvidenceTools, "message.send") {
+		return true
+	}
+	for _, toolName := range outcomeContractRequiredToolNames(request.OutcomeContract) {
+		if ToolNamesMatch(toolName, "message.send") {
+			return true
+		}
+	}
+	for _, toolName := range outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract) {
+		if ToolNamesMatch(toolName, "message.send") {
+			return true
+		}
+	}
+	return false
+}
+
+func promptLooksLikePlatformMessageSendRequest(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return false
+	}
+	return containsAny(normalizedPrompt, []string{
+		"dm", "direct message", "send", "notify", "post", "forward",
+		"보내", "전송", "디엠", "dm해", "전달", "공지", "올려",
+	})
+}
+
+func platformMessageSendDeliveryType(toolInput json.RawMessage) string {
+	var document struct {
+		DeliveryTarget struct {
+			Type string `json:"type"`
+		} `json:"deliveryTarget"`
+	}
+	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
+		return ""
+	}
+	return strings.TrimSpace(document.DeliveryTarget.Type)
 }
 
 func isTerminalExecutionTool(toolName string) bool {
