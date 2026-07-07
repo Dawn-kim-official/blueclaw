@@ -208,8 +208,8 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
   "languageModel": {
     "defaultProvider": "capabilityLLM",
     "capability": {
-      "model": "google/gemini-3.5-flash",
-      "highModel": "",
+      "model": "google/gemini-3.1-flash-lite",
+      "highModel": "google/gemini-3-flash-preview",
       "mediumModel": "",
       "lowModel": "",
       "executionMode": "auto",
@@ -219,8 +219,8 @@ Blueclaw uses a single secretless LLM provider named `capabilityLLM`. OpenRouter
 }
 ```
 
-- Blueclaw sends `model`, `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`; product configs set `model` to `google/gemini-3.5-flash` and `contextWindowTokens` to `1048576`
-- Blueclaw routes per task complexity across three optional model tiers. High = `highModel` or `model` or `google/gemini-3.5-flash`; medium = `mediumModel` or `x-ai/grok-4.3`; low = `lowModel` or `google/gemini-3.1-flash-lite`. Quick effort and simple/normal tasks use low, complex tasks use medium, deep/extended effort uses high; intake routing and failure/recovery wording always use low
+- Blueclaw sends `model`, `executionMode`, `messages`, and `structuredOutputSchema` to `POST /v1/llm/structured`; product configs set `model` to `google/gemini-3.1-flash-lite`, `highModel` to `google/gemini-3-flash-preview`, and `contextWindowTokens` to `1048576`
+- Blueclaw routes per task complexity across three optional model tiers. High = `highModel` or `model` or `google/gemini-3-flash-preview`; medium = `mediumModel` or `x-ai/grok-4.3`; low = `lowModel` or `google/gemini-3.1-flash-lite`. Quick effort and simple/normal tasks use low, complex tasks use medium, deep/extended effort uses high; intake routing and failure/recovery wording always use low
 - Blueclaw never adds an `Authorization` header for LLM capability calls
 - `executionMode` is `device`, `companion`, `remote`, or `auto`; InternKim decides whether that maps to OpenRouter, a local model runtime, a companion model, or another provider
 - `tools/blueclaw-litert-wrapper` is kept as an InternKim-side reference utility, not as a Blueclaw product runtime dependency
