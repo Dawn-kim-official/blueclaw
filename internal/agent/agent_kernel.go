@@ -306,13 +306,14 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	evidenceValidationReport := validateRequiredEvidenceTools(turnToolSet, outcomeContract.RequiredEvidenceTools)
 	prunedEvidenceReport := requiredEvidenceValidationReport{}
 	if evidenceValidationReport.HasInvalidEvidence() {
-		if !isDeterministicResume {
+		keptEvidenceTools := requiredEvidenceToolsWithout(outcomeContract.RequiredEvidenceTools, evidenceValidationReport.InvalidEvidence)
+		if !isDeterministicResume && len(keptEvidenceTools) == 0 {
 			result, errorValue := agentKernel.completeInvalidRequiredEvidenceRequest(responseContext, intakeRequest, intakeDecision, evidenceValidationReport, turnDecision.Route)
 			return result, errorValue
 		}
-		outcomeContract.RequiredEvidenceTools = requiredEvidenceToolsWithout(outcomeContract.RequiredEvidenceTools, evidenceValidationReport.InvalidEvidence)
+		outcomeContract.RequiredEvidenceTools = keptEvidenceTools
 		prunedEvidenceReport = evidenceValidationReport
-		prunedEvidenceReport.Reason = "invalid required evidence pruned so the approved or resumed task keeps executing"
+		prunedEvidenceReport.Reason = "invalid required evidence pruned so the task keeps executing with the remaining registered evidence"
 	}
 	var requiredEvidenceReask requiredEvidenceReaskReport
 	if missingEvidenceReport := missingRequiredEvidenceReport(intakeDecision, outcomeContract, turnToolSet); !isDeterministicResume && strings.TrimSpace(missingEvidenceReport.Reason) != "" {
