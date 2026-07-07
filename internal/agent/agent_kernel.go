@@ -243,7 +243,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	turnRouter := NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions)
 	turnDecision := turnRouter.Plan(responseContext, intakeRequest)
 	intakeDecision := turnDecision.IntakeDecision()
-	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
+	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
 	intakeDecision = promoteSitePrototypeEffort(intakeRequest, intakeDecision)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
@@ -265,7 +265,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
-	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions.DefaultEffortLevel)
+	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
 	if turnDecision.Route == TurnRouteConsume && intakeDecision.Classification == IntakeClassificationBoundedTask {
 		turnDecision.Route = TurnRouteStartTask
 	}

@@ -72,6 +72,7 @@ type MCPToolConfiguration struct {
 type AgentConfiguration struct {
 	Intake               AgentIntakeConfiguration `json:"intake"`
 	DefaultEffortLevel   string                   `json:"defaultEffortLevel"`
+	SkillEffortFloor     string                   `json:"skillEffortFloor,omitempty"`
 	ToolResultMaxBytes   int                      `json:"toolResultMaxBytes"`
 	FailureRecovery      AgentFailureRecovery     `json:"failureRecovery"`
 	GenerationOptions    AgentGenerationOptions   `json:"generationOptions,omitempty"`

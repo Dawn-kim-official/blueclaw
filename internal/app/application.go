@@ -406,6 +406,7 @@ func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) 
 	return agent.IntakeOptions{
 		IsEnabled:          runtimeConfiguration.Agent.Intake.Enabled,
 		DefaultEffortLevel: agent.EffortLevel(runtimeConfiguration.Agent.DefaultEffortLevel),
+		SkillEffortFloor:   agent.EffortLevel(runtimeConfiguration.Agent.SkillEffortFloor),
 	}
 }
 

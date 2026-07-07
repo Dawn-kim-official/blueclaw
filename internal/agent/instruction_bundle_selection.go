@@ -5,7 +5,9 @@ import (
 	"strings"
 )
 
-func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, defaultEffortLevel EffortLevel) IntakeDecision {
+func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, options IntakeOptions) IntakeDecision {
+	decision = applySkillEffortFloor(decision, instructionBundle, options.SkillEffortFloor)
+	defaultEffortLevel := options.DefaultEffortLevel
 	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle, decision.Classification) {
 		return decision
 	}
@@ -30,6 +32,20 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	}
 	return decision
 }
+
+func applySkillEffortFloor(decision IntakeDecision, instructionBundle InstructionBundle, skillEffortFloor EffortLevel) IntakeDecision {
+	if skillEffortFloor == "" {
+		return decision
+	}
+	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
+		if selectedSkillRequiresCompletionEvidence(skillInstruction) {
+			decision.EffortLevel = LargerEffortLevel(decision.EffortLevel, skillEffortFloor)
+			return decision
+		}
+	}
+	return decision
+}
+
 
 func attachmentSuffixFormats(suffixes []string) []string {
 	formats := []string{}
