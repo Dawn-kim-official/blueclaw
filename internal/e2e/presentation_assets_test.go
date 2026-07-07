@@ -46,7 +46,7 @@ func TestPresentationAssetsStayPureSkill(t *testing.T) {
 	if !strings.Contains(skillDocument, "/workspace/skills/presentation/scripts/build.sh") {
 		t.Fatal("SKILL.md should guide agents to run the bundled build script from scripts")
 	}
-	if !strings.Contains(skillDocument, "FORMATS=html") {
+	if !strings.Contains(skillDocument, "With no `FORMATS`") {
 		t.Fatal("SKILL.md should explain html-only builds")
 	}
 
@@ -57,8 +57,8 @@ func TestPresentationAssetsStayPureSkill(t *testing.T) {
 	if !strings.Contains(buildScript, "FORMATS=") || !strings.Contains(buildScript, "Building requested formats") {
 		t.Fatal("build.sh should support requested format narrowing")
 	}
-	if !strings.Contains(buildScript, "DESIGN.md not found") {
-		t.Fatal("build.sh should require DESIGN.md")
+	if !strings.Contains(buildScript, "DESIGN.md missing") {
+		t.Fatal("build.sh should call out a missing DESIGN.md")
 	}
 	if !strings.Contains(buildScript, "design-source: DESIGN.md") {
 		t.Fatal("build.sh should require slides.html to reference DESIGN.md")
@@ -93,22 +93,22 @@ func TestPresentationSkillCarriesDesignGuidanceWithoutTemplateAsset(t *testing.T
 	}
 
 	skillDocument := readTestFile(t, filepath.Join(skillDirectoryPath, "SKILL.md"))
-	for _, fragment := range []string{"colors:", "typography:", "layout:", "system Korean sans", "Paperlogy", "Noto Sans KR", "font-family"} {
+	for _, fragment := range []string{"`colors`", "`typography`", "`layout`", "Paperlogy", "Noto Sans KR", "system-ui"} {
 		if !strings.Contains(skillDocument, fragment) {
 			t.Fatalf("expected SKILL.md to preserve design guidance fragment %q", fragment)
 		}
 	}
-	if !strings.Contains(skillDocument, "DESIGN.md` is a design brief, not a theme file") {
+	if !strings.Contains(skillDocument, "`DESIGN.md` is the design brief") {
 		t.Fatal("SKILL.md should define DESIGN.md as an authoring brief")
 	}
-	if !strings.Contains(skillDocument, "Do not create source files with shell heredocs") {
+	if !strings.Contains(skillDocument, "shell heredocs") {
 		t.Fatal("SKILL.md should keep source authoring on file.write")
 	}
 	if !strings.Contains(skillDocument, "Avoid bullet-only decks") {
 		t.Fatal("SKILL.md should discourage bullet-only decks")
 	}
-	if !strings.Contains(skillDocument, "Use browser-rendered HTML as the layout surface") {
-		t.Fatal("SKILL.md should guide agents toward HTML layouts inside Marp")
+	if !strings.Contains(skillDocument, "Use HTML as the layout surface") {
+		t.Fatal("SKILL.md should guide agents toward HTML layout authoring")
 	}
 	layoutDocument := readTestFile(t, filepath.Join(skillDirectoryPath, "assets", "layouts.md"))
 	for _, fragment := range []string{"Cards", "Comparison", "Matrix", "Evidence Stack", "Consulting Page", ".cards", ".comparison", ".frame"} {

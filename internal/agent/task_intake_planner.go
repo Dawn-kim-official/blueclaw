@@ -95,6 +95,7 @@ var allowedReactionEmojiNames = []string{
 type IntakeOptions struct {
 	IsEnabled             bool
 	DefaultEffortLevel    EffortLevel
+	SkillEffortFloor      EffortLevel
 	DebugAddressingReason bool
 }
 
@@ -269,6 +270,7 @@ func normalizeIntakeOptions(options IntakeOptions) IntakeOptions {
 	if NormalizeEffortLevel(string(options.DefaultEffortLevel)) == "" {
 		options.DefaultEffortLevel = EffortLevelStandard
 	}
+	options.SkillEffortFloor = EffortLevel(NormalizeEffortLevel(string(options.SkillEffortFloor)))
 	return options
 }
 
