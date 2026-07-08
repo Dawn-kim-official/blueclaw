@@ -26,6 +26,12 @@ type SupervisorService struct {
 
 	mutex               sync.RWMutex
 	commandByInstanceID map[string]*exec.Cmd
+	exitByInstanceID    map[string]*guestExitState
+}
+
+type guestExitState struct {
+	exited    chan struct{}
+	exitError error
 }
 
 type OutboundNetworkService interface {
@@ -44,6 +50,7 @@ func NewSupervisorService(
 		GuestHealthClient:        guestHealthClient,
 		OutboundNetworkService:   HostOutboundNetworkService{},
 		commandByInstanceID:      map[string]*exec.Cmd{},
+		exitByInstanceID:         map[string]*guestExitState{},
 	}
 }
 
@@ -86,8 +93,15 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 		return GuestInstance{}, errorValue
 	}
 
+	exitState := &guestExitState{exited: make(chan struct{})}
+	go func() {
+		exitState.exitError = command.Wait()
+		close(exitState.exited)
+	}()
+
 	supervisorService.mutex.Lock()
 	supervisorService.commandByInstanceID[bootSpecification.InstanceID] = command
+	supervisorService.exitByInstanceID[bootSpecification.InstanceID] = exitState
 	supervisorService.mutex.Unlock()
 
 	return GuestInstance{
@@ -103,7 +117,9 @@ func (supervisorService *SupervisorService) StopGuest(guestInstance GuestInstanc
 		supervisorService.mutex.Unlock()
 		return errors.New("guest instance was not found")
 	}
+	exitState := supervisorService.exitByInstanceID[guestInstance.InstanceID]
 	delete(supervisorService.commandByInstanceID, guestInstance.InstanceID)
+	delete(supervisorService.exitByInstanceID, guestInstance.InstanceID)
 	supervisorService.mutex.Unlock()
 
 	var stopError error
@@ -111,7 +127,11 @@ func (supervisorService *SupervisorService) StopGuest(guestInstance GuestInstanc
 		if errorValue := command.Process.Kill(); errorValue != nil && !errors.Is(errorValue, os.ErrProcessDone) {
 			stopError = errorValue
 		}
-		_ = command.Wait()
+		if exitState != nil {
+			<-exitState.exited
+		} else {
+			_ = command.Wait()
+		}
 	}
 
 	if cleanupError := supervisorService.cleanupOutboundNetwork(guestInstance.BootSpecification.OutboundNetwork); cleanupError != nil && stopError == nil {
@@ -139,8 +159,24 @@ func (supervisorService *SupervisorService) WaitForGuestHealth(healthContext con
 		healthCheckInterval = 200 * time.Millisecond
 	}
 
+	supervisorService.mutex.RLock()
+	exitState := supervisorService.exitByInstanceID[guestInstance.InstanceID]
+	supervisorService.mutex.RUnlock()
+
 	var lastError error
 	for {
+		if exitState != nil {
+			select {
+			case <-exitState.exited:
+				return fmt.Errorf(
+					"firecracker exited before guest became healthy: %v; stderr tail: %s",
+					exitState.exitError,
+					readLogTail(filepath.Join(guestInstance.BootSpecification.LogDirectoryPath, "stderr.log")),
+				)
+			default:
+			}
+		}
+
 		errorValue := supervisorService.GuestHealthClient.CheckHealth(
 			healthContext,
 			guestInstance.BootSpecification.VSockUnixSocketPath,
@@ -160,6 +196,22 @@ func (supervisorService *SupervisorService) WaitForGuestHealth(healthContext con
 		case <-time.After(healthCheckInterval):
 		}
 	}
+}
+
+func readLogTail(logFilePath string) string {
+	document, errorValue := os.ReadFile(logFilePath)
+	if errorValue != nil {
+		return "(unreadable: " + errorValue.Error() + ")"
+	}
+	const tailLimit = 2000
+	if len(document) > tailLimit {
+		document = document[len(document)-tailLimit:]
+	}
+	tail := strings.TrimSpace(string(document))
+	if tail == "" {
+		return "(empty)"
+	}
+	return tail
 }
 
 func (supervisorService *SupervisorService) buildBootSpecification() (BootSpecification, error) {

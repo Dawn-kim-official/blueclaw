@@ -2,11 +2,13 @@ package firecracker
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"blueclaw/internal/config"
 )
@@ -253,5 +255,55 @@ func TestRemoveInactiveJailerDirectoriesKeepsActiveInstance(t *testing.T) {
 	}
 	if _, errorValue := os.Stat(filepath.Dir(inactiveRootPath)); !os.IsNotExist(errorValue) {
 		t.Fatalf("expected inactive jailer directory to be removed, got %v", errorValue)
+	}
+}
+
+type neverReadyGuestHealthClient struct{}
+
+func (neverReadyGuestHealthClient) CheckHealth(healthContext context.Context, vsockUnixSocketPath string, healthPortOrService string) error {
+	_ = healthContext
+	_ = vsockUnixSocketPath
+	_ = healthPortOrService
+	return errors.New("vsock not ready")
+}
+
+func TestWaitForGuestHealthFailsFastWhenFirecrackerExits(t *testing.T) {
+	temporaryDirectory := t.TempDir()
+	instanceID := "exitinstance"
+	if errorValue := os.WriteFile(filepath.Join(temporaryDirectory, "stderr.log"), []byte("fatal: rootfs missing"), 0o600); errorValue != nil {
+		t.Fatalf("expected stderr fixture: %v", errorValue)
+	}
+
+	command := exec.Command("false")
+	if errorValue := command.Start(); errorValue != nil {
+		t.Fatalf("expected process fixture: %v", errorValue)
+	}
+	exitState := &guestExitState{exited: make(chan struct{})}
+	go func() {
+		exitState.exitError = command.Wait()
+		close(exitState.exited)
+	}()
+
+	supervisorService := NewSupervisorService(config.FirecrackerConfiguration{}, WorkspaceVolumeService{}, neverReadyGuestHealthClient{})
+	supervisorService.commandByInstanceID[instanceID] = command
+	supervisorService.exitByInstanceID[instanceID] = exitState
+
+	healthContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	startedAt := time.Now()
+	errorValue := supervisorService.WaitForGuestHealth(healthContext, GuestInstance{
+		InstanceID: instanceID,
+		BootSpecification: BootSpecification{
+			LogDirectoryPath: temporaryDirectory,
+		},
+	})
+	if errorValue == nil {
+		t.Fatal("expected fail-fast error")
+	}
+	if !strings.Contains(errorValue.Error(), "firecracker exited") || !strings.Contains(errorValue.Error(), "rootfs missing") {
+		t.Fatalf("expected exit diagnosis with stderr tail, got: %v", errorValue)
+	}
+	if time.Since(startedAt) > 3*time.Second {
+		t.Fatalf("expected fail-fast, took %v", time.Since(startedAt))
 	}
 }
