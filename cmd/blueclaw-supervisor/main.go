@@ -4,9 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -71,7 +74,7 @@ func main() {
 		log.Fatal(errorValue)
 	}
 
-	proxyContext, stopProxy := context.WithCancel(interruptContext)
+	proxyContext, stopProxy := context.WithCancel(context.Background())
 	defer stopProxy()
 	proxyErrorChannel := make(chan error, 1)
 	go func() {
@@ -90,12 +93,34 @@ func main() {
 	}
 
 	<-interruptContext.Done()
+	prepareGuestShutdown(runtimeConfiguration.Firecracker.HostHTTPListenAddress)
 	stopProxy()
 	stopListenerProxies()
 	errorValue = supervisorService.StopGuest(guestInstance)
 	if errorValue != nil {
 		log.Fatal(errorValue)
 	}
+}
+
+func prepareGuestShutdown(hostHTTPListenAddress string) {
+	if hostHTTPListenAddress == "" {
+		return
+	}
+	requestContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	request, errorValue := http.NewRequestWithContext(requestContext, http.MethodPost, "http://"+hostHTTPListenAddress+"/admin/api/runtime/prepare-shutdown", nil)
+	if errorValue != nil {
+		log.Printf("guest prepare-shutdown request build failed: %v", errorValue)
+		return
+	}
+	response, errorValue := http.DefaultClient.Do(request)
+	if errorValue != nil {
+		log.Printf("guest prepare-shutdown unavailable; stopping without task interruption marker: %v", errorValue)
+		return
+	}
+	defer response.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	log.Printf("guest prepare-shutdown status=%d body=%s", response.StatusCode, strings.TrimSpace(string(body)))
 }
 
 func syncWorkspace(arguments []string) error {

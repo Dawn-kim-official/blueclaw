@@ -70,6 +70,7 @@ type Application struct {
 type interruptedTaskResumer interface {
 	CanResumeInterruptedTaskRun(task.TaskRun) bool
 	ResumeInterruptedTaskRun(context.Context, task.TaskRun) (connectors.ConnectorRuntimeResult, error)
+	FailUnresumedInterruptedTaskRun(context.Context, task.TaskRun, string) bool
 }
 
 func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath string) *Application {
@@ -129,7 +130,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskStepService.UseRepository(postgres.NewTaskStepRepository(database))
 		taskArtifactService.UseRepository(postgres.NewTaskArtifactRepository(database))
 		taskRunService.UseRepository(postgres.NewTaskRunRepository(database))
-		taskRunService.InterruptOrphanedRuntimeTaskRuns("runtime restarted before task completed")
+		taskRunService.InterruptOrphanedRuntimeTaskRuns(task.TaskInterruptReasonRuntimeRestart)
 		postgresTaskScheduleRepository := postgres.NewTaskScheduleRepository(database)
 		taskScheduleRepository = postgresTaskScheduleRepository
 		taskScheduleSummaryRepository = postgresTaskScheduleRepository
@@ -1106,6 +1107,20 @@ func (application *Application) resumeInterruptedTaskRuns(ctx context.Context, n
 		if _, errorValue := application.interruptedTaskResumer.ResumeInterruptedTaskRun(ctx, taskRun); errorValue != nil {
 			application.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "task.auto_resume_launch_failed", errorValue.Error())
 		}
+	}
+	application.failUnresumedInterruptedTaskRuns(ctx)
+}
+
+func (application *Application) failUnresumedInterruptedTaskRuns(ctx context.Context) {
+	for _, taskRun := range application.taskRunService.ListTaskRun() {
+		if ctx.Err() != nil {
+			return
+		}
+		if !task.TaskRunWasInterruptedByRuntimeRestart(taskRun) {
+			continue
+		}
+		application.taskRunService.AppendTaskEvent(taskRun.TaskRunID, "task.auto_resume_abandoned", taskRun.FailureReason)
+		application.interruptedTaskResumer.FailUnresumedInterruptedTaskRun(ctx, taskRun, "the task was interrupted by a runtime restart and could not be resumed")
 	}
 }
 

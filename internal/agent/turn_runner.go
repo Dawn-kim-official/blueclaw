@@ -1354,7 +1354,9 @@ func (agentTurnRunner *AgentTurnRunner) blockTurnForStall(taskRunID string, step
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusBlocked, "no_progress_loop_stopped", reason)
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "stall", reason, replyStatus)
-		return AgentTurnResult{TaskRun: blockedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
+		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
+		blockedTaskRun.Result = fallbackReply
+		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
 	}
 	reply := notice.SendableMessage()
 	blockedTaskRun.Result = reply
@@ -1803,7 +1805,9 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", reason, replyStatus)
-		return AgentTurnResult{TaskRun: blockedTaskRun, ReplySuppressed: true, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
+		blockedTaskRun.Result = fallbackReply
+		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
 	reply := failureNotice.SendableMessage()
 	blockedTaskRun.Result = reply

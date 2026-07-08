@@ -518,6 +518,32 @@ func (taskRunService *TaskRunService) InterruptOrphanedRuntimeTaskRuns(reason st
 	return interruptedTaskRuns
 }
 
+func (taskRunService *TaskRunService) InterruptRuntimeTaskRunsForPlannedShutdown() []TaskRun {
+	interruptedTaskRuns := []TaskRun{}
+	for _, taskRun := range taskRunService.ListTaskRun() {
+		if !taskRunIsRuntimeOwned(taskRun) {
+			continue
+		}
+		now := time.Now()
+		interruptedTaskRun, errorValue := taskRunService.TransitionTaskRun(TaskRunTransition{
+			TaskRunID:             taskRun.TaskRunID,
+			FromStates:            interruptInactiveTaskRunFromStates(),
+			ToState:               TaskStatusInterrupted,
+			FailureReason:         TaskInterruptReasonPlannedShutdown,
+			FinishCurrentAttempt:  true,
+			FinishedAttemptStatus: TaskAttemptStatusInterrupted,
+			RunnerID:              taskRunService.runnerID,
+			Event:                 newTaskRunTransitionEvent(taskRun.TaskRunID, "task.interrupted", TaskInterruptReasonPlannedShutdown, now),
+			UpdatedAt:             now,
+		})
+		if errorValue != nil {
+			continue
+		}
+		interruptedTaskRuns = append(interruptedTaskRuns, interruptedTaskRun)
+	}
+	return interruptedTaskRuns
+}
+
 func (taskRunService *TaskRunService) InterruptInactiveTaskRun(taskRunID string, reason string) (TaskRun, bool) {
 	taskRun, isFound := taskRunService.FindTaskRun(taskRunID)
 	if !isFound {
@@ -564,11 +590,12 @@ func (taskRunService *TaskRunService) ClaimInterruptedTaskRunAutoResume(taskRunI
 	if !isFound || taskRun.Status != TaskStatusInterrupted {
 		return false
 	}
-	if taskRunService.autoResumeAttemptCount(taskRun.TaskRunID) > 0 {
+	attemptCount := taskRunService.autoResumeAttemptCount(taskRun.TaskRunID)
+	if attemptCount > 0 && !taskRunWasInterruptedByPlannedShutdown(taskRun) {
 		return false
 	}
 	taskRunService.taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.auto_resume_attempted", marshalTaskRunServiceEventBody(map[string]any{
-		"attemptCount": 1,
+		"attemptCount": attemptCount + 1,
 		"reason":       strings.TrimSpace(reason),
 	}))
 	return true
@@ -680,10 +707,14 @@ func (taskRunService *TaskRunService) canAutoResumeInterruptedTaskRun(taskRun Ta
 	if now.Sub(taskRun.UpdatedAt) > 24*time.Hour {
 		return false
 	}
-	if taskRunService.autoResumeAttemptCount(taskRun.TaskRunID) > 0 {
+	if taskRunService.autoResumeAttemptCount(taskRun.TaskRunID) > 0 && !taskRunWasInterruptedByPlannedShutdown(taskRun) {
 		return false
 	}
 	return taskRunService.taskRunHasInterruptedMarker(taskRun.TaskRunID)
+}
+
+func taskRunWasInterruptedByPlannedShutdown(taskRun TaskRun) bool {
+	return taskRun.Status == TaskStatusInterrupted && taskRun.FailureReason == TaskInterruptReasonPlannedShutdown
 }
 
 func (taskRunService *TaskRunService) taskRunHasInterruptedMarker(taskRunID string) bool {

@@ -16,6 +16,16 @@ const (
 	TaskStatusCancelled        TaskStatus = "cancelled"
 )
 
+const TaskInterruptReasonPlannedShutdown = "planned_shutdown"
+const TaskInterruptReasonRuntimeRestart = "runtime restarted before task completed"
+
+func TaskRunWasInterruptedByRuntimeRestart(taskRun TaskRun) bool {
+	if taskRun.Status != TaskStatusInterrupted {
+		return false
+	}
+	return taskRun.FailureReason == TaskInterruptReasonRuntimeRestart || taskRun.FailureReason == TaskInterruptReasonPlannedShutdown
+}
+
 type TaskAttemptStatus string
 
 const (

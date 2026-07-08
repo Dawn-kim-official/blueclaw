@@ -60,6 +60,43 @@ func (connectorRuntime *ConnectorRuntime) ResumeInterruptedTaskRun(ctx context.C
 	return connectorRuntime.dispatchTaskReply(withConnectorEvent(ctx, event), adapter.Name(), adapter, event, replyTarget, launchResult.TurnResult, false, sendReply)
 }
 
+func (connectorRuntime *ConnectorRuntime) FailUnresumedInterruptedTaskRun(ctx context.Context, taskRun task.TaskRun, reason string) bool {
+	taskEvents := connectorRuntime.agentKernel.ListTaskEvent(taskRun.TaskRunID)
+	launchContext, hasLaunchContext := interruptedTaskLaunchContextFromEvents(taskRun, taskEvents)
+	if !hasLaunchContext {
+		connectorRuntime.failUnresumedTaskWithoutReplyChannel(ctx, taskRun, reason, "launch_context_missing")
+		return false
+	}
+	adapter, adapterError := connectorRuntime.findAdapter(launchContext.Platform)
+	if adapterError != nil {
+		connectorRuntime.failUnresumedTaskWithoutReplyChannel(ctx, taskRun, reason, adapterError.Error())
+		return false
+	}
+	event := interruptedTaskResumeEvent(taskRun, launchContext)
+	replyTarget := ReplyTarget{
+		ConversationID: event.ConversationID,
+		ReplyTargetID:  event.ReplyTargetID,
+		DedupeKey:      event.DedupeKey(),
+	}
+	sendReply := func(replyContext context.Context, target ReplyTarget, reply OutboundReply) (string, error) {
+		return connectorRuntime.enqueueConnectorReply(withConnectorEvent(replyContext, event), target, reply)
+	}
+	_, errorValue := connectorRuntime.completeInterruptedTaskResumeLaunchFailure(ctx, taskRun, launchContext, event, replyTarget, adapter, sendReply, errors.New(reason))
+	return errorValue == nil
+}
+
+func (connectorRuntime *ConnectorRuntime) failUnresumedTaskWithoutReplyChannel(ctx context.Context, taskRun task.TaskRun, reason string, detail string) {
+	connectorRuntime.agentKernel.AppendTaskEvent(taskRun.TaskRunID, "task.auto_resume_reply_unavailable", marshalConnectorEventBody(map[string]string{
+		"reason": reason,
+		"detail": detail,
+	}))
+	connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agent.AgentTurnRequest{
+		RequesterPersonID: taskRun.RequesterPersonID,
+		ExistingTaskRunID: taskRun.TaskRunID,
+		Prompt:            taskRun.Prompt,
+	}, "launch", "auto_resume_abandoned", errors.New(reason))
+}
+
 func (connectorRuntime *ConnectorRuntime) completeInterruptedTaskResumeLaunchFailure(ctx context.Context, taskRun task.TaskRun, launchContext interruptedTaskLaunchContext, event PlatformInboundEvent, replyTarget ReplyTarget, adapter PlatformAdapter, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error), errorValue error) (ConnectorRuntimeResult, error) {
 	turnResult := connectorRuntime.agentKernel.CompleteLaunchFailure(ctx, agent.AgentTurnRequest{
 		RequesterPersonID:      taskRun.RequesterPersonID,
