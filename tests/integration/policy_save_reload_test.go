@@ -9,7 +9,7 @@ import (
 
 func TestPolicySaveReload(t *testing.T) {
 	policyLoader := policy.PolicyLoader{}
-	policyDocument, errorValue := policyLoader.LoadPolicyDocument("../../config/policy.example.yaml")
+	policyDocument, errorValue := policyLoader.LoadPolicyDocument("../../config/policy.example.json")
 	if errorValue != nil {
 		t.Fatalf("expected policy document to load: %v", errorValue)
 	}
@@ -21,7 +21,7 @@ func TestPolicySaveReload(t *testing.T) {
 	}
 
 	workspacePath := t.TempDir()
-	targetPath := filepath.Join(workspacePath, "policy.yaml")
+	targetPath := filepath.Join(workspacePath, "policy.json")
 	saver := policy.PolicySaver{}
 	errorValue = saver.SavePolicyDocumentAtomically(targetPath, policyDocument)
 	if errorValue != nil {
