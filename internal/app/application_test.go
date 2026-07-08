@@ -319,7 +319,8 @@ func TestApplicationAutoResumeLaunchesAtMostFiveInterruptedTaskRuns(t *testing.T
 }
 
 type applicationAutoResumeResumer struct {
-	taskRunIDs []string
+	taskRunIDs       []string
+	failedTaskRunIDs []string
 }
 
 func (resumer *applicationAutoResumeResumer) CanResumeInterruptedTaskRun(task.TaskRun) bool {
@@ -329,6 +330,55 @@ func (resumer *applicationAutoResumeResumer) CanResumeInterruptedTaskRun(task.Ta
 func (resumer *applicationAutoResumeResumer) ResumeInterruptedTaskRun(_ context.Context, taskRun task.TaskRun) (connectors.ConnectorRuntimeResult, error) {
 	resumer.taskRunIDs = append(resumer.taskRunIDs, taskRun.TaskRunID)
 	return connectors.ConnectorRuntimeResult{Handled: true, TaskRunID: taskRun.TaskRunID}, nil
+}
+
+func (resumer *applicationAutoResumeResumer) FailUnresumedInterruptedTaskRun(_ context.Context, taskRun task.TaskRun, _ string) bool {
+	resumer.failedTaskRunIDs = append(resumer.failedTaskRunIDs, taskRun.TaskRunID)
+	return true
+}
+
+func TestApplicationFailsUnresumedInterruptedTaskRunsWithNotice(t *testing.T) {
+	taskEventService := task.NewTaskEventService()
+	taskRunService := task.NewTaskRunService(taskEventService)
+	now := time.Now()
+	repository := &applicationAutoResumeRepository{}
+	for index := 0; index < 2; index++ {
+		taskRun := task.TaskRun{
+			TaskRunID:            "exhausted-" + string(rune('a'+index)),
+			RequesterPersonID:    "person-1",
+			OriginConversationID: "conversation-1",
+			OriginReplyTargetID:  "reply-1",
+			Status:               task.TaskStatusInterrupted,
+			FailureReason:        task.TaskInterruptReasonRuntimeRestart,
+			Prompt:               "finish task",
+			CreatedAt:            now,
+			UpdatedAt:            now,
+		}
+		repository.taskRuns = append(repository.taskRuns, taskRun)
+		taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.interrupted", task.TaskInterruptReasonRuntimeRestart)
+		taskEventService.AppendTaskEvent(taskRun.TaskRunID, "task.auto_resume_attempted", `{"attemptCount":1}`)
+	}
+	taskRunService.UseRepository(repository)
+	resumer := &applicationAutoResumeResumer{}
+	application := &Application{
+		taskRunService:             taskRunService,
+		interruptedTaskResumer:     resumer,
+		interruptedTaskResumeDelay: 0,
+	}
+
+	application.resumeInterruptedTaskRuns(context.Background(), now.Add(time.Hour))
+
+	if len(resumer.taskRunIDs) != 0 {
+		t.Fatalf("resume count = %d, want 0 for attempt-exhausted crash interruptions", len(resumer.taskRunIDs))
+	}
+	if len(resumer.failedTaskRunIDs) != 2 {
+		t.Fatalf("failed count = %d, want 2", len(resumer.failedTaskRunIDs))
+	}
+	for _, taskRun := range repository.taskRuns {
+		if !taskEventsContainApplicationEvent(taskRunService.ListTaskEvent(taskRun.TaskRunID), "task.auto_resume_abandoned") {
+			t.Fatalf("expected auto-resume abandoned event for %s", taskRun.TaskRunID)
+		}
+	}
 }
 
 type applicationAutoResumeRepository struct {

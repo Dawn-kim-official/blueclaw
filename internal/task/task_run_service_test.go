@@ -964,3 +964,72 @@ func taskEventsContain(taskEvents []TaskEvent, name string, bodyFragment string)
 	}
 	return false
 }
+
+func TestClaimInterruptedTaskRunAutoResumeAllowsRepeatedPlannedShutdownResume(t *testing.T) {
+	taskEventService := NewTaskEventService()
+	taskRunService := NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "long task")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	interruptedTaskRuns := taskRunService.InterruptRuntimeTaskRunsForPlannedShutdown()
+	if len(interruptedTaskRuns) != 1 {
+		t.Fatalf("interrupted count = %d, want 1", len(interruptedTaskRuns))
+	}
+	if interruptedTaskRuns[0].FailureReason != TaskInterruptReasonPlannedShutdown {
+		t.Fatalf("failure reason = %q, want planned_shutdown", interruptedTaskRuns[0].FailureReason)
+	}
+	if !taskRunService.ClaimInterruptedTaskRunAutoResume(taskRun.TaskRunID, "runtime_restart") {
+		t.Fatal("expected first auto-resume claim to succeed")
+	}
+	if !taskRunService.ClaimInterruptedTaskRunAutoResume(taskRun.TaskRunID, "runtime_restart") {
+		t.Fatal("expected planned-shutdown task to remain claimable after a prior attempt")
+	}
+}
+
+func TestClaimInterruptedTaskRunAutoResumeKeepsOneShotPolicyForCrashInterruption(t *testing.T) {
+	taskEventService := NewTaskEventService()
+	taskRunService := NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "long task")
+	taskRun, advanceError := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant")
+	if advanceError != nil {
+		t.Fatal(advanceError)
+	}
+	delete(taskRunService.activeAttempts, taskRun.CurrentAttemptID)
+	if len(taskRunService.InterruptOrphanedRuntimeTaskRuns(TaskInterruptReasonRuntimeRestart)) != 1 {
+		t.Fatal("expected crash interruption")
+	}
+	if !taskRunService.ClaimInterruptedTaskRunAutoResume(taskRun.TaskRunID, "runtime_restart") {
+		t.Fatal("expected first auto-resume claim to succeed")
+	}
+	if taskRunService.ClaimInterruptedTaskRunAutoResume(taskRun.TaskRunID, "runtime_restart") {
+		t.Fatal("expected crash-interrupted task to stay one-shot")
+	}
+}
+
+func TestInterruptRuntimeTaskRunsForPlannedShutdownIncludesActivelyRunningTasks(t *testing.T) {
+	taskEventService := NewTaskEventService()
+	taskRunService := NewTaskRunService(taskEventService)
+	taskRun := taskRunService.CreateTaskRun("person-1", "direct-1", "running task")
+	if _, errorValue := taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "assistant"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !taskRunService.IsTaskRunActuallyRunning(mustFindTaskRun(t, taskRunService, taskRun.TaskRunID)) {
+		t.Fatal("expected an actively running task before shutdown")
+	}
+	if len(taskRunService.InterruptRuntimeTaskRunsForPlannedShutdown()) != 1 {
+		t.Fatal("expected actively running task to be interrupted for planned shutdown")
+	}
+	if !taskEventsContain(taskRunService.ListTaskEvent(taskRun.TaskRunID), "task.interrupted", TaskInterruptReasonPlannedShutdown) {
+		t.Fatal("expected planned shutdown interruption event")
+	}
+}
+
+func mustFindTaskRun(t *testing.T, taskRunService *TaskRunService, taskRunID string) TaskRun {
+	t.Helper()
+	taskRun, isFound := taskRunService.FindTaskRun(taskRunID)
+	if !isFound {
+		t.Fatalf("task run %s not found", taskRunID)
+	}
+	return taskRun
+}
