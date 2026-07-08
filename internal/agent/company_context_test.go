@@ -29,10 +29,12 @@ func TestCompanyContextRendersIdentityAndSelfUpdateRule(t *testing.T) {
 	}
 }
 
-func TestCompanyContextOmittedWhenEmpty(t *testing.T) {
+func TestCompanyContextEmptyStateAdvertisesSchemaAndProactiveAsk(t *testing.T) {
 	contextText := (LLMContextBuilder{}).Build(LLMContextInput{})
-	if strings.Contains(contextText, "Our company:") {
-		t.Fatalf("empty company should not render a company section:\n%s", contextText)
+	for _, expected := range []string{"Our company:", "Not registered yet", "company.info.set", "proactively ask"} {
+		if !strings.Contains(contextText, expected) {
+			t.Fatalf("empty company state missing %q in:\n%s", expected, contextText)
+		}
 	}
 }
 
