@@ -24,7 +24,7 @@ func main() {
 		return
 	}
 
-	runtimeConfigurationPath := flag.String("runtime", "config/runtime.example.yaml", "runtime configuration path")
+	runtimeConfigurationPath := flag.String("runtime", "config/runtime.example.json", "runtime configuration path")
 	flag.Parse()
 
 	runtimeConfiguration, errorValue := config.LoadRuntimeConfiguration(*runtimeConfigurationPath)

@@ -9,8 +9,8 @@ import (
 )
 
 func main() {
-	runtimeConfigurationPath := flag.String("runtime", "config/runtime.example.yaml", "runtime configuration path")
-	policyPath := flag.String("policy", "config/policy.example.yaml", "policy document path")
+	runtimeConfigurationPath := flag.String("runtime", "config/runtime.example.json", "runtime configuration path")
+	policyPath := flag.String("policy", "config/policy.example.json", "policy document path")
 	flag.Parse()
 
 	runtimeConfiguration, errorValue := config.LoadRuntimeConfiguration(*runtimeConfigurationPath)
