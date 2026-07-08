@@ -28,6 +28,7 @@ type AgentKernel struct {
 	instructionSources      []InstructionSource
 	instructionLoader       func() InstructionBundle
 	skillRetriever          SkillRetriever
+	companyProvider         func() CompanyContext
 }
 
 func NewAgentKernel(taskRunService *task.TaskRunService, taskStepService *task.TaskStepService) *AgentKernel {
@@ -87,6 +88,17 @@ func (agentKernel *AgentKernel) UseInstructionBundleLoader(instructionLoader fun
 
 func (agentKernel *AgentKernel) UseSkillRetriever(skillRetriever SkillRetriever) {
 	agentKernel.skillRetriever = skillRetriever
+}
+
+func (agentKernel *AgentKernel) UseCompanyProvider(companyProvider func() CompanyContext) {
+	agentKernel.companyProvider = companyProvider
+}
+
+func (agentKernel *AgentKernel) companyContext() CompanyContext {
+	if agentKernel.companyProvider == nil {
+		return CompanyContext{}
+	}
+	return agentKernel.companyProvider()
 }
 
 func (agentKernel *AgentKernel) RefreshSkillIndex(ctx context.Context, instructionBundle InstructionBundle) {
@@ -331,6 +343,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 
 	turnRequest := AgentTurnRequest{
 		RequesterPersonID:          request.RequesterPersonID,
+		Company:                    agentKernel.companyContext(),
 		RequesterName:              request.RequesterName,
 		RequesterCallingName:       request.RequesterCallingName,
 		RequesterHandle:            request.RequesterHandle,
