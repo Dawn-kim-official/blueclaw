@@ -237,3 +237,20 @@ func TestReconcileHomePathScopesToOnePrivateHome(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadIdentityAllocationTableToleratesEmptyDocument(t *testing.T) {
+	workspacePath := t.TempDir()
+	if errorValue := os.MkdirAll(filepath.Join(workspacePath, ".blueclaw"), 0o700); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if errorValue := os.WriteFile(filepath.Join(workspacePath, ".blueclaw", "identity-map.json"), []byte("  \n"), 0o600); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	table, errorValue := loadIdentityAllocationTable(workspacePath)
+	if errorValue != nil {
+		t.Fatalf("empty identity map must regenerate, got: %v", errorValue)
+	}
+	if table == nil || len(table.allocations) != 0 {
+		t.Fatal("expected a fresh allocation table")
+	}
+}

@@ -531,7 +531,7 @@ func loadIdentityAllocationTable(workspacePath string) (*identityAllocationTable
 	if errorValue != nil && !errors.Is(errorValue, os.ErrNotExist) {
 		return nil, errorValue
 	}
-	if errorValue == nil {
+	if errorValue == nil && len(bytes.TrimSpace(document)) > 0 {
 		if errorValue := json.Unmarshal(document, &table.allocations); errorValue != nil {
 			return nil, errorValue
 		}
