@@ -143,7 +143,7 @@ func (builder LLMContextBuilder) companyContext(input LLMContextInput) string {
 	lines = append(lines,
 		"This is the requester's company — '우리', '우리 회사' refer to it. Use this identity in any company-branded output (documents, slides, mail).",
 		"Full company data lives behind capability operations: company.info.get (profile, 사업자등록번호 etc.), company.metric.list (revenue/headcount time series), company.record.list (연혁·funding·products), company.document.list/search (issued documents).",
-		"When the requester states a NEW or CHANGED company fact (headcount, revenue, address, funding, certification …), record it immediately with company.info.set / company.metric.record / company.record.add and confirm what you stored in one line.")
+		"When the requester states a NEW or CHANGED company fact (headcount, revenue, address, funding, certification …), record it immediately — but never blindly append: first search existing rows for that year (company.metric.list with fromYear/toYear, or company.record.list for the category). If an existing row covers the same fact, update it (same-period company.metric.record upsert / company.record.update); add a new row only when nothing overlaps. Profile changes go through company.info.set. Confirm what you stored in one line.")
 	return strings.Join(lines, "\n")
 }
 
