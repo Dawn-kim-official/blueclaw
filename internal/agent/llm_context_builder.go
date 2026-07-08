@@ -113,7 +113,11 @@ func (builder LLMContextBuilder) requesterContext(input LLMContextInput) string 
 func (builder LLMContextBuilder) companyContext(input LLMContextInput) string {
 	company := input.Company
 	if company.IsEmpty() {
-		return ""
+		return strings.Join([]string{
+			"Our company:",
+			"Not registered yet. The workspace has a company table for: name(상호), brandName, slogan, description, representative(대표), address, phone, email, bankAccount, legalAttributes(사업자등록번호 등), plus metric/record/document ledgers.",
+			"When a task needs the company identity (documents, slides, mail, introductions) or the requester states company facts, proactively ask ONCE for the missing fields and store them with company.info.set; record numbers with company.metric.record and history with company.record.add.",
+		}, "\n")
 	}
 	identity := strings.TrimSpace(company.Name)
 	if brand := strings.TrimSpace(company.BrandName); brand != "" && brand != identity {
