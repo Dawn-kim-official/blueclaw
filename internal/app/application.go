@@ -168,6 +168,17 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		skillIndexPath(runtimeConfiguration),
 	)
 	agentKernel.UseSkillRetriever(skillRetriever)
+	agentKernel.UseCompanyProvider(func() agent.CompanyContext {
+		company := policyWatcher.CurrentPolicyDocument().Company
+		return agent.CompanyContext{
+			Name:           company.Name,
+			BrandName:      company.BrandName,
+			Slogan:         company.Slogan,
+			Description:    company.Description,
+			Representative: company.Representative,
+			Website:        company.Website,
+		}
+	})
 	go agentKernel.RefreshSkillIndex(context.Background(), instructionBundleLoader())
 	intakeLanguageModelProvider := resolveIntakeLanguageModelProvider(runtimeConfiguration, capabilityClient, logger)
 	if intakeLanguageModelProvider != nil {
