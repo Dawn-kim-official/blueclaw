@@ -4,6 +4,7 @@ type PolicyDocument struct {
 	People         []PersonPolicy         `json:"people"`
 	Circles        []CirclePolicy         `json:"circles"`
 	OrgGroups      []OrgGroupPolicy       `json:"orgGroups,omitempty"`
+	Company        CompanyPolicy          `json:"company,omitempty"`
 	Channels       []ChannelPolicy        `json:"channels"`
 	ResourceAccess []ResourceAccessPolicy `json:"resourceAccess"`
 	CircleSync     CircleSyncPolicy       `json:"circleSync"`
@@ -29,6 +30,19 @@ type PersonPolicy struct {
 type OrgGroupPolicy struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+type CompanyPolicy struct {
+	Name           string `json:"name,omitempty"`
+	BrandName      string `json:"brandName,omitempty"`
+	Slogan         string `json:"slogan,omitempty"`
+	Description    string `json:"description,omitempty"`
+	Representative string `json:"representative,omitempty"`
+	Website        string `json:"website,omitempty"`
+}
+
+func (company CompanyPolicy) IsEmpty() bool {
+	return company.Name == "" && company.BrandName == "" && company.Description == ""
 }
 
 type CirclePolicy struct {

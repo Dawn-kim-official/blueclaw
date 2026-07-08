@@ -28,6 +28,7 @@ func BuildInjectedContextMessages(input InjectedContextInput) []llm.Message {
 		RequesterName:        input.RuntimeRequest.RequesterName,
 		RequesterCallingName: input.RuntimeRequest.RequesterCallingName,
 		RequesterEmail:       input.RuntimeRequest.RequesterEmail,
+		Company:              input.RuntimeRequest.Company,
 		UserPrompt:           input.RuntimeRequest.Prompt,
 		InputParts:           append([]AgentPart{}, input.RuntimeRequest.InputParts...),
 		TurnStartedAt:        input.TurnStartedAt,

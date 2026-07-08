@@ -56,6 +56,7 @@ type AgentTurnRequest struct {
 	RequesterCallingName       string
 	RequesterHandle            string
 	RequesterCircles           []string
+	Company                    CompanyContext
 	ProfileName                string
 	ConversationID             string
 	Prompt                     string
