@@ -6,7 +6,7 @@ import (
 )
 
 func PolicyFixturePath() string {
-	return filepath.Join("..", "..", "config", "policy.example.yaml")
+	return filepath.Join("..", "..", "config", "policy.example.json")
 }
 
 func ReadPolicyFixture() ([]byte, error) {
