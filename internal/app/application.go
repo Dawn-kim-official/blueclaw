@@ -117,6 +117,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	var taskScheduleListRepository adminapi.TaskScheduleListRepository
 	var taskScheduleCreatorRepairRepository adminapi.TaskScheduleCreatorRepairRepository
 	var connectorEventDiagnosticRepository adminapi.ConnectorEventDiagnosticRepository
+	var conversationResetRepository adminapi.ConversationResetRepository
 	var taskWaitTokenRepository task.TaskWaitTokenRepository
 	var scheduledDeliveryRepository scheduler.TaskScheduleDeliveryRepository
 	var personRepository postgres.PersonRepository
@@ -135,6 +136,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		taskScheduleListRepository = postgresTaskScheduleRepository
 		taskScheduleCreatorRepairRepository = postgresTaskScheduleRepository
 		connectorEventDiagnosticRepository = postgres.NewRawEventRepository(database)
+		conversationResetRepository = postgres.NewConversationResetRepository(database)
 		taskWaitTokenRepository = postgres.NewTaskWaitTokenRepository(database)
 		scheduledDeliveryRepository = postgres.NewRawEventRepository(database)
 	}
@@ -331,6 +333,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 		},
 		ConnectorDiagnostics: adminapi.ConnectorEventDiagnosticHandler{
 			Repository: connectorEventDiagnosticRepository,
+		},
+		ConversationReset: adminapi.ConversationResetHandler{
+			Repository: conversationResetRepository,
 		},
 		MemoryGraphHandler: adminapi.MemoryGraphHandler{
 			MemoryService: memoryService,

@@ -20,6 +20,7 @@ type RouterDependencies struct {
 	QuiesceHandler        adminapi.QuiesceHandler
 	TaskScheduleHandler   adminapi.TaskScheduleHandler
 	ConnectorDiagnostics  adminapi.ConnectorEventDiagnosticHandler
+	ConversationReset     adminapi.ConversationResetHandler
 	MemoryGraphHandler    adminapi.MemoryGraphHandler
 	BackupHandler         adminapi.BackupHandler
 	TaskInboxHandler      userapi.TaskInboxHandler
@@ -58,6 +59,7 @@ func NewRouter(routerDependencies RouterDependencies) http.Handler {
 	multiplexer.HandleFunc("POST /admin/api/task-schedules/repair-creator", routerDependencies.TaskScheduleHandler.HandleRepairCreator)
 	multiplexer.HandleFunc("GET /admin/api/task-schedules/summary", routerDependencies.TaskScheduleHandler.HandleSummary)
 	multiplexer.HandleFunc("GET /admin/api/connector/events", routerDependencies.ConnectorDiagnostics.HandleList)
+	multiplexer.HandleFunc("POST /admin/api/conversation/reset", routerDependencies.ConversationReset.HandleReset)
 	multiplexer.HandleFunc("GET /admin/api/memory/graph", routerDependencies.MemoryGraphHandler.HandleGetMemoryGraph)
 	multiplexer.HandleFunc("POST /admin/api/memory/episodes/delete", routerDependencies.MemoryGraphHandler.HandleDeleteEpisode)
 	multiplexer.HandleFunc("POST /admin/api/memory/pinned/update", routerDependencies.MemoryGraphHandler.HandleSavePinnedMemory)
