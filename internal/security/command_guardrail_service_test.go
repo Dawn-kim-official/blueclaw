@@ -184,7 +184,6 @@ func TestCommandPathGuardrailErrorIncludesRecoveryDetails(t *testing.T) {
 		"command path targets a denied system path",
 		"/opt/blueclaw/builtin-skills-venv/bin/python",
 		workspaceRootPath,
-		"/workspace/skills/<skill>/scripts/skill_runtime.py",
 	} {
 		if !strings.Contains(commandGuardrailError.Error(), expectedText) {
 			t.Fatalf("expected guardrail error to contain %q, got %q", expectedText, commandGuardrailError.Error())

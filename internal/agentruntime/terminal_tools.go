@@ -174,14 +174,6 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		return *toolFailure, nil
 	}
 	slog.Info("terminal.run runtime directories materialized", "durationMs", time.Since(materializeStartedAt).Milliseconds())
-	if toolFailure := terminalSourceWriteMisuseFailure(input.Command); toolFailure != nil {
-		return *toolFailure, nil
-	}
-	preflightStartedAt := time.Now()
-	if toolFailure := preflightNodePackageBuild(toolContext, workspaceActor, workspacepath.Directory(workingDirectory), input.Command); toolFailure != nil {
-		return *toolFailure, nil
-	}
-	slog.Info("terminal.run node package build preflighted", "durationMs", time.Since(preflightStartedAt).Milliseconds())
 	input.ExecutionIdentity = toolCatalogBuilder.executionIdentityForRequester(handlerContext.request)
 	runStartedAt := time.Now()
 	stopHeartbeat := toolCatalogBuilder.startTerminalRunHeartbeat(toolContext, input.Command)
@@ -280,112 +272,6 @@ func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandR
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = false
 	return &result
-}
-
-func terminalSourceWriteMisuseFailure(command string) *agent.ToolResult {
-	target := terminalSourceWriteTarget(command)
-	if target == "" {
-		return nil
-	}
-	message := "terminal.run is for commands, builds, renders, and inspection; use bundled skill scripts or capability.invoke operations for source creation and edits"
-	document := json.RawMessage(marshalToolResult(map[string]any{
-		"failureClass":       "source_edit_tool_misuse",
-		"command":            command,
-		"detectedTarget":     target,
-		"suggestedNextTools": []string{"terminal.run", "skill.search"},
-		"message":            message,
-	}))
-	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "terminal_source_write", message, document)
-	result.Failure.Retryable = true
-	result.Failure.SafeRetry = true
-	result.Failure.RetryPolicy = "different_tool"
-	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "edit_resource",
-		ToolNames: []string{"terminal.run", "skill.search"},
-		Reason:    "Use bundled skill scripts or capability.invoke operations so the runtime can preserve context, permissions, and recovery state.",
-	}}
-	return &result
-}
-
-func terminalSourceWriteTarget(command string) string {
-	if strings.Contains(command, "<<") {
-		return "shell heredoc"
-	}
-	fields := strings.Fields(command)
-	for index, field := range fields {
-		if sourcePath := shellRedirectSourcePath(field, nextShellField(fields, index)); sourcePath != "" {
-			return sourcePath
-		}
-	}
-	return ""
-}
-
-func nextShellField(fields []string, index int) string {
-	nextIndex := index + 1
-	if nextIndex >= len(fields) {
-		return ""
-	}
-	return fields[nextIndex]
-}
-
-func shellRedirectSourcePath(field string, nextField string) string {
-	if strings.Contains(field, ">&") || strings.Contains(field, "<&") {
-		return ""
-	}
-	switch field {
-	case ">", ">>", "1>", "1>>":
-		if terminalWritePathLooksLikeSource(nextField) {
-			return nextField
-		}
-		return ""
-	}
-	for _, prefix := range []string{">>", ">", "1>>", "1>"} {
-		if strings.HasPrefix(field, prefix) {
-			candidatePath := strings.TrimPrefix(field, prefix)
-			if terminalWritePathLooksLikeSource(candidatePath) {
-				return candidatePath
-			}
-		}
-	}
-	return ""
-}
-
-func terminalWritePathLooksLikeSource(path string) bool {
-	cleanPath := strings.Trim(strings.TrimSpace(path), `"'`)
-	if cleanPath == "" {
-		return false
-	}
-	slashPath := filepath.ToSlash(cleanPath)
-	if strings.HasPrefix(slashPath, "dist/") || strings.HasPrefix(slashPath, "build/") || strings.Contains(slashPath, "/dist/") || strings.Contains(slashPath, "/build/") {
-		return false
-	}
-	extension := strings.ToLower(filepath.Ext(cleanPath))
-	if !terminalWriteExtensionLooksLikeSource(extension) {
-		return false
-	}
-	baseName := strings.ToLower(filepath.Base(cleanPath))
-	if terminalWriteBaseNameLooksLikeSource(baseName) {
-		return true
-	}
-	return strings.HasPrefix(slashPath, "src/") || strings.HasPrefix(slashPath, "app/src/") || strings.Contains(slashPath, "/src/")
-}
-
-func terminalWriteExtensionLooksLikeSource(extension string) bool {
-	switch extension {
-	case ".ts", ".tsx", ".js", ".jsx", ".css", ".scss", ".html", ".md", ".mdx", ".json", ".toml", ".yaml", ".yml", ".svelte", ".vue", ".go", ".py", ".sh":
-		return true
-	default:
-		return false
-	}
-}
-
-func terminalWriteBaseNameLooksLikeSource(baseName string) bool {
-	switch baseName {
-	case "package.json", "vite.config.ts", "vite.config.js", "tsconfig.json", "tailwind.config.ts", "tailwind.config.js", "design.md", "presentation.md":
-		return true
-	default:
-		return false
-	}
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {
@@ -487,30 +373,6 @@ func terminalSessionToolResult(commandResult security.CommandResult, errorValue 
 	return agent.ToolSuccess(content)
 }
 
-func preflightNodePackageBuild(ctx context.Context, workspaceActor security.WorkspaceActor, workingDirectory workspacepath.Directory, command string) *agent.ToolResult {
-	if !commandRunsNodePackageBuild(command) {
-		return nil
-	}
-	packagePath := workingDirectory.JoinVirtualFile("package.json")
-	document, errorValue := workspaceActor.ReadFile(ctx, packagePath, 256*1024)
-	if errorValue != nil {
-		return packageManifestInvalidFailure(packagePath.VirtualPath, "package.json is missing or unreadable: "+errorValue.Error())
-	}
-	var packageDocument map[string]any
-	if errorValue := json.Unmarshal(document, &packageDocument); errorValue != nil {
-		return packageManifestInvalidFailure(packagePath.VirtualPath, "package.json is not valid JSON: "+errorValue.Error())
-	}
-	scripts, isObject := packageDocument["scripts"].(map[string]any)
-	if !isObject {
-		return packageManifestInvalidFailure(packagePath.VirtualPath, "package.json has no scripts object")
-	}
-	buildScript, isString := scripts["build"].(string)
-	if !isString || strings.TrimSpace(buildScript) == "" {
-		return packageManifestInvalidFailure(packagePath.VirtualPath, "package.json has no scripts.build command")
-	}
-	return nil
-}
-
 func (toolCatalogBuilder *ToolCatalogBuilder) materializeTerminalRuntimeDirectories(ctx context.Context, workspaceActor security.WorkspaceActor, scope WorkspaceScope, environmentVariables map[string]string) *agent.ToolResult {
 	for _, directory := range terminalRuntimeDirectories(scope, environmentVariables) {
 		if errorValue := workspaceActor.MkdirAll(ctx, directory, workspaceDirectoryCreateMode(directory)); errorValue != nil {
@@ -561,26 +423,6 @@ func requesterOwnedRuntimeDirectory(scope WorkspaceScope, directoryPath string) 
 	}
 }
 
-func commandRunsNodePackageBuild(command string) bool {
-	tokens := terminalCommandWords(command)
-	for index := 0; index < len(tokens); index++ {
-		switch tokens[index] {
-		case "bun", "npm", "pnpm":
-			if index+2 < len(tokens) && tokens[index+1] == "run" && tokens[index+2] == "build" {
-				return true
-			}
-		case "yarn":
-			if index+1 < len(tokens) && tokens[index+1] == "build" {
-				return true
-			}
-			if index+2 < len(tokens) && tokens[index+1] == "run" && tokens[index+2] == "build" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func terminalCommandWords(command string) []string {
 	replacer := strings.NewReplacer("\n", " ", "\t", " ", ";", " ", "&&", " ", "||", " ")
 	fields := strings.Fields(replacer.Replace(command))
@@ -592,25 +434,6 @@ func terminalCommandWords(command string) []string {
 		}
 	}
 	return words
-}
-
-func packageManifestInvalidFailure(path string, detail string) *agent.ToolResult {
-	content := marshalToolResult(map[string]string{
-		"code":   "package_manifest_invalid",
-		"path":   strings.TrimSpace(path),
-		"detail": strings.TrimSpace(detail),
-	})
-	return &agent.ToolResult{
-		Output: agent.ToolOutput{Content: content, Data: json.RawMessage(content)},
-		Failure: &agent.ToolFailure{
-			Kind:            agent.FailureInvalidInput,
-			Code:            "package_manifest_invalid",
-			Stage:           "package_manifest_preflight",
-			UserSafeSummary: content,
-			Retryable:       true,
-			SafeRetry:       true,
-		},
-	}
 }
 
 func statusToolResult(status security.TerminalSessionStatus, errorValue error) agent.ToolResult {
