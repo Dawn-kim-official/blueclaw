@@ -4196,3 +4196,35 @@ func testChannelInboundEvent(messageID string) PlatformInboundEvent {
 	}
 	return event
 }
+
+func TestResolveInboundEngagementIgnoresUninvitedAttachmentsOnly(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, nil)
+
+	channelEvent := PlatformInboundEvent{
+		Prompt:  "User attached file(s).",
+		Context: VisibleContext{ConversationType: "O", AttachmentsOnly: true},
+	}
+	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", channelEvent)
+	if decision.ShouldLaunch {
+		t.Fatalf("uninvited attachments-only channel post must be ignored, got %+v", decision)
+	}
+	if !strings.Contains(decision.IgnoreReason, "attachments_only") {
+		t.Fatalf("expected attachments_only ignore reason, got %q", decision.IgnoreReason)
+	}
+
+	dmEvent := PlatformInboundEvent{
+		Prompt:  "User attached file(s).",
+		Context: VisibleContext{ConversationType: "D", AttachmentsOnly: true},
+	}
+	if !connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", dmEvent).ShouldLaunch {
+		t.Fatal("DM with only an attachment must still engage")
+	}
+
+	mentionEvent := PlatformInboundEvent{
+		Prompt:  "User attached file(s).",
+		Context: VisibleContext{ConversationType: "O", AttachmentsOnly: true, Addressing: AddressingMetadata{BotMentioned: true}},
+	}
+	if !connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", mentionEvent).ShouldLaunch {
+		t.Fatal("bot-mentioned attachment-only post must still engage")
+	}
+}

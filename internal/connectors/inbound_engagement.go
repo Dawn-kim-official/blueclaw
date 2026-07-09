@@ -27,8 +27,12 @@ func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.C
 	if event.Context.Addressing.BotMentioned {
 		return inboundEngagementDecision{ShouldLaunch: true}
 	}
+	if event.Context.AttachmentsOnly {
+		return inboundEngagementDecision{IgnoreReason: "attachments_only_uninvited"}
+	}
 	addressingDecision, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, agent.AddressingClassificationRequest{
 		Prompt:           event.Prompt,
+		MessageSentAt:    event.RawReceivedAt,
 		ConversationType: event.Context.ConversationType,
 		SenderName:       event.Context.Sender.Name,
 		SenderHandle:     event.Context.Sender.Handle,
