@@ -119,9 +119,10 @@ func TestMemoryInstructionsRequireRememberForDurableUpdates(t *testing.T) {
 	}
 	prompt := instructions[0].Prompt
 	for _, expectedText := range []string{
-		"the runtime memory pipeline handles durable storage",
+		"memory.remember is the only path to durable storage",
 		"explicitly asks you to remember",
 		"durable preference, fact, or context update",
+		"call memory.remember with one compact standalone fact per call",
 		"non-exhaustive examples",
 	} {
 		if !strings.Contains(prompt, expectedText) {

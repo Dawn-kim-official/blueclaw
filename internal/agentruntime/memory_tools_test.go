@@ -52,6 +52,36 @@ func TestMemoryRememberToolEnqueuesPersonMemory(t *testing.T) {
 	}
 }
 
+func TestMemoryRememberToolRejectsTransientContent(t *testing.T) {
+	queue := &recordingMemoryUpdateQueue{}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseMemoryUpdateQueue(queue)
+	toolCatalogBuilder.UseAllowedToolNamesByProfile(nil, []string{"memory.remember"})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		MemoryNamespaces:  []memory.MemoryNamespace{memory.UserNamespace("person-1")},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "memory.remember",
+		Input:    agent.MarshalToolInput(map[string]string{"content": "고마워"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected transient content rejection, got %s", result.ContentText())
+	}
+	if result.FailureCode() != agent.FailureCodes.InvalidInput.String() {
+		t.Fatalf("expected invalid input failure, got %+v", result.Failure)
+	}
+	if len(queue.jobs) != 0 {
+		t.Fatalf("expected no queued jobs, got %+v", queue.jobs)
+	}
+}
+
 func TestMemoryRememberToolRejectsInaccessibleActiveCircle(t *testing.T) {
 	queue := &recordingMemoryUpdateQueue{}
 	toolCatalogBuilder := NewToolCatalogBuilder()
