@@ -2793,7 +2793,7 @@ func TestConnectorRuntimeContinuesWaitingUserInputGoal(t *testing.T) {
 			},
 		},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"message.send","toolInput":{"deliveryTarget":{"type":"directMessage","personHint":"샘플"},"message":"우선 진행합니다."}}`,
+			`{"action":"continue","toolName":"message.send","toolInput":{"targetType":"directMessage","personHint":"샘플","message":"우선 진행합니다."}}`,
 			connectorFinishMessageWithEvidence("샘플에게 DM을 보냈습니다.", "obs-001", "message.send", 0),
 		},
 	})

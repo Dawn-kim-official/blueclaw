@@ -242,15 +242,22 @@ func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityOperationNames(re
 	return operationNames
 }
 
+const capabilityCatalogMaxDepth = 4
+
 func capabilityCatalogParameters(inputSchema json.RawMessage) string {
-	if len(inputSchema) == 0 {
+	fields := capabilityCatalogObjectFields(inputSchema, 0)
+	if fields == "" {
 		return ""
 	}
+	return "{ " + fields + " }"
+}
+
+func capabilityCatalogObjectFields(objectSchema json.RawMessage, depth int) string {
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 		Required   []string                   `json:"required"`
 	}
-	if json.Unmarshal(inputSchema, &schema) != nil || len(schema.Properties) == 0 {
+	if json.Unmarshal(objectSchema, &schema) != nil || len(schema.Properties) == 0 {
 		return ""
 	}
 	requiredParameter := map[string]bool{}
@@ -270,15 +277,42 @@ func capabilityCatalogParameters(inputSchema json.RawMessage) string {
 	sort.Strings(optionalNames)
 	fields := []string{}
 	for _, name := range requiredNames {
-		fields = append(fields, name+" "+capabilityCatalogFieldType(schema.Properties[name])+" (required)")
+		fields = append(fields, name+" "+capabilityCatalogFieldType(schema.Properties[name], depth)+" (required)")
 	}
 	for _, name := range optionalNames {
-		fields = append(fields, name+" "+capabilityCatalogFieldType(schema.Properties[name]))
+		fields = append(fields, name+" "+capabilityCatalogFieldType(schema.Properties[name], depth))
 	}
-	return "{ " + strings.Join(fields, ", ") + " }"
+	return strings.Join(fields, ", ")
 }
 
-func capabilityCatalogFieldType(property json.RawMessage) string {
+func capabilityCatalogFieldType(property json.RawMessage, depth int) string {
+	var document struct {
+		Type  string            `json:"type"`
+		Enum  []json.RawMessage `json:"enum"`
+		Items json.RawMessage   `json:"items"`
+	}
+	if json.Unmarshal(property, &document) != nil {
+		return "value"
+	}
+	if len(document.Enum) > 0 {
+		return "enum(" + strings.Join(capabilityCatalogEnumValues(document.Enum), "|") + ")"
+	}
+	fieldType := strings.TrimSpace(document.Type)
+	if fieldType == "object" && depth < capabilityCatalogMaxDepth {
+		if nested := capabilityCatalogObjectFields(property, depth+1); nested != "" {
+			return "object{ " + nested + " }"
+		}
+	}
+	if fieldType == "array" && depth < capabilityCatalogMaxDepth && len(document.Items) > 0 {
+		return "array[" + capabilityCatalogFieldType(document.Items, depth+1) + "]"
+	}
+	if fieldType != "" {
+		return fieldType
+	}
+	return "value"
+}
+
+func capabilityCatalogBaseType(property json.RawMessage) string {
 	var document struct {
 		Type string `json:"type"`
 	}
@@ -286,6 +320,19 @@ func capabilityCatalogFieldType(property json.RawMessage) string {
 		return document.Type
 	}
 	return "value"
+}
+
+func capabilityCatalogEnumValues(values []json.RawMessage) []string {
+	rendered := make([]string, 0, len(values))
+	for _, value := range values {
+		var text string
+		if json.Unmarshal(value, &text) == nil {
+			rendered = append(rendered, text)
+			continue
+		}
+		rendered = append(rendered, strings.TrimSpace(string(value)))
+	}
+	return rendered
 }
 
 func missingRequiredCapabilityInputFields(inputSchema json.RawMessage, toolInput json.RawMessage) []string {
@@ -379,7 +426,7 @@ func capabilityRequiredInputDescription(inputSchema json.RawMessage, requiredFie
 	json.Unmarshal(inputSchema, &schema)
 	descriptions := []string{}
 	for _, field := range requiredFields {
-		descriptions = append(descriptions, field+" "+capabilityCatalogFieldType(schema.Properties[field]))
+		descriptions = append(descriptions, field+" "+capabilityCatalogBaseType(schema.Properties[field]))
 	}
 	return strings.Join(descriptions, ", ")
 }
@@ -403,7 +450,7 @@ func capabilityPlaceholderValue(inputSchema json.RawMessage, field string) any {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
 	json.Unmarshal(inputSchema, &schema)
-	switch capabilityCatalogFieldType(schema.Properties[field]) {
+	switch capabilityCatalogBaseType(schema.Properties[field]) {
 	case "number", "integer":
 		return 1
 	case "boolean":

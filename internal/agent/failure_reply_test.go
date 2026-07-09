@@ -214,7 +214,7 @@ func TestFailureReportRejectsMissingUsedFailureFacts(t *testing.T) {
 
 func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}}`,
 		failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 		recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 	}, textResponses: []string{
@@ -251,7 +251,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}}`,
+			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}}`,
 			failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},
@@ -292,7 +292,7 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	generatedReply := "recipient_resolve/not_found 단계에서 수신자를 찾지 못했습니다."
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"정국"},"message":"확인 부탁해"}}}`,
+			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"정국","message":"확인 부탁해"}}}`,
 			failureReportDocument("recipient missing", "message.send", "정국", FailureCodes.NotFound.String(), "recipient_resolve", "approved active Mattermost recipient was not found"),
 			recoveryDecisionDocument("recipient lookup failed", "recipient_resolve/not_found was returned", "inspect candidate recipients before retrying", "report the exact failure stage and code"),
 		},

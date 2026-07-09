@@ -639,10 +639,10 @@ func TestChannelPostAcceptance(t *testing.T) {
 	if countRequestedToolCalls(turnResult.Events, "message.send") != 1 {
 		t.Fatalf("expected one send request, got events: %s", summarizeEvents(turnResult.Events))
 	}
-	if !eventsContain(turnResult.Events, "tool.capability.invoke.requested", `"type":"channel"`) {
+	if !eventsContain(turnResult.Events, "tool.capability.invoke.requested", `"targetType":"channel"`) {
 		t.Fatalf("expected channel delivery target; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if eventsContain(turnResult.Events, "tool.capability.invoke.requested", `"type":"directMessage"`) {
+	if eventsContain(turnResult.Events, "tool.capability.invoke.requested", `"targetType":"directMessage"`) {
 		t.Fatalf("expected no direct message target; events: %s", summarizeEvents(turnResult.Events))
 	}
 }

@@ -1288,10 +1288,10 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 		Turns: []VirtualTurn{{
 			Prompt: "테스트이한테 DM으로 오늘 오후 3시에 확인하자고 보내줘",
 			ActionResponses: []string{
-				actionInvokeCapabilityTool("message.send", `{"deliveryTarget":{"type":"directMessage","personHint":"테스트"},"message":"오늘 오후 3시에 확인하자"}`),
+				actionInvokeCapabilityTool("message.send", `{"targetType":"directMessage","personHint":"테스트","message":"오늘 오후 3시에 확인하자"}`),
 			},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.capability.invoke.requested", BodyFragment: `"type":"directMessage"`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"targetType":"directMessage"`, Count: 1},
 				{Name: "tool.capability.invoke.result", BodyFragment: "approval_required", Count: 1},
 				{Name: "approval.pending_call", BodyFragment: `"message.send"`, Count: 1},
 				{Name: "agent.failure_debt_created", BodyFragment: "", Count: 0},
@@ -1307,7 +1307,7 @@ func DirectMessageSendConfirmAcceptanceScenario(artifactDirectoryPath string) Vi
 			},
 			ExpectedToolCalls: []string{"message.send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.capability.invoke.requested", BodyFragment: `"type":"directMessage"`, Count: 2},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"targetType":"directMessage"`, Count: 2},
 				{Name: "tool.capability.invoke.result", BodyFragment: "virtual-platform-message-001", Count: 1},
 				{Name: "approval.executed", BodyFragment: `"message.send"`, Count: 1},
 			},
@@ -1328,14 +1328,14 @@ func ChannelPostAcceptanceScenario(artifactDirectoryPath string) VirtualSessionS
 		Turns: []VirtualTurn{{
 			Prompt: "announcements 채널에 오늘 5시에 전체 공지 회의 있다고 올려줘",
 			ActionResponses: []string{
-				actionInvokeCapabilityTool("message.send", `{"deliveryTarget":{"type":"channel","channelName":"announcements"},"message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
+				actionInvokeCapabilityTool("message.send", `{"targetType":"channel","channelName":"announcements","message":"오늘 5시에 전체 공지 회의가 있습니다."}`),
 				actionFinishMessage("announcements 채널에 공지를 올렸습니다.", "obs-001:message.send:0"),
 			},
 			ExpectedToolCalls: []string{"message.send"},
 			ExpectedEventCounts: []VirtualEventCount{
-				{Name: "tool.capability.invoke.requested", BodyFragment: `"type":"channel"`, Count: 1},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"targetType":"channel"`, Count: 1},
 				{Name: "tool.capability.invoke.requested", BodyFragment: `"channelName":"announcements"`, Count: 1},
-				{Name: "tool.capability.invoke.requested", BodyFragment: `"type":"directMessage"`, Count: 0},
+				{Name: "tool.capability.invoke.requested", BodyFragment: `"targetType":"directMessage"`, Count: 0},
 			},
 			ExpectedReplyFragments: []string{"채널", "올렸습니다"},
 		}},
