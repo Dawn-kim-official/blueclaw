@@ -542,18 +542,15 @@ func previousSuccessfulExternalSend(observations []turnObservation, toolName str
 
 func sendRecipientKey(toolInput json.RawMessage) string {
 	var document struct {
-		DeliveryTarget struct {
-			Type           string `json:"type"`
-			PersonHint     string `json:"personHint"`
-			ChannelName    string `json:"channelName"`
-			ConversationID string `json:"conversationID"`
-		} `json:"deliveryTarget"`
+		TargetType     string `json:"targetType"`
+		PersonHint     string `json:"personHint"`
+		ChannelName    string `json:"channelName"`
+		ConversationID string `json:"conversationID"`
 	}
 	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
 		return ""
 	}
-	target := document.DeliveryTarget
-	key := strings.ToLower(strings.TrimSpace(strings.Join([]string{target.Type, target.PersonHint, target.ChannelName, target.ConversationID}, "|")))
+	key := strings.ToLower(strings.TrimSpace(strings.Join([]string{document.TargetType, document.PersonHint, document.ChannelName, document.ConversationID}, "|")))
 	if strings.Trim(key, "|") == "" {
 		return ""
 	}
@@ -692,7 +689,7 @@ func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionD
 	deliveryType := platformMessageSendDeliveryType(toolInput)
 	message := "message.send is only for explicit platform delivery requests. The latest user message does not ask to send a separate platform message; answer in the current conversation with finish.message instead."
 	if deliveryType != "" {
-		message += " Requested deliveryTarget.type was " + deliveryType + "."
+		message += " Requested targetType was " + deliveryType + "."
 	}
 	return newFailureObservation(observationID, "policy", strings.TrimSpace(toolName), message, FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy"), true
 }
@@ -727,14 +724,12 @@ func promptLooksLikePlatformMessageSendRequest(prompt string) bool {
 
 func platformMessageSendDeliveryType(toolInput json.RawMessage) string {
 	var document struct {
-		DeliveryTarget struct {
-			Type string `json:"type"`
-		} `json:"deliveryTarget"`
+		TargetType string `json:"targetType"`
 	}
 	if len(toolInput) == 0 || json.Unmarshal(toolInput, &document) != nil {
 		return ""
 	}
-	return strings.TrimSpace(document.DeliveryTarget.Type)
+	return strings.TrimSpace(document.TargetType)
 }
 
 func isTerminalExecutionTool(toolName string) bool {

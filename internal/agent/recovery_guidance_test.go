@@ -7,8 +7,8 @@ import (
 
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"동하"},"message":"확인 부탁해"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"이동하"},"message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"동하","message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"이동하","message":"확인 부탁해"}}}`,
 		finishMessageWithEvidence("sent", "obs-003", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})

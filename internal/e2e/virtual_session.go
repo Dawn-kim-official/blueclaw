@@ -1046,9 +1046,7 @@ func jsonObjectOrEmpty(document []byte) string {
 func virtualPlatformMessageSendRequiresApproval(requestBody []byte) bool {
 	var requestDocument struct {
 		Input struct {
-			DeliveryTarget struct {
-				Type string `json:"type"`
-			} `json:"deliveryTarget"`
+			TargetType string `json:"targetType"`
 		} `json:"input"`
 		Context struct {
 			IsApprovalContinuation bool `json:"isApprovalContinuation"`
@@ -1057,7 +1055,7 @@ func virtualPlatformMessageSendRequiresApproval(requestBody []byte) bool {
 	if len(requestBody) == 0 || json.Unmarshal(requestBody, &requestDocument) != nil {
 		return false
 	}
-	return strings.TrimSpace(requestDocument.Input.DeliveryTarget.Type) == "directMessage" && !requestDocument.Context.IsApprovalContinuation
+	return strings.TrimSpace(requestDocument.Input.TargetType) == "directMessage" && !requestDocument.Context.IsApprovalContinuation
 }
 
 func virtualCapabilityRequestNeedsApproval(requestBody []byte) bool {
