@@ -1033,3 +1033,34 @@ func mustFindTaskRun(t *testing.T, taskRunService *TaskRunService, taskRunID str
 	}
 	return taskRun
 }
+
+func TestRecordTaskRunResultPersistsResultWithoutTransition(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	taskRun := runningTaskRunForTest(t, taskRunService, "failing task")
+	if _, errorValue := taskRunService.FailTaskRun(taskRun.TaskRunID, "tooling failed"); errorValue != nil {
+		t.Fatal(errorValue)
+	}
+
+	recordedTaskRun, errorValue := taskRunService.RecordTaskRunResult(taskRun.TaskRunID, "failure notice sent to the user")
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if recordedTaskRun.Status != TaskStatusFailed || recordedTaskRun.Result != "failure notice sent to the user" {
+		t.Fatalf("recorded task run = %+v, want failed status with persisted result", recordedTaskRun)
+	}
+	storedTaskRun, isFound := taskRunService.FindTaskRun(taskRun.TaskRunID)
+	if !isFound || storedTaskRun.Result != "failure notice sent to the user" {
+		t.Fatalf("stored task run = %+v, want persisted failure result", storedTaskRun)
+	}
+	if storedTaskRun.FailureReason != "tooling failed" {
+		t.Fatalf("stored failure reason = %q, want original failure reason preserved", storedTaskRun.FailureReason)
+	}
+}
+
+func TestRecordTaskRunResultRejectsUnknownTaskRun(t *testing.T) {
+	taskRunService := NewTaskRunService(NewTaskEventService())
+	if _, errorValue := taskRunService.RecordTaskRunResult("missing-task", "result"); errorValue == nil {
+		t.Fatal("recording a result for an unknown task run must fail")
+	}
+}
