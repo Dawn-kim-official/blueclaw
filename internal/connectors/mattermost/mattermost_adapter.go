@@ -128,6 +128,7 @@ func (adapter Adapter) FetchHistory(_ context.Context, historyCursor string, lim
 			Speaker:          firstNonEmpty(strings.TrimSpace(post.UserID), "mattermost"),
 			SpeakerHandle:    strings.TrimSpace(post.UserID),
 			Text:             message,
+			SentAt:           mattermostPostCreatedAt(post.CreateAt),
 			InputAttachments: inputAttachments,
 		})
 	}
@@ -155,6 +156,7 @@ func (adapter Adapter) convertEvent(event Event, source string) connectors.Platf
 			ConversationType: event.ChannelType,
 			ChannelID:        event.ConversationID,
 			ChannelName:      event.ChannelName,
+			AttachmentsOnly:  strings.TrimSpace(event.Message) == "" && len(inputAttachments) > 0,
 			InputAttachments: inputAttachments,
 			Materials:        inputAttachments,
 		},
@@ -201,6 +203,13 @@ func mattermostInputAttachments(messageID string, fileIDs []string) []connectors
 		})
 	}
 	return attachments
+}
+
+func mattermostPostCreatedAt(createAt int64) time.Time {
+	if createAt <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(createAt)
 }
 
 func parseHistoryCursor(historyCursor string) (string, string) {
