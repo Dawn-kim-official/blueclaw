@@ -222,28 +222,23 @@ type approvalQuestionResponseDocument struct {
 }
 
 type approvalQuestionActionInput struct {
-	RecipientHint  string `json:"recipientHint"`
-	PersonHint     string `json:"personHint"`
-	ChannelName    string `json:"channelName"`
-	DeliveryTarget struct {
-		Type        string `json:"type"`
-		PersonHint  string `json:"personHint"`
-		ChannelName string `json:"channelName"`
-	} `json:"deliveryTarget"`
-	Message    string   `json:"message"`
-	Body       string   `json:"body"`
-	Subject    string   `json:"subject"`
-	Title      string   `json:"title"`
-	Summary    string   `json:"summary"`
-	Reason     string   `json:"reason"`
-	Path       string   `json:"path"`
-	DevicePath string   `json:"devicePath"`
-	TargetPath string   `json:"targetPath"`
-	Slug       string   `json:"slug"`
-	SiteID     string   `json:"siteID"`
-	EventID    string   `json:"eventID"`
-	To         []string `json:"to"`
-	People     []string `json:"people"`
+	TargetType  string   `json:"targetType"`
+	PersonHint  string   `json:"personHint"`
+	ChannelName string   `json:"channelName"`
+	Message     string   `json:"message"`
+	Body        string   `json:"body"`
+	Subject     string   `json:"subject"`
+	Title       string   `json:"title"`
+	Summary     string   `json:"summary"`
+	Reason      string   `json:"reason"`
+	Path        string   `json:"path"`
+	DevicePath  string   `json:"devicePath"`
+	TargetPath  string   `json:"targetPath"`
+	Slug        string   `json:"slug"`
+	SiteID      string   `json:"siteID"`
+	EventID     string   `json:"eventID"`
+	To          []string `json:"to"`
+	People      []string `json:"people"`
 }
 
 func (agentTurnRunner *AgentTurnRunner) heldCallConfirmationWording(ctx context.Context, request AgentTurnRequest, actionDocument turnActionDocument) (string, error) {
@@ -313,8 +308,8 @@ func approvalQuestionActionDetails(input json.RawMessage) map[string]string {
 		return nil
 	}
 	details := map[string]string{}
-	approvalQuestionSetDetail(details, "target", firstNonEmptyString(document.RecipientHint, document.PersonHint, document.ChannelName, document.DeliveryTarget.PersonHint, document.DeliveryTarget.ChannelName, strings.Join(trimNonEmptyConfirmationStrings(document.To), ", "), strings.Join(trimNonEmptyConfirmationStrings(document.People), ", ")))
-	approvalQuestionSetDetail(details, "deliveryTargetType", document.DeliveryTarget.Type)
+	approvalQuestionSetDetail(details, "target", firstNonEmptyString(document.PersonHint, document.ChannelName, strings.Join(trimNonEmptyConfirmationStrings(document.To), ", "), strings.Join(trimNonEmptyConfirmationStrings(document.People), ", ")))
+	approvalQuestionSetDetail(details, "deliveryTargetType", document.TargetType)
 	approvalQuestionSetDetail(details, "content", firstNonEmptyString(document.Message, document.Subject, document.Body, document.Title, document.Summary, document.Reason))
 	approvalQuestionSetDetail(details, "message", document.Message)
 	approvalQuestionSetDetail(details, "subject", document.Subject)

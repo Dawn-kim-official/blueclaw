@@ -76,7 +76,7 @@ func TestHeldCallConfirmationWordingUsesActionFactsAsModelInput(t *testing.T) {
 	}
 	actionDocument := turnActionDocument{
 		ToolName:  CapabilityInvokeToolName,
-		ToolInput: json.RawMessage(`{"operation":"message.send","input":{"deliveryTarget":{"type":"directMessage","personHint":"테스트"},"message":"오늘 오후 3시에 확인하자"}}`),
+		ToolInput: json.RawMessage(`{"operation":"message.send","input":{"targetType":"directMessage","personHint":"테스트","message":"오늘 오후 3시에 확인하자"}}`),
 	}
 
 	confirmation, errorValue := agentTurnRunner.heldCallConfirmationWording(context.Background(), request, actionDocument)

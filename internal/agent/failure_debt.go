@@ -386,7 +386,7 @@ func failureReportInputSummary(toolInputKey string) string {
 	}
 	var document map[string]any
 	if json.Unmarshal([]byte(parts[1]), &document) == nil {
-		for _, fieldName := range []string{"expression", "query", "url", "deliveryTarget", "message", "command"} {
+		for _, fieldName := range []string{"expression", "query", "url", "message", "command"} {
 			if value, isString := document[fieldName].(string); isString && strings.TrimSpace(value) != "" {
 				return truncateText(compactWhitespace(redactUnsafeText(value)), 120)
 			}
