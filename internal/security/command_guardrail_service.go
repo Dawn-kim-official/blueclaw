@@ -80,11 +80,6 @@ func (commandGuardrailService CommandGuardrailService) BuildCommandPlan(commandR
 		return CommandPlan{}, errorValue
 	}
 
-	errorValue = commandGuardrailService.validateInlineEval(commandRequest.ExecutableName, commandRequest.Arguments)
-	if errorValue != nil {
-		return CommandPlan{}, errorValue
-	}
-
 	if commandRequest.IsInteractive && !commandGuardrailService.terminalConfiguration.AllowInteractiveShell {
 		return CommandPlan{}, errors.New("interactive shell is disabled")
 	}
@@ -245,36 +240,6 @@ func (commandGuardrailService CommandGuardrailService) validateExecutable(resolv
 	return errors.New("executable is not allowlisted")
 }
 
-func (commandGuardrailService CommandGuardrailService) validateInlineEval(executableName string, arguments []string) error {
-	inlineEvalFlagByExecutableName := map[string][]string{
-		"bash":      {"-c"},
-		"sh":        {"-c"},
-		"zsh":       {"-c"},
-		"fish":      {"-c"},
-		"node":      {"-e", "--eval", "-p"},
-		"bun":       {"-e", "--eval"},
-		"deno":      {"eval"},
-		"python":    {"-c", "-m"},
-		"python3":   {"-c", "-m"},
-		"ruby":      {"-e"},
-		"perl":      {"-e", "-E"},
-		"php":       {"-r"},
-		"lua":       {"-e"},
-		"osascript": {"-e"},
-	}
-
-	deniedFlags := inlineEvalFlagByExecutableName[filepath.Base(executableName)]
-	for _, argument := range arguments {
-		for _, deniedFlag := range deniedFlags {
-			if argument == deniedFlag {
-				return errors.New("inline eval is denied by hard guardrail")
-			}
-		}
-	}
-
-	return nil
-}
-
 func (commandGuardrailService CommandGuardrailService) validateArgumentPaths(arguments []string, workingDirectoryPath string, workspaceRootPath string) error {
 	for _, argument := range arguments {
 		if !looksLikePath(argument) {
@@ -331,7 +296,7 @@ func newCommandGuardrailError(reason string, token string, resolvedPath string, 
 		ResolvedPath:         strings.TrimSpace(resolvedPath),
 		WorkspaceRootPath:    strings.TrimSpace(workspaceRootPath),
 		WorkingDirectoryPath: strings.TrimSpace(workingDirectoryPath),
-		RecoveryHint:         "use ~ paths in tool fields: do document work in ~/documents/ and save finished documents as ~/documents/<name>.<ext>; run built-in artifact skills through /workspace/skills/<skill>/scripts/skill_runtime.py instead of runtime-internal interpreters",
+		RecoveryHint:         "use ~ paths in tool fields: do document work in ~/documents/ and save finished documents as ~/documents/<name>.<ext>",
 	}
 }
 
