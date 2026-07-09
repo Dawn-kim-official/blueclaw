@@ -1478,7 +1478,7 @@ func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount 
 		budgetLine += fmt.Sprintf(" Time: %s/%s elapsed.", roundedSeconds(elapsed), roundedSeconds(maxElapsed))
 	}
 	if level == "finalize" {
-		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it. If there is no deliverable to build, register or finish with whatever concrete result you already have now (for example task.add for clearly identified items, or finish) instead of continuing to search."
+		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it. If a quality gate has not passed but a usable build exists, deliver the best build now with an honest note about its state instead of failing with nothing; offer a further improvement round (for example via ask.confirm) only when your recent attempts were still improving and you can name the concrete next fix, and otherwise say plainly that you have reached your limit with the current approach. If there is no deliverable to build, register or finish with whatever concrete result you already have now (for example task.add for clearly identified items, or finish) instead of continuing to search."
 	}
 	if level == "consolidate" {
 		return budgetLine + " Consolidate completed work, reuse existing observations, and prefer direct edit/build/publish or file delivery over additional inspection."
