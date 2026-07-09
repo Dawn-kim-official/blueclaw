@@ -656,7 +656,7 @@ func (agentTurnRunner *AgentTurnRunner) failLaunchStep(ctx context.Context, task
 		DiagnosticEventID:  diagnosticEventID(request, taskRun.TaskRunID, "launch"),
 	})
 	agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.failure_reply", marshalEventBody(noticeStatus))
-	failedTaskRun.Result = failureNotice.SendableMessage()
+	failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, failureNotice.SendableMessage())
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: failedTaskRun.Result, FailureNotice: failureNotice, ToolNames: toolNamesForEvent(request.ToolSet)}
 }
 
@@ -1334,7 +1334,7 @@ func (agentTurnRunner *AgentTurnRunner) pauseTurnForStall(taskRunID string, step
 	agentTurnRunner.appendEvent(taskRunID, "agent.goal.waiting_user_input", marshalEventBody(stalledWaitingGoal(taskRunID, request)))
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusWaitingUserInput, "no_progress_loop_paused", reason)
 	reply := notice.SendableMessage()
-	pausedTaskRun.Result = reply
+	pausedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, pausedTaskRun, reply)
 	return AgentTurnResult{TaskRun: pausedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
 }
 
@@ -1355,11 +1355,11 @@ func (agentTurnRunner *AgentTurnRunner) blockTurnForStall(taskRunID string, step
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "stall", reason, replyStatus)
 		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
-		blockedTaskRun.Result = fallbackReply
+		blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, fallbackReply)
 		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
 	}
 	reply := notice.SendableMessage()
-	blockedTaskRun.Result = reply
+	blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, reply)
 	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
 }
 
@@ -1389,11 +1389,11 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
 		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
-		failedTaskRun.Result = fallbackReply
+		failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, fallbackReply)
 		return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
 	reply := failureNotice.SendableMessage()
-	failedTaskRun.Result = reply
+	failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, reply)
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
@@ -1478,7 +1478,7 @@ func limitPressureMessage(level string, usedToolCallCount int, maxToolCallCount 
 		budgetLine += fmt.Sprintf(" Time: %s/%s elapsed.", roundedSeconds(elapsed), roundedSeconds(maxElapsed))
 	}
 	if level == "finalize" {
-		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it. If there is no deliverable to build, register or finish with whatever concrete result you already have now (for example task.add for clearly identified items, or finish) instead of continuing to search."
+		return budgetLine + " The run is very close to its limit. Use only the shortest delivery path: build/render if still needed, then publish or deliver files, then final. Do not inspect more unless delivery is impossible without it. If a quality gate has not passed but a usable build exists, deliver the best build now with an honest note about its state instead of failing with nothing; offer a further improvement round (for example via ask.confirm) only when your recent attempts were still improving and you can name the concrete next fix, and otherwise say plainly that you have reached your limit with the current approach. If there is no deliverable to build, register or finish with whatever concrete result you already have now (for example task.add for clearly identified items, or finish) instead of continuing to search."
 	}
 	if level == "consolidate" {
 		return budgetLine + " Consolidate completed work, reuse existing observations, and prefer direct edit/build/publish or file delivery over additional inspection."
@@ -1758,7 +1758,7 @@ func (agentTurnRunner *AgentTurnRunner) failTerminalNoToolsFailure(taskRunID str
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(FailureNoticeGenerationStatus{Source: notice.Source}))
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusFailed, "terminal_no_tools_fail", reason)
 	reply := notice.SendableMessage()
-	failedTaskRun.Result = reply
+	failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, reply)
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: notice, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true, ""
 }
 
@@ -1806,12 +1806,21 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", reason, replyStatus)
 		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
-		blockedTaskRun.Result = fallbackReply
+		blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, fallbackReply)
 		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
 	reply := failureNotice.SendableMessage()
-	blockedTaskRun.Result = reply
+	blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, reply)
 	return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
+}
+
+func persistTaskRunResult(taskRunService *task.TaskRunService, taskRun task.TaskRun, result string) task.TaskRun {
+	persistedTaskRun, errorValue := taskRunService.RecordTaskRunResult(taskRun.TaskRunID, result)
+	if errorValue != nil {
+		taskRun.Result = result
+		return taskRun
+	}
+	return persistedTaskRun
 }
 
 func nextObservationID(index int) string {
