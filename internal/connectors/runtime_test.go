@@ -1777,7 +1777,7 @@ func TestConnectorRuntimeFailureFooterLinksAdminTaskWhenConfigured(t *testing.T)
 	if !isSent || len(sentReplies) != 1 {
 		t.Fatalf("expected failure notice to send, got %+v", sentReplies)
 	}
-	if !strings.HasSuffix(sentReplies[0].Message, "`a1b2c3` https://demo.example.test/tasks/a1b2c3d4e5f6") {
+	if !strings.HasSuffix(sentReplies[0].Message, "[`a1b2c3`](https://demo.example.test/tasks/a1b2c3d4e5f6)") {
 		t.Fatalf("expected admin task link footer, got %q", sentReplies[0].Message)
 	}
 }
