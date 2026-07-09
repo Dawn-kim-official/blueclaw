@@ -6,10 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"blueclaw/internal/llm"
 	"blueclaw/internal/memory"
 )
+
+func formatContextTimestamp(sentAt time.Time) string {
+	if sentAt.IsZero() {
+		return ""
+	}
+	return sentAt.In(defaultTurnLocation()).Format("01-02 15:04")
+}
 
 func (agentKernel *AgentKernel) GenerateReply(responseContext context.Context, prompt string) (string, error) {
 	return agentKernel.GenerateReplyWithMemory(responseContext, prompt, nil)
@@ -70,6 +78,7 @@ type VisibleContextMessage struct {
 	SpeakerCallingName string
 	SpeakerHandle      string
 	Text               string
+	SentAt             time.Time
 	Materials          []VisibleContextMaterial
 }
 
@@ -105,13 +114,17 @@ func buildVisibleContextDescription(visibleContext VisibleContext) string {
 	contextLines := []string{}
 	for _, message := range visibleContext.Messages {
 		speaker := formatSpeakerLabel(message.SpeakerCallingName, message.SpeakerHandle, message.Speaker)
+		prefix := "- "
+		if stamp := formatContextTimestamp(message.SentAt); stamp != "" {
+			prefix = "- [" + stamp + "] "
+		}
 		text := strings.TrimSpace(message.Text)
 		if text != "" {
-			contextLines = append(contextLines, "- "+speaker+": "+text)
+			contextLines = append(contextLines, prefix+speaker+": "+text)
 		}
 		for _, material := range message.Materials {
 			if line := formatVisibleContextMaterial(material); line != "" {
-				contextLines = append(contextLines, "- "+speaker+" attached "+line)
+				contextLines = append(contextLines, prefix+speaker+" attached "+line)
 			}
 		}
 	}

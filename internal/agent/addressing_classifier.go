@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"blueclaw/internal/llm"
 )
@@ -21,6 +22,7 @@ const (
 
 type AddressingClassificationRequest struct {
 	Prompt           string
+	MessageSentAt    time.Time
 	ConversationType string
 	SenderName       string
 	SenderHandle     string
@@ -135,9 +137,16 @@ func addressingClassificationPrompt(request AddressingClassificationRequest) str
 		"senderHandle: "+strings.TrimSpace(request.SenderHandle),
 		"message: "+strings.TrimSpace(request.Prompt),
 	)
+	if stamp := formatContextTimestamp(request.MessageSentAt); stamp != "" {
+		lines = append(lines, "messageTime: "+stamp+" (context timestamps below share this clock; consecutive messages seconds apart from the same sender are usually one split thought)")
+	}
 	for _, message := range recentVisibleMessages(request.VisibleContext.Messages, 6) {
 		speaker := firstNonEmptyAddressingText(message.SpeakerCallingName, message.Speaker, message.SpeakerHandle, "unknown")
-		lines = append(lines, "context: "+speaker+": "+strings.TrimSpace(message.Text))
+		prefix := "context: "
+		if stamp := formatContextTimestamp(message.SentAt); stamp != "" {
+			prefix = "context: [" + stamp + "] "
+		}
+		lines = append(lines, prefix+speaker+": "+strings.TrimSpace(message.Text))
 	}
 	return strings.Join(lines, "\n")
 }

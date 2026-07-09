@@ -221,6 +221,7 @@ type VisibleContext struct {
 	ChannelID        string                  `json:"channelID,omitempty"`
 	ChannelName      string                  `json:"channelName,omitempty"`
 	Addressing       AddressingMetadata      `json:"addressing,omitempty"`
+	AttachmentsOnly  bool                    `json:"attachmentsOnly,omitempty"`
 	InputAttachments []InputAttachment       `json:"inputAttachments,omitempty"`
 	Materials        []InputAttachment       `json:"materials,omitempty"`
 }
@@ -257,6 +258,7 @@ type VisibleContextMessage struct {
 	SpeakerCallingName string            `json:"speakerCallingName,omitempty"`
 	SpeakerHandle      string            `json:"speakerHandle,omitempty"`
 	Text               string            `json:"text"`
+	SentAt             time.Time         `json:"sentAt,omitempty"`
 	InputAttachments   []InputAttachment `json:"inputAttachments,omitempty"`
 }
 
@@ -3520,6 +3522,7 @@ func (visibleContext VisibleContext) ToAgentVisibleContext() agent.VisibleContex
 			SpeakerCallingName: message.SpeakerCallingName,
 			SpeakerHandle:      message.SpeakerHandle,
 			Text:               message.Text,
+			SentAt:             message.SentAt,
 			Materials:          agentVisibleContextMaterials(message.InputAttachments),
 		})
 	}
