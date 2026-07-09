@@ -3196,7 +3196,7 @@ func TestConnectorProgressHeartbeatIntervalMaintainsTypingIndicator(t *testing.T
 	}
 }
 
-func TestConnectorRuntimeDoesNotAutomaticallyIngestOrSearchMemory(t *testing.T) {
+func TestConnectorRuntimeDoesNotAutomaticallyIngestMemoryButInjectsGraphMemoryAtLaunch(t *testing.T) {
 	languageModel := &recordingLanguageModel{reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	graphStore := &fakeGraphMemoryStore{
@@ -3228,8 +3228,8 @@ func TestConnectorRuntimeDoesNotAutomaticallyIngestOrSearchMemory(t *testing.T) 
 	if len(graphStore.episodes) != 0 {
 		t.Fatalf("expected no automatic Graphiti episode ingestion, got %d", len(graphStore.episodes))
 	}
-	if structuredMessagesContain(languageModel.request.Messages, "민수") {
-		t.Fatalf("expected graph memory to require explicit memory.search, got %+v", languageModel.request.Messages)
+	if !structuredMessagesContain(languageModel.request.Messages, "민수") {
+		t.Fatalf("expected launch-time graph memory injection to surface stored facts, got %+v", languageModel.request.Messages)
 	}
 }
 
