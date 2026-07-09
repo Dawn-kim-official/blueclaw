@@ -2531,8 +2531,9 @@ func failureRunFooter(taskRunID string, adminTaskLinkBaseURL string) string {
 		shortTaskRunID = shortTaskRunID[:6]
 	}
 	footer := "\n\n`" + shortTaskRunID + "`"
-	if adminTaskLinkBaseURL != "" {
-		footer += " " + adminTaskLinkBaseURL + "/tasks/" + trimmedTaskRunID
+	trimmedAdminTaskLinkBaseURL := strings.TrimRight(strings.TrimSpace(adminTaskLinkBaseURL), "/")
+	if trimmedAdminTaskLinkBaseURL != "" {
+		footer = "\n\n[`" + shortTaskRunID + "`](" + trimmedAdminTaskLinkBaseURL + "/tasks/" + trimmedTaskRunID + ")"
 	}
 	return footer
 }
