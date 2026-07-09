@@ -774,6 +774,24 @@ func (taskRunService *TaskRunService) CompleteTaskRun(taskRunID string, result s
 	})
 }
 
+func (taskRunService *TaskRunService) RecordTaskRunResult(taskRunID string, result string) (TaskRun, error) {
+	taskRun, isFound := taskRunService.FindTaskRun(taskRunID)
+	if !isFound {
+		return TaskRun{}, ErrTaskRunNotFound
+	}
+	taskRun.Result = result
+	taskRun.UpdatedAt = time.Now()
+	taskRunService.mutex.Lock()
+	defer taskRunService.mutex.Unlock()
+	if taskRunService.repository != nil {
+		if errorValue := taskRunService.repository.SaveTaskRun(taskRun); errorValue != nil {
+			return TaskRun{}, errorValue
+		}
+	}
+	taskRunService.taskRuns[taskRunID] = taskRun
+	return taskRun, nil
+}
+
 func (taskRunService *TaskRunService) FindTaskRun(taskRunID string) (TaskRun, bool) {
 	if taskRunService.repository != nil {
 		taskRun, isFound, errorValue := taskRunService.repository.FindTaskRun(taskRunID)

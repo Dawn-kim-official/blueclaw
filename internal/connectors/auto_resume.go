@@ -141,7 +141,7 @@ func (connectorRuntime *ConnectorRuntime) interruptedTaskLaunchRequest(taskRun t
 		ResponseLanguage:           event.Context.ResponseLanguage,
 		VisibleContext:             event.Context.ToAgentVisibleContext(),
 		ActiveGoal:                 interruptedTaskActiveGoal(taskRun, taskEvents, profile.guidanceNote),
-		PrecomputedTurnDecision:    interruptedTaskTurnDecision(event.Context.ResponseLanguage),
+		PrecomputedTurnDecision:    interruptedTaskTurnDecision(taskEvents, event.Context.ResponseLanguage),
 		PersonAccess:               personAccess,
 		MemoryNamespaces:           connectorRuntime.accessibleNamespaces(taskRun.RequesterPersonID, personAccess, event),
 		AccessibleConversationIDs:  []string{conversationID},
@@ -223,16 +223,41 @@ func userSteerTaskProfile(platform string, taskRunID string) taskResumeProfile {
 	}
 }
 
-func interruptedTaskTurnDecision(responseLanguage string) *agent.TurnDecision {
+func interruptedTaskTurnDecision(taskEvents []task.TaskEvent, responseLanguage string) *agent.TurnDecision {
+	effortLevel, taskComplexity := highestRecordedTaskEffort(taskEvents)
 	return &agent.TurnDecision{
 		Route:            agent.TurnRouteContinueTask,
 		Classification:   agent.IntakeClassificationBoundedTask,
 		TaskShape:        agent.TaskShapeMaintenanceTask,
-		TaskComplexity:   agent.TaskComplexityNormal,
-		EffortLevel:      agent.EffortLevelStandard,
+		TaskComplexity:   taskComplexity,
+		EffortLevel:      effortLevel,
 		ResponseLanguage: responseLanguage,
 		Reason:           "runtime_restart_auto_resume",
 	}
+}
+
+func highestRecordedTaskEffort(taskEvents []task.TaskEvent) (agent.EffortLevel, agent.TaskComplexity) {
+	effortLevel := agent.EffortLevelStandard
+	taskComplexity := agent.TaskComplexityNormal
+	for _, taskEvent := range taskEvents {
+		var body struct {
+			EffortLevel    string `json:"effortLevel"`
+			NewEffortLevel string `json:"newEffortLevel"`
+			TaskComplexity string `json:"taskComplexity"`
+		}
+		switch taskEvent.Name {
+		case "agent.intake", "agent.budget_escalated":
+			if json.Unmarshal([]byte(taskEvent.Body), &body) != nil {
+				continue
+			}
+			effortLevel = agent.LargerEffortLevel(effortLevel, agent.EffortLevel(body.EffortLevel))
+			effortLevel = agent.LargerEffortLevel(effortLevel, agent.EffortLevel(body.NewEffortLevel))
+			if agent.TaskComplexity(body.TaskComplexity) == agent.TaskComplexityComplex {
+				taskComplexity = agent.TaskComplexityComplex
+			}
+		}
+	}
+	return effortLevel, taskComplexity
 }
 
 func platformFromSourceReference(sourceReference string) string {
