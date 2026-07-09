@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"blueclaw/internal/agent"
 	"blueclaw/internal/memory"
@@ -113,8 +114,10 @@ type launchStepRecord struct {
 }
 
 type launchMemoryResult struct {
-	Facts []memory.MemoryFact
-	Error string
+	Facts           []memory.MemoryFact
+	PinnedFactCount int
+	GraphFactCount  int
+	Error           string
 }
 
 func NewTaskLauncher(agentKernel *agent.AgentKernel, toolCatalogBuilder *ToolCatalogBuilder) *TaskLauncher {
@@ -208,7 +211,11 @@ func (taskLauncher *TaskLauncher) Launch(ctx context.Context, request TaskLaunch
 		if memoryResult.Error != "" {
 			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_failed", memoryResult.Error)
 		} else {
-			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{"factCount": len(memoryResult.Facts)}))
+			taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "memory.pinned_load_succeeded", marshalToolResult(map[string]any{
+				"factCount":       len(memoryResult.Facts),
+				"pinnedFactCount": memoryResult.PinnedFactCount,
+				"graphFactCount":  memoryResult.GraphFactCount,
+			}))
 		}
 		taskLauncher.agentKernel.AppendTaskEvent(turnResult.TaskRun.TaskRunID, "agent.task_launched", marshalTaskLaunchEvent(request, normalizedProfileName, launchedToolNames, registryAudit, len(memoryResult.Facts)))
 		taskLauncher.appendAmbientDutyLaunchEvent(turnResult.TaskRun.TaskRunID, request)
@@ -280,13 +287,43 @@ func (loadMemoryLaunchStep) Name() string {
 }
 
 func (loadMemoryLaunchStep) Run(ctx context.Context, execution *taskLaunchExecution) (launchMemoryResult, error) {
-	memoryFacts, errorValue := execution.Launcher.toolCatalogBuilder.LoadPinnedMemory(ctx, TaskPinnedMemoryRequest{
+	pinnedMemoryFacts, errorValue := execution.Launcher.toolCatalogBuilder.LoadPinnedMemory(ctx, TaskPinnedMemoryRequest{
 		RequesterPersonID: execution.Request.RequesterPersonID,
 	})
 	if errorValue != nil {
 		return launchMemoryResult{Error: errorValue.Error()}, nil
 	}
-	return launchMemoryResult{Facts: memoryFacts}, nil
+	graphMemoryFacts := searchLaunchGraphMemory(ctx, execution)
+	return launchMemoryResult{
+		Facts:           appendMemoryFacts(pinnedMemoryFacts, graphMemoryFacts),
+		PinnedFactCount: len(pinnedMemoryFacts),
+		GraphFactCount:  len(graphMemoryFacts),
+	}, nil
+}
+
+const launchGraphMemorySearchTimeout = 8 * time.Second
+
+func searchLaunchGraphMemory(ctx context.Context, execution *taskLaunchExecution) []memory.MemoryFact {
+	toolCatalogBuilder := execution.Launcher.toolCatalogBuilder
+	request := execution.Request
+	if !toolCatalogBuilder.canSearchGraphMemory() || strings.TrimSpace(request.Prompt) == "" {
+		return nil
+	}
+	catalogRequest := execution.Launcher.toolCatalogRequestForLaunch(request, execution.NormalizedProfileName)
+	searchContext, cancelSearch := context.WithTimeout(ctx, launchGraphMemorySearchTimeout)
+	defer cancelSearch()
+	graphMemoryFacts, errorValue := toolCatalogBuilder.SearchMemory(searchContext, TaskMemoryRequest{
+		Query:                     request.Prompt,
+		RequesterPersonID:         request.RequesterPersonID,
+		ConversationID:            request.ConversationID,
+		PersonAccess:              request.PersonAccess,
+		MemoryNamespaces:          searchMemoryNamespaces(catalogRequest),
+		AccessibleConversationIDs: request.AccessibleConversationIDs,
+	})
+	if errorValue != nil {
+		return nil
+	}
+	return graphMemoryFacts
 }
 
 type runTurnLaunchStep struct {
