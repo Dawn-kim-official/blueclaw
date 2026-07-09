@@ -69,63 +69,6 @@ func TestTerminalRunCommandRequestTreatsCommandWithArgumentsAsExecutable(t *test
 	}
 }
 
-func TestTerminalRunRejectsSourceWriteHeredoc(t *testing.T) {
-	workspacePath := t.TempDir()
-	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:       "default",
-		RequesterPersonID: "person-1",
-		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-	})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "terminal.run",
-		Input: agent.MarshalToolInput(map[string]any{
-			"command":              "cat <<'EOF' > app/src/index.css\nbody { color: black; }\nEOF",
-			"workingDirectoryPath": "tmp/site",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() {
-		t.Fatalf("expected terminal.run source write failure, got %s", result.ContentText())
-	}
-	if result.Failure.Stage != "terminal_source_write" {
-		t.Fatalf("expected terminal_source_write stage, got %+v", result.Failure)
-	}
-	if !containsTestString(result.Failure.RecoveryHints[0].ToolNames, "terminal.run") {
-		t.Fatalf("expected terminal.run recovery hint, got %+v", result.Failure.RecoveryHints)
-	}
-}
-
-func TestTerminalRunRejectsSourceFileRedirection(t *testing.T) {
-	workspacePath := t.TempDir()
-	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:       "default",
-		RequesterPersonID: "person-1",
-		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-	})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "terminal.run",
-		Input: agent.MarshalToolInput(map[string]any{
-			"command":              "printf 'export default function App(){}' > app/src/App.tsx",
-			"workingDirectoryPath": "tmp/site",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() {
-		t.Fatalf("expected terminal.run source write failure, got %s", result.ContentText())
-	}
-	if !strings.Contains(result.ContentText(), "bundled skill scripts") {
-		t.Fatalf("expected source write failure to suggest bundled skill scripts, got %s", result.ContentText())
-	}
-}
-
 func TestTerminalRunAllowsStderrRedirection(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
@@ -147,6 +90,30 @@ func TestTerminalRunAllowsStderrRedirection(t *testing.T) {
 	}
 	if result.Failed() {
 		t.Fatalf("expected terminal.run stderr redirection success, got %s", result.ContentText())
+	}
+}
+
+func TestTerminalRunAllowsSourceFileWrite(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command":              "printf 'export default function App(){}' > App.tsx",
+			"workingDirectoryPath": "tmp/deck",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if result.Failed() {
+		t.Fatalf("terminal.run must allow writing a source file directly, got %s", result.ContentText())
 	}
 }
 
@@ -202,40 +169,10 @@ func TestTerminalRunPathGuardrailFailureIsRecoverable(t *testing.T) {
 	}
 	for _, expectedText := range []string{
 		"/opt/blueclaw/builtin-skills-venv/bin/python",
-		"/workspace/skills/<skill>/scripts/skill_runtime.py",
 	} {
 		if !strings.Contains(result.ContentText(), expectedText) {
 			t.Fatalf("expected result to contain %q, got %q", expectedText, result.ContentText())
 		}
-	}
-}
-
-func TestTerminalRunPreflightsNodePackageBuildManifest(t *testing.T) {
-	workspacePath := t.TempDir()
-	invalidPackagePath := filepath.Join(workspacePath, "private", "people", "person-1", "tmp", "node-app", "package.json")
-	writeTestFile(t, invalidPackagePath, `{"project":"not a package manifest"}`)
-	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
-	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
-		ProfileName:       "default",
-		RequesterPersonID: "person-1",
-		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
-	})
-
-	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "terminal.run",
-		Input: agent.MarshalToolInput(map[string]any{
-			"workingDirectoryPath": "tmp/node-app",
-			"command":              "bun run build",
-		}),
-	})
-	if errorValue != nil {
-		t.Fatal(errorValue)
-	}
-	if !result.Failed() || result.Failure.Code != "package_manifest_invalid" || result.Failure.Stage != "package_manifest_preflight" {
-		t.Fatalf("expected package manifest preflight failure, got %+v", result)
-	}
-	if !strings.Contains(result.ContentText(), "scripts") || !strings.Contains(result.ContentText(), "tmp/node-app/package.json") {
-		t.Fatalf("expected manifest detail in result, got %s", result.ContentText())
 	}
 }
 
