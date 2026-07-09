@@ -41,7 +41,7 @@ func registerMemoryTools(toolCatalogBuilder *ToolCatalogBuilder, toolRegistry *a
 	agent.RegisterToolFunction(toolRegistry, agent.ToolFunction[memoryRememberToolInput, agent.ToolResult]{
 		Definition: agent.ToolDefinition{
 			Name:        "memory.remember",
-			Description: "Record a memory update for the current person or active circle. Use this for a few durable facts, preferences, or relationships to recall by meaning later; for structured records you query, count, or aggregate over many rows, store them with db.sql instead.",
+			Description: "Store one durable fact, preference, or relationship for the current person or active circle; nothing is remembered unless this tool is called. Keep content a single compact standalone fact. Do not store secrets, one-off requests, transient task details, or small talk; for structured records you query, count, or aggregate over many rows, store them with db.sql instead.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string"}},"required":["content"]}`),
 		},
 		Handler: func(toolContext context.Context, input memoryRememberToolInput) (agent.ToolResult, error) {
@@ -190,8 +190,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) loadPinnedFallbackMemory(ctx conte
 
 func (toolCatalogBuilder *ToolCatalogBuilder) rememberMemoryTool(toolContext context.Context, input memoryRememberToolInput, request ToolCatalogRequest) (agent.ToolResult, error) {
 	content := strings.TrimSpace(input.Content)
-	if content == "" {
-		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "memory_remember", "memory.remember requires content"), nil
+	if gateMessage := memory.RememberContentGateMessage(content); gateMessage != "" {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "memory_remember", gateMessage), nil
 	}
 	if request.ActiveCircleConflict {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.Conflict, "memory_remember", "memory.remember has multiple active circle candidates"), nil
