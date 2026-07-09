@@ -121,7 +121,11 @@ func shouldStoreByHeuristic(prompt string) bool {
 	}
 	transientMessages := map[string]bool{
 		"ok": true, "okay": true, "thanks": true, "thank you": true, "thx": true,
-		"네": true, "넵": true, "응": true, "ㅇㅇ": true, "고마워": true, "감사": true, "ㅋㅋ": true,
+		"yes": true, "no": true, "sure": true, "alright": true, "got it": true,
+		"hi": true, "hello": true,
+		"네": true, "넵": true, "넹": true, "응": true, "예": true, "옙": true, "ㅇㅇ": true, "ㅇㅋ": true,
+		"고마워": true, "감사": true, "감사합니다": true, "고맙습니다": true,
+		"ㅋㅋ": true, "ㅎㅎ": true, "안녕": true, "안녕하세요": true,
 	}
 	if transientMessages[normalizedPrompt] {
 		return false
