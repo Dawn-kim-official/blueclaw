@@ -2,18 +2,18 @@ package agent
 
 import "testing"
 
-func presentationSkillBundle() InstructionBundle {
+func namedSkillBundle(skillName string) InstructionBundle {
 	return InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "presentation",
-			Description:  "Create presentation slides.",
-			WhenToUse:    "Use for slide deck requests.",
-			Prompt:       "Create and attach deck files.",
+			Name:         skillName,
+			Description:  "Test skill.",
+			WhenToUse:    "Use for test requests.",
+			Prompt:       "Do the work and attach files.",
 			AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
 			Completion:   SkillCompletion{RequiredEvidenceTools: []string{"file.deliver"}},
-			Source:       InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
+			Source:       InstructionSource{Path: "skills/" + skillName + "/SKILL.md", SkillName: skillName},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "presentation", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: skillName, Status: "selected"}},
 	}
 }
 
@@ -23,7 +23,7 @@ func TestSkillTaskLevelFloorRaisesBoundedTaskLevel(t *testing.T) {
 		TaskShape:      TaskShapeResearchTask,
 		TaskLevel:      TaskLevelLow,
 	}
-	promoted := promoteIntakeDecisionForSelectedSkills(decision, presentationSkillBundle(), IntakeOptions{
+	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), IntakeOptions{
 		DefaultTaskLevel:    TaskLevelLow,
 		SkillTaskLevelFloor: TaskLevelMedium,
 	})
@@ -37,7 +37,7 @@ func TestSkillTaskLevelFloorKeepsHigherTaskLevel(t *testing.T) {
 		Classification: IntakeClassificationBoundedTask,
 		TaskLevel:      TaskLevelHigh,
 	}
-	promoted := promoteIntakeDecisionForSelectedSkills(decision, presentationSkillBundle(), IntakeOptions{
+	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), IntakeOptions{
 		SkillTaskLevelFloor: TaskLevelMedium,
 	})
 	if promoted.TaskLevel != TaskLevelHigh {
@@ -46,7 +46,7 @@ func TestSkillTaskLevelFloorKeepsHigherTaskLevel(t *testing.T) {
 }
 
 func TestSkillTaskLevelFloorIgnoresSkillsWithoutCompletionContract(t *testing.T) {
-	bundle := presentationSkillBundle()
+	bundle := namedSkillBundle("spreadsheet")
 	bundle.Skills[0].Completion = SkillCompletion{}
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
@@ -65,8 +65,33 @@ func TestSkillTaskLevelFloorDisabledWhenUnset(t *testing.T) {
 		Classification: IntakeClassificationBoundedTask,
 		TaskLevel:      TaskLevelLow,
 	}
-	promoted := promoteIntakeDecisionForSelectedSkills(decision, presentationSkillBundle(), IntakeOptions{})
+	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), IntakeOptions{})
 	if promoted.TaskLevel != TaskLevelLow {
 		t.Fatalf("expected low task level without a floor, got %q", promoted.TaskLevel)
+	}
+}
+
+// Presentation and website work floors at xhigh whatever the output format
+// (PPTX, PDF, HTML), driven by which skill was selected rather than an output
+// suffix — even when the generic skill floor is lower or unset.
+func TestVisualDeliverableSkillsFloorAtXHigh(t *testing.T) {
+	for _, skillName := range []string{"presentation", "website"} {
+		belowFloor := promoteIntakeDecisionForSelectedSkills(
+			IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskLevel: TaskLevelLow},
+			namedSkillBundle(skillName),
+			IntakeOptions{DefaultTaskLevel: TaskLevelLow, SkillTaskLevelFloor: TaskLevelHigh},
+		)
+		if belowFloor.TaskLevel != TaskLevelXHigh {
+			t.Fatalf("%s with a high generic floor: expected xhigh, got %q", skillName, belowFloor.TaskLevel)
+		}
+
+		noGenericFloor := promoteIntakeDecisionForSelectedSkills(
+			IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskLevel: TaskLevelLow},
+			namedSkillBundle(skillName),
+			IntakeOptions{DefaultTaskLevel: TaskLevelLow},
+		)
+		if noGenericFloor.TaskLevel != TaskLevelXHigh {
+			t.Fatalf("%s with no generic floor: expected xhigh, got %q", skillName, noGenericFloor.TaskLevel)
+		}
 	}
 }
