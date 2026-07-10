@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ const (
 
 type AddressingClassificationRequest struct {
 	Prompt           string
+	BotMentioned     bool
 	MessageSentAt    time.Time
 	ConversationType string
 	SenderName       string
@@ -31,7 +33,8 @@ type AddressingClassificationRequest struct {
 
 type AddressingDecision struct {
 	Target         AddressingTarget
-	ShouldReply    bool
+	ShouldRespond  bool
+	ReactionEmoji  string
 	Reason         string
 	DutyMatch      bool
 	DutyName       string
@@ -40,11 +43,32 @@ type AddressingDecision struct {
 
 type addressingClassificationDocument struct {
 	Target         AddressingTarget `json:"target"`
-	ShouldReply    bool             `json:"shouldReply"`
+	ShouldRespond  bool             `json:"shouldRespond"`
+	ReactionEmoji  string           `json:"reactionEmoji"`
 	DutyMatch      bool             `json:"dutyMatch"`
 	DutyName       string           `json:"dutyName"`
 	DutyConfidence float64          `json:"dutyConfidence"`
 	Reason         string           `json:"reason,omitempty"`
+}
+
+var addressingReactionEmojiOptions = []string{"", "white_check_mark", "eyes", "+1", "ok_hand", "pray", "heart", "tada", "clap", "raised_hands", "fire"}
+
+func addressingReactionEmojiEnumJSON() string {
+	quoted := make([]string, 0, len(addressingReactionEmojiOptions))
+	for _, name := range addressingReactionEmojiOptions {
+		quoted = append(quoted, strconv.Quote(name))
+	}
+	return "[" + strings.Join(quoted, ",") + "]"
+}
+
+func normalizeAddressingReactionEmoji(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	for _, option := range addressingReactionEmojiOptions {
+		if option != "" && option == name {
+			return option
+		}
+	}
+	return ""
 }
 
 type StandingDutySeed struct {
@@ -79,7 +103,8 @@ func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request 
 	}
 	decision := AddressingDecision{
 		Target:         document.Target,
-		ShouldReply:    document.ShouldReply,
+		ShouldRespond:  document.ShouldRespond,
+		ReactionEmoji:  normalizeAddressingReactionEmoji(document.ReactionEmoji),
 		DutyMatch:      document.DutyMatch,
 		DutyName:       strings.TrimSpace(document.DutyName),
 		DutyConfidence: normalizedDutyConfidence(document.DutyConfidence),
@@ -89,7 +114,7 @@ func (agentKernel *AgentKernel) ClassifyAddressing(ctx context.Context, request 
 		decision.DutyConfidence = 0
 	}
 	if decision.Target == AddressingTargetHuman {
-		decision.ShouldReply = false
+		decision.ShouldRespond = false
 	}
 	if includeReason {
 		decision.Reason = strings.TrimSpace(document.Reason)
@@ -110,28 +135,25 @@ func addressingClassificationMessages(request AddressingClassificationRequest) [
 
 func addressingClassificationPrompt(request AddressingClassificationRequest) string {
 	lines := []string{
-		"Choose target:",
-		"- bot: the latest message is intended for the assistant",
-		"- human: the latest message is intended for another human, including short replies to a recent human-directed message",
-		"- anyone: the latest message is addressed to the room or anyone present",
-		"- none: the latest message has no response target",
-		"- unclear: there is not enough evidence",
-		"Set shouldReply=true only when the assistant should visibly handle the latest message with text, a tool action, a clarification, or an emoji reaction.",
-		"Set shouldReply=false for messages intended for another human, non-duty ambient messages, or unclear target.",
+		"Decide how the assistant (InternKim, Korean name 김인턴) should handle the latest message in a group conversation. Return only the requested JSON; do not answer the user.",
+		"Make two independent decisions:",
+		"- shouldRespond: true when the assistant should write a reply. That includes a direct request, question, or instruction to the assistant; an answer to the assistant's own question; a message that makes the assistant the intended responder; AND social or playful messages directed at the assistant where a short in-kind reply keeps the conversation going (a joke, teasing, or a compliment aimed at the assistant — reply briefly and warmly). false otherwise.",
+		"- reactionEmoji: choose one emoji name from the allowed set to acknowledge the message with a reaction, or \"\" for none. Prefer a reaction over a reply when someone shares or shows something with the team or the assistant for awareness rather than for action — an FYI, a \"이거 봐주세요 / 공유합니다 / 참고하세요\" style post, a status or done report, or a closing thanks. Pick a fitting emoji: white_check_mark to confirm or acknowledge, eyes when you have seen it and will look, +1 or ok_hand to approve, pray or heart for thanks, tada or clap or raised_hands to celebrate, fire for something impressive. Use \"\" when the message is not for the assistant at all.",
+		"Four outcomes: ignore (shouldRespond=false, reactionEmoji=\"\"); react only (false + emoji); respond (true + \"\"); react and respond (true + emoji).",
+		"Guidance:",
+		"- Default to ignore for messages clearly between other people that neither address the assistant nor share anything with it.",
+		"- FYI or sharing posts shown to the team or assistant (\"이거 봐주세요\", \"공유합니다\", \"참고하세요\", a link or file for awareness) → react only, e.g. eyes or white_check_mark.",
+		"- Playful or social messages directed at the assistant (\"역시 김인턴\", \"김인턴 대단한데?\", jokes with the assistant) → respond briefly and in kind; this is welcome, not noise.",
+		"- A closing thanks or acknowledgement to a person (\"고마워\", \"확인\", \"좋아요\", \"넵\") → react only or ignore, not a written reply.",
+		"- When botMentioned=true with a request, question, or invitation to talk → respond. When the mention only shares, FYIs, or thanks → react only.",
+		"Set dutyMatch=true only when the latest message specifies a concrete task or calendar item that should be added, updated, or completed right now, with enough detail to act such as a named assignee, a clear deliverable, or a date, even when it is not addressed to the assistant. Do not set dutyMatch for vague mentions, opinions, questions, hypotheticals, or chit-chat. Set dutyName to the exact standing duty name or empty string, and dutyConfidence 0 to 1.",
 		"Standing duties:",
 	}
 	for _, duty := range AddressingStandingDutySeeds {
 		lines = append(lines, "- "+duty.Name+": "+duty.Description)
 	}
 	lines = append(lines,
-		"Set dutyMatch=true only when the latest message specifies a concrete task or calendar item that should be added, updated, or completed right now, with enough detail to act such as a named assignee, a clear deliverable, or a date, even when it is not addressed to the assistant.",
-		"Do not set dutyMatch for vague mentions, opinions, questions, hypotheticals, or chit-chat that does not call for adding or changing a task or schedule.",
-		"Set dutyName to the exact standing duty name, or empty string when there is no match.",
-		"Set dutyConfidence from 0 to 1 using the evidence in the latest message and context.",
-		"If the latest message is a short acknowledgement such as \"네\", \"확인해볼게요\", \"좋아요\", or \"고마워\" and recent context shows it follows a human-directed message, choose target=human and shouldReply=false.",
-		"If the latest message only mentions the assistant, such as @김인턴 or the bot handle, choose target=bot and shouldReply=true when recent context gives a topic to answer or continue.",
-		"Do not treat jokes, playful remarks, or casual addressed banter as no-response noise; choose target=bot or target=anyone with shouldReply=true when the assistant is addressed or clearly invited to join.",
-		"Only choose target=bot when the assistant is explicitly addressed, the latest message answers the assistant's own question, or recent context clearly makes the assistant the intended responder.",
+		"botMentioned: "+strconv.FormatBool(request.BotMentioned),
 		"conversationType: "+strings.TrimSpace(request.ConversationType),
 		"senderName: "+strings.TrimSpace(request.SenderName),
 		"senderHandle: "+strings.TrimSpace(request.SenderHandle),
@@ -168,9 +190,10 @@ func firstNonEmptyAddressingText(values ...string) string {
 }
 
 func addressingClassificationSchema(includeReason bool) llm.StructuredOutputSchema {
-	document := `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldReply":{"type":"boolean"},"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"}},"required":["target","shouldReply","dutyMatch","dutyName","dutyConfidence"],"additionalProperties":false}`
+	reactionEmojiProperty := `"reactionEmoji":{"type":"string","enum":` + addressingReactionEmojiEnumJSON() + `}`
+	document := `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldRespond":{"type":"boolean"},` + reactionEmojiProperty + `,"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"}},"required":["target","shouldRespond","reactionEmoji","dutyMatch","dutyName","dutyConfidence"],"additionalProperties":false}`
 	if includeReason {
-		document = `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldReply":{"type":"boolean"},"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"},"reason":{"type":"string"}},"required":["target","shouldReply","dutyMatch","dutyName","dutyConfidence","reason"],"additionalProperties":false}`
+		document = `{"type":"object","properties":{"target":{"type":"string","enum":["bot","human","anyone","none","unclear"]},"shouldRespond":{"type":"boolean"},` + reactionEmojiProperty + `,"dutyMatch":{"type":"boolean"},"dutyName":{"type":"string"},"dutyConfidence":{"type":"number"},"reason":{"type":"string"}},"required":["target","shouldRespond","reactionEmoji","dutyMatch","dutyName","dutyConfidence","reason"],"additionalProperties":false}`
 	}
 	return llm.StructuredOutputSchema{
 		Name:               "blueclaw_addressing_classification",

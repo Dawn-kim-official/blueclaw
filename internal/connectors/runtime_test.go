@@ -1444,8 +1444,8 @@ func TestLatestAskInteractionReturnsNewAskAfterEarlierResolution(t *testing.T) {
 	}
 }
 
-func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testing.T) {
-	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), reply: "ok"}
+func TestConnectorRuntimeProcessesBotMentionThroughAddressingClassifier(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reply: "ok"}
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	event := testChannelInboundEvent("message-1")
 	event.Context.Addressing.BotMentioned = true
@@ -1458,8 +1458,8 @@ func TestConnectorRuntimeProcessesBotMentionWithoutAddressingClassifier(t *testi
 	if result.TaskRunID == "" || len(adapter.sentReplies) != 1 {
 		t.Fatalf("expected bot mention task and reply, got result=%+v replies=%d", result, len(adapter.sentReplies))
 	}
-	if connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
-		t.Fatalf("expected bot mention to skip addressing classifier, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
+	if !connectorContainsSchemaName(languageModel.requests, "blueclaw_addressing_classification") {
+		t.Fatalf("expected bot mention to run the addressing classifier, got schemas %+v", connectorRequestSchemaNames(languageModel.requests))
 	}
 }
 
@@ -3670,6 +3670,7 @@ type addressingTestLanguageModel struct {
 	dutyMatch        bool
 	dutyName         string
 	dutyConfidence   float64
+	reactionEmoji    string
 	addressingError  error
 	reply            string
 	requests         []llm.StructuredResponseRequest
@@ -3685,7 +3686,7 @@ func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ c
 		if languageModel.addressingError != nil {
 			return llm.StructuredResponse{}, languageModel.addressingError
 		}
-		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldReply":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot) || languageModel.dutyMatch) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
+		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot) || languageModel.dutyMatch) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
@@ -4226,5 +4227,30 @@ func TestResolveInboundEngagementIgnoresUninvitedAttachmentsOnly(t *testing.T) {
 	}
 	if !connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", mentionEvent).ShouldLaunch {
 		t.Fatal("bot-mentioned attachment-only post must still engage")
+	}
+}
+
+func TestResolveInboundEngagementReactOnly(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetAnyone), reactionEmoji: "eyes"}
+	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
+	event := testChannelInboundEvent("message-1")
+
+	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", event)
+	if decision.ShouldLaunch {
+		t.Fatalf("react-only message must not launch a task, got %+v", decision)
+	}
+	if decision.ReactionEmoji != "eyes" {
+		t.Fatalf("expected react-only emoji 'eyes', got %+v", decision)
+	}
+}
+
+func TestResolveInboundEngagementReactAndRespond(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), reactionEmoji: "+1"}
+	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
+	event := testChannelInboundEvent("message-1")
+
+	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", event)
+	if !decision.ShouldLaunch || decision.ReactionEmoji != "+1" {
+		t.Fatalf("expected react-and-respond (launch + emoji), got %+v", decision)
 	}
 }
