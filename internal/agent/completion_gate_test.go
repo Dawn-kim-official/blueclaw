@@ -1682,8 +1682,8 @@ func TestAgentTurnRunnerDoesNotBlockTerminalBeforeRequiredFileWrite(t *testing.T
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
-	if terminalCallCount != 1 {
-		t.Fatalf("expected terminal call to remain available, got %d calls", terminalCallCount)
+	if terminalCallCount != 2 {
+		t.Fatalf("expected rebuild after file.write to run instead of duplicate rejection, got %d calls", terminalCallCount)
 	}
 	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "first required workspace file") {
 		t.Fatal("did not expect required file.write precondition block event")

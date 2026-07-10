@@ -98,7 +98,7 @@ func (agentTurnRunner *AgentTurnRunner) rejectRepeatedToolCall(taskRunID string,
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) {
+	if duplicateObservation, isDuplicate := successfulToolCalls[canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)]; isDuplicate && handlesDuplicateSuccessfulToolCall(actionDocument.ToolName, actionDocument.ToolInput) && !terminalRerunAfterWorkspaceMutation(actionDocument, state.Observations, duplicateObservation) {
 		observation := turnObservation{
 			ObservationID: nextObservationID(len(state.Observations) + 1),
 			Action:        "policy",
@@ -509,6 +509,30 @@ func canonicalToolInput(toolInput json.RawMessage) string {
 		return strings.TrimSpace(string(toolInput))
 	}
 	return string(content)
+}
+
+// terminalRerunAfterWorkspaceMutation frees an identical terminal.run command
+// from duplicate rejection once the workspace changed after the previous run —
+// a revise-then-rebuild loop legitimately repeats the same build command.
+func terminalRerunAfterWorkspaceMutation(actionDocument turnActionDocument, observations []turnObservation, duplicateObservation turnObservation) bool {
+	effectiveToolName, _ := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
+	if strings.TrimSpace(effectiveToolName) != "terminal.run" {
+		return false
+	}
+	seenDuplicateObservation := false
+	for _, observation := range observations {
+		if observation.ObservationID == duplicateObservation.ObservationID {
+			seenDuplicateObservation = true
+			continue
+		}
+		if !seenDuplicateObservation || observation.Failed() {
+			continue
+		}
+		if isFileMutationTool(observation.Tool) {
+			return true
+		}
+	}
+	return false
 }
 
 func handlesDuplicateSuccessfulToolCall(toolName string, toolInput json.RawMessage) bool {
