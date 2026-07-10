@@ -375,6 +375,7 @@ func applyTaskRunTransition(taskRun TaskRun, transition TaskRunTransition) TaskR
 	if transition.StartedAttempt != nil {
 		taskRun.CurrentAttemptID = transition.StartedAttempt.TaskAttemptID
 		taskRun.CurrentAgentProfileName = transition.CurrentAgentProfileName
+		taskRun.FailureReason = ""
 	}
 	if transition.Result != "" {
 		taskRun.Result = transition.Result
