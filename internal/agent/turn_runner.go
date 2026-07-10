@@ -20,7 +20,7 @@ type TurnOptions struct {
 	ContextWindowTokens  int
 	RecoveryAttemptLimit int
 	RecoveryBudget       RecoveryBudget
-	EffortLevel          EffortLevel
+	TaskLevel            TaskLevel
 	ToolResultMaxBytes   int
 	GenerationOptions    llm.GenerationOptions
 }
@@ -89,7 +89,7 @@ type AgentTurnRequest struct {
 	PrecomputedTurnDecision    *TurnDecision
 	AmbientDuty                AmbientDutyContext
 	TaskShape                  TaskShape
-	TaskComplexity             TaskComplexity
+	TaskLevel                  TaskLevel
 	TurnStartedAt              time.Time
 	CheckpointSender           AgentCheckpointSender
 	StepBudgetContext          string
@@ -264,21 +264,21 @@ func NewAgentTurnRunnerWithRecoveryModel(taskRunService *task.TaskRunService, ta
 }
 
 func normalizeTurnOptions(options TurnOptions) TurnOptions {
-	effortProfile := EffortLimitProfileForLevel(options.EffortLevel)
-	if options.EffortLevel == "" {
-		options.EffortLevel = effortProfile.EffortLevel
+	taskLevelProfile := TaskLevelProfileForLevel(options.TaskLevel)
+	if options.TaskLevel == "" {
+		options.TaskLevel = taskLevelProfile.TaskLevel
 	}
 	if options.MaxIterationCount <= 0 {
-		options.MaxIterationCount = effortProfile.MaxIterationCount
+		options.MaxIterationCount = taskLevelProfile.MaxIterationCount
 	}
 	if options.MaxToolCallCount < 0 {
 		options.MaxToolCallCount = 0
 	}
 	if options.MaxToolCallCount == 0 {
-		options.MaxToolCallCount = effortProfile.MaxToolCallCount
+		options.MaxToolCallCount = taskLevelProfile.MaxToolCallCount
 	}
 	if options.MaxElapsedSecond <= 0 {
-		options.MaxElapsedSecond = int(effortProfile.Duration.Seconds())
+		options.MaxElapsedSecond = int(taskLevelProfile.Duration.Seconds())
 	}
 	if options.ToolResultMaxBytes <= 0 {
 		options.ToolResultMaxBytes = 32768
@@ -299,8 +299,8 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		return AgentTurnResult{}, errors.New("language model provider is not configured")
 	}
 
-	extendedProfile := EffortLimitProfileForLevel(EffortLevelExtended)
-	turnContext, cancel := context.WithTimeout(ctx, extendedProfile.Duration)
+	maxTaskLevelProfile := TaskLevelProfileForLevel(TaskLevelMax)
+	turnContext, cancel := context.WithTimeout(ctx, maxTaskLevelProfile.Duration)
 	defer cancel()
 	turnContext = llm.ContextWithRequestContext(turnContext, llm.RequestContext{
 		RequesterPersonID:       request.RequesterPersonID,
@@ -822,10 +822,10 @@ func (agentTurnRunner *AgentTurnRunner) sendCheckpointMessage(ctx context.Contex
 	if message == "" || agentTurnRunner == nil {
 		return observations
 	}
-	if request.TaskComplexity == TaskComplexitySimple {
+	if taskLevelWantsSingleFinalReply(request.TaskLevel) {
 		agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.skipped", marshalEventBody(map[string]any{
 			"toolName": actionDocument.ToolName,
-			"reason":   "task_complexity_simple",
+			"reason":   "task_level_xlow",
 		}))
 		return observations
 	}
@@ -1429,7 +1429,7 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
 		EventBody: map[string]any{
 			"level":              level,
-			"effortLevel":        agentTurnRunner.options.EffortLevel,
+			"taskLevel":         agentTurnRunner.options.TaskLevel,
 			"usedIterationCount": usedIterationCount,
 			"usedToolCallCount":  usedToolCallCount,
 			"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
@@ -1532,7 +1532,7 @@ func (agentTurnRunner *AgentTurnRunner) finalizeEscalateOrStopForLimit(ctx conte
 	observations = finalization.Observations
 	attachments = finalization.Attachments
 	qualifyingEvents := qualifyingDurableProgressEventsSinceTierStart(agentTurnRunner.taskRunService.ListTaskEvent(taskRunID), observations)
-	if agentTurnRunner.options.EffortLevel == EffortLevelExtended {
+	if agentTurnRunner.options.TaskLevel == TaskLevelMax {
 		agentTurnRunner.appendLimitCheckpoint(taskRunID, qualifyingEvents)
 		result, errorValue := agentTurnRunner.stopForLimit(taskRunID, request, reason, observations, attachments, executionState, usedIterationCount, usedToolCallCount)
 		return result, false, errorValue
@@ -1558,22 +1558,22 @@ func (agentTurnRunner *AgentTurnRunner) budgetEscalationCount(taskRunID string) 
 }
 
 func (agentTurnRunner *AgentTurnRunner) escalateBudgetTier(taskRunID string, qualifyingEvents []qualifyingProgressEvent, usedIterationCount int, usedToolCallCount int) {
-	previousEffortLevel := EffortLimitProfileForLevel(agentTurnRunner.options.EffortLevel).EffortLevel
-	newEffortLevel, canEscalate := nextEffortLevel(previousEffortLevel)
+	previousTaskLevel := TaskLevelProfileForLevel(agentTurnRunner.options.TaskLevel).TaskLevel
+	newTaskLevel, canEscalate := nextTaskLevel(previousTaskLevel)
 	if !canEscalate {
 		return
 	}
-	effortProfile := EffortLimitProfileForLevel(newEffortLevel)
-	agentTurnRunner.options.EffortLevel = effortProfile.EffortLevel
-	agentTurnRunner.options.MaxIterationCount = effortProfile.MaxIterationCount
-	agentTurnRunner.options.MaxToolCallCount = effortProfile.MaxToolCallCount
-	agentTurnRunner.options.MaxElapsedSecond = int(effortProfile.Duration.Seconds())
+	taskLevelProfile := TaskLevelProfileForLevel(newTaskLevel)
+	agentTurnRunner.options.TaskLevel = taskLevelProfile.TaskLevel
+	agentTurnRunner.options.MaxIterationCount = taskLevelProfile.MaxIterationCount
+	agentTurnRunner.options.MaxToolCallCount = taskLevelProfile.MaxToolCallCount
+	agentTurnRunner.options.MaxElapsedSecond = int(taskLevelProfile.Duration.Seconds())
 	agentTurnRunner.appendEvent(taskRunID, "agent.budget_escalated", marshalEventBody(budgetEscalatedEventBody{
-		PreviousEffortLevel: previousEffortLevel,
-		NewEffortLevel:      effortProfile.EffortLevel,
-		UsedIterationCount:  usedIterationCount,
-		UsedToolCallCount:   usedToolCallCount,
-		QualifyingEventIDs:  qualifyingProgressEventIDs(qualifyingEvents),
+		PreviousTaskLevel:  previousTaskLevel,
+		NewTaskLevel:       taskLevelProfile.TaskLevel,
+		UsedIterationCount: usedIterationCount,
+		UsedToolCallCount:  usedToolCallCount,
+		QualifyingEventIDs: qualifyingProgressEventIDs(qualifyingEvents),
 	}))
 }
 
@@ -1786,7 +1786,7 @@ func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID
 
 func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	body := map[string]any{
-		"effortLevel":        agentTurnRunner.options.EffortLevel,
+		"taskLevel":         agentTurnRunner.options.TaskLevel,
 		"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
 		"maxElapsedSecond":   agentTurnRunner.options.MaxElapsedSecond,
 		"maxToolCallCount":   agentTurnRunner.options.MaxToolCallCount,

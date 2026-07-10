@@ -131,7 +131,8 @@ func requiredEvidenceMissingForSideEffect(intakeDecision IntakeDecision, outcome
 		return false
 	}
 	return intakeDecision.TaskShape == TaskShapeScheduledTask ||
-		normalizeOutputKind(intakeDecision.OutputKind) != OutputKindNone ||
+		hasArtifactOutputFormat(intakeDecision.RequestedOutputFormats) ||
+		intakeDecisionRequiresSiteEvidence(intakeDecision) ||
 		requiredEvidenceInitialToolsNeedEvidence(toolSet, intakeDecision.InitialToolNames)
 }
 

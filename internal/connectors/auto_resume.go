@@ -224,23 +224,22 @@ func userSteerTaskProfile(platform string, taskRunID string) taskResumeProfile {
 }
 
 func interruptedTaskTurnDecision(taskEvents []task.TaskEvent, responseLanguage string) *agent.TurnDecision {
-	effortLevel, taskComplexity := highestRecordedTaskEffort(taskEvents)
 	return &agent.TurnDecision{
 		Route:            agent.TurnRouteContinueTask,
 		Classification:   agent.IntakeClassificationBoundedTask,
 		TaskShape:        agent.TaskShapeMaintenanceTask,
-		TaskComplexity:   taskComplexity,
-		EffortLevel:      effortLevel,
+		TaskLevel:        highestRecordedTaskLevel(taskEvents),
 		ResponseLanguage: responseLanguage,
 		Reason:           "runtime_restart_auto_resume",
 	}
 }
 
-func highestRecordedTaskEffort(taskEvents []task.TaskEvent) (agent.EffortLevel, agent.TaskComplexity) {
-	effortLevel := agent.EffortLevelStandard
-	taskComplexity := agent.TaskComplexityNormal
+func highestRecordedTaskLevel(taskEvents []task.TaskEvent) agent.TaskLevel {
+	taskLevel := agent.TaskLevelLow
 	for _, taskEvent := range taskEvents {
 		var body struct {
+			Level          string `json:"level"`
+			NewTaskLevel   string `json:"newTaskLevel"`
 			EffortLevel    string `json:"effortLevel"`
 			NewEffortLevel string `json:"newEffortLevel"`
 			TaskComplexity string `json:"taskComplexity"`
@@ -250,14 +249,12 @@ func highestRecordedTaskEffort(taskEvents []task.TaskEvent) (agent.EffortLevel, 
 			if json.Unmarshal([]byte(taskEvent.Body), &body) != nil {
 				continue
 			}
-			effortLevel = agent.LargerEffortLevel(effortLevel, agent.EffortLevel(body.EffortLevel))
-			effortLevel = agent.LargerEffortLevel(effortLevel, agent.EffortLevel(body.NewEffortLevel))
-			if agent.TaskComplexity(body.TaskComplexity) == agent.TaskComplexityComplex {
-				taskComplexity = agent.TaskComplexityComplex
+			for _, recordedLevel := range []string{body.Level, body.NewTaskLevel, body.EffortLevel, body.NewEffortLevel, body.TaskComplexity} {
+				taskLevel = agent.LargerTaskLevel(taskLevel, agent.NormalizeTaskLevel(recordedLevel))
 			}
 		}
 	}
-	return effortLevel, taskComplexity
+	return taskLevel
 }
 
 func platformFromSourceReference(sourceReference string) string {

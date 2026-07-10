@@ -56,7 +56,7 @@ func normalizeIntakeDecisionSiteRequirement(currentUserMessage string, decision 
 }
 
 func intakeDecisionRequiresSiteEvidence(decision IntakeDecision) bool {
-	return normalizeOutputKind(decision.OutputKind) == OutputKindSite ||
+	return strings.TrimSpace(decision.SiteRequestEvidence) != "" ||
 		requiredEvidenceHasPrefix(decision.RequiredEvidenceTools, "site.") ||
 		expectedResultsIncludeSiteRequirement(decision.ExpectedResults)
 }

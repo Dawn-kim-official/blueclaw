@@ -18,7 +18,7 @@ func shouldRetryUnsupportedLocalArtifact(request AgentRequest, decision IntakeDe
 	if !hasAllTools(request.ToolSet, []string{TerminalRunToolName, FileDeliverToolName}) {
 		return false
 	}
-	return normalizeOutputKind(decision.OutputKind) == OutputKindFile || hasArtifactOutputFormat(decision.RequestedOutputFormats)
+	return hasArtifactOutputFormat(decision.RequestedOutputFormats)
 }
 
 func hasArtifactOutputFormat(formats []string) bool {
