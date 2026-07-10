@@ -543,10 +543,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				state.Observations = append(state.Observations, observation)
 				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.quality_gate_retry_required", marshalEventBody(observation))
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "quality_gate_retry_required finish", observation.ContentText())
-				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
-					return result, nil
+				if _, shouldStop := stopForNoProgress(stepID); !shouldStop {
+					continue
 				}
-				continue
+				// Retry budget is exhausted. Never suppress the artifact the task
+				// already built: fall through and finish with the best-effort result
+				// instead of stopping empty-handed with an apology.
 			}
 			completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "finish", completionGateResult.ValidityState)

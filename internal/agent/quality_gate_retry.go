@@ -21,8 +21,9 @@ type qualityGateReport struct {
 // only request: while a machine-readable quality gate from a build tool says
 // passed=false, the score is still improving, and enough budget remains for
 // another revision round, artifact delivery is deferred so the model revises
-// and rebuilds first. Once the score stalls or the budget status reaches
-// consolidate/finalize, best-effort delivery passes through untouched.
+// and rebuilds first. Once the score stalls, the budget status reaches
+// consolidate/finalize, or the no-progress budget is exhausted, the
+// best-effort artifact is never suppressed: delivery passes through untouched.
 func (agentTurnRunner *AgentTurnRunner) rejectBelowGateDelivery(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
 	effectiveToolName, _ := effectiveActionToolNameAndInput(actionDocument.ToolName, actionDocument.ToolInput)
 	if !IsArtifactDeliveryTool(effectiveToolName) {
@@ -36,8 +37,10 @@ func (agentTurnRunner *AgentTurnRunner) rejectBelowGateDelivery(taskRunID string
 	state.Observations = append(state.Observations, observation)
 	agentTurnRunner.appendEvent(taskRunID, "agent.quality_gate_retry_required", marshalEventBody(observation))
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "quality_gate_retry_required "+effectiveToolName, observation.ContentText())
-	result, shouldStop := stopForNoProgress(stepID)
-	return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	if _, shouldStop := stopForNoProgress(stepID); shouldStop {
+		return toolCallActionOutcome{}
+	}
+	return toolCallActionOutcome{WasHandled: true}
 }
 
 func (agentTurnRunner *AgentTurnRunner) qualityGateRetryDirective(observations []turnObservation, toolCallCount int, turnStartedAt time.Time) (string, bool) {
