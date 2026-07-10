@@ -332,12 +332,12 @@ func modelCallableToolSet(toolSet *ToolSet) *ToolSet {
 	return toolSet.WithAllowedToolNames(KernelToolNames())
 }
 
+// The fail action is always available so the agent can exit the loop the moment
+// it judges no further progress is possible, rather than being forced to keep
+// spending recovery attempts. Giving up is the model's call; the fail schema
+// still requires an honest failure report when a tool actually failed.
 func shouldExposeFailAction(state agentTaskState) bool {
-	failureDebt, hasFailureDebt := activeFailureDebt(state.Observations)
-	if !hasFailureDebt {
-		return true
-	}
-	return recoveryToolBudgetExhaustedForRequest(state.Observations, state.Request.ToolSet, state.Options.RecoveryBudget, failureDebt)
+	return true
 }
 
 func actionSchemaForToolSet(toolSet *ToolSet, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFailValues ...bool) string {
