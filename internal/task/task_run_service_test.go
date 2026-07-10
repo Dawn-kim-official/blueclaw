@@ -145,6 +145,9 @@ func TestAdvanceTaskRunAllowsBlockedResume(t *testing.T) {
 	if resumedTaskRun.CurrentAttemptID == blockedTaskRun.CurrentAttemptID {
 		t.Fatal("expected resume to create a new attempt")
 	}
+	if resumedTaskRun.FailureReason != "" {
+		t.Fatalf("expected resume to clear the stale block reason so a running task shows no failure, got %q", resumedTaskRun.FailureReason)
+	}
 	if !taskEventsContain(taskRunService.ListTaskEvent(blockedTaskRun.TaskRunID), "task.running", "assistant") {
 		t.Fatal("expected running transition event")
 	}
