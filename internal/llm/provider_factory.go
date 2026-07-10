@@ -55,6 +55,8 @@ func capabilityModelName(runtimeConfiguration config.RuntimeConfiguration) strin
 }
 
 const (
+	defaultMaxModelName    = "google/gemini-3.5-flash"
+	defaultXHighModelName  = "x-ai/grok-4.5"
 	defaultHighModelName   = "google/gemini-3-flash-preview"
 	defaultMediumModelName = "google/gemini-3.1-flash-lite"
 	defaultLowModelName    = "xiaomi/mimo-v2.5"
@@ -63,6 +65,8 @@ const (
 )
 
 type ModelTierNames struct {
+	Max    string
+	XHigh  string
 	High   string
 	Medium string
 	Low    string
@@ -73,6 +77,8 @@ type ModelTierNames struct {
 func ResolveModelTierNames(runtimeConfiguration config.RuntimeConfiguration) ModelTierNames {
 	capabilityConfiguration := runtimeConfiguration.LanguageModel.Capability
 	return ModelTierNames{
+		Max:    firstNonEmptyModelName(capabilityConfiguration.MaxModel, capabilityConfiguration.Model, defaultMaxModelName),
+		XHigh:  firstNonEmptyModelName(capabilityConfiguration.XHighModel, capabilityConfiguration.Model, defaultXHighModelName),
 		High:   firstNonEmptyModelName(capabilityConfiguration.HighModel, capabilityConfiguration.Model, defaultHighModelName),
 		Medium: firstNonEmptyModelName(capabilityConfiguration.MediumModel, capabilityConfiguration.Model, defaultMediumModelName),
 		Low:    firstNonEmptyModelName(capabilityConfiguration.LowModel, capabilityConfiguration.Model, defaultLowModelName),

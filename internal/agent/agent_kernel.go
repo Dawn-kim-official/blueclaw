@@ -17,6 +17,8 @@ type AgentKernel struct {
 	taskStepService         *task.TaskStepService
 	taskArtifactService     *task.TaskArtifactService
 	languageModel           llm.LanguageModelProvider
+	maxTaskLanguageModel    llm.LanguageModelProvider
+	xHighTaskLanguageModel  llm.LanguageModelProvider
 	highTaskLanguageModel   llm.LanguageModelProvider
 	mediumTaskLanguageModel llm.LanguageModelProvider
 	xLowTaskLanguageModel   llm.LanguageModelProvider
@@ -45,7 +47,9 @@ func (agentKernel *AgentKernel) UseLanguageModelProvider(languageModel llm.Langu
 	agentKernel.languageModel = languageModel
 }
 
-func (agentKernel *AgentKernel) UseTaskTierLanguageModels(highTaskLanguageModel llm.LanguageModelProvider, mediumTaskLanguageModel llm.LanguageModelProvider, xLowTaskLanguageModel llm.LanguageModelProvider, codingTaskLanguageModel llm.LanguageModelProvider) {
+func (agentKernel *AgentKernel) UseTaskTierLanguageModels(maxTaskLanguageModel llm.LanguageModelProvider, xHighTaskLanguageModel llm.LanguageModelProvider, highTaskLanguageModel llm.LanguageModelProvider, mediumTaskLanguageModel llm.LanguageModelProvider, xLowTaskLanguageModel llm.LanguageModelProvider, codingTaskLanguageModel llm.LanguageModelProvider) {
+	agentKernel.maxTaskLanguageModel = maxTaskLanguageModel
+	agentKernel.xHighTaskLanguageModel = xHighTaskLanguageModel
 	agentKernel.highTaskLanguageModel = highTaskLanguageModel
 	agentKernel.mediumTaskLanguageModel = mediumTaskLanguageModel
 	agentKernel.xLowTaskLanguageModel = xLowTaskLanguageModel
@@ -178,7 +182,7 @@ func (agentKernel *AgentKernel) RunTurn(responseContext context.Context, request
 		ScheduledRun:            request.ScheduledRun,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
 		AmbientDuty:             request.AmbientDuty,
-		TaskComplexity:          request.TaskComplexity,
+		TaskLevel:               request.TaskLevel,
 		TurnStartedAt:           request.TurnStartedAt,
 		CheckpointSender:        request.CheckpointSender,
 	})
@@ -257,7 +261,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	intakeDecision := turnDecision.IntakeDecision()
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
 	intakeDecision = (TaskRecoveryPlanner{}).Plan(intakeRequest, intakeDecision)
-	intakeDecision = promoteSitePrototypeEffort(intakeRequest, intakeDecision)
+	intakeDecision = promoteArtifactTaskLevel(intakeRequest, intakeDecision)
 	siteNormalizationReports = appendSiteRequirementNormalizationReport(siteNormalizationReports, intakeDecision.siteNormalizationReport)
 	request.ResponseLanguage = ResolveResponseLanguage(intakeDecision.ResponseLanguage, request.ResponseLanguage)
 	if turnDecision.Route == TurnRouteStartTask && !request.IsApprovalContinuation {
@@ -272,7 +276,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		request, intakeDecision = applyPriorTaskOutcomeRecovery(request, intakeDecision)
 		intakeDecision.InitialToolNames = registeredToolNamesOnly(turnToolSet, intakeDecision.InitialToolNames)
 		intakeRequest.ActiveGoal = request.ActiveGoal
-		intakeDecision = agentKernel.restoreEscalatedEffortForContinuation(intakeRequest, intakeDecision)
+		intakeDecision = agentKernel.restoreEscalatedTaskLevelForContinuation(intakeRequest, intakeDecision)
 	}
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
@@ -382,7 +386,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		QualityAcceptanceGuidance:  selectedQualityAcceptanceGuidance(instructionBundle),
 		AmbientDuty:                request.AmbientDuty,
 		TaskShape:                  intakeDecision.TaskShape,
-		TaskComplexity:             intakeDecision.TaskComplexity,
+		TaskLevel:                  intakeDecision.TaskLevel,
 		TurnStartedAt:              request.TurnStartedAt,
 		CheckpointSender:           request.CheckpointSender,
 	}
@@ -392,7 +396,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
 		agentKernel.taskArtifactService,
-		agentKernel.taskLanguageModelForTier(resolvedTaskModelTier(intakeDecision.TaskComplexity, turnOptions.EffortLevel)),
+		agentKernel.taskLanguageModelForLevel(intakeDecision.TaskLevel),
 		agentKernel.languageModel,
 		turnOptions,
 	)
@@ -704,82 +708,50 @@ func (agentKernel *AgentKernel) appendSiteRequirementNormalizationReports(taskRu
 
 func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision IntakeDecision) TurnOptions {
 	baseOptions := normalizeTurnOptions(agentKernel.turnOptions)
-	effortProfile := EffortLimitProfileForLevel(intakeDecision.EffortLevel)
-	baseOptions.EffortLevel = effortProfile.EffortLevel
-	baseOptions.MaxIterationCount = effortProfile.MaxIterationCount
-	baseOptions.MaxToolCallCount = effortProfile.MaxToolCallCount
-	baseOptions.MaxElapsedSecond = int(effortProfile.Duration.Seconds())
+	taskLevelProfile := TaskLevelProfileForLevel(intakeDecision.TaskLevel)
+	baseOptions.TaskLevel = taskLevelProfile.TaskLevel
+	baseOptions.MaxIterationCount = taskLevelProfile.MaxIterationCount
+	baseOptions.MaxToolCallCount = taskLevelProfile.MaxToolCallCount
+	baseOptions.MaxElapsedSecond = int(taskLevelProfile.Duration.Seconds())
 	return baseOptions
 }
 
-type modelTier string
-
-const (
-	modelTierXLow   modelTier = "xlow"
-	modelTierLow    modelTier = "low"
-	modelTierMedium modelTier = "medium"
-	modelTierHigh   modelTier = "high"
-	modelTierCoding modelTier = "coding"
-)
-
-var modelTierRank = map[modelTier]int{
-	modelTierXLow:   0,
-	modelTierLow:    1,
-	modelTierMedium: 2,
-	modelTierHigh:   3,
-	modelTierCoding: 4,
-}
-
-func complexityModelTier(taskComplexity TaskComplexity) modelTier {
-	switch taskComplexity {
-	case TaskComplexityComplex:
-		return modelTierMedium
-	case TaskComplexityNormal:
-		return modelTierLow
-	default:
-		return modelTierXLow
+func artifactTaskLevelFloor(request AgentRequest, intakeDecision IntakeDecision) TaskLevel {
+	if intakeDecisionHasSitePrototypeEvidence(request, intakeDecision) {
+		return TaskLevelXHigh
 	}
-}
-
-func effortModelTierFloor(effortLevel EffortLevel) modelTier {
-	if effortLevel == EffortLevelDeep || effortLevel == EffortLevelExtended {
-		return modelTierHigh
+	if requestLooksLikeSlidesArtifactWork(request) {
+		return TaskLevelXHigh
 	}
-	return modelTierXLow
+	return TaskLevelXLow
 }
 
-func higherModelTier(first modelTier, second modelTier) modelTier {
-	if modelTierRank[second] > modelTierRank[first] {
-		return second
-	}
-	return first
+func promoteArtifactTaskLevel(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
+	intakeDecision.TaskLevel = LargerTaskLevel(intakeDecision.TaskLevel, artifactTaskLevelFloor(request, intakeDecision))
+	return intakeDecision
 }
 
-func taskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) modelTier {
-	return higherModelTier(complexityModelTier(taskComplexity), effortModelTierFloor(effortLevel))
-}
-
-func resolvedTaskModelTier(taskComplexity TaskComplexity, effortLevel EffortLevel) modelTier {
-	return taskModelTier(taskComplexity, effortLevel)
-}
-
-func (agentKernel *AgentKernel) taskLanguageModelForTier(tier modelTier) llm.LanguageModelProvider {
-	switch tier {
-	case modelTierHigh:
+func (agentKernel *AgentKernel) taskLanguageModelForLevel(taskLevel TaskLevel) llm.LanguageModelProvider {
+	switch NormalizeTaskLevel(string(taskLevel)) {
+	case TaskLevelMax:
+		if agentKernel.maxTaskLanguageModel != nil {
+			return agentKernel.maxTaskLanguageModel
+		}
+	case TaskLevelXHigh:
+		if agentKernel.xHighTaskLanguageModel != nil {
+			return agentKernel.xHighTaskLanguageModel
+		}
+	case TaskLevelHigh:
 		if agentKernel.highTaskLanguageModel != nil {
 			return agentKernel.highTaskLanguageModel
 		}
-	case modelTierMedium:
+	case TaskLevelMedium:
 		if agentKernel.mediumTaskLanguageModel != nil {
 			return agentKernel.mediumTaskLanguageModel
 		}
-	case modelTierXLow:
+	case TaskLevelXLow:
 		if agentKernel.xLowTaskLanguageModel != nil {
 			return agentKernel.xLowTaskLanguageModel
-		}
-	case modelTierCoding:
-		if agentKernel.codingTaskLanguageModel != nil {
-			return agentKernel.codingTaskLanguageModel
 		}
 	}
 	return agentKernel.languageModel
@@ -795,32 +767,21 @@ func (agentKernel *AgentKernel) classificationLanguageModel() llm.LanguageModelP
 	return agentKernel.languageModel
 }
 
-func (agentKernel *AgentKernel) restoreEscalatedEffortForContinuation(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
+func (agentKernel *AgentKernel) restoreEscalatedTaskLevelForContinuation(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
 	taskRunID := strings.TrimSpace(request.ExistingTaskRunID)
 	if taskRunID == "" {
 		return intakeDecision
 	}
-	restoredEffortLevel := highestEscalatedEffortLevel(agentKernel.taskRunService.ListTaskEvent(taskRunID))
-	if restoredEffortLevel == "" {
+	restoredTaskLevel := highestEscalatedTaskLevel(agentKernel.taskRunService.ListTaskEvent(taskRunID))
+	if restoredTaskLevel == "" {
 		return intakeDecision
 	}
-	intakeDecision.EffortLevel = LargerEffortLevel(intakeDecision.EffortLevel, restoredEffortLevel)
-	return intakeDecision
-}
-
-func promoteSitePrototypeEffort(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
-	if !intakeDecisionHasSitePrototypeEvidence(request, intakeDecision) {
-		return intakeDecision
-	}
-	intakeDecision.EffortLevel = LargerEffortLevel(intakeDecision.EffortLevel, EffortLevelDeep)
+	intakeDecision.TaskLevel = LargerTaskLevel(intakeDecision.TaskLevel, restoredTaskLevel)
 	return intakeDecision
 }
 
 func intakeDecisionHasSitePrototypeEvidence(request AgentRequest, intakeDecision IntakeDecision) bool {
 	if strings.TrimSpace(intakeDecision.SiteRequestEvidence) != "" {
-		return true
-	}
-	if normalizeOutputKind(intakeDecision.OutputKind) == OutputKindSite {
 		return true
 	}
 	if requiredEvidenceHasPrefix(intakeDecision.RequiredEvidenceTools, "site.") {
@@ -830,15 +791,15 @@ func intakeDecisionHasSitePrototypeEvidence(request AgentRequest, intakeDecision
 }
 
 type budgetEscalatedEventBody struct {
-	PreviousEffortLevel EffortLevel `json:"previousEffortLevel,omitempty"`
-	NewEffortLevel      EffortLevel `json:"newEffortLevel"`
-	UsedIterationCount  int         `json:"usedIterationCount,omitempty"`
-	UsedToolCallCount   int         `json:"usedToolCallCount,omitempty"`
-	QualifyingEventIDs  []string    `json:"qualifyingEventIDs,omitempty"`
+	PreviousTaskLevel  TaskLevel `json:"previousTaskLevel,omitempty"`
+	NewTaskLevel       TaskLevel `json:"newTaskLevel"`
+	UsedIterationCount int       `json:"usedIterationCount,omitempty"`
+	UsedToolCallCount  int       `json:"usedToolCallCount,omitempty"`
+	QualifyingEventIDs []string  `json:"qualifyingEventIDs,omitempty"`
 }
 
-func highestEscalatedEffortLevel(taskEvents []task.TaskEvent) EffortLevel {
-	highestEffortLevel := EffortLevel("")
+func highestEscalatedTaskLevel(taskEvents []task.TaskEvent) TaskLevel {
+	highestTaskLevel := TaskLevel("")
 	for _, taskEvent := range taskEvents {
 		if taskEvent.Name != "agent.budget_escalated" {
 			continue
@@ -847,11 +808,11 @@ func highestEscalatedEffortLevel(taskEvents []task.TaskEvent) EffortLevel {
 		if errorValue := json.Unmarshal([]byte(taskEvent.Body), &eventBody); errorValue != nil {
 			continue
 		}
-		normalizedEffortLevel := NormalizeEffortLevel(string(eventBody.NewEffortLevel))
-		if normalizedEffortLevel == "" {
+		normalizedTaskLevel := NormalizeTaskLevel(string(eventBody.NewTaskLevel))
+		if normalizedTaskLevel == "" {
 			continue
 		}
-		highestEffortLevel = LargerEffortLevel(highestEffortLevel, normalizedEffortLevel)
+		highestTaskLevel = LargerTaskLevel(highestTaskLevel, normalizedTaskLevel)
 	}
-	return highestEffortLevel
+	return highestTaskLevel
 }

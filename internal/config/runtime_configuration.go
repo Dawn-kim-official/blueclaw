@@ -71,8 +71,8 @@ type MCPToolConfiguration struct {
 
 type AgentConfiguration struct {
 	Intake               AgentIntakeConfiguration `json:"intake"`
-	DefaultEffortLevel   string                   `json:"defaultEffortLevel"`
-	SkillEffortFloor     string                   `json:"skillEffortFloor,omitempty"`
+	DefaultTaskLevel     string                   `json:"defaultTaskLevel"`
+	SkillTaskLevelFloor  string                   `json:"skillTaskLevelFloor,omitempty"`
 	ToolResultMaxBytes   int                      `json:"toolResultMaxBytes"`
 	FailureRecovery      AgentFailureRecovery     `json:"failureRecovery"`
 	GenerationOptions    AgentGenerationOptions   `json:"generationOptions,omitempty"`
@@ -111,6 +111,8 @@ type LanguageModelConfiguration struct {
 
 type LanguageModelCapabilityConfiguration struct {
 	Model               string `json:"model"`
+	MaxModel            string `json:"maxModel"`
+	XHighModel          string `json:"xhighModel"`
 	HighModel           string `json:"highModel"`
 	MediumModel         string `json:"mediumModel"`
 	LowModel            string `json:"lowModel"`

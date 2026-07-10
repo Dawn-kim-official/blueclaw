@@ -6,8 +6,8 @@ import (
 )
 
 func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instructionBundle InstructionBundle, options IntakeOptions) IntakeDecision {
-	decision = applySkillEffortFloor(decision, instructionBundle, options.SkillEffortFloor)
-	defaultEffortLevel := options.DefaultEffortLevel
+	decision = applySkillTaskLevelFloor(decision, instructionBundle, options.SkillTaskLevelFloor)
+	defaultTaskLevel := options.DefaultTaskLevel
 	if !canPromoteIntakeDecisionForSelectedSkills(decision) || !selectedSkillsNeedBoundedExecution(instructionBundle, decision.Classification) {
 		return decision
 	}
@@ -15,7 +15,7 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	if decision.TaskShape == "" || decision.TaskShape == TaskShapeImmediateReply || decision.TaskShape == TaskShapeApprovalGatedTask || decision.UsedDeterministicFallback {
 		decision.TaskShape = taskShapeForSelectedSkills(instructionBundle)
 	}
-	decision.EffortLevel = LargerEffortLevel(decision.EffortLevel, defaultEffortLevel)
+	decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, defaultTaskLevel)
 	decision.Reason = "selected skill requires bounded completion evidence"
 	decision.UserFacingReply = ""
 	// The promotion itself came from a selected skill's completion contract, not from the
@@ -33,13 +33,13 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	return decision
 }
 
-func applySkillEffortFloor(decision IntakeDecision, instructionBundle InstructionBundle, skillEffortFloor EffortLevel) IntakeDecision {
-	if skillEffortFloor == "" {
+func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle InstructionBundle, skillTaskLevelFloor TaskLevel) IntakeDecision {
+	if skillTaskLevelFloor == "" {
 		return decision
 	}
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
 		if selectedSkillRequiresCompletionEvidence(skillInstruction) {
-			decision.EffortLevel = LargerEffortLevel(decision.EffortLevel, skillEffortFloor)
+			decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, skillTaskLevelFloor)
 			return decision
 		}
 	}

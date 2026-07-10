@@ -1137,10 +1137,10 @@ func (connectorRuntime *ConnectorRuntime) resolveConfirmationReply(ctx context.C
 		switch strings.TrimSpace(action) {
 		case "confirm":
 			approvalSignal := agent.ApprovalSignalApprove
-			return approval, agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, EffortLevel: agent.EffortLevelStandard, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}, true
+			return approval, agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}, true
 		case "cancel":
 			approvalSignal := agent.ApprovalSignalReject
-			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, EffortLevel: agent.EffortLevelQuick, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true
+			return approval, agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}, true
 		}
 	}
 	decision := connectorRuntime.agentKernel.RouteTurn(ctx, agent.AgentRequest{
@@ -1200,7 +1200,7 @@ func (connectorRuntime *ConnectorRuntime) resolveAskReply(ctx context.Context, p
 			Route:            agent.TurnRouteContinueTask,
 			Classification:   agent.IntakeClassificationBoundedTask,
 			TaskShape:        agent.TaskShapeMaintenanceTask,
-			EffortLevel:      agent.EffortLevelStandard,
+			TaskLevel:      agent.TaskLevelLow,
 			ResponseLanguage: responseLanguageForEvent(event),
 			Reason:           "deterministic_choice_selection",
 			Choices:          choices,
@@ -1304,13 +1304,13 @@ func choiceKeyForSelectionToken(token string, options []AskChoiceOption) string 
 func askInteractiveTurnDecision(event PlatformInboundEvent, interaction AskInteraction, action string) agent.TurnDecision {
 	switch strings.TrimSpace(action) {
 	case "choice":
-		return agent.TurnDecision{Route: agent.TurnRouteContinueTask, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, EffortLevel: agent.EffortLevelStandard, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_choice", Choices: []string{strings.TrimSpace(legacyString(event.LegacyFields, "choiceKey"))}}
+		return agent.TurnDecision{Route: agent.TurnRouteContinueTask, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_choice", Choices: []string{strings.TrimSpace(legacyString(event.LegacyFields, "choiceKey"))}}
 	case "confirm":
 		approvalSignal := agent.ApprovalSignalApprove
-		return agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, EffortLevel: agent.EffortLevelStandard, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
+		return agent.TurnDecision{Route: agent.TurnRouteContinueTask, Approval: &approvalSignal, Classification: agent.IntakeClassificationBoundedTask, TaskShape: agent.TaskShapeMaintenanceTask, TaskLevel: agent.TaskLevelLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_confirm"}
 	case "cancel":
 		approvalSignal := agent.ApprovalSignalReject
-		return agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, EffortLevel: agent.EffortLevelQuick, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}
+		return agent.TurnDecision{Route: agent.TurnRouteConsume, Approval: &approvalSignal, Classification: agent.IntakeClassificationQuickReply, TaskShape: agent.TaskShapeImmediateReply, TaskLevel: agent.TaskLevelXLow, ResponseLanguage: responseLanguageForEvent(event), Reason: "interactive_cancel"}
 	default:
 		return agent.TurnDecision{}
 	}
@@ -1675,7 +1675,7 @@ func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, response
 		Route:                  agent.TurnRouteClarify,
 		Classification:         agent.IntakeClassificationNeedsConfirmation,
 		TaskShape:              agent.TaskShapeApprovalGatedTask,
-		EffortLevel:            agent.EffortLevelStandard,
+		TaskLevel:            agent.TaskLevelLow,
 		ResponseLanguage:       responseLanguage,
 		Reason:                 "ambiguous_wait_resolution",
 		ClarificationOptions:   taskWaitClarificationOptions(taskWaitTokens),

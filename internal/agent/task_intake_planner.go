@@ -14,12 +14,10 @@ import (
 
 type IntakeClassification string
 type TaskShape string
-type TaskComplexity string
 type TurnRoute string
 type ApprovalSignal string
 type BusyRoute string
 type PriorTaskReference string
-type OutputKind string
 
 const (
 	IntakeClassificationQuickReply        IntakeClassification = "quick_reply"
@@ -33,10 +31,6 @@ const (
 	TaskShapeScheduledTask      TaskShape = "scheduled_task"
 	TaskShapeBrowserHandoffTask TaskShape = "browser_handoff_task"
 	TaskShapeApprovalGatedTask  TaskShape = "approval_gated_task"
-
-	TaskComplexitySimple  TaskComplexity = "simple"
-	TaskComplexityNormal  TaskComplexity = "normal"
-	TaskComplexityComplex TaskComplexity = "complex"
 
 	TurnRouteContinueTask   TurnRoute = "continue_task"
 	TurnRouteReviseTask     TurnRoute = "revise_task"
@@ -56,11 +50,6 @@ const (
 
 	PriorTaskReferenceNone            PriorTaskReference = "none"
 	PriorTaskReferenceOutcomeRecovery PriorTaskReference = "outcome_recovery"
-
-	OutputKindNone  OutputKind = ""
-	OutputKindFile  OutputKind = "file"
-	OutputKindPhoto OutputKind = "photo"
-	OutputKindSite  OutputKind = "site"
 
 	DefaultReactionEmojiName = "white_check_mark"
 
@@ -94,8 +83,8 @@ var allowedReactionEmojiNames = []string{
 
 type IntakeOptions struct {
 	IsEnabled             bool
-	DefaultEffortLevel    EffortLevel
-	SkillEffortFloor      EffortLevel
+	DefaultTaskLevel      TaskLevel
+	SkillTaskLevelFloor   TaskLevel
 	DebugAddressingReason bool
 }
 
@@ -135,7 +124,7 @@ type AgentRequest struct {
 	AllowGiveUpReason       string
 	PrecomputedTurnDecision *TurnDecision
 	AmbientDuty             AmbientDutyContext
-	TaskComplexity          TaskComplexity
+	TaskLevel               TaskLevel
 	TurnStartedAt           time.Time
 	CheckpointSender        AgentCheckpointSender
 }
@@ -168,9 +157,7 @@ type PendingInputContext struct {
 type IntakeDecision struct {
 	Classification            IntakeClassification  `json:"classification"`
 	TaskShape                 TaskShape             `json:"taskShape"`
-	TaskComplexity            TaskComplexity        `json:"taskComplexity"`
-	EffortLevel               EffortLevel           `json:"effortLevel"`
-	OutputKind                OutputKind            `json:"outputKind,omitempty"`
+	TaskLevel                 TaskLevel             `json:"level"`
 	RequestedOutputFormats    []string              `json:"requestedOutputFormats"`
 	ExpectedResults           []ExpectedResult      `json:"expectedResults,omitempty"`
 	RequiredEvidenceTools     []string              `json:"requiredEvidence,omitempty"`
@@ -196,9 +183,7 @@ type TurnDecision struct {
 	Route                     TurnRoute             `json:"route"`
 	Classification            IntakeClassification  `json:"classification"`
 	TaskShape                 TaskShape             `json:"taskShape"`
-	TaskComplexity            TaskComplexity        `json:"taskComplexity"`
-	EffortLevel               EffortLevel           `json:"effortLevel"`
-	OutputKind                OutputKind            `json:"outputKind,omitempty"`
+	TaskLevel                 TaskLevel             `json:"level"`
 	RequestedOutputFormats    []string              `json:"requestedOutputFormats"`
 	ExpectedResults           []ExpectedResult      `json:"expectedResults,omitempty"`
 	RequiredEvidenceTools     []string              `json:"requiredEvidence,omitempty"`
@@ -223,9 +208,7 @@ func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 	return IntakeDecision{
 		Classification:            turnDecision.Classification,
 		TaskShape:                 turnDecision.TaskShape,
-		TaskComplexity:            turnDecision.TaskComplexity,
-		EffortLevel:               turnDecision.EffortLevel,
-		OutputKind:                normalizeOutputKind(turnDecision.OutputKind),
+		TaskLevel:                 NormalizeTaskLevel(string(turnDecision.TaskLevel)),
 		RequestedOutputFormats:    append([]string{}, turnDecision.RequestedOutputFormats...),
 		ExpectedResults:           normalizeExpectedResults(turnDecision.ExpectedResults),
 		RequiredEvidenceTools:     appendUniqueStrings(turnDecision.RequiredEvidenceTools),
@@ -267,10 +250,10 @@ func NewTurnRouter(languageModel llm.LanguageModelProvider, options IntakeOption
 }
 
 func normalizeIntakeOptions(options IntakeOptions) IntakeOptions {
-	if NormalizeEffortLevel(string(options.DefaultEffortLevel)) == "" {
-		options.DefaultEffortLevel = EffortLevelStandard
+	if NormalizeTaskLevel(string(options.DefaultTaskLevel)) == "" {
+		options.DefaultTaskLevel = TaskLevelLow
 	}
-	options.SkillEffortFloor = EffortLevel(NormalizeEffortLevel(string(options.SkillEffortFloor)))
+	options.SkillTaskLevelFloor = NormalizeTaskLevel(string(options.SkillTaskLevelFloor))
 	return options
 }
 
@@ -352,7 +335,7 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 	messages := []llm.Message{
 		{
 			Role:    "system",
-			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, cancels, replaces an active task, or is a bare assistant mention requesting a response to recent context. Do not carry stale subjects, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may answer directly or use a small useful read-only or computation tool once, including greetings, jokes, playful office banter, capability questions, arithmetic, and short synthetic verification probes. Do not ignore jokes or casual addressed remarks; answer like a concise coworker. Use bounded_task for one-request tool work, needs_confirmation for large, risky, destructive, or externally visible work, and unsupported for work that cannot be done safely with the registered tools. Set taskComplexity=simple when a bounded task has a clear short outcome and should normally produce only one final user reply even if it needs tools. Set taskComplexity=normal for ordinary bounded work, and taskComplexity=complex for long research, artifact generation, deployment, verification, or work where progress updates are useful. Use clarify when the latest request cannot be routed safely without a user choice. Do not use clarify for a message that only mentions the assistant when recent visible context gives a clear topic. When route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement. For non-consume routes, set reactionEmojiName to null or omit it. PriorTaskContext, when present, is a candidate previous task in the same conversation or reply target, not an active task. Set priorTaskReference=outcome_recovery only when the latest message asks to deliver, retry, continue, or revise that prior task's outcome. Set priorTaskReference=none for unrelated or self-contained requests. Set outputKind to file only when the latest request asks to create, edit, convert, generate, or deliver a file artifact; set it to null for reading, summarizing, searching, or analyzing an input attachment. Set outputKind to site only when the latest request asks for a website, page, or web app deliverable. Set outputKind to photo for image or photo generation artifacts. Set requestedOutputFormats to null unless the user explicitly asks for deliverable file formats, or priorTaskReference=outcome_recovery and the prior task prompt, result, known contract, or latest message identifies the deliverable format. When outputKind=file, requestedOutputFormats should contain only explicit deliverable formats such as html, pptx, pdf, txt, docx, xlsx, or csv. Set requiredEvidence to the exact registered native tool or capability operation names whose successful observations are required before the task can be considered complete; requiredEvidence is an AND array. Use only names from Registered requiredEvidence names when they match the requested outcome. Do not use capability.invoke as requiredEvidence; it is only a dispatcher for capability operations. Use [] for direct answers, summaries, analysis, or tool-free replies that do not require a side effect or delivered file. For side-effect work, externally visible work, scheduled work, and deliverable files, requiredEvidence must not be empty. If no registered evidence name can satisfy the requested side effect, preserve the intended operation name rather than downgrading to [] so runtime validation can report a tool wiring failure. When outputKind=site or a link-type expected result represents a website/page/web app, set siteRequestEvidence to a verbatim substring copied from the latest user message that requested it; otherwise leave siteRequestEvidence empty. Set initialToolNames to exact callable tool names copied from Available tools that this request will most likely call first; include only confident picks and leave it empty when unsure or when no tool is needed. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
+			Content: "You are Blueclaw's channel-agnostic turn router and task intake planner. Choose the route for the latest user message and classify the task shape. The latest user message is authoritative. Prior conversation may be used only when it helps interpret whether the latest message continues, revises, asks about, cancels, replaces an active task, or is a bare assistant mention requesting a response to recent context. Do not carry stale subjects, tools, or artifact formats into a self-contained new request. Use quick_reply for direct answers that may answer directly or use a small useful read-only or computation tool once, including greetings, jokes, playful office banter, capability questions, arithmetic, and short synthetic verification probes. Do not ignore jokes or casual addressed remarks; answer like a concise coworker. Use bounded_task for one-request tool work, needs_confirmation for large, risky, destructive, or externally visible work, and unsupported for work that cannot be done safely with the registered tools. Set level to the single difficulty tier that sizes both the model and the work budget: low for ordinary bounded work with a clear short outcome that normally produces one final user reply even if it needs a few tools; medium for multi-step work, research, or artifact generation where progress updates are useful; high for long, wide, deployment, or verification-heavy work. Do not choose above high; the runtime raises the tier on its own for website and presentation deliverables and for tasks that stall. Use clarify when the latest request cannot be routed safely without a user choice. Do not use clarify for a message that only mentions the assistant when recent visible context gives a clear topic. When route is clarify, provide clarificationQuestion and 2-5 clarificationOptions whenever finite choices are natural. Use consume for addressed messages that need no text reply; consume is delivered as an emoji reaction, not a text reply. Prefer consume with reactionEmojiName for lightweight acknowledgement. For non-consume routes, set reactionEmojiName to null or omit it. PriorTaskContext, when present, is a candidate previous task in the same conversation or reply target, not an active task. Set priorTaskReference=outcome_recovery only when the latest message asks to deliver, retry, continue, or revise that prior task's outcome. Set priorTaskReference=none for unrelated or self-contained requests. Set requestedOutputFormats to the explicit deliverable file formats when the latest request asks to create, edit, convert, generate, or deliver a file artifact; leave it null for reading, summarizing, searching, or analyzing an input attachment, unless priorTaskReference=outcome_recovery and the prior task prompt, result, known contract, or latest message identifies the deliverable format. requestedOutputFormats should contain only explicit deliverable formats such as html, pptx, pdf, txt, docx, xlsx, or csv. Set requiredEvidence to the exact registered native tool or capability operation names whose successful observations are required before the task can be considered complete; requiredEvidence is an AND array. Use only names from Registered requiredEvidence names when they match the requested outcome. Do not use capability.invoke as requiredEvidence; it is only a dispatcher for capability operations. Use [] for direct answers, summaries, analysis, or tool-free replies that do not require a side effect or delivered file. For side-effect work, externally visible work, scheduled work, and deliverable files, requiredEvidence must not be empty. If no registered evidence name can satisfy the requested side effect, preserve the intended operation name rather than downgrading to [] so runtime validation can report a tool wiring failure. When the latest request asks for a website, page, or web app deliverable, or a link-type expected result represents one, set siteRequestEvidence to a verbatim substring copied from the latest user message that requested it; otherwise leave siteRequestEvidence empty. Set initialToolNames to exact callable tool names copied from Available tools that this request will most likely call first; include only confident picks and leave it empty when unsure or when no tool is needed. Use values like html, pptx, pdf, txt, docx, xlsx, or csv when explicit. Treat words like presentation, slides, deck, ppt, 피피티, and 발표자료 as the kind of artifact, not as a .pptx file format unless the user explicitly requests a PowerPoint/PPTX file or asks for all common slide formats. If the user asks for a presentation as HTML, requestedOutputFormats should be [\"html\"], not [\"html\",\"pptx\"]. Set responseLanguage to the language the assistant should use for user-facing replies; use same_as_conversation only when an explicit runtime preference already defines it.",
 		},
 		{
 			Role:    "system",
@@ -438,9 +421,7 @@ func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDec
 		Route:                     deterministicTurnRoute(request),
 		Classification:            IntakeClassificationBoundedTask,
 		TaskShape:                 deterministicTaskShape(request, IntakeClassificationBoundedTask),
-		TaskComplexity:            TaskComplexityNormal,
-		EffortLevel:               LargerEffortLevel(turnRouter.options.DefaultEffortLevel, minimumEffortLevelForRequest(request)),
-		OutputKind:                outputKindForFormats(requestedOutputFormats),
+		TaskLevel:                 LargerTaskLevel(turnRouter.options.DefaultTaskLevel, minimumTaskLevelForRequest(request)),
 		RequestedOutputFormats:    requestedOutputFormats,
 		Reason:                    "intake language model unavailable; treating request as bounded work",
 		ResponseLanguage:          responseLanguage,
@@ -451,7 +432,6 @@ func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDec
 }
 
 func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDecision TurnDecision, request AgentRequest) TurnDecision {
-	modelOutputKind := normalizeOutputKind(decision.OutputKind)
 	decision.Route = normalizeTurnRoute(decision.Route, request)
 	if decision.Route == "" {
 		decision.Route = defaultDecision.Route
@@ -476,7 +456,7 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	if looksLikeSyntheticConnectorVerificationProbe(request.Prompt) {
 		decision.Classification = IntakeClassificationQuickReply
 		decision.TaskShape = TaskShapeImmediateReply
-		decision.EffortLevel = EffortLevelQuick
+		decision.TaskLevel = TaskLevelXLow
 		decision.RequestedOutputFormats = nil
 		decision.Reason = firstNonEmptyString(decision.Reason, "synthetic connector verification probe")
 		decision.UserFacingReply = ""
@@ -488,13 +468,11 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		decision.UserFacingReply = ""
 		wasReclassifiedAwayFromConfirmation = true
 	}
-	decision.OutputKind = modelOutputKind
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
-	decision.OutputKind = outputKindFromRequestedFormats(decision.RequestedOutputFormats, decision.OutputKind)
 	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
 	decision.RequiredEvidenceTools = appendUniqueStrings(decision.RequiredEvidenceTools)
 	decision.PriorTaskReference = normalizePriorTaskReference(decision.PriorTaskReference)
-	decision = applyStructuredOutputKind(decision, request, modelOutputKind)
+	decision = promoteFileArtifactClassification(decision, request)
 	decision.InitialToolNames = registeredToolNamesOnly(request.ToolSet, appendUniqueStrings(decision.InitialToolNames, deterministicInitialToolNamesForDecision(request, decision)...))
 	decision.SiteRequestEvidence = strings.TrimSpace(decision.SiteRequestEvidence)
 	decision, decision.siteNormalizationReport = normalizeTurnDecisionSiteRequirement(request, decision)
@@ -512,34 +490,21 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		normalizedTaskShape = deterministicTaskShape(request, decision.Classification)
 	}
 	decision.TaskShape = normalizedTaskShape
-	decision.TaskComplexity = normalizeTaskComplexity(decision.TaskComplexity)
-	if decision.TaskComplexity == "" {
-		decision.TaskComplexity = defaultDecision.TaskComplexity
+	normalizedTaskLevel := NormalizeTaskLevel(string(decision.TaskLevel))
+	if normalizedTaskLevel == "" {
+		normalizedTaskLevel = defaultDecision.TaskLevel
 	}
-	normalizedEffortLevel := NormalizeEffortLevel(string(decision.EffortLevel))
-	if normalizedEffortLevel == "" {
-		normalizedEffortLevel = defaultDecision.EffortLevel
-	}
-	decision.EffortLevel = LargerEffortLevel(normalizedEffortLevel, minimumEffortLevelForRequest(request))
-	decision.OutputKind = normalizeOutputKind(decision.OutputKind)
+	decision.TaskLevel = LargerTaskLevel(normalizedTaskLevel, minimumTaskLevelForRequest(request))
 	decision.RequestedOutputFormats = normalizeRequestedOutputFormats(decision.RequestedOutputFormats)
-	decision.OutputKind = outputKindFromRequestedFormats(decision.RequestedOutputFormats, decision.OutputKind)
 	decision.ExpectedResults = normalizeExpectedResults(decision.ExpectedResults)
 	decision.ResponseLanguage = resolveDecisionResponseLanguage(decision.ResponseLanguage, request.ResponseLanguage)
 	if strings.TrimSpace(decision.Reason) == "" {
 		decision.Reason = defaultDecision.Reason
 	}
 	decision.PriorTaskReference = normalizePriorTaskReference(decision.PriorTaskReference)
-	decision = applyStructuredOutputKind(decision, request, modelOutputKind)
+	decision = promoteFileArtifactClassification(decision, request)
 	decision = normalizeTaskfulConsumeRoute(decision, request)
 	return decision
-}
-
-func outputKindFromRequestedFormats(formats []string, fallback OutputKind) OutputKind {
-	if outputKindForFormats(formats) == OutputKindFile {
-		return OutputKindFile
-	}
-	return fallback
 }
 
 func normalizePriorTaskReference(reference PriorTaskReference) PriorTaskReference {
@@ -580,24 +545,10 @@ func turnRouterSchema(request AgentRequest) string {
 			string(TaskShapeBrowserHandoffTask),
 			string(TaskShapeApprovalGatedTask),
 		}},
-		"taskComplexity": map[string]any{"type": "string", "enum": []string{
-			string(TaskComplexitySimple),
-			string(TaskComplexityNormal),
-			string(TaskComplexityComplex),
-		}},
-		"effortLevel": map[string]any{"type": "string", "enum": []string{
-			string(EffortLevelQuick),
-			string(EffortLevelStandard),
-			string(EffortLevelDeep),
-			string(EffortLevelExtended),
-		}},
-		"outputKind": map[string]any{"anyOf": []any{
-			map[string]any{"type": "string", "enum": []string{
-				string(OutputKindFile),
-				string(OutputKindPhoto),
-				string(OutputKindSite),
-			}},
-			map[string]any{"type": "null"},
+		"level": map[string]any{"type": "string", "enum": []string{
+			string(TaskLevelLow),
+			string(TaskLevelMedium),
+			string(TaskLevelHigh),
 		}},
 		"requestedOutputFormats": map[string]any{"anyOf": []any{
 			map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"html", "pptx", "pdf", "txt", "docx", "xlsx", "csv"}}},
@@ -625,7 +576,7 @@ func turnRouterSchema(request AgentRequest) string {
 			map[string]any{"type": "null"},
 		}},
 	}
-	requiredProperties := []string{"route", "classification", "taskShape", "taskComplexity", "effortLevel", "outputKind", "requestedOutputFormats", "requiredEvidence", "siteRequestEvidence", "responseLanguage", "reason", "userFacingReply", "priorTaskReference"}
+	requiredProperties := []string{"route", "classification", "taskShape", "level", "requestedOutputFormats", "requiredEvidence", "siteRequestEvidence", "responseLanguage", "reason", "userFacingReply", "priorTaskReference"}
 	if strings.TrimSpace(request.PendingConfirmation.TaskRunID) != "" {
 		properties["approval"] = map[string]any{"type": "string", "enum": []string{string(ApprovalSignalApprove), string(ApprovalSignalReject), string(ApprovalSignalUnclear)}}
 		requiredProperties = append(requiredProperties, "approval")
@@ -653,7 +604,7 @@ func turnRouterSchema(request AgentRequest) string {
 		"additionalProperties": false,
 	})
 	if errorValue != nil {
-		return `{"type":"object","properties":{"route":{"type":"string"},"classification":{"type":"string"},"taskShape":{"type":"string"},"taskComplexity":{"type":"string"},"effortLevel":{"type":"string"},"outputKind":{"anyOf":[{"type":"string","enum":["file","photo","site"]},{"type":"null"}]},"requestedOutputFormats":{"type":"null"},"siteRequestEvidence":{"type":"string"},"responseLanguage":{"type":"string"},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["route","classification","taskShape","taskComplexity","effortLevel","outputKind","requestedOutputFormats","siteRequestEvidence","responseLanguage","reason","userFacingReply"],"additionalProperties":false}`
+		return `{"type":"object","properties":{"route":{"type":"string"},"classification":{"type":"string"},"taskShape":{"type":"string"},"level":{"type":"string"},"requestedOutputFormats":{"type":"null"},"siteRequestEvidence":{"type":"string"},"responseLanguage":{"type":"string"},"reason":{"type":"string"},"userFacingReply":{"type":"string"}},"required":["route","classification","taskShape","level","requestedOutputFormats","siteRequestEvidence","responseLanguage","reason","userFacingReply"],"additionalProperties":false}`
 	}
 	return string(document)
 }
@@ -830,27 +781,11 @@ func normalizeRequestedOutputFormats(formats []string) []string {
 	return normalizedFormats
 }
 
-func normalizeOutputKind(kind OutputKind) OutputKind {
-	switch kind {
-	case OutputKindFile, OutputKindPhoto, OutputKindSite:
-		return kind
-	default:
-		return OutputKindNone
-	}
-}
-
-func outputKindForFormats(formats []string) OutputKind {
-	if len(normalizeRequestedOutputFormats(formats)) == 0 {
-		return OutputKindNone
-	}
-	return OutputKindFile
-}
-
-func applyStructuredOutputKind(decision TurnDecision, request AgentRequest, explicitOutputKind OutputKind) TurnDecision {
-	if normalizeOutputKind(decision.OutputKind) == OutputKindFile && explicitOutputKind == OutputKindFile && canRunFileArtifactWork(request) && decision.Classification == IntakeClassificationUnsupported {
+func promoteFileArtifactClassification(decision TurnDecision, request AgentRequest) TurnDecision {
+	if hasArtifactOutputFormat(decision.RequestedOutputFormats) && canRunFileArtifactWork(request) && decision.Classification == IntakeClassificationUnsupported {
 		decision.Classification = IntakeClassificationBoundedTask
 		decision.TaskShape = deterministicTaskShape(request, decision.Classification)
-		decision.Reason = firstNonEmptyString(decision.Reason, "structured output kind selected file delivery")
+		decision.Reason = firstNonEmptyString(decision.Reason, "requested file format can run as bounded local artifact work")
 		decision.UserFacingReply = ""
 	}
 	return decision
@@ -929,15 +864,6 @@ func normalizeTaskShape(taskShape TaskShape) TaskShape {
 	switch taskShape {
 	case TaskShapeImmediateReply, TaskShapeResearchTask, TaskShapeMaintenanceTask, TaskShapeScheduledTask, TaskShapeBrowserHandoffTask, TaskShapeApprovalGatedTask:
 		return taskShape
-	default:
-		return ""
-	}
-}
-
-func normalizeTaskComplexity(taskComplexity TaskComplexity) TaskComplexity {
-	switch taskComplexity {
-	case TaskComplexitySimple, TaskComplexityNormal, TaskComplexityComplex:
-		return taskComplexity
 	default:
 		return ""
 	}
@@ -1158,7 +1084,7 @@ func shouldTreatConfirmationAsBoundedLocalArtifact(request AgentRequest, decisio
 	if !hasAllTools(request.ToolSet, []string{TerminalRunToolName, FileDeliverToolName}) {
 		return false
 	}
-	return normalizeOutputKind(decision.OutputKind) == OutputKindFile || hasArtifactOutputFormat(decision.RequestedOutputFormats)
+	return hasArtifactOutputFormat(decision.RequestedOutputFormats)
 }
 
 func shouldTreatAsBoundedSitePrototype(request AgentRequest, decision IntakeDecision) bool {
@@ -1168,7 +1094,7 @@ func shouldTreatAsBoundedSitePrototype(request AgentRequest, decision IntakeDeci
 	if !hasAllTools(request.ToolSet, []string{"site.create", "site.publish"}) {
 		return false
 	}
-	return normalizeOutputKind(decision.OutputKind) == OutputKindSite && requiredEvidenceHasPrefix(decision.RequiredEvidenceTools, "site.")
+	return requiredEvidenceHasPrefix(decision.RequiredEvidenceTools, "site.")
 }
 
 func hasAllTools(toolRegistry *ToolSet, toolNames []string) bool {
@@ -1222,17 +1148,17 @@ func containsAny(value string, candidates []string) bool {
 	return false
 }
 
-func minimumEffortLevelForRequest(request AgentRequest) EffortLevel {
+func minimumTaskLevelForRequest(request AgentRequest) TaskLevel {
 	if looksLikeSyntheticConnectorVerificationProbe(strings.ToLower(strings.TrimSpace(request.Prompt))) {
-		return EffortLevelQuick
+		return TaskLevelXLow
 	}
 	if hasToolPrefix(request.ToolSet, "browser.") && !hasToolPrefix(request.ToolSet, "web.") {
-		return EffortLevelDeep
+		return TaskLevelMedium
 	}
 	if hasToolPrefix(request.ToolSet, "file.") || hasToolPrefix(request.ToolSet, "user.") {
-		return EffortLevelStandard
+		return TaskLevelLow
 	}
-	return EffortLevelQuick
+	return TaskLevelXLow
 }
 
 func looksLikeSyntheticConnectorVerificationProbe(prompt string) bool {
@@ -1282,8 +1208,8 @@ func (intakeDecision IntakeDecision) Validate() error {
 	if normalizeClassification(intakeDecision.Classification) == "" {
 		return errors.New("intake classification is invalid")
 	}
-	if NormalizeEffortLevel(string(intakeDecision.EffortLevel)) == "" {
-		return errors.New("intake effort level is invalid")
+	if NormalizeTaskLevel(string(intakeDecision.TaskLevel)) == "" {
+		return errors.New("intake task level is invalid")
 	}
 	return nil
 }
