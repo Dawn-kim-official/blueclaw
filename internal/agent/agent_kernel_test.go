@@ -52,8 +52,7 @@ func TestAgentKernelConsumeRouteSuppressesReply(t *testing.T) {
 		Route:            TurnRouteConsume,
 		Classification:   IntakeClassificationQuickReply,
 		TaskShape:        TaskShapeImmediateReply,
-		TaskComplexity:   TaskComplexitySimple,
-		EffortLevel:      EffortLevelQuick,
+		TaskLevel:        TaskLevelXLow,
 		ResponseLanguage: "ko",
 		Reason:           "lightweight acknowledgement",
 	}})
@@ -79,8 +78,7 @@ func TestAgentKernelDoesNotConsumeExecutableFlowTask(t *testing.T) {
 		Route:                 TurnRouteConsume,
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeResearchTask,
-		TaskComplexity:        TaskComplexitySimple,
-		EffortLevel:           EffortLevelStandard,
+		TaskLevel:             TaskLevelLow,
 		ResponseLanguage:      "ko",
 		Reason:                "사용자가 명시적으로 업무 등록을 요청함",
 		RequiredEvidenceTools: []string{"task.add"},
@@ -121,8 +119,7 @@ func TestAgentKernelPausesNeedsConfirmationDisambiguation(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:                 TurnRouteStartTask,
 		Classification:        IntakeClassificationNeedsConfirmation,
-		TaskComplexity:        TaskComplexityNormal,
-		EffortLevel:           EffortLevelStandard,
+		TaskLevel:             TaskLevelLow,
 		ResponseLanguage:      "ko",
 		Reason:                "multiple matching items",
 		ClarificationQuestion: "어느 보고서를 말하는 건가요?",
@@ -149,8 +146,7 @@ func TestAgentKernelBlocksUnsupportedIntake(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:            TurnRouteStartTask,
 		Classification:   IntakeClassificationUnsupported,
-		TaskComplexity:   TaskComplexityNormal,
-		EffortLevel:      EffortLevelStandard,
+		TaskLevel:        TaskLevelLow,
 		ResponseLanguage: "ko",
 		Reason:           "request is outside the available execution boundary",
 		UserFacingReply:  "이 요청은 현재 권한 범위 밖이라 진행할 수 없어요.",
@@ -174,8 +170,7 @@ func TestAgentKernelBlocksInvalidRequiredEvidence(t *testing.T) {
 		Route:                 TurnRouteStartTask,
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeMaintenanceTask,
-		TaskComplexity:        TaskComplexitySimple,
-		EffortLevel:           EffortLevelStandard,
+		TaskLevel:             TaskLevelLow,
 		RequiredEvidenceTools: []string{"calendar.create"},
 		ResponseLanguage:      "ko",
 		Reason:                "calendar event creation",
@@ -202,8 +197,7 @@ func TestAgentKernelPrunesInvalidEvidenceOnApprovalContinuation(t *testing.T) {
 		Route:                 TurnRouteContinueTask,
 		Classification:        IntakeClassificationBoundedTask,
 		TaskShape:             TaskShapeMaintenanceTask,
-		TaskComplexity:        TaskComplexitySimple,
-		EffortLevel:           EffortLevelStandard,
+		TaskLevel:             TaskLevelLow,
 		RequiredEvidenceTools: []string{"delete_website_artifact"},
 		ResponseLanguage:      "ko",
 		Reason:                "approval reply classified with hallucinated evidence",
@@ -257,8 +251,7 @@ func TestAgentKernelBlocksSideEffectWithoutRequiredEvidence(t *testing.T) {
 		Route:            TurnRouteStartTask,
 		Classification:   IntakeClassificationBoundedTask,
 		TaskShape:        TaskShapeMaintenanceTask,
-		TaskComplexity:   TaskComplexitySimple,
-		EffortLevel:      EffortLevelStandard,
+		TaskLevel:        TaskLevelLow,
 		InitialToolNames: []string{TerminalRunToolName},
 		ResponseLanguage: "ko",
 		Reason:           "side effect tool planned without evidence",
@@ -319,8 +312,7 @@ func sideEffectMissingEvidenceDecision() TurnDecision {
 		Route:            TurnRouteStartTask,
 		Classification:   IntakeClassificationBoundedTask,
 		TaskShape:        TaskShapeMaintenanceTask,
-		TaskComplexity:   TaskComplexitySimple,
-		EffortLevel:      EffortLevelStandard,
+		TaskLevel:        TaskLevelLow,
 		InitialToolNames: []string{TerminalRunToolName},
 		ResponseLanguage: "ko",
 		Reason:           "side effect tool planned without evidence",
@@ -411,8 +403,7 @@ func TestAgentKernelGeneratesIntakeNoticeWhenRouterReplyMissing(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:            TurnRouteStartTask,
 		Classification:   IntakeClassificationUnsupported,
-		TaskComplexity:   TaskComplexityNormal,
-		EffortLevel:      EffortLevelStandard,
+		TaskLevel:        TaskLevelLow,
 		ResponseLanguage: "ko",
 		Reason:           "request is outside the available execution boundary",
 	}})
@@ -432,8 +423,7 @@ func TestAgentKernelFallsBackToReasonWhenIntakeNoticeModelsFail(t *testing.T) {
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:            TurnRouteStartTask,
 		Classification:   IntakeClassificationUnsupported,
-		TaskComplexity:   TaskComplexityNormal,
-		EffortLevel:      EffortLevelStandard,
+		TaskLevel:        TaskLevelLow,
 		ResponseLanguage: "ko",
 		Reason:           "request is outside the available execution boundary",
 	}})
@@ -454,8 +444,7 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 		Route:            TurnRouteStartTask,
 		Classification:   IntakeClassificationQuickReply,
 		TaskShape:        TaskShapeImmediateReply,
-		TaskComplexity:   TaskComplexitySimple,
-		EffortLevel:      EffortLevelQuick,
+		TaskLevel:        TaskLevelXLow,
 		ResponseLanguage: "ko",
 		Reason:           "direct answer",
 	}})
@@ -473,25 +462,24 @@ func TestAgentKernelRunsBoundedTaskThroughTurnRunner(t *testing.T) {
 	}
 }
 
-func TestSitePrototypeIntakePromotesToDeepLimits(t *testing.T) {
+func TestSitePrototypeIntakePromotesToXHighLimits(t *testing.T) {
 	agentKernel, _ := newKernelTestServices()
-	intakeDecision := promoteSitePrototypeEffort(AgentRequest{}, IntakeDecision{
-		EffortLevel:         EffortLevelStandard,
-		OutputKind:          OutputKindSite,
+	intakeDecision := promoteArtifactTaskLevel(AgentRequest{}, IntakeDecision{
+		TaskLevel:           TaskLevelLow,
 		SiteRequestEvidence: "웹사이트",
 	})
 
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
-	deepProfile := EffortLimitProfileForLevel(EffortLevelDeep)
+	xHighProfile := TaskLevelProfileForLevel(TaskLevelXHigh)
 
-	if effortLevelRank(turnOptions.EffortLevel) < effortLevelRank(EffortLevelDeep) {
-		t.Fatalf("expected at least deep effort, got %q", turnOptions.EffortLevel)
+	if taskLevelRank(turnOptions.TaskLevel) < taskLevelRank(TaskLevelXHigh) {
+		t.Fatalf("expected at least xhigh task level, got %q", turnOptions.TaskLevel)
 	}
-	if turnOptions.MaxIterationCount < deepProfile.MaxIterationCount {
-		t.Fatalf("expected deep iteration limit, got %d", turnOptions.MaxIterationCount)
+	if turnOptions.MaxIterationCount < xHighProfile.MaxIterationCount {
+		t.Fatalf("expected xhigh iteration limit, got %d", turnOptions.MaxIterationCount)
 	}
-	if turnOptions.MaxToolCallCount < deepProfile.MaxToolCallCount {
-		t.Fatalf("expected deep tool call limit, got %d", turnOptions.MaxToolCallCount)
+	if turnOptions.MaxToolCallCount < xHighProfile.MaxToolCallCount {
+		t.Fatalf("expected xhigh tool call limit, got %d", turnOptions.MaxToolCallCount)
 	}
 }
 

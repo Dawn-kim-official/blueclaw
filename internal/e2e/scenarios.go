@@ -350,7 +350,7 @@ func CodingImageVisionFallbackScenario(artifactDirectoryPath string) VirtualSess
 	return VirtualSessionScenario{
 		Name:                     "coding_image_vision_fallback",
 		ArtifactDirectoryPath:    artifactDirectoryPath,
-		RouterEffortLevel:        "deep",
+		RouterTaskLevel:          "medium",
 		CodingTierVisionFallback: true,
 		AllowedTools:             []string{"conversation.history", "memory.search"},
 		Turns: []VirtualTurn{{
