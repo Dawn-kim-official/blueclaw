@@ -107,7 +107,7 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		contents: []string{
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"one"}}`,
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/index.html","content":"two"}}`,
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
+			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 			finishMessageDocument("continued after tool-call escalation"),
 		},
 	}
@@ -116,7 +116,7 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		MaxIterationCount: 10,
 		MaxToolCallCount:  2,
 	})
-	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file.write"}, []string{"site.build"})
+	toolRegistry := newTestCapabilityToolSet([]string{"file.write", "site.build"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess(`{"path":"tmp/app/index.html"}`), nil
 	})
@@ -129,6 +129,8 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		ConversationID:    "conversation-1",
 		Prompt:            "build the site",
 		ToolSet:           toolRegistry,
+		AvailableSkills:   []SkillInstruction{{Name: "website", AllowedTools: []string{"site.build"}}},
+		SkillDecisions:    []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 		PinnedToolNames:   []string{"file.write", "site.build"},
 	})
 

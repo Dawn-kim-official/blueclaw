@@ -329,7 +329,13 @@ func modelCallableToolSet(toolSet *ToolSet) *ToolSet {
 	if toolSet == nil {
 		return nil
 	}
-	return toolSet.WithAllowedToolNames(KernelToolNames())
+	toolNames := []string{}
+	for _, toolName := range toolSet.ListToolNames() {
+		if toolName != CapabilityInvokeToolName {
+			toolNames = append(toolNames, toolName)
+		}
+	}
+	return toolSet.withAllowedToolNamesPreservingBase(exposedToolIDsForFiltering(toolNames))
 }
 
 // The fail action is always available so the agent can exit the loop the moment

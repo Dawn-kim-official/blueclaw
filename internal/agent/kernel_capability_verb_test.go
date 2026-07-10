@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestKernelToolNamesIncludeCapabilityInvoke(t *testing.T) {
+func TestKernelToolNamesRetainCapabilityInvokeCompatibilityVerb(t *testing.T) {
 	found := false
 	for _, name := range KernelToolNames() {
 		if name == CapabilityInvokeToolName {
@@ -13,7 +13,7 @@ func TestKernelToolNamesIncludeCapabilityInvoke(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("expected capability.invoke in kernel palette, got %v", KernelToolNames())
+		t.Fatalf("expected capability.invoke in the kernel compatibility registry, got %v", KernelToolNames())
 	}
 }
 

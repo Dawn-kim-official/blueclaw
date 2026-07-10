@@ -92,13 +92,13 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 		Prompt: "base",
 		Skills: []SkillInstruction{
 			{
-				Name:         "site-prototype",
+				Name:         "website",
 				Description:  "Create and publish web prototypes.",
 				WhenToUse:    "Use for website prototype requests.",
 				Prompt:       "Use site.create, terminal.run, and site.publish.",
 				TriggerHints: []string{"웹사이트", "배포"},
 				AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
-				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+				Source:       InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 			},
 		},
 	}
@@ -112,17 +112,18 @@ func TestSelectInstructionBundleDoesNotUseTriggerHintOutsideRetrievalCandidates(
 		t.Fatalf("expected trigger hint not to load full skill body, got %q", selectedBundle.Prompt)
 	}
 	for _, skillDecision := range selectedBundle.SkillDecisions {
-		if skillDecision.Name == "site-prototype" && skillDecision.Status == "selected" {
-			t.Fatalf("expected trigger hint not to select site-prototype, got %+v", selectedBundle.SkillDecisions)
+		if skillDecision.Name == "website" && skillDecision.Status == "selected" {
+			t.Fatalf("expected trigger hint not to select website, got %+v", selectedBundle.SkillDecisions)
 		}
 	}
 }
 
-func TestToolSetForAgentTurnExposesKernelToolsRegardlessOfSkillSelection(t *testing.T) {
+func TestToolSetForAgentTurnExposesBaseToolsAndSelectedSkillCapabilities(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
 		"terminal.run",
+		"site.status",
 		"site.create",
 		"site.publish",
 		"schedule.create",
@@ -130,33 +131,32 @@ func TestToolSetForAgentTurnExposesKernelToolsRegardlessOfSkillSelection(t *test
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name:         "site-prototype",
-				AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
+				Name:         "website",
+				AllowedTools: []string{"site.status", "site.create", "site.publish"},
 			},
 			{
 				Name:         "scheduled-task",
 				AllowedTools: []string{"schedule.create"},
 			},
 		},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
 
-	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
+	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle)
 
-	// terminal.run and conversation.history are kernel tools in this fixture; memory.search is not.
 	for _, toolName := range []string{"terminal.run", "conversation.history"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected kernel tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, toolName := range []string{"memory.search", "site.create", "site.publish", "schedule.create"} {
-		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected non-kernel tool %s to stay hidden, got %+v", toolName, filteredToolSet.ListToolNames())
+	for _, toolName := range []string{"memory.search", "site.status", "site.create", "site.publish", "schedule.create"} {
+		if !filteredToolSet.IsAllowed(toolName) {
+			t.Fatalf("expected base or selected skill tool %s, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
 
-func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
+func TestToolSetForAgentTurnPreservesConfiguredBaseTools(t *testing.T) {
 	fullToolSet := testToolSet([]string{
 		"conversation.history",
 		"memory.search",
@@ -174,27 +174,16 @@ func TestToolSetForAgentTurnExposesOnlyPinnedNonKernelTools(t *testing.T) {
 		SkillDecisions: []SkillSelectionDecision{{Name: "scheduled-task", Status: "selected"}},
 	}
 
-	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{
-		Prompt:          "내일 알려줘",
-		PinnedToolNames: []string{"schedule.create"},
-	}, ExecutionPlan{}, false, OutcomeContract{})
+	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle)
 
-	// schedule.create is pinned by a prior tool.request, so it joins the kernel tools in the schema.
-	// conversation.history is always available as a kernel tool, pinning or not.
-	for _, toolName := range []string{"terminal.run", "file.write", "schedule.create", "conversation.history"} {
+	for _, toolName := range []string{"terminal.run", "file.write", "schedule.create", "conversation.history", "memory.search", "math.calculate", "mail.message.search"} {
 		if !filteredToolSet.IsAllowed(toolName) {
 			t.Fatalf("expected tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
-	// Skill selection alone (without pinning) still does not expose a non-kernel tool.
-	for _, toolName := range []string{"memory.search", "math.calculate", "mail.message.search"} {
-		if filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected unpinned non-kernel tool %s to be hidden, got %+v", toolName, filteredToolSet.ListToolNames())
-		}
-	}
 }
 
-func TestToolSetForAgentTurnHidesSendToolButKeepsKernelToolForNonSendOutcome(t *testing.T) {
+func TestToolSetForAgentTurnExposesSelectedSkillMutation(t *testing.T) {
 	fullToolSet := testToolSet([]string{"message.send", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -203,21 +192,19 @@ func TestToolSetForAgentTurnHidesSendToolButKeepsKernelToolForNonSendOutcome(t *
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"message.send"}}
+	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle)
 
-	filteredToolSet := toolSetForAgentTurn(fullToolSet, instructionBundle, AgentRequest{Prompt: "사업계획서 작성해줘"}, ExecutionPlan{}, false, contract)
-
-	if filteredToolSet.IsAllowed("message.send") {
-		t.Fatalf("expected send tool to stay hidden outside capability.invoke, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("message.send") {
+		t.Fatalf("expected selected skill mutation to be exposed, got %+v", filteredToolSet.ListToolNames())
 	}
 	if !filteredToolSet.IsAllowed("file.write") {
 		t.Fatalf("expected kernel tool file.write to remain available, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
-func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialTools(t *testing.T) {
+func TestAgentKernelActionSchemaExposesIntakeOperationDirectly(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"initialToolNames":["schedule.create"],"reason":"schedule request","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"requiredEvidence":["schedule.create"],"initialToolNames":["schedule.create"],"reason":"schedule request","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("done"),
@@ -244,13 +231,13 @@ func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialT
 			},
 		}}
 	})
-	// schedule.create, mail.message.search, and math.calculate are non-kernel operations only reachable via capability.invoke.
-	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "math.calculate"})
+	toolRegistry := newHiddenTestCapabilityToolSet([]string{"schedule.create", "mail.message.search", "math.calculate"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: AskInputToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{}, nil
 	})
+	toolRegistry = toolRegistry.WithAllowedToolNames([]string{CapabilityInvokeToolName, AskInputToolName})
 
-	_, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "repeat this 10번",
@@ -260,17 +247,17 @@ func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialT
 		t.Fatalf("expected turn to complete: %v", errorValue)
 	}
 	if len(replyLanguageModel.requests) == 0 {
-		t.Fatal("expected action request")
+		t.Fatalf("expected action request, status=%s events=%+v", result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	actionSchema := replyLanguageModel.requests[0].StructuredOutputSchema.Document
-	for _, kernelToolName := range []string{CapabilityInvokeToolName, AskInputToolName} {
-		if !strings.Contains(actionSchema, kernelToolName) {
-			t.Fatalf("expected kernel tool %s in action schema regardless of intake initial tools, got %s", kernelToolName, actionSchema)
+	for _, expectedToolName := range []string{AskInputToolName, "schedule.create"} {
+		if !strings.Contains(actionSchema, expectedToolName) {
+			t.Fatalf("expected tool %s in action schema, got %s", expectedToolName, actionSchema)
 		}
 	}
-	for _, domainToolName := range []string{"schedule.create", "mail.message.search", "math.calculate"} {
-		if strings.Contains(actionSchema, `"toolName":{"enum":["`+domainToolName+`"`) {
-			t.Fatalf("expected %s not to be directly callable outside capability.invoke, got %s", domainToolName, actionSchema)
+	for _, hiddenToolName := range []string{CapabilityInvokeToolName, "mail.message.search", "math.calculate"} {
+		if strings.Contains(actionSchema, `"toolName":{"enum":["`+hiddenToolName+`"`) {
+			t.Fatalf("expected %s to stay out of the scoped action schema, got %s", hiddenToolName, actionSchema)
 		}
 	}
 }
@@ -289,24 +276,39 @@ func TestSkillSelectorOnlyChecksSkillAvailability(t *testing.T) {
 	}
 }
 
-func TestSkillSelectorSkipsSkillWhenAllowedToolIsMissing(t *testing.T) {
+func TestSkillSelectorRequiresEveryAllowedCapability(t *testing.T) {
 	skillSelector := SkillSelector{}
 	skillInstruction := SkillInstruction{
-		Name:         "presentation",
-		TriggerHints: []string{"피피티"},
-		AllowedTools: []string{"terminal.run", "file.write", "file.deliver"},
+		Name:         "calendar",
+		TriggerHints: []string{"일정"},
+		AllowedTools: []string{"calendar.add", "calendar.delete"},
 	}
 	request := AgentRequest{
-		Prompt:  "피피티 만들어줘",
-		ToolSet: testToolSet([]string{"terminal.run", "file.write"}),
+		Prompt:  "일정 추가해줘",
+		ToolSet: testToolSet([]string{"calendar.add"}),
 	}
 
 	decision := skillSelector.Evaluate(skillInstruction, request, "default")
-	if decision.Status == "selected" {
-		t.Fatal("expected presentation to be skipped without file.deliver")
+	if decision.Reason != "missing_allowed_tools" || len(decision.MissingTools) != 1 {
+		t.Fatalf("expected the unavailable capability to block the skill, got %+v", decision)
 	}
-	if decision.Reason != "missing_allowed_tools" || len(decision.MissingTools) != 1 || decision.MissingTools[0] != "file.deliver" {
-		t.Fatalf("expected missing tool reason, got %+v", decision)
+}
+
+func TestSkillSelectorBlocksSkillWhenEveryAllowedCapabilityIsUnavailable(t *testing.T) {
+	skillSelector := SkillSelector{}
+	skillInstruction := SkillInstruction{
+		Name:         "calendar",
+		TriggerHints: []string{"일정"},
+		AllowedTools: []string{"calendar.add", "calendar.delete"},
+	}
+	request := AgentRequest{
+		Prompt:  "일정 추가해줘",
+		ToolSet: testToolSet([]string{"task.add"}),
+	}
+
+	decision := skillSelector.Evaluate(skillInstruction, request, "default")
+	if decision.Reason != "missing_allowed_tools" || len(decision.MissingTools) != 2 {
+		t.Fatalf("expected all unavailable capabilities to block the skill, got %+v", decision)
 	}
 }
 
@@ -319,7 +321,7 @@ func TestSelectInstructionBundleKeepsSkillWhenCapabilityOperationIsRegisteredBut
 		})
 	}
 	instructionBundle := InstructionBundle{Skills: []SkillInstruction{{
-		Name:         "site-prototype",
+		Name:         "website",
 		Description:  "Create and publish website prototypes.",
 		Prompt:       "SITE BODY",
 		AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
@@ -327,7 +329,7 @@ func TestSelectInstructionBundleKeepsSkillWhenCapabilityOperationIsRegisteredBut
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		RetrievalMode: "test",
 		SelectedCandidates: []SkillCandidate{{
-			Name:   "site-prototype",
+			Name:   "website",
 			Score:  1,
 			Reason: "test",
 		}},
@@ -341,30 +343,32 @@ func TestSelectInstructionBundleKeepsSkillWhenCapabilityOperationIsRegisteredBut
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected hidden registered site skill to be selected, got %+v", selectedBundle.SkillDecisions)
 	}
-	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle, AgentRequest{Prompt: "김인턴 소개 웹사이트 만들어줘"}, ExecutionPlan{}, false, OutcomeContract{})
-	if filteredToolSet.IsAllowed("site.create") || filteredToolSet.IsAllowed("site.publish") {
-		t.Fatalf("expected selected hidden registered skill tools to stay hidden until requested, got %+v", filteredToolSet.ListToolNames())
+	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle)
+	if !filteredToolSet.IsAllowed("site.create") || !filteredToolSet.IsAllowed("site.publish") {
+		t.Fatalf("expected selected skill allowed-tools to be exposed, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
-func TestSelectInstructionBundleSkipsHiddenOperationWithoutCapabilityInvoke(t *testing.T) {
+func TestSelectInstructionBundleSelectsRegisteredHiddenOperationWithoutCapabilityInvoke(t *testing.T) {
 	toolSet := NewToolSet([]string{"terminal.run"})
-	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
-		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
+	for _, toolName := range []string{"site.create", "site.publish"} {
+		toolSet.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess("ok"), nil
 		})
 	}
 	instructionBundle := InstructionBundle{Skills: []SkillInstruction{{
-		Name:         "site-prototype",
+		Name:         "website",
 		Description:  "Create and publish website prototypes.",
 		Prompt:       "SITE BODY",
-		AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
+		AllowedTools: []string{"site.create", "site.publish"},
 	}}}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		RetrievalMode: "test",
 		SelectedCandidates: []SkillCandidate{{
-			Name:   "site-prototype",
+			Name:   "website",
 			Score:  1,
 			Reason: "test",
 		}},
@@ -375,8 +379,12 @@ func TestSelectInstructionBundleSkipsHiddenOperationWithoutCapabilityInvoke(t *t
 		ToolSet: toolSet,
 	}, retriever)
 
-	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status == "selected" {
-		t.Fatalf("expected hidden operation skill to be skipped without capability.invoke, got %+v", selectedBundle.SkillDecisions)
+	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
+		t.Fatalf("expected registered hidden operation skill to be selected, got %+v", selectedBundle.SkillDecisions)
+	}
+	filteredToolSet := toolSetForAgentTurn(toolSet, selectedBundle)
+	if !filteredToolSet.IsAllowed("site.create") || !filteredToolSet.IsAllowed("site.publish") {
+		t.Fatalf("expected selected skill allowed-tools to be exposed, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 
@@ -496,11 +504,11 @@ func TestSiteArtifactRequestAllowsContentDomainSkillsButGuidesPromptToTheActualT
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name:        "site-prototype",
+				Name:        "website",
 				Description: "Create, publish, and update website prototypes, homepages, web apps, landing pages, and deployed sites.",
 				WhenToUse:   "Use for website, homepage, web app, site, publish, deploy, 홈페이지, 웹사이트, 사이트, and 배포 requests.",
 				Prompt:      "Follow site prototype workflow.",
-				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+				Source:      InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 			},
 			{
 				Name:        "mail",
@@ -531,7 +539,7 @@ func TestSiteArtifactRequestAllowsContentDomainSkillsButGuidesPromptToTheActualT
 			{Name: "mail", Score: 30, Reason: "bm25_fallback"},
 			{Name: "calendar", Score: 29, Reason: "bm25_fallback"},
 			{Name: "browser", Score: 28, Reason: "bm25_fallback"},
-			{Name: "site-prototype", Score: 8, Reason: "bm25_fallback"},
+			{Name: "website", Score: 8, Reason: "bm25_fallback"},
 		},
 		RetrievalMode: "bm25_fallback",
 		IndexStatus:   "ready",
@@ -543,8 +551,8 @@ func TestSiteArtifactRequestAllowsContentDomainSkillsButGuidesPromptToTheActualT
 		}}},
 	}, retriever)
 
-	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
-		t.Fatalf("expected site-prototype selected, got %+v", selectedBundle.SkillDecisions)
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "website", "selected") {
+		t.Fatalf("expected website selected, got %+v", selectedBundle.SkillDecisions)
 	}
 	// Mentioning mail/calendar/browser as content for the site is a legitimate reason to
 	// select those skills too (the model may need their descriptions to write accurate
@@ -621,29 +629,29 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 	}
 }
 
-func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
+func TestDocxArtifactRequestIsNotDominatedByWebsite(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name:        "site-prototype",
+				Name:        "website",
 				Description: "Create, publish, and update website prototypes, homepages, web apps, landing pages, and deployed sites.",
 				WhenToUse:   "Use for website, homepage, web app, site, publish, deploy, link, URL, 홈페이지, 웹사이트, 사이트, and 배포 requests.",
 				Prompt:      "Follow site prototype workflow.",
-				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+				Source:      InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 			},
 			{
-				Name:        "docx",
+				Name:        "document",
 				Description: "Create, edit, and attach Word document files.",
 				WhenToUse:   "Use for Word, docx, 워드 파일, 문서, and report deliverables.",
-				Prompt:      "Follow docx workflow.",
-				Source:      InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"},
+				Prompt:      "Follow document workflow.",
+				Source:      InstructionSource{Path: "skills/document/SKILL.md", SkillName: "document"},
 			},
 		},
 	}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		SelectedCandidates: []SkillCandidate{
-			{Name: "site-prototype", Score: 30, Reason: "bm25_fallback"},
-			{Name: "docx", Score: 8, Reason: "bm25_fallback"},
+			{Name: "website", Score: 30, Reason: "bm25_fallback"},
+			{Name: "document", Score: 8, Reason: "bm25_fallback"},
 		},
 		RetrievalMode: "bm25_fallback",
 		IndexStatus:   "ready",
@@ -662,11 +670,11 @@ func TestDocxArtifactRequestIsNotDominatedBySitePrototype(t *testing.T) {
 		}}},
 	}, retriever)
 
-	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "docx", "selected") {
-		t.Fatalf("expected docx selected, got %+v", selectedBundle.SkillDecisions)
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "document", "selected") {
+		t.Fatalf("expected document selected, got %+v", selectedBundle.SkillDecisions)
 	}
-	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
-		t.Fatalf("expected site-prototype skipped for docx delivery, got %+v", selectedBundle.SkillDecisions)
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "website", "selected") {
+		t.Fatalf("expected website skipped for docx delivery, got %+v", selectedBundle.SkillDecisions)
 	}
 	if strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") {
 		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
@@ -677,11 +685,11 @@ func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name:        "site-prototype",
+				Name:        "website",
 				Description: "Create, publish, update, and delete website prototypes.",
 				WhenToUse:   "Use for website, site, homepage, prototype, publish, deploy, update, and delete requests.",
 				Prompt:      "Follow site prototype workflow.",
-				Source:      InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+				Source:      InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 			},
 			{
 				Name:        "internkim-flow",
@@ -694,7 +702,7 @@ func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
 	}
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		SelectedCandidates: []SkillCandidate{
-			{Name: "site-prototype", Score: 30, Reason: "bm25_fallback"},
+			{Name: "website", Score: 30, Reason: "bm25_fallback"},
 			{Name: "internkim-flow", Score: 8, Reason: "bm25_fallback"},
 		},
 		RetrievalMode: "bm25_fallback",
@@ -711,24 +719,24 @@ func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
 	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "internkim-flow", "selected") {
 		t.Fatalf("expected internkim-flow selected, got %+v", selectedBundle.SkillDecisions)
 	}
-	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
-		t.Fatalf("expected site-prototype skipped for flow task request, got %+v", selectedBundle.SkillDecisions)
+	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "website", "selected") {
+		t.Fatalf("expected website skipped for flow task request, got %+v", selectedBundle.SkillDecisions)
 	}
 	if strings.Contains(selectedBundle.Prompt, "Follow site prototype workflow.") {
 		t.Fatalf("expected site skill body to be omitted, got %q", selectedBundle.Prompt)
 	}
 }
 
-func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *testing.T) {
+func TestSiteArtifactContractSelectsWebsiteOverUnrelatedArtifactSkill(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name:         "site-prototype",
+				Name:         "website",
 				Description:  "Create, publish, and update website prototypes.",
 				WhenToUse:    "Use for website, site, publish, and deploy requests.",
 				Prompt:       "Follow site prototype workflow.",
 				AllowedTools: []string{"site.status", "file.write", "site.build", "site.publish"},
-				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+				Source:       InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 			},
 			{
 				Name:         "presentation",
@@ -743,7 +751,7 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 	retriever := staticSkillRetriever{result: SkillRetrievalResult{
 		SelectedCandidates: []SkillCandidate{
 			{Name: "presentation", Score: 0.9, Reason: "embedding_similarity"},
-			{Name: "site-prototype", Score: 0.1, Reason: "embedding_similarity"},
+			{Name: "website", Score: 0.1, Reason: "embedding_similarity"},
 		},
 		RetrievalMode: "embedding",
 		IndexStatus:   "ready",
@@ -772,8 +780,8 @@ func TestSiteArtifactContractSelectsSitePrototypeOverUnrelatedArtifactSkill(t *t
 		}},
 	}, retriever)
 
-	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
-		t.Fatalf("expected site-prototype selected, got %+v", selectedBundle.SkillDecisions)
+	if !skillDecisionHasStatus(selectedBundle.SkillDecisions, "website", "selected") {
+		t.Fatalf("expected website selected, got %+v", selectedBundle.SkillDecisions)
 	}
 	if skillDecisionHasStatus(selectedBundle.SkillDecisions, "presentation", "selected") {
 		t.Fatalf("expected unrelated slides skill outside the site artifact contract to be skipped, got %+v", selectedBundle.SkillDecisions)
@@ -788,20 +796,20 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 		suffix            string
 		expectedSkillName string
 	}{
-		{suffix: ".docx", expectedSkillName: "docx"},
+		{suffix: ".docx", expectedSkillName: "document"},
 		{suffix: ".pptx", expectedSkillName: "presentation"},
-		{suffix: ".xlsx", expectedSkillName: "xlsx"},
+		{suffix: ".xlsx", expectedSkillName: "spreadsheet"},
 		{suffix: ".pdf", expectedSkillName: "pdf"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.suffix, func(t *testing.T) {
 			instructionBundle := InstructionBundle{
 				Skills: []SkillInstruction{
-					{Name: "docx", Description: "Create Word documents.", Prompt: "Follow docx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/docx/SKILL.md", SkillName: "docx"}},
+					{Name: "document", Description: "Create Word documents.", Prompt: "Follow document workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/document/SKILL.md", SkillName: "document"}},
 					{Name: "presentation", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"}},
-					{Name: "xlsx", Description: "Create spreadsheets.", Prompt: "Follow xlsx workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/xlsx/SKILL.md", SkillName: "xlsx"}},
+					{Name: "spreadsheet", Description: "Create spreadsheets.", Prompt: "Follow spreadsheet workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/spreadsheet/SKILL.md", SkillName: "spreadsheet"}},
 					{Name: "pdf", Description: "Create PDFs.", Prompt: "Follow pdf workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
-					{Name: "site-prototype", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.create", "site.publish"}, Source: InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"}},
+					{Name: "website", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.create", "site.publish"}, Source: InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"}},
 				},
 			}
 
@@ -823,7 +831,7 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 			if !skillDecisionHasStatus(selectedBundle.SkillDecisions, testCase.expectedSkillName, "selected") {
 				t.Fatalf("expected %s selected for %s, got %+v", testCase.expectedSkillName, testCase.suffix, selectedBundle.SkillDecisions)
 			}
-			if skillDecisionHasStatus(selectedBundle.SkillDecisions, "site-prototype", "selected") {
+			if skillDecisionHasStatus(selectedBundle.SkillDecisions, "website", "selected") {
 				t.Fatalf("expected unrelated site skill skipped for file attachment contract, got %+v", selectedBundle.SkillDecisions)
 			}
 		})
@@ -1234,11 +1242,11 @@ func TestStructuredSkillQueryRecordsLatestRequestWebsiteQueryWithStaleContext(t 
 	instructionBundle := InstructionBundle{
 		Prompt: "base",
 		Skills: []SkillInstruction{{
-			Name:         "site-prototype",
+			Name:         "website",
 			Description:  "Create and publish website prototypes.",
 			Prompt:       "Use site.create and site.publish.",
 			AllowedTools: []string{"site.create", "site.publish"},
-			Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+			Source:       InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 		}},
 	}
 	retriever := NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, "")
@@ -1508,11 +1516,11 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 		{Name: "direct-message", Description: "Send direct messages.", Prompt: "DM BODY"},
 		{Name: "report", Description: "Write reports.", Prompt: "REPORT BODY"},
 		{
-			Name:         "site-prototype",
+			Name:         "website",
 			Description:  "Create and publish website prototypes.",
 			Prompt:       "SITE BODY",
 			AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
-			Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+			Source:       InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 		},
 		{Name: "extra", Description: "Extra skill.", Prompt: "EXTRA BODY"},
 	}

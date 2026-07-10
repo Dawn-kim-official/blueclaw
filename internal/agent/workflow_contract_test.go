@@ -2,7 +2,7 @@ package agent
 
 import "testing"
 
-func TestWorkflowToolNamesForTurnRequestUsesCapabilityInvokeForCapabilityEvidence(t *testing.T) {
+func TestWorkflowToolNamesForTurnRequestUsesExactCapabilityEvidence(t *testing.T) {
 	toolSet := newTestCapabilityToolSet([]string{"task.add"})
 	request := AgentTurnRequest{
 		ToolSet:               toolSet,
@@ -11,8 +11,8 @@ func TestWorkflowToolNamesForTurnRequestUsesCapabilityInvokeForCapabilityEvidenc
 
 	toolNames := workflowToolNamesForTurnRequest(request)
 
-	if len(toolNames) != 1 || toolNames[0] != CapabilityInvokeToolName {
-		t.Fatalf("expected capability.invoke for capability evidence, got %+v", toolNames)
+	if len(toolNames) != 1 || toolNames[0] != "task.add" {
+		t.Fatalf("expected exact capability evidence, got %+v", toolNames)
 	}
 }
 

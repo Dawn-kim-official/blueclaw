@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
@@ -33,6 +35,64 @@ func TestAgentTurnRunnerRecordsToolRequestedEvent(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "tool.capability.invoke.result", "alpha result") {
 		t.Fatal("expected result tool event")
+	}
+}
+
+func TestWrappedToolObservationUsesEffectiveOperationSanitizer(t *testing.T) {
+	services := newTurnRunnerTestServices(nil, TurnOptions{})
+	content := `{"url":"https://example.com/inbox","title":"Inbox","snapshotText":"Visible message","interactiveRefs":["@e1"],"cdpURL":"ws://secret","profilePath":"/Users/private/profile"}`
+	toolRegistry := newTestCapabilityToolSet([]string{"browser.snapshot"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(content), nil
+	})
+	workspaceRootPath := t.TempDir()
+	wrappedObservation := services.runner.invokeTool(
+		context.Background(),
+		toolRegistry,
+		"wrapped-run",
+		"obs-001",
+		CapabilityInvokeToolName,
+		json.RawMessage(`{"operation":"browser.snapshot","input":{}}`),
+		workspaceRootPath,
+		time.Time{},
+		ResponseLanguageEnglish,
+		"",
+	)
+	directObservation := services.runner.invokeTool(
+		context.Background(),
+		toolRegistry.WithAdditionalAllowedToolNames([]string{"browser.snapshot"}),
+		"direct-run",
+		"obs-001",
+		"browser.snapshot",
+		json.RawMessage(`{}`),
+		workspaceRootPath,
+		time.Time{},
+		ResponseLanguageEnglish,
+		"",
+	)
+
+	if wrappedObservation.Summary != directObservation.Summary {
+		t.Fatalf("expected wrapped and direct summaries to match, wrapped=%q direct=%q", wrappedObservation.Summary, directObservation.Summary)
+	}
+	for _, expectedText := range []string{"url=https://example.com/inbox", "title=Inbox", "visibleText=Visible message", "interactiveRefs=@e1"} {
+		if !strings.Contains(wrappedObservation.Summary, expectedText) {
+			t.Fatalf("expected sanitized summary to contain %q, got %q", expectedText, wrappedObservation.Summary)
+		}
+	}
+	for _, privateText := range []string{"ws://secret", "/Users/private/profile", "cdpURL", "profilePath"} {
+		if strings.Contains(wrappedObservation.Summary, privateText) {
+			t.Fatalf("expected sanitized summary to omit %q, got %q", privateText, wrappedObservation.Summary)
+		}
+	}
+	wrappedEvents := services.taskEventService.ListTaskEvent("wrapped-run")
+	if !taskEventsContain(wrappedEvents, "tool."+CapabilityInvokeToolName+".requested", `"operation":"browser.snapshot"`) {
+		t.Fatalf("expected wrapped request to retain the outer event name, got %+v", wrappedEvents)
+	}
+	if !taskEventsContain(wrappedEvents, "tool."+CapabilityInvokeToolName+".result", `"tool":"browser.snapshot"`) {
+		t.Fatalf("expected outer compatibility event with effective operation, got %+v", wrappedEvents)
+	}
+	if taskEventsContain(wrappedEvents, "tool.browser.snapshot.requested", "") || taskEventsContain(wrappedEvents, "tool.browser.snapshot.result", "") {
+		t.Fatalf("expected wrapped events to retain the outer event name, got %+v", wrappedEvents)
 	}
 }
 

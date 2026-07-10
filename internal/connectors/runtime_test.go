@@ -2414,6 +2414,15 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 	if len(adapter.sentReplies) != 1 || adapter.sentReplies[0].message != "매일 아침 7시에 조사해서 알려드릴게요." {
 		t.Fatalf("expected confirmation reply, got %+v", adapter.sentReplies)
 	}
+	requests := languageModel.Requests()
+	actionIndex := connectorSchemaIndexAfter(requests, "blueclaw_agent_turn_action", -1)
+	if actionIndex < 0 {
+		t.Fatal("expected an agent action request")
+	}
+	firstActionSchema := requests[actionIndex].StructuredOutputSchema.Document
+	if !strings.Contains(firstActionSchema, "schedule.create") || strings.Contains(firstActionSchema, "capability.invoke") {
+		t.Fatalf("expected direct schedule.create without generic capability.invoke, got %s", firstActionSchema)
+	}
 }
 
 func TestConnectorRuntimeClassifiesConfirmationReplyBeforeResumingPendingTask(t *testing.T) {
@@ -2913,7 +2922,7 @@ func TestConnectorRuntimeAddsCalendarEventWithoutApproval(t *testing.T) {
 			`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"calendar add is non-destructive tool work","userFacingReply":""}`,
 		}},
 		ActionResponses: []string{
-			`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}}`,
+			`{"action":"continue","toolName":"calendar.add","toolInput":{"title":"휴가","startISO":"2026-05-09","endISO":"2026-05-10","isAllDay":true}}`,
 			connectorFinishMessageWithEvidence("내일 휴가 일정을 캘린더에 추가했습니다.", "obs-001", "calendar.add", 0),
 		},
 	})

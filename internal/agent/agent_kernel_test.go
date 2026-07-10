@@ -214,8 +214,8 @@ func TestAgentKernelPrunesInvalidEvidenceOnApprovalContinuation(t *testing.T) {
 	}})
 
 	toolCallCount := 0
-	toolSet := newTestToolSet([]string{CapabilityInvokeToolName})
-	toolSet.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet := newTestCapabilityToolSet([]string{"site.delete"})
+	toolSet.RegisterTool(ToolDefinition{Name: "site.delete"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
 		return ToolSuccess(`{"deleted":true}`), nil
 	})

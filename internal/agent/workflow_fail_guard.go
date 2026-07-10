@@ -29,9 +29,6 @@ func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnO
 		return nil
 	}
 	publishIndex := latestSuccessfulToolIndexAfter(observations, []string{"site.publish"}, sourceChangeIndex)
-	// site.publish is a domain operation reached only through capability.invoke
-	// now, so its recovery availability means registration, not direct
-	// action-schema allow-listing (toolAvailableForAction).
 	if publishIndex < 0 && request.ToolSet != nil && request.ToolSet.IsRegistered("site.publish") {
 		return []string{"site.publish"}
 	}

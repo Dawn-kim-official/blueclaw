@@ -52,13 +52,13 @@ func TestSkillSearchToolExactNameIncludesCompletionMetadata(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
-			Name:         "site-prototype",
+			Name:         "website",
 			Description:  "Create sites.",
 			AllowedTools: []string{"site.create", "site.publish"},
 			Completion: agent.SkillCompletion{
 				RequiredEvidenceTools: []string{"site.publish"},
 			},
-			Source: agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+			Source: agent.InstructionSource{Path: "skills/website/SKILL.md"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -66,14 +66,14 @@ func TestSkillSearchToolExactNameIncludesCompletionMetadata(t *testing.T) {
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.search",
 		Input: agent.MarshalToolInput(map[string]any{
-			"queries": []map[string]string{{"description": "site-prototype"}},
+			"queries": []map[string]string{{"description": "website"}},
 			"limit":   5,
 		}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !strings.Contains(result.ContentText(), `"sourcePath":"skills/site-prototype/SKILL.md"`) || !strings.Contains(result.ContentText(), "site.publish") {
+	if !strings.Contains(result.ContentText(), `"sourcePath":"skills/website/SKILL.md"`) || !strings.Contains(result.ContentText(), "site.publish") {
 		t.Fatalf("expected exact skill metadata, got %s", result.ContentText())
 	}
 }
@@ -214,6 +214,9 @@ func TestSkillManagementRejectsInvalidAndBuiltInNames(t *testing.T) {
 	for _, input := range []map[string]string{
 		{"name": "../escape", "content": userSkillDocument("escape")},
 		{"name": "presentation", "content": userSkillDocument("presentation")},
+		{"name": "website", "content": userSkillDocument("website")},
+		{"name": "document-analysis", "content": userSkillDocument("document-analysis")},
+		{"name": "website-management", "content": userSkillDocument("website-management")},
 	} {
 		result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 			ToolName: "skill.add",
@@ -433,7 +436,7 @@ func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{
 			{Name: "mail", Description: "Email skill.", AllowedTools: []string{"mail.message.search"}},
-			{Name: "site-prototype", Description: "Create sites.", AllowedTools: []string{"site.create"}},
+			{Name: "website", Description: "Create sites.", AllowedTools: []string{"site.create"}},
 		}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
@@ -452,7 +455,7 @@ func TestSkillSearchToolListsAllSkillsWithoutQueries(t *testing.T) {
 	if errorValue := json.Unmarshal([]byte(result.ContentText()), &resultDocument); errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if len(resultDocument.Skills) != 2 || resultDocument.Skills[0].Name != "mail" || resultDocument.Skills[1].Name != "site-prototype" {
+	if len(resultDocument.Skills) != 2 || resultDocument.Skills[0].Name != "mail" || resultDocument.Skills[1].Name != "website" {
 		t.Fatalf("expected full skill roster, got %+v", resultDocument.Skills)
 	}
 }
@@ -461,18 +464,18 @@ func TestSkillSearchToolNameLookupReturnsPromptBody(t *testing.T) {
 	toolCatalogBuilder := NewToolCatalogBuilder()
 	toolCatalogBuilder.UseSkillSearch(skillSearchTestRetriever{}, func() agent.InstructionBundle {
 		return agent.InstructionBundle{Skills: []agent.SkillInstruction{{
-			Name:         "site-prototype",
+			Name:         "website",
 			Description:  "Create sites.",
 			Prompt:       "Build the site, verify it, and attach promoted outputs.",
 			AllowedTools: []string{"site.create"},
-			Source:       agent.InstructionSource{Path: "skills/site-prototype/SKILL.md"},
+			Source:       agent.InstructionSource{Path: "skills/website/SKILL.md"},
 		}}}
 	})
 	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
 
 	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "skill.search",
-		Input:    agent.MarshalToolInput(map[string]any{"name": "SITE-PROTOTYPE"}),
+		Input:    agent.MarshalToolInput(map[string]any{"name": "WEBSITE"}),
 	})
 	if errorValue != nil {
 		t.Fatal(errorValue)
@@ -487,7 +490,7 @@ func TestSkillSearchToolNameLookupReturnsPromptBody(t *testing.T) {
 	if len(resultDocument.Skills) != 1 || resultDocument.Skills[0].Prompt != "Build the site, verify it, and attach promoted outputs." {
 		t.Fatalf("expected prompt body in name lookup, got %+v", resultDocument.Skills)
 	}
-	if resultDocument.Skills[0].SourcePath != "skills/site-prototype/SKILL.md" {
+	if resultDocument.Skills[0].SourcePath != "skills/website/SKILL.md" {
 		t.Fatalf("expected source path, got %+v", resultDocument.Skills[0])
 	}
 }

@@ -43,7 +43,7 @@ func (agentTurnRunner *AgentTurnRunner) resolveCalendarDuplicate(ctx context.Con
 	if !isDuplicateCandidate {
 		return observation
 	}
-	addInput, hasInput := decodeCalendarAddInput(actionDocument.ToolInput)
+	addInput, hasInput := decodeCalendarAddInput(actionDocument.ToolName, actionDocument.ToolInput)
 	if !hasInput {
 		return observation
 	}
@@ -53,7 +53,7 @@ func (agentTurnRunner *AgentTurnRunner) resolveCalendarDuplicate(ctx context.Con
 		toolInputKey := canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
 		return agentTurnRunner.saveToolObservation(ctx, taskRunID, observationID, actionDocument.ToolName, calendarAddOperation, toolInputKey, ToolSuccess(message), request.WorkspaceRootPath, request.TurnStartedAt, 0)
 	}
-	forcedToolInput := calendarAddInputWithAllowDuplicate(actionDocument.ToolInput)
+	forcedToolInput := calendarAddInputWithAllowDuplicate(actionDocument.ToolName, actionDocument.ToolInput)
 	return agentTurnRunner.invokeTool(ctx, request.ToolSet, taskRunID, observationID, actionDocument.ToolName, forcedToolInput, request.WorkspaceRootPath, request.TurnStartedAt, request.ResponseLanguage, actionDocument.Message)
 }
 
@@ -75,27 +75,23 @@ func parseCalendarDuplicateCandidates(observation turnObservation) ([]calendarLi
 	return payload.Candidates, true
 }
 
-func decodeCalendarAddInput(toolInput json.RawMessage) (calendarAddInput, bool) {
-	var wrapper struct {
-		Input calendarAddInput `json:"input"`
-	}
-	if json.Unmarshal(toolInput, &wrapper) != nil {
+func decodeCalendarAddInput(toolName string, toolInput json.RawMessage) (calendarAddInput, bool) {
+	_, effectiveInput := effectiveActionToolNameAndInput(toolName, toolInput)
+	var input calendarAddInput
+	if json.Unmarshal(effectiveInput, &input) != nil {
 		return calendarAddInput{}, false
 	}
-	if strings.TrimSpace(wrapper.Input.StartISO) == "" {
+	if strings.TrimSpace(input.StartISO) == "" {
 		return calendarAddInput{}, false
 	}
-	return wrapper.Input, true
+	return input, true
 }
 
-func calendarAddInputWithAllowDuplicate(toolInput json.RawMessage) json.RawMessage {
-	var wrapper map[string]json.RawMessage
-	if json.Unmarshal(toolInput, &wrapper) != nil {
-		return toolInput
-	}
+func calendarAddInputWithAllowDuplicate(toolName string, toolInput json.RawMessage) json.RawMessage {
+	_, effectiveInput := effectiveActionToolNameAndInput(toolName, toolInput)
 	var input map[string]any
-	if len(wrapper["input"]) > 0 {
-		json.Unmarshal(wrapper["input"], &input)
+	if json.Unmarshal(effectiveInput, &input) != nil {
+		return toolInput
 	}
 	if input == nil {
 		input = map[string]any{}
@@ -103,6 +99,13 @@ func calendarAddInputWithAllowDuplicate(toolInput json.RawMessage) json.RawMessa
 	input["allowDuplicate"] = true
 	inputBytes, errorValue := json.Marshal(input)
 	if errorValue != nil {
+		return toolInput
+	}
+	if strings.TrimSpace(toolName) != CapabilityInvokeToolName {
+		return inputBytes
+	}
+	var wrapper map[string]json.RawMessage
+	if json.Unmarshal(toolInput, &wrapper) != nil {
 		return toolInput
 	}
 	wrapper["input"] = inputBytes

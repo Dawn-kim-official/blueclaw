@@ -253,7 +253,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		NewSkillSearchQueryRouter(agentKernel.classificationLanguageModel()),
 	)
 	instructionBundle = instructionBundleWithPinnedSkills(instructionBundle, request)
-	turnToolSet := request.ToolSet
+	turnToolSet := toolSetForAgentTurn(request.ToolSet, instructionBundle)
 	intakeRequest := request
 	intakeRequest.ToolSet = turnToolSet
 	turnRouter := NewTurnRouter(agentKernel.classificationLanguageModel(), agentKernel.intakeOptions)
@@ -281,6 +281,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	request.PinnedToolNames = appendUniqueStrings(append([]string{}, request.PinnedToolNames...), intakeDecision.InitialToolNames...)
 	intakeRequest.PinnedToolNames = request.PinnedToolNames
 	instructionBundle, intakeDecision = agentKernel.selectInstructionBundleForResolvedRequest(responseContext, baseInstructionBundle, request, intakeDecision)
+	turnToolSet = toolSetForAgentTurn(request.ToolSet, instructionBundle)
 	intakeDecision = promoteIntakeDecisionForSelectedSkills(intakeDecision, instructionBundle, agentKernel.intakeOptions)
 	if turnDecision.Route == TurnRouteConsume && intakeDecision.Classification == IntakeClassificationBoundedTask {
 		turnDecision.Route = TurnRouteStartTask
@@ -440,7 +441,7 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 		intakeDecision.RequiredEvidenceTools,
 		selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools...,
 	)
-	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(request.ToolSet, baseInstructionBundle.Skills, requiredCapabilityEvidence)
+	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(request.ToolSet, baseInstructionBundle.Skills, requiredCapabilityEvidence)
 	selectionRequest.PinnedSkillNames = appendUniqueStrings(selectionRequest.PinnedSkillNames, coveringSkillNames...)
 	intakeDecision.RequiredEvidenceTools = requiredEvidenceToolsWithout(intakeDecision.RequiredEvidenceTools, undocumentedOperationNames)
 	selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools = requiredEvidenceToolsWithout(selectionRequest.ActiveGoal.OutcomeContract.RequiredEvidenceTools, undocumentedOperationNames)
@@ -454,15 +455,7 @@ func (agentKernel *AgentKernel) selectInstructionBundleForResolvedRequest(ctx co
 	return instructionBundleWithPinnedSkills(instructionBundle, selectionRequest), intakeDecision
 }
 
-// capabilityEvidenceSkillCoverage finds, for each required evidence tool that is a
-// structurally valid capability.invoke-gated operation (e.g. "web.search") rather than a
-// literal kernel tool, which skills in the library actually document that operation. An
-// operation with no documenting skill is structurally unreachable for the model this turn
-// regardless of how the evidence gate validates the tool name, so it is reported as
-// undocumented for pruning. Evidence tool names that are not even valid/reachable through
-// the toolset are left untouched here; the existing invalid-required-evidence gate already
-// blocks those.
-func capabilityEvidenceSkillCoverage(toolSet *ToolSet, skillInstructions []SkillInstruction, requiredEvidenceTools []string) ([]string, []string) {
+func requiredEvidenceSkillCoverage(toolSet *ToolSet, skillInstructions []SkillInstruction, requiredEvidenceTools []string) ([]string, []string) {
 	coveringSkillNames := []string{}
 	undocumentedOperationNames := []string{}
 	for _, toolName := range requiredEvidenceTools {
@@ -471,10 +464,10 @@ func capabilityEvidenceSkillCoverage(toolSet *ToolSet, skillInstructions []Skill
 			continue
 		}
 		toolKind, isValid := requiredEvidenceToolKind(toolSet, trimmedToolName)
-		if !isValid || toolKind != requiredEvidenceToolKindCapabilityOperation {
+		if !isValid || toolKind == requiredEvidenceToolKindNativeTool {
 			continue
 		}
-		skillNames := skillNamesDocumentingCapabilityOperation(skillInstructions, trimmedToolName)
+		skillNames := skillNamesAllowingOperation(skillInstructions, trimmedToolName)
 		if len(skillNames) == 0 {
 			undocumentedOperationNames = append(undocumentedOperationNames, trimmedToolName)
 			continue
@@ -484,20 +477,18 @@ func capabilityEvidenceSkillCoverage(toolSet *ToolSet, skillInstructions []Skill
 	return coveringSkillNames, undocumentedOperationNames
 }
 
-func skillNamesDocumentingCapabilityOperation(skillInstructions []SkillInstruction, operationName string) []string {
+func skillNamesAllowingOperation(skillInstructions []SkillInstruction, operationName string) []string {
 	skillNames := []string{}
 	for _, skillInstruction := range skillInstructions {
-		if skillDocumentsCapabilityOperation(skillInstruction, operationName) {
+		if skillAllowsOperation(skillInstruction, operationName) {
 			skillNames = appendUniqueStrings(skillNames, skillInstruction.Name)
 		}
 	}
 	return skillNames
 }
 
-func skillDocumentsCapabilityOperation(skillInstruction SkillInstruction, operationName string) bool {
-	return skillHasToolName(skillInstruction, operationName) ||
-		skillHasEvidenceTool(skillInstruction, operationName) ||
-		strings.Contains(skillInstruction.Prompt, operationName)
+func skillAllowsOperation(skillInstruction SkillInstruction, operationName string) bool {
+	return skillHasToolName(skillInstruction, operationName)
 }
 
 func (agentKernel *AgentKernel) completeConsumedRequest(request AgentRequest, decision TurnDecision) (AgentTurnResult, error) {

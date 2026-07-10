@@ -65,7 +65,7 @@ func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 
 func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
+		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
 		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"}}`,
 		finishMessageDocument("확인했습니다."),
@@ -80,7 +80,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 			NoToolFallback: 0,
 		},
 	})
-	toolRegistry := newHybridKernelCapabilityToolSet([]string{"file.read", "file.edit"}, []string{"site.build"})
+	toolRegistry := newTestCapabilityToolSet([]string{"file.read", "file.edit", "site.build"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.build"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{
 			Output: ToolOutput{Content: "source failed"},
@@ -113,6 +113,8 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 		ConversationID:    "conversation-1",
 		Prompt:            "사이트 빌드 문제 확인해줘",
 		ToolSet:           toolRegistry,
+		AvailableSkills:   []SkillInstruction{{Name: "website", AllowedTools: []string{"site.build"}}},
+		SkillDecisions:    []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 		PinnedToolNames:   []string{"site.build", "file.read", "file.edit"},
 	})
 	if errorValue != nil {

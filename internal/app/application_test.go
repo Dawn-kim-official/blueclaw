@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -194,7 +194,7 @@ func TestDeriveAllowedToolNamesByProfileKeepsDomainCapabilitiesOutOfBaseline(t *
 	if containsString(defaultProfileToolNames, "site.create") {
 		t.Fatalf("expected domain capability to stay out of profile baseline, got %+v", defaultProfileToolNames)
 	}
-	for _, expectedToolName := range []string{"terminal.run", "ask.input", "ask.confirm", "file.deliver", "skill.search", "file.read", "file.write", "file.edit", "file.patch", "file.preview", "image.read"} {
+	for _, expectedToolName := range []string{"terminal.run", "ask.input", "ask.confirm", "file.deliver", "skill.search", "file.read", "file.write", "file.edit", "file.patch", "file.preview", "image.read", "memory.search", "memory.remember"} {
 		if !containsString(defaultProfileToolNames, expectedToolName) {
 			t.Fatalf("expected baseline tool %q, got %+v", expectedToolName, defaultProfileToolNames)
 		}

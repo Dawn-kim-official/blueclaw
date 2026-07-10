@@ -264,7 +264,6 @@ func pinRequestedSkills(request AgentTurnRequest, skillNames []string, result to
 		}
 		result.PinnedSkillNames = appendUniqueStrings(result.PinnedSkillNames, trimmedSkillName)
 		request.PinnedSkillNames = appendUniqueStrings(request.PinnedSkillNames, trimmedSkillName)
-		request.InstructionPrompt = appendPinnedSkillPrompt(request.InstructionPrompt, []SkillInstruction{skillInstruction})
 		request.ActiveGoal.OutcomeContract.SelectedEvidenceHints = appendUniqueStrings(request.ActiveGoal.OutcomeContract.SelectedEvidenceHints, skillInstruction.Completion.RequiredEvidenceTools...)
 	}
 	return request, result
@@ -278,11 +277,6 @@ func findAvailableSkillInstruction(skillInstructions []SkillInstruction, skillNa
 		}
 	}
 	return SkillInstruction{}, false
-}
-
-func appendPinnedSkillPrompt(instructionPrompt string, skillInstructions []SkillInstruction) string {
-	pinnedPrompt := buildSelectedSkillInstructionPrompt(skillInstructions)
-	return strings.Join(nonEmptyStrings([]string{instructionPrompt, pinnedPrompt}), "\n\n")
 }
 
 func toolRequestObservation(index int, requestArguments requestToolsArguments, result toolRequestResult) turnObservation {

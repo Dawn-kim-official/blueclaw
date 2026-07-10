@@ -12,7 +12,7 @@ import (
 )
 
 func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument, stopForNoProgress func(string) (AgentTurnResult, bool)) toolCallActionOutcome {
-	if !toolAvailableForAction(request.ToolSet, actionDocument.ToolName) {
+	if !toolCallAvailableForAction(request.ToolSet, actionDocument.ToolName, actionDocument.ToolInput) {
 		observation := agentTurnRunner.recordUnavailableToolRequest(taskRunID, len(state.Observations)+1, actionDocument.ToolName, actionDocument.ToolInput, request.WorkspaceRootPath, request.TurnStartedAt)
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "tool_unavailable "+actionDocument.ToolName, observation.ContentText())
@@ -336,7 +336,7 @@ type terminalToolNameError struct {
 }
 
 func (errorValue terminalToolNameError) Error() string {
-	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Use the fixed kernel tool schema directly, or use capability.invoke for domain capabilities."
+	return errorValue.toolName + " is a Blueclaw tool, not a shell command. Call it through the current action schema."
 }
 
 func isTerminalToolNameError(errorValue error) bool {
@@ -628,9 +628,6 @@ func requestHasSelectedSiteArtifactSkill(request AgentTurnRequest) bool {
 	return false
 }
 
-// site.create and site.publish are domain operations reached only through
-// capability.invoke now, so availability means registration, not action-schema
-// allow-listing; terminal.run stays a directly-allowed kernel tool either way.
 func sitePublishTaskToolsAreAvailable(toolSet *ToolSet) bool {
 	if toolSet == nil {
 		return false
@@ -696,7 +693,7 @@ func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput j
 }
 
 func unnecessaryAcknowledgementApprovalMessage() string {
-	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write. Perform the action directly through the relevant kernel tool or capability.invoke operation, then finish."
+	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write. Perform the action directly through the relevant named tool, then finish."
 }
 
 func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
@@ -774,6 +771,17 @@ func toolAvailableForAction(toolRegistry *ToolSet, toolName string) bool {
 		return false
 	}
 	return toolRegistry.IsAllowed(strings.TrimSpace(toolName))
+}
+
+func toolCallAvailableForAction(toolRegistry *ToolSet, toolName string, toolInput json.RawMessage) bool {
+	if toolAvailableForAction(toolRegistry, toolName) {
+		return true
+	}
+	if strings.TrimSpace(toolName) != CapabilityInvokeToolName || toolRegistry == nil || !toolRegistry.IsRegistered(CapabilityInvokeToolName) {
+		return false
+	}
+	operationName, _ := effectiveActionToolNameAndInput(toolName, toolInput)
+	return operationName != CapabilityInvokeToolName && toolRegistry.IsAllowed(operationName)
 }
 
 func (agentTurnRunner *AgentTurnRunner) recordUnavailableToolRequest(taskRunID string, index int, toolName string, toolInput json.RawMessage, workspaceRootPath string, minimumModifiedAt time.Time) turnObservation {

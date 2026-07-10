@@ -21,14 +21,11 @@ func TestValidateRequiredEvidencePreservesInvalidEvidence(t *testing.T) {
 	}
 }
 
-func TestValidateRequiredEvidenceAcceptsHiddenCapabilityOperationThroughInvoke(t *testing.T) {
-	toolSet := NewToolSet([]string{CapabilityInvokeToolName})
-	for _, toolName := range []string{CapabilityInvokeToolName, "calendar.add"} {
-		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
-		})
-	}
+func TestValidateRequiredEvidenceAcceptsRegisteredHiddenCapabilityOperation(t *testing.T) {
+	toolSet := NewToolSet([]string{TerminalRunToolName})
+	toolSet.RegisterTool(ToolDefinition{Name: "calendar.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
 
 	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
 
@@ -43,19 +40,20 @@ func TestValidateRequiredEvidenceAcceptsHiddenCapabilityOperationThroughInvoke(t
 	}
 }
 
-func TestValidateRequiredEvidenceRejectsHiddenOperationWithoutCapabilityInvoke(t *testing.T) {
+func TestValidateRequiredEvidenceRejectsDeniedHiddenOperation(t *testing.T) {
 	toolSet := NewToolSet([]string{TerminalRunToolName})
-	for _, toolName := range []string{TerminalRunToolName, "calendar.add"} {
-		currentToolName := toolName
-		toolSet.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+	toolSet.RegisterBoundTool(BoundTool{
+		Definition:   ToolDefinition{Name: "calendar.add"},
+		Availability: ToolAvailability{Status: ToolAvailabilityDenied},
+		Handler: func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess("ok"), nil
-		})
-	}
+		},
+	})
 
 	report := validateRequiredEvidenceTools(toolSet, []string{"calendar.add"})
 
 	if !report.HasInvalidEvidence() {
-		t.Fatal("expected hidden calendar.add to be invalid without capability.invoke")
+		t.Fatal("expected denied calendar.add to be invalid evidence")
 	}
 }
 

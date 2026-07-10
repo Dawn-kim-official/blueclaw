@@ -5,101 +5,64 @@ import (
 	"strings"
 )
 
-const maxSchemaCallableToolCount = 15
-
 type toolExposureGroup struct {
 	Name    string
 	ToolIDs []string
 }
 
-type droppedToolGroup struct {
-	Name      string   `json:"name"`
-	ToolIDs   []string `json:"toolIDs"`
-	IsPartial bool     `json:"isPartial"`
-}
-
 type ToolExposureEvent struct {
-	SelectedToolIDs          []string           `json:"selectedToolIDs,omitempty"`
-	ValidSelectedToolIDs     []string           `json:"validSelectedToolIDs,omitempty"`
-	SelectionReason          string             `json:"selectionReason,omitempty"`
-	SelectionSource          string             `json:"selectionSource,omitempty"`
-	SelectionFailureReason   string             `json:"selectionFailureReason,omitempty"`
-	UsedFallbackGroups       bool               `json:"usedFallbackGroups"`
-	ExposedToolIDs           []string           `json:"exposedToolIDs"`
-	PromotedOperationToolIDs []string           `json:"promotedOperationToolIDs,omitempty"`
-	PinnedGroupToolIDs       []string           `json:"pinnedGroupToolIDs,omitempty"`
-	DroppedGroups            []droppedToolGroup `json:"droppedGroups,omitempty"`
+	SelectionReason      string   `json:"selectionReason"`
+	SelectionSource      string   `json:"selectionSource"`
+	ExposedToolIDs       []string `json:"exposedToolIDs"`
+	SelectedSkillToolIDs []string `json:"selectedSkillToolIDs,omitempty"`
 }
 
-func collectCoreGroups(toolSet *ToolSet) []toolExposureGroup {
-	return []toolExposureGroup{
-		filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()}),
-	}
-}
-
-func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract, selectionEvent ToolExposureEvent, observations ...[]turnObservation) (*ToolSet, ToolExposureEvent) {
+func baseToolNames(toolSet *ToolSet) []string {
 	if toolSet == nil {
-		return nil, selectionEvent
+		return nil
 	}
-	recentObservations := []turnObservation{}
-	if len(observations) > 0 {
-		recentObservations = observations[0]
-	}
-	kernelGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "fixed kernel", ToolIDs: KernelToolNames()})
-	promotedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "promoted operations", ToolIDs: promotedCapabilityOperationNames(toolSet, recentObservations)})
-	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "requested tools", ToolIDs: request.PinnedToolNames})
-	exposedToolIDs := stableUniqueToolIDs(append(append(append([]string{}, kernelGroup.ToolIDs...), promotedGroup.ToolIDs...), pinnedGroup.ToolIDs...))
-	selectionEvent.SelectionSource = firstNonEmptyString(selectionEvent.SelectionSource, "fixed_kernel")
-	selectionEvent.SelectionReason = firstNonEmptyString(selectionEvent.SelectionReason, "Blueclaw exposes the same compact kernel tools on every turn")
-	selectionEvent.ValidSelectedToolIDs = nil
-	selectionEvent.ExposedToolIDs = append([]string{}, exposedToolIDs...)
-	selectionEvent.PromotedOperationToolIDs = append([]string{}, promotedGroup.ToolIDs...)
-	selectionEvent.PinnedGroupToolIDs = append([]string{}, pinnedGroup.ToolIDs...)
-	selectionEvent.DroppedGroups = nil
-	selectionEvent.UsedFallbackGroups = false
-	return toolSet.WithAllowedToolNames(exposedToolIDsForFiltering(exposedToolIDs)), selectionEvent
-}
-
-// maxPromotedCapabilityOperationCount bounds the exposed tool count when a
-// task racks up several distinct invalid_input failures.
-const maxPromotedCapabilityOperationCount = 2
-
-// promotedCapabilityOperationNames recomputes promotion from observation
-// history every step (no new persistent state): an operation that failed
-// capability.invoke input validation gets its own flat-schema tool for the
-// rest of the task, since a lite model that cannot fill the nested
-// {operation, input:{...}} shape can still fill a flat one. Most recent
-// distinct failures win when more than maxPromotedCapabilityOperationCount
-// operations have failed.
-func promotedCapabilityOperationNames(toolSet *ToolSet, observations []turnObservation) []string {
-	promotedOperationNames := []string{}
-	for index := len(observations) - 1; index >= 0 && len(promotedOperationNames) < maxPromotedCapabilityOperationCount; index-- {
-		operationName := promotableCapabilityOperationName(toolSet, observations[index])
-		if operationName == "" || stringSliceContains(promotedOperationNames, operationName) {
+	toolNames := []string{}
+	for _, toolName := range toolSet.ListBaseToolNames() {
+		if toolName == CapabilityInvokeToolName {
 			continue
 		}
-		promotedOperationNames = append(promotedOperationNames, operationName)
+		if IsKernelToolName(toolName) || toolSet.CanExpose(toolName) {
+			toolNames = appendUniqueStrings(toolNames, toolName)
+		}
 	}
-	return promotedOperationNames
+	return toolNames
 }
 
-// promotableCapabilityOperationName returns the operation name when the
-// observation is an invalid_input failure on a registered capability
-// operation. effectiveObservationToolName already unwraps capability.invoke
-// observations down to the attempted operation name, so this only filters
-// for registered, non-kernel, non-capability.invoke names.
-func promotableCapabilityOperationName(toolSet *ToolSet, observation turnObservation) string {
-	if observation.Failure == nil || observation.FailureCode() != FailureCodes.InvalidInput.String() {
-		return ""
+func toolSetForAgentTurnWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle) (*ToolSet, ToolExposureEvent) {
+	if toolSet == nil {
+		return nil, ToolExposureEvent{}
 	}
-	operationName := strings.TrimSpace(observation.Tool)
-	if operationName == "" || operationName == CapabilityInvokeToolName || IsKernelToolName(operationName) {
-		return ""
+	baseGroup := toolExposureGroup{Name: "base tools", ToolIDs: baseToolNames(toolSet)}
+	selectedSkillGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "selected skill allowed-tools", ToolIDs: selectedSkillToolNames(instructionBundle)})
+	exposedToolIDs := stableUniqueToolIDs(append(append([]string{}, baseGroup.ToolIDs...), selectedSkillGroup.ToolIDs...))
+	return toolSet.withAllowedToolNamesPreservingBase(exposedToolIDsForFiltering(exposedToolIDs)), ToolExposureEvent{
+		SelectionSource:      "selected_skill_allowed_tools",
+		SelectionReason:      "Blueclaw exposes base tools and the selected skills' allowed-tools",
+		ExposedToolIDs:       append([]string{}, exposedToolIDs...),
+		SelectedSkillToolIDs: append([]string{}, selectedSkillGroup.ToolIDs...),
 	}
-	if toolSet == nil || !toolSet.IsRegistered(operationName) {
-		return ""
+}
+
+func selectedSkillToolNames(instructionBundle InstructionBundle) []string {
+	selectedSkillNames := map[string]bool{}
+	for _, skillDecision := range instructionBundle.SkillDecisions {
+		if skillDecision.Status == "selected" {
+			selectedSkillNames[skillDecision.Name] = true
+		}
 	}
-	return operationName
+	toolNames := []string{}
+	for _, skillInstruction := range instructionBundle.Skills {
+		if !selectedSkillNames[skillInstruction.Name] {
+			continue
+		}
+		toolNames = appendUniqueStrings(toolNames, SkillToolNames(skillInstruction)...)
+	}
+	return toolNames
 }
 
 func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
@@ -109,8 +72,8 @@ func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
 	return []string{"__blueclaw_no_callable_tools__"}
 }
 
-func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
-	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle, request, executionPlan, hasExecutionPlan, outcomeContract, ToolExposureEvent{})
+func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle) *ToolSet {
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle)
 	return filteredToolSet
 }
 
@@ -118,7 +81,7 @@ func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGro
 	filteredToolIDs := []string{}
 	for _, toolID := range group.ToolIDs {
 		trimmedToolID := strings.TrimSpace(toolID)
-		if trimmedToolID != "" && toolIsModelCallable(trimmedToolID) && toolSet != nil && toolSet.CanExpose(trimmedToolID) {
+		if trimmedToolID != "" && trimmedToolID != CapabilityInvokeToolName && toolSet != nil && toolSet.CanExpose(trimmedToolID) {
 			filteredToolIDs = appendUniqueStrings(filteredToolIDs, trimmedToolID)
 		}
 	}
@@ -127,147 +90,6 @@ func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGro
 
 func toolIsModelCallable(toolID string) bool {
 	return strings.TrimSpace(toolID) != ""
-}
-
-func recoveryPinnedToolNames(instructionBundle InstructionBundle, request AgentRequest, observations []turnObservation) []string {
-	toolNames := filterExhaustedRecoveryToolNames(request.PinnedToolNames, observations)
-	toolNames = appendUniqueStrings(toolNames, activeRecoveryToolNames(observations)...)
-	return toolNames
-}
-
-func activeRecoveryToolNames(observations []turnObservation) []string {
-	failureDebt, hasFailureDebt := activeFailureDebt(observations)
-	if !hasFailureDebt {
-		return nil
-	}
-	toolNames := []string{}
-	if failureDebt.LatestFailure.Failure != nil {
-		for _, recoveryHint := range failureDebt.LatestFailure.Failure.RecoveryHints {
-			toolNames = appendUniqueStrings(toolNames, recoveryHint.ToolNames...)
-		}
-	}
-	if failureDebt.LatestFailure.RecoveryPacket != nil {
-		toolNames = appendUniqueStrings(toolNames, failureDebt.LatestFailure.RecoveryPacket.AllowedTools...)
-	}
-	return filterExhaustedRecoveryToolNames(toolNames, observations)
-}
-
-func filterExhaustedRecoveryToolNames(toolNames []string, observations []turnObservation) []string {
-	exhaustedToolNames := exhaustedRecoveryToolNames(observations)
-	if len(exhaustedToolNames) == 0 {
-		return appendUniqueStrings(toolNames)
-	}
-	filteredToolNames := []string{}
-	for _, toolName := range toolNames {
-		trimmedToolName := strings.TrimSpace(toolName)
-		if trimmedToolName == "" || exhaustedToolNames[trimmedToolName] {
-			continue
-		}
-		filteredToolNames = appendUniqueStrings(filteredToolNames, trimmedToolName)
-	}
-	return filteredToolNames
-}
-
-func exhaustedRecoveryToolNames(observations []turnObservation) map[string]bool {
-	exhaustedToolNames := map[string]bool{}
-	for _, observation := range observations {
-		if observationLooksLikeFileReadRepeat(observation) {
-			exhaustedToolNames["file.read"] = true
-			continue
-		}
-		if !observationLooksLikeRecoveryBudgetExhausted(observation) {
-			continue
-		}
-		toolName := strings.TrimSpace(observation.Tool)
-		if toolName != "" {
-			exhaustedToolNames[toolName] = true
-		}
-	}
-	return exhaustedToolNames
-}
-
-func observationLooksLikeFileReadRepeat(observation turnObservation) bool {
-	return strings.TrimSpace(observation.Tool) == "file.read" &&
-		observation.Failure != nil &&
-		strings.TrimSpace(observation.Failure.Stage) == "file_read_repeat"
-}
-
-func observationLooksLikeRecoveryBudgetExhausted(observation turnObservation) bool {
-	return strings.TrimSpace(observation.Action) == "policy" &&
-		strings.TrimSpace(observation.RecoveryStep) != "" &&
-		strings.Contains(strings.ToLower(observation.ContentText()), "recovery budget")
-}
-
-func toolSelectionRecentProgress(observations []turnObservation) string {
-	recentObservations := recentProgressObservations(observations)
-	if len(recentObservations) == 0 {
-		return ""
-	}
-	document, errorValue := json.Marshal(recentObservations)
-	if errorValue != nil {
-		return ""
-	}
-	return "Recent observation progress: " + string(document)
-}
-
-func renderCoreGroupSummary(groups []toolExposureGroup) string {
-	lines := []string{"Core groups are normally available in the action schema unless the provider function budget is reached:"}
-	for _, group := range groups {
-		if len(group.ToolIDs) == 0 {
-			continue
-		}
-		lines = append(lines, group.Name+": "+strings.Join(group.ToolIDs, ", "))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func renderCompactToolCards(toolSet *ToolSet, groups []toolExposureGroup) string {
-	lines := []string{}
-	for _, group := range groups {
-		for _, toolID := range group.ToolIDs {
-			toolDefinition, isFound := toolSet.ToolDefinition(toolID)
-			if !isFound {
-				continue
-			}
-			lines = append(lines, compactToolCard(toolID, toolDefinition))
-		}
-	}
-	if len(lines) == 0 {
-		return "(none)"
-	}
-	return strings.Join(lines, "\n")
-}
-
-func compactToolCard(toolID string, toolDefinition ToolDefinition) string {
-	card := recoveryCardForTool(toolDefinition)
-	return "- " + toolID + ": " +
-		"sideEffect=" + compactToolCardText(card.SideEffect) + "; " +
-		"does=" + compactToolCardText(card.Does) + "; " +
-		"produces=" + compactToolCardText(card.Produces) + "; " +
-		"useWhen=" + compactToolCardText(card.UseWhen) + "; " +
-		"avoidWhen=" + compactToolCardText(card.AvoidWhen) + "."
-}
-
-func recoveryCardForTool(toolDefinition ToolDefinition) ToolRecoveryCard {
-	card := toolDefinition.RecoveryCard
-	card.SideEffect = firstNonEmptyString(strings.TrimSpace(card.SideEffect), strings.TrimSpace(toolDefinition.SideEffectClass), "read")
-	card.Does = firstNonEmptyString(strings.TrimSpace(card.Does), strings.TrimSpace(toolDefinition.Description), "Run this tool.")
-	card.Produces = firstNonEmptyString(strings.TrimSpace(card.Produces), "A tool observation.")
-	card.UseWhen = firstNonEmptyString(strings.TrimSpace(card.UseWhen), "The expected result, step plan, or recovery context calls for this capability.")
-	card.AvoidWhen = firstNonEmptyString(strings.TrimSpace(card.AvoidWhen), "Required inputs are unknown or the task contract points to a different deliverable.")
-	return card
-}
-
-func compactToolCardText(value string) string {
-	words := strings.Fields(value)
-	if len(words) == 0 {
-		return ""
-	}
-	text := strings.Join(words, " ")
-	if len(text) <= 180 {
-		return text
-	}
-	return strings.TrimSpace(text[:180])
 }
 
 func outcomeContractSummary(contract OutcomeContract) string {

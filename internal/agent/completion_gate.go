@@ -67,6 +67,9 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 			return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, *transition.Effect.ToolCall)
 		}
 	case agentEffectFinish:
+		if deliverableModelWording(lastModelMessage) == "" {
+			return completionTransition{Observations: observations, Attachments: attachments}
+		}
 		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state, lastModelMessage)
 	case agentEffectNone:
 		if len(transition.State.Observations) > len(observations) {

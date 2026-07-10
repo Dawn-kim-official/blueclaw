@@ -111,8 +111,7 @@ func requestToolSetCanReachTool(toolSet *ToolSet, toolName string) bool {
 	if toolSet.IsAllowed(trimmedToolName) {
 		return true
 	}
-	_, isValidEvidence := requiredEvidenceToolKind(toolSet, trimmedToolName)
-	return isValidEvidence
+	return toolSet.CanExpose(trimmedToolName)
 }
 
 func normalizeSkillSelectionText(value string) string {

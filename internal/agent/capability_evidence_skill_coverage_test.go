@@ -10,19 +10,20 @@ import (
 
 func webSearchTestSkillInstruction() SkillInstruction {
 	return SkillInstruction{
-		Name:        "web-search",
-		Description: "Search the public web through capability.invoke.",
-		WhenToUse:   "Use when the answer needs external or current information.",
-		Prompt:      "Use `capability.invoke` with `operation: \"web.search\"` to search the public web, and `operation: \"web.fetch\"` to retrieve URLs.",
-		Completion:  SkillCompletion{RequiredEvidenceTools: []string{"web.search"}},
+		Name:         "web-search",
+		Description:  "Search the public web.",
+		WhenToUse:    "Use when the answer needs external or current information.",
+		Prompt:       "Call web.search to search the public web and web.fetch to retrieve URLs.",
+		AllowedTools: []string{"web.search", "web.fetch"},
+		Completion:   SkillCompletion{RequiredEvidenceTools: []string{"web.search"}},
 	}
 }
 
 func TestCapabilityEvidenceSkillCoverageFindsDocumentingSkill(t *testing.T) {
-	toolSet := newTestCapabilityToolSet([]string{"web.search"})
+	toolSet := newHiddenTestCapabilityToolSet([]string{"web.search"})
 	skillInstructions := []SkillInstruction{webSearchTestSkillInstruction()}
 
-	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(toolSet, skillInstructions, []string{"web.search"})
+	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(toolSet, skillInstructions, []string{"web.search"})
 
 	if len(undocumentedOperationNames) != 0 {
 		t.Fatalf("expected web.search to be documented, got undocumented=%+v", undocumentedOperationNames)
@@ -33,10 +34,10 @@ func TestCapabilityEvidenceSkillCoverageFindsDocumentingSkill(t *testing.T) {
 }
 
 func TestCapabilityEvidenceSkillCoverageReportsUndocumentedOperation(t *testing.T) {
-	toolSet := newTestCapabilityToolSet([]string{"site.archive"})
+	toolSet := newHiddenTestCapabilityToolSet([]string{"site.archive"})
 	skillInstructions := []SkillInstruction{webSearchTestSkillInstruction()}
 
-	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(toolSet, skillInstructions, []string{"site.archive"})
+	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(toolSet, skillInstructions, []string{"site.archive"})
 
 	if len(coveringSkillNames) != 0 {
 		t.Fatalf("expected no skill to cover site.archive, got %+v", coveringSkillNames)
@@ -46,11 +47,21 @@ func TestCapabilityEvidenceSkillCoverageReportsUndocumentedOperation(t *testing.
 	}
 }
 
+func TestRequiredEvidenceSkillCoverageKeepsConfiguredBaseToolWithoutSkill(t *testing.T) {
+	toolSet := newTestCapabilityToolSet([]string{"message.send"})
+
+	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(toolSet, nil, []string{"message.send"})
+
+	if len(coveringSkillNames) != 0 || len(undocumentedOperationNames) != 0 {
+		t.Fatalf("expected configured base evidence to remain reachable without a skill, got covering=%+v undocumented=%+v", coveringSkillNames, undocumentedOperationNames)
+	}
+}
+
 func TestCapabilityEvidenceSkillCoverageIgnoresStructurallyInvalidEvidence(t *testing.T) {
 	toolSet := newTestToolSet([]string{"calendar.add", CapabilityInvokeToolName})
 	skillInstructions := []SkillInstruction{webSearchTestSkillInstruction()}
 
-	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(toolSet, skillInstructions, []string{"calendar.create"})
+	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(toolSet, skillInstructions, []string{"calendar.create"})
 
 	if len(coveringSkillNames) != 0 || len(undocumentedOperationNames) != 0 {
 		t.Fatalf("expected a structurally invalid evidence tool to be left for the existing invalid-evidence gate, got covering=%+v undocumented=%+v", coveringSkillNames, undocumentedOperationNames)
@@ -62,7 +73,7 @@ func TestSelectInstructionBundleForResolvedRequestForcesDocumentingSkillIntoProm
 	baseInstructionBundle := InstructionBundle{Skills: []SkillInstruction{webSearchTestSkillInstruction()}}
 	request := AgentRequest{
 		Prompt:  "경산 스타트업월드컵 일정 알려줘",
-		ToolSet: newTestCapabilityToolSet([]string{"web.search"}),
+		ToolSet: newHiddenTestCapabilityToolSet([]string{"web.search"}),
 	}
 	intakeDecision := IntakeDecision{
 		Classification:        IntakeClassificationBoundedTask,
@@ -88,7 +99,7 @@ func TestSelectInstructionBundleForResolvedRequestPrunesUndocumentedEvidence(t *
 	baseInstructionBundle := InstructionBundle{Skills: []SkillInstruction{webSearchTestSkillInstruction()}}
 	request := AgentRequest{
 		Prompt:  "이 자료 좀 보관해줘",
-		ToolSet: newTestCapabilityToolSet([]string{"site.archive"}),
+		ToolSet: newHiddenTestCapabilityToolSet([]string{"site.archive"}),
 	}
 	intakeDecision := IntakeDecision{
 		Classification:        IntakeClassificationBoundedTask,
@@ -110,7 +121,7 @@ func TestStalledExitDirectiveNamesMissingRequiredEvidenceOperation(t *testing.T)
 
 	directive := stalledExitDirectiveObservation("obs-002", observations)
 
-	if !strings.Contains(directive.Summary, `capability.invoke with operation="web.search"`) {
+	if !strings.Contains(directive.Summary, "not yet called web.search") {
 		t.Fatalf("expected the stall directive to name the missing operation concretely, got: %s", directive.Summary)
 	}
 }
@@ -118,7 +129,7 @@ func TestStalledExitDirectiveNamesMissingRequiredEvidenceOperation(t *testing.T)
 func TestStalledExitDirectiveFallsBackToGenericMessageWithoutMissingEvidence(t *testing.T) {
 	directive := stalledExitDirectiveObservation("obs-001", nil)
 
-	if strings.Contains(directive.Summary, "capability.invoke with operation=") {
+	if strings.Contains(directive.Summary, "not yet called") {
 		t.Fatalf("expected the generic stall directive without a named operation, got: %s", directive.Summary)
 	}
 }
@@ -146,7 +157,7 @@ func TestResearchTaskWithWebSearchEvidenceReachesCompletionInsteadOfLooping(t *t
 	}})
 
 	webSearchCallCount := 0
-	toolSet := newTestCapabilityToolSet([]string{"web.search"})
+	toolSet := newHiddenTestCapabilityToolSet([]string{"web.search"})
 	toolSet.RegisterTool(ToolDefinition{Name: "web.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		webSearchCallCount++
 		return ToolSuccess(`{"query":"경산 스타트업월드컵","answer":"일정 확인됨","results":[]}`), nil

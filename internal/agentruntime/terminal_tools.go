@@ -105,7 +105,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerTerminalTools(toolRegistry
 				Produces:   "Command stdout, stderr, exit status, and runtime diagnostics.",
 				SideEffect: "workspace_write",
 				UseWhen:    "You need to execute a toolchain command, build, render, test, list files, or inspect environment state.",
-				AvoidWhen:  "A dedicated bundled skill script or capability.invoke can perform the action more safely.",
+				AvoidWhen:  "A dedicated bundled skill script or named capability operation can perform the action more safely.",
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"mode":{"type":"string","enum":["command","session_start","session_write","session_status","session_close"]},"command":{"type":"string"},"executableName":{"type":"string"},"arguments":{"type":"array","items":{"type":"string"}},"stdin":{"type":"string"},"workingDirectoryPath":{"type":"string"},"environmentVariables":{"type":"object","additionalProperties":{"type":"string"}},"timeoutSecond":{"type":"number"},"sessionID":{"type":"string"},"input":{"type":"string"}}}`),
 		},

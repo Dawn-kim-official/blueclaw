@@ -669,7 +669,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectUnrelatedAskAction(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
-	if !request.IsApprovalContinuation && nativeToolRequiresRuntimeApproval(request.ToolSet, actionDocument.ToolName) {
+	if !request.IsApprovalContinuation && toolRequiresRuntimeApproval(request.ToolSet, actionDocument.ToolName) {
 		return agentTurnRunner.requestHeldCallApproval(ctx, taskRunID, stepID, request, state, actionDocument)
 	}
 	state.ToolCallCount++
@@ -989,18 +989,16 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunI
 
 func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
 	plannedRequest := requestWithStepWorkingSetTools(request, state.Observations)
+	instructionBundle := instructionBundleFromTurnRequest(plannedRequest)
 	filteredToolSet, exposureEvent := toolSetForAgentTurnWithExposure(
 		plannedRequest.ToolSet,
-		instructionBundleFromTurnRequest(plannedRequest),
-		agentRequestFromTurnRequest(plannedRequest),
-		ExecutionPlan{},
-		false,
-		plannedRequest.OutcomeContract,
-		ToolExposureEvent{SelectionSource: "deterministic_palette"},
-		state.Observations,
+		instructionBundle,
 	)
 	iterationRequest := plannedRequest
 	iterationRequest.ToolSet = filteredToolSet
+	iterationRequest.InstructionPrompt = instructionBundle.Prompt
+	iterationRequest.InstructionSources = instructionBundle.Sources
+	iterationRequest.SkillDecisions = instructionBundle.SkillDecisions
 	iterationRequest.ToolExposure = exposureEvent
 	iterationRequest.StepBudgetContext = agentTurnRunner.stepBudgetContext(state)
 	return iterationRequest
@@ -1101,7 +1099,7 @@ func hasSuccessfulToolObservation(observations []turnObservation, toolName strin
 }
 
 func instructionBundleFromTurnRequest(request AgentTurnRequest) InstructionBundle {
-	return InstructionBundle{
+	instructionBundle := InstructionBundle{
 		Prompt:         request.InstructionPrompt,
 		Skills:         append([]SkillInstruction{}, request.AvailableSkills...),
 		Sources:        append([]InstructionSource{}, request.InstructionSources...),
@@ -1111,6 +1109,7 @@ func instructionBundleFromTurnRequest(request AgentTurnRequest) InstructionBundl
 		CandidateCount: request.SkillCandidateCount,
 		SkillQueries:   append([]string{}, request.SkillQueries...),
 	}
+	return instructionBundleWithPinnedSkills(instructionBundle, agentRequestFromTurnRequest(request))
 }
 
 func agentRequestFromTurnRequest(request AgentTurnRequest) AgentRequest {
@@ -1261,7 +1260,7 @@ func stalledExitDirectiveObservation(observationID string, observations []turnOb
 	message := "You are repeating actions without making progress. Stop retrying the same thing and stop re-emitting a finish that keeps getting rejected. Take one of two exits now: either take a genuinely different action that changes workspace, tool, or evidence state; or, if you cannot obtain what you need because a tool keeps failing or the required evidence is unavailable, end immediately with fail and failureResolution=failure_report, giving the user a short honest explanation of what you could not do. Do not loop and do not ask the user how to proceed."
 	missingOperationName := latestMissingRequiredEvidenceOperationName(observations)
 	if missingOperationName != "" {
-		message = "You have not yet called capability.invoke with operation=\"" + missingOperationName + "\". Call it now with the appropriate input before attempting to finish again. If it is genuinely not needed for this request, end with fail and failureResolution=failure_report, explaining why in the user reply. Do not re-emit finish again without this evidence."
+		message = "You have not yet called " + missingOperationName + ". Call that exact operation now with the appropriate flat input before attempting to finish again. If it is genuinely not needed for this request, end with fail and failureResolution=failure_report, explaining why in the user reply. Do not re-emit finish again without this evidence."
 	}
 	observation := newContentObservation(observationID, "policy", "", marshalEventBody(map[string]string{
 		"directive":                message,
@@ -1444,7 +1443,7 @@ func (agentTurnRunner *AgentTurnRunner) nextLimitPressureWarning(usedIterationCo
 		Observation: newContentObservation(nextObservationID(observationIndex), "limit_pressure", "", message),
 		EventBody: map[string]any{
 			"level":              level,
-			"taskLevel":         agentTurnRunner.options.TaskLevel,
+			"taskLevel":          agentTurnRunner.options.TaskLevel,
 			"usedIterationCount": usedIterationCount,
 			"usedToolCallCount":  usedToolCallCount,
 			"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
@@ -1801,7 +1800,7 @@ func (agentTurnRunner *AgentTurnRunner) recordTerminalNoToolsRejection(taskRunID
 
 func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState, usedIterationCount int, usedToolCallCount int) (AgentTurnResult, error) {
 	body := map[string]any{
-		"taskLevel":         agentTurnRunner.options.TaskLevel,
+		"taskLevel":          agentTurnRunner.options.TaskLevel,
 		"maxIterationCount":  agentTurnRunner.options.MaxIterationCount,
 		"maxElapsedSecond":   agentTurnRunner.options.MaxElapsedSecond,
 		"maxToolCallCount":   agentTurnRunner.options.MaxToolCallCount,

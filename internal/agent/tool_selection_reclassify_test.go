@@ -25,21 +25,18 @@ func TestSelectToolsReclassifiesSkillNameThatIsRegisteredTool(t *testing.T) {
 	}
 }
 
-func TestExternalSendReachesPinnedSendOperationsDirectlyOnceRequested(t *testing.T) {
+func TestExternalSendPreservesConfiguredBaseOperations(t *testing.T) {
 	toolSet := newTestCapabilityToolSet([]string{"message.send", "mail.message.send"})
-	request := AgentRequest{
-		Prompt:          "이샘플님께 DM 보내줘",
-		PinnedToolNames: []string{"message.send", "mail.message.send"},
-		ToolSet:         toolSet,
-	}
 
-	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{}, request, ExecutionPlan{}, false, OutcomeContract{}, ToolExposureEvent{})
+	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, InstructionBundle{})
 
-	// A prior tool.request pinned these send operations, so they join capability.invoke in the schema.
-	for _, toolName := range []string{CapabilityInvokeToolName, "message.send", "mail.message.send"} {
+	for _, toolName := range []string{"message.send", "mail.message.send"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected pinned tool %s to stay exposed, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected configured base tool %s, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
+	}
+	if filteredToolSet.IsAllowed(CapabilityInvokeToolName) {
+		t.Fatalf("expected generic capability.invoke to stay hidden, got %+v", filteredToolSet.ListToolNames())
 	}
 }
 

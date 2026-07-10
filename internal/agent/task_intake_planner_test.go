@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -82,8 +83,36 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "leave it null for reading, summarizing, searching, or analyzing an input attachment") {
 		t.Fatal("expected intake prompt to separate input attachments from file deliverables")
 	}
-	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "Do not use capability.invoke as requiredEvidence") {
-		t.Fatal("expected intake prompt to require effective operation evidence")
+	if !strings.Contains(joinedMessageContent(languageModel.requests[0].Messages), "never use a dispatcher tool name") {
+		t.Fatal("expected intake prompt to require exact operation evidence")
+	}
+}
+
+func TestIntakeToolDescriptionsUseOnlyBaseAndSelectedSkillTools(t *testing.T) {
+	toolSet := newExposureTestToolSet(map[string]json.RawMessage{
+		"schedule.create":     json.RawMessage(`{"type":"object"}`),
+		"mail.message.search": json.RawMessage(`{"type":"object"}`),
+	})
+	instructionBundle := InstructionBundle{
+		Skills: []SkillInstruction{
+			{Name: "scheduled-task", AllowedTools: []string{"schedule.create"}},
+		},
+		SkillDecisions: []SkillSelectionDecision{
+			{Name: "scheduled-task", Status: "selected"},
+		},
+	}
+
+	descriptions := intakeToolDescriptions(toolSetForAgentTurn(toolSet, instructionBundle))
+
+	for _, expectedToolName := range []string{TerminalRunToolName, "schedule.create"} {
+		if !strings.Contains(descriptions, expectedToolName) {
+			t.Fatalf("expected intake descriptions to include %s, got %s", expectedToolName, descriptions)
+		}
+	}
+	for _, hiddenToolName := range []string{CapabilityInvokeToolName, "mail.message.search"} {
+		if strings.Contains(descriptions, hiddenToolName) {
+			t.Fatalf("expected intake descriptions to hide %s, got %s", hiddenToolName, descriptions)
+		}
 	}
 }
 
@@ -93,12 +122,12 @@ func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
 	toolRegistry := NewToolSet([]string{CapabilityInvokeToolName})
-	for _, toolName := range []string{CapabilityInvokeToolName, "calendar.add"} {
-		currentToolName := toolName
-		toolRegistry.RegisterTool(ToolDefinition{Name: currentToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
-			return ToolSuccess("ok"), nil
-		})
-	}
+	toolRegistry.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "calendar.add"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("ok"), nil
+	})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
 		Prompt:  "7월 6일 오후 1시 스타트업월드컵 일정 추가",
@@ -108,8 +137,11 @@ func TestTaskIntakePlannerMapsRequiredEvidenceField(t *testing.T) {
 	if len(decision.RequiredEvidenceTools) != 1 || decision.RequiredEvidenceTools[0] != "calendar.add" {
 		t.Fatalf("expected calendar.add required evidence, got %+v", decision.RequiredEvidenceTools)
 	}
-	if containsString(decision.InitialToolNames, "calendar.add") {
-		t.Fatalf("expected hidden capability operation to stay out of initial tools, got %+v", decision.InitialToolNames)
+	if !containsString(decision.InitialToolNames, "calendar.add") {
+		t.Fatalf("expected hidden capability operation to become a direct initial tool, got %+v", decision.InitialToolNames)
+	}
+	if containsString(decision.InitialToolNames, CapabilityInvokeToolName) {
+		t.Fatalf("expected exact operation to replace capability.invoke, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -201,12 +233,12 @@ func TestTaskIntakePlannerFallbackDoesNotInferDomainEvidence(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerMapsModelRequiredEvidenceToCapabilityInvoke(t *testing.T) {
+func TestTaskIntakePlannerMapsModelRequiredEvidenceToExactOperation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["task.add"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"task request","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`,
 	}}
 	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-	toolRegistry := newTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
+	toolRegistry := newHiddenTestCapabilityToolSet([]string{"task.add", "task.list", "task.update"})
 
 	decision := planner.Plan(context.Background(), AgentRequest{
 		Prompt:  "업무 등록해줘\n- 메일 페이지 앱 비밀번호, 다양한 사이트 관련 링크로 이동으로 개선하기",
@@ -216,11 +248,11 @@ func TestTaskIntakePlannerMapsModelRequiredEvidenceToCapabilityInvoke(t *testing
 	if len(decision.RequiredEvidenceTools) != 1 || decision.RequiredEvidenceTools[0] != "task.add" {
 		t.Fatalf("expected model task.add required evidence, got %+v", decision.RequiredEvidenceTools)
 	}
-	if containsString(decision.InitialToolNames, "task.add") {
-		t.Fatalf("expected hidden capability operation to stay out of initial tools, got %+v", decision.InitialToolNames)
+	if !containsString(decision.InitialToolNames, "task.add") {
+		t.Fatalf("expected hidden capability operation to become a direct initial tool, got %+v", decision.InitialToolNames)
 	}
-	if !containsString(decision.InitialToolNames, CapabilityInvokeToolName) {
-		t.Fatalf("expected capability.invoke initial tool for required evidence, got %+v", decision.InitialToolNames)
+	if containsString(decision.InitialToolNames, CapabilityInvokeToolName) {
+		t.Fatalf("expected exact operation to replace capability.invoke, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -800,8 +832,8 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
 		t.Fatal("expected selected scheduled skill to promote intake")
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "schedule.create") {
-		t.Fatal("expected schedule evidence to finalize completion")
+	if result.FinishMessage != "1분 간격으로 10번 보내도록 예약했습니다." {
+		t.Fatalf("expected model-authored final reply, got %q", result.FinishMessage)
 	}
 }
 
@@ -1561,18 +1593,18 @@ func TestAgentKernelUsesStructuredArtifactEnumForPDFAttachmentSkill(t *testing.T
 		RetrievalMode: "embedding",
 		IndexStatus:   "ready",
 		SelectedCandidates: []SkillCandidate{
-			{Name: "site-prototype", Score: 30, Reason: "embedding_similarity"},
+			{Name: "website", Score: 30, Reason: "embedding_similarity"},
 			{Name: "pdf", Score: 8, Reason: "embedding_similarity"},
 		},
 	}})
 	services.kernel.UseInstructionBundleLoader(func() InstructionBundle {
 		return InstructionBundle{Skills: []SkillInstruction{
 			{
-				Name:         "site-prototype",
+				Name:         "website",
 				Description:  "Create websites.",
 				Prompt:       "Follow site prototype workflow.",
 				AllowedTools: []string{"site.create", "site.publish"},
-				Source:       InstructionSource{Path: "skills/site-prototype/SKILL.md", SkillName: "site-prototype"},
+				Source:       InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 			},
 			{
 				Name:         "pdf",

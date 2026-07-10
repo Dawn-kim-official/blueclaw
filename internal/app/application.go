@@ -653,7 +653,7 @@ func instructionSource(path string, skillName string, document []byte) agent.Ins
 
 func deriveAllowedToolNames(runtimeConfiguration config.RuntimeConfiguration) []string {
 	allowedToolNameByName := map[string]bool{}
-	for _, toolName := range agent.KernelToolNames() {
+	for _, toolName := range append(agent.KernelToolNames(), agent.DefaultSkillToolNames()...) {
 		allowedToolNameByName[toolName] = true
 	}
 	for _, agentProfile := range runtimeConfiguration.AgentProfiles {
@@ -721,7 +721,7 @@ func deriveAllowedToolNamesByProfile(runtimeConfiguration config.RuntimeConfigur
 }
 
 func appendDefaultBuiltInToolNames(toolNames []string) []string {
-	result := agent.KernelToolNames()
+	result := append(agent.KernelToolNames(), agent.DefaultSkillToolNames()...)
 	for _, toolName := range toolNames {
 		trimmedToolName := strings.TrimSpace(toolName)
 		if agent.IsKernelToolName(trimmedToolName) && !containsString(result, trimmedToolName) {

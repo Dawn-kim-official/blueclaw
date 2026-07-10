@@ -252,13 +252,39 @@ func TestCapabilityInvokeMissingRequiredFieldsIncludesDescriptorRecoveryHint(t *
 		t.Fatalf("expected recovery hint, got %+v", result.Failure)
 	}
 	recoveryHint := result.Failure.RecoveryHints[0]
-	for _, expected := range []string{"capability.invoke", "operation=calendar.add", "title string", "startISO string", "endISO string"} {
+	for _, expected := range []string{"Retry calendar.add", "flat input object", "title string", "startISO string", "endISO string"} {
 		if !strings.Contains(recoveryHint.Action+" "+recoveryHint.Reason, expected) {
 			t.Fatalf("expected recovery hint to contain %q, got %+v", expected, recoveryHint)
 		}
 	}
-	if !containsTestString(recoveryHint.ToolNames, agent.CapabilityInvokeToolName) {
-		t.Fatalf("expected capability.invoke recovery tool, got %+v", recoveryHint.ToolNames)
+	if !containsTestString(recoveryHint.ToolNames, "calendar.add") {
+		t.Fatalf("expected calendar.add recovery tool, got %+v", recoveryHint.ToolNames)
+	}
+}
+
+func TestDirectCapabilityMissingRequiredFieldsUsesDirectRecoveryHint(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"content":"unexpected","status":"ok"}`}
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:        "calendar.add",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"},"startISO":{"type":"string"}},"required":["title","startISO"]}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"}).WithAllowedToolNames([]string{"calendar.add"})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "calendar.add",
+		Input:    json.RawMessage(`{}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.Failure == nil || len(result.Failure.RecoveryHints) != 1 {
+		t.Fatalf("expected direct missing-input recovery, got %+v", result)
+	}
+	recoveryHint := result.Failure.RecoveryHints[0]
+	if !containsTestString(recoveryHint.ToolNames, "calendar.add") || strings.Contains(recoveryHint.Action+" "+recoveryHint.Reason, agent.CapabilityInvokeToolName) {
+		t.Fatalf("expected only direct calendar.add recovery guidance, got %+v", recoveryHint)
 	}
 }
 
@@ -319,7 +345,7 @@ func TestCapabilityInvokeRejectsMissingInputObject(t *testing.T) {
 	if errorValue != nil {
 		t.Fatal(errorValue)
 	}
-	if !result.Failed() || !strings.Contains(result.ContentText(), "requires input to be an object") {
+	if !result.Failed() || !strings.Contains(result.ContentText(), "requires one flat input object") {
 		t.Fatalf("expected missing input object failure, got %s", result.ContentText())
 	}
 	if httpClient.requestPath != "" {
@@ -467,6 +493,67 @@ func TestCapabilityInvokeSchemaOmitsPolicyDeniedOperation(t *testing.T) {
 	}
 	if !containsTestString(schema.Properties["operation"].Enum, "task.add") {
 		t.Fatalf("expected allowed operation present in enum, got %+v", schema.Properties["operation"].Enum)
+	}
+}
+
+func TestCapabilityInvokeRejectsRegisteredOperationOutsideCatalog(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local"}, []CapabilityToolDescriptor{{
+		Name:        "calendar.add",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{ProfileName: "default"})
+	invocationCount := 0
+	toolRegistry.RegisterTool(agent.ToolDefinition{Name: "native.danger"}, func(context.Context, agent.ToolInvocation) (agent.ToolResult, error) {
+		invocationCount++
+		return agent.ToolSuccess("unexpected"), nil
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: agent.CapabilityInvokeToolName,
+		Input:    json.RawMessage(`{"operation":"native.danger","input":{}}`),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || invocationCount != 0 {
+		t.Fatalf("expected out-of-catalog operation to be rejected, result=%+v invocationCount=%d", result, invocationCount)
+	}
+}
+
+func TestCapabilityInvokeDescriptionOmitsPolicyDeniedOperation(t *testing.T) {
+	toolCatalogBuilder := NewToolCatalogBuilder()
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local"}, []CapabilityToolDescriptor{{
+		Name:           "site.create",
+		Description:    "Create a site.",
+		PolicyResource: "tool:site.create",
+	}, {
+		Name:        "task.add",
+		Description: "Add a task.",
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+			ResourceAccessRules: []policy.ResourceAccessPolicy{{
+				Resource: "tool:site.create",
+				Actions:  []string{"execute"},
+				Circles:  []string{"admin"},
+			}},
+		},
+	})
+
+	toolDefinition, isFound := toolRegistry.ToolDefinition(agent.CapabilityInvokeToolName)
+	if !isFound {
+		t.Fatal("expected capability.invoke tool definition")
+	}
+	if strings.Contains(toolDefinition.Description, "site.create") {
+		t.Fatalf("expected denied operation to be absent from description, got %s", toolDefinition.Description)
+	}
+	if !strings.Contains(toolDefinition.Description, "task.add") {
+		t.Fatalf("expected allowed operation in description, got %s", toolDefinition.Description)
 	}
 }
 

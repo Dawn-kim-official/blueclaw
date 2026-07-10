@@ -25,7 +25,15 @@ func newTestToolSet(allowedToolNames []string) *ToolSet {
 }
 
 func newTestCapabilityToolSet(operationNames []string) *ToolSet {
-	toolSet := NewToolSet([]string{CapabilityInvokeToolName})
+	return newTestCapabilityToolSetWithBase(operationNames, append([]string{CapabilityInvokeToolName}, operationNames...))
+}
+
+func newHiddenTestCapabilityToolSet(operationNames []string) *ToolSet {
+	return newTestCapabilityToolSetWithBase(operationNames, []string{CapabilityInvokeToolName})
+}
+
+func newTestCapabilityToolSetWithBase(operationNames []string, baseToolNames []string) *ToolSet {
+	toolSet := NewToolSet(baseToolNames)
 	toolSet.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 		var document struct {
 			Operation string          `json:"operation"`

@@ -49,7 +49,16 @@ func (agentTurnRunner *AgentTurnRunner) invokeTool(ctx context.Context, toolRegi
 	defer unregisterTool()
 	toolContext := WithUserFacingMessage(WithObservationID(WithResponseLanguage(WithTaskRunID(ctx, taskRunID), responseLanguage), observationID), userFacingMessage)
 	invocationStartedAt := time.Now()
-	toolResult, errorValue := toolRegistry.Invoke(toolContext, ToolInvocation{ToolName: trimmedToolName, Input: toolInput})
+	toolInvocation := ToolInvocation{ToolName: trimmedToolName, Input: toolInput}
+	var toolResult ToolResult
+	var errorValue error
+	if toolRegistry.IsAllowed(trimmedToolName) {
+		toolResult, errorValue = toolRegistry.Invoke(toolContext, toolInvocation)
+	} else if toolCallAvailableForAction(toolRegistry, trimmedToolName, toolInput) {
+		toolResult, errorValue = toolRegistry.InvokeRegistered(toolContext, toolInvocation)
+	} else {
+		toolResult, errorValue = toolRegistry.Invoke(toolContext, toolInvocation)
+	}
 	if errorValue != nil {
 		toolResult = ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, trimmedToolName, errorValue.Error())
 	}
@@ -68,6 +77,7 @@ func toolFailureObservation(observationID string, toolName string, message strin
 
 func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context, taskRunID string, observationID string, toolName string, observationToolName string, toolInputKey string, toolResult ToolResult, workspaceRootPath string, minimumModifiedAt time.Time, durationMS int64) turnObservation {
 	toolResult = normalizeToolFailureResult(toolName, toolResult)
+	effectiveToolName := firstNonEmptyString(observationToolName, toolName)
 	content := toolResult.ContentText()
 	originalContent := content
 	isError := toolResult.Failed()
@@ -95,7 +105,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 	observation := turnObservation{
 		ObservationID:   observationID,
 		Action:          "continue",
-		Tool:            firstNonEmptyString(observationToolName, toolName),
+		Tool:            effectiveToolName,
 		Output:          toolResult.Output,
 		Failure:         toolResult.Failure,
 		Attachments:     attachments,
@@ -103,7 +113,7 @@ func (agentTurnRunner *AgentTurnRunner) saveToolObservation(ctx context.Context,
 	}
 	observation.Output.Content = content
 	observation.ImageRefs = toolResultImageRefs(observationID, attachments)
-	observation.Summary = agentTurnRunner.buildToolResultSummary(ctx, taskRunID, toolName, originalContent, isError, attachments, artifactID, toolResult)
+	observation.Summary = agentTurnRunner.buildToolResultSummary(ctx, taskRunID, effectiveToolName, originalContent, isError, attachments, artifactID, toolResult)
 	observation.ToolInputKey = toolInputKey
 	observation.DurationMS = durationMS
 	if observation.Failed() {

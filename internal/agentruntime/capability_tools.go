@@ -75,13 +75,14 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerCapabilityTools(toolRegist
 		toolDescription := firstNonEmptyString(toolDescriptor.Description, defaultCapabilityToolDescription(toolName))
 		toolRegistry.RegisterBoundTool(agent.BoundTool{
 			Definition: agent.ToolDefinition{
-				Name:             toolName,
-				Description:      toolDescription,
-				InputSchema:      toolDescriptor.InputSchema,
-				OutputSchema:     toolDescriptor.OutputSchema,
-				PolicyResource:   toolDescriptor.PolicyResource,
-				SideEffectClass:  toolDescriptor.SideEffectClass,
-				RequiresApproval: toolDescriptor.RequiresApproval,
+				Name:                  toolName,
+				Description:           toolDescription,
+				InputSchema:           toolDescriptor.InputSchema,
+				OutputSchema:          toolDescriptor.OutputSchema,
+				PolicyResource:        toolDescriptor.PolicyResource,
+				SideEffectClass:       toolDescriptor.SideEffectClass,
+				RequiresApproval:      toolDescriptor.RequiresApproval,
+				ApprovalHandledByTool: true,
 			},
 			Availability: capabilityToolAvailability(toolDescriptor, request),
 			Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
@@ -146,11 +147,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(tool
 	if toolCatalogBuilder.capabilityClient.HTTPClient == nil && strings.TrimSpace(toolCatalogBuilder.capabilityClient.Endpoint) == "" {
 		return
 	}
+	operationNames := toolCatalogBuilder.genericCapabilityOperationNames(request)
+	if len(operationNames) == 0 {
+		return
+	}
+	allowedOperationNames := stringSet(operationNames)
 	toolRegistry.RegisterBoundTool(agent.BoundTool{
 		Definition: agent.ToolDefinition{
-			Name:        agent.CapabilityInvokeToolName,
-			Description: toolCatalogBuilder.genericCapabilityToolDescription(),
-			InputSchema: genericCapabilityInvokeInputSchema(toolCatalogBuilder.genericCapabilityOperationNames(request)),
+			Name:                  agent.CapabilityInvokeToolName,
+			Description:           toolCatalogBuilder.genericCapabilityToolDescription(operationNames),
+			InputSchema:           genericCapabilityInvokeInputSchema(operationNames),
+			ApprovalHandledByTool: true,
 		},
 		Availability: agent.ToolAvailability{Status: agent.ToolAvailabilityAvailable},
 		Handler: func(toolContext context.Context, toolInvocation agent.ToolInvocation) (agent.ToolResult, error) {
@@ -165,8 +172,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(tool
 			if operation == "" {
 				return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", "capability.invoke requires an operation name"), nil
 			}
-			if !toolRegistry.IsRegistered(operation) {
-				return toolCatalogBuilder.unknownCapabilityOperationResult(operation, request.PersonAccess.Circles), nil
+			if !allowedOperationNames[operation] {
+				return toolCatalogBuilder.unknownCapabilityOperationResult(operation, request.PersonAccess.Circles, operationNames), nil
 			}
 			call.Input = normalizeCapabilityInvokeInput(call.Input)
 			if !isJSONInputObject(call.Input) {
@@ -190,24 +197,33 @@ var genericCapabilityCatalogExcluded = map[string]bool{
 	"ask.input":        true,
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityToolDescription() string {
+func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityToolDescription(operationNames []string) string {
 	lines := []string{
 		`Invoke a workspace capability operation by name. Set operation to one of the operations below and set input to that operation's fields as one JSON object written inside a string, for example input: "{\"slug\":\"team-dashboard\"}". Each operation lists its input fields as { name type (required), ... } — you MUST include every (required) field with a real value; an empty or partial input is rejected, so never call with input:"{}". Identity, approval, and delivery are handled by the runtime — never pass requester identity in input.`,
 		"",
 		"Available operations:",
 	}
-	for _, entry := range toolCatalogBuilder.capabilityCatalogEntries() {
+	for _, entry := range toolCatalogBuilder.capabilityCatalogEntriesForOperationNames(operationNames) {
 		lines = append(lines, "- "+entry)
 	}
 	return strings.Join(lines, "\n")
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) capabilityCatalogEntries() []string {
+	operationNames := []string{}
+	for _, toolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
+		operationNames = append(operationNames, toolDescriptor.Name)
+	}
+	return toolCatalogBuilder.capabilityCatalogEntriesForOperationNames(operationNames)
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) capabilityCatalogEntriesForOperationNames(operationNames []string) []string {
 	entries := []string{}
 	seenName := map[string]bool{}
+	allowedOperationNames := stringSet(operationNames)
 	for _, toolDescriptor := range toolCatalogBuilder.capabilityToolDefinitions() {
 		name := strings.TrimSpace(toolDescriptor.Name)
-		if name == "" || genericCapabilityCatalogExcluded[name] || seenName[name] {
+		if name == "" || !allowedOperationNames[name] || genericCapabilityCatalogExcluded[name] || seenName[name] {
 			continue
 		}
 		seenName[name] = true
@@ -233,6 +249,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) genericCapabilityOperationNames(re
 			continue
 		}
 		if capabilityToolAvailability(toolDescriptor, request).Status == agent.ToolAvailabilityDenied {
+			continue
+		}
+		if request.IsScheduledRun && isInteractiveCapabilityTool(name) {
 			continue
 		}
 		seenName[name] = true
@@ -364,7 +383,7 @@ func isEmptyCapabilityInputValue(value json.RawMessage) bool {
 }
 
 func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityToolDescriptor, missing []string) agent.ToolResult {
-	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call capability.invoke again with operation=" + operation + " and input set to a JSON object (written inside a string) that contains them. See inputSkeleton in this failure's data for a fillable template."
+	message := operation + " needs these input fields: " + strings.Join(missing, ", ") + ". Call " + operation + " again with a flat input object that contains them. See inputSkeleton in this failure's data for a fillable template."
 	result := agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, missing))
 	if result.Failure == nil {
 		return result
@@ -374,16 +393,16 @@ func capabilityMissingInputFailure(operation string, toolDescriptor CapabilityTo
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "Retry capability.invoke with operation=" + operation + " and input as a string-wrapped JSON object containing real values for required fields: " + capabilityRequiredInputDescription(toolDescriptor.InputSchema, missing) + ".",
-		ToolNames: []string{agent.CapabilityInvokeToolName},
-		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, missing) + ". Never send an empty input.",
+		Action:    "Retry " + operation + " with a flat input object containing real values for required fields: " + capabilityRequiredInputDescription(toolDescriptor.InputSchema, missing) + ".",
+		ToolNames: []string{operation},
+		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Never send an empty input.",
 	}}
 	return result
 }
 
 func capabilityInputNotObjectFailure(operation string, toolDescriptor CapabilityToolDescriptor) agent.ToolResult {
 	requiredFields := requiredFieldsFromSchema(toolDescriptor.InputSchema)
-	message := "capability.invoke requires input to be an object for operation " + operation + ". Call capability.invoke again with operation=" + operation + " and input set to one JSON object, written directly or inside a string, not null and not prose. See inputSkeleton in this failure's data for a fillable template."
+	message := operation + " requires one flat input object, not null or prose. See inputSkeleton in this failure's data for a fillable template."
 	result := agent.ToolFailureData(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "capability_input", message, capabilityInputSkeletonData(toolDescriptor.InputSchema, requiredFields))
 	if result.Failure == nil {
 		return result
@@ -393,9 +412,9 @@ func capabilityInputNotObjectFailure(operation string, toolDescriptor Capability
 	result.Failure.FailureClass = "schema"
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "Retry capability.invoke with operation=" + operation + " and input as one JSON object, written directly or inside a string, holding that operation's fields.",
-		ToolNames: []string{agent.CapabilityInvokeToolName},
-		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ". Wrapper shape: " + capabilityInvokeWrapperExample(operation, toolDescriptor.InputSchema, requiredFields) + ".",
+		Action:    "Retry " + operation + " with one flat input object containing that operation's fields.",
+		ToolNames: []string{operation},
+		Reason:    "Input schema for " + operation + ": " + capabilityCatalogParameters(toolDescriptor.InputSchema) + ".",
 	}}
 	return result
 }
@@ -557,9 +576,9 @@ func genericCapabilityInvokeInputSchema(operationNames []string) json.RawMessage
 	return encoded
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) unknownCapabilityOperationResult(operation string, requesterCircles []string) agent.ToolResult {
+func (toolCatalogBuilder *ToolCatalogBuilder) unknownCapabilityOperationResult(operation string, requesterCircles []string, allowedOperationNames []string) agent.ToolResult {
 	message := "operation \"" + operation + "\" is not a valid capability operation."
-	if suggestions := toolCatalogBuilder.suggestCapabilityOperations(operation); len(suggestions) > 0 {
+	if suggestions := toolCatalogBuilder.suggestCapabilityOperations(operation, allowedOperationNames); len(suggestions) > 0 {
 		message += " Did you mean: " + strings.Join(suggestions, ", ") + "?"
 	}
 	message += " Use an exact operation name from this tool's available operations list."
@@ -604,7 +623,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) matchingSkillForUnknownOperation(o
 	return fallbackMatch, hasFallbackMatch
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) suggestCapabilityOperations(operation string) []string {
+func (toolCatalogBuilder *ToolCatalogBuilder) suggestCapabilityOperations(operation string, allowedOperationNames []string) []string {
 	domainSegments, finalSegment := capabilityOperationSegments(operation)
 	type scoredOperation struct {
 		name        string
@@ -612,7 +631,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) suggestCapabilityOperations(operat
 		matchDomain bool
 	}
 	scoredOperations := []scoredOperation{}
-	for _, entry := range toolCatalogBuilder.capabilityCatalogEntries() {
+	for _, entry := range toolCatalogBuilder.capabilityCatalogEntriesForOperationNames(allowedOperationNames) {
 		name := strings.TrimSpace(strings.SplitN(entry, ":", 2)[0])
 		candidateDomainSegments, candidateFinalSegment := capabilityOperationSegments(name)
 		score := 0
@@ -651,6 +670,17 @@ func (toolCatalogBuilder *ToolCatalogBuilder) suggestCapabilityOperations(operat
 		}
 	}
 	return suggestions
+}
+
+func stringSet(values []string) map[string]bool {
+	result := map[string]bool{}
+	for _, value := range values {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			result[trimmedValue] = true
+		}
+	}
+	return result
 }
 
 func capabilityOperationSegments(operation string) (map[string]bool, string) {

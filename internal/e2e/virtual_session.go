@@ -1594,20 +1594,11 @@ func countEvents(events []task.TaskEvent, name string) int {
 }
 
 func requestedToolCallPresent(events []task.TaskEvent, toolName string) bool {
-	if eventsContain(events, "tool."+toolName+".requested", toolName) {
-		return true
-	}
-	return eventsContain(events, "tool.capability.invoke.requested", capabilityOperationFragment(toolName))
+	return eventsContain(events, "tool."+toolName+".requested", toolName)
 }
 
 func countRequestedToolCalls(events []task.TaskEvent, toolName string) int {
-	directCount := countEvents(events, "tool."+toolName+".requested")
-	verbCount := countEventsWithFragment(events, "tool.capability.invoke.requested", capabilityOperationFragment(toolName))
-	return directCount + verbCount
-}
-
-func capabilityOperationFragment(toolName string) string {
-	return `"operation":"` + toolName + `"`
+	return countEvents(events, "tool."+toolName+".requested")
 }
 
 func countEventsWithFragment(events []task.TaskEvent, name string, bodyFragment string) int {

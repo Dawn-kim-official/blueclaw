@@ -111,7 +111,7 @@ func requiredEvidenceRegisteredToolName(toolSet *ToolSet, toolName string) (stri
 func requiredEvidenceToolIsCapabilityOperation(toolSet *ToolSet, toolName string) bool {
 	return strings.Contains(strings.TrimSpace(toolName), ".") &&
 		!IsKernelToolName(toolName) &&
-		toolSet.IsAllowed(CapabilityInvokeToolName)
+		toolSet.CanExpose(toolName)
 }
 
 func missingRequiredEvidenceReport(intakeDecision IntakeDecision, outcomeContract OutcomeContract, toolSet *ToolSet) requiredEvidenceValidationReport {

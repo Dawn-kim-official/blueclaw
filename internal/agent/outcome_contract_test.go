@@ -27,7 +27,7 @@ func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{
 			{
-				Name: "site-prototype",
+				Name: "website",
 				Completion: SkillCompletion{
 					RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
 				},
@@ -39,7 +39,7 @@ func TestSelectedEvidenceHintsComeFromSelectedSkills(t *testing.T) {
 				},
 			},
 		},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
 
 	toolNames := selectedEvidenceHintTools(instructionBundle)
@@ -208,12 +208,12 @@ func TestOutcomeContractTreatsWebsiteHTMLFormatAsPublicLink(t *testing.T) {
 func TestOutcomeContractKeepsRequestedFileWhenSiteSkillOnlySelected(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name: "site-prototype",
+			Name: "website",
 			Completion: SkillCompletion{
 				RequiredEvidenceTools: []string{"site.status", "site.publish"},
 			},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
 	contract := outcomeContractForRequest(
 		AgentRequest{Prompt: "기업 문서 가이드를 docx로 만들어줘"},
@@ -278,7 +278,7 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 				},
 			},
 			{
-				Name: "site-prototype",
+				Name: "website",
 				Completion: SkillCompletion{
 					RequiredEvidenceTools: []string{"site.status", "site.publish"},
 				},
@@ -286,7 +286,7 @@ func TestOutcomeContractDoesNotTreatReplyInstructionAsExternalSend(t *testing.T)
 		},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "direct-message", Status: "selected"},
-			{Name: "site-prototype", Status: "selected"},
+			{Name: "website", Status: "selected"},
 		},
 	}
 
@@ -379,7 +379,7 @@ func TestOutcomeContractDoesNotPromoteSiteHintsForMessageDeleteContinuation(t *t
 				},
 			},
 			{
-				Name: "site-prototype",
+				Name: "website",
 				Completion: SkillCompletion{
 					RequiredEvidenceTools: []string{"site.status", "artifact.review", "site.publish"},
 				},
@@ -387,7 +387,7 @@ func TestOutcomeContractDoesNotPromoteSiteHintsForMessageDeleteContinuation(t *t
 		},
 		SkillDecisions: []SkillSelectionDecision{
 			{Name: "mattermost", Status: "selected"},
-			{Name: "site-prototype", Status: "selected"},
+			{Name: "website", Status: "selected"},
 		},
 	}
 	request := AgentRequest{
@@ -595,22 +595,18 @@ func TestOutcomeReferenceToolSetHidesSendAndSiteToolsForDocumentGoal(t *testing.
 	}
 }
 
-func TestAgentTurnToolSetExposesPinnedNonKernelTools(t *testing.T) {
+func TestAgentTurnToolSetPreservesConfiguredNonKernelBaseTools(t *testing.T) {
 	toolSet := testToolSet([]string{"web.search", "web.fetch", "terminal.run", "file.write"})
 	instructionBundle := InstructionBundle{
 		Skills:         []SkillInstruction{{Name: "presentation", AllowedTools: []string{"terminal.run", "file.write"}}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "presentation", Status: "selected"}},
 	}
 
-	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, AgentRequest{
-		Prompt:          "https://example.com 참고해서 ppt 만들어줘",
-		PinnedToolNames: []string{"web.search", "web.fetch", "terminal.run", "file.write"},
-	}, ExecutionPlan{}, false, OutcomeContract{})
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle)
 
-	// web.search and web.fetch are non-kernel, but a prior tool.request pinned them for this turn.
 	for _, toolName := range []string{"terminal.run", "file.write", "web.search", "web.fetch"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected pinned tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected base tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -653,27 +649,16 @@ func TestAgentTurnToolSetHidesSiteToolsForActiveGoalContinuation(t *testing.T) {
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "site.create", "site.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "site-prototype",
+			Name:         "website",
 			AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
-	request := AgentRequest{
-		Prompt:          "다시 해봐 그럼 될 거야",
-		PinnedToolNames: []string{"terminal.run", "site.create", "site.publish"},
-		ActiveGoal: ActiveGoal{OriginalInstruction: "웹사이트 하나 만들어서 배포해줘", OutcomeContract: OutcomeContract{
-			SelectedEvidenceHints: []string{"site.create", "terminal.run", "site.publish"},
-			SiteEvidenceQuote:     "웹사이트 하나 만들어서 배포해줘",
-		}},
-	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"site.create", "terminal.run", "site.publish"}, SiteEvidenceQuote: "웹사이트 하나 만들어서 배포해줘"}
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle)
 
-	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
-
-	// Continuation of an active site goal keeps site.* exposed because it is still pinned.
 	for _, toolName := range []string{"terminal.run", "site.create", "site.publish"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected pinned tool %s to remain available for an active site continuation, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected selected skill tool %s to remain available, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -682,33 +667,19 @@ func TestAgentTurnToolSetHidesSelectedSiteSkillToolsWhenActiveGoalWasAttachmentF
 	toolSet := testToolSet([]string{"web.fetch", "terminal.run", "file.deliver", "site.create", "site.publish"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name:         "site-prototype",
+			Name:         "website",
 			AllowedTools: []string{"terminal.run", "site.create", "site.publish"},
 			Completion: SkillCompletion{
 				RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
 			},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
-	request := AgentRequest{
-		Prompt:          "다시 해봐",
-		PinnedToolNames: []string{"terminal.run", "site.create", "site.publish"},
-		ActiveGoal: ActiveGoal{OriginalInstruction: "개인 홈페이지를 만들어서 배포해줘", OutcomeContract: OutcomeContract{
-			RequiredEvidenceTools:      []string{"file.deliver"},
-			RequiredAttachmentSuffixes: []string{".html"},
-			SelectedEvidenceHints:      []string{"site.create", "terminal.run", "site.publish"},
-			SiteEvidenceQuote:          "개인 홈페이지를 만들어서 배포해줘",
-			ArtifactRequirement:        ArtifactRequirementRequired,
-		}},
-	}
-	contract := outcomeContractForRequest(request, IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskShape: TaskShapeImmediateReply}, instructionBundle, ExecutionPlan{}, false, nil)
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle)
 
-	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
-
-	// A selected site skill keeps site.* exposed because it is still pinned, alongside the kernel tools.
 	for _, toolName := range []string{"terminal.run", "file.deliver", "site.create", "site.publish"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected pinned tool %s to remain available after selected site skill, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected base or selected skill tool %s, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
@@ -716,12 +687,12 @@ func TestAgentTurnToolSetHidesSelectedSiteSkillToolsWhenActiveGoalWasAttachmentF
 func TestOutcomeContractRequiresActiveGoalRequiredEvidenceForContinuation(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name: "site-prototype",
+			Name: "website",
 			Completion: SkillCompletion{
 				RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
 			},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
 	request := AgentRequest{
 		Prompt: "다시 해봐 그럼 될 거야",
@@ -744,12 +715,12 @@ func TestOutcomeContractRequiresActiveGoalRequiredEvidenceForContinuation(t *tes
 func TestOutcomeContractStripsStaleUnverifiableSiteRequirement(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name: "site-prototype",
+			Name: "website",
 			Completion: SkillCompletion{
 				RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
 			},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
 	request := AgentRequest{
 		Prompt: "버튼 색 바꿔줘",
@@ -791,12 +762,12 @@ func TestOutcomeContractStripsStaleUnverifiableSiteRequirement(t *testing.T) {
 func TestOutcomeContractPreservesGenuineSiteGoalContinuation(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
-			Name: "site-prototype",
+			Name: "website",
 			Completion: SkillCompletion{
 				RequiredEvidenceTools: []string{"site.create", "terminal.run", "site.publish"},
 			},
 		}},
-		SkillDecisions: []SkillSelectionDecision{{Name: "site-prototype", Status: "selected"}},
+		SkillDecisions: []SkillSelectionDecision{{Name: "website", Status: "selected"}},
 	}
 	request := AgentRequest{
 		Prompt: "버튼 색 바꿔줘",
@@ -895,30 +866,16 @@ func TestAgentTurnToolSetExposesSendToolForActiveSendContinuation(t *testing.T) 
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
-	request := AgentRequest{
-		Prompt:          "다시 해줘",
-		PinnedToolNames: []string{"message.send"},
-		ActiveGoal: ActiveGoal{
-			OriginalInstruction: "샘플에게 테스트라고 DM 보내줘",
-			OutcomeContract: OutcomeContract{
-				RequiredEvidenceTools: []string{"message.send"},
-				SelectedEvidenceHints: []string{"message.send"},
-			},
-		},
-	}
-	contract := OutcomeContract{RequiredEvidenceTools: []string{"message.send"}, SelectedEvidenceHints: []string{"message.send"}}
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle)
 
-	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
-
-	// An active send continuation keeps message.send exposed because it is still pinned.
 	for _, toolName := range []string{"ask.confirm", "message.send"} {
 		if !filteredToolSet.IsAllowed(toolName) {
-			t.Fatalf("expected pinned tool %s to remain available for continuation, got %+v", toolName, filteredToolSet.ListToolNames())
+			t.Fatalf("expected base or selected skill tool %s, got %+v", toolName, filteredToolSet.ListToolNames())
 		}
 	}
 }
 
-func TestAgentTurnToolSetHidesUnrequestedSendToolForAttachmentFollowUp(t *testing.T) {
+func TestAgentTurnToolSetIncludesSelectedSendSkillForAttachmentFollowUp(t *testing.T) {
 	toolSet := testToolSet([]string{"ask.confirm", "message.send", "file.preview", "file.read"})
 	instructionBundle := InstructionBundle{
 		Skills: []SkillInstruction{{
@@ -927,26 +884,10 @@ func TestAgentTurnToolSetHidesUnrequestedSendToolForAttachmentFollowUp(t *testin
 		}},
 		SkillDecisions: []SkillSelectionDecision{{Name: "direct-message", Status: "selected"}},
 	}
-	request := AgentRequest{
-		Prompt:          "다시 시도해보자",
-		PinnedToolNames: []string{"file.preview"},
-		VisibleContext: VisibleContext{
-			Materials: []VisibleContextMaterial{{
-				MaterialID:  "mattermost:file-1",
-				Path:        "home/inbox/mattermost/direct/post/kim-intern-automation.html",
-				ContentType: "text/html",
-			}},
-		},
-		ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{
-			SelectedEvidenceHints: []string{"message.send"},
-		}},
-	}
-	contract := OutcomeContract{SelectedEvidenceHints: []string{"message.send"}}
+	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle)
 
-	filteredToolSet := toolSetForAgentTurn(toolSet, instructionBundle, request, ExecutionPlan{}, false, contract)
-
-	if filteredToolSet.IsAllowed("message.send") {
-		t.Fatalf("expected send tool to stay hidden for attachment follow-up, got %+v", filteredToolSet.ListToolNames())
+	if !filteredToolSet.IsAllowed("message.send") {
+		t.Fatalf("expected selected skill tool message.send, got %+v", filteredToolSet.ListToolNames())
 	}
 	if !filteredToolSet.IsAllowed("file.preview") {
 		t.Fatalf("expected attachment preview to remain available, got %+v", filteredToolSet.ListToolNames())

@@ -22,7 +22,7 @@ func TestParseCalendarDuplicateCandidatesReadsMarkerPayload(t *testing.T) {
 
 func TestCalendarAddInputWithAllowDuplicateInjectsFlag(t *testing.T) {
 	toolInput := json.RawMessage(`{"operation":"calendar.add","input":{"title":"세라에스이 사장님 미팅","startISO":"2026-07-02T09:30:00+09:00","endISO":"2026-07-02T10:30:00+09:00"}}`)
-	forced := calendarAddInputWithAllowDuplicate(toolInput)
+	forced := calendarAddInputWithAllowDuplicate(CapabilityInvokeToolName, toolInput)
 	var wrapper struct {
 		Operation string `json:"operation"`
 		Input     struct {
@@ -35,5 +35,26 @@ func TestCalendarAddInputWithAllowDuplicateInjectsFlag(t *testing.T) {
 	}
 	if wrapper.Operation != "calendar.add" || !wrapper.Input.AllowDuplicate || wrapper.Input.Title != "세라에스이 사장님 미팅" {
 		t.Fatalf("expected allowDuplicate injected while preserving fields, got %s", forced)
+	}
+}
+
+func TestCalendarAddDirectInputSupportsDuplicateResolution(t *testing.T) {
+	toolInput := json.RawMessage(`{"title":"세라에스이 사장님 미팅","startISO":"2026-07-02T09:30:00+09:00","endISO":"2026-07-02T10:30:00+09:00"}`)
+
+	decodedInput, hasInput := decodeCalendarAddInput(calendarAddOperation, toolInput)
+	if !hasInput || decodedInput.Title != "세라에스이 사장님 미팅" {
+		t.Fatalf("expected direct calendar input to decode, got %+v hasInput=%v", decodedInput, hasInput)
+	}
+
+	forced := calendarAddInputWithAllowDuplicate(calendarAddOperation, toolInput)
+	var forcedInput struct {
+		Title          string `json:"title"`
+		AllowDuplicate bool   `json:"allowDuplicate"`
+	}
+	if json.Unmarshal(forced, &forcedInput) != nil {
+		t.Fatalf("forced direct input is not valid json: %s", forced)
+	}
+	if !forcedInput.AllowDuplicate || forcedInput.Title != "세라에스이 사장님 미팅" {
+		t.Fatalf("expected top-level allowDuplicate with preserved direct fields, got %s", forced)
 	}
 }

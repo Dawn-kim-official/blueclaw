@@ -9,14 +9,15 @@ import (
 )
 
 type ToolDefinition struct {
-	Name             string           `json:"name"`
-	Description      string           `json:"description"`
-	RecoveryCard     ToolRecoveryCard `json:"recoveryCard,omitempty"`
-	InputSchema      json.RawMessage  `json:"inputSchema,omitempty"`
-	OutputSchema     json.RawMessage  `json:"outputSchema,omitempty"`
-	PolicyResource   string           `json:"policyResource,omitempty"`
-	SideEffectClass  string           `json:"sideEffectClass,omitempty"`
-	RequiresApproval bool             `json:"requiresApproval,omitempty"`
+	Name                  string           `json:"name"`
+	Description           string           `json:"description"`
+	RecoveryCard          ToolRecoveryCard `json:"recoveryCard,omitempty"`
+	InputSchema           json.RawMessage  `json:"inputSchema,omitempty"`
+	OutputSchema          json.RawMessage  `json:"outputSchema,omitempty"`
+	PolicyResource        string           `json:"policyResource,omitempty"`
+	SideEffectClass       string           `json:"sideEffectClass,omitempty"`
+	RequiresApproval      bool             `json:"requiresApproval,omitempty"`
+	ApprovalHandledByTool bool             `json:"approvalHandledByTool,omitempty"`
 }
 
 type ToolRecoveryCard struct {
@@ -306,21 +307,38 @@ type ToolFunction[Input any, Output any] struct {
 
 type ToolSet struct {
 	allowedToolNameByName map[string]bool
+	baseToolNameByName    map[string]bool
 	boundToolByName       map[string]BoundTool
 }
 
 func NewToolSet(allowedToolNames []string) *ToolSet {
-	allowedToolNameByName := map[string]bool{}
-	for _, allowedToolName := range allowedToolNames {
-		trimmedToolName := strings.TrimSpace(allowedToolName)
-		if trimmedToolName != "" {
-			allowedToolNameByName[trimmedToolName] = true
-		}
-	}
+	allowedToolNameByName := toolNameSet(allowedToolNames)
 	return &ToolSet{
 		allowedToolNameByName: allowedToolNameByName,
+		baseToolNameByName:    copyToolNameSet(allowedToolNameByName),
 		boundToolByName:       map[string]BoundTool{},
 	}
+}
+
+func toolNameSet(toolNames []string) map[string]bool {
+	toolNameByName := map[string]bool{}
+	for _, toolName := range toolNames {
+		trimmedToolName := strings.TrimSpace(toolName)
+		if trimmedToolName != "" {
+			toolNameByName[trimmedToolName] = true
+		}
+	}
+	return toolNameByName
+}
+
+func copyToolNameSet(toolNameByName map[string]bool) map[string]bool {
+	copiedToolNameByName := map[string]bool{}
+	for toolName, isIncluded := range toolNameByName {
+		if isIncluded {
+			copiedToolNameByName[toolName] = true
+		}
+	}
+	return copiedToolNameByName
 }
 
 func (toolSet *ToolSet) RegisterTool(toolDefinition ToolDefinition, toolHandler ToolHandler) {
@@ -507,6 +525,21 @@ func (toolSet *ToolSet) WithAllowedToolNames(toolNames []string) *ToolSet {
 	return filteredToolSet
 }
 
+func (toolSet *ToolSet) withAllowedToolNamesPreservingBase(toolNames []string) *ToolSet {
+	if toolSet == nil {
+		return nil
+	}
+	filteredToolSet := &ToolSet{
+		allowedToolNameByName: toolNameSet(toolNames),
+		baseToolNameByName:    copyToolNameSet(toolSet.baseToolNameByName),
+		boundToolByName:       map[string]BoundTool{},
+	}
+	for toolName, boundTool := range toolSet.boundToolByName {
+		filteredToolSet.boundToolByName[toolName] = boundTool
+	}
+	return filteredToolSet
+}
+
 func (toolSet *ToolSet) WithAdditionalAllowedToolNames(toolNames []string) *ToolSet {
 	if toolSet == nil {
 		return nil
@@ -519,7 +552,7 @@ func (toolSet *ToolSet) WithAdditionalAllowedToolNames(toolNames []string) *Tool
 		}
 		allowedToolNames = appendUniqueStrings(allowedToolNames, trimmedToolName)
 	}
-	return toolSet.WithAllowedToolNames(allowedToolNames)
+	return toolSet.withAllowedToolNamesPreservingBase(allowedToolNames)
 }
 
 func (toolSet *ToolSet) Invoke(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
@@ -530,10 +563,6 @@ func (toolSet *ToolSet) Invoke(ctx context.Context, toolInvocation ToolInvocatio
 	return toolSet.InvokeRegistered(ctx, toolInvocation)
 }
 
-// InvokeRegistered dispatches to a registered tool handler without the
-// model-exposure check. It is the dispatch path for the capability.invoke kernel
-// verb, which reaches registered domain operations that are intentionally hidden
-// from the model action schema. Per-handler access policy still applies.
 func (toolSet *ToolSet) InvokeRegistered(ctx context.Context, toolInvocation ToolInvocation) (ToolResult, error) {
 	toolName := strings.TrimSpace(toolInvocation.ToolName)
 	boundTool, isFound := toolSet.boundToolByName[toolName]
@@ -600,6 +629,20 @@ func (toolSet *ToolSet) ListRegisteredToolNames() []string {
 	return toolNames
 }
 
+func (toolSet *ToolSet) ListBaseToolNames() []string {
+	toolNames := []string{}
+	if toolSet == nil {
+		return toolNames
+	}
+	for toolName := range toolSet.baseToolNameByName {
+		if toolSet.IsRegistered(toolName) {
+			toolNames = append(toolNames, toolName)
+		}
+	}
+	sort.Strings(toolNames)
+	return toolNames
+}
+
 func (toolSet *ToolSet) ListDescribedToolNames() []string {
 	toolNames := []string{}
 	for _, toolDefinition := range toolSet.ListDescribedToolDefinitions() {
@@ -642,7 +685,7 @@ func (toolSet *ToolSet) Descriptions() string {
 	if len(toolDefinitions) == 0 {
 		return ""
 	}
-	lines := []string{"Available tool catalog. These fixed kernel tools can be called now. Use capability.invoke for domain capabilities; its description lists the available operations. Tool availability does not make tool use mandatory:"}
+	lines := []string{"Available tool catalog for this Step. Call an exact named operation directly when it is present. Tool availability does not make tool use mandatory:"}
 	for _, toolDefinition := range toolDefinitions {
 		toolName := strings.TrimSpace(toolDefinition.Name)
 		if !toolSet.IsAllowed(toolName) {

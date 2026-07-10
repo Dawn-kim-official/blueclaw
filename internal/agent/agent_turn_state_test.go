@@ -68,8 +68,8 @@ func TestBuildAgentActionRequestPreservesNativeToolCallingWireShape(t *testing.T
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["terminal.run"]`) {
 		t.Fatalf("expected kernel toolName enum to be preserved, got %s", request.StructuredOutputSchema.Document)
 	}
-	if strings.Contains(request.StructuredOutputSchema.Document, "site.publish") {
-		t.Fatalf("expected domain operation to stay out of model-facing schema, got %s", request.StructuredOutputSchema.Document)
+	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolName":{"enum":["site.publish"]`) {
+		t.Fatalf("expected the scoped domain operation in the model-facing schema, got %s", request.StructuredOutputSchema.Document)
 	}
 	if !strings.Contains(request.StructuredOutputSchema.Document, `"toolInput"`) {
 		t.Fatalf("expected toolInput to be preserved, got %s", request.StructuredOutputSchema.Document)
