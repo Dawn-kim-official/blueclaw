@@ -285,6 +285,9 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 			MemoryService:    memoryService,
 			MaximumBacklog:   1000,
 		},
+		WorkspaceFilesHandler: httpserver.WorkspaceFilesHandler{
+			WorkspaceRootPath: runtimeConfiguration.Terminal.WorkspaceRootPath,
+		},
 		PolicyHandler: adminapi.PolicyHandler{
 			PolicyPath:                   policyPath,
 			PolicyLoader:                 policyLoader,
