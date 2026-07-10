@@ -66,20 +66,14 @@ func TestInterruptedTaskTurnDecisionInheritsHighestRecordedEffort(t *testing.T) 
 		{Name: "agent.budget_escalated", Body: `{"newEffortLevel":"extended"}`},
 	}
 	decision := interruptedTaskTurnDecision(taskEvents, "ko")
-	if decision.EffortLevel != agent.EffortLevelExtended {
-		t.Fatalf("resumed task must inherit the highest recorded effort level, got %q", decision.EffortLevel)
-	}
-	if decision.TaskComplexity != agent.TaskComplexityComplex {
-		t.Fatalf("resumed task must inherit recorded complex task complexity, got %q", decision.TaskComplexity)
+	if decision.TaskLevel != agent.TaskLevelHigh {
+		t.Fatalf("resumed task must inherit the highest recorded task level, got %q", decision.TaskLevel)
 	}
 }
 
 func TestInterruptedTaskTurnDecisionDefaultsToStandardEffort(t *testing.T) {
 	decision := interruptedTaskTurnDecision([]task.TaskEvent{{Name: "agent.intake", Body: "not-json"}}, "ko")
-	if decision.EffortLevel != agent.EffortLevelStandard {
-		t.Fatalf("resumed task without recorded effort must default to standard, got %q", decision.EffortLevel)
-	}
-	if decision.TaskComplexity != agent.TaskComplexityNormal {
-		t.Fatalf("resumed task without recorded complexity must default to normal, got %q", decision.TaskComplexity)
+	if decision.TaskLevel != agent.TaskLevelLow {
+		t.Fatalf("resumed task without recorded task level must default to low, got %q", decision.TaskLevel)
 	}
 }

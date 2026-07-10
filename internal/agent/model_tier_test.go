@@ -19,77 +19,135 @@ func (model labeledLanguageModel) GenerateStructuredResponse(context.Context, ll
 	return llm.StructuredResponse{ModelName: model.label}, nil
 }
 
-func TestTaskModelTierKeepsSimpleAndNormalCheap(t *testing.T) {
-	cases := []struct {
-		complexity TaskComplexity
-		effort     EffortLevel
-		want       modelTier
-	}{
-		{TaskComplexitySimple, EffortLevelStandard, modelTierXLow},
-		{TaskComplexityNormal, EffortLevelStandard, modelTierLow},
-		{TaskComplexitySimple, EffortLevelQuick, modelTierXLow},
-		{TaskComplexityComplex, EffortLevelQuick, modelTierMedium},
-		{TaskComplexityComplex, EffortLevelStandard, modelTierMedium},
-		{TaskComplexityComplex, EffortLevelDeep, modelTierHigh},
-		{TaskComplexitySimple, EffortLevelDeep, modelTierHigh},
-		{TaskComplexityNormal, EffortLevelExtended, modelTierHigh},
+func TestNormalizeTaskLevelMapsLegacyAndCanonicalValues(t *testing.T) {
+	cases := map[string]TaskLevel{
+		"quick":    TaskLevelXLow,
+		"simple":   TaskLevelXLow,
+		"standard": TaskLevelLow,
+		"normal":   TaskLevelLow,
+		"deep":     TaskLevelMedium,
+		"complex":  TaskLevelMedium,
+		"extended": TaskLevelHigh,
+		"xlow":     TaskLevelXLow,
+		"low":      TaskLevelLow,
+		"medium":   TaskLevelMedium,
+		"high":     TaskLevelHigh,
+		"xhigh":    TaskLevelXHigh,
+		"max":      TaskLevelMax,
+		"unknown":  TaskLevel(""),
+		"":         TaskLevel(""),
 	}
-	for _, testCase := range cases {
-		if tier := taskModelTier(testCase.complexity, testCase.effort); tier != testCase.want {
-			t.Fatalf("complexity %q effort %q: expected %q, got %q", testCase.complexity, testCase.effort, testCase.want, tier)
+	for input, want := range cases {
+		if got := NormalizeTaskLevel(input); got != want {
+			t.Fatalf("NormalizeTaskLevel(%q): expected %q, got %q", input, want, got)
 		}
 	}
 }
 
-func TestResolvedTaskModelTierUsesComplexityAndEffort(t *testing.T) {
+func TestLargerTaskLevelPicksHigherRank(t *testing.T) {
 	cases := []struct {
-		complexity TaskComplexity
-		effort     EffortLevel
-		want       modelTier
+		first  TaskLevel
+		second TaskLevel
+		want   TaskLevel
 	}{
-		{TaskComplexityComplex, EffortLevelDeep, modelTierHigh},
-		{TaskComplexitySimple, EffortLevelDeep, modelTierHigh},
-		{TaskComplexityComplex, EffortLevelStandard, modelTierMedium},
-		{TaskComplexitySimple, EffortLevelQuick, modelTierXLow},
+		{TaskLevelXLow, TaskLevelLow, TaskLevelLow},
+		{TaskLevelHigh, TaskLevelMedium, TaskLevelHigh},
+		{TaskLevelMax, TaskLevelHigh, TaskLevelMax},
+		{TaskLevel(""), TaskLevelXLow, TaskLevelXLow},
+		{TaskLevelMedium, TaskLevelMedium, TaskLevelMedium},
 	}
 	for _, testCase := range cases {
-		if tier := resolvedTaskModelTier(testCase.complexity, testCase.effort); tier != testCase.want {
-			t.Fatalf("complexity %q effort %q: expected %q, got %q", testCase.complexity, testCase.effort, testCase.want, tier)
+		if got := LargerTaskLevel(testCase.first, testCase.second); got != testCase.want {
+			t.Fatalf("LargerTaskLevel(%q, %q): expected %q, got %q", testCase.first, testCase.second, testCase.want, got)
 		}
 	}
 }
 
-func TestTaskLanguageModelForTierSelectsClient(t *testing.T) {
+func TestNextTaskLevelWalksLadderAndStopsAtMax(t *testing.T) {
+	cases := []struct {
+		current TaskLevel
+		want    TaskLevel
+		canNext bool
+	}{
+		{TaskLevelXLow, TaskLevelLow, true},
+		{TaskLevelLow, TaskLevelMedium, true},
+		{TaskLevelMedium, TaskLevelHigh, true},
+		{TaskLevelHigh, TaskLevelXHigh, true},
+		{TaskLevelXHigh, TaskLevelMax, true},
+		{TaskLevelMax, TaskLevel(""), false},
+	}
+	for _, testCase := range cases {
+		next, canNext := nextTaskLevel(testCase.current)
+		if canNext != testCase.canNext || next != testCase.want {
+			t.Fatalf("nextTaskLevel(%q): expected (%q, %v), got (%q, %v)", testCase.current, testCase.want, testCase.canNext, next, canNext)
+		}
+	}
+}
+
+func TestTaskLevelProfileForLevelMapsLimits(t *testing.T) {
+	mediumProfile := TaskLevelProfileForLevel(TaskLevelMedium)
+	if mediumProfile.MaxIterationCount != 180 || mediumProfile.MaxToolCallCount != 100 || mediumProfile.Duration.Minutes() != 40 {
+		t.Fatalf("expected medium profile limits, got %+v", mediumProfile)
+	}
+
+	fallbackProfile := TaskLevelProfileForLevel(TaskLevel(""))
+	if fallbackProfile.TaskLevel != TaskLevelLow {
+		t.Fatalf("expected empty task level to fall back to low profile, got %+v", fallbackProfile)
+	}
+}
+
+func TestArtifactTaskLevelFloorRaisesSiteAndSlidesToXHigh(t *testing.T) {
+	siteFloor := artifactTaskLevelFloor(AgentRequest{}, IntakeDecision{SiteRequestEvidence: "웹사이트 만들어서 배포"})
+	if siteFloor != TaskLevelXHigh {
+		t.Fatalf("expected site request to floor at xhigh, got %q", siteFloor)
+	}
+
+	slidesRequest := AgentRequest{ActiveGoal: ActiveGoal{OutcomeContract: OutcomeContract{RequiredAttachmentSuffixes: []string{".pptx"}}}}
+	slidesFloor := artifactTaskLevelFloor(slidesRequest, IntakeDecision{})
+	if slidesFloor != TaskLevelXHigh {
+		t.Fatalf("expected slides request to floor at xhigh, got %q", slidesFloor)
+	}
+
+	plainFloor := artifactTaskLevelFloor(AgentRequest{}, IntakeDecision{})
+	if plainFloor != TaskLevelXLow {
+		t.Fatalf("expected plain request to keep xlow floor, got %q", plainFloor)
+	}
+}
+
+func TestTaskLanguageModelForLevelSelectsClient(t *testing.T) {
 	kernel := &AgentKernel{
 		languageModel:           labeledLanguageModel{label: "low"},
-		mediumTaskLanguageModel: labeledLanguageModel{label: "medium"},
+		maxTaskLanguageModel:    labeledLanguageModel{label: "max"},
+		xHighTaskLanguageModel:  labeledLanguageModel{label: "xhigh"},
 		highTaskLanguageModel:   labeledLanguageModel{label: "high"},
+		mediumTaskLanguageModel: labeledLanguageModel{label: "medium"},
 		xLowTaskLanguageModel:   labeledLanguageModel{label: "xlow"},
 		codingTaskLanguageModel: labeledLanguageModel{label: "coding"},
 	}
-	cases := map[modelTier]string{
-		modelTierLow:    "low",
-		modelTierMedium: "medium",
-		modelTierHigh:   "high",
-		modelTierXLow:   "xlow",
-		modelTierCoding: "coding",
+	cases := map[TaskLevel]string{
+		TaskLevelMax:    "max",
+		TaskLevelXHigh:  "xhigh",
+		TaskLevelHigh:   "high",
+		TaskLevelMedium: "medium",
+		TaskLevelXLow:   "xlow",
+		TaskLevelLow:    "low",
 	}
-	for tier, expectedLabel := range cases {
-		selected := kernel.taskLanguageModelForTier(tier)
+	for taskLevel, expectedLabel := range cases {
+		selected := kernel.taskLanguageModelForLevel(taskLevel)
 		response, _ := selected.GenerateResponse(context.Background(), "")
 		if response != expectedLabel {
-			t.Fatalf("tier %q: expected %q client, got %q", tier, expectedLabel, response)
+			t.Fatalf("task level %q: expected %q client, got %q", taskLevel, expectedLabel, response)
 		}
 	}
 }
 
-func TestTaskLanguageModelFallsBackToBaseWhenTierUnset(t *testing.T) {
+func TestTaskLanguageModelForLevelFallsBackToBaseWhenUnset(t *testing.T) {
 	kernel := &AgentKernel{languageModel: labeledLanguageModel{label: "low"}}
-	for _, tier := range []modelTier{modelTierMedium, modelTierHigh} {
-		selected := kernel.taskLanguageModelForTier(tier)
+	for _, taskLevel := range []TaskLevel{TaskLevelMedium, TaskLevelHigh, TaskLevelXHigh, TaskLevelMax} {
+		selected := kernel.taskLanguageModelForLevel(taskLevel)
 		response, _ := selected.GenerateResponse(context.Background(), "")
 		if response != "low" {
-			t.Fatalf("tier %q: expected base client fallback, got %q", tier, response)
+			t.Fatalf("task level %q: expected base client fallback, got %q", taskLevel, response)
 		}
 	}
 }

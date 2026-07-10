@@ -183,7 +183,7 @@ func copyResponseQueues(responseQueues map[string][]string) map[string][]string 
 func mergeDefaultResponses(defaultResponses map[string]string) map[string]string {
 	mergedResponses := map[string]string{
 		"blueclaw_skill_search_queries":        `{"queries":[]}`,
-		"blueclaw_turn_router":                 `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
+		"blueclaw_turn_router":                 `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"responseLanguage":"ko","reason":"scripted test default","userFacingReply":""}`,
 		"blueclaw_execution_plan":              `{"originalInstruction":"scripted test request","summary":"scripted test request","targets":[],"schedule":"","startAt":"","endAt":"","cadence":"","externalSend":false,"thirdPartyExternalSend":false,"repeated":false,"highFrequency":false,"destructive":false,"permissionChange":false,"publicDeploy":false,"paidAction":false,"missingInformation":[],"continuationInstruction":"scripted test request"}`,
 		"blueclaw_confirmation_message":        `{"reply":"확인했습니다. 승인하면 진행하겠습니다."}`,
 		"blueclaw_confirmation_reply_decision": `{"decision":"approved","reason":"scripted test default approval"}`,

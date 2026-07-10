@@ -112,7 +112,7 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
-		EffortLevel:       EffortLevelQuick,
+		TaskLevel:         TaskLevelXLow,
 		MaxIterationCount: 10,
 		MaxToolCallCount:  2,
 	})
@@ -139,7 +139,7 @@ func TestAgentTurnRunnerEscalatesToolCallLimitAfterDurableProgress(t *testing.T)
 		t.Fatalf("expected completed task after tool-call escalation, got %s", result.TaskRun.Status)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"newEffortLevel":"standard"`) {
+	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"newTaskLevel":"low"`) {
 		t.Fatalf("expected tool-call limit to escalate the budget, got %+v", taskEvents)
 	}
 }

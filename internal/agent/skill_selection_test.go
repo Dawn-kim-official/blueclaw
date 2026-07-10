@@ -217,7 +217,7 @@ func TestToolSetForAgentTurnHidesSendToolButKeepsKernelToolForNonSendOutcome(t *
 
 func TestAgentKernelActionSchemaExposesOnlyKernelToolsRegardlessOfIntakeInitialTools(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"maintenance_task","effortLevel":"standard","requestedOutputFormats":null,"initialToolNames":["schedule.create"],"reason":"schedule request","userFacingReply":""}`,
+		`{"classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"initialToolNames":["schedule.create"],"reason":"schedule request","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("done"),
