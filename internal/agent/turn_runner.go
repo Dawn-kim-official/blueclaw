@@ -90,6 +90,8 @@ type AgentTurnRequest struct {
 	AmbientDuty                AmbientDutyContext
 	TaskShape                  TaskShape
 	TaskLevel                  TaskLevel
+	EstimatedMinutes           int
+	LaunchNotice               string
 	TurnStartedAt              time.Time
 	CheckpointSender           AgentCheckpointSender
 	StepBudgetContext          string
@@ -115,6 +117,7 @@ type AgentCheckpoint struct {
 	TaskRunID string
 	Message   string
 	ToolName  string
+	Durable   bool
 }
 
 type turnActionDocument struct {
@@ -341,6 +344,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	defer unregisterTaskCancel()
 	defer taskCancel()
 	agentTurnRunner.appendInstructionEvent(taskRun.TaskRunID, request)
+	agentTurnRunner.sendLaunchNotice(taskContext, taskRun.TaskRunID, request)
 
 	state, errorValue := agentTaskStateForTurn(request, agentTurnRunner.options, taskRun, agentTurnRunner.taskRunService.ListTaskEvent(taskRun.TaskRunID))
 	if errorValue != nil {
@@ -803,6 +807,29 @@ func (agentTurnRunner *AgentTurnRunner) cancelledTaskResultOrCurrent(taskRunID s
 	}
 	taskRun, _ := agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
 	return AgentTurnResult{TaskRun: taskRun, ReplySuppressed: true, Attachments: attachments}
+}
+
+// sendLaunchNotice posts the intake's launch acknowledgement as a durable
+// (non-ephemeral) message the moment a longer task starts, so the requester gets
+// an immediate first reply with a rough ETA instead of silence until the final
+// result. It fires only for a fresh task the intake sized at more than two
+// minutes; quick tasks stay silent until their final reply.
+func (agentTurnRunner *AgentTurnRunner) sendLaunchNotice(ctx context.Context, taskRunID string, request AgentTurnRequest) {
+	notice := strings.TrimSpace(request.LaunchNotice)
+	if notice == "" || request.EstimatedMinutes <= 2 || request.CheckpointSender == nil {
+		return
+	}
+	if request.IsApprovalContinuation || request.IsRuntimeRestartResume {
+		return
+	}
+	if errorValue := request.CheckpointSender(ctx, AgentCheckpoint{TaskRunID: taskRunID, Message: notice, Durable: true}); errorValue != nil {
+		agentTurnRunner.appendEvent(taskRunID, "agent.launch_notice.failed", marshalEventBody(map[string]any{"error": errorValue.Error()}))
+		return
+	}
+	agentTurnRunner.appendEvent(taskRunID, "agent.launch_notice.sent", marshalEventBody(map[string]any{
+		"estimatedMinutes": request.EstimatedMinutes,
+		"message":          notice,
+	}))
 }
 
 func (agentTurnRunner *AgentTurnRunner) sendCheckpointMessage(ctx context.Context, taskRunID string, request AgentTurnRequest, actionDocument turnActionDocument, observations []turnObservation) []turnObservation {
