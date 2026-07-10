@@ -18,11 +18,14 @@ func TestRouterPromptReservesUnsupportedForImpossibleWork(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(systemPrompt, "unsupported ONLY for requests that are genuinely impossible") {
-		t.Fatal("router prompt must reserve unsupported for genuinely impossible requests")
+	if !strings.Contains(systemPrompt, "unsupported ONLY for requests that are pointless to even attempt") {
+		t.Fatal("router prompt must reserve unsupported for requests pointless to even attempt")
 	}
-	if !strings.Contains(systemPrompt, "lean toward attempting rather than pre-refusing") {
-		t.Fatal("router prompt must push the model to attempt doable work rather than pre-refuse")
+	if !strings.Contains(systemPrompt, "NOT a security or permission gate") {
+		t.Fatal("router prompt must state unsupported is not a security/permission gate (POSIX enforces at execution)")
+	}
+	if !strings.Contains(systemPrompt, "never pre-refuse over permissions, just attempt it") {
+		t.Fatal("router prompt must push the model to attempt permission-gated work rather than pre-refuse")
 	}
 	if strings.Contains(systemPrompt, "report a tool wiring failure") {
 		t.Fatal("router prompt must not instruct naming evidence to trigger a removed wiring-failure block")
