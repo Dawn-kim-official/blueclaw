@@ -1031,7 +1031,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	taskDuration := time.Since(taskStartedAt)
 	connectorRuntime.logger.Info("connector."+platform+".agent.completed", slog.String("messageID", event.MessageID), slog.String("taskRunID", taskRunID), slog.Int64("duration_ms", taskDuration.Milliseconds()))
 	connectorRuntime.appendTaskExecutionDuration(taskRunID, taskDuration)
-	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, turnResult, addressingLaunch.AmbientDuty.IsMatch, sendReply)
+	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, turnResult, sendReply)
 }
 
 func (connectorRuntime *ConnectorRuntime) shouldDeferNewTaskLaunch(isApprovalContinuation bool, hasPendingAskInteraction bool, hasActiveGoal bool) bool {
@@ -1667,7 +1667,7 @@ func (connectorRuntime *ConnectorRuntime) handleAmbiguousTaskWait(
 	if errorValue != nil {
 		return ConnectorRuntimeResult{}, errorValue
 	}
-	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, launchResult.TurnResult, false, sendReply)
+	return connectorRuntime.dispatchTaskReply(ctx, platform, adapter, event, replyTarget, launchResult.TurnResult, sendReply)
 }
 
 func ambiguousTaskWaitTurnDecision(taskWaitTokens []task.TaskWaitToken, responseLanguage string) agent.TurnDecision {
