@@ -449,6 +449,9 @@ func (toolSet *ToolSet) IsAllowed(toolName string) bool {
 	if len(toolSet.allowedToolNameByName) > 0 && !toolSet.allowedToolNameByName[trimmedToolName] {
 		return false
 	}
+	if IsKernelToolName(trimmedToolName) {
+		return true
+	}
 	return isExposedToolAvailability(boundTool.Availability)
 }
 
