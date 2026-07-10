@@ -224,7 +224,7 @@ func TestAgentTurnRunnerSuppressesCheckpointForSimpleTask(t *testing.T) {
 		Prompt:            "일정 등록해줘",
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
-		TaskComplexity:    TaskComplexitySimple,
+		TaskLevel:         TaskLevelXLow,
 		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
 			checkpoints = append(checkpoints, checkpoint)
 			return nil
@@ -242,8 +242,8 @@ func TestAgentTurnRunnerSuppressesCheckpointForSimpleTask(t *testing.T) {
 	if len(checkpoints) != 0 {
 		t.Fatalf("expected no checkpoint for simple task, got %+v", checkpoints)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.skipped", "task_complexity_simple") {
-		t.Fatal("expected simple task checkpoint skip event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.checkpoint.skipped", "task_level_xlow") {
+		t.Fatal("expected xlow task checkpoint skip event")
 	}
 }
 
@@ -847,7 +847,7 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 		RequesterPersonID: "person-1",
 		ConversationID:    "conversation-1",
 		Prompt:            "브라우저 열어줘.",
-		TaskComplexity:    TaskComplexitySimple,
+		TaskLevel:         TaskLevelXLow,
 		TaskShape:         TaskShapeBrowserHandoffTask,
 		ToolSet:           toolRegistry,
 		PinnedToolNames:   toolRegistry.ListToolNames(),
@@ -1580,7 +1580,7 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
-		EffortLevel:       EffortLevelQuick,
+		TaskLevel:         TaskLevelXLow,
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
@@ -1607,7 +1607,7 @@ func TestAgentTurnRunnerEscalatesIterationLimitAfterDurableProgress(t *testing.T
 		t.Fatalf("expected completed task after escalation, got %s", result.TaskRun.Status)
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"newEffortLevel":"standard"`) {
+	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"newTaskLevel":"low"`) {
 		t.Fatalf("expected budget escalation event, got %+v", taskEvents)
 	}
 	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"qualifyingEventIDs":["obs-001","obs-003"]`) {
@@ -1624,7 +1624,7 @@ func TestAgentTurnRunnerDoesNotEscalateIterationLimitForInspectionOnlyProgress(t
 		textResponses: []string{"progress saved"},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
-		EffortLevel:       EffortLevelQuick,
+		TaskLevel:         TaskLevelXLow,
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
@@ -1666,7 +1666,7 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 		},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
-		EffortLevel:       EffortLevelQuick,
+		TaskLevel:         TaskLevelXLow,
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
@@ -1695,13 +1695,13 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 	if countTaskEvents(taskEvents, "agent.budget_escalated") != 1 {
 		t.Fatalf("expected exactly one persisted escalation, got %+v", taskEvents)
 	}
-	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"previousEffortLevel":"quick"`) ||
-		!taskEventsContain(taskEvents, "agent.budget_escalated", `"newEffortLevel":"standard"`) {
-		t.Fatalf("expected quick to standard escalation, got %+v", taskEvents)
+	if !taskEventsContain(taskEvents, "agent.budget_escalated", `"previousTaskLevel":"xlow"`) ||
+		!taskEventsContain(taskEvents, "agent.budget_escalated", `"newTaskLevel":"low"`) {
+		t.Fatalf("expected xlow to low escalation, got %+v", taskEvents)
 	}
 }
 
-func TestAgentTurnRunnerCheckpointsAtExtendedIterationCeiling(t *testing.T) {
+func TestAgentTurnRunnerCheckpointsAtMaxIterationCeiling(t *testing.T) {
 	// site.build no longer exists as a distinct native capability (build now
 	// runs through an ordinary terminal.run, per commit d4a0e36); terminal.run
 	// with a zero exit code is the current qualifying "durable progress" tool.
@@ -1713,7 +1713,7 @@ func TestAgentTurnRunnerCheckpointsAtExtendedIterationCeiling(t *testing.T) {
 		textResponses: []string{"progress saved"},
 	}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{
-		EffortLevel:       EffortLevelExtended,
+		TaskLevel:         TaskLevelMax,
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
@@ -1741,7 +1741,7 @@ func TestAgentTurnRunnerCheckpointsAtExtendedIterationCeiling(t *testing.T) {
 	}
 	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if taskEventsContain(taskEvents, "agent.budget_escalated", "") {
-		t.Fatal("did not expect escalation past extended")
+		t.Fatal("did not expect escalation past the max task level")
 	}
 	if !taskEventsContain(taskEvents, "agent.limit_checkpoint", `"qualifyingEventIDs":["obs-001","obs-003"]`) {
 		t.Fatalf("expected limit checkpoint event, got %+v", taskEvents)

@@ -50,7 +50,7 @@ type VirtualSessionScenario struct {
 	InitialToolNames          []string
 	InitialMemory             []memory.MemoryFact
 	RouterRequiredEvidence    []string
-	RouterEffortLevel         string
+	RouterTaskLevel           string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
 	RouterSiteEvidence        string
@@ -1151,8 +1151,7 @@ func scenarioApprovalRouterResponse(approval string) string {
 		"route":            "continue_task",
 		"classification":   "bounded_task",
 		"taskShape":        "maintenance_task",
-		"taskComplexity":   "normal",
-		"effortLevel":      "standard",
+		"level":            "low",
 		"approval":         strings.TrimSpace(approval),
 		"responseLanguage": "ko",
 		"reason":           "scripted approval reply classification",
@@ -1166,9 +1165,9 @@ func scenarioApprovalRouterResponse(approval string) string {
 }
 
 func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn VirtualTurn) string {
-	effortLevel := strings.TrimSpace(scenario.RouterEffortLevel)
-	if effortLevel == "" {
-		effortLevel = "standard"
+	taskLevel := agent.NormalizeTaskLevel(scenario.RouterTaskLevel)
+	if taskLevel == "" {
+		taskLevel = agent.TaskLevelLow
 	}
 	requiredEvidence := scenario.RouterRequiredEvidence
 	if len(virtualTurn.RouterRequiredEvidence) > 0 {
@@ -1186,9 +1185,7 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 		"route":                  route,
 		"classification":         "bounded_task",
 		"taskShape":              "maintenance_task",
-		"taskComplexity":         "normal",
-		"effortLevel":            effortLevel,
-		"outputKind":             nil,
+		"level":                  string(taskLevel),
 		"requestedOutputFormats": nil,
 		"expectedResults":        []any{},
 		"requiredEvidence":       requiredEvidence,
@@ -1204,7 +1201,7 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 	}
 	encodedDocument, errorValue := json.Marshal(routerDocument)
 	if errorValue != nil {
-		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","taskComplexity":"normal","effortLevel":"standard","outputKind":null,"requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scripted scenario default","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`
+		return `{"route":"start_task","classification":"bounded_task","taskShape":"maintenance_task","level":"low","requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":[],"siteRequestEvidence":"","responseLanguage":"ko","reason":"scripted scenario default","userFacingReply":"","initialToolNames":[],"priorTaskReference":"none"}`
 	}
 	return string(encodedDocument)
 }

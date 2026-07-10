@@ -70,7 +70,7 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
       "enabled": true,
       "executionMode": "auto"
     },
-    "defaultEffortLevel": "standard",
+    "defaultTaskLevel": "low",
     "toolResultMaxBytes": 32768,
     "generationOptions": {
       "seed": 41,
@@ -210,8 +210,8 @@ func TestLoadRuntimeConfigurationIncludesFirecrackerAndBridge(t *testing.T) {
 	if runtimeConfiguration.Agent.Intake.ExecutionMode != "auto" {
 		t.Fatalf("expected agent intake execution mode to match, got %q", runtimeConfiguration.Agent.Intake.ExecutionMode)
 	}
-	if runtimeConfiguration.Agent.DefaultEffortLevel != "standard" {
-		t.Fatalf("expected agent default effort level to match, got %q", runtimeConfiguration.Agent.DefaultEffortLevel)
+	if runtimeConfiguration.Agent.DefaultTaskLevel != "low" {
+		t.Fatalf("expected agent default task level to match, got %q", runtimeConfiguration.Agent.DefaultTaskLevel)
 	}
 	if runtimeConfiguration.Agent.ToolResultMaxBytes != 32768 {
 		t.Fatalf("expected agent tool result limit to match, got %d", runtimeConfiguration.Agent.ToolResultMaxBytes)

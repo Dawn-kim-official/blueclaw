@@ -17,56 +17,56 @@ func presentationSkillBundle() InstructionBundle {
 	}
 }
 
-func TestSkillEffortFloorRaisesBoundedTaskEffort(t *testing.T) {
+func TestSkillTaskLevelFloorRaisesBoundedTaskLevel(t *testing.T) {
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
 		TaskShape:      TaskShapeResearchTask,
-		EffortLevel:    EffortLevelStandard,
+		TaskLevel:      TaskLevelLow,
 	}
 	promoted := promoteIntakeDecisionForSelectedSkills(decision, presentationSkillBundle(), IntakeOptions{
-		DefaultEffortLevel: EffortLevelStandard,
-		SkillEffortFloor:   EffortLevelDeep,
+		DefaultTaskLevel:    TaskLevelLow,
+		SkillTaskLevelFloor: TaskLevelMedium,
 	})
-	if promoted.EffortLevel != EffortLevelDeep {
-		t.Fatalf("expected deep effort for evidence-requiring skill, got %q", promoted.EffortLevel)
+	if promoted.TaskLevel != TaskLevelMedium {
+		t.Fatalf("expected medium task level for evidence-requiring skill, got %q", promoted.TaskLevel)
 	}
 }
 
-func TestSkillEffortFloorKeepsHigherModelEffort(t *testing.T) {
+func TestSkillTaskLevelFloorKeepsHigherTaskLevel(t *testing.T) {
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
-		EffortLevel:    EffortLevelExtended,
+		TaskLevel:      TaskLevelHigh,
 	}
 	promoted := promoteIntakeDecisionForSelectedSkills(decision, presentationSkillBundle(), IntakeOptions{
-		SkillEffortFloor: EffortLevelDeep,
+		SkillTaskLevelFloor: TaskLevelMedium,
 	})
-	if promoted.EffortLevel != EffortLevelExtended {
-		t.Fatalf("expected extended effort to be kept, got %q", promoted.EffortLevel)
+	if promoted.TaskLevel != TaskLevelHigh {
+		t.Fatalf("expected high task level to be kept, got %q", promoted.TaskLevel)
 	}
 }
 
-func TestSkillEffortFloorIgnoresSkillsWithoutCompletionContract(t *testing.T) {
+func TestSkillTaskLevelFloorIgnoresSkillsWithoutCompletionContract(t *testing.T) {
 	bundle := presentationSkillBundle()
 	bundle.Skills[0].Completion = SkillCompletion{}
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
-		EffortLevel:    EffortLevelStandard,
+		TaskLevel:      TaskLevelLow,
 	}
 	promoted := promoteIntakeDecisionForSelectedSkills(decision, bundle, IntakeOptions{
-		SkillEffortFloor: EffortLevelDeep,
+		SkillTaskLevelFloor: TaskLevelMedium,
 	})
-	if promoted.EffortLevel != EffortLevelStandard {
-		t.Fatalf("expected standard effort without completion contract, got %q", promoted.EffortLevel)
+	if promoted.TaskLevel != TaskLevelLow {
+		t.Fatalf("expected low task level without completion contract, got %q", promoted.TaskLevel)
 	}
 }
 
-func TestSkillEffortFloorDisabledWhenUnset(t *testing.T) {
+func TestSkillTaskLevelFloorDisabledWhenUnset(t *testing.T) {
 	decision := IntakeDecision{
 		Classification: IntakeClassificationBoundedTask,
-		EffortLevel:    EffortLevelStandard,
+		TaskLevel:      TaskLevelLow,
 	}
 	promoted := promoteIntakeDecisionForSelectedSkills(decision, presentationSkillBundle(), IntakeOptions{})
-	if promoted.EffortLevel != EffortLevelStandard {
-		t.Fatalf("expected standard effort without a floor, got %q", promoted.EffortLevel)
+	if promoted.TaskLevel != TaskLevelLow {
+		t.Fatalf("expected low task level without a floor, got %q", promoted.TaskLevel)
 	}
 }
