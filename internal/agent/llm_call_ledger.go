@@ -15,6 +15,7 @@ type llmCallRecord struct {
 	SchemaName            string  `json:"schemaName,omitempty"`
 	Provider              string  `json:"provider,omitempty"`
 	Model                 string  `json:"model,omitempty"`
+	ModelTier             string  `json:"modelTier,omitempty"`
 	LatencyMS             int64   `json:"latencyMs"`
 	PromptBytes           int     `json:"promptBytes"`
 	ContentBytes          int     `json:"contentBytes"`

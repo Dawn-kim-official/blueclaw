@@ -848,6 +848,16 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		return taskTierLanguageModelProviders{}
 	}
 	tierNames := llm.ResolveModelTierNames(languageModelConfiguration)
+	if logger != nil {
+		logger.Info("resolved task model tiers",
+			"max", tierNames.Max,
+			"xhigh", tierNames.XHigh,
+			"high", tierNames.High,
+			"medium", tierNames.Medium,
+			"low", tierNames.Low,
+			"xlow", tierNames.XLow,
+			"coding", tierNames.Coding)
+	}
 	lowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Low)
 	xLowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.XLow)
 	mediumModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium)
