@@ -241,6 +241,16 @@ func requestLooksLikeSlidesArtifactWork(request AgentRequest) bool {
 		outcomeContractMentionsAttachmentSuffix(request.ActiveGoal.OutcomeContract, ".ppt")
 }
 
+func intakeDecisionRequestsSlidesArtifact(intakeDecision IntakeDecision) bool {
+	for _, format := range intakeDecision.RequestedOutputFormats {
+		switch strings.ToLower(strings.TrimSpace(format)) {
+		case "pptx", "ppt":
+			return true
+		}
+	}
+	return false
+}
+
 func toolSetForOutcomeReference(toolSet *ToolSet, request AgentRequest, executionPlan ExecutionPlan, hasExecutionPlan bool, outcomeContract OutcomeContract) *ToolSet {
 	if toolSet == nil {
 		return nil
