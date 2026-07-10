@@ -164,7 +164,10 @@ func TestAgentKernelBlocksUnsupportedIntake(t *testing.T) {
 	}
 }
 
-func TestAgentKernelBlocksInvalidRequiredEvidence(t *testing.T) {
+// Invalid required evidence must never hard-block the task at intake. The
+// invalid names are pruned and the task keeps executing; real permission is
+// enforced at execution.
+func TestAgentKernelPrunesInvalidRequiredEvidenceAndProceeds(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:                 TurnRouteStartTask,
@@ -175,19 +178,26 @@ func TestAgentKernelBlocksInvalidRequiredEvidence(t *testing.T) {
 		ResponseLanguage:      "ko",
 		Reason:                "calendar event creation",
 	}})
-	agentKernel.UseLanguageModelProvider(staticReplyProvider{content: "일정 등록 도구 연결이 맞지 않아 작업을 진행할 수 없습니다."})
+	toolSet := newTestToolSet([]string{"calendar.add", CapabilityInvokeToolName})
+	toolSet.RegisterTool(ToolDefinition{Name: CapabilityInvokeToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"created":true}`), nil
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"calendar.add","input":{}}}`,
+		finishMessageWithEvidence("일정을 추가했습니다.", "obs-001", "calendar.add", 0),
+	}})
 	request := kernelTestRequest("7월 6일 오후 1시 스타트업월드컵 일정 추가")
-	request.ToolSet = newTestToolSet([]string{"calendar.add", CapabilityInvokeToolName})
+	request.ToolSet = toolSet
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected invalid evidence to block cleanly: %v", errorValue)
+		t.Fatalf("expected invalid evidence to prune and proceed: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task run, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status == task.TaskStatusBlocked {
+		t.Fatalf("invalid required evidence must not hard-block; task should proceed, got %q", result.TaskRun.Status)
 	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceInvalidEventName, "calendar.create") {
-		t.Fatal("expected invalid required evidence event")
+	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceInvalidEventName, "pruned") {
+		t.Fatal("expected the invalid evidence to be recorded as pruned, not blocking")
 	}
 }
 
@@ -245,8 +255,10 @@ func TestAgentKernelPrunesInvalidEvidenceOnApprovalContinuation(t *testing.T) {
 	}
 }
 
-func TestAgentKernelBlocksSideEffectWithoutRequiredEvidence(t *testing.T) {
-	agentKernel, taskRunService := newKernelTestServices()
+// A side-effect task that arrives without required evidence must not hard-block;
+// it proceeds and the tool actually runs.
+func TestAgentKernelSideEffectWithoutRequiredEvidenceProceeds(t *testing.T) {
+	agentKernel, _ := newKernelTestServices()
 	agentKernel.UseIntakeLanguageModelProvider(intakeDecisionLanguageModel{decision: TurnDecision{
 		Route:            TurnRouteStartTask,
 		Classification:   IntakeClassificationBoundedTask,
@@ -256,19 +268,28 @@ func TestAgentKernelBlocksSideEffectWithoutRequiredEvidence(t *testing.T) {
 		ResponseLanguage: "ko",
 		Reason:           "side effect tool planned without evidence",
 	}})
-	agentKernel.UseLanguageModelProvider(staticReplyProvider{content: "완료 근거가 없어 작업을 진행할 수 없습니다."})
-	request := kernelTestRequest("7월 6일 오후 1시 스타트업월드컵 일정 추가")
-	request.ToolSet = newTestToolSet([]string{TerminalRunToolName})
+	toolCallCount := 0
+	toolSet := newTestToolSet([]string{TerminalRunToolName})
+	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
+		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
+	}})
+	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
+	request.ToolSet = toolSet
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected missing evidence to block cleanly: %v", errorValue)
+		t.Fatalf("expected side-effect task to proceed: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task run, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status == task.TaskStatusBlocked {
+		t.Fatalf("missing required evidence must not hard-block; task should proceed, got %q", result.TaskRun.Status)
 	}
-	if !taskEventsContain(taskRunService.ListTaskEvent(result.TaskRun.TaskRunID), requiredEvidenceInvalidEventName, "side-effect task has no required evidence") {
-		t.Fatal("expected missing required evidence event")
+	if toolCallCount != 1 {
+		t.Fatalf("expected the side-effect tool to run once, got %d", toolCallCount)
 	}
 }
 
@@ -364,37 +385,45 @@ func TestAgentKernelReasksAndRecoversRequiredEvidence(t *testing.T) {
 	}
 }
 
-func TestAgentKernelBlocksWhenReaskStillReturnsNoEvidence(t *testing.T) {
+// Even when the one re-ask fails to recover evidence, the task must proceed
+// rather than hard-block; the re-ask is a soft recovery, not a gate.
+func TestAgentKernelProceedsWhenReaskStillReturnsNoEvidence(t *testing.T) {
 	agentKernel, taskRunService := newKernelTestServices()
 	intakeLanguageModel := &turnRouterDecisionLanguageModel{
 		initialDecision: sideEffectMissingEvidenceDecision(),
 		reaskDecision:   sideEffectMissingEvidenceDecision(),
 	}
 	agentKernel.UseIntakeLanguageModelProvider(intakeLanguageModel)
-	agentKernel.UseLanguageModelProvider(staticReplyProvider{content: "완료 근거가 없어 작업을 진행할 수 없습니다."})
+	toolCallCount := 0
+	toolSet := newTestToolSet([]string{TerminalRunToolName})
+	toolSet.RegisterTool(ToolDefinition{Name: TerminalRunToolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		toolCallCount++
+		return ToolSuccess(`{"exitCode":0,"stdout":"done","stderr":"","timedOut":false}`), nil
+	})
+	agentKernel.UseLanguageModelProvider(&sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"do the side effect"}}`,
+		finishMessageWithEvidence("완료했습니다.", "obs-001", TerminalRunToolName, 0),
+	}})
 
 	request := kernelTestRequest("서버에 배포 스크립트 실행해줘")
-	request.ToolSet = newTestToolSet([]string{TerminalRunToolName})
+	request.ToolSet = toolSet
 
 	result, errorValue := agentKernel.RunAgentRequest(context.Background(), request)
 	if errorValue != nil {
-		t.Fatalf("expected still-missing evidence to block cleanly: %v", errorValue)
+		t.Fatalf("expected task to proceed after a failed re-ask: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusBlocked {
-		t.Fatalf("expected blocked task run, got %q", result.TaskRun.Status)
+	if result.TaskRun.Status == task.TaskStatusBlocked {
+		t.Fatalf("a failed re-ask must not hard-block; task should proceed, got %q", result.TaskRun.Status)
 	}
 	if intakeLanguageModel.reaskCallCount != 1 {
 		t.Fatalf("expected exactly one re-ask attempt, got %d", intakeLanguageModel.reaskCallCount)
 	}
-	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, requiredEvidenceInvalidEventName, "side-effect task has no required evidence") {
-		t.Fatal("expected missing required evidence event")
+	if toolCallCount != 1 {
+		t.Fatalf("expected the side-effect tool to run once, got %d", toolCallCount)
 	}
+	taskEvents := taskRunService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"wasAttempted":true`) {
 		t.Fatal("expected reask event reporting the attempt")
-	}
-	if taskEventsContain(taskEvents, requiredEvidenceReaskEventName, `"didRecoverEvidence":true`) {
-		t.Fatal("did not expect reask event to report recovered evidence")
 	}
 }
 
