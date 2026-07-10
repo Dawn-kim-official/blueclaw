@@ -33,15 +33,29 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	return decision
 }
 
-func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle InstructionBundle, skillTaskLevelFloor TaskLevel) IntakeDecision {
-	if skillTaskLevelFloor == "" {
-		return decision
-	}
+// Some skills always warrant a stronger model than the generic skill floor,
+// regardless of the delivered output format. Presentation and website work is
+// visual deliverable work whose quality depends on the strongest tier, whether
+// it ships as PPTX, PDF, or HTML, so InternKim floors those skills at xhigh
+// here rather than inferring it from an output-file suffix downstream.
+var taskLevelFloorBySelectedSkillName = map[string]TaskLevel{
+	"presentation": TaskLevelXHigh,
+	"website":      TaskLevelXHigh,
+}
+
+func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle InstructionBundle, defaultSkillFloor TaskLevel) IntakeDecision {
 	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
-		if selectedSkillRequiresCompletionEvidence(skillInstruction) {
-			decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, skillTaskLevelFloor)
-			return decision
+		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
+			continue
 		}
+		floor := defaultSkillFloor
+		if override, hasOverride := taskLevelFloorBySelectedSkillName[strings.ToLower(strings.TrimSpace(skillInstruction.Name))]; hasOverride {
+			floor = LargerTaskLevel(floor, override)
+		}
+		if floor == "" {
+			continue
+		}
+		decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, floor)
 	}
 	return decision
 }
