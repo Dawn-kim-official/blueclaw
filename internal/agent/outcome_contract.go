@@ -241,10 +241,10 @@ func requestLooksLikeSlidesArtifactWork(request AgentRequest) bool {
 		outcomeContractMentionsAttachmentSuffix(request.ActiveGoal.OutcomeContract, ".ppt")
 }
 
-func intakeDecisionRequestsSlidesArtifact(intakeDecision IntakeDecision) bool {
+func intakeDecisionRequestsVisualDeliverable(intakeDecision IntakeDecision) bool {
 	for _, format := range intakeDecision.RequestedOutputFormats {
 		switch strings.ToLower(strings.TrimSpace(format)) {
-		case "pptx", "ppt":
+		case "pptx", "ppt", "html":
 			return true
 		}
 	}
