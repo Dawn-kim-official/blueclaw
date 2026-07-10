@@ -77,13 +77,13 @@ type ModelTierNames struct {
 func ResolveModelTierNames(runtimeConfiguration config.RuntimeConfiguration) ModelTierNames {
 	capabilityConfiguration := runtimeConfiguration.LanguageModel.Capability
 	return ModelTierNames{
-		Max:    firstNonEmptyModelName(capabilityConfiguration.MaxModel, capabilityConfiguration.Model, defaultMaxModelName),
-		XHigh:  firstNonEmptyModelName(capabilityConfiguration.XHighModel, capabilityConfiguration.Model, defaultXHighModelName),
-		High:   firstNonEmptyModelName(capabilityConfiguration.HighModel, capabilityConfiguration.Model, defaultHighModelName),
-		Medium: firstNonEmptyModelName(capabilityConfiguration.MediumModel, capabilityConfiguration.Model, defaultMediumModelName),
-		Low:    firstNonEmptyModelName(capabilityConfiguration.LowModel, capabilityConfiguration.Model, defaultLowModelName),
-		XLow:   firstNonEmptyModelName(capabilityConfiguration.XLowModel, capabilityConfiguration.Model, defaultXLowModelName),
-		Coding: firstNonEmptyModelName(capabilityConfiguration.CodingModel, capabilityConfiguration.Model, defaultCodingModelName),
+		Max:    firstNonEmptyModelName(capabilityConfiguration.MaxModel, defaultMaxModelName),
+		XHigh:  firstNonEmptyModelName(capabilityConfiguration.XHighModel, defaultXHighModelName),
+		High:   firstNonEmptyModelName(capabilityConfiguration.HighModel, defaultHighModelName),
+		Medium: firstNonEmptyModelName(capabilityConfiguration.MediumModel, defaultMediumModelName),
+		Low:    firstNonEmptyModelName(capabilityConfiguration.LowModel, defaultLowModelName),
+		XLow:   firstNonEmptyModelName(capabilityConfiguration.XLowModel, defaultXLowModelName),
+		Coding: firstNonEmptyModelName(capabilityConfiguration.CodingModel, defaultCodingModelName),
 	}
 }
 
