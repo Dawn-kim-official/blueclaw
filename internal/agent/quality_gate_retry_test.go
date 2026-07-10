@@ -129,6 +129,40 @@ func TestQualityGateSingleScorelessFailureForcesOneRetry(t *testing.T) {
 	}
 }
 
+func TestRejectBelowGateDeliveryNeverSuppressesArtifactWhenBudgetExhausted(t *testing.T) {
+	services := newTurnRunnerTestServices(nil, TurnOptions{
+		MaxIterationCount: 40,
+		MaxToolCallCount:  40,
+		MaxElapsedSecond:  3600,
+	})
+	state := &agentTaskState{
+		Observations: []turnObservation{
+			gateObservation(t, 1, false, 0),
+			gateObservation(t, 2, false, 18),
+		},
+		ToolCallCount: 2,
+	}
+	actionDocument := turnActionDocument{
+		ToolName:  "file.deliver",
+		ToolInput: json.RawMessage(`{"files":[{"path":"deck.pdf"}]}`),
+	}
+	request := AgentTurnRequest{TurnStartedAt: time.Now()}
+
+	budgetExhausted := func(string) (AgentTurnResult, bool) { return AgentTurnResult{}, true }
+	if outcome := services.runner.rejectBelowGateDelivery("task-1", "step-1", request, state, actionDocument, budgetExhausted); outcome.WasHandled {
+		t.Fatal("expected below-gate delivery to pass through once the no-progress budget is exhausted, not be suppressed")
+	}
+
+	budgetRemains := func(string) (AgentTurnResult, bool) { return AgentTurnResult{}, false }
+	outcome := services.runner.rejectBelowGateDelivery("task-1", "step-2", request, state, actionDocument, budgetRemains)
+	if !outcome.WasHandled {
+		t.Fatal("expected below-gate delivery to be deferred while retry budget remains")
+	}
+	if outcome.ShouldReturn {
+		t.Fatal("expected deferral to continue the loop, not end the turn")
+	}
+}
+
 func TestRunTurnDefersDeliveryUntilQualityGateImproves(t *testing.T) {
 	failedGateOutput := `{"exitCode":0,"stdout":"QUALITY_GATE {\"source\":\"presentation-review\",\"passed\":false,\"score\":10}","stderr":""}`
 	passedGateOutput := `{"exitCode":0,"stdout":"QUALITY_GATE {\"source\":\"presentation-review\",\"passed\":true,\"score\":90}","stderr":""}`
