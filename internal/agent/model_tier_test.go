@@ -128,6 +128,21 @@ func TestArtifactTaskLevelFloorRaisesVisualDeliverableFromIntakeDecisionOutputFo
 	}
 }
 
+func TestTimeBudgetSecondsForIntakeUsesShorterOfTierAndEstimate(t *testing.T) {
+	xhighProfile := TaskLevelProfileForLevel(TaskLevelXHigh)
+	tierCeiling := int(xhighProfile.Duration.Seconds())
+
+	if seconds := timeBudgetSecondsForIntake(xhighProfile, 3); seconds != 270 {
+		t.Fatalf("expected 3min estimate to give 270s (x1.5), got %d", seconds)
+	}
+	if seconds := timeBudgetSecondsForIntake(xhighProfile, 0); seconds != tierCeiling {
+		t.Fatalf("expected tier ceiling with no estimate, got %d", seconds)
+	}
+	if seconds := timeBudgetSecondsForIntake(xhighProfile, 100000); seconds != tierCeiling {
+		t.Fatalf("expected an oversized estimate to be capped at the tier ceiling, got %d", seconds)
+	}
+}
+
 func TestTaskLanguageModelForLevelSelectsClient(t *testing.T) {
 	kernel := &AgentKernel{
 		languageModel:           labeledLanguageModel{label: "low"},
