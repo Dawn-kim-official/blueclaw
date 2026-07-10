@@ -14,7 +14,7 @@ func TestAddressingClassificationSchemaOmitsReasonByDefault(t *testing.T) {
 	if containsAny(schema.Document, []string{"reason", "addressingClass"}) {
 		t.Fatalf("expected compact addressing schema without reason or legacy field, got %s", schema.Document)
 	}
-	for _, fragment := range []string{"target", "shouldReply", "dutyMatch", "dutyName", "dutyConfidence", "bot", "human", "anyone", "none", "unclear"} {
+	for _, fragment := range []string{"target", "shouldRespond", "reactionEmoji", "dutyMatch", "dutyName", "dutyConfidence", "bot", "human", "anyone", "none", "unclear"} {
 		if !strings.Contains(schema.Document, fragment) {
 			t.Fatalf("expected addressing schema to contain %q, got %s", fragment, schema.Document)
 		}
@@ -24,37 +24,37 @@ func TestAddressingClassificationSchemaOmitsReasonByDefault(t *testing.T) {
 func TestAddressingClassificationSchemaIncludesReasonOnlyForDebug(t *testing.T) {
 	schema := addressingClassificationSchema(true)
 
-	for _, fragment := range []string{"target", "shouldReply", "dutyMatch", "dutyName", "dutyConfidence", "reason"} {
+	for _, fragment := range []string{"target", "shouldRespond", "reactionEmoji", "dutyMatch", "dutyName", "dutyConfidence", "reason"} {
 		if !strings.Contains(schema.Document, fragment) {
 			t.Fatalf("expected debug addressing schema to contain %q, got %s", fragment, schema.Document)
 		}
 	}
 }
 
-func TestAddressingClassificationPromptGuidesHumanDirectedAcknowledgements(t *testing.T) {
+func TestAddressingClassificationPromptGuidesTheFourOutcomes(t *testing.T) {
 	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "네 확인해볼게요"})
 
-	for _, fragment := range []string{"target=human", "shouldReply=false", "short acknowledgement", "human-directed message", "calendar_upkeep", "dutyMatch=true"} {
+	for _, fragment := range []string{"shouldRespond", "reactionEmoji", "react only", "이거 봐주세요", "고마워", "dutyMatch"} {
 		if !strings.Contains(prompt, fragment) {
 			t.Fatalf("expected addressing prompt to contain %q, got %s", fragment, prompt)
 		}
 	}
 }
 
-func TestAddressingClassificationPromptGuidesBareMentionAndPlayfulBanter(t *testing.T) {
-	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "@김인턴"})
+func TestAddressingClassificationPromptRespondsToBanterAndReactsToSharing(t *testing.T) {
+	prompt := addressingClassificationPrompt(AddressingClassificationRequest{Prompt: "@김인턴", BotMentioned: true})
 
-	for _, fragment := range []string{"only mentions the assistant", "target=bot", "shouldReply=true", "recent context gives a topic", "jokes", "playful remarks"} {
+	for _, fragment := range []string{"botMentioned: true", "역시 김인턴", "respond briefly and in kind", "공유합니다"} {
 		if !strings.Contains(prompt, fragment) {
 			t.Fatalf("expected addressing prompt to contain %q, got %s", fragment, prompt)
 		}
 	}
 }
 
-func TestAddressingClassificationOverridesHumanShouldReply(t *testing.T) {
+func TestAddressingClassificationOverridesHumanShouldRespond(t *testing.T) {
 	agentKernel := NewAgentKernel(nil, nil)
 	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
-		content: `{"target":"human","shouldReply":true,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
+		content: `{"target":"human","shouldRespond":true,"reactionEmoji":"","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
 	})
 
 	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "네 확인해볼게요"})
@@ -64,15 +64,40 @@ func TestAddressingClassificationOverridesHumanShouldReply(t *testing.T) {
 	if decision.Target != AddressingTargetHuman {
 		t.Fatalf("expected human target, got %+v", decision)
 	}
-	if decision.ShouldReply {
-		t.Fatalf("expected human target to override shouldReply=false, got %+v", decision)
+	if decision.ShouldRespond {
+		t.Fatalf("expected human target to override shouldRespond=false, got %+v", decision)
+	}
+}
+
+func TestAddressingClassificationConstrainsReactionEmojiToAllowedSet(t *testing.T) {
+	agentKernel := NewAgentKernel(nil, nil)
+	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
+		content: `{"target":"bot","shouldRespond":false,"reactionEmoji":"eyes","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
+	})
+	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "이거 봐주세요"})
+	if errorValue != nil {
+		t.Fatalf("expected addressing classification: %v", errorValue)
+	}
+	if decision.ReactionEmoji != "eyes" {
+		t.Fatalf("expected allowed emoji to pass through, got %q", decision.ReactionEmoji)
+	}
+
+	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
+		content: `{"target":"bot","shouldRespond":false,"reactionEmoji":"sparkles","dutyMatch":false,"dutyName":"","dutyConfidence":0}`,
+	})
+	offListDecision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "이거 봐주세요"})
+	if errorValue != nil {
+		t.Fatalf("expected addressing classification: %v", errorValue)
+	}
+	if offListDecision.ReactionEmoji != "" {
+		t.Fatalf("expected an off-list emoji to be dropped (no reaction), got %q", offListDecision.ReactionEmoji)
 	}
 }
 
 func TestAddressingClassificationReturnsAmbientDutyFields(t *testing.T) {
 	agentKernel := NewAgentKernel(nil, nil)
 	agentKernel.UseIntakeLanguageModelProvider(addressingStaticLanguageModel{
-		content: `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":1.2}`,
+		content: `{"target":"anyone","shouldRespond":false,"reactionEmoji":"","dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":1.2}`,
 	})
 
 	decision, errorValue := agentKernel.ClassifyAddressing(context.Background(), AddressingClassificationRequest{Prompt: "오늘 5시 회의"})

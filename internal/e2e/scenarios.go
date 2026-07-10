@@ -553,7 +553,7 @@ func AmbientDutyCalendarAcceptanceScenario(artifactDirectoryPath string) Virtual
 		Name:                   "ambient_duty_calendar_acceptance",
 		ArtifactDirectoryPath:  artifactDirectoryPath,
 		RouterRequiredEvidence: []string{"calendar.add"},
-		AddressingResponse:     `{"target":"anyone","shouldReply":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
+		AddressingResponse:     `{"target":"anyone","shouldRespond":true,"dutyMatch":true,"dutyName":"calendar_upkeep","dutyConfidence":0.93}`,
 		Skills:                 []agent.SkillInstruction{calendarSkill()},
 		AllowedTools:           []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
 		CapabilityToolNames:    []string{"calendar.add"},
@@ -608,7 +608,7 @@ func AmbientTaskCaptureAcceptanceScenario(artifactDirectoryPath string) VirtualS
 	return VirtualSessionScenario{
 		Name:                  "ambient_task_capture_acceptance",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		AddressingResponse:    `{"target":"human","shouldReply":false,"dutyMatch":true,"dutyName":"team_flow_update","dutyConfidence":0.9}`,
+		AddressingResponse:    `{"target":"human","shouldRespond":false,"dutyMatch":true,"dutyName":"team_flow_update","dutyConfidence":0.9}`,
 		Skills:                []agent.SkillInstruction{flowTaskSkill()},
 		AllowedTools:          []string{"conversation.history", "memory.search", agent.CapabilityInvokeToolName},
 		CapabilityToolNames:   []string{"task.add", "task.list", "task.update"},
