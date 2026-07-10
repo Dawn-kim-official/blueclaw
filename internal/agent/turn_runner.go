@@ -21,6 +21,7 @@ type TurnOptions struct {
 	RecoveryAttemptLimit int
 	RecoveryBudget       RecoveryBudget
 	EffortLevel          EffortLevel
+	ModelTier            string
 	ToolResultMaxBytes   int
 	GenerationOptions    llm.GenerationOptions
 }
@@ -322,6 +323,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	taskRun := agentTurnRunner.taskRunForRequest(request)
 	agentTurnRunner.appendTaskSourceEvent(taskRun.TaskRunID, request.SourceReference)
 	observeRecord := func(record llmCallRecord) {
+		record.ModelTier = agentTurnRunner.options.ModelTier
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))
 	}
 	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, observeRecord)
