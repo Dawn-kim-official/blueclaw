@@ -965,9 +965,13 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 	}
 	event = connectorRuntime.withInitialVisibleContext(ctx, adapter, event)
 	addressingLaunch := connectorRuntime.resolveInboundEngagement(ctx, platform, event)
+	if addressingLaunch.ReactionEmoji != "" {
+		connectorRuntime.addAddressingReaction(ctx, platform, adapter, event, addressingLaunch.ReactionEmoji)
+	}
 	if !addressingLaunch.ShouldLaunch {
-		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", addressingLaunch.IgnoreReason))
-		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: addressingLaunch.IgnoreReason}, nil
+		reason := firstNonEmptyString(addressingLaunch.IgnoreReason, "addressing_react_only")
+		connectorRuntime.logger.Info("connector."+platform+".ingress.ignored", slog.String("messageID", event.MessageID), slog.String("reason", reason))
+		return ConnectorRuntimeResult{Handled: true, Platform: platform, Ignored: true, Reason: reason}, nil
 	}
 	if connectorRuntime.shouldDeferNewTaskLaunch(isApprovalContinuation, hasPendingAskInteraction, hasActiveGoal) {
 		connectorRuntime.logger.Info("connector."+platform+".ingress.deferred", slog.String("messageID", event.MessageID), slog.String("reason", "task_intake_quiesced"))
@@ -1039,6 +1043,23 @@ func (connectorRuntime *ConnectorRuntime) shouldDeferNewTaskLaunch(isApprovalCon
 
 func shouldDeferQueuedConnectorEvent(result ConnectorRuntimeResult) bool {
 	return result.Ignored && result.Reason == "task_intake_quiesced"
+}
+
+func (connectorRuntime *ConnectorRuntime) addAddressingReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, reactionEmojiName string) {
+	reactionAdapter, isSupported := adapter.(MessageReactionAdapter)
+	if !isSupported {
+		return
+	}
+	target := ReactionTarget{
+		Platform:       platform,
+		ConversationID: event.ConversationID,
+		MessageID:      event.MessageID,
+		EmojiName:      consumeReactionEmojiName(reactionEmojiName),
+		Reason:         "addressing_ack",
+	}
+	if errorValue := reactionAdapter.AddReaction(ctx, target); errorValue != nil {
+		connectorRuntime.logger.Warn("connector."+platform+".reaction.failed", slog.String("messageID", event.MessageID), slog.String("emojiName", target.EmojiName), slog.String("error", errorValue.Error()))
+	}
 }
 
 func (connectorRuntime *ConnectorRuntime) addConsumeReaction(ctx context.Context, platform string, adapter PlatformAdapter, event PlatformInboundEvent, taskRunID string, reactionEmojiName string) string {

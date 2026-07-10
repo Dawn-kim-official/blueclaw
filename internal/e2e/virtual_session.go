@@ -1135,7 +1135,7 @@ func actionScriptedLanguageModelForScenario(scenario VirtualSessionScenario) *ag
 
 func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string {
 	defaultResponses := map[string]string{}
-	defaultResponses["blueclaw_addressing_classification"] = `{"target":"anyone","shouldReply":false,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`
+	defaultResponses["blueclaw_addressing_classification"] = `{"target":"anyone","shouldRespond":false,"dutyMatch":false,"dutyName":"","dutyConfidence":0}`
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}

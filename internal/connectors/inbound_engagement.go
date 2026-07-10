@@ -11,9 +11,10 @@ import (
 const ambientDutyLaunchConfidenceThreshold = 0.7
 
 type inboundEngagementDecision struct {
-	ShouldLaunch bool
-	IgnoreReason string
-	AmbientDuty  agent.AmbientDutyContext
+	ShouldLaunch  bool
+	ReactionEmoji string
+	IgnoreReason  string
+	AmbientDuty   agent.AmbientDutyContext
 }
 
 func shouldIgnoreUninvitedAddressing(event PlatformInboundEvent) bool {
@@ -24,14 +25,13 @@ func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.C
 	if !isMultiPersonConversation(event) {
 		return inboundEngagementDecision{ShouldLaunch: true}
 	}
-	if event.Context.Addressing.BotMentioned {
-		return inboundEngagementDecision{ShouldLaunch: true}
-	}
-	if event.Context.AttachmentsOnly {
+	botMentioned := event.Context.Addressing.BotMentioned
+	if event.Context.AttachmentsOnly && !botMentioned {
 		return inboundEngagementDecision{IgnoreReason: "attachments_only_uninvited"}
 	}
 	addressingDecision, errorValue := connectorRuntime.agentKernel.ClassifyAddressing(ctx, agent.AddressingClassificationRequest{
 		Prompt:           event.Prompt,
+		BotMentioned:     botMentioned,
 		MessageSentAt:    event.RawReceivedAt,
 		ConversationType: event.Context.ConversationType,
 		SenderName:       event.Context.Sender.Name,
@@ -40,16 +40,21 @@ func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.C
 	})
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".addressing.classifier_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
+		if botMentioned {
+			return inboundEngagementDecision{ShouldLaunch: true}
+		}
 		return inboundEngagementDecision{IgnoreReason: "addressing_classifier_failed dutyMatch=false"}
 	}
-	if addressingDecision.Target == agent.AddressingTargetBot {
-		return inboundEngagementDecision{ShouldLaunch: true}
-	}
 	ambientDuty := ambientDutyContextFromAddressingDecision(addressingDecision)
-	if ambientDuty.IsMatch {
-		return inboundEngagementDecision{ShouldLaunch: true, AmbientDuty: ambientDuty}
+	shouldLaunch := addressingDecision.ShouldRespond || ambientDuty.IsMatch
+	if !shouldLaunch && addressingDecision.ReactionEmoji == "" {
+		return inboundEngagementDecision{IgnoreReason: "addressing_" + string(addressingDecision.Target) + " dutyMatch=false"}
 	}
-	return inboundEngagementDecision{IgnoreReason: "addressing_" + string(addressingDecision.Target) + " dutyMatch=false"}
+	return inboundEngagementDecision{
+		ShouldLaunch:  shouldLaunch,
+		ReactionEmoji: addressingDecision.ReactionEmoji,
+		AmbientDuty:   ambientDuty,
+	}
 }
 
 func isMultiPersonConversation(event PlatformInboundEvent) bool {
