@@ -61,17 +61,19 @@ func TestResolveModelTierNamesUsesBuiltInDefaults(t *testing.T) {
 	}
 }
 
-func TestResolveModelTierNamesFallsBackToCapabilityModelForEveryTier(t *testing.T) {
+func TestResolveModelTierNamesIgnoresUntieredModelForTiers(t *testing.T) {
 	runtimeConfiguration := config.RuntimeConfiguration{}
 	runtimeConfiguration.LanguageModel.Capability.Model = "google/custom-base"
 
 	tierNames := ResolveModelTierNames(runtimeConfiguration)
-	if tierNames.High != "google/custom-base" ||
-		tierNames.Medium != "google/custom-base" ||
-		tierNames.Low != "google/custom-base" ||
-		tierNames.XLow != "google/custom-base" ||
-		tierNames.Coding != "google/custom-base" {
-		t.Fatalf("expected every tier to fall back to capability model, got %+v", tierNames)
+	if tierNames.XHigh != defaultXHighModelName ||
+		tierNames.Max != defaultMaxModelName ||
+		tierNames.High != defaultHighModelName ||
+		tierNames.Medium != defaultMediumModelName ||
+		tierNames.Low != defaultLowModelName ||
+		tierNames.XLow != defaultXLowModelName ||
+		tierNames.Coding != defaultCodingModelName {
+		t.Fatalf("expected each tier to keep its own default and ignore the untiered model, got %+v", tierNames)
 	}
 }
 
