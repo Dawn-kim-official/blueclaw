@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
+
+	"blueclaw/internal/task"
 )
 
 func gateTestRunner() *AgentTurnRunner {
@@ -123,5 +126,68 @@ func TestQualityGateSingleScorelessFailureForcesOneRetry(t *testing.T) {
 	second := append(first, newContentObservation(nextObservationID(2), "continue", "terminal.run", string(scorelessContent)))
 	if _, retryRequired := runner.qualityGateRetryDirective(second, 2, time.Now()); retryRequired {
 		t.Fatal("expected scoreless failures to stall after the forced retry")
+	}
+}
+
+func TestRunTurnDefersDeliveryUntilQualityGateImproves(t *testing.T) {
+	failedGateOutput := `{"exitCode":0,"stdout":"QUALITY_GATE {\"source\":\"presentation-review\",\"passed\":false,\"score\":10}","stderr":""}`
+	passedGateOutput := `{"exitCode":0,"stdout":"QUALITY_GATE {\"source\":\"presentation-review\",\"passed\":true,\"score\":90}","stderr":""}`
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build.sh"}}`,
+			`{"action":"continue","toolName":"file.deliver","toolInput":{"files":[{"path":"tmp/deck/build/deck.pdf"}]}}`,
+			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/slides.html","content":"<html>revised</html>"}}`,
+			`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"build.sh"}}`,
+			`{"action":"continue","toolName":"file.deliver","toolInput":{"files":[{"path":"tmp/deck/build/deck.pdf"}]}}`,
+			`{"action":"finish","message":"덱을 전달했습니다.","replyParts":[{"type":"text","text":"덱을 전달했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-005","toolName":"file.deliver"}]}`,
+		},
+		textResponses: []string{"progress saved"},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		EffortLevel:       EffortLevelStandard,
+		MaxIterationCount: 20,
+		MaxToolCallCount:  20,
+	})
+	terminalRunCount := 0
+	deliverCount := 0
+	toolRegistry := newTestToolSet([]string{"terminal.run", "file.write", "file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		terminalRunCount++
+		if terminalRunCount == 1 {
+			return ToolSuccess(failedGateOutput), nil
+		}
+		return ToolSuccess(passedGateOutput), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"path":"tmp/deck/slides.html"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		deliverCount++
+		return ToolSuccess(`files delivered`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "make the deck",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   []string{"terminal.run", "file.write", "file.deliver"},
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected completed run, got error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		for _, taskEvent := range services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID) {
+			t.Logf("event %s: %.200s", taskEvent.Name, taskEvent.Body)
+		}
+		t.Fatalf("expected completed task, got %s (%s)", result.TaskRun.Status, result.TaskRun.FailureReason)
+	}
+	if deliverCount != 1 {
+		t.Fatalf("expected exactly one executed delivery, got %d", deliverCount)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.quality_gate_retry_required", "passed=false") {
+		t.Fatalf("expected quality gate retry event, got %+v", taskEvents)
 	}
 }

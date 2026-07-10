@@ -98,7 +98,7 @@ func TestPresentationSkillCarriesDesignGuidanceWithoutTemplateAsset(t *testing.T
 			t.Fatalf("expected SKILL.md to preserve design guidance fragment %q", fragment)
 		}
 	}
-	if !strings.Contains(skillDocument, "`DESIGN.md` is the design brief") {
+	if !strings.Contains(skillDocument, "`DESIGN.md` the design brief") {
 		t.Fatal("SKILL.md should define DESIGN.md as an authoring brief")
 	}
 	if !strings.Contains(skillDocument, "shell heredocs") {
@@ -107,7 +107,7 @@ func TestPresentationSkillCarriesDesignGuidanceWithoutTemplateAsset(t *testing.T
 	if !strings.Contains(skillDocument, "Avoid bullet-only decks") {
 		t.Fatal("SKILL.md should discourage bullet-only decks")
 	}
-	if !strings.Contains(skillDocument, "Use HTML as the layout surface") {
+	if !strings.Contains(skillDocument, "HTML is the layout surface") {
 		t.Fatal("SKILL.md should guide agents toward HTML layout authoring")
 	}
 	layoutDocument := readTestFile(t, filepath.Join(skillDirectoryPath, "assets", "layouts.md"))
