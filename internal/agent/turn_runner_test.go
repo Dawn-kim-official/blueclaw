@@ -640,8 +640,11 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 		t.Fatal("finish schema must not allow failure_report; failure reports must use fail with usedFailureFacts")
 	}
 	finishGoalSatisfied := mapFromAny(finishMessageProperties["goalSatisfied"])
-	if !booleanEnumHasOnly(finishGoalSatisfied["enum"], true) {
-		t.Fatalf("finish schema must require goalSatisfied=true, got %+v", finishGoalSatisfied)
+	if finishGoalSatisfied["type"] != "boolean" {
+		t.Fatalf("finish schema goalSatisfied must be a boolean, got %+v", finishGoalSatisfied)
+	}
+	if _, hasEnum := finishGoalSatisfied["enum"]; hasEnum {
+		t.Fatalf("finish schema goalSatisfied must not use a single-value boolean enum; gemini structured output rejects it, got %+v", finishGoalSatisfied)
 	}
 	failVariant := actionSchemaVariant(t, schemaDocument, "fail")
 	failRequired := stringSliceFromAny(failVariant["required"])
@@ -652,8 +655,11 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 	}
 	failProperties := mapFromAny(failVariant["properties"])
 	failGoalSatisfied := mapFromAny(failProperties["goalSatisfied"])
-	if !booleanEnumHasOnly(failGoalSatisfied["enum"], false) {
-		t.Fatalf("fail schema must require goalSatisfied=false, got %+v", failGoalSatisfied)
+	if failGoalSatisfied["type"] != "boolean" {
+		t.Fatalf("fail schema goalSatisfied must be a boolean, got %+v", failGoalSatisfied)
+	}
+	if _, hasEnum := failGoalSatisfied["enum"]; hasEnum {
+		t.Fatalf("fail schema goalSatisfied must not use a single-value boolean enum; gemini structured output rejects it, got %+v", failGoalSatisfied)
 	}
 	usedFailureFacts := mapFromAny(failProperties["usedFailureFacts"])
 	attempts := mapFromAny(mapFromAny(usedFailureFacts["properties"])["attempts"])
@@ -2152,15 +2158,6 @@ func stringSliceFromAny(value any) []string {
 		}
 	}
 	return result
-}
-
-func booleanEnumHasOnly(value any, expected bool) bool {
-	values, isSlice := value.([]any)
-	if !isSlice || len(values) != 1 {
-		return false
-	}
-	boolValue, isBool := values[0].(bool)
-	return isBool && boolValue == expected
 }
 
 func containsString(values []string, target string) bool {
