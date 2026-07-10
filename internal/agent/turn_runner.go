@@ -591,19 +591,6 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				}
 				continue
 			}
-			if failureDebt, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt && !recoveryToolBudgetExhaustedForRequest(state.Observations, request.ToolSet, agentTurnRunner.options.RecoveryBudget, failureDebt) {
-				originalInstruction := firstNonEmptyString(request.ActiveGoal.OriginalInstruction, request.Prompt)
-				observation := recoveryGuidanceObservation(len(state.Observations)+1, failureDebt.LatestFailure, originalInstruction)
-				observation = withObservationContent(observation, "FailureDebt is still active. Try a different recovery step within budget, answer without tools using failureResolution=no_tool_fallback if enough context exists, or fail only after recovery budget is exhausted. "+observation.ContentText())
-				observation.Summary = observation.ContentText()
-				state.Observations = append(state.Observations, observation)
-				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.recovery_blocked_fail", marshalEventBody(observation))
-				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "recovery_required", observation.ContentText())
-				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
-					return result, nil
-				}
-				continue
-			}
 			if _, hasFailureDebt := activeFailureDebt(state.Observations); hasFailureDebt {
 				facts := buildFailureReportFacts(state.Observations, agentTurnRunner.options.RecoveryBudget)
 				failureReportResult := validateFailureReportAction(actionDocument, facts)
