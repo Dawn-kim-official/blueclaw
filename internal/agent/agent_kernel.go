@@ -695,7 +695,7 @@ func artifactTaskLevelFloor(request AgentRequest, intakeDecision IntakeDecision)
 	if intakeDecisionHasSitePrototypeEvidence(request, intakeDecision) {
 		return TaskLevelXHigh
 	}
-	if requestLooksLikeSlidesArtifactWork(request) {
+	if requestLooksLikeSlidesArtifactWork(request) || intakeDecisionRequestsSlidesArtifact(intakeDecision) {
 		return TaskLevelXHigh
 	}
 	return TaskLevelXLow

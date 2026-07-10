@@ -114,6 +114,17 @@ func TestArtifactTaskLevelFloorRaisesSiteAndSlidesToXHigh(t *testing.T) {
 	}
 }
 
+// A fresh presentation task carries its .pptx signal in the intake decision's
+// requested output formats (populated from the selected skill), not yet in the
+// request's outcome contract, which is built later. The xhigh floor must read
+// that signal, or new slide tasks silently run below xhigh.
+func TestArtifactTaskLevelFloorRaisesSlidesFromIntakeDecisionOutputFormats(t *testing.T) {
+	floor := artifactTaskLevelFloor(AgentRequest{}, IntakeDecision{RequestedOutputFormats: []string{"pptx"}})
+	if floor != TaskLevelXHigh {
+		t.Fatalf("expected a slides output format to floor at xhigh, got %q", floor)
+	}
+}
+
 func TestTaskLanguageModelForLevelSelectsClient(t *testing.T) {
 	kernel := &AgentKernel{
 		languageModel:           labeledLanguageModel{label: "low"},
