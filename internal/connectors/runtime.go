@@ -3312,7 +3312,7 @@ func (connectorRuntime *ConnectorRuntime) startProgress(ctx context.Context, ada
 }
 
 func shouldStartProgressBeforeAddressing(event PlatformInboundEvent) bool {
-	return !isMultiPersonConversation(event)
+	return !isMultiPersonConversation(event) || event.Context.Addressing.BotMentioned
 }
 
 func (connectorRuntime *ConnectorRuntime) startProgressHeartbeat(ctx context.Context, adapter PlatformAdapter, replyTarget ReplyTarget) func() {
