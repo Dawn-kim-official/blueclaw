@@ -322,6 +322,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 	taskRun := agentTurnRunner.taskRunForRequest(request)
 	agentTurnRunner.appendTaskSourceEvent(taskRun.TaskRunID, request.SourceReference)
 	observeRecord := func(record llmCallRecord) {
+		record.ModelTier = string(agentTurnRunner.options.TaskLevel)
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))
 	}
 	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, observeRecord)
@@ -537,6 +538,16 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "set_quality_criteria", marshalEventBody(map[string]any{"criteria": state.QualityCriteria}))
 			continue
 		case "finish":
+			if message, retryRequired := agentTurnRunner.qualityGateRetryDirective(state.Observations, state.ToolCallCount, request.TurnStartedAt); retryRequired {
+				observation := qualityGateRetryObservation(nextObservationID(len(state.Observations)+1), "finish", message)
+				state.Observations = append(state.Observations, observation)
+				agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.quality_gate_retry_required", marshalEventBody(observation))
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "quality_gate_retry_required finish", observation.ContentText())
+				if result, shouldStop := stopForNoProgress(stepID); shouldStop {
+					return result, nil
+				}
+				continue
+			}
 			completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, actionDocument)
 			agentTurnRunner.appendValidityReview(taskRun.TaskRunID, "finish", completionGateResult.ValidityState)
 			if !completionGateResult.IsSatisfied {
@@ -675,6 +686,9 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return outcome
 	}
 	if outcome := agentTurnRunner.rejectUnrelatedAskAction(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
+		return outcome
+	}
+	if outcome := agentTurnRunner.rejectBelowGateDelivery(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
 	if !request.IsApprovalContinuation && nativeToolRequiresRuntimeApproval(request.ToolSet, actionDocument.ToolName) {
