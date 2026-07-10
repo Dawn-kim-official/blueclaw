@@ -387,12 +387,14 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		CheckpointSender:           request.CheckpointSender,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
+	selectedModelTier := resolvedTaskModelTier(intakeDecision.TaskComplexity, turnOptions.EffortLevel)
+	turnOptions.ModelTier = string(selectedModelTier)
 
 	agentTurnRunner := NewAgentTurnRunnerWithRecoveryModel(
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
 		agentKernel.taskArtifactService,
-		agentKernel.taskLanguageModelForTier(resolvedTaskModelTier(intakeDecision.TaskComplexity, turnOptions.EffortLevel)),
+		agentKernel.taskLanguageModelForTier(selectedModelTier),
 		agentKernel.languageModel,
 		turnOptions,
 	)
