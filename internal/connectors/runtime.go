@@ -2479,11 +2479,15 @@ func (connectorRuntime *ConnectorRuntime) appendConnectorReplyEvent(taskRunID st
 func (connectorRuntime *ConnectorRuntime) sendCheckpointReply(ctx context.Context, platform string, event PlatformInboundEvent, replyTarget ReplyTarget, checkpoint agent.AgentCheckpoint, sendReply func(context.Context, ReplyTarget, OutboundReply) (string, error)) error {
 	message := strings.TrimSpace(checkpoint.Message)
 	taskRunID := strings.TrimSpace(checkpoint.TaskRunID)
+	ephemeralUserID := strings.TrimSpace(event.SenderID)
+	if checkpoint.Durable {
+		ephemeralUserID = ""
+	}
 	reply := OutboundReply{
 		Message:         message,
 		TaskRunID:       taskRunID,
 		ReplyKind:       connectorReplyKindCheckpoint,
-		EphemeralUserID: strings.TrimSpace(event.SenderID),
+		EphemeralUserID: ephemeralUserID,
 	}
 	if message == "" {
 		connectorRuntime.appendConnectorReplyEvent(taskRunID, "connector.reply.suppressed", connectorReplyEventBody(event, reply, "", "", "missing_checkpoint_message"))

@@ -375,6 +375,8 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		AmbientDuty:                request.AmbientDuty,
 		TaskShape:                  intakeDecision.TaskShape,
 		TaskLevel:                  intakeDecision.TaskLevel,
+		EstimatedMinutes:           intakeDecision.EstimatedMinutes,
+		LaunchNotice:               intakeDecision.LaunchNotice,
 		TurnStartedAt:              request.TurnStartedAt,
 		CheckpointSender:           request.CheckpointSender,
 	}
@@ -687,8 +689,24 @@ func (agentKernel *AgentKernel) turnOptionsForIntakeDecision(intakeDecision Inta
 	baseOptions.TaskLevel = taskLevelProfile.TaskLevel
 	baseOptions.MaxIterationCount = taskLevelProfile.MaxIterationCount
 	baseOptions.MaxToolCallCount = taskLevelProfile.MaxToolCallCount
-	baseOptions.MaxElapsedSecond = int(taskLevelProfile.Duration.Seconds())
+	baseOptions.MaxElapsedSecond = timeBudgetSecondsForIntake(taskLevelProfile, intakeDecision.EstimatedMinutes)
 	return baseOptions
+}
+
+// timeBudgetSecondsForIntake uses the shorter of the tier's ceiling and 1.5x the
+// intake's own minute estimate, so a task the model expects to finish quickly
+// gets a tight budget (and earlier budget pressure) even on a high tier, while
+// the tier still caps how long anything can run.
+func timeBudgetSecondsForIntake(taskLevelProfile TaskLevelProfile, estimatedMinutes int) int {
+	tierSeconds := int(taskLevelProfile.Duration.Seconds())
+	if estimatedMinutes <= 0 {
+		return tierSeconds
+	}
+	estimateSeconds := estimatedMinutes * 90
+	if estimateSeconds < tierSeconds {
+		return estimateSeconds
+	}
+	return tierSeconds
 }
 
 func artifactTaskLevelFloor(request AgentRequest, intakeDecision IntakeDecision) TaskLevel {

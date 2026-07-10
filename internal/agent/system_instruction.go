@@ -14,7 +14,7 @@ func buildAgentSystemInstruction(request AgentTurnRequest) string {
 	if taskLevelWantsSingleFinalReply(request.TaskLevel) {
 		instruction += " This is a short task: keep every continue.message empty and put all user-facing content in the final finish.message."
 	} else if taskLevelWantsProgressCheckpoints(request.TaskLevel) {
-		instruction += " This is a multi-step task: a checkpoint is useful only for meaningful progress, route changes, or findings the user would reasonably want before completion."
+		instruction += " This is a multi-step task: a checkpoint is useful only for meaningful progress, route changes, or findings the user would reasonably want before completion. Right before a step that will run for a while — a build, render, deploy, dependency install, or a long fetch — send a short continue.message so the user is not left waiting in silence; say concretely what is running, not a filler phrase."
 	} else {
 		instruction += " This is an ordinary task: use checkpoint messages sparingly, only when the work is getting long or user-visible direction changed."
 	}
