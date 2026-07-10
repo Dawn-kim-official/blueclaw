@@ -85,5 +85,5 @@ func requestRequiresBrowserEvidence(request AgentTurnRequest) bool {
 }
 
 func requestOnlyOpensBrowser(request AgentTurnRequest) bool {
-	return request.TaskComplexity == TaskComplexitySimple && requestRequiresBrowserEvidence(request)
+	return taskLevelWantsSingleFinalReply(request.TaskLevel) && requestRequiresBrowserEvidence(request)
 }

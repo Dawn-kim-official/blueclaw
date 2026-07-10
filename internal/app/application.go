@@ -159,7 +159,7 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 	lowTierLanguageModelProvider := taskTierLanguageModels.Low
 	if lowTierLanguageModelProvider != nil {
 		agentKernel.UseLanguageModelProvider(lowTierLanguageModelProvider)
-		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.High, taskTierLanguageModels.Medium, taskTierLanguageModels.XLow, taskTierLanguageModels.Coding)
+		agentKernel.UseTaskTierLanguageModels(taskTierLanguageModels.Max, taskTierLanguageModels.XHigh, taskTierLanguageModels.High, taskTierLanguageModels.Medium, taskTierLanguageModels.XLow, taskTierLanguageModels.Coding)
 	}
 	capabilityClient := newCapabilityClient(runtimeConfiguration)
 	logger.Info("application.initializing", "stage", "skill_retriever")
@@ -398,13 +398,13 @@ func NewApplication(runtimeConfiguration config.RuntimeConfiguration, policyPath
 }
 
 func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) agent.TurnOptions {
-	effortProfile := agent.EffortLimitProfileForLevel(agent.EffortLevel(runtimeConfiguration.Agent.DefaultEffortLevel))
+	taskLevelProfile := agent.TaskLevelProfileForLevel(agent.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel))
 	return agent.TurnOptions{
-		MaxIterationCount:   effortProfile.MaxIterationCount,
-		MaxToolCallCount:    effortProfile.MaxToolCallCount,
-		MaxElapsedSecond:    int(effortProfile.Duration.Seconds()),
+		MaxIterationCount:   taskLevelProfile.MaxIterationCount,
+		MaxToolCallCount:    taskLevelProfile.MaxToolCallCount,
+		MaxElapsedSecond:    int(taskLevelProfile.Duration.Seconds()),
 		ContextWindowTokens: runtimeConfiguration.LanguageModel.Capability.ContextWindowTokens,
-		EffortLevel:         effortProfile.EffortLevel,
+		TaskLevel:           taskLevelProfile.TaskLevel,
 		ToolResultMaxBytes:  runtimeConfiguration.Agent.ToolResultMaxBytes,
 		GenerationOptions: llm.GenerationOptions{
 			Seed:        runtimeConfiguration.Agent.GenerationOptions.Seed,
@@ -421,9 +421,9 @@ func deriveAgentTurnOptions(runtimeConfiguration config.RuntimeConfiguration) ag
 
 func deriveAgentIntakeOptions(runtimeConfiguration config.RuntimeConfiguration) agent.IntakeOptions {
 	return agent.IntakeOptions{
-		IsEnabled:          runtimeConfiguration.Agent.Intake.Enabled,
-		DefaultEffortLevel: agent.EffortLevel(runtimeConfiguration.Agent.DefaultEffortLevel),
-		SkillEffortFloor:   agent.EffortLevel(runtimeConfiguration.Agent.SkillEffortFloor),
+		IsEnabled:           runtimeConfiguration.Agent.Intake.Enabled,
+		DefaultTaskLevel:    agent.NormalizeTaskLevel(runtimeConfiguration.Agent.DefaultTaskLevel),
+		SkillTaskLevelFloor: agent.NormalizeTaskLevel(runtimeConfiguration.Agent.SkillTaskLevelFloor),
 	}
 }
 
@@ -837,6 +837,8 @@ type taskTierLanguageModelProviders struct {
 	XLow   llm.LanguageModelProvider
 	Medium llm.LanguageModelProvider
 	High   llm.LanguageModelProvider
+	XHigh  llm.LanguageModelProvider
+	Max    llm.LanguageModelProvider
 	Coding llm.LanguageModelProvider
 }
 
@@ -850,6 +852,8 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 	xLowModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.XLow)
 	mediumModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Medium)
 	highModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.High)
+	xHighModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.XHigh)
+	maxModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Max)
 	codingModel := llm.NewCapabilityLLMClientForModel(languageModelConfiguration, tierNames.Coding)
 
 	lowWithFallback := llm.LanguageModelProvider(lowModel)
@@ -883,6 +887,20 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		FallbackLabel:    "medium",
 		Logger:           logger,
 	}
+	xHighWithFallback := llm.FallbackLanguageModelProvider{
+		PrimaryProvider:  xHighModel,
+		FallbackProvider: highWithFallback,
+		PrimaryLabel:     "xhigh",
+		FallbackLabel:    "high",
+		Logger:           logger,
+	}
+	maxWithFallback := llm.FallbackLanguageModelProvider{
+		PrimaryProvider:  maxModel,
+		FallbackProvider: xHighWithFallback,
+		PrimaryLabel:     "max",
+		FallbackLabel:    "xhigh",
+		Logger:           logger,
+	}
 	codingWithFallback := llm.FallbackLanguageModelProvider{
 		PrimaryProvider: llm.VisionFallbackProvider{
 			TextOnlyModel: codingModel,
@@ -898,6 +916,8 @@ func resolveTaskTierLanguageModelProviders(runtimeConfiguration config.RuntimeCo
 		XLow:   xLowWithFallback,
 		Medium: mediumWithFallback,
 		High:   highWithFallback,
+		XHigh:  xHighWithFallback,
+		Max:    maxWithFallback,
 		Coding: codingWithFallback,
 	}
 }
