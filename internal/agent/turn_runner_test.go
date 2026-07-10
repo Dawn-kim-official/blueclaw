@@ -668,7 +668,7 @@ func TestActionSchemaRequiresFailureResolutionWhenFailureDebtActive(t *testing.T
 	}
 }
 
-func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
+func TestActionSchemaExposesFailWhileRecoveryBudgetRemains(t *testing.T) {
 	toolRegistry := newTestToolSet([]string{"site.publish", "file.write"})
 	request := BuildAgentActionRequest(agentTaskState{
 		Request: AgentTurnRequest{ToolSet: toolRegistry},
@@ -684,8 +684,8 @@ func TestActionSchemaHidesFailWhileRecoveryBudgetRemains(t *testing.T) {
 		}},
 	})
 	schemaDocument := request.StructuredOutputSchema.Document
-	if actionSchemaHasVariant(t, schemaDocument, "fail") {
-		t.Fatalf("expected fail action to be hidden while recovery budget remains, got %s", schemaDocument)
+	if !actionSchemaHasVariant(t, schemaDocument, "fail") {
+		t.Fatalf("expected fail action to stay available so the agent can give up on its own judgment, got %s", schemaDocument)
 	}
 	if !actionSchemaHasVariant(t, schemaDocument, "finish") {
 		t.Fatalf("expected finish fallback to remain available, got %s", schemaDocument)
