@@ -208,8 +208,6 @@ type TerminalConfiguration struct {
 	SandboxProvider        string   `json:"sandboxProvider"`
 	WorkspaceRootPath      string   `json:"workspaceRootPath"`
 	POSIXHelperPath        string   `json:"posixHelperPath"`
-	AllowedExecutableNames []string `json:"allowedExecutableNames"`
-	DeniedExecutableNames  []string `json:"deniedExecutableNames"`
 	DeniedPathPrefixes     []string `json:"deniedPathPrefixes"`
 	TimeoutSecond          int      `json:"timeoutSecond"`
 	OutputMaxBytes         int      `json:"outputMaxBytes"`
