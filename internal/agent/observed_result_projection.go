@@ -71,7 +71,7 @@ func factsFromObservation(observation turnObservation) []ObservedFact {
 	switch strings.TrimSpace(observation.Tool) {
 	case "file.write":
 		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "created"))
-	case "file.edit", "file.patch":
+	case "file.edit":
 		return appendWorkspaceModifiedFact(filePathObservationFacts(observation, "file", "updated"))
 	case "calendar.add":
 		return toolObjectFact(observation, "calendar_event", "scheduled")

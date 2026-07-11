@@ -27,7 +27,7 @@ func TestToolExposureUsesFixedKernelOnly(t *testing.T) {
 			t.Fatalf("expected non-kernel tool %s to be hidden, got %+v", hiddenToolName, filteredToolSet.ListToolNames())
 		}
 	}
-	for _, kernelToolName := range []string{"file.read", "file.write", "file.edit", "file.patch", "file.preview", "image.read"} {
+	for _, kernelToolName := range []string{"file.read", "file.write", "file.edit", "file.preview", "image.read"} {
 		if !filteredToolSet.IsAllowed(kernelToolName) {
 			t.Fatalf("expected coding kernel tool %s to be exposed, got %+v", kernelToolName, filteredToolSet.ListToolNames())
 		}
