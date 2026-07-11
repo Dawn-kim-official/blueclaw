@@ -37,6 +37,22 @@ func TestBuildAgentActionRequestIncludesExecutionStateAndTerminalTail(t *testing
 	}
 }
 
+func TestSummarizeTerminalRunSurfacesExitAndOutputInsteadOfBareSuccess(t *testing.T) {
+	observation := terminalSuccessObservation("obs-001", "tmp/deck", "build.sh", strings.Join([]string{
+		"[stage] build_formats_start",
+		"[warning] browser render environment is unavailable; continuing with fallback review/export",
+	}, "\n"))
+
+	summary := summarizeTerminalRun(observation)
+
+	if !strings.Contains(summary, "exitCode=") {
+		t.Fatalf("expected exit code in terminal summary, got %q", summary)
+	}
+	if !strings.Contains(summary, "browser render environment is unavailable") {
+		t.Fatalf("expected the render warning surfaced instead of a bare success, got %q", summary)
+	}
+}
+
 func TestTerminalObservationTailKeepsSmallBuildListingsUseful(t *testing.T) {
 	observation := terminalSuccessObservation("obs-003", "tmp/deck", "ls -R build/", strings.Join([]string{
 		"build/:",
