@@ -26,6 +26,12 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "restore-workspace" {
+		if errorValue := restoreWorkspace(os.Args[2:]); errorValue != nil {
+			log.Fatal(errorValue)
+		}
+		return
+	}
 
 	runtimeConfigurationPath := flag.String("runtime", "config/runtime.example.json", "runtime configuration path")
 	flag.Parse()
@@ -102,6 +108,18 @@ func main() {
 	}
 }
 
+func restoreWorkspace(arguments []string) error {
+	flagSet := flag.NewFlagSet("restore-workspace", flag.ContinueOnError)
+	workspaceImagePath := flagSet.String("workspace-image", "", "workspace image path")
+	if errorValue := flagSet.Parse(arguments); errorValue != nil {
+		return errorValue
+	}
+	if *workspaceImagePath == "" {
+		return fmt.Errorf("workspace image path is required")
+	}
+	return (firecracker.WorkspaceVolumeService{}).RestorePreviousWorkspaceImage(*workspaceImagePath)
+}
+
 func prepareGuestShutdown(hostHTTPListenAddress string) {
 	if hostHTTPListenAddress == "" {
 		return
@@ -128,11 +146,17 @@ func syncWorkspace(arguments []string) error {
 	runtimeConfigurationPath := flagSet.String("runtime", "", "runtime configuration path")
 	workspaceImagePath := flagSet.String("workspace-image", "", "workspace image path")
 	sourceDirectoryPath := flagSet.String("source", "", "source directory path")
+	relativeTargetPath := flagSet.String("relative-target", "", "workspace-relative target directory")
+	isAtomic := flagSet.Bool("atomic", false, "copy and atomically replace the workspace image")
+	preserveGuestState := flagSet.Bool("preserve-guest-state", false, "preserve guest-owned workspace state")
 	if errorValue := flagSet.Parse(arguments); errorValue != nil {
 		return errorValue
 	}
 	if *sourceDirectoryPath == "" {
 		return fmt.Errorf("source directory path is required")
+	}
+	if !*isAtomic {
+		return fmt.Errorf("sync-workspace requires --atomic")
 	}
 
 	resolvedWorkspaceImagePath := *workspaceImagePath
@@ -148,9 +172,11 @@ func syncWorkspace(arguments []string) error {
 	}
 
 	workspaceVolumeService := firecracker.WorkspaceVolumeService{}
-	workspaceMetadata, errorValue := workspaceVolumeService.EnsureWorkspaceImage(resolvedWorkspaceImagePath)
-	if errorValue != nil {
-		return errorValue
+	if *preserveGuestState {
+		if *relativeTargetPath != "" {
+			return fmt.Errorf("--preserve-guest-state cannot be combined with --relative-target")
+		}
+		return workspaceVolumeService.SyncWorkspaceDirectoryPreservingGuestStateAtomically(resolvedWorkspaceImagePath, *sourceDirectoryPath)
 	}
-	return workspaceVolumeService.SyncWorkspaceDirectory(workspaceMetadata.HostImagePath, *sourceDirectoryPath)
+	return workspaceVolumeService.SyncWorkspaceDirectoryAtomically(resolvedWorkspaceImagePath, *sourceDirectoryPath, *relativeTargetPath)
 }
