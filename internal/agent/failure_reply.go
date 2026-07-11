@@ -476,6 +476,9 @@ func buildFailureReplyPrompt(request AgentTurnRequest, failureReason string, obs
 	if requiredArtifactWithoutAttachment(request, attachments) {
 		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no delivered file evidence is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the file was not delivered, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
 	}
+	if requiredArtifactWithAttachment(request, attachments) {
+		sections = append(sections, deliveredArtifactReplyInstruction)
+	}
 	if reason := strings.TrimSpace(failureReason); reason != "" {
 		sections = append(sections, "Failure reason for your private planning only. Paraphrase it safely for the user:\n"+reason)
 	}
@@ -494,6 +497,9 @@ func buildFailureReplyRepairPrompt(originalPrompt string, rejectedReply string, 
 	}
 	if requiredArtifactWithoutAttachment(request, attachments) {
 		sections = append(sections, "This was a required artifact request. Do not offer chat text as a substitute, do not ask an open-ended follow-up, do not recommend external slide or document tools, and do not expose raw identifiers such as errorCode or operation_failed. Say the artifact was not attached, name each failed tool or stage in natural language, include each safe failure reason, and identify the next engineering check.")
+	}
+	if requiredArtifactWithAttachment(request, attachments) {
+		sections = append(sections, deliveredArtifactReplyInstruction)
 	}
 	if failureFacts := buildFailureReportFacts(observations, defaultRecoveryBudget()); len(failureFacts.Attempts) > 0 {
 		sections = append(sections, "FailureReportFacts that must be reflected accurately:\n"+marshalEventBody(failureFacts))
@@ -584,6 +590,12 @@ func failureReplyIsInvalidForRequest(reply string, request AgentTurnRequest, fai
 func requiredArtifactWithoutAttachment(request AgentTurnRequest, attachments []FileAttachment) bool {
 	return requestRequiresFileAttachment(request) && len(attachments) == 0
 }
+
+func requiredArtifactWithAttachment(request AgentTurnRequest, attachments []FileAttachment) bool {
+	return requestRequiresFileAttachment(request) && len(attachments) > 0
+}
+
+const deliveredArtifactReplyInstruction = "Delivered artifact constraint:\nA requested file artifact WAS delivered and is attached below. Acknowledge the attached file as the current result. Do not claim the file was not created, not made, or not delivered. If the run stopped before further refinement, say only that this delivered version is the best result so far and further polishing was interrupted."
 
 func requestRequiresFileAttachment(request AgentTurnRequest) bool {
 	if request.OutcomeContract.ArtifactRequirement == ArtifactRequirementRequired {
@@ -689,6 +701,9 @@ func buildLimitReachedPrompt(request AgentTurnRequest, stopReason string, observ
 	}
 	if requiredArtifactWithoutAttachment(request, attachments) {
 		sections = append(sections, "Required artifact constraint:\nThe user asked for a file artifact and no delivered file evidence is available. Do not offer chat text as a substitute, do not ask whether to summarize the plan in the chat, do not recommend Gamma/Tome/Canva or copy-paste workflows, and do not end with an open-ended help question. State that the file was not delivered, name each failed tool/stage in natural language, include the safe concrete failure reason for each one, and identify the next engineering check. Do not collapse the cause into vague phrases such as browser connection problem, system environment error, technical limitation, or additional engineering confirmation.")
+	}
+	if requiredArtifactWithAttachment(request, attachments) {
+		sections = append(sections, deliveredArtifactReplyInstruction)
 	}
 	if observationSummary := buildLimitObservationSummary(observations); observationSummary != "" {
 		sections = append(sections, "Completed observations:\n"+observationSummary)

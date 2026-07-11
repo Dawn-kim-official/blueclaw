@@ -13,7 +13,7 @@ func TestWorkspacePathResolverRejectsDeniedPrefixes(t *testing.T) {
 	workspacePath := t.TempDir()
 	resolver := NewWorkspacePathResolver(workspacePath)
 	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
-	for _, path := range []string{"/tmp/a", "~other/file", "/workspace/.blueclaw/tmp/a", "../escape"} {
+	for _, path := range []string{"/tmp/a", "~other/file", "/workspace/.blueclaw/tmp/a", "../../../../../../../../etc/passwd", "../../../../../.blueclaw/secrets"} {
 		if _, errorValue := resolver.Resolve(path, scope); errorValue == nil {
 			t.Fatalf("expected resolver to reject %q", path)
 		}
@@ -31,6 +31,32 @@ func TestWorkspacePathResolverResolvesConcretePrivatePathInsteadOfRejecting(t *t
 	expectedConcretePath := filepath.Join(workspacePath, "private", "people", "person-1", "documents", "a.docx")
 	if resolvedPath.ConcretePath != expectedConcretePath {
 		t.Fatalf("unexpected concrete path: %+v", resolvedPath)
+	}
+}
+
+func TestWorkspacePathResolverResolvesCurrentDirectoryToRequesterRootInsteadOfRejecting(t *testing.T) {
+	workspacePath := t.TempDir()
+	resolver := NewWorkspacePathResolver(workspacePath)
+	scope := WorkspaceScopeForRequest(workspacePath, ToolCatalogRequest{RequesterPersonID: "person-1"}, "task-1")
+	resolvedPath, errorValue := resolver.Resolve(".", scope)
+	if errorValue != nil {
+		t.Fatalf("current directory must resolve to the requester root, not be rejected as traversal: %v", errorValue)
+	}
+	if resolvedPath.ConcretePath != filepath.Join(workspacePath, "private", "people", "person-1") {
+		t.Fatalf("unexpected current-directory root: %+v", resolvedPath)
+	}
+	// A relative path that stays inside the workspace resolves; POSIX and policy, not a
+	// string filter, decide whether the actor may use it.
+	if _, errorValue := resolver.Resolve("../person-2", scope); errorValue != nil {
+		t.Fatalf("in-workspace relative path must resolve and be gated by POSIX, not string-rejected: %v", errorValue)
+	}
+	// Escaping the workspace root or reaching service internals is still refused by the
+	// concrete-path boundary.
+	if _, errorValue := resolver.Resolve("../../../../../../etc/passwd", scope); errorValue == nil {
+		t.Fatal("escaping the workspace root must be refused")
+	}
+	if _, errorValue := resolver.Resolve("../../../../../.blueclaw/state", scope); errorValue == nil {
+		t.Fatal("reaching service-internal .blueclaw must be refused")
 	}
 }
 
