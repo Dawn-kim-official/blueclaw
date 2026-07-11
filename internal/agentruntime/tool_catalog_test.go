@@ -241,7 +241,6 @@ func internalTestToolNames() []string {
 		"document.read",
 		"file.deliver",
 		"file.edit",
-		"file.patch",
 		"file.preview",
 		"file.read",
 		"file.write",

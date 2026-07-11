@@ -70,7 +70,7 @@ func latestSuccessfulSiteBuildObservationIndexAfter(observations []turnObservati
 
 func observationIsSiteSourceChange(observation turnObservation) bool {
 	switch strings.TrimSpace(observation.Tool) {
-	case FileWriteToolName, FileEditToolName, FilePatchToolName, FileDeleteToolName:
+	case FileWriteToolName, FileEditToolName, FileDeleteToolName:
 		return pathRequiresSiteBuildBeforePublish(observationPath(observation))
 	default:
 		return false

@@ -1415,7 +1415,6 @@ func sitePrototypeToolNames() []string {
 		"file.read",
 		"file.write",
 		"file.edit",
-		"file.patch",
 		"site.create",
 		"site.repair",
 		"site.publish",
