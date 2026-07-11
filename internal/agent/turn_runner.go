@@ -485,7 +485,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				}
 				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", finalization.Observations, finalization.Attachments, state.ExecutionState, iteration-1, state.ToolCallCount)
 			}
-			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), state.Observations, state.Attachments, state.ExecutionState)
+			return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 		}
 
 		if !executionStateIsEmpty(actionDocument.ExecutionStateUpdate) {
@@ -601,7 +601,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			reply := finishActionMessage(actionDocument)
 			if reply == "" {
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "finish", "empty finish message")
-				return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "empty finish message", state.Observations, state.Attachments, state.ExecutionState)
+				return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, "empty finish message", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 			}
 			reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
 			if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
@@ -652,7 +652,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			}
 			reason := firstNonEmptyString(actionDocument.Reason, "agent reported failure")
 			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "fail", reason)
-			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, reason, state.Observations, state.Attachments, state.ExecutionState)
+			return agentTurnRunner.finalizeIfSatisfiedOrFail(taskContext, taskRun.TaskRunID, request, reason, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
 		default:
 			observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "invalid_action", "", "unknown action: "+actionDocument.Action, FailureInvalidInput, FailureCodes.InvalidInput, "action_parse")
 			state.Observations = append(state.Observations, observation)
@@ -1477,6 +1477,18 @@ func blockedGoal(taskRunID string, request AgentTurnRequest, reason string) Acti
 	blockedGoal.CurrentObjective = firstNonEmptyString(blockedGoal.CurrentObjective, reason)
 	blockedGoal.Status = ActiveGoalStatusBlocked
 	return blockedGoal
+}
+
+// A run that already produced the required completion evidence has met its goal;
+// a later transient error, empty finish, or exhausted recovery must not erase that
+// success. Finalize the satisfied turn before declaring failure, so a delivered
+// artifact never ends as a failed task.
+func (agentTurnRunner *AgentTurnRunner) finalizeIfSatisfiedOrFail(ctx context.Context, taskRunID string, request AgentTurnRequest, reason string, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState) (AgentTurnResult, error) {
+	finalization := agentTurnRunner.finalizeLimitIfPossible(ctx, taskRunID, request, requirements, observations, attachments, criteria, executionState)
+	if finalization.IsCompleted {
+		return finalization.Result, nil
+	}
+	return agentTurnRunner.failTurn(taskRunID, request, reason, finalization.Observations, finalization.Attachments, executionState)
 }
 
 func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request AgentTurnRequest, reason string, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) (AgentTurnResult, error) {
