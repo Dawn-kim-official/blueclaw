@@ -92,8 +92,8 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerFileTools(toolRegistry *ag
 				Does:       "Overwrites one workspace text file with the exact content string.",
 				Produces:   "A written source, document, script, or config file at the requested path.",
 				SideEffect: "workspace_write",
-				UseWhen:    "A source file, design document, script, or generated text artifact must be created or replaced.",
-				AvoidWhen:  "You only need to inspect files, append shell output, or run commands; do not pass escaped newline sequences when writing multiline source.",
+				UseWhen:    "A new file must be created, or an existing file is being replaced wholesale.",
+				AvoidWhen:  "An existing file only needs a targeted change — use file.edit or file.patch to keep the rest of the work instead of rewriting the whole file; or you only need to inspect files, append shell output, or run commands. Do not pass escaped newline sequences when writing multiline source.",
 			},
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","description":"Workspace path to create or overwrite."},"content":{"type":"string","description":"Complete file body as plain UTF-8 text. Use real line breaks for multiline files; this is the text that will be written exactly."}},"required":["path","content"]}`),
 		},
@@ -1437,9 +1437,9 @@ func fileExactEditFailure(stage string, path string, editIndex int, matchCount i
 	result.Failure.SafeRetry = true
 	result.Failure.RetryPolicy = "different_input"
 	result.Failure.RecoveryHints = []agent.RecoveryHint{{
-		Action:    "inspect_or_edit_text",
-		ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
-		Reason:    "Read the current file content, then retry with an exact oldText snippet or rewrite the full file with file.write.",
+		Action:    "inspect_then_targeted_edit",
+		ToolNames: []string{"file.read", "file.edit", "file.patch"},
+		Reason:    "The oldText no longer matches the file on disk. Read the current file with file.read, copy the exact snippet, then retry a targeted file.edit or file.patch. Do not rewrite the whole file — a targeted edit keeps the rest of the work and is far cheaper.",
 	}}
 	return result
 }
