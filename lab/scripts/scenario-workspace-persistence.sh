@@ -132,7 +132,14 @@ if [ "$after_row_counts" != "$before_row_counts" ]; then
   exit 1
 fi
 
-after_restart_pg_version="$(run_as_root debugfs -R 'cat /.blueclaw/postgres/data/PG_VERSION' "$workspace_image" 2>/dev/null | tr -d '\r\n')"
+after_restart_pg_version=""
+for _ in $(seq 1 10); do
+  after_restart_pg_version="$(run_as_root debugfs -R 'cat /.blueclaw/postgres/data/PG_VERSION' "$workspace_image" 2>/dev/null | tr -d '\r\n')"
+  if [ -n "$after_restart_pg_version" ]; then
+    break
+  fi
+  sleep 2
+done
 if [ "$after_restart_pg_version" != "$before_pg_version" ]; then
   echo "PG_VERSION changed across restart: before=$before_pg_version after=$after_restart_pg_version" >&2
   exit 1
