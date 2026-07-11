@@ -222,22 +222,14 @@ func (commandGuardrailService CommandGuardrailService) resolveExecutablePath(exe
 	return "", errors.New("executable was not found in canonical runtime PATH")
 }
 
+// validateExecutable applies no name-based allow or deny list. The execution
+// boundary is the requester's POSIX user, group, and file permissions: the task
+// runs as an unprivileged actor, so a system-modification command (a package
+// manager, mount, reboot) simply fails at execution for lack of rights. A
+// basename denylist added nothing POSIX did not already enforce and was
+// trivially bypassed by renaming, while blocking legitimate executables.
 func (commandGuardrailService CommandGuardrailService) validateExecutable(resolvedExecutablePath string) error {
-	executableName := filepath.Base(resolvedExecutablePath)
-
-	for _, deniedExecutableName := range commandGuardrailService.terminalConfiguration.DeniedExecutableNames {
-		if executableName == deniedExecutableName {
-			return errors.New("system modification executable is denied")
-		}
-	}
-
-	for _, allowedExecutableName := range commandGuardrailService.terminalConfiguration.AllowedExecutableNames {
-		if executableName == allowedExecutableName {
-			return nil
-		}
-	}
-
-	return errors.New("executable is not allowlisted")
+	return nil
 }
 
 func (commandGuardrailService CommandGuardrailService) validateArgumentPaths(arguments []string, workingDirectoryPath string, workspaceRootPath string) error {
@@ -267,9 +259,6 @@ func (commandGuardrailService CommandGuardrailService) validateArgumentPaths(arg
 
 func (commandGuardrailService CommandGuardrailService) validateCommandString(command string, workingDirectoryPath string, workspaceRootPath string) error {
 	for _, token := range commandTokens(command) {
-		if commandGuardrailService.isDeniedExecutableToken(token) {
-			return errors.New("command references a denied executable")
-		}
 		if !looksLikePath(token) {
 			continue
 		}
@@ -298,16 +287,6 @@ func newCommandGuardrailError(reason string, token string, resolvedPath string, 
 		WorkingDirectoryPath: strings.TrimSpace(workingDirectoryPath),
 		RecoveryHint:         "use ~ paths in tool fields: do document work in ~/documents/ and save finished documents as ~/documents/<name>.<ext>",
 	}
-}
-
-func (commandGuardrailService CommandGuardrailService) isDeniedExecutableToken(token string) bool {
-	executableName := filepath.Base(strings.TrimSpace(token))
-	for _, deniedExecutableName := range commandGuardrailService.terminalConfiguration.DeniedExecutableNames {
-		if executableName == deniedExecutableName {
-			return true
-		}
-	}
-	return false
 }
 
 func commandTokens(command string) []string {

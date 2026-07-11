@@ -259,11 +259,9 @@ func TestCommandGuardrailAllowsWorkspaceCapabilityCLIExecutable(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	commandGuardrailService := NewCommandGuardrailService(config.TerminalConfiguration{
-		Mode:                   "firecrackerGuest",
-		WorkspaceRootPath:      workspaceRootPath,
-		AllowedExecutableNames: []string{"capability"},
-		DeniedExecutableNames:  []string{"sudo"},
-		AllowNetwork:           true,
+		Mode:                  "firecrackerGuest",
+		WorkspaceRootPath:     workspaceRootPath,
+		AllowNetwork:          true,
 		AllowInteractiveShell:  true,
 		TimeoutSecond:          3,
 	})
