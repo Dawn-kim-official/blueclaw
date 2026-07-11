@@ -486,8 +486,11 @@ func buildFailureNoticePrompt(report FailureReport) string {
 		"Keep the notice under 600 Korean characters or an equivalent short length.",
 		"Preserve the safe meaning of the failure, but do not expose provider errors, stack traces, internal service URLs, internal filesystem paths, tokens, or serialized reply status.",
 		"Do not claim an attachment or completed artifact exists unless attachment filenames are listed.",
-		"Compact failure context:\n"+marshalEventBody(report),
 	)
+	if report.ArtifactRequired && len(report.AttachmentFilenames) > 0 {
+		sections = append(sections, "A requested file artifact WAS delivered and is attached ("+strings.Join(report.AttachmentFilenames, ", ")+"). Acknowledge the attached file as the current result. Do not claim it was not created, not made, or not delivered. If the run stopped before further refinement, say only that this delivered version is the best result so far and further polishing was interrupted.")
+	}
+	sections = append(sections, "Compact failure context:\n"+marshalEventBody(report))
 	return strings.Join(sections, "\n\n")
 }
 
