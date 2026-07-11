@@ -24,7 +24,7 @@ func recoverableWorkflowNextTools(request AgentTurnRequest, observations []turnO
 	if !sitePublishIsRequired(request) {
 		return nil
 	}
-	sourceChangeIndex := latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "file.patch", "site.create"})
+	sourceChangeIndex := latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "site.create"})
 	if sourceChangeIndex < 0 {
 		return nil
 	}
@@ -45,7 +45,7 @@ func recoverableFileDeliveryNextTools(request AgentTurnRequest, observations []t
 	if latestSuccessfulToolIndex(observations, []string{FileDeliverToolName, FileAttachToolName}) >= 0 {
 		return nil
 	}
-	if latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "file.patch", "terminal.run"}) < 0 {
+	if latestSuccessfulToolIndex(observations, []string{"file.write", "file.edit", "terminal.run"}) < 0 {
 		return nil
 	}
 	return availableWorkflowTools(request.ToolSet, []string{"terminal.run", FileDeliverToolName})

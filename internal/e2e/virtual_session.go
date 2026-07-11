@@ -1735,7 +1735,7 @@ func allowedToolsOrDefault(allowedTools []string) []string {
 	if len(allowedTools) > 0 {
 		return append([]string{}, allowedTools...)
 	}
-	return []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.read", "file.write", "file.edit", "file.patch", "file.promote", "file.attach"}
+	return []string{"conversation.history", "memory.search", "terminal.run", "terminal.session", "browser_handoff.openURL", "ask.choice", "ask.input", "file.read", "file.write", "file.edit", "file.promote", "file.attach"}
 }
 
 func terminalConfiguration(workspacePath string) config.TerminalConfiguration {

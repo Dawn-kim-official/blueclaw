@@ -19,7 +19,6 @@ const (
 	FileWriteToolName           = "file.write"
 	FileDeleteToolName          = "file.delete"
 	FileEditToolName            = "file.edit"
-	FilePatchToolName           = "file.patch"
 	FilePreviewToolName         = "file.preview"
 	ImageReadToolName           = "image.read"
 	ConversationHistoryToolName = "conversation.history"
@@ -38,7 +37,6 @@ func KernelToolNames() []string {
 		FileWriteToolName,
 		FileDeleteToolName,
 		FileEditToolName,
-		FilePatchToolName,
 		FilePreviewToolName,
 		ImageReadToolName,
 		ConversationHistoryToolName,

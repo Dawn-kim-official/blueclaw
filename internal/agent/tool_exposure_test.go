@@ -40,18 +40,18 @@ func newHybridKernelCapabilityToolSet(kernelToolNames []string, operationNames [
 // pin instead of being pinned by its own operation name.
 func TestStepWorkingSetPinsKernelEvidenceByNameAndCollapsesDomainEvidenceIntoCapabilityInvoke(t *testing.T) {
 	toolSet := newHybridKernelCapabilityToolSet(
-		[]string{"file.read", "file.write", "file.edit", "file.patch", "terminal.run"},
+		[]string{"file.read", "file.write", "file.edit", "terminal.run"},
 		[]string{"site.status", "site.create", "site.build", "artifact.review", "site.publish", "calendar.add", "task.add"},
 	)
 	request := requestWithStepWorkingSetTools(AgentTurnRequest{
 		ToolSet: toolSet,
 		RequiredEvidenceTools: []string{
-			"file.read", "file.write", "file.edit", "file.patch", "terminal.run",
+			"file.read", "file.write", "file.edit", "terminal.run",
 			"site.status", "site.create", "site.build", "artifact.review", "site.publish",
 		},
 	}, nil)
 
-	for _, toolName := range []string{"file.read", "file.write", "file.edit", "file.patch", "terminal.run"} {
+	for _, toolName := range []string{"file.read", "file.write", "file.edit", "terminal.run"} {
 		if !containsString(request.PinnedToolNames, toolName) {
 			t.Fatalf("expected kernel evidence tool %s to be pinned by name, got %+v", toolName, request.PinnedToolNames)
 		}
@@ -77,8 +77,8 @@ func TestRecoveryWorkingSetDropsExhaustedTool(t *testing.T) {
 			Stage:           "file_edit",
 			UserSafeSummary: "oldText must match exactly once",
 			RecoveryHints: []RecoveryHint{{
-				Action:    "inspect_or_edit_text",
-				ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"},
+				Action:    "inspect_then_targeted_edit",
+				ToolNames: []string{"file.read", "file.edit"},
 			}},
 		},
 		ToolInputKey: "file.edit\x00{\"path\":\"App.tsx\"}",
@@ -96,8 +96,8 @@ func TestRecoveryWorkingSetDropsExhaustedTool(t *testing.T) {
 	if stringSliceContains(toolNames, "file.edit") {
 		t.Fatalf("expected exhausted file.edit to be removed, got %+v", toolNames)
 	}
-	if !stringSliceContains(toolNames, "file.write") || !stringSliceContains(toolNames, "file.patch") {
-		t.Fatalf("expected alternate edit tools to remain, got %+v", toolNames)
+	if !stringSliceContains(toolNames, "file.write") {
+		t.Fatalf("expected alternate edit tool file.write to remain, got %+v", toolNames)
 	}
 }
 
@@ -239,8 +239,8 @@ func TestPromotedCapabilityOperationIgnoresKernelToolAndUnrelatedFailures(t *tes
 	}
 }
 
-func TestFileToolCardsSeparateWriteEditAndPatchRoles(t *testing.T) {
-	toolSet := NewToolSet([]string{"file.write", "file.edit", "file.patch"})
+func TestFileToolCardsSeparateWriteAndEditRoles(t *testing.T) {
+	toolSet := NewToolSet([]string{"file.write", "file.edit"})
 	handler := func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolSuccess("ok"), nil
 	}
@@ -255,23 +255,15 @@ func TestFileToolCardsSeparateWriteEditAndPatchRoles(t *testing.T) {
 	toolSet.RegisterTool(ToolDefinition{
 		Name: "file.edit",
 		RecoveryCard: ToolRecoveryCard{
-			Does:      "Replaces one exact oldText occurrence with newText.",
-			UseWhen:   "A small targeted source change is needed.",
-			AvoidWhen: "The oldText is missing or ambiguous.",
-		},
-	}, handler)
-	toolSet.RegisterTool(ToolDefinition{
-		Name: "file.patch",
-		RecoveryCard: ToolRecoveryCard{
-			Does:      "Applies structured exact replacements across files.",
-			UseWhen:   "Several targeted edits should be applied together.",
-			AvoidWhen: "A broad file rewrite is needed.",
+			Does:      "Replaces exact oldText occurrences with newText across one or more files.",
+			UseWhen:   "One or more targeted source changes are needed.",
+			AvoidWhen: "A new file or full rewrite is needed, or oldText is ambiguous.",
 		},
 	}, handler)
 
-	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "file operations", ToolIDs: []string{"file.write", "file.edit", "file.patch"}}})
+	cards := renderCompactToolCards(toolSet, []toolExposureGroup{{Name: "file operations", ToolIDs: []string{"file.write", "file.edit"}}})
 
-	for _, expectedText := range []string{"file.write", "full rewrite", "file.edit", "oldText", "file.patch", "Several targeted edits"} {
+	for _, expectedText := range []string{"file.write", "full rewrite", "file.edit", "oldText"} {
 		if !strings.Contains(cards, expectedText) {
 			t.Fatalf("expected file tool card text %q in %s", expectedText, cards)
 		}

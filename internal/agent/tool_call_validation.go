@@ -178,7 +178,7 @@ func hasNewerFileMutationObservation(observations []turnObservation, path string
 
 func isFileMutationTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case FileWriteToolName, FileEditToolName, FilePatchToolName:
+	case FileWriteToolName, FileEditToolName:
 		return true
 	default:
 		return false
