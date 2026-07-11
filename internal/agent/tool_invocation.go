@@ -189,6 +189,11 @@ func modelVisibleToolResultSummary(ctx context.Context, languageModel llm.Langua
 	if content == "" {
 		return summarizeObservationContent(observation)
 	}
+	if strings.TrimSpace(toolName) == "terminal.run" {
+		if summary := summarizeTerminalRun(observation); summary != "" {
+			return summary
+		}
+	}
 	if shouldUseSanitizedToolPresenter(toolName) {
 		return sanitizedToolResultSummary(observation)
 	}

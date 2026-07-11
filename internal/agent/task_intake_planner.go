@@ -349,6 +349,10 @@ func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
 		},
 		{
 			Role:    "system",
+			Content: "Estimate how many wall-clock minutes a careful professional would realistically spend completing, reviewing, and refining the task, not a rushed minimum. Design, document, deck, and site work with visual review is typically many minutes and often 15 or more. When estimatedMinutes is more than 2, launchNotice should only acknowledge that work started; do not state a time estimate, minute count, or internal budget.",
+		},
+		{
+			Role:    "system",
 			Content: buildTemporalContextDescription(request.TurnStartedAt),
 		},
 		{

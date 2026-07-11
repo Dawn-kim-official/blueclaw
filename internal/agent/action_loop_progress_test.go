@@ -2,6 +2,36 @@ package agent
 
 import "testing"
 
+func repeatedTaskUpdateFailure(observationID string, taskInput string) turnObservation {
+	return turnObservation{
+		ObservationID: observationID,
+		Action:        "continue",
+		Tool:          "task.update",
+		Failure:       &ToolFailure{Code: FailureCodes.OperationFailed.String(), Stage: "target_resolution"},
+		ToolInputKey:  "task.update\x00" + taskInput,
+	}
+}
+
+func TestEvaluateRecoveryAllowanceStopsRepeatedStructuralFailure(t2 *testing.T) {
+	twice := evaluateRecoveryAllowance([]turnObservation{
+		repeatedTaskUpdateFailure("obs-1", `{"taskID":"a"}`),
+		repeatedTaskUpdateFailure("obs-2", `{"taskID":"b"}`),
+	}, defaultRecoveryBudget())
+	if !twice.CanRecover {
+		t2.Fatalf("expected recovery to remain allowed after two attempts, got %+v", twice)
+	}
+
+	thrice := evaluateRecoveryAllowance([]turnObservation{
+		repeatedTaskUpdateFailure("obs-1", `{"taskID":"a"}`),
+		repeatedTaskUpdateFailure("obs-2", `{"taskID":"b"}`),
+		repeatedTaskUpdateFailure("obs-3", `{"taskID":"c"}`),
+	}, defaultRecoveryBudget())
+	if thrice.CanRecover {
+		t2.Fatalf("expected recovery to stop once the same failure signature recurred across cosmetic input changes, got %+v", thrice)
+	}
+}
+
+
 func TestProgressEventsCapsFailureProgressWithoutSuccess(t *testing.T) {
 	fingerprints := []string{"fp-a", "fp-b", "fp-c", "fp-d", "fp-e", "fp-f"}
 	observations := []turnObservation{}

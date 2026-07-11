@@ -437,7 +437,10 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			return cancelledResult, nil
 		}
 		if agentTurnRunner.currentEffortElapsed(request.TurnStartedAt) {
-			return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", state.Observations, state.Attachments, state.ExecutionState, iteration-1, state.ToolCallCount)
+			result, shouldContinue, errorValue := agentTurnRunner.finalizeEscalateOrStopForLimit(taskContext, taskRun.TaskRunID, request, "max_elapsed", toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState, iteration-1, state.ToolCallCount)
+			if errorValue != nil || !shouldContinue {
+				return result, errorValue
+			}
 		}
 		state.Observations = agentTurnRunner.applyPendingSteeringEvents(taskRun.TaskRunID, state.Observations, appliedSteerEventIDs)
 		state.IterationCount = iteration - 1
@@ -476,7 +479,11 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
 			}
 			if errors.Is(actionError, context.DeadlineExceeded) {
-				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", state.Observations, state.Attachments, state.ExecutionState, iteration-1, state.ToolCallCount)
+				finalization := agentTurnRunner.finalizeLimitIfPossible(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.ExecutionState)
+				if finalization.IsCompleted {
+					return finalization.Result, nil
+				}
+				return agentTurnRunner.stopForLimit(taskRun.TaskRunID, request, "max_elapsed", finalization.Observations, finalization.Attachments, state.ExecutionState, iteration-1, state.ToolCallCount)
 			}
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), state.Observations, state.Attachments, state.ExecutionState)
 		}
