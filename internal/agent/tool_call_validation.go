@@ -19,16 +19,8 @@ func (agentTurnRunner *AgentTurnRunner) rejectUnavailableToolCall(taskRunID stri
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
 	}
-	if shouldRejectUnnecessarySiteApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessarySiteApprovalMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
-		state.Observations = append(state.Observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
-		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
-		result, shouldStop := stopForNoProgress(stepID)
-		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
-	}
-	if shouldRejectUnnecessaryAcknowledgementApproval(actionDocument.ToolName, actionDocument.ToolInput) {
-		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessaryAcknowledgementApprovalMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
+	if shouldRejectUnnecessaryApprovalRequest(request, actionDocument.ToolName, actionDocument.ToolInput) {
+		observation := newFailureObservation(nextObservationID(len(state.Observations)+1), "policy", actionDocument.ToolName, unnecessaryApprovalMessage(), FailurePolicyBlocked, FailureCodes.PolicyBlocked, "policy")
 		state.Observations = append(state.Observations, observation)
 		agentTurnRunner.appendEvent(taskRunID, "agent.approval_request_rejected", marshalEventBody(observation))
 		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "approval_request_rejected", observation.ContentText())
@@ -301,7 +293,7 @@ func specificToolDescription(toolName string) string {
 	case "browser.wait":
 		return `Wait for time or target. Input: {"milliseconds":1000} or {"target":"@e1"}.`
 	case "task.add":
-		return `Add a new Flow work item for the requester, or request new work for another person. Do not use this for editing, changing, completing, or updating an existing work item. Input: {"prompt":"기획안 전달","targetPersonHint":"lee"}.`
+		return `Add a new Flow work item for the requester, or request new work for another person. Do not use this for editing, changing, completing, or updating an existing work item. Pass people as names, emails, or @handles in targetPersonHint and personHints; never pass internal person IDs. Set includeRequester only when the requester participates. Input: {"prompt":"기획안 전달","targetPersonHint":"lee","personHints":["@rain"],"includeRequester":true}.`
 	case "task.list":
 		return `List work items. Leave targetPersonHint EMPTY to list EVERYONE's tasks; set it to one person's name to list only that person. For "my tasks / what do I have", set targetPersonHint to the requester's own name. Weeks are relative integer offsets: weekFrom/weekTo where 0=this week (default), -1=last week; omit both for this week, set weekFrom for a range ending this week. Use before completing work when the matching task is uncertain. Input: {"targetPersonHint":"이샘플","weekFrom":-1}.`
 	case "task.update":
@@ -598,41 +590,60 @@ func isUnsafeRepeatSensitiveTool(toolName string) bool {
 	}
 }
 
-func shouldRejectUnnecessarySiteApprovalRequest(request AgentTurnRequest, toolName string, toolInput json.RawMessage) bool {
-	if strings.TrimSpace(toolName) != "ask.confirm" {
+type AskConfirmReasonCode string
+
+const (
+	AskConfirmReasonDestructiveAction AskConfirmReasonCode = "destructive_action"
+	AskConfirmReasonExternalSend      AskConfirmReasonCode = "external_send"
+	AskConfirmReasonPaidAction        AskConfirmReasonCode = "paid_action"
+)
+
+type askConfirmInput struct {
+	Question   string               `json:"question"`
+	ReasonCode AskConfirmReasonCode `json:"reasonCode"`
+}
+
+func shouldRejectUnnecessaryApprovalRequest(request AgentTurnRequest, toolName string, toolInput json.RawMessage) bool {
+	if strings.TrimSpace(toolName) != AskConfirmToolName {
 		return false
 	}
-	if !sitePublishTaskToolsAreAvailable(request.ToolSet) {
-		return false
-	}
-	if !requestHasSelectedSiteArtifactSkill(request) {
-		return false
-	}
-	approvalText := strings.ToLower(strings.TrimSpace(string(toolInput)))
-	if containsAny(approvalText, []string{"rollback", "roll back", "unpublish", "delete", "remove", "take down", "삭제", "되돌", "내려", "중단"}) {
-		return false
-	}
-	if requiredEvidenceContains(request.RequiredEvidenceTools, "site.publish") {
+	var input askConfirmInput
+	if json.Unmarshal(toolInput, &input) != nil || strings.TrimSpace(input.Question) == "" || !ValidAskConfirmReasonCode(input.ReasonCode) {
 		return true
 	}
-	return containsAny(approvalText, []string{"deploy", "publish", "external", "website", "site", "배포", "웹사이트", "외부"})
-}
-
-func requestHasSelectedSiteArtifactSkill(request AgentTurnRequest) bool {
-	selectedSkillNames := selectedSkillNameSet(request.SkillDecisions)
-	for _, skillInstruction := range request.AvailableSkills {
-		if selectedSkillNames[skillInstruction.Name] && skillSupportsSiteArtifact(skillInstruction) {
-			return true
+	for _, requiredToolName := range approvalRequirementToolNames(request) {
+		toolDefinition, isFound := request.ToolSet.ToolDefinition(requiredToolName)
+		if isFound && approvalReasonMatchesTool(input.ReasonCode, toolDefinition) {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
-func sitePublishTaskToolsAreAvailable(toolSet *ToolSet) bool {
-	if toolSet == nil {
+func ValidAskConfirmReasonCode(reasonCode AskConfirmReasonCode) bool {
+	switch reasonCode {
+	case AskConfirmReasonDestructiveAction, AskConfirmReasonExternalSend, AskConfirmReasonPaidAction:
+		return true
+	default:
 		return false
 	}
-	return toolSet.IsRegistered("site.create") && toolSet.IsRegistered("site.publish") && toolSet.IsRegistered("terminal.run")
+}
+
+func approvalRequirementToolNames(request AgentTurnRequest) []string {
+	toolNames := append([]string{}, request.RequiredEvidenceTools...)
+	toolNames = append(toolNames, outcomeContractRequiredToolNames(request.OutcomeContract)...)
+	toolNames = append(toolNames, outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract)...)
+	return appendUniqueStrings(nil, toolNames...)
+}
+
+func approvalReasonMatchesTool(reasonCode AskConfirmReasonCode, toolDefinition ToolDefinition) bool {
+	if !toolDefinition.RequiresApproval {
+		return false
+	}
+	if reasonCode == AskConfirmReasonExternalSend {
+		return ToolDefinitionSideEffectClass(toolDefinition) == ToolSideEffectExternalWrite
+	}
+	return true
 }
 
 func requiredEvidenceContains(requiredEvidenceTools []string, expectedToolName string) bool {
@@ -653,47 +664,8 @@ func requiredEvidenceHasPrefix(requiredEvidenceTools []string, prefix string) bo
 	return false
 }
 
-func unnecessarySiteApprovalMessage() string {
-	return "Approval is not required for website create, build, or publish capability operations. Continue with the website capability operations directly. Ask approval only before rollback, unpublish, or delete."
-}
-
-func shouldRejectUnnecessaryAcknowledgementApproval(toolName string, toolInput json.RawMessage) bool {
-	if strings.TrimSpace(toolName) != "ask.confirm" {
-		return false
-	}
-	var inputFields struct {
-		UserFacingMessage string `json:"userFacingMessage"`
-		ReasonDetail      string `json:"reasonDetail"`
-	}
-	if errorValue := json.Unmarshal(toolInput, &inputFields); errorValue != nil {
-		return false
-	}
-	combinedText := strings.ToLower(strings.TrimSpace(inputFields.UserFacingMessage) + " " + strings.TrimSpace(inputFields.ReasonDetail))
-	sensitivemarkers := []string{
-		"send", "전송", "보내", "dm",
-		"delete", "삭제", "지우", "remove", "제거",
-		"deploy", "배포", "publish", "게시",
-		"external", "외부",
-		"payment", "결제", "구매", "charge",
-		"credential", "api key", "apikey", "토큰", "token", "secret", "비밀", "password",
-		"grant", "권한", "unlock", "install", "설치",
-		"schedule", "예약",
-	}
-	if containsAny(combinedText, sensitivemarkers) {
-		return false
-	}
-	acknowledgementMarkers := []string{
-		"기억", "remember", "memor",
-		"맞나요", "맞아요", "맞죠",
-		"이해했", "알겠", "확인차",
-		"저장할까", "저장하면", "기록할까",
-		"note this", "just confirming", "let me know if",
-	}
-	return containsAny(combinedText, acknowledgementMarkers)
-}
-
-func unnecessaryAcknowledgementApprovalMessage() string {
-	return "Do not use ask.confirm to acknowledge information, confirm understanding, or before a non-destructive write. Perform the action directly through the relevant named tool, then finish."
+func unnecessaryApprovalMessage() string {
+	return "ask.confirm requires a typed approval reason and an explicitly required tool whose metadata requires approval. Call non-sensitive operations directly; runtime-approved tools handle their own approval flow."
 }
 
 func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionDocument turnActionDocument, observationID string) (turnObservation, bool) {
@@ -702,9 +674,6 @@ func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionD
 		return turnObservation{}, false
 	}
 	if requestRequiresPlatformMessageSend(request) {
-		return turnObservation{}, false
-	}
-	if promptLooksLikePlatformMessageSendRequest(request.Prompt) || promptLooksLikePlatformMessageSendRequest(request.ActiveGoal.OriginalInstruction) {
 		return turnObservation{}, false
 	}
 	deliveryType := platformMessageSendDeliveryType(toolInput)
@@ -730,17 +699,6 @@ func requestRequiresPlatformMessageSend(request AgentTurnRequest) bool {
 		}
 	}
 	return false
-}
-
-func promptLooksLikePlatformMessageSendRequest(prompt string) bool {
-	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
-	if normalizedPrompt == "" {
-		return false
-	}
-	return containsAny(normalizedPrompt, []string{
-		"dm", "direct message", "send", "notify", "post", "forward",
-		"보내", "전송", "디엠", "dm해", "전달", "공지", "올려",
-	})
 }
 
 func platformMessageSendDeliveryType(toolInput json.RawMessage) string {

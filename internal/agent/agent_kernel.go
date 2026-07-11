@@ -391,6 +391,7 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		agentKernel.languageModel,
 		turnOptions,
 	)
+	agentTurnRunner.UseTaskLanguageModelResolver(agentKernel.taskLanguageModelForLevel)
 	result, errorValue := agentTurnRunner.RunTurn(responseContext, turnRequest)
 	result.TurnRoute = turnDecision.Route
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
@@ -785,7 +786,7 @@ type budgetEscalatedEventBody struct {
 func highestEscalatedTaskLevel(taskEvents []task.TaskEvent) TaskLevel {
 	highestTaskLevel := TaskLevel("")
 	for _, taskEvent := range taskEvents {
-		if taskEvent.Name != "agent.budget_escalated" {
+		if taskEvent.Name != "agent.budget_escalated" && taskEvent.Name != "agent.skill_task_level_escalated" {
 			continue
 		}
 		var eventBody budgetEscalatedEventBody

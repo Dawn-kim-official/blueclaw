@@ -3,6 +3,7 @@ package agentruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -292,11 +293,10 @@ func graphitiUpdateStatus(accepted memory.MemoryUpdateAccepted, errorValue error
 }
 
 func memoryUpdateFailureCode(errorValue error) string {
-	errorMessage := strings.ToLower(strings.TrimSpace(errorValue.Error()))
-	if strings.Contains(errorMessage, "full") {
+	if errors.Is(errorValue, memory.ErrMemoryUpdateQueueFull) {
 		return "queue_full"
 	}
-	if strings.Contains(errorMessage, "unavailable") {
+	if errors.Is(errorValue, memory.ErrMemoryUpdateQueueUnavailable) {
 		return "queue_unavailable"
 	}
 	return "operation_failed"

@@ -141,7 +141,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 
 func isInspectionProgressTool(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "file.read", "memory.search", "site.status", "conversation.history":
+	case "file.read", "memory.search", "site.status", "conversation.history", SkillSearchToolName:
 		return true
 	default:
 		return false

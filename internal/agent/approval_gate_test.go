@@ -26,3 +26,19 @@ func TestToolSkipsRuntimeApprovalWhenToolHandlesApproval(t *testing.T) {
 		t.Fatal("expected tool-handled approval not to be duplicated by the runtime")
 	}
 }
+
+func TestApprovalRequiredObservationUsesCanonicalProtocolFields(t *testing.T) {
+	observation := newFailureObservation("obs-001", "continue", "message.send", "approval is pending", FailurePolicyBlocked, FailureCodes.ApprovalRequired, "authorization")
+
+	if !isApprovalRequiredObservation(observation) {
+		t.Fatal("expected exact approval_required authorization failure to pause for approval")
+	}
+}
+
+func TestApprovalRequiredObservationIgnoresUserFacingPhrase(t *testing.T) {
+	observation := newFailureObservation("obs-001", "continue", "message.send", "requires approval", FailurePolicyBlocked, FailureCodes.OperationFailed, "authorization")
+
+	if isApprovalRequiredObservation(observation) {
+		t.Fatal("user-facing failure text must not activate the approval protocol")
+	}
+}

@@ -399,6 +399,8 @@ func BuiltinScenario(name string, artifactDirectoryPath string) (VirtualSessionS
 		return GWSDisabledScenario(artifactDirectoryPath), nil
 	case "schedule_create_acceptance":
 		return ScheduleCreateAcceptanceScenario(artifactDirectoryPath), nil
+	case "skill_search_activation_acceptance":
+		return SkillSearchActivationAcceptanceScenario(artifactDirectoryPath), nil
 	case "schedule_lifecycle_acceptance":
 		return ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath), nil
 	case "calendar_event_lifecycle_acceptance":
@@ -2144,8 +2146,20 @@ func actionSelectTools(toolNames ...string) string {
 	return `{"action":"tool.request","toolNames":[` + strings.Join(encodedToolNames, ",") + `],"skillNames":[],"reason":"required for the requested task"}`
 }
 
-func actionCallTool(toolName string, input string) string {
-	return `{"action":"continue","toolName":` + quote(toolName) + `,"toolInput":` + input + `}`
+func actionSelectSkills(skillNames ...string) string {
+	encodedSkillNames := []string{}
+	for _, skillName := range skillNames {
+		encodedSkillNames = append(encodedSkillNames, quote(skillName))
+	}
+	return `{"action":"skill.select","skillNames":[` + strings.Join(encodedSkillNames, ",") + `],"reason":"selected from the latest skill.search result"}`
+}
+
+func actionCallTool(toolName string, input string, recoveryForObservationIDs ...string) string {
+	document := `{"action":"continue","toolName":` + quote(toolName) + `,"toolInput":` + input
+	if len(recoveryForObservationIDs) > 0 && strings.TrimSpace(recoveryForObservationIDs[0]) != "" {
+		document += `,"recoveryForObservationID":` + quote(strings.TrimSpace(recoveryForObservationIDs[0]))
+	}
+	return document + `}`
 }
 
 func actionCallToolWithMessage(toolName string, message string, input string) string {

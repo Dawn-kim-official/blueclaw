@@ -124,6 +124,20 @@ func TestFlowTaskUpdateActionSchemaAndCompletionEvidence(t *testing.T) {
 	}
 }
 
+func TestFlowTaskAddActionSchemaUsesPersonHintsInsteadOfPersonIDs(t *testing.T) {
+	actionSchema := buildActionSchemaFromToolDefinitions([]ToolDefinition{{Name: "task.add"}}, false, nil, false)
+	for _, fragment := range []string{"task.add", "targetPersonHint", "personHints", "includeRequester", "allowDuplicate"} {
+		if !strings.Contains(actionSchema, fragment) {
+			t.Fatalf("expected action schema to include %q, got %s", fragment, actionSchema)
+		}
+	}
+	for _, forbidden := range []string{"personID", "participantID"} {
+		if strings.Contains(actionSchema, forbidden) {
+			t.Fatalf("action schema exposed %q: %s", forbidden, actionSchema)
+		}
+	}
+}
+
 func TestDefaultToolSideEffectClass(t *testing.T) {
 	tests := []struct {
 		toolName           string

@@ -174,10 +174,10 @@ func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
 		callCount++
 		sendInputs = append(sendInputs, string(invocation.Input))
-		return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
+		return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", FailureCodes.Unavailable.String(), "mattermost_lookup", true, true), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.context"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("mattermost still unavailable", "mattermost still unavailable", "mattermost_unavailable", "mattermost_lookup", true, true), nil
+		return structuredFailureToolResult("mattermost still unavailable", "mattermost still unavailable", FailureCodes.Unavailable.String(), "mattermost_lookup", true, true), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -218,7 +218,7 @@ func TestAgentTurnRunnerRejectsUnsafeRepeatedExternalSend(t *testing.T) {
 	callCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
-		return structuredFailureToolResult("Mattermost returned 503 after post create", "Mattermost returned 503 after post create", "send_failed", "message_send", true, false), nil
+		return structuredFailureToolResult("Mattermost returned 503 after post create", "Mattermost returned 503 after post create", FailureCodes.OperationFailed.String(), "message_send", true, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -579,43 +579,55 @@ func TestRepeatedFileReadObservationIgnoresCacheAfterFileWrite(t *testing.T) {
 	}
 }
 
-func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsTrueForMemoryConfirm(t *testing.T) {
-	toolInput := json.RawMessage(`{"userFacingMessage":"안젤라 바보라는 내용을 기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}`)
+func TestShouldRejectUnnecessaryApprovalRequestRejectsExplicitScheduleTask(t *testing.T) {
+	request := AgentTurnRequest{
+		ToolSet:               newTestToolSet([]string{"schedule.create"}),
+		RequiredEvidenceTools: []string{"schedule.create"},
+	}
+	toolInput := json.RawMessage(`{"question":"매일 오전 9시 날씨 알림을 만들까요?","reasonCode":"destructive_action"}`)
 
-	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
-
-	if !result {
-		t.Fatal("expected acknowledgement confirm wrapping a memory note to be rejected")
+	if !shouldRejectUnnecessaryApprovalRequest(request, AskConfirmToolName, toolInput) {
+		t.Fatal("explicit bounded schedule creation does not require ask.confirm")
 	}
 }
 
-func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForExternalSend(t *testing.T) {
-	toolInput := json.RawMessage(`{"userFacingMessage":"이 메시지를 외부로 전송할까요?","reasonCode":"external_send"}`)
+func TestShouldRejectUnnecessaryApprovalRequestRejectsSitePublishWithoutApprovalMetadata(t *testing.T) {
+	request := AgentTurnRequest{
+		ToolSet:               newTestToolSet([]string{"site.publish"}),
+		RequiredEvidenceTools: []string{"site.publish"},
+	}
+	toolInput := json.RawMessage(`{"question":"사이트를 배포할까요?","reasonCode":"external_send"}`)
 
-	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
-
-	if result {
-		t.Fatal("expected external send confirm not to be rejected")
+	if !shouldRejectUnnecessaryApprovalRequest(request, AskConfirmToolName, toolInput) {
+		t.Fatal("site.publish without approval metadata must run directly")
 	}
 }
 
-func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForNonAskConfirmTool(t *testing.T) {
-	toolInput := json.RawMessage(`{"userFacingMessage":"기억하고 있습니다. 맞나요?","reasonCode":"destructive_action"}`)
+func TestShouldRejectUnnecessaryApprovalRequestAllowsRequiredDestructiveTool(t *testing.T) {
+	toolSet := newTestToolSet([]string{"site.delete"})
+	toolSet.RegisterTool(ToolDefinition{Name: "site.delete", RequiresApproval: true, SideEffectClass: ToolSideEffectExternalWrite}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"status":"deleted"}`), nil
+	})
+	request := AgentTurnRequest{ToolSet: toolSet, RequiredEvidenceTools: []string{"site.delete"}}
+	toolInput := json.RawMessage(`{"question":"사이트를 삭제할까요?","reasonCode":"destructive_action"}`)
 
-	result := shouldRejectUnnecessaryAcknowledgementApproval("memory.remember", toolInput)
-
-	if result {
-		t.Fatal("expected non-ask.confirm tool not to be rejected")
+	if shouldRejectUnnecessaryApprovalRequest(request, AskConfirmToolName, toolInput) {
+		t.Fatal("required destructive operation with approval metadata may request confirmation")
 	}
 }
 
-func TestShouldRejectUnnecessaryAcknowledgementApprovalReturnsFalseForUnrelatedConfirm(t *testing.T) {
-	toolInput := json.RawMessage(`{"userFacingMessage":"계속 진행할까요?","reasonCode":"paid_action"}`)
+func TestShouldRejectUnnecessaryApprovalRequestRejectsInvalidReasonCode(t *testing.T) {
+	request := AgentTurnRequest{ToolSet: newTestToolSet([]string{"site.delete"}), RequiredEvidenceTools: []string{"site.delete"}}
+	toolInput := json.RawMessage(`{"question":"진행할까요?","reasonCode":"schedule"}`)
 
-	result := shouldRejectUnnecessaryAcknowledgementApproval("ask.confirm", toolInput)
+	if !shouldRejectUnnecessaryApprovalRequest(request, AskConfirmToolName, toolInput) {
+		t.Fatal("unknown reasonCode must be rejected structurally")
+	}
+}
 
-	if result {
-		t.Fatal("expected unrelated paid action confirm not to be rejected")
+func TestShouldRejectUnnecessaryApprovalRequestIgnoresOtherTools(t *testing.T) {
+	if shouldRejectUnnecessaryApprovalRequest(AgentTurnRequest{}, "memory.remember", nil) {
+		t.Fatal("non-ask.confirm tools must not be rejected")
 	}
 }
 

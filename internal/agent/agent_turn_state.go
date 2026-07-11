@@ -15,21 +15,20 @@ import (
 type agentAction = turnActionDocument
 
 type agentTaskState struct {
-	TaskRunID        string
-	Status           task.TaskStatus
-	Request          AgentTurnRequest
-	Options          TurnOptions
-	Observations     []turnObservation
-	QualityCriteria  []qualityCriterion
-	Attachments      []FileAttachment
-	ExecutionState   ExecutionState
-	ContextSummary   TaskContextSummary
-	IterationCount   int
-	ToolCallCount    int
-	TurnStartedAt    time.Time
-	PendingWait      *agentPendingWait
-	Requirements     []toolUseRequirement
-	LastModelMessage string
+	TaskRunID       string
+	Status          task.TaskStatus
+	Request         AgentTurnRequest
+	Options         TurnOptions
+	Observations    []turnObservation
+	QualityCriteria []qualityCriterion
+	Attachments     []FileAttachment
+	ExecutionState  ExecutionState
+	ContextSummary  TaskContextSummary
+	IterationCount  int
+	ToolCallCount   int
+	TurnStartedAt   time.Time
+	PendingWait     *agentPendingWait
+	Requirements    []toolUseRequirement
 }
 
 type agentPendingWait struct {
@@ -318,11 +317,26 @@ func BuildAgentActionRequest(state agentTaskState) llm.StructuredResponseRequest
 		Messages: messages,
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_agent_turn_action",
-			Document:           actionSchemaForToolSet(modelToolSet, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail),
+			Document:           actionSchemaForAgentState(modelToolSet, state, allowQualityCriteria, blockedToolNames, hasFailureDebt, allowFail),
 			IsStrictlyEnforced: true,
 		},
 		GenerationOptions: state.Options.GenerationOptions,
 	}
+}
+
+func actionSchemaForAgentState(toolSet *ToolSet, state agentTaskState, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, allowFail bool) string {
+	toolDefinitions := []ToolDefinition{}
+	if toolSet != nil {
+		toolDefinitions = toolSet.ListToolDefinitions()
+	}
+	return buildActionSchemaWithSelectableSkills(
+		toolDefinitions,
+		allowQualityCriteria,
+		blockedToolNames,
+		hasFailureDebt,
+		selectableSkillNamesAfterSearch(state.Request, state.Observations),
+		allowFail,
+	)
 }
 
 func modelCallableToolSet(toolSet *ToolSet) *ToolSet {
@@ -389,7 +403,7 @@ func normalizeAgentActionResponseContent(content []byte) ([]byte, error) {
 }
 
 func agentActionResponseCandidate(document map[string]json.RawMessage) (string, int) {
-	actionNames := []string{"finish", "continue", "fail", "tool.request", "set_quality_criteria"}
+	actionNames := []string{"finish", "continue", "fail", "skill.select", "set_quality_criteria"}
 	candidateAction := ""
 	candidateCount := 0
 	for _, actionName := range actionNames {
@@ -649,25 +663,26 @@ func isToolCallObservation(observation turnObservation) bool {
 }
 
 type legacyTurnObservation struct {
-	ObservationID        string           `json:"observationID"`
-	Action               string           `json:"action"`
-	Tool                 string           `json:"tool,omitempty"`
-	Content              string           `json:"content"`
-	Summary              string           `json:"summary,omitempty"`
-	IsError              bool             `json:"isError"`
-	Message              string           `json:"message,omitempty"`
-	ErrorCode            string           `json:"errorCode,omitempty"`
-	FailureStage         string           `json:"failureStage,omitempty"`
-	Retryable            bool             `json:"retryable,omitempty"`
-	SafeRetry            bool             `json:"safeRetry,omitempty"`
-	ToolInputKey         string           `json:"toolInputKey,omitempty"`
-	AttemptFingerprint   string           `json:"attemptFingerprint,omitempty"`
-	RecoveryAttemptKey   string           `json:"recoveryAttemptKey,omitempty"`
-	RecoveryStep         string           `json:"recoveryStep,omitempty"`
-	RecoveryAttemptSpent bool             `json:"recoveryAttemptSpent,omitempty"`
-	RecoveryPacket       *RecoveryPacket  `json:"recoveryPacket,omitempty"`
-	Attachments          []FileAttachment `json:"attachments,omitempty"`
-	RecoveryActions      []RecoveryAction `json:"recoveryActions,omitempty"`
+	ObservationID            string           `json:"observationID"`
+	Action                   string           `json:"action"`
+	Tool                     string           `json:"tool,omitempty"`
+	Content                  string           `json:"content"`
+	Summary                  string           `json:"summary,omitempty"`
+	IsError                  bool             `json:"isError"`
+	Message                  string           `json:"message,omitempty"`
+	ErrorCode                string           `json:"errorCode,omitempty"`
+	FailureStage             string           `json:"failureStage,omitempty"`
+	Retryable                bool             `json:"retryable,omitempty"`
+	SafeRetry                bool             `json:"safeRetry,omitempty"`
+	ToolInputKey             string           `json:"toolInputKey,omitempty"`
+	AttemptFingerprint       string           `json:"attemptFingerprint,omitempty"`
+	RecoveryAttemptKey       string           `json:"recoveryAttemptKey,omitempty"`
+	RecoveryForObservationID string           `json:"recoveryForObservationID,omitempty"`
+	RecoveryStep             string           `json:"recoveryStep,omitempty"`
+	RecoveryAttemptSpent     bool             `json:"recoveryAttemptSpent,omitempty"`
+	RecoveryPacket           *RecoveryPacket  `json:"recoveryPacket,omitempty"`
+	Attachments              []FileAttachment `json:"attachments,omitempty"`
+	RecoveryActions          []RecoveryAction `json:"recoveryActions,omitempty"`
 }
 
 func decodeTurnObservation(document []byte) (turnObservation, error) {
@@ -688,19 +703,20 @@ func decodeTurnObservation(document []byte) (turnObservation, error) {
 func (legacyObservation legacyTurnObservation) toTurnObservation() turnObservation {
 	action := legacyObservation.Action
 	observation := turnObservation{
-		ObservationID:        legacyObservation.ObservationID,
-		Action:               action,
-		Tool:                 legacyObservation.Tool,
-		Output:               ToolOutput{Content: legacyObservation.Content},
-		Summary:              legacyObservation.Summary,
-		ToolInputKey:         legacyObservation.ToolInputKey,
-		AttemptFingerprint:   legacyObservation.AttemptFingerprint,
-		RecoveryAttemptKey:   legacyObservation.RecoveryAttemptKey,
-		RecoveryStep:         legacyObservation.RecoveryStep,
-		RecoveryAttemptSpent: legacyObservation.RecoveryAttemptSpent,
-		RecoveryPacket:       legacyObservation.RecoveryPacket,
-		Attachments:          append([]FileAttachment{}, legacyObservation.Attachments...),
-		RecoveryActions:      append([]RecoveryAction{}, legacyObservation.RecoveryActions...),
+		ObservationID:            legacyObservation.ObservationID,
+		Action:                   action,
+		Tool:                     legacyObservation.Tool,
+		Output:                   ToolOutput{Content: legacyObservation.Content},
+		Summary:                  legacyObservation.Summary,
+		ToolInputKey:             legacyObservation.ToolInputKey,
+		AttemptFingerprint:       legacyObservation.AttemptFingerprint,
+		RecoveryAttemptKey:       legacyObservation.RecoveryAttemptKey,
+		RecoveryForObservationID: legacyObservation.RecoveryForObservationID,
+		RecoveryStep:             legacyObservation.RecoveryStep,
+		RecoveryAttemptSpent:     legacyObservation.RecoveryAttemptSpent,
+		RecoveryPacket:           legacyObservation.RecoveryPacket,
+		Attachments:              append([]FileAttachment{}, legacyObservation.Attachments...),
+		RecoveryActions:          append([]RecoveryAction{}, legacyObservation.RecoveryActions...),
 	}
 	if legacyObservation.IsError {
 		observation.Failure = &ToolFailure{

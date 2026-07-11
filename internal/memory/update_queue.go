@@ -12,6 +12,11 @@ import (
 
 const defaultMemoryUpdateQueueSize = 128
 
+var (
+	ErrMemoryUpdateQueueUnavailable = errors.New("memory update queue is unavailable")
+	ErrMemoryUpdateQueueFull        = errors.New("memory update queue is full")
+)
+
 type MemoryUpdateJob struct {
 	JobID           string
 	Namespace       MemoryNamespace
@@ -81,7 +86,7 @@ func (queue *BackgroundMemoryUpdateQueue) Start(ctx context.Context) {
 
 func (queue *BackgroundMemoryUpdateQueue) Enqueue(job MemoryUpdateJob) (MemoryUpdateAccepted, error) {
 	if queue == nil {
-		return MemoryUpdateAccepted{}, errors.New("memory update queue is unavailable")
+		return MemoryUpdateAccepted{}, ErrMemoryUpdateQueueUnavailable
 	}
 	normalizedJob := normalizeMemoryUpdateJob(job)
 	// TODO: Replace the volatile in-process memory update queue with a durable queue.
@@ -95,7 +100,7 @@ func (queue *BackgroundMemoryUpdateQueue) Enqueue(job MemoryUpdateJob) (MemoryUp
 			GraphitiStatus: "queued",
 		}, nil
 	default:
-		return MemoryUpdateAccepted{}, errors.New("memory update queue is full")
+		return MemoryUpdateAccepted{}, ErrMemoryUpdateQueueFull
 	}
 }
 

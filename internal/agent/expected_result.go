@@ -377,12 +377,12 @@ func enforceObservedResultRequirements(expectedResults []ExpectedResult, observe
 	return verification
 }
 
-func observedLinkResultsForExpectedResult(expectedResult ExpectedResult, observedResults []ObservedResult) []ObservedResult {
+func observedLinkResultsForExpectedResult(_ ExpectedResult, observedResults []ObservedResult) []ObservedResult {
 	linkResults := observedResultsByType(observedResults, ExpectedResultTypeLink)
 	if len(linkResults) == 0 {
 		return nil
 	}
-	if !expectedResultNeedsSitePublicURL(expectedResult) || !observedResultsContainSiteAppTool(observedResults) {
+	if !observedResultsContainSiteAppTool(observedResults) {
 		return linkResults
 	}
 	siteLinkResults := []ObservedResult{}
@@ -392,17 +392,6 @@ func observedLinkResultsForExpectedResult(expectedResult ExpectedResult, observe
 		}
 	}
 	return siteLinkResults
-}
-
-func expectedResultNeedsSitePublicURL(expectedResult ExpectedResult) bool {
-	values := append([]string{expectedResult.Description}, expectedResult.AcceptanceHints...)
-	text := strings.ToLower(strings.Join(values, " "))
-	if strings.Contains(text, "site.app") {
-		return true
-	}
-	hasSiteReference := strings.Contains(text, "site") || strings.Contains(text, "website") || strings.Contains(text, "웹사이트")
-	hasPublicReference := strings.Contains(text, "public") || strings.Contains(text, "published") || strings.Contains(text, "공개")
-	return hasSiteReference && hasPublicReference
 }
 
 func observedResultsContainSiteAppTool(observedResults []ObservedResult) bool {
@@ -531,51 +520,27 @@ func normalizeResultVerificationOverallStatus(value string, items []ResultVerifi
 	return "satisfied"
 }
 
-func blockingExpectedResultItems(contract OutcomeContract, verification ResultVerification, observations []turnObservation) []ResultVerificationItem {
+func blockingExpectedResultItems(contract OutcomeContract, verification ResultVerification, _ []turnObservation) []ResultVerificationItem {
 	requiredResultByID := map[string]bool{}
-	resultTypeByID := map[string]string{}
 	for _, result := range normalizeExpectedResults(contract.ExpectedResults) {
 		if result.Required {
 			requiredResultByID[result.ID] = true
 		}
-		resultTypeByID[result.ID] = result.Type
 	}
 	missingResults := []ResultVerificationItem{}
 	for _, item := range verification.Results {
 		if !requiredResultByID[item.ID] {
 			continue
 		}
-		if expectedResultVerdictBlocksFinish(item, resultTypeByID[item.ID], observations) {
+		if expectedResultVerdictBlocksFinish(item) {
 			missingResults = append(missingResults, item)
 		}
 	}
 	return missingResults
 }
 
-func expectedResultVerdictBlocksFinish(item ResultVerificationItem, resultType string, observations []turnObservation) bool {
-	if item.Status != "missing" && item.Status != "uncertain" {
-		return false
-	}
-	if resultType == ExpectedResultTypeMessage || item.Status == "uncertain" {
-		return !expectedResultWasPreviouslyFlagged(item.ID, observations)
-	}
-	return true
-}
-
-func expectedResultWasPreviouslyFlagged(resultID string, observations []turnObservation) bool {
-	trimmedResultID := strings.TrimSpace(resultID)
-	if trimmedResultID == "" {
-		return false
-	}
-	for _, observation := range observations {
-		if observation.Action != "evidence_missing" && observation.Action != "expected_result_missing" {
-			continue
-		}
-		if strings.Contains(observation.ContentText(), trimmedResultID) {
-			return true
-		}
-	}
-	return false
+func expectedResultVerdictBlocksFinish(item ResultVerificationItem) bool {
+	return item.Status == "missing" || item.Status == "uncertain"
 }
 
 func suggestedNextToolsForResultVerification(items []ResultVerificationItem) []string {

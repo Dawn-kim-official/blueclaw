@@ -136,7 +136,7 @@ func TestFailureNoticeGeneratorFallsBackToRedactedRawError(t *testing.T) {
 	}
 }
 
-func TestStallControlPhraseNotDeliveredWhenModelFails(t *testing.T) {
+func TestStallRawFailureNoticeDeliveredWhenModelFails(t *testing.T) {
 	notice, status := (FailureNoticeGenerator{LanguageModel: failingLanguageModel{}}).Generate(context.Background(), FailureReport{
 		Phase:             "stall",
 		StopReason:        "stopped after repeated model actions without workspace, tool, artifact, attachment, or new failure progress, including after stall guidance",
@@ -147,8 +147,8 @@ func TestStallControlPhraseNotDeliveredWhenModelFails(t *testing.T) {
 	if status.Source != "raw_error" {
 		t.Fatalf("expected raw error fallback for stall, got %+v", status)
 	}
-	if stallNoticeCanReachUser(notice, status.Source) {
-		t.Fatalf("expected stall control phrase not to reach the user, got %q", notice.SendableMessage())
+	if !stallNoticeCanReachUser(notice) {
+		t.Fatalf("expected compact raw stall notice to reach the user, got %q", notice.SendableMessage())
 	}
 }
 

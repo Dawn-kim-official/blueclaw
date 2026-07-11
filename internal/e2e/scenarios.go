@@ -143,7 +143,7 @@ func FileWriteLegacyModeAcceptanceScenario(artifactDirectoryPath string) Virtual
 			ActionResponses: []string{
 				actionCallTool("file.write", `{"path":"tmp/docx-guide/document.json","content":"{\"title\":\"readable\"}\n","mode":644}`),
 				actionCallTool("terminal.run", `{"workingDirectoryPath":"tmp/docx-guide","command":"cat document.json","timeoutSecond":30}`),
-				actionFinishMessage("파일을 생성하고 터미널에서 읽히는 것을 확인했습니다.", "obs-002:terminal.run:0"),
+				actionFinishMessage("파일을 생성하고 터미널에서 읽히는 것을 확인했습니다.", "obs-001:file.write:0", "obs-002:terminal.run:0"),
 			},
 			ExpectedToolCalls: []string{"file.write", "terminal.run"},
 			ExpectedWorkspaceFiles: []VirtualWorkspaceFileExpectation{{
@@ -396,7 +396,7 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 			Prompt: "1분마다 \"1분 지났습니다\"라고 보내줘",
 			ActionResponses: []string{
 				actionCallTool("schedule.create", `{"name":"1분 알림","taskInstruction":"현재 대화에 \"1분 지났습니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}`),
-				actionFinishMessage("1분마다 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
+				actionFinishMessage("1분마다 알림을 보내도록 예약했습니다.", "obs-001:schedule.create:0"),
 			},
 			ExpectedSelectedSkills: []string{"scheduled-task"},
 			ExpectedEventCounts: []VirtualEventCount{
@@ -410,6 +410,38 @@ func ScheduleCreateAcceptanceScenario(artifactDirectoryPath string) VirtualSessi
 				"기능은 제공",
 				"못합니다",
 			},
+		}},
+	}
+}
+
+func SkillSearchActivationAcceptanceScenario(artifactDirectoryPath string) VirtualSessionScenario {
+	return VirtualSessionScenario{
+		Name:                  "skill_search_activation_acceptance",
+		ArtifactDirectoryPath: artifactDirectoryPath,
+		Skills:                []agent.SkillInstruction{scheduledTaskSkill(), websiteSkill()},
+		AllowedTools:          agent.KernelToolNames(),
+		CapabilityToolNames:   []string{"schedule.create", "site.create"},
+		InitialToolNames:      []string{"terminal.run"},
+		Turns: []VirtualTurn{{
+			Prompt: "이 반복 작업을 실제로 등록해줘",
+			ActionResponses: []string{
+				actionCallTool("skill.search", `{"queries":[{"description":"create recurring scheduled work"}]}`),
+				actionSelectSkills("scheduled-task"),
+				actionCallTool("schedule.create", `{"name":"아침 회의 준비","taskInstruction":"현재 대화에 아침 회의 준비 알림을 보낸다.","kind":"cron","cronExpression":"0 9 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul"}`),
+				actionFinishMessage("매일 오전 9시 아침 회의 준비 작업을 등록했습니다.", "obs-003:schedule.create:0"),
+			},
+			ExpectedToolCalls: []string{"skill.search", "schedule.create"},
+			ExpectedToolCallCounts: map[string]int{
+				"skill.search":    1,
+				"schedule.create": 1,
+				"site.create":     0,
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "agent.skill_selection.applied", BodyFragment: "scheduled-task", Count: 1},
+				{Name: "tool.schedule.create.result", BodyFragment: "cronExpression", Count: 1},
+			},
+			ExpectedModelContexts:  []string{"skill.select", "scheduled-task", "schedule.create"},
+			ExpectedReplyFragments: []string{"등록했습니다"},
 		}},
 	}
 }
@@ -428,7 +460,7 @@ func ScheduleLifecycleAcceptanceScenario(artifactDirectoryPath string) VirtualSe
 				RouterRequiredEvidence: []string{"schedule.create"},
 				ActionResponses: []string{
 					actionCallTool("schedule.create", `{"name":"상태 확인 알림","taskInstruction":"현재 대화에 \"상태를 확인하세요\"라고 보낸다.","kind":"interval","intervalSecond":1800,"maxRunCount":3,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}`),
-					actionFinishMessage("30분마다 세 번 상태 확인 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
+					actionFinishMessage("30분마다 세 번 상태 확인 알림을 보내도록 예약했습니다.", "obs-001:schedule.create:0"),
 				},
 				ExpectedSelectedSkills: []string{"scheduled-task"},
 				ExpectedEventCounts: []VirtualEventCount{
@@ -908,7 +940,7 @@ func OneTimeScheduleAcceptanceScenario(artifactDirectoryPath string) VirtualSess
 			Prompt: "2027년 1월 15일 오전 9시에 계약서 확인 알림을 한 번만 예약해줘",
 			ActionResponses: []string{
 				actionCallTool("schedule.create", `{"name":"계약서 확인 알림","taskInstruction":"현재 대화에 \"계약서를 확인하세요\"라고 보낸다.","kind":"once","runAt":"2027-01-15T00:00:00Z","timeZone":"Asia/Seoul"}`),
-				actionFinishMessage("2027년 1월 15일 오전 9시에 한 번 알림을 보내도록 예약해둘게요.", "obs-001:schedule.create:0"),
+				actionFinishMessage("2027년 1월 15일 오전 9시에 한 번 알림을 보내도록 예약했습니다.", "obs-001:schedule.create:0"),
 			},
 			ExpectedSelectedSkills: []string{"scheduled-task"},
 			ExpectedToolCalls:      []string{"schedule.create"},
@@ -1080,8 +1112,8 @@ func SiteCustomStructureAcceptanceScenario(artifactDirectoryPath string) Virtual
 			ActionResponses: []string{
 				actionCallTool("file.write", `{"path":"/workspace/circles/staff/sites/demo/draft/app/src/App.tsx","content":"export default function App() {\n  return <main className=\"custom-layout\"><section className=\"column\">Local Fleet Studio</section><section className=\"column\">Two-column custom layout</section></main>;\n}\n"}`),
 				actionCallTool("site.publish", `{"siteID":"site-1","message":"Publish custom two-column layout"}`),
-				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main class=\"custom-layout\"><section>Local Fleet Studio</section><section>Two-column custom layout</section></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`),
-				actionCallTool("site.publish", `{"siteID":"site-1","message":"Publish custom two-column layout"}`),
+				actionCallTool("terminal.run", `{"command":"mkdir -p dist && printf '<!doctype html><html><body><main class=\"custom-layout\"><section>Local Fleet Studio</section><section>Two-column custom layout</section></main></body></html>' > dist/index.html","workingDirectoryPath":"/workspace/circles/staff/sites/demo/draft/app","timeoutSecond":120}`, "obs-002"),
+				actionCallTool("site.publish", `{"siteID":"site-1","message":"Publish custom two-column layout"}`, "obs-002"),
 				actionFinishMessage("커스텀 레이아웃을 빌드하고 다시 배포했습니다: https://demo.device.example.test", "obs-004:site.publish:0"),
 			},
 			ExpectedToolCallCounts: map[string]int{"terminal.run": 1, "file.write": 1, "site.publish": 1},

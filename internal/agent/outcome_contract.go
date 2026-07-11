@@ -123,16 +123,7 @@ func expectedResultsIncludeSiteRequirement(results []ExpectedResult) bool {
 }
 
 func expectedResultIsSiteRequirement(result ExpectedResult) bool {
-	if strings.TrimSpace(result.Type) == ExpectedResultTypeLink {
-		return true
-	}
-	text := strings.ToLower(strings.Join(append([]string{result.ID, result.Description}, result.AcceptanceHints...), " "))
-	for _, fragment := range []string{"site", "website", "web app", "webpage", "public url", "웹사이트", "홈페이지", "웹 앱", "웹앱"} {
-		if strings.Contains(text, fragment) {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(result.Type) == ExpectedResultTypeLink
 }
 
 func removeToolNamePrefix(toolNames []string, prefix string) ([]string, []string) {

@@ -64,15 +64,13 @@ func TestTerminalPathGuardrailRecoveryGuidanceIncludesCorrectedWorkspaceRetry(t 
 }
 
 func TestTerminalCurrentDirectoryRecoveryGuidanceUsesSiteAppWorkspace(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "terminal.run", "CouldntReadCurrentDirectory", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
+	observation := newFailureObservation("obs-001", "continue", "terminal.run", "current workspace is unavailable", FailureExternalService, FailureCodes.OperationFailed, "terminal_working_directory_access")
 	guidance := recoveryGuidanceContent(observation, "")
 
 	for _, expectedText := range []string{
-		"could not read its current working directory",
-		"site.status",
-		"appWorkspacePath",
+		"workingDirectoryPath",
 		"~/documents",
-		"not source subdirectories like app/src",
+		"relative paths",
 	} {
 		if !strings.Contains(guidance, expectedText) {
 			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
@@ -80,18 +78,16 @@ func TestTerminalCurrentDirectoryRecoveryGuidanceUsesSiteAppWorkspace(t *testing
 	}
 }
 
-func TestTerminalModuleNotFoundRecoveryGuidanceUsesSkillRuntime(t *testing.T) {
-	observation := newFailureObservation("obs-001", "continue", "terminal.run", "ModuleNotFoundError: No module named 'pptx'", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
-	guidance := recoveryGuidanceContent(observation, "")
+func TestTerminalDependencyRecoveryUsesStructuredFailureClass(t *testing.T) {
+	observation := newFailureObservation("obs-001", "continue", "terminal.run", "python runtime dependency unavailable", FailureDependencyUnavailable, FailureCodes.Unavailable, "terminal_dependency")
+	observation.Failure.FailureClass = failureClassDependency
+	packet := buildRecoveryPacket(observation)
 
-	for _, expectedText := range []string{
-		"/workspace/skills/presentation/scripts/skill_runtime.py",
-		"do not probe or install python-pptx with system Python",
-		"/workspace/skills/presentation/scripts/build.sh",
-	} {
-		if !strings.Contains(guidance, expectedText) {
-			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
-		}
+	if packet.FailureClass != failureClassDependency {
+		t.Fatalf("expected structured dependency class, got %+v", packet)
+	}
+	if !strings.Contains(strings.Join(packet.MustDoNext, " "), "dependency") {
+		t.Fatalf("expected generic dependency recovery steps, got %+v", packet.MustDoNext)
 	}
 }
 

@@ -20,12 +20,59 @@ Always apply the code style preferences below. The only exception is when workin
 ## LLM-First Runtime Policy
 
 - User-facing answers, failure explanations, approval wording, and recovery direction must go through the LLM.
+- Never infer semantic intent or task state from hard-coded natural-language
+  keyword or phrase lists, substring checks, prefixes, suffixes, or regular
+  expressions. This is cheating and a pre-LLM anti-pattern: it is brittle
+  across paraphrases and languages and must not decide whether work is complete,
+  failed, blocked, relevant, approved, or requested.
+- Deterministic runtime code may validate structural facts such as enum values,
+  tool results, evidence IDs, state transitions, exact duplicate messages,
+  schemas, paths, and protocol identifiers. When semantic judgment is required,
+  call an LLM with a strict structured-output schema and branch only on
+  validated structured fields. Retry or fail closed when that judgment cannot
+  be obtained; do not add a phrase filter as a fallback.
+- Exact protocol tokens and security controls such as secret redaction, path
+  validation, content-type checks, and file-extension checks are not semantic
+  classifiers and may remain deterministic.
 - Deterministic runtime code may validate, normalize, enforce schemas, orchestrate retries, and record diagnostics, but must not compose fallback sentences for users.
 - Exact control acknowledgements for slash commands, such as stop/stop-all, may use deterministic system responses; do not expand that exception to task judgment, failure explanation, recovery direction, or confirmation wording.
 - When a failure requires a judgment, request structured output first, then use that structured decision as input to an LLM-generated user reply.
 - Deterministic helpers may prepare safe facts for the model, such as failure stage, error code, known context, and attempted actions.
 - For real task failures, do not fully suppress the user reply. Try local LLM failure wording first, then send a compact raw error summary if no LLM path can produce a usable notice.
 - Full suppression is only for intentionally ignored control/runtime cases such as duplicate delivery, cancelled task output, or self/bot messages.
+
+### Semantic Interpretation and Deterministic Resolution
+
+- Use this pipeline for mixed natural-language work: natural language -> strict
+  structured intent and hints -> deterministic resolution and validation ->
+  side effect -> LLM-written user reply.
+- Give the LLM questions about meaning: user intent, roles and relationships,
+  paraphrases across languages, relevance, and extraction of user-provided
+  references. Require the smallest useful structured output, such as enums,
+  booleans, role labels, and `personHints`; do not ask for system facts.
+- Give deterministic code questions about truth in a closed system: resolving
+  hints against authoritative records, allocating and looking up IDs, exact
+  calculations, schema and range validation, referential integrity,
+  authorization, approval, deduplication, state transitions, persistence, and
+  side effects.
+- Never ask an LLM to invent or reconstruct an opaque identifier. A model may
+  copy or select an ID only when a trusted structured input supplied it
+  verbatim and the runtime validates it again. Prefer hints and typed references
+  followed by an existing resolver; for example, resolve `personHints` to
+  `personIDs` in code.
+- Deterministic resolution is not natural-language keyword classification. A
+  resolver may normalize and rank names, emails, handles, and aliases against
+  an authoritative candidate set, but it must produce explicit `resolved`,
+  `not_found`, or `ambiguous` outcomes. Never silently choose the first or a
+  guessed candidate; return candidates and ask the user when ambiguous.
+- Use a simple boundary test: if the answer is provable from a database, tool
+  result, schema, or protocol, use deterministic code. If it depends on what a
+  person meant and fixed rules would fail across valid paraphrases, use the LLM.
+  If both are involved, let the LLM propose meaning and let code resolve and
+  enforce it.
+- Semantic output alone must never authorize a side effect or mark work
+  complete. The runtime must validate policy and require successful structural
+  evidence before execution or completion.
 
 ## Code Style
 

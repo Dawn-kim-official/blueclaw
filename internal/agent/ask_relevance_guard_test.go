@@ -10,9 +10,9 @@ import (
 func TestAgentTurnRunnerRejectsOffTopicAskInputAfterToolFailureRecovery(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"input":"continue"}}`,
-		`{"action":"continue","toolName":"ask.input","toolInput":{"question":"What is Gemma"}}`,
-		finishMessageDocument("등록했습니다."),
-	}}
+		`{"action":"continue","toolName":"ask.input","toolInput":{"question":"What is Gemma"},"recoveryForObservationID":"obs-001"}`,
+		failureReportDocument("업무 등록에 필요한 실행이 실패했습니다.", "terminal.run", "continue", FailureCodes.InvalidInput.String(), "terminal_run", "executableName is required"),
+	}, askRelevanceDecisions: []string{`{"isRequired":false,"reason":"The question changes the subject from task registration to Gemma."}`}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3, MaxIterationCount: 6, MaxToolCallCount: 6})
 	askInputCallCount := 0
 	toolRegistry := newTestToolSet([]string{"terminal.run", "ask.input"})
@@ -38,8 +38,8 @@ func TestAgentTurnRunnerRejectsOffTopicAskInputAfterToolFailureRecovery(t *testi
 	if askInputCallCount != 0 {
 		t.Fatalf("expected the off-topic ask.input never to actually invoke the tool, got %d calls", askInputCallCount)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected the task to finish instead of pausing on an unrelated question, got %s", result.TaskRun.Status)
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected the task to fail accurately instead of pausing on an unrelated question, got %s", result.TaskRun.Status)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
 	if !taskEventsContain(events, "agent.unrelated_ask_rejected", "What is Gemma") {
@@ -86,29 +86,19 @@ func TestAgentTurnRunnerAllowsRelevantAskInputToPauseNormally(t *testing.T) {
 	}
 }
 
-func TestLooksLikeOffTopicMetaQuestion(t *testing.T) {
-	cases := []struct {
-		question string
-		want     bool
-	}{
-		{"What is Gemma", true},
-		{"무엇을 도와드릴까요", true},
-		{"Did you mean the 광장 channel or the 잡담 channel?", false},
-		{"이 메시지를 보낼까요?", false},
-	}
-	for _, testCase := range cases {
-		if got := looksLikeOffTopicMetaQuestion(testCase.question); got != testCase.want {
-			t.Fatalf("looksLikeOffTopicMetaQuestion(%q) = %v, want %v", testCase.question, got, testCase.want)
-		}
-	}
-}
+func TestBuildAskRelevanceInputPreservesStructuredGoalContext(t *testing.T) {
+	input := buildAskRelevanceInput(AgentTurnRequest{
+		Prompt: "업무를 등록해줘",
+		ActiveGoal: ActiveGoal{
+			OriginalInstruction: "광장 채널의 업무를 등록해줘",
+			MissingInformation:  []string{"등록할 업무"},
+		},
+	}, nil, "어떤 업무를 등록할까요?")
 
-func TestSharesSignificantWordDetectsGoalOverlap(t *testing.T) {
-	goalCorpus := "광장 채널이랑 잡담 채널에서 내가 언급한 업무를 태스크로 등록해줘"
-	if sharesSignificantWord("What is Gemma", goalCorpus) {
-		t.Fatal("expected an unrelated question to share no significant words with the goal")
+	if input.OriginalInstruction != "광장 채널의 업무를 등록해줘" || input.ProposedQuestion != "어떤 업무를 등록할까요?" {
+		t.Fatalf("expected structured goal and question context, got %+v", input)
 	}
-	if !sharesSignificantWord("What is the correct channel, 광장 or 잡담?", goalCorpus) {
-		t.Fatal("expected a disambiguation question naming goal vocabulary to share a significant word")
+	if len(input.MissingInformation) != 1 || input.MissingInformation[0] != "등록할 업무" {
+		t.Fatalf("expected missing information context, got %+v", input.MissingInformation)
 	}
 }

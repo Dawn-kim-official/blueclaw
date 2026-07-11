@@ -416,23 +416,16 @@ func evidenceDescriptionLine(toolName string, toolDefinition ToolDefinition) str
 
 func (turnRouter TurnRouter) deterministicDecision(request AgentRequest) TurnDecision {
 	responseLanguage := ResolveResponseLanguage(request.ResponseLanguage, request.VisibleContext.ResponseLanguage)
-	requestedOutputFormats := []string{}
-	priorTaskReference := deterministicPriorTaskReferenceForRequest(request)
-	if priorTaskReference == PriorTaskReferenceOutcomeRecovery {
-		priorTask := normalizePriorTaskContext(request.PriorTask)
-		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, priorTask.RequestedOutputFormats...)
-		requestedOutputFormats = appendUniqueStrings(requestedOutputFormats, artifactFormatsForAttachmentSuffixes(priorTask.OutcomeContract.RequiredAttachmentSuffixes)...)
-	}
 	return TurnDecision{
 		Route:                     deterministicTurnRoute(request),
 		Classification:            IntakeClassificationBoundedTask,
 		TaskShape:                 deterministicTaskShape(request, IntakeClassificationBoundedTask),
 		TaskLevel:                 LargerTaskLevel(turnRouter.options.DefaultTaskLevel, minimumTaskLevelForRequest(request)),
-		RequestedOutputFormats:    requestedOutputFormats,
+		RequestedOutputFormats:    nil,
 		Reason:                    "intake language model unavailable; treating request as bounded work",
 		ResponseLanguage:          responseLanguage,
-		InitialToolNames:          deterministicInitialToolNamesForRequest(request, requestedOutputFormats),
-		PriorTaskReference:        priorTaskReference,
+		InitialToolNames:          nil,
+		PriorTaskReference:        PriorTaskReferenceNone,
 		UsedDeterministicFallback: true,
 	}
 }
@@ -459,14 +452,6 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 		return defaultDecision
 	}
 	decision.Classification = normalizedClassification
-	if looksLikeSyntheticConnectorVerificationProbe(request.Prompt) {
-		decision.Classification = IntakeClassificationQuickReply
-		decision.TaskShape = TaskShapeImmediateReply
-		decision.TaskLevel = TaskLevelXLow
-		decision.RequestedOutputFormats = nil
-		decision.Reason = firstNonEmptyString(decision.Reason, "synthetic connector verification probe")
-		decision.UserFacingReply = ""
-	}
 	wasReclassifiedAwayFromConfirmation := false
 	if shouldTreatConfirmationAsBoundedLocalArtifact(request, decision.IntakeDecision()) {
 		decision.Classification = IntakeClassificationBoundedTask
@@ -510,7 +495,17 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	decision.PriorTaskReference = normalizePriorTaskReference(decision.PriorTaskReference)
 	decision = promoteFileArtifactClassification(decision, request)
 	decision = normalizeTaskfulConsumeRoute(decision, request)
+	decision.UserFacingReply = taskIntakeOnlyUserFacingReply(decision)
 	return decision
+}
+
+func taskIntakeOnlyUserFacingReply(decision TurnDecision) string {
+	switch decision.Classification {
+	case IntakeClassificationNeedsConfirmation, IntakeClassificationUnsupported:
+		return strings.TrimSpace(decision.UserFacingReply)
+	default:
+		return ""
+	}
 }
 
 func normalizePriorTaskReference(reference PriorTaskReference) PriorTaskReference {
@@ -805,27 +800,6 @@ func canRunFileArtifactWork(request AgentRequest) bool {
 	}
 	return request.ToolSet.IsAllowed(TerminalRunToolName) &&
 		request.ToolSet.IsAllowed(FileDeliverToolName)
-}
-
-func deterministicPriorTaskReferenceForRequest(request AgentRequest) PriorTaskReference {
-	if !priorTaskContextHasContent(request.PriorTask) {
-		return PriorTaskReferenceNone
-	}
-	if latestMessageAsksForPriorOutcomeRecovery(request.Prompt) {
-		return PriorTaskReferenceOutcomeRecovery
-	}
-	return PriorTaskReferenceNone
-}
-
-func latestMessageAsksForPriorOutcomeRecovery(prompt string) bool {
-	text := strings.ToLower(strings.TrimSpace(prompt))
-	if text == "" {
-		return false
-	}
-	return containsAny(text, []string{
-		"전달", "첨부", "다시", "재시도", "이어", "계속", "수정", "고쳐", "개선", "더 예쁘", "더 낫",
-		"deliver", "attach", "retry", "again", "continue", "revise", "update", "improve",
-	})
 }
 
 func deterministicTaskShape(request AgentRequest, classification IntakeClassification) TaskShape {
@@ -1148,19 +1122,7 @@ func registeredToolNamesOnly(toolRegistry *ToolSet, toolNames []string) []string
 	return registeredToolNames
 }
 
-func containsAny(value string, candidates []string) bool {
-	for _, candidate := range candidates {
-		if strings.Contains(value, candidate) {
-			return true
-		}
-	}
-	return false
-}
-
 func minimumTaskLevelForRequest(request AgentRequest) TaskLevel {
-	if looksLikeSyntheticConnectorVerificationProbe(strings.ToLower(strings.TrimSpace(request.Prompt))) {
-		return TaskLevelXLow
-	}
 	if hasToolPrefix(request.ToolSet, "browser.") && !hasToolPrefix(request.ToolSet, "web.") {
 		return TaskLevelMedium
 	}
@@ -1168,32 +1130,6 @@ func minimumTaskLevelForRequest(request AgentRequest) TaskLevel {
 		return TaskLevelLow
 	}
 	return TaskLevelXLow
-}
-
-func looksLikeSyntheticConnectorVerificationProbe(prompt string) bool {
-	fields := strings.Fields(strings.ToLower(strings.TrimSpace(prompt)))
-	if len(fields) != 3 {
-		return false
-	}
-	if fields[0] != "verify" {
-		return false
-	}
-	if fields[1] != "invited" && fields[1] != "uninvited" {
-		return false
-	}
-	return isDigitString(fields[2])
-}
-
-func isDigitString(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, character := range value {
-		if character < '0' || character > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func hasToolPrefix(toolRegistry *ToolSet, prefix string) bool {

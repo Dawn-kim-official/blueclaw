@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,52 +13,195 @@ import (
 	"blueclaw/internal/task"
 )
 
-func TestCompletionGateRejectsFutureWorkPromiseWithoutScheduleEvidence(t *testing.T) {
-	goalSatisfied := true
-	result := validateCompletionGate(nil, nil, nil, turnActionDocument{
-		Action:             "finish",
-		Message:            "지금부터 고치겠습니다. 완료 후 공유하겠습니다.",
-		GoalStatus:         "satisfied",
-		GoalSatisfied:      &goalSatisfied,
-		CompletionEvidence: []completionEvidenceReference{},
-		QualityReview:      []qualityReviewItem{},
-	})
-	if result.IsSatisfied {
-		t.Fatal("expected completion gate to reject future work promise")
-	}
-	if !strings.Contains(result.Message, "schedule.create") {
-		t.Fatalf("expected schedule evidence guidance, got %q", result.Message)
-	}
-}
-
 func TestCompletionGateRejectsSatisfiedFinishWithUnresolvedFailureDebt(t *testing.T) {
 	goalSatisfied := true
+	failedObservation := newFailureObservation("obs-001", "continue", "file.read", "permission denied", FailurePermissionDenied, FailureCodes.AccessDenied, "file_read")
+	failedObservation.ToolInputKey = "file.read\x00{\"path\":\"restricted.txt\"}"
 	result := validateCompletionGate(
 		nil,
-		[]turnObservation{
-			newFailureObservation("obs-001", "continue", "file.read", "permission denied", FailurePermissionDenied, FailureCodes.AccessDenied, "file_read"),
-		},
+		[]turnObservation{failedObservation},
 		nil,
 		turnActionDocument{
 			Action:             "finish",
-			Message:            "버튼 기능을 직접 구현할 수 있는 상태가 아닙니다.",
-			FailureResolution:  failureResolutionNoToolFallback,
+			Message:            "작업을 완료했습니다.",
 			GoalStatus:         "satisfied",
 			GoalSatisfied:      &goalSatisfied,
 			CompletionEvidence: []completionEvidenceReference{},
 			QualityReview:      []qualityReviewItem{},
-			RemainingWork:      "권한 확인 후 재시도 필요",
 		},
 	)
 	if result.IsSatisfied {
 		t.Fatal("expected completion gate to reject unresolved failure debt")
 	}
-	if !strings.Contains(result.Message, "remainingWork") {
-		t.Fatalf("expected remaining work guidance, got %q", result.Message)
+	if !strings.Contains(result.Message, "FailureDebt") {
+		t.Fatalf("expected failure debt guidance, got %q", result.Message)
 	}
 }
 
-func TestCompletionGateAcceptsZeroRemainingWork(t *testing.T) {
+func TestCompletionGateRejectsFinishMessageThatRepeatsSentCheckpoint(t *testing.T) {
+	goalSatisfied := true
+	checkpoint := newContentObservation("obs-001", "checkpoint", "", `{"message":"날씨 알림 일정을 설정합니다.","status":"sent"}`)
+	result := validateCompletionGate(nil, []turnObservation{checkpoint}, nil, turnActionDocument{
+		Action:        "finish",
+		Message:       "날씨 알림 일정을 설정합니다.",
+		GoalStatus:    "satisfied",
+		GoalSatisfied: &goalSatisfied,
+	})
+
+	if result.IsSatisfied {
+		t.Fatal("expected repeated checkpoint wording to reject finish")
+	}
+	if !strings.Contains(result.Message, "fresh completed-result") {
+		t.Fatalf("expected completed-result guidance, got %q", result.Message)
+	}
+}
+
+func TestAgentTurnRunnerClassifiesFailedFinishAsFailed(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"set_quality_criteria","qualityCriteria":["요청한 작업이 실제로 완료됨"],"goalStatus":"in_progress","goalSatisfied":false}`,
+		`{"action":"continue","toolName":"unstable","toolInput":{}}`,
+		`{"action":"finish","message":"요청을 수행하지 못했습니다.","goalStatus":"satisfied","goalSatisfied":true,"failureResolution":"no_tool_fallback","completionEvidenceIDs":[],"qualityReview":[{"id":"criterion-1","passed":false,"evidenceIDs":[]}]}`,
+		failureReportDocument("요청 실행이 실패했습니다.", "unstable", "{}", FailureCodes.OperationFailed.String(), "unstable", "request failed"),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{
+		MaxIterationCount: 6,
+		RecoveryBudget:    exhaustedRecoveryBudgetForTest(),
+	})
+	toolRegistry := newTestToolSet([]string{"unstable"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "unstable"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "unstable", "request failed"), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "요청을 실행해줘",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected an accurately classified task result: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed status, got %s", result.TaskRun.Status)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if taskEventsContain(taskEvents, "task.completed", "") {
+		t.Fatal("expected failed finish never to emit task.completed")
+	}
+	if !taskEventsContain(taskEvents, "agent.completion_required", "qualityReview") {
+		t.Fatal("expected failed finish to be rejected before persistence")
+	}
+}
+
+func TestFinalizeSatisfiedTurnDoesNotIgnoreCompletionPersistenceFailure(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("완료했습니다.")}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "작업해줘")
+	services.taskRunService.UseRepository(completionFailureRepository{
+		errorValue: errors.New("database unavailable token=secret-value"),
+	})
+
+	result, isFinalized := services.runner.finalizeSatisfiedTurn(
+		context.Background(),
+		taskRun.TaskRunID,
+		AgentTurnRequest{Prompt: "작업해줘"},
+		nil,
+		nil,
+		nil,
+		ExecutionState{},
+	)
+
+	if !isFinalized {
+		t.Fatal("expected persistence failure to terminate with an accurate failed result")
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed || strings.TrimSpace(result.UserNotice) == "" || result.FinishMessage != "" {
+		t.Fatalf("expected failed user-visible result without success reply, got %+v", result)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(taskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.completion_persist_failed", "database unavailable") {
+		t.Fatal("expected completion persistence failure event")
+	}
+	if taskEventsContain(taskEvents, "agent.completion_persist_failed", "secret-value") {
+		t.Fatal("expected diagnostic event to redact secrets")
+	}
+}
+
+func TestAgentTurnRunnerReportsCompletionPersistenceFailureAsFailed(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			finishMessageDocument("완료했습니다."),
+			recoveryDecisionDocument("완료 상태 저장 실패", "작업 결과는 생성됨", "잠시 후 다시 시도", "저장 실패를 알림"),
+		},
+		textResponses: []string{"작업 결과를 저장하지 못해 완료 처리되지 않았습니다. 잠시 후 다시 시도해 주세요."},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	repository := newCompletionTransitionFailureRepository(errors.New("database unavailable token=secret-value"))
+	services.taskRunService.UseRepository(repository)
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "작업해줘",
+		ResponseLanguage:  "ko",
+	})
+
+	if errorValue != nil {
+		t.Fatalf("expected failed result without runner error: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed {
+		t.Fatalf("expected failed status, got %s", result.TaskRun.Status)
+	}
+	if strings.TrimSpace(result.UserNotice) == "" || result.FinishMessage != "" || result.ReplySuppressed {
+		t.Fatalf("expected visible failure notice and no success reply, got %+v", result)
+	}
+	if repository.completedTransitionCount != 1 || repository.failedTransitionCount != 1 {
+		t.Fatalf("expected failed completion followed by failed-state persistence, got %+v", repository)
+	}
+}
+
+func TestTerminalNoToolsFinishReportsCompletionPersistenceFailureAsFailed(t *testing.T) {
+	languageModel := &sequenceLanguageModel{
+		contents: []string{
+			recoveryDecisionDocument("완료 상태 저장 실패", "작업 결과는 생성됨", "잠시 후 다시 시도", "저장 실패를 알림"),
+		},
+		textResponses: []string{"작업 결과를 저장하지 못해 완료 처리되지 않았습니다. 잠시 후 다시 시도해 주세요."},
+	}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
+	repository := newCompletionTransitionFailureRepository(errors.New("database unavailable"))
+	services.taskRunService.UseRepository(repository)
+	taskRun := services.taskRunService.CreateTaskRun("person-1", "conversation-1", "작업해줘")
+	if _, errorValue := services.taskRunService.AdvanceTaskRun(taskRun.TaskRunID, "test"); errorValue != nil {
+		t.Fatalf("expected running task fixture: %v", errorValue)
+	}
+	goalSatisfied := true
+
+	result, isComplete, validationMessage := services.runner.completeTerminalNoToolsFinish(
+		context.Background(),
+		taskRun.TaskRunID,
+		taskRun.TaskRunID+":finish",
+		AgentTurnRequest{Prompt: "작업해줘", ResponseLanguage: "ko"},
+		&agentTaskState{},
+		turnActionDocument{
+			Action:             "finish",
+			Message:            "완료했습니다.",
+			GoalStatus:         "satisfied",
+			GoalSatisfied:      &goalSatisfied,
+			FailureResolution:  failureResolutionNoToolFallback,
+			CompletionEvidence: []completionEvidenceReference{},
+		},
+	)
+
+	if !isComplete || validationMessage != "" {
+		t.Fatalf("expected terminal failure result, complete=%v validation=%q", isComplete, validationMessage)
+	}
+	if result.TaskRun.Status != task.TaskStatusFailed || strings.TrimSpace(result.UserNotice) == "" || result.FinishMessage != "" {
+		t.Fatalf("expected failed terminal result without success reply, got %+v", result)
+	}
+}
+
+func TestCompletionGateRequiresEmptyRemainingWork(t *testing.T) {
 	goalSatisfied := true
 	result := validateCompletionGate(nil, nil, nil, turnActionDocument{
 		Action:             "finish",
@@ -66,10 +210,10 @@ func TestCompletionGateAcceptsZeroRemainingWork(t *testing.T) {
 		GoalSatisfied:      &goalSatisfied,
 		CompletionEvidence: []completionEvidenceReference{},
 		QualityReview:      []qualityReviewItem{},
-		RemainingWork:      "0",
+		RemainingWork:      "still pending",
 	})
-	if !result.IsSatisfied {
-		t.Fatalf("expected zero remaining work to satisfy completion gate, got %q", result.Message)
+	if result.IsSatisfied || result.Message != "finish requires remainingWork to be empty" {
+		t.Fatalf("expected nonempty remainingWork to reject finish, got %+v", result)
 	}
 }
 
@@ -434,7 +578,8 @@ func TestAgentTurnRunnerRequiresToolEvidenceBeforeFinishMessage(t *testing.T) {
 func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("PPT 못 만들어요"),
-		`{"action":"continue","message":"PPTX를 첨부했습니다: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("PPTX를 첨부했습니다: deck.pptx", "obs-002", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
@@ -460,7 +605,7 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *test
 		t.Fatalf("expected required evidence to recover: %v", errorValue)
 	}
 	if !strings.Contains(result.FinishMessage, "deck.pptx") {
-		t.Fatalf("expected artifact-aware reply, got %q", result.FinishMessage)
+		t.Fatalf("expected artifact-aware reply, got %q events=%+v", result.FinishMessage, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
@@ -473,11 +618,11 @@ func TestAgentTurnRunnerRequiresSelectedSkillEvidenceBeforeFinishMessage(t *test
 	}
 }
 
-func TestAgentTurnRunnerDoesNotRequireNonAttachmentToolInCompletionEvidence(t *testing.T) {
+func TestAgentTurnRunnerRequiresSideEffectToolInCompletionEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
 		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.html"}}`,
-		finishMessageWithEvidence("HTML 파일을 첨부했습니다: deck.html", "obs-002", "file.deliver", 0),
+		`{"action":"finish","message":"HTML 파일을 첨부했습니다: deck.html","goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-001","obs-002"],"completionEvidence":[{"observationID":"obs-001","toolName":"file.write"},{"observationID":"obs-002","toolName":"file.deliver","attachmentIndex":0}],"qualityReview":[]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"file.write", "file.deliver"})
@@ -518,7 +663,8 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"DESIGN.md"}}`,
 		finishMessageWithEvidence("첨부했습니다.", "obs-001", "file.deliver", 0),
-		`{"action":"continue","message":"PPTX를 첨부했습니다: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("PPTX를 첨부했습니다: deck.pptx", "obs-003", "file.deliver", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
@@ -551,7 +697,7 @@ func TestAgentTurnRunnerRequiresAttachmentSuffixEvidence(t *testing.T) {
 		t.Fatalf("expected required suffix evidence to recover: %v", errorValue)
 	}
 	if !strings.Contains(result.FinishMessage, "deck.pptx") {
-		t.Fatalf("expected artifact-aware reply, got %q", result.FinishMessage)
+		t.Fatalf("expected artifact-aware reply, got %q events=%+v", result.FinishMessage, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "deck.pptx" {
 		t.Fatalf("expected pptx attachment, got %+v", result.Attachments)
@@ -619,7 +765,9 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 	writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
 
-	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("unused")}}
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"finish","message":"요청하신 두 파일을 첨부했습니다.","replyParts":[{"type":"text","text":"요청하신 두 파일을 첨부했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.deliver","attachmentIndex":0},{"observationID":"obs-002","toolName":"file.deliver","attachmentIndex":0}],"qualityReview":[]}`,
+	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
@@ -651,7 +799,7 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 		t.Fatalf("expected auto attachment evidence to succeed: %v", errorValue)
 	}
 	if len(result.Attachments) != 2 {
-		t.Fatalf("expected two attachments, got %+v", result.Attachments)
+		t.Fatalf("expected two attachments, got %+v events=%+v", result.Attachments, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if result.Attachments[0].Filename != "deck.pptx" && result.Attachments[1].Filename != "deck.pptx" {
 		t.Fatalf("expected deck.pptx attachment, got %+v", result.Attachments)
@@ -825,7 +973,9 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 	writeValidPPTXTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pptx"))
 	writeValidPDFTestFile(t, filepath.Join(artifactDirectoryPath, "deck.pdf"))
 
-	languageModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("unused")}}
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"finish","message":"요청하신 두 파일을 첨부했습니다.","replyParts":[{"type":"text","text":"요청하신 두 파일을 첨부했습니다."}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidence":[{"observationID":"obs-001","toolName":"file.deliver","attachmentIndex":0},{"observationID":"obs-002","toolName":"file.deliver","attachmentIndex":0}],"qualityReview":[]}`,
+	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestToolSet([]string{"file.deliver"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
@@ -854,7 +1004,7 @@ func TestAgentTurnRunnerAutoCompletionKeepsQualityOutOfCorePolicy(t *testing.T) 
 		t.Fatalf("expected artifact validity completion without core quality checks: %v", errorValue)
 	}
 	if len(result.Attachments) != 2 {
-		t.Fatalf("expected attachments, got %+v", result.Attachments)
+		t.Fatalf("expected attachments, got %+v events=%+v", result.Attachments, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID))
 	}
 	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.quality_review", "marp_build_log_success") {
 		t.Fatal("expected no hard-coded slide quality check event")
@@ -915,8 +1065,8 @@ func TestAgentTurnRunnerRejectsCompletionEvidenceFromErrorObservation(t *testing
 	if result.TaskRun.Status != task.TaskStatusFailed {
 		t.Fatalf("expected failed task, got %s", result.TaskRun.Status)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "unknown or failed observation") {
-		t.Fatal("expected failed evidence gate event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "FailureDebt") {
+		t.Fatal("expected active failure debt gate event")
 	}
 }
 
@@ -1111,11 +1261,12 @@ func TestAgentTurnRunnerRemovesQualityCriteriaActionAfterCriteriaAreSet(t *testi
 	}
 }
 
-func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityReview(t *testing.T) {
+func TestAgentTurnRunnerRequiresReviewForDeclaredQualityCriteria(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"set_quality_criteria","qualityCriteria":["visual review: review the artifact"],"goalStatus":"in_progress","goalSatisfied":false}`,
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.publish","input":{"siteID":"site-1"}},"nextStepPlan":{"objective":"finish with the public URL","expectedTools":[],"expectedNextResults":["public URL"],"doneCriteria":["public URL is available"],"risk":"none","workingSetReason":"publish satisfies the link expected result"}}`,
 		`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-002"]}`,
+		`{"action":"finish","message":"배포했습니다: https://portfolio.example","replyParts":[{"type":"text","text":"배포했습니다: https://portfolio.example"}],"goalStatus":"satisfied","goalSatisfied":true,"completionEvidenceIDs":["obs-002"],"qualityReview":[{"id":"visual-review-review-the-artifact","passed":true,"evidenceIDs":["obs-002"]}]}`,
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5})
 	toolRegistry := newTestCapabilityToolSet([]string{"site.publish"})
@@ -1137,13 +1288,13 @@ func TestAgentTurnRunnerDoesNotBlockFinishedExpectedResultForMissingQualityRevie
 		}}},
 	})
 	if errorValue != nil {
-		t.Fatalf("expected finish to pass without qualityReview hard gate: %v", errorValue)
+		t.Fatalf("expected finish to pass after quality review: %v", errorValue)
 	}
 	if result.FinishMessage != "배포했습니다: https://portfolio.example" {
 		t.Fatalf("expected final publish message, got %q", result.FinishMessage)
 	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "qualityReview") {
-		t.Fatal("expected missing qualityReview to remain a review hint, not a completion blocker")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_required", "qualityReview") {
+		t.Fatal("expected missing required quality review to block the first finish")
 	}
 }
 
@@ -1369,10 +1520,10 @@ func TestAgentTurnRunnerFileExpectedResultRequiresAttachment(t *testing.T) {
 func TestAgentTurnRunnerRejectsQualityGateRetryUntilSourceChanges(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
-		`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/app/src/App.tsx","content":"export default function App(){return <main>Portfolio</main>}"}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}}}`,
-		finishMessageWithEvidence("수정 후 빌드했습니다.", "obs-004", "site.build", 0),
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"/workspace/sites/site-1/app/src/App.tsx","content":"export default function App(){return <main>Portfolio</main>}"},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"site.build","input":{"siteID":"site-1"}},"recoveryForObservationID":"obs-001"}`,
+		finishMessageWithEvidence("수정 후 빌드했습니다.", "obs-005", "site.build", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 8, MaxToolCallCount: 6})
 	toolRegistry := newTestCapabilityToolSet([]string{"site.build"})
@@ -1465,17 +1616,24 @@ func TestAgentTurnRunnerRequestsFinalReplyAfterOneShotEvidenceToolSuccess(t *tes
 }
 
 func TestAgentTurnRunnerRequestsFinalReplyAfterScheduleCreateSuccess(t *testing.T) {
+	progressMessage := "반복 정책을 보정해 스케줄을 생성합니다. repeatPolicy=finite"
+	finalMessage := "1분 간격으로 10번 보내도록 예약했습니다."
 	languageModel := &sequenceLanguageModel{contents: []string{
-		finishMessageWithEvidence("1분 간격으로 10번 보내도록 예약했습니다.", "obs-001", "schedule.create", 0),
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"schedule.create","input":{"taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}}}`,
+		capabilityInvokeAction("continue", "스케줄을 생성합니다.", "schedule.create", `{"taskInstruction":"현재 대화에 죄송합니다라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"timeZone":"Asia/Seoul"}`),
+		capabilityInvokeAction("continue", progressMessage, "schedule.create", `{"taskInstruction":"현재 대화에 죄송합니다라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"repeatPolicy":"finite","timeZone":"Asia/Seoul"}`, "obs-001"),
+		finishMessageWithEvidence(finalMessage, "obs-003", "schedule.create", 0),
 	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4, MaxToolCallCount: 4})
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 5, MaxToolCallCount: 5})
 	toolCallCount := 0
 	toolRegistry := newTestCapabilityToolSet([]string{"schedule.create"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		toolCallCount++
+		if toolCallCount == 1 {
+			return ToolFailureResult(FailureInvalidInput, FailureCodes.InvalidInput, "schedule_create", "repeatPolicy is required"), nil
+		}
 		return ToolSuccess(`{"taskScheduleID":"schedule-1","taskInstruction":"현재 대화에 \"죄송합니다\"라고 보낸다.","kind":"interval","intervalSecond":60,"maxRunCount":10,"nextRunAt":"2026-05-09T05:07:00Z"}`), nil
 	})
+	checkpoints := []AgentCheckpoint{}
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
 		RequesterPersonID:     "person-1",
@@ -1484,6 +1642,12 @@ func TestAgentTurnRunnerRequestsFinalReplyAfterScheduleCreateSuccess(t *testing.
 		ToolSet:               toolRegistry,
 		PinnedToolNames:       toolRegistry.ListToolNames(),
 		RequiredEvidenceTools: []string{"schedule.create"},
+		TaskLevel:             TaskLevelLow,
+		EstimatedMinutes:      2,
+		CheckpointSender: func(_ context.Context, checkpoint AgentCheckpoint) error {
+			checkpoints = append(checkpoints, checkpoint)
+			return nil
+		},
 	})
 	if errorValue != nil {
 		t.Fatalf("expected completed schedule turn: %v", errorValue)
@@ -1491,22 +1655,32 @@ func TestAgentTurnRunnerRequestsFinalReplyAfterScheduleCreateSuccess(t *testing.
 	if result.TaskRun.Status != task.TaskStatusCompleted {
 		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
 	}
-	if toolCallCount != 1 {
-		t.Fatalf("expected one schedule create, got %d", toolCallCount)
+	if toolCallCount != 2 {
+		t.Fatalf("expected corrected schedule retry, got %d calls", toolCallCount)
 	}
-	if len(languageModel.requests) != 2 {
+	if len(languageModel.requests) != 3 {
 		t.Fatalf("expected one final model action after schedule success, got %d requests", len(languageModel.requests))
 	}
-	if result.FinishMessage != "1분 간격으로 10번 보내도록 예약했습니다." {
+	if result.FinishMessage != finalMessage || result.FinishMessage == progressMessage {
 		t.Fatalf("expected model-authored final reply, got %q", result.FinishMessage)
+	}
+	if len(checkpoints) != 0 {
+		t.Fatalf("expected short task to stay silent until final, got %+v", checkpoints)
+	}
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, "agent.checkpoint.skipped", "short_task") {
+		t.Fatal("expected short task checkpoint skip event")
+	}
+	if !taskEventsContain(taskEvents, "task.completed", finalMessage) {
+		t.Fatal("expected persisted completion to use explicit final wording")
 	}
 }
 
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"}}`,
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/presentation.md","content":"# Deck"},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"},"recoveryForObservationID":"obs-001"}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})
@@ -1548,6 +1722,116 @@ func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingFile(t *testing.T) {
 	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_precondition_blocked", "presentation.md") {
 		t.Fatal("did not expect terminal precondition block event")
 	}
+}
+
+type completionFailureRepository struct {
+	errorValue error
+}
+
+type completionTransitionFailureRepository struct {
+	taskRun                  task.TaskRun
+	errorValue               error
+	completedTransitionCount int
+	failedTransitionCount    int
+}
+
+func newCompletionTransitionFailureRepository(errorValue error) *completionTransitionFailureRepository {
+	return &completionTransitionFailureRepository{errorValue: errorValue}
+}
+
+func (repository *completionTransitionFailureRepository) SaveTaskRun(taskRun task.TaskRun) error {
+	repository.taskRun = taskRun
+	return nil
+}
+
+func (repository *completionTransitionFailureRepository) StartTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
+	return nil
+}
+
+func (repository *completionTransitionFailureRepository) FinishTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
+	return nil
+}
+
+func (repository *completionTransitionFailureRepository) TransitionTaskRun(transition task.TaskRunTransition) (task.TaskRun, error) {
+	if transition.ToState == task.TaskStatusCompleted {
+		repository.completedTransitionCount++
+		return task.TaskRun{}, repository.errorValue
+	}
+	if transition.ToState == task.TaskStatusFailed {
+		repository.failedTransitionCount++
+	}
+	repository.taskRun.Status = transition.ToState
+	repository.taskRun.FailureReason = transition.FailureReason
+	repository.taskRun.Result = transition.Result
+	repository.taskRun.UpdatedAt = transition.UpdatedAt
+	if transition.StartedAttempt != nil {
+		repository.taskRun.CurrentAttemptID = transition.StartedAttempt.TaskAttemptID
+	}
+	return repository.taskRun, nil
+}
+
+func (repository *completionTransitionFailureRepository) FindTaskRun(taskRunID string) (task.TaskRun, bool, error) {
+	return repository.taskRun, repository.taskRun.TaskRunID == taskRunID, nil
+}
+
+func (repository *completionTransitionFailureRepository) FindTaskAttempt(string) (task.TaskAttempt, bool, error) {
+	return task.TaskAttempt{}, false, nil
+}
+
+func (repository *completionTransitionFailureRepository) ListTaskRun() ([]task.TaskRun, error) {
+	return []task.TaskRun{repository.taskRun}, nil
+}
+
+func (repository *completionTransitionFailureRepository) ListTaskRunByPersonID(string) ([]task.TaskRun, error) {
+	return []task.TaskRun{repository.taskRun}, nil
+}
+
+func (repository *completionTransitionFailureRepository) DeleteTaskRun(string, []string) (bool, error) {
+	return false, nil
+}
+
+func (repository *completionTransitionFailureRepository) DeleteTaskRunsBefore(time.Time, []string) ([]string, error) {
+	return nil, nil
+}
+
+func (repository completionFailureRepository) SaveTaskRun(task.TaskRun) error {
+	return nil
+}
+
+func (repository completionFailureRepository) StartTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
+	return nil
+}
+
+func (repository completionFailureRepository) FinishTaskRunAttempt(task.TaskRun, task.TaskAttempt) error {
+	return nil
+}
+
+func (repository completionFailureRepository) TransitionTaskRun(task.TaskRunTransition) (task.TaskRun, error) {
+	return task.TaskRun{}, repository.errorValue
+}
+
+func (repository completionFailureRepository) FindTaskRun(string) (task.TaskRun, bool, error) {
+	return task.TaskRun{}, false, nil
+}
+
+func (repository completionFailureRepository) FindTaskAttempt(string) (task.TaskAttempt, bool, error) {
+	return task.TaskAttempt{}, false, nil
+}
+
+func (repository completionFailureRepository) ListTaskRun() ([]task.TaskRun, error) {
+	return nil, nil
+}
+
+func (repository completionFailureRepository) ListTaskRunByPersonID(string) ([]task.TaskRun, error) {
+	return nil, nil
+}
+
+func (repository completionFailureRepository) DeleteTaskRun(string, []string) (bool, error) {
+	return false, nil
+}
+
+func (repository completionFailureRepository) DeleteTaskRunsBefore(time.Time, []string) ([]string, error) {
+	return nil, nil
 }
 
 func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
@@ -1599,8 +1883,8 @@ func TestAgentTurnRunnerStopsRepeatedMissingEvidenceState(t *testing.T) {
 func TestAgentTurnRunnerDoesNotBlockTerminalRerunForMissingDesignFile(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
-		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/DESIGN.md","content":"colors: blue"}}`,
-		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"}}`,
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/deck/DESIGN.md","content":"colors: blue"},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"NAME=deck ./build.sh"},"recoveryForObservationID":"obs-001"}`,
 		finishMessageDocument("done"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, MaxToolCallCount: 6})

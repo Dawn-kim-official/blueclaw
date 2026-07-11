@@ -417,6 +417,18 @@ func TestMemoryRememberToolPersistsMarkdownBeforeQueue(t *testing.T) {
 	}
 }
 
+func TestMemoryUpdateFailureCodeUsesTypedQueueErrors(t *testing.T) {
+	if code := memoryUpdateFailureCode(memory.ErrMemoryUpdateQueueFull); code != "queue_full" {
+		t.Fatalf("expected queue_full, got %q", code)
+	}
+	if code := memoryUpdateFailureCode(memory.ErrMemoryUpdateQueueUnavailable); code != "queue_unavailable" {
+		t.Fatalf("expected queue_unavailable, got %q", code)
+	}
+	if code := memoryUpdateFailureCode(errors.New("memory update queue is full")); code != "operation_failed" {
+		t.Fatalf("plain error text must not activate queue protocol, got %q", code)
+	}
+}
+
 func decodeMemorySearchToolOutput(t *testing.T, content string) memorySearchToolOutput {
 	t.Helper()
 	document := memorySearchToolOutput{}

@@ -169,7 +169,7 @@ func TestAgentTurnRunnerUsesNaturalCaptchaFailureReply(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
 	toolRegistry := newTestToolSet([]string{"browser.snapshot"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "browser.snapshot"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolFailureResult(FailureExternalService, FailureCodes.OperationFailed, "browser_snapshot", "blocked_by_captcha: bot-detection wall"), nil
+		return ToolFailureResult(FailureExternalService, FailureCodes.CaptchaBlocked, "browser_snapshot", "human verification challenge blocked automated access"), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -223,7 +223,7 @@ func TestAgentTurnRunnerPreservesStructuredToolFailure(t *testing.T) {
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send", "message.context"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
+		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", FailureCodes.NotFound.String(), "recipient_resolve", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -260,7 +260,7 @@ func TestAgentTurnRunnerDeliversSafeDegradedFailureReplyWithoutStageAndCode(t *t
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
+		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", FailureCodes.NotFound.String(), "recipient_resolve", false, false), nil
 	})
 	existingTaskRun := services.taskRunService.CreateTaskRunWithOrigin("person-1", task.TaskRunOrigin{ConversationID: "conversation-1"}, "정국에게 DM 보내줘")
 	services.taskEventService.AppendTaskEvent(existingTaskRun.TaskRunID, "agent.no_progress_loop_paused", "previous stall pause")
@@ -301,7 +301,7 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 1, RecoveryBudget: exhaustedRecoveryBudgetForTest()})
 	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", "recipient_not_found", "recipient_resolve", false, false), nil
+		return structuredFailureToolResult("recipient not found", "approved active Mattermost recipient was not found", FailureCodes.NotFound.String(), "recipient_resolve", false, false), nil
 	})
 
 	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
@@ -323,100 +323,6 @@ func TestAgentTurnRunnerAcceptsGeneratedStructuredFailureReplyWithStageAndCode(t
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.failure_reply", "generated") {
 		t.Fatal("expected generated failure reply event")
-	}
-}
-
-func TestLimitReachedPromptPreservesFailureReportFacts(t *testing.T) {
-	observations := []turnObservation{
-		newFailureObservation("obs-001", "continue", "terminal.run", `{"exitCode":1,"stderr":"mkdir: cannot create directory 'artifacts': Permission denied"}`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
-	}
-	prompt := buildLimitReachedPrompt(AgentTurnRequest{Prompt: "pptx 만들어줘"}, "max_iterations", observations, nil, ExecutionState{}, recoveryDecision{})
-
-	for _, expectedText := range []string{
-		"FailureReportFacts that must be reflected accurately",
-		"terminal.run",
-		"operation_failed",
-		"terminal_run",
-		"Permission denied",
-	} {
-		if !strings.Contains(prompt, expectedText) {
-			t.Fatalf("expected limit prompt to contain %q, got %s", expectedText, prompt)
-		}
-	}
-}
-
-func TestRequiredArtifactFailureReplyRejectsTextFallbackOffer(t *testing.T) {
-	request := AgentTurnRequest{
-		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
-		RequiredEvidenceTools:      []string{"file.deliver"},
-		RequiredAttachmentSuffixes: []string{".pptx"},
-		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
-	}
-	reply := "스크립트 실행 권한 오류(errorCode: operation_failed)가 발생하여 최종 파일 생성 단계가 중단되었습니다. 준비된 발표 자료의 전체 기획안을 텍스트로 이곳에 바로 정리해 드릴까요?"
-
-	if !failureReplyIsInvalidForRequest(reply, request, "operation_failed", nil, nil) {
-		t.Fatal("expected required artifact failure reply with raw code and text fallback to be rejected")
-	}
-	if !limitReachedReplyIsInvalid(reply, request, nil) {
-		t.Fatal("expected required artifact limit reply with raw code and text fallback to be rejected")
-	}
-}
-
-func TestRequiredArtifactFailureReplyRejectsGenericFailureSummary(t *testing.T) {
-	request := AgentTurnRequest{
-		Prompt:                     "https://example.com 보고 사업계획서 발표자료 ppt로 만들어줘",
-		RequiredEvidenceTools:      []string{"file.deliver"},
-		RequiredAttachmentSuffixes: []string{".pptx"},
-		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
-	}
-	observations := []turnObservation{
-		newFailureObservation("obs-001", "continue", "browser_handoff.openURL", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureExternalService, FailureCodes.OperationFailed, "browser_handoff"),
-		newFailureObservation("obs-002", "continue", "terminal.run", `[ ERROR ] Failed converting Markdown. (EACCES: permission denied, open '/workspace/tmp-457-sVDK32cv3ara-.html')`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
-	}
-	reply := "요청하신 웹사이트 접속과 최종 PPT 변환 도구 실행 과정에서 오류가 발생하여 파일이 생성되지 않았습니다. 현재 브라우저 연결 문제와 프레젠테이션 생성을 위한 시스템 환경 오류가 확인되었으며, 이에 대한 추가적인 엔지니어링 확인이 필요한 상황입니다."
-
-	if !failureReplyIsInvalidForRequest(reply, request, "no artifact attached", observations, nil) {
-		t.Fatal("expected required artifact failure reply with generic browser/system summary to be rejected")
-	}
-}
-
-func TestRequiredArtifactFailureReplyAcceptsConcreteNaturalSummary(t *testing.T) {
-	request := AgentTurnRequest{
-		Prompt:                     "https://example.com 보고 사업계획서 발표자료 ppt로 만들어줘",
-		RequiredEvidenceTools:      []string{"file.deliver"},
-		RequiredAttachmentSuffixes: []string{".pptx"},
-		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
-	}
-	observations := []turnObservation{
-		newFailureObservation("obs-001", "continue", "browser_handoff.openURL", "Companion이 연결되어 있지 않아 브라우저를 열 수 없습니다.", FailureExternalService, FailureCodes.OperationFailed, "browser_handoff"),
-		newFailureObservation("obs-002", "continue", "terminal.run", `[ ERROR ] Failed converting Markdown. (EACCES: permission denied, open '/workspace/tmp-457-sVDK32cv3ara-.html')`, FailureExternalService, FailureCodes.OperationFailed, "terminal_run"),
-	}
-	reply := "PPTX는 첨부되지 않았습니다. 브라우저 열기는 Companion 미연결로 실패했고, 슬라이드 빌드는 Marp 임시 HTML 생성 권한 문제로 중단되어 presentation 임시 디렉터리 설정 확인이 필요합니다."
-
-	if failureReplyIsInvalidForRequest(reply, request, "no artifact attached", observations, nil) {
-		t.Fatal("expected required artifact failure reply with concrete natural facts to be accepted")
-	}
-}
-
-func TestRequiredArtifactPromptsForbidTextSubstitute(t *testing.T) {
-	request := AgentTurnRequest{
-		Prompt:                     "사업계획서 발표 자료 pptx 만들어줘",
-		RequiredEvidenceTools:      []string{"file.deliver"},
-		RequiredAttachmentSuffixes: []string{".pptx"},
-		OutcomeContract:            OutcomeContract{ArtifactRequirement: ArtifactRequirementRequired},
-	}
-
-	failurePrompt := buildFailureReplyPrompt(request, "terminal.run failed", nil, nil, ExecutionState{}, recoveryDecision{})
-	limitPrompt := buildLimitReachedPrompt(request, "max_iterations", nil, nil, ExecutionState{}, recoveryDecision{})
-	repairPrompt := buildLimitReachedRepairPrompt(limitPrompt, "텍스트로 정리해 드릴까요?", request, nil, 1)
-
-	for _, prompt := range []string{failurePrompt, limitPrompt, repairPrompt} {
-		if !strings.Contains(prompt, "Do not offer chat text as a substitute") {
-			t.Fatalf("expected required artifact prompt to forbid chat text substitute, got %s", prompt)
-		}
-		if !strings.Contains(prompt, "errorCode") {
-			t.Fatalf("expected required artifact prompt to mention raw diagnostic identifiers, got %s", prompt)
-		}
 	}
 }
 
@@ -563,7 +469,7 @@ func TestAgentTurnRunnerReportsRawLimitErrorWhenGenerationKeepsLeakingDiagnostic
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "Progress was saved") {
+	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "max_iterations") {
 		t.Fatalf("expected raw limit reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "raw_error") {

@@ -18,6 +18,7 @@ type toolRequestResult struct {
 	UnavailableToolNames      []string                   `json:"unavailableToolNames,omitempty"`
 	ToolCandidates            map[string][]toolCandidate `json:"toolCandidates,omitempty"`
 	UnknownSkillNames         []string                   `json:"unknownSkillNames,omitempty"`
+	UnsearchedSkillNames      []string                   `json:"unsearchedSkillNames,omitempty"`
 	ReclassifiedSkillsAsTools []string                   `json:"reclassifiedSkillsAsTools,omitempty"`
 	SkillsMissingAllowedTools map[string][]string        `json:"skillsMissingAllowedTools,omitempty"`
 	EmptyRequirement          bool                       `json:"emptyRequirement,omitempty"`
@@ -293,6 +294,24 @@ func toolRequestObservation(index int, requestArguments requestToolsArguments, r
 	return observation
 }
 
+func skillSelectionObservation(index int, requestArguments requestToolsArguments, result toolRequestResult, isRedundant bool) turnObservation {
+	content := marshalToolSelectionResult(requestArguments, result)
+	observation := newContentObservation(nextObservationID(index), "skill.select", "", content)
+	if toolRequestResultFailed(result) {
+		observation.Failure = &ToolFailure{
+			Kind:            FailureInvalidInput,
+			Code:            FailureCodes.InvalidInput.String(),
+			Stage:           "skill.select",
+			UserSafeSummary: toolRequestFailureSummary(result),
+		}
+		return observation
+	}
+	if isRedundant {
+		observation.Summary = "The requested skill is already selected. Use one of its exposed allowed-tools now."
+	}
+	return observation
+}
+
 func toolRequestAddedNothing(before AgentTurnRequest, after AgentTurnRequest, result toolRequestResult) bool {
 	if toolRequestResultFailed(result) {
 		return false
@@ -331,6 +350,7 @@ func toolRequestResultFailed(result toolRequestResult) bool {
 	return len(result.UnknownToolNames) > 0 ||
 		len(result.UnavailableToolNames) > 0 ||
 		len(result.UnknownSkillNames) > 0 ||
+		len(result.UnsearchedSkillNames) > 0 ||
 		len(result.SkillsMissingAllowedTools) > 0 ||
 		result.EmptyRequirement
 }
@@ -345,6 +365,9 @@ func toolRequestFailureSummary(result toolRequestResult) string {
 	}
 	if len(result.UnknownSkillNames) > 0 {
 		parts = append(parts, "unknown_skill="+strings.Join(result.UnknownSkillNames, ","))
+	}
+	if len(result.UnsearchedSkillNames) > 0 {
+		parts = append(parts, "skill_not_in_latest_search="+strings.Join(result.UnsearchedSkillNames, ","))
 	}
 	if len(result.SkillsMissingAllowedTools) > 0 {
 		parts = append(parts, "skill_missing_allowed_tools")

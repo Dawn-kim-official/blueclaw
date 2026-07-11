@@ -33,33 +33,38 @@ func promoteIntakeDecisionForSelectedSkills(decision IntakeDecision, instruction
 	return decision
 }
 
-// Some skills always warrant a stronger model than the generic skill floor,
-// regardless of the delivered output format. Presentation and website work is
-// visual deliverable work whose quality depends on the strongest tier, whether
-// it ships as PPTX, PDF, or HTML, so InternKim floors those skills at xhigh
-// here rather than inferring it from an output-file suffix downstream.
 var taskLevelFloorBySelectedSkillName = map[string]TaskLevel{
 	"presentation": TaskLevelXHigh,
 	"website":      TaskLevelXHigh,
 }
 
 func applySkillTaskLevelFloor(decision IntakeDecision, instructionBundle InstructionBundle, defaultSkillFloor TaskLevel) IntakeDecision {
-	for _, skillInstruction := range selectedSkillInstructionList(instructionBundle) {
+	selectedSkillInstructions := selectedSkillInstructionList(instructionBundle)
+	selectedSkillNames := make([]string, 0, len(selectedSkillInstructions))
+	for _, skillInstruction := range selectedSkillInstructions {
+		selectedSkillNames = append(selectedSkillNames, skillInstruction.Name)
+	}
+	decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, taskLevelFloorForSelectedSkillNames(selectedSkillNames))
+	for _, skillInstruction := range selectedSkillInstructions {
 		if !selectedSkillRequiresCompletionEvidence(skillInstruction) {
 			continue
 		}
-		floor := defaultSkillFloor
-		if override, hasOverride := taskLevelFloorBySelectedSkillName[strings.ToLower(strings.TrimSpace(skillInstruction.Name))]; hasOverride {
-			floor = LargerTaskLevel(floor, override)
-		}
-		if floor == "" {
+		if defaultSkillFloor == "" {
 			continue
 		}
-		decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, floor)
+		decision.TaskLevel = LargerTaskLevel(decision.TaskLevel, defaultSkillFloor)
 	}
 	return decision
 }
 
+func taskLevelFloorForSelectedSkillNames(skillNames []string) TaskLevel {
+	taskLevelFloor := TaskLevel("")
+	for _, skillName := range skillNames {
+		programmedFloor := taskLevelFloorBySelectedSkillName[strings.ToLower(strings.TrimSpace(skillName))]
+		taskLevelFloor = LargerTaskLevel(taskLevelFloor, programmedFloor)
+	}
+	return taskLevelFloor
+}
 
 func attachmentSuffixFormats(suffixes []string) []string {
 	formats := []string{}
@@ -188,7 +193,7 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "dominated_by_"+dominantSkill.Name, nil)
 			skillDecision.Score = skillCandidate.Score
 		}
-		if !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction, skillCandidate, request) {
+		if !hasStructuredQueries && !hasContractArbitration && skillDecision.Status == "selected" && shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction, skillCandidate, request) {
 			skillDecision = skippedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "outside_artifact_request", nil)
 			skillDecision.Score = skillCandidate.Score
 		}
@@ -204,11 +209,6 @@ func selectInstructionBundleForRequestWithRetrieverAndRouter(ctx context.Context
 		if skillDecision.Status != "selected" {
 			continue
 		}
-		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
-		sources = append(sources, skillInstruction.Source)
-	}
-	for _, skillInstruction := range alwaysSelectedSkillInstructions(instructionBundle.Skills, request, normalizedAgentProfileName(request.ProfileName), skillDecisions) {
-		skillDecisions = append(skillDecisions, selectedSkillDecision(skillInstruction, normalizedAgentProfileName(request.ProfileName), "always_selected"))
 		selectedSkillInstructions = append(selectedSkillInstructions, skillInstruction)
 		sources = append(sources, skillInstruction.Source)
 	}
@@ -273,7 +273,7 @@ func dominantArtifactSkill(request AgentRequest, skillInstructions []SkillInstru
 	return dominantSkill
 }
 
-func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {
+func requestHasArtifactSkillContract(request AgentRequest) bool {
 	if len(artifactContractRequirementsForRequest(request)) > 0 {
 		return true
 	}
@@ -283,16 +283,7 @@ func requestLooksLikeArtifactSkillRequest(request AgentRequest) bool {
 	if activeGoalRequiresToolPrefix(request.ActiveGoal, "site.") || activeGoalRequiresTool(request.ActiveGoal, FileDeliverToolName) {
 		return true
 	}
-	text := strings.ToLower(strings.Join(nonEmptyStrings([]string{
-		skillSelectionPrompt(request),
-		request.ActiveGoal.OriginalInstruction,
-		request.ActiveGoal.CurrentObjective,
-	}), "\n"))
-	return containsAny(text, []string{
-		"피피티", "발표자료", "프레젠테이션", "슬라이드", "ppt", "pptx", "deck", "slides",
-		"웹사이트", "웹 앱", "웹앱", "홈페이지", "사이트", "프로토타입", "website", "web app", "webpage",
-		"파일", "첨부", "문서", "보고서", "pdf", "docx", "xlsx", "csv", "html",
-	})
+	return false
 }
 
 func artifactSkillCandidateQualifies(skillCandidate SkillCandidate) bool {
@@ -333,36 +324,10 @@ func shouldSkipArtifactSkillForNonArtifactRequest(skillInstruction SkillInstruct
 	if skillCandidate.Reason == "direct_skill_name" || strings.TrimSpace(skillCandidate.Name) == "" {
 		return false
 	}
-	if requestLooksLikeArtifactSkillRequest(request) {
+	if requestHasArtifactSkillContract(request) {
 		return false
 	}
 	return skillSupportsSiteArtifact(skillInstruction) || skillSupportsFileDelivery(skillInstruction)
-}
-
-func alwaysSelectedSkillInstructions(skillInstructions []SkillInstruction, request AgentRequest, profileName string, existingSkillDecisions []SkillSelectionDecision) []SkillInstruction {
-	existingDecisionByName := map[string]bool{}
-	for _, skillDecision := range existingSkillDecisions {
-		existingDecisionByName[skillDecision.Name] = true
-	}
-	alwaysSelectedSkills := []SkillInstruction{}
-	for _, skillInstruction := range skillInstructions {
-		if !isAlwaysSelectedSupportSkill(skillInstruction) || existingDecisionByName[skillInstruction.Name] {
-			continue
-		}
-		if skillAvailabilityDecision(skillInstruction, request, profileName).Status == "selected" {
-			alwaysSelectedSkills = append(alwaysSelectedSkills, skillInstruction)
-		}
-	}
-	return alwaysSelectedSkills
-}
-
-func isAlwaysSelectedSupportSkill(skillInstruction SkillInstruction) bool {
-	if !skillSupportsToolPrefix(skillInstruction, "ask.") {
-		return false
-	}
-	text := skillContractSearchText(skillInstruction)
-	return strings.Contains(text, "always available") ||
-		skillTextContainsAny(text, []string{"confirmation", "confirm", "bounded choice", "free-form input", "ask the user", "사용자", "확인", "선택", "입력"})
 }
 
 func appendSkillInstructions(left []SkillInstruction, right ...SkillInstruction) []SkillInstruction {

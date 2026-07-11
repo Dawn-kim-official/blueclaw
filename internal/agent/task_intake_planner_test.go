@@ -177,7 +177,7 @@ func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
+func TestTaskIntakePlannerFallbackDoesNotInferPriorOutcomeRecovery(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
 
@@ -196,14 +196,14 @@ func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
 		},
 	})
 
-	if decision.PriorTaskReference != PriorTaskReferenceOutcomeRecovery {
-		t.Fatalf("expected deterministic fallback to recover prior outcome, got %+v", decision)
+	if decision.PriorTaskReference != PriorTaskReferenceNone {
+		t.Fatalf("deterministic fallback must not infer a prior outcome reference, got %+v", decision)
 	}
-	if strings.Join(decision.RequestedOutputFormats, ",") != "docx" {
-		t.Fatalf("expected docx output format, got %+v", decision.RequestedOutputFormats)
+	if len(decision.RequestedOutputFormats) != 0 {
+		t.Fatalf("deterministic fallback must not infer output formats, got %+v", decision.RequestedOutputFormats)
 	}
-	if !slices.Contains(decision.InitialToolNames, "file.deliver") {
-		t.Fatalf("expected file.deliver to be prepared, got %+v", decision.InitialToolNames)
+	if len(decision.InitialToolNames) != 0 {
+		t.Fatalf("deterministic fallback must not infer initial tools, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -344,6 +344,29 @@ func TestTaskIntakePlannerDropsQuoteLessHallucinatedSiteRequirement(t *testing.T
 	}
 	if !decision.siteNormalizationReport.HasDrops() {
 		t.Fatalf("expected diagnostic normalization report, got %+v", decision.siteNormalizationReport)
+	}
+}
+
+func TestTaskIntakePlannerClearsConfirmationWordingFromScheduledExecution(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"scheduled_task","level":"low","estimatedMinutes":1,"launchNotice":"","requestedOutputFormats":null,"expectedResults":[],"requiredEvidence":["schedule.create"],"siteRequestEvidence":"","responseLanguage":"ko","reason":"explicit recurring schedule request","userFacingReply":"설정해 드릴까요?","initialToolNames":["schedule.create"],"priorTaskReference":"none"}`,
+	}}
+	toolRegistry := newTestToolSet([]string{"schedule.create"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "schedule.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess("scheduled"), nil
+	})
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "매일 아침 9시에 회의 준비 작업을 만들어줘",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationBoundedTask || decision.TaskShape != TaskShapeScheduledTask {
+		t.Fatalf("expected direct scheduled execution, got %+v", decision)
+	}
+	if decision.UserFacingReply != "" {
+		t.Fatalf("expected task-loop intake wording to be cleared, got %q", decision.UserFacingReply)
 	}
 }
 
@@ -1123,26 +1146,6 @@ func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T
 	}
 }
 
-func TestTaskIntakePlannerKeepsSyntheticConnectorVerificationQuick(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"classification":"bounded_task","taskShape":"research_task","level":"medium","requestedOutputFormats":null,"responseLanguage":"en","reason":"contains verify","userFacingReply":""}`,
-	}}
-	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
-	toolRegistry := newTestToolSet([]string{"web.search", "mail.message.search"})
-
-	decision := planner.Plan(context.Background(), AgentRequest{
-		Prompt:  "verify invited 1778564495",
-		ToolSet: toolRegistry,
-	})
-
-	if decision.Classification != IntakeClassificationQuickReply {
-		t.Fatalf("expected quick connector probe, got %+v", decision)
-	}
-	if decision.TaskLevel != TaskLevelXLow {
-		t.Fatalf("expected xlow task level, got %+v", decision)
-	}
-}
-
 func TestTaskLevelProfileMapping(t *testing.T) {
 	profile := TaskLevelProfileForLevel(TaskLevelMedium)
 
@@ -1306,7 +1309,7 @@ func TestAgentKernelQuickReplyPromotesToolFailureToRecovery(t *testing.T) {
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"primary.lookup","input":{"query":"hello"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"backup.lookup","input":{"query":"hello"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"backup.lookup","input":{"query":"hello"}},"recoveryForObservationID":"obs-001"}`,
 		finishMessageWithEvidence("backup answer", "obs-003", "backup.lookup", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
@@ -1457,11 +1460,13 @@ func TestAgentKernelQuickReplyUsesAskChoiceForExplicitChoiceRequest(t *testing.T
 // hint with no independent signal (e.g. a requested attachment suffix) to promote it.
 func TestAgentKernelPromotedQuickReplyRejectsUnverifiedFinishAndCompletesOnRealEvidence(t *testing.T) {
 	intakeLanguageModel := &sequenceLanguageModel{contents: []string{
+		`{"queries":[{"description":"Create and deliver a presentation deck."}]}`,
 		`{"classification":"quick_reply","taskShape":"immediate_reply","level":"xlow","requestedOutputFormats":null,"reason":"direct answer","userFacingReply":""}`,
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("deck created too early"),
-		`{"action":"continue","message":"deck attached: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
+		finishMessageWithEvidence("deck attached: deck.pptx", "obs-002", "file.deliver", 0),
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))

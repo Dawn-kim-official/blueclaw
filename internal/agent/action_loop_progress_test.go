@@ -136,6 +136,19 @@ func TestInspectionToolSuccessDoesNotCountAsLoopProgress(t *testing.T) {
 	}
 }
 
+func TestSkillSearchSuccessDoesNotCountAsLoopProgress(t *testing.T) {
+	observations := []turnObservation{{
+		ObservationID: "obs-001",
+		Action:        "continue",
+		Tool:          SkillSearchToolName,
+		Output:        ToolOutput{Content: `{"skills":[{"name":"scheduled-task"}]}`},
+	}}
+
+	if progressEventCount(observations) != 0 {
+		t.Fatalf("expected skill discovery not to count as task progress, got %+v", progressEvents(observations))
+	}
+}
+
 func TestEvaluateRecoveryAllowanceReportsRemainingBudget(t *testing.T) {
 	failedObservation := terminalFailureObservation("obs-001", "tmp/deck", "bun run build", "missing package.json")
 	allowance := evaluateRecoveryAllowance([]turnObservation{failedObservation}, defaultRecoveryBudget())

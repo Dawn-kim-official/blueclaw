@@ -24,6 +24,10 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	if len(allowFailValues) > 0 {
 		allowFail = allowFailValues[0]
 	}
+	return buildActionSchemaWithSelectableSkills(toolDefinitions, allowQualityCriteria, blockedToolNames, hasFailureDebt, nil, allowFail)
+}
+
+func buildActionSchemaWithSelectableSkills(toolDefinitions []ToolDefinition, allowQualityCriteria bool, blockedToolNames map[string]bool, hasFailureDebt bool, selectableSkillNames []string, allowFail bool) string {
 	var variants []any
 	variants = append(variants, finishActionSchema(hasFailureDebt))
 	if allowFail {
@@ -32,11 +36,14 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 	if allowQualityCriteria {
 		variants = append(variants, setQualityCriteriaActionSchema())
 	}
+	if len(selectableSkillNames) > 0 {
+		variants = append(variants, selectSkillActionSchema(selectableSkillNames))
+	}
 	for _, toolDefinition := range toolDefinitions {
 		if blockedToolNames[strings.TrimSpace(toolDefinition.Name)] {
 			continue
 		}
-		variants = append(variants, continueActionSchema(toolDefinition))
+		variants = append(variants, continueActionSchema(toolDefinition, hasFailureDebt))
 	}
 
 	document, errorValue := json.Marshal(map[string]any{"oneOf": variants})
@@ -44,6 +51,26 @@ func buildActionSchemaFromToolDefinitions(toolDefinitions []ToolDefinition, allo
 		return fallbackActionSchema()
 	}
 	return string(document)
+}
+
+func selectSkillActionSchema(skillNames []string) map[string]any {
+	return map[string]any{
+		"type":        "object",
+		"description": "Select exact skill names returned by the latest skill.search result. The next Step exposes those skills' allowed-tools together with the base tools.",
+		"properties": map[string]any{
+			"action": enumStringSchema("skill.select"),
+			"skillNames": map[string]any{
+				"type":  "array",
+				"items": enumValuesStringSchema(skillNames),
+			},
+			"reason":               stringSchema(),
+			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
+			"goalSatisfied":        booleanSchema(),
+			"remainingWork":        stringSchema(),
+			"executionStateUpdate": executionStateSchema(),
+		},
+		"required": []string{"action", "skillNames", "executionStateUpdate"},
+	}
 }
 
 func finishActionSchema(hasFailureDebt bool) map[string]any {
@@ -56,8 +83,11 @@ func finishActionSchema(hasFailureDebt bool) map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":                enumStringSchema("finish"),
-			"message":               stringSchema(),
+			"action": enumStringSchema("finish"),
+			"message": map[string]any{
+				"type":        "string",
+				"description": "Permanent user-facing result that reports the already completed outcome. It is not a progress update or a promise of future work.",
+			},
 			"replyParts":            finishReplyPartArraySchema(),
 			"completionSummary":     stringSchema(),
 			"failureResolution":     enumValuesStringSchema(failureResolutionValues),
@@ -152,21 +182,30 @@ func failActionSchema(hasFailureDebt bool) map[string]any {
 	}
 }
 
-func continueActionSchema(toolDefinition ToolDefinition) map[string]any {
+func continueActionSchema(toolDefinition ToolDefinition, hasFailureDebt bool) map[string]any {
+	properties := map[string]any{
+		"action":               enumStringSchema("continue"),
+		"toolName":             enumStringSchema(toolDefinition.Name),
+		"toolInput":            toolInputSchema(toolDefinition),
+		"message":              stringSchema(),
+		"reason":               stringSchema(),
+		"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
+		"goalSatisfied":        booleanSchema(),
+		"remainingWork":        stringSchema(),
+		"executionStateUpdate": executionStateSchema(),
+	}
+	requiredFields := []string{"action", "toolName", "toolInput", "executionStateUpdate"}
+	if hasFailureDebt {
+		properties["recoveryForObservationID"] = map[string]any{
+			"type":        "string",
+			"description": "Exact observationID of the active FailureDebt that this tool call is intended to recover.",
+		}
+		requiredFields = append(requiredFields, "recoveryForObservationID")
+	}
 	schema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"action":               enumStringSchema("continue"),
-			"toolName":             enumStringSchema(toolDefinition.Name),
-			"toolInput":            toolInputSchema(toolDefinition),
-			"message":              stringSchema(),
-			"reason":               stringSchema(),
-			"goalStatus":           enumValuesStringSchema([]string{"in_progress"}),
-			"goalSatisfied":        booleanSchema(),
-			"remainingWork":        stringSchema(),
-			"executionStateUpdate": executionStateSchema(),
-		},
-		"required": []string{"action", "toolName", "toolInput", "executionStateUpdate"},
+		"type":       "object",
+		"properties": properties,
+		"required":   requiredFields,
 	}
 	if description := strings.TrimSpace(toolDefinition.Description); description != "" {
 		schema["description"] = description
@@ -240,7 +279,7 @@ func specificToolInputSchema(toolName string) json.RawMessage {
 	case "conversation.history":
 		return json.RawMessage(`{"type":"object","properties":{"historyCursor":{"type":"string"},"limit":{"type":"number"},"direction":{"type":"string"}}}`)
 	case "task.add":
-		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"weekCode":{"type":"string"}},"required":["prompt"]}`)
+		return json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"targetPersonHint":{"type":"string"},"personHints":{"type":"array","items":{"type":"string"}},"includeRequester":{"type":"boolean"},"weekCode":{"type":"string"},"allowDuplicate":{"type":"boolean"}},"required":["prompt"]}`)
 	case "task.list":
 		return json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"targetPersonHint":{"type":"string","description":"Leave EMPTY to list everyone's tasks. Set to one person's name — including the requester's own name for their own tasks — to list only that person."},"weekFrom":{"type":"number","description":"Relative week offset for the start of the range. 0 = this week (default), -1 = last week, -2 = two weeks ago. Omit for this week."},"weekTo":{"type":"number","description":"Relative week offset for the end of the range, default 0 (this week). For all time use a wide range such as weekFrom -520."},"status":{"type":"string"},"limit":{"type":"number"}}}`)
 	case "task.update":

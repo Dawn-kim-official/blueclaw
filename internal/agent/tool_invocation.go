@@ -15,6 +15,7 @@ func (agentTurnRunner *AgentTurnRunner) recordToolObservation(taskRunID string, 
 		observation.RecoveryStep = recoveryStep
 		observation.RecoveryAttemptSpent = recoveryStep != recoveryStepInspection
 		observation.RecoveryAttemptKey = canonicalToolCallKey(actionDocument.ToolName, actionDocument.ToolInput)
+		observation.RecoveryForObservationID = strings.TrimSpace(actionDocument.RecoveryForObservationID)
 	}
 	state.Observations = append(state.Observations, observation)
 	state.Attachments = appendObservationAttachments(state.Attachments, observation)

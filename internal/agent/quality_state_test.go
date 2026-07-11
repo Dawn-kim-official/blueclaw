@@ -69,7 +69,7 @@ func TestQualityReviewRejectsMissingEvidence(t *testing.T) {
 	}
 }
 
-func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testing.T) {
+func TestCompletionGateRejectsFailedDeclaredQualityCriterion(t *testing.T) {
 	criteria := normalizeQualityCriteria([]string{"Business plan sample is complete."})
 	actionDocument := turnActionDocument{
 		Action:             "finish",
@@ -92,8 +92,11 @@ func TestCompletionGateTreatsFailedDeclaredQualityCriterionAsReviewHint(t *testi
 
 	result := validateCompletionGateForRequest(AgentTurnRequest{}, nil, observations, criteria, actionDocument)
 
-	if !result.IsSatisfied {
-		t.Fatalf("expected failed declared quality criterion to stay a review hint, got %+v", result)
+	if result.IsSatisfied {
+		t.Fatal("expected failed required quality criterion to reject finish")
+	}
+	if result.Message != "finish qualityReview did not pass required criterion business-plan-sample-is-complete" {
+		t.Fatalf("expected failed quality criterion guidance, got %q", result.Message)
 	}
 }
 

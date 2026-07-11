@@ -15,8 +15,8 @@ type askInputToolInput struct {
 }
 
 type askConfirmToolInput struct {
-	Question   string `json:"question"`
-	ReasonCode string `json:"reasonCode"`
+	Question   string                     `json:"question"`
+	ReasonCode agent.AskConfirmReasonCode `json:"reasonCode"`
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerAskTools(toolRegistry *agent.ToolSet, handlerContext toolHandlerContext) {
@@ -33,7 +33,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) registerAskTools(toolRegistry *age
 		Definition: agent.ToolDefinition{
 			Name:        "ask.confirm",
 			Description: "Pause the current task and ask the user to approve or reject a sensitive action before proceeding.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"reasonCode":{"type":"string"}}}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"question":{"type":"string"},"reasonCode":{"type":"string","enum":["destructive_action","external_send","paid_action"]}},"required":["question","reasonCode"]}`),
 		},
 		Handler: toolCatalogBuilder.askConfirmTool,
 		Result:  agent.IdentityToolResult,
@@ -77,6 +77,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context
 	if question == "" {
 		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires a question in the action message"), nil
 	}
+	if !agent.ValidAskConfirmReasonCode(input.ReasonCode) {
+		return agent.ToolFailureResult(agent.FailureInvalidInput, agent.FailureCodes.InvalidInput, "ask_confirm", "ask.confirm requires a valid reasonCode"), nil
+	}
 	_, errorValue := toolCatalogBuilder.taskRunService.PauseTaskRun(taskRunID, task.TaskStatusWaitingApproval, question)
 	if errorValue != nil {
 		return agent.ToolFailureResult(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "ask_confirm", errorValue.Error()), nil
@@ -85,7 +88,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) askConfirmTool(toolContext context
 		"kind":             "confirm",
 		"question":         question,
 		"message":          question,
-		"reasonCode":       strings.TrimSpace(input.ReasonCode),
+		"reasonCode":       strings.TrimSpace(string(input.ReasonCode)),
 		"responseLanguage": agent.ResponseLanguageFromContext(toolContext),
 	}
 	toolCatalogBuilder.taskRunService.AppendTaskEvent(taskRunID, "ask.requested", marshalToolResult(confirmationRequest))

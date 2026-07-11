@@ -313,9 +313,10 @@ Still open:
 - `Step` is one internal progress unit inside a Task. A Step either runs one tool with `continue`, or closes the Task with `finish`/`fail`.
 - `Checkpoint` is optional user-visible progress text on a `continue` Step. It never closes the Task and the tool still runs in the same Step.
 - `Final Step` runs no tool and must send the final reply, failure reply, or reaction that closes the Task.
-- Every `continue` action carries `nextStepPlan` with `objective`, `expectedTools`, `doneCriteria`, `risk`, and `workingSetReason`.
-- The next Step working set is built from core tools, selected skills, outcome requirements, recovery packets, and the previous `nextStepPlan.expectedTools`.
-- Tool schemas exposed to the model stay capped at 15 (`maxSchemaCallableToolCount` in `internal/agent/tool_exposure.go`). The runtime uses deterministic working sets when candidates fit and calls the compact tool selector only when the stage is ambiguous or exceeds the cap.
+- Every `continue` action calls one operation through its exact `toolName` and flat `toolInput` schema.
+- Each Step exposes the always-available base tools plus only the selected skills' `allowed-tools`; the generic capability dispatcher stays internal.
+- `skill.search` discovers matching workflows without changing the palette. After a successful search, `skill.select` accepts exact returned skill names and exposes those skills' `allowed-tools` on the next Step.
+- Selecting `presentation` or `website` during a Step immediately promotes the current task to the `xhigh` model and budget floor, and the promoted level is restored if the task continues later.
 - Completion and recovery gates are independent from tool visibility. Draft/setup evidence such as site creation cannot finish a publish Task without required build, review, publish, and final status evidence.
 
 ## Status

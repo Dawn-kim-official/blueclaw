@@ -108,13 +108,24 @@ func activeFailureDebt(observations []turnObservation) (FailureDebt, bool) {
 			continue
 		}
 		if !observation.Failed() && strings.TrimSpace(activeDebt.LatestFailure.ObservationID) != "" {
-			if successfulObservationIsInspection(observation) {
-				continue
+			if successfulObservationResolvesFailureDebt(observation, activeDebt.LatestFailure) {
+				activeDebt = FailureDebt{}
 			}
-			activeDebt = FailureDebt{}
 		}
 	}
 	return activeDebt, strings.TrimSpace(activeDebt.LatestFailure.ObservationID) != ""
+}
+
+func successfulObservationResolvesFailureDebt(observation turnObservation, failedObservation turnObservation) bool {
+	if strings.TrimSpace(observation.RecoveryForObservationID) != strings.TrimSpace(failedObservation.ObservationID) {
+		return false
+	}
+	switch strings.TrimSpace(observation.RecoveryStep) {
+	case recoveryStepCorrectedRetry, recoveryStepAlternateRoute, recoveryStepAdjacentTool:
+		return true
+	default:
+		return false
+	}
 }
 
 func failureObservationDoesNotCreateDebt(observation turnObservation) bool {
@@ -124,37 +135,32 @@ func failureObservationDoesNotCreateDebt(observation turnObservation) bool {
 	if observation.FailureCode() != FailureCodes.NotFound.String() {
 		return false
 	}
-	return optionalSiteControlFileToolInputKey(observation.ToolInputKey) || optionalSiteControlFileContent(observation.ContentText())
+	return optionalSiteControlFileToolInputKey(observation.ToolInputKey)
 }
 
 func optionalSiteControlFileToolInputKey(toolInputKey string) bool {
-	return optionalSiteControlFileText(toolInputKey)
-}
-
-func optionalSiteControlFileContent(content string) bool {
-	return optionalSiteControlFileText(content)
-}
-
-func optionalSiteControlFileText(value string) bool {
-	normalizedText := strings.ToLower(filepath.ToSlash(strings.TrimSpace(value)))
+	parts := strings.SplitN(toolInputKey, "\x00", 2)
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) != FileReadToolName {
+		return false
+	}
+	var input struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal([]byte(parts[1]), &input) != nil {
+		return false
+	}
+	normalizedPath := strings.ToLower(filepath.ToSlash(strings.TrimSpace(input.Path)))
 	for _, suffix := range []string{
 		".internkim/site.json",
 		".internkim/idea.md",
 		".internkim/artifact-brief.md",
 		".internkim/review-log.json",
 	} {
-		if strings.Contains(normalizedText, suffix) {
+		if strings.HasSuffix(normalizedPath, suffix) {
 			return true
 		}
 	}
 	return false
-}
-
-func successfulObservationIsInspection(observation turnObservation) bool {
-	if strings.TrimSpace(observation.RecoveryStep) == recoveryStepInspection {
-		return true
-	}
-	return isInspectionRecoveryTool(observation.Tool)
 }
 
 func attemptFingerprint(toolInputKey string, errorCode string) string {
@@ -484,8 +490,7 @@ func recoveryToolBudgetExhaustedForRequest(observations []turnObservation, toolS
 }
 
 func failureRecoveryIsTerminal(observation turnObservation) bool {
-	combinedText := strings.ToLower(strings.TrimSpace(observation.FailureCode() + " " + observation.FailureStage() + " " + observation.FailureSummary() + " " + observation.ContentText()))
-	return strings.Contains(combinedText, "blocked_by_captcha")
+	return observation.FailureCode() == FailureCodes.CaptchaBlocked.String()
 }
 
 func alternateRouteToolIsAvailable(toolSet *ToolSet, failedToolName string) bool {

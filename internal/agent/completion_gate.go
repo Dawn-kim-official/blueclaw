@@ -2,10 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
-
-	"blueclaw/internal/task"
 )
 
 type completionEvidenceReference struct {
@@ -47,18 +46,17 @@ type completionTransition struct {
 	Action        completionRecommendedAction
 }
 
-func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, lastModelMessage string) completionTransition {
+func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment) completionTransition {
 	state := buildCompletionState(request, requirements, observations)
 	agentState := agentTaskState{
-		TaskRunID:       taskRunID,
-		Request:         request,
-		Observations:    append([]turnObservation{}, observations...),
-		Attachments:     append([]FileAttachment{}, attachments...),
-		QualityCriteria: append([]qualityCriterion{}, criteria...),
-		Requirements:    append([]toolUseRequirement{}, requirements...),
-		TurnStartedAt:   request.TurnStartedAt,
-		ToolCallCount:   len(observations),
-		IterationCount:  len(observations),
+		TaskRunID:      taskRunID,
+		Request:        request,
+		Observations:   append([]turnObservation{}, observations...),
+		Attachments:    append([]FileAttachment{}, attachments...),
+		Requirements:   append([]toolUseRequirement{}, requirements...),
+		TurnStartedAt:  request.TurnStartedAt,
+		ToolCallCount:  len(observations),
+		IterationCount: len(observations),
 	}
 	transition := advanceAgentTask(agentState)
 	switch transition.Effect.Kind {
@@ -66,11 +64,6 @@ func (agentTurnRunner *AgentTurnRunner) applyCompletionState(ctx context.Context
 		if transition.Effect.ToolCall != nil && IsArtifactDeliveryTool(transition.Effect.ToolCall.ToolName) {
 			return agentTurnRunner.attachCompletionArtifactsFromEffect(ctx, taskRunID, request, observations, attachments, state, *transition.Effect.ToolCall)
 		}
-	case agentEffectFinish:
-		if deliverableModelWording(lastModelMessage) == "" {
-			return completionTransition{Observations: observations, Attachments: attachments}
-		}
-		return agentTurnRunner.finalizeCompletionState(taskRunID, taskStepID, request, requirements, observations, attachments, criteria, state, lastModelMessage)
 	case agentEffectNone:
 		if len(transition.State.Observations) > len(observations) {
 			return agentTurnRunner.blockInvalidCompletionArtifactsFromTransition(taskRunID, observations, attachments, state, transition)
@@ -160,37 +153,6 @@ func completionAttachmentFailureContent(content string, paths []string) string {
 	return trimmedContent + "\nrequested paths: " + strings.Join(paths, "\n")
 }
 
-func (agentTurnRunner *AgentTurnRunner) finalizeCompletionState(taskRunID string, taskStepID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, state CompletionState, lastModelMessage string) completionTransition {
-	actionDocument := completionStateFinishDocument(state, deliverableModelWording(lastModelMessage))
-	completionGateResult := agentTurnRunner.validateCompletionGateForRequestWithExpectedResults(context.Background(), taskRunID, request, requirements, observations, attachments, criteria, actionDocument)
-	agentTurnRunner.appendValidityReview(taskRunID, "completion_state", completionGateResult.ValidityState)
-	if !completionGateResult.IsSatisfied {
-		agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_rejected", marshalEventBody(map[string]string{"reason": completionGateResult.Message}))
-		observation := newFailureObservation(nextObservationID(len(observations)+1), "policy", "", completionGateResult.Message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_state")
-		observation = withCompletionGateRecoveryPacket(observation, completionGateResult)
-		observations = append(observations, observation)
-		agentTurnRunner.appendEvent(taskRunID, "agent.completion_required", marshalEventBody(observation))
-		return completionTransition{Observations: observations, Attachments: attachments}
-	}
-	agentTurnRunner.appendQualityReview(taskRunID, criteria, actionDocument.QualityReview, observations)
-	agentTurnRunner.appendEvent(taskRunID, "agent.completion_state_finalized", marshalEventBody(map[string]any{
-		"attachmentCount": len(completionGateResult.Attachments),
-		"evidenceCount":   len(state.EvidenceReferences),
-		"evidence":        state.EvidenceReferences,
-	}))
-	reply := agentTurnRunner.prepareFinishMessageForPlatform(request, finishActionMessage(actionDocument), completionGateResult.Attachments)
-	agentTurnRunner.saveStep(taskRunID, taskStepID, task.TaskStatusCompleted, "completion_state "+string(completionActionFinalizeWithEvidence), reply)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
-	return completionTransition{
-		Observations:  observations,
-		Attachments:   appendUniqueAttachments(attachments, completionGateResult.Attachments),
-		Result:        AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)},
-		IsCompleted:   true,
-		DidTransition: true,
-		Action:        completionActionFinalizeWithEvidence,
-	}
-}
-
 func completionStateFinishDocument(state CompletionState, message string) turnActionDocument {
 	goalSatisfied := true
 	return turnActionDocument{
@@ -268,18 +230,14 @@ func completionRequirementsHaveEvidence(requirements []toolUseRequirement, obser
 }
 
 func validateCompletionGate(requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
-	_ = criteria
 	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
 		return completionGateResult{Message: "finish requires goalSatisfied=true"}
 	}
 	if strings.TrimSpace(actionDocument.GoalStatus) != "" && strings.TrimSpace(actionDocument.GoalStatus) != "satisfied" {
 		return completionGateResult{Message: "finish requires goalStatus=satisfied"}
 	}
-	if result := validateFinishDoesNotHideUnresolvedWork(observations, actionDocument); !result.IsSatisfied {
+	if result := validateFinishTaskState(observations, criteria, actionDocument); !result.IsSatisfied {
 		return result
-	}
-	if finishMessagePromisesFutureWork(finishActionMessage(actionDocument)) && !hasScheduleCreateEvidence(observations, actionDocument.CompletionEvidence) {
-		return completionGateResult{Message: "finish.message promises future work without successful schedule.create evidence"}
 	}
 	if errorValue := validateObservedToolRequirements(requirements, observations); errorValue != nil {
 		return completionGateResult{Message: errorValue.Error()}
@@ -303,96 +261,44 @@ func validateCompletionGate(requirements []toolUseRequirement, observations []tu
 	return completionGateResult{IsSatisfied: true, Attachments: attachments}
 }
 
-func finishMessagePromisesFutureWork(message string) bool {
-	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
-	for _, phrase := range []string{
-		"기다려",
-		"기다려 주세요",
-		"작업을 시작",
-		"시작하겠습니다",
-		"고치겠습니다",
-		"개선해 보겠습니다",
-		"개선하겠습니다",
-		"완료 후",
-		"공유하겠습니다",
-		"다시 공유",
-		"조금만 기다",
-		"전송하겠",
-		"전송을 진행",
-		"보내겠",
-		"보낼게",
-		"발송하겠",
-		"i'll",
-		"i will",
-		"i’ll",
-		"will send",
-		"i'll send",
-		"i’ll send",
-		"go ahead and send",
-		"will update",
-		"will share",
-		"get started",
-		"start working",
-	} {
-		if strings.Contains(normalizedMessage, phrase) {
-			return true
-		}
+func validateFinishTaskState(observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
+	finishMessage := finishActionMessage(actionDocument)
+	if finishMessageRepeatsSentCheckpoint(finishMessage, observations) {
+		return completionGateResult{Message: "finish.message repeats a sent checkpoint; write a fresh completed-result reply"}
 	}
-	return false
-}
-
-func validateFinishDoesNotHideUnresolvedWork(observations []turnObservation, actionDocument turnActionDocument) completionGateResult {
-	_ = observations
-	if finishHasUnresolvedRemainingWork(actionDocument.RemainingWork) {
-		return completionGateResult{Message: "finish cannot be satisfied while remainingWork describes unresolved work; recover the work or use fail"}
+	if _, hasFailureDebt := activeFailureDebt(observations); hasFailureDebt && strings.TrimSpace(actionDocument.FailureResolution) != failureResolutionNoToolFallback {
+		return completionGateResult{Message: "finish cannot be satisfied while FailureDebt is active; recover the failure or use fail"}
+	}
+	if strings.TrimSpace(actionDocument.RemainingWork) != "" {
+		return completionGateResult{Message: "finish requires remainingWork to be empty"}
+	}
+	if errorValue := validateQualityReview(criteria, actionDocument.QualityReview, observations); errorValue != nil {
+		return completionGateResult{Message: errorValue.Error()}
 	}
 	return completionGateResult{IsSatisfied: true}
 }
 
-func finishHasUnresolvedRemainingWork(remainingWork string) bool {
-	normalizedText := strings.ToLower(strings.TrimSpace(remainingWork))
-	if normalizedText == "" {
+func finishMessageRepeatsSentCheckpoint(message string, observations []turnObservation) bool {
+	normalizedMessage := normalizeCheckpointMessage(message)
+	if normalizedMessage == "" {
 		return false
 	}
-	for _, completedValue := range []string{"0", "zero", "none", "no", "n/a", "na", "없음", "없습니다", "완료", "완료됨"} {
-		if normalizedText == completedValue {
-			return false
-		}
-	}
-	return true
-}
-
-func finishMessageReportsBlockedWork(message string) bool {
-	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
-	for _, phrase := range []string{
-		"할 수 없",
-		"못했습니다",
-		"못 했습니다",
-		"불가",
-		"실패",
-		"cannot",
-		"can't",
-		"unable",
-		"could not",
-		"not able",
-	} {
-		if strings.Contains(normalizedMessage, phrase) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasScheduleCreateEvidence(observations []turnObservation, references []completionEvidenceReference) bool {
-	for _, reference := range references {
-		if strings.TrimSpace(reference.ToolName) != "schedule.create" {
+	for _, observation := range observations {
+		if observation.Action != "checkpoint" || !checkpointObservationWasSent(observation) {
 			continue
 		}
-		if _, isFound := findSuccessfulObservation(observations, reference); isFound {
+		if normalizeCheckpointMessage(checkpointObservationMessage(observation)) == normalizedMessage {
 			return true
 		}
 	}
 	return false
+}
+
+func checkpointObservationWasSent(observation turnObservation) bool {
+	var document struct {
+		Status string `json:"status"`
+	}
+	return json.Unmarshal([]byte(observation.ContentText()), &document) == nil && strings.TrimSpace(document.Status) == "sent"
 }
 
 func validateCompletionGateForRequest(request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument) completionGateResult {
@@ -459,18 +365,14 @@ func contractVerificationGateMessage(verification ContractSatisfactionVerificati
 }
 
 func validateExpectedResultCompletionGate(request AgentTurnRequest, observations []turnObservation, criteria []qualityCriterion, actionDocument turnActionDocument, recoveryBudget RecoveryBudget) completionGateResult {
-	_ = criteria
 	if actionDocument.GoalSatisfied == nil || !*actionDocument.GoalSatisfied {
 		return completionGateResult{Message: "finish requires goalSatisfied=true"}
 	}
 	if strings.TrimSpace(actionDocument.GoalStatus) != "" && strings.TrimSpace(actionDocument.GoalStatus) != "satisfied" {
 		return completionGateResult{Message: "finish requires goalStatus=satisfied"}
 	}
-	if result := validateFinishDoesNotHideUnresolvedWork(observations, actionDocument); !result.IsSatisfied {
+	if result := validateFinishTaskState(observations, criteria, actionDocument); !result.IsSatisfied {
 		return result
-	}
-	if finishMessagePromisesFutureWork(finishActionMessage(actionDocument)) && !hasScheduleCreateEvidence(observations, actionDocument.CompletionEvidence) {
-		return completionGateResult{Message: "finish.message promises future work without successful schedule.create evidence"}
 	}
 	attachments, errorValue := validateCompletionEvidence(nil, observations, actionDocument.CompletionEvidence)
 	if errorValue != nil {
@@ -730,12 +632,8 @@ func canWaiveRequirementWithNoToolFallback(requirement toolUseRequirement, faile
 }
 
 func completionGateObservation(index int, message string) turnObservation {
-	evidenceKind := evidenceMissingKind(message)
-	if evidenceKind == "" {
-		return newFailureObservation(nextObservationID(index), "policy", "", message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_gate")
-	}
-	content := evidenceMissingGuidance(evidenceKind, message)
-	observation := newFailureObservation(nextObservationID(index), "evidence_missing", "", message, FailureInvalidInput, FailureCodes.InvalidInput, evidenceKind)
+	content := "The final reply is not yet backed by the required successful observations. Produce, inspect, or cite the missing result before finishing. " + strings.TrimSpace(message)
+	observation := newFailureObservation(nextObservationID(index), "evidence_missing", "", message, FailureInvalidInput, FailureCodes.InvalidInput, "completion_gate")
 	observation = withObservationContent(observation, content)
 	observation.Summary = content
 	observation.Failure.Retryable = true
@@ -780,45 +678,6 @@ func completionGateEventName(observation turnObservation) string {
 	return "agent.completion_required"
 }
 
-func evidenceMissingKind(message string) string {
-	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
-	switch {
-	case strings.Contains(normalizedMessage, "task contract"):
-		return "expected_result_missing"
-	case strings.Contains(normalizedMessage, "expected result"):
-		return "expected_result_missing"
-	case strings.Contains(normalizedMessage, "observed results"):
-		return "expected_result_missing"
-	case strings.Contains(normalizedMessage, "requires successful observation"):
-		return "required_tool_missing"
-	case strings.Contains(normalizedMessage, "must include an attachment"):
-		return "attachment_missing"
-	case strings.Contains(normalizedMessage, "must include attachment suffix") || strings.Contains(normalizedMessage, "artifact"):
-		return "attachment_invalid"
-	case strings.Contains(normalizedMessage, "unknown or failed observation") || strings.Contains(normalizedMessage, "completionevidence"):
-		return "evidence_reference_invalid"
-	default:
-		return ""
-	}
-}
-
-func evidenceMissingGuidance(evidenceKind string, message string) string {
-	switch evidenceKind {
-	case "expected_result_missing":
-		return "The Task expected result is not complete yet. Produce or inspect the missing result, then finish after the expected result verifier can see it. " + message
-	case "required_tool_missing":
-		return "The final reply needs successful tool evidence before completion. Use the required tool if it has not run, or cite an existing successful observation. " + message
-	case "attachment_missing":
-		return "The final reply needs an attached artifact before completion. Find or create the artifact, then use file.deliver before finish. " + message
-	case "attachment_invalid":
-		return "The final reply needs valid attachment evidence. Recheck the artifact path and required suffix, then attach a valid file. " + message
-	case "evidence_reference_invalid":
-		return "The final reply cited missing or failed evidence. Cite only existing successful observations, or run the missing tool first. " + message
-	default:
-		return message
-	}
-}
-
 func validateCompletionEvidence(requirements []toolUseRequirement, observations []turnObservation, references []completionEvidenceReference) ([]FileAttachment, error) {
 	if len(requirements) == 0 {
 		if errorValue := validateCompletionEvidenceReferences(observations, references); errorValue != nil {
@@ -828,12 +687,15 @@ func validateCompletionEvidence(requirements []toolUseRequirement, observations 
 	}
 	attachments := collectReferenceDeliveryAttachments(observations, references)
 	for _, requirement := range requirements {
-		if !requirement.RequiresAttachment {
+		if !requirement.RequiresAttachment && !requirement.RequiresSideEffectEvidence {
 			continue
 		}
 		matchingReferences := completionReferencesForRequirement(requirement, observations, references)
 		if len(matchingReferences) == 0 {
 			return nil, errors.New("completionEvidence must cite successful observation for " + requirementLabel(requirement))
+		}
+		if !requirement.RequiresAttachment {
+			continue
 		}
 		requirementAttachments := collectReferenceAttachments(observations, matchingReferences)
 		if len(requirementAttachments) == 0 {

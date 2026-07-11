@@ -11,8 +11,10 @@ import (
 func TestAddressingClassificationSchemaOmitsReasonByDefault(t *testing.T) {
 	schema := addressingClassificationSchema(false)
 
-	if containsAny(schema.Document, []string{"reason", "addressingClass"}) {
-		t.Fatalf("expected compact addressing schema without reason or legacy field, got %s", schema.Document)
+	for _, fragment := range []string{"reason", "addressingClass"} {
+		if strings.Contains(schema.Document, fragment) {
+			t.Fatalf("expected compact addressing schema without %s, got %s", fragment, schema.Document)
+		}
 	}
 	for _, fragment := range []string{"target", "shouldRespond", "reactionEmoji", "dutyMatch", "dutyName", "dutyConfidence", "bot", "human", "anyone", "none", "unclear"} {
 		if !strings.Contains(schema.Document, fragment) {

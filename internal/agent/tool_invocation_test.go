@@ -99,7 +99,7 @@ func TestWrappedToolObservationUsesEffectiveOperationSanitizer(t *testing.T) {
 func TestAgentTurnRunnerTreatsToolFailureAsObservation(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"unstable","input":{}}}`,
-		finishMessageDocument("handled failure"),
+		noToolFallbackFinishMessageDocument("handled failure"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestCapabilityToolSet([]string{"unstable"})

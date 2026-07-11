@@ -12,7 +12,7 @@ import (
 	"blueclaw/internal/llm"
 )
 
-func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testing.T) {
+func TestSelectInstructionBundleTrustsStructuredSkillRetrievalForPresentationRequest(t *testing.T) {
 	instructionBundle := InstructionBundle{
 		Prompt: "base",
 		Skills: []SkillInstruction{
@@ -30,10 +30,14 @@ func TestSelectInstructionBundleIncludesPresentationForKoreanPPTRequest(t *testi
 		},
 	}
 
-	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt:  "너 뭐 할 수 있는지 피피티 만들어서 보내줘봐",
 		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"}),
-	})
+	}, staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{{Name: "presentation", Score: 0.9, Reason: "embedding_similarity"}},
+		RetrievalMode:      "embedding",
+		IndexStatus:        "ready",
+	}}, NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Create and deliver a presentation deck."}]}`}))
 
 	if !strings.Contains(selectedBundle.Prompt, "Generate PPTX with Marp.") {
 		t.Fatalf("expected presentation skill prompt for Korean PPT request, got %q", selectedBundle.Prompt)
@@ -71,13 +75,17 @@ func TestSelectInstructionBundleUsesVisibleContextForFollowUpArtifactRequest(t *
 		},
 	}
 
-	selectedBundle := selectInstructionBundleForRequest(instructionBundle, AgentRequest{
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "별로야. 폐기하고 새로 다시 해줘.",
 		VisibleContext: VisibleContext{Messages: []VisibleContextMessage{
 			{Speaker: "user", Text: "너 뭐 할 수 있는지 8장 피피티 만들어서 보내줘봐"},
 		}},
 		ToolSet: testToolSet([]string{"terminal.run", "file.write", "file.deliver"}),
-	})
+	}, staticSkillRetriever{result: SkillRetrievalResult{
+		SelectedCandidates: []SkillCandidate{{Name: "presentation", Score: 0.9, Reason: "embedding_similarity"}},
+		RetrievalMode:      "embedding",
+		IndexStatus:        "ready",
+	}}, NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Replace the prior presentation with a new deck."}]}`}))
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected follow-up context to select presentation, got %+v", selectedBundle.SkillDecisions)
@@ -335,10 +343,10 @@ func TestSelectInstructionBundleKeepsSkillWhenCapabilityOperationIsRegisteredBut
 		}},
 	}}
 
-	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt:  "김인턴 소개 웹사이트 만들어줘",
 		ToolSet: toolSet,
-	}, retriever)
+	}, retriever, NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Create and publish a website introducing InternKim."}]}`}))
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected hidden registered site skill to be selected, got %+v", selectedBundle.SkillDecisions)
@@ -374,10 +382,10 @@ func TestSelectInstructionBundleSelectsRegisteredHiddenOperationWithoutCapabilit
 		}},
 	}}
 
-	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt:  "김인턴 소개 웹사이트 만들어줘",
 		ToolSet: toolSet,
-	}, retriever)
+	}, retriever, NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Create and publish a website introducing InternKim."}]}`}))
 
 	if len(selectedBundle.SkillDecisions) != 1 || selectedBundle.SkillDecisions[0].Status != "selected" {
 		t.Fatalf("expected registered hidden operation skill to be selected, got %+v", selectedBundle.SkillDecisions)
@@ -571,6 +579,7 @@ func TestSlidesArtifactRequestDoesNotSelectContentDomainSkills(t *testing.T) {
 				Description: "Generate clean presentation slides with Marp and attach the requested files.",
 				WhenToUse:   "Use for slides, slide decks, presentations, PPTX, PowerPoint, 발표자료, 파워포인트, 피피티.",
 				Prompt:      "Follow slides workflow.",
+				Completion:  SkillCompletion{RequiredEvidenceTools: []string{"file.deliver"}},
 				Source:      InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"},
 			},
 			{
@@ -637,6 +646,7 @@ func TestDocxArtifactRequestIsNotDominatedByWebsite(t *testing.T) {
 				Description: "Create, publish, and update website prototypes, homepages, web apps, landing pages, and deployed sites.",
 				WhenToUse:   "Use for website, homepage, web app, site, publish, deploy, link, URL, 홈페이지, 웹사이트, 사이트, and 배포 requests.",
 				Prompt:      "Follow site prototype workflow.",
+				Completion:  SkillCompletion{RequiredEvidenceTools: []string{"site.publish"}},
 				Source:      InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 			},
 			{
@@ -644,6 +654,7 @@ func TestDocxArtifactRequestIsNotDominatedByWebsite(t *testing.T) {
 				Description: "Create, edit, and attach Word document files.",
 				WhenToUse:   "Use for Word, docx, 워드 파일, 문서, and report deliverables.",
 				Prompt:      "Follow document workflow.",
+				Completion:  SkillCompletion{RequiredEvidenceTools: []string{"file.deliver"}},
 				Source:      InstructionSource{Path: "skills/document/SKILL.md", SkillName: "document"},
 			},
 		},
@@ -689,6 +700,7 @@ func TestFlowTaskRequestSkipsArtifactSkillInstructions(t *testing.T) {
 				Description: "Create, publish, update, and delete website prototypes.",
 				WhenToUse:   "Use for website, site, homepage, prototype, publish, deploy, update, and delete requests.",
 				Prompt:      "Follow site prototype workflow.",
+				Completion:  SkillCompletion{RequiredEvidenceTools: []string{"site.publish"}},
 				Source:      InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"},
 			},
 			{
@@ -805,9 +817,9 @@ func TestRequiredAttachmentFormatsSelectMatchingArtifactSkillFamilies(t *testing
 		t.Run(testCase.suffix, func(t *testing.T) {
 			instructionBundle := InstructionBundle{
 				Skills: []SkillInstruction{
-					{Name: "document", Description: "Create Word documents.", Prompt: "Follow document workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/document/SKILL.md", SkillName: "document"}},
-					{Name: "presentation", Description: "Create slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"}},
-					{Name: "spreadsheet", Description: "Create spreadsheets.", Prompt: "Follow spreadsheet workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/spreadsheet/SKILL.md", SkillName: "spreadsheet"}},
+					{Name: "document", Description: "Create .docx documents.", Prompt: "Follow document workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/document/SKILL.md", SkillName: "document"}},
+					{Name: "presentation", Description: "Create .pptx slide decks.", Prompt: "Follow slides workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/presentation/SKILL.md", SkillName: "presentation"}},
+					{Name: "spreadsheet", Description: "Create .xlsx spreadsheets.", Prompt: "Follow spreadsheet workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/spreadsheet/SKILL.md", SkillName: "spreadsheet"}},
 					{Name: "pdf", Description: "Create PDFs.", Prompt: "Follow pdf workflow.", AllowedTools: []string{"terminal.run", "file.write", "file.deliver"}, Source: InstructionSource{Path: "skills/pdf/SKILL.md", SkillName: "pdf"}},
 					{Name: "website", Description: "Create websites.", Prompt: "Follow site prototype workflow.", AllowedTools: []string{"site.create", "site.publish"}, Source: InstructionSource{Path: "skills/website/SKILL.md", SkillName: "website"}},
 				},
@@ -1534,14 +1546,14 @@ func TestWebsiteSkillSurvivesWhenSkillIsFifthCandidate(t *testing.T) {
 		SelectedCandidates: candidates,
 	}}
 
-	selectedBundle := selectInstructionBundleForRequestWithRetriever(context.Background(), instructionBundle, AgentRequest{
+	selectedBundle := selectInstructionBundleForRequestWithRetrieverAndRouter(context.Background(), instructionBundle, AgentRequest{
 		Prompt: "김인턴의 구조에 대해 웹사이트 하나 소개 형식으로 만들어줘.",
 		ToolSet: testToolSet([]string{
 			"terminal.run",
 			"site.create",
 			"site.publish",
 		}),
-	}, retriever)
+	}, retriever, NewSkillSearchQueryRouter(staticStructuredLanguageModel{content: `{"queries":[{"description":"Create a website introducing InternKim's architecture."}]}`}))
 
 	if !strings.Contains(selectedBundle.Prompt, "SITE BODY") {
 		t.Fatalf("expected fifth candidate site skill body to be selected, got %q", selectedBundle.Prompt)

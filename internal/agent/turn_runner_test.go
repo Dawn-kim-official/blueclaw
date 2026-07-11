@@ -341,14 +341,15 @@ func TestAgentTurnRunnerInjectsInstructionPrompt(t *testing.T) {
 
 func TestAgentTurnRunnerSelectSkillExposesItsAllowedTool(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":[],"skillNames":["website"],"reason":"need site creation"}`,
+		`{"action":"continue","toolName":"skill.search","toolInput":{"queries":[{"description":"website creation"}]}}`,
+		`{"action":"skill.select","skillNames":["website"],"reason":"search result matches"}`,
 		`{"action":"continue","toolName":"site.create","toolInput":{"slug":"demo"}}`,
-		finishMessageWithEvidence("created", "obs-002", "site.create", 0),
+		finishMessageWithEvidence("created", "obs-003", "site.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolSet([]string{"skill.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"skills":[]}`), nil
+		return ToolSuccess(`{"skills":[{"name":"website"}]}`), nil
 	})
 	siteCreateCallCount := 0
 	toolRegistry.RegisterTool(ToolDefinition{
@@ -380,12 +381,116 @@ func TestAgentTurnRunnerSelectSkillExposesItsAllowedTool(t *testing.T) {
 	if result.FinishMessage != "created" {
 		t.Fatalf("expected final reply, got %q", result.FinishMessage)
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.tool_palette.applied", "website") {
-		t.Fatal("expected tool palette apply event")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.skill_selection.applied", "website") {
+		t.Fatal("expected searched skill selection event")
 	}
 }
 
-func TestAgentTurnRunnerSuggestsBaseCandidateForUnknownTool(t *testing.T) {
+func TestAgentTurnRunnerSearchSelectsSkillBeforeExposingAllowedTool(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"skill.search","toolInput":{"queries":[{"description":"매일 아침 9시에 반복 작업 예약"}]}}`,
+		`{"action":"continue","toolName":"skill.search","toolInput":{"queries":[{"description":"scheduled recurring work"}]}}`,
+		`{"action":"continue","toolName":"skill.search","toolInput":{"queries":[{"description":"schedule.create skill"}]}}`,
+		`{"action":"skill.select","skillNames":["scheduled-task"],"reason":"the search result matches the requested schedule"}`,
+		`{"action":"continue","toolName":"schedule.create","toolInput":{"prompt":"아침 회의 준비","schedule":"0 9 * * *"}}`,
+		finishMessageWithEvidence("예약했습니다.", "obs-006", "schedule.create", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 12})
+	toolRegistry := NewToolSet([]string{"skill.search"})
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:        "skill.search",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"queries":{"type":"array","items":{"type":"object","properties":{"description":{"type":"string"}}}}}}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"skills":[{"name":"scheduled-task","description":"Create recurring scheduled work.","score":1,"tools":["schedule.create"]}]}`), nil
+	})
+	scheduleCreateCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{
+		Name:        "schedule.create",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string"},"schedule":{"type":"string"}},"required":["prompt","schedule"]}`),
+	}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		scheduleCreateCallCount++
+		return ToolSuccess(`{"scheduleID":"schedule-1"}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolSuccess(`{"siteID":"site-1"}`), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "매일 아침 9시에 회의 준비 작업을 실행해줘",
+		ToolSet:           toolRegistry,
+		AvailableSkills: []SkillInstruction{{
+			Name:         "scheduled-task",
+			Prompt:       "Use schedule.create for recurring work.",
+			AllowedTools: []string{"schedule.create"},
+		}, {
+			Name:         "website",
+			Prompt:       "Use site.create for websites.",
+			AllowedTools: []string{"site.create"},
+		}},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected turn to succeed: %v", errorValue)
+	}
+	if scheduleCreateCallCount != 1 {
+		t.Fatalf("expected schedule.create once, got %d", scheduleCreateCallCount)
+	}
+	if result.FinishMessage != "예약했습니다." {
+		t.Fatalf("expected final reply, got %q status=%s events=%+v requests=%d", result.FinishMessage, result.TaskRun.Status, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), len(languageModel.requests))
+	}
+	if actionSchemaHasVariant(t, languageModel.requests[0].StructuredOutputSchema.Document, "skill.select") {
+		t.Fatal("expected skill.select to stay hidden before a successful skill.search")
+	}
+	selectionSchema := languageModel.requests[1].StructuredOutputSchema.Document
+	assertActionSchemaUsesProviderSafeNestedSubset(t, selectionSchema)
+	if !actionSchemaHasVariant(t, selectionSchema, "skill.select") || !strings.Contains(selectionSchema, "scheduled-task") {
+		t.Fatalf("expected searched skill to be selectable, got %s", selectionSchema)
+	}
+	if strings.Contains(selectionSchema, `"website"`) {
+		t.Fatalf("expected unsearched skill to stay out of skill.select, got %s", selectionSchema)
+	}
+	operationSchema := languageModel.requests[4].StructuredOutputSchema.Document
+	if !strings.Contains(operationSchema, `"toolName":{"enum":["schedule.create"]`) {
+		t.Fatalf("expected selected skill operation, got %s", operationSchema)
+	}
+	if strings.Contains(operationSchema, CapabilityInvokeToolName) || strings.Contains(operationSchema, `"site.create"`) || actionSchemaHasVariant(t, operationSchema, "tool.request") {
+		t.Fatalf("expected generic dispatchers to stay hidden, got %s", operationSchema)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.skill_selection.applied", "scheduled-task") {
+		t.Fatal("expected explicit skill selection event")
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.stall_exit_directive", "repeating actions") {
+		t.Fatal("expected repeated skill discovery to trigger no-progress guidance")
+	}
+}
+
+func TestSearchedSkillSelectionRejectsSkillMissingFromLatestSearch(t *testing.T) {
+	request := AgentTurnRequest{
+		AvailableSkills: []SkillInstruction{{
+			Name:         "scheduled-task",
+			AllowedTools: []string{"schedule.create"},
+		}, {
+			Name:         "website",
+			AllowedTools: []string{"site.create"},
+		}},
+		ToolSet: newTestToolSet([]string{"schedule.create", "site.create"}),
+	}
+	searchObservation := newContentObservation("obs-001", "continue", SkillSearchToolName, `{"skills":[{"name":"scheduled-task"}]}`)
+
+	updatedRequest, result := applySearchedSkillSelection(request, []turnObservation{searchObservation}, requestToolsArguments{
+		SkillNames: []string{"website"},
+	})
+
+	if !toolRequestResultFailed(result) || !containsString(result.UnsearchedSkillNames, "website") {
+		t.Fatalf("expected unsearched skill rejection, got %+v", result)
+	}
+	if containsString(updatedRequest.PinnedSkillNames, "website") {
+		t.Fatal("expected rejected skill never to alter the selected palette")
+	}
+}
+
+func TestAgentTurnRunnerRejectsLegacyHiddenToolExpansion(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"tool.request","toolNames":["image.analyze"],"skillNames":[],"reason":"need image analysis"}`,
 		`{"action":"continue","toolName":"image.read","toolInput":{"materialID":"mattermost:file-1"}}`,
@@ -420,21 +525,25 @@ func TestAgentTurnRunnerSuggestsBaseCandidateForUnknownTool(t *testing.T) {
 		t.Fatalf("expected image.read to be invoked once, got %d", imageReadCallCount)
 	}
 	events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(events, "agent.tool_palette.failed", "image.analyze") || !taskEventsContain(events, "agent.tool_palette.failed", "image.read") {
-		t.Fatal("expected failed palette request to include image.read candidate")
+	if !taskEventsContain(events, "agent.tool_palette.failed", "image.analyze") {
+		t.Fatal("expected legacy hidden tool expansion to be rejected")
+	}
+	if taskEventsContain(events, "agent.tool_palette.failed", `"name":"image.read"`) {
+		t.Fatal("expected rejection not to suggest or expose another hidden operation")
 	}
 }
 
 func TestAgentTurnRunnerSelectSkillPinsInstructionsAndAllowedTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":[],"skillNames":["website"],"reason":"need site workflow"}`,
+		`{"action":"continue","toolName":"skill.search","toolInput":{"queries":[{"description":"website workflow"}]}}`,
+		`{"action":"skill.select","skillNames":["website"],"reason":"search result matches"}`,
 		`{"action":"continue","toolName":"site.create","toolInput":{"slug":"demo"}}`,
-		finishMessageWithEvidence("created", "obs-002", "site.create", 0),
+		finishMessageWithEvidence("created", "obs-003", "site.create", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := NewToolSet([]string{"skill.search"})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"skills":[]}`), nil
+		return ToolSuccess(`{"skills":[{"name":"website"}]}`), nil
 	})
 	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		return ToolResult{Output: ToolOutput{Content: `{"siteID":"site-1"}`}, Attachments: []FileAttachment{{DevicePath: "site://site-1", Filename: "site.json"}}}, nil
@@ -459,58 +568,29 @@ func TestAgentTurnRunnerSelectSkillPinsInstructionsAndAllowedTools(t *testing.T)
 	if result.FinishMessage != "created" {
 		t.Fatalf("expected final reply, got %q events=%+v userNotice=%q status=%s", result.FinishMessage, services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), result.UserNotice, result.TaskRun.Status)
 	}
-	if len(languageModel.requests) < 2 || !strings.Contains(joinMessageContent(languageModel.requests[1].Messages), "SITE WORKFLOW BODY") {
+	if len(languageModel.requests) < 3 || !strings.Contains(joinMessageContent(languageModel.requests[2].Messages), "SITE WORKFLOW BODY") {
 		t.Fatalf("expected pinned skill instructions in next model request")
 	}
 }
 
-func TestAgentTurnRunnerSteersRepeatedSelectToolsTowardConcreteToolUse(t *testing.T) {
-	languageModel := &sequenceLanguageModel{contents: []string{
-		`{"action":"tool.request","toolNames":[],"skillNames":["website"],"reason":"need site creation"}`,
-		`{"action":"tool.request","toolNames":[],"skillNames":["website"],"reason":"still need site creation"}`,
-		`{"action":"tool.request","toolNames":[],"skillNames":["website"],"reason":"still selecting"}`,
-		`{"action":"continue","toolName":"site.create","toolInput":{"slug":"demo"}}`,
-		finishMessageWithEvidence("created", "obs-005", "site.create", 0),
-	}}
-	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 10})
+func TestLegacySkillExpansionCannotBypassSearchProvenance(t *testing.T) {
 	toolRegistry := NewToolSet([]string{"skill.search"})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "skill.search"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"skills":[]}`), nil
-	})
-	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) {
-		return ToolSuccess(`{"siteID":"site-1"}`), nil
-	})
-	registerCapabilityInvokeVerb(toolRegistry)
-
-	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
-		RequesterPersonID: "person-1",
-		ConversationID:    "conversation-1",
-		Prompt:            "create website",
-		ToolSet:           toolRegistry,
-		PinnedToolNames:   toolRegistry.ListToolNames(),
+	toolRegistry.RegisterTool(ToolDefinition{Name: "site.create"}, func(context.Context, ToolInvocation) (ToolResult, error) { return ToolSuccess("ok"), nil })
+	request := AgentTurnRequest{
+		ToolSet: toolRegistry,
 		AvailableSkills: []SkillInstruction{{
 			Name:         "website",
 			AllowedTools: []string{"site.create"},
 		}},
-	})
-	if errorValue != nil {
-		t.Fatalf("expected turn to recover cleanly: %v", errorValue)
 	}
-	if result.TaskRun.Status != task.TaskStatusCompleted {
-		t.Fatalf("expected completed task, got %s", result.TaskRun.Status)
+
+	updatedRequest, result := applyLegacyModelPaletteRequest(request, nil, requestToolsArguments{SkillNames: []string{"website"}})
+
+	if !toolRequestResultFailed(result) || !containsString(result.UnsearchedSkillNames, "website") {
+		t.Fatalf("expected legacy selection rejection, got %+v", result)
 	}
-	if countStructuredRequestsByName(languageModel.requests, "blueclaw_agent_turn_action") != 5 {
-		t.Fatalf("expected request_tools loop to receive one steering turn, got %+v", structuredRequestNames(languageModel.requests))
-	}
-	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
-	if !taskEventsContain(taskEvents, "agent.stall_exit_directive", "Take one of two exits now") {
-		t.Fatalf("expected stall exit directive before concrete tool use, got %+v", taskEvents)
-	}
-	if taskEventsContain(taskEvents, "agent.no_progress_loop_stopped", "") {
-		t.Fatalf("expected no no-progress block after concrete tool use, got %+v", taskEvents)
-	}
-	if taskEventsContain(taskEvents, "max_iterations", "") {
-		t.Fatal("expected request_tools loop breaker before max_iterations")
+	if containsString(updatedRequest.PinnedSkillNames, "website") || updatedRequest.ToolSet.IsAllowed("site.create") {
+		t.Fatal("expected legacy model fields never to expose the skill operation")
 	}
 }
 
@@ -702,7 +782,7 @@ func TestActionSchemaExposesFailWhileRecoveryBudgetRemains(t *testing.T) {
 func TestAgentTurnRunnerBudgetExhaustedContinueTriggersSingleTerminalNoToolsCall(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`, "obs-001"),
 		noToolFallbackFinishMessageDocument("I can still answer from the available context."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
@@ -772,7 +852,7 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsNoToolFallbackFinish(t *testing.T)
 func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`, "obs-001"),
 		failureReportDocument("Calculator execution is blocked because bc_execution returned operation_failed.", "math.calculate", "1+2/4", FailureCodes.OperationFailed.String(), "bc_execution", "bc: command not found"),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 6, RecoveryBudget: terminalNoToolRecoveryBudgetForTest()})
@@ -806,7 +886,7 @@ func TestAgentTurnRunnerTerminalNoToolsAcceptsFailureReportFail(t *testing.T) {
 func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"1+2/4"}`),
-		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`),
+		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"2+2"}`, "obs-001"),
 		capabilityInvokeAction("continue", "", "math.calculate", `{"expression":"3+3"}`),
 		noToolFallbackFinishMessageDocument("I repaired the terminal answer without another tool."),
 	}}
@@ -843,9 +923,10 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
 }
 
-func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
+func TestAgentTurnRunnerRequestsFinalReplyAfterSimpleBrowserOpen(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "브라우저를 열었습니다. 완료했습니다.", "browser.open", `{"url":"https://www.google.com"}`),
+		capabilityInvokeAction("continue", "브라우저를 여는 중입니다.", "browser.open", `{"url":"https://www.google.com"}`),
+		finishMessageWithEvidence("브라우저를 열었습니다.", "obs-001", "browser.open", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
@@ -868,11 +949,11 @@ func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 	if !strings.Contains(result.FinishMessage, "완료") && !strings.Contains(result.FinishMessage, "열") {
 		t.Fatalf("expected browser-open completion reply, got %q", result.FinishMessage)
 	}
-	if len(languageModel.requests) != 1 {
-		t.Fatalf("expected no extra model calls after browser.open, got %d", len(languageModel.requests))
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected explicit final model call after browser.open, got %d", len(languageModel.requests))
 	}
-	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "evidenceCount") {
-		t.Fatal("expected completion state finalization event")
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "") {
+		t.Fatal("expected no automatic completion state finalization")
 	}
 }
 
@@ -1860,12 +1941,16 @@ func registerCapabilityInvokeVerb(toolSet *ToolSet) {
 	})
 }
 
-func capabilityInvokeAction(action string, message string, operation string, input string) string {
+func capabilityInvokeAction(action string, message string, operation string, input string, recoveryForObservationIDs ...string) string {
 	document := `{"action":"` + action + `"`
 	if message != "" {
 		document += `,"message":"` + message + `"`
 	}
-	document += `,"toolName":"` + CapabilityInvokeToolName + `","toolInput":{"operation":"` + operation + `","input":` + input + `}}`
+	document += `,"toolName":"` + CapabilityInvokeToolName + `","toolInput":{"operation":"` + operation + `","input":` + input + `}`
+	if len(recoveryForObservationIDs) > 0 && strings.TrimSpace(recoveryForObservationIDs[0]) != "" {
+		document += `,"recoveryForObservationID":"` + strings.TrimSpace(recoveryForObservationIDs[0]) + `"`
+	}
+	document += `}`
 	return document
 }
 
@@ -1887,6 +1972,7 @@ type sequenceLanguageModel struct {
 	contents              []string
 	resultVerifications   []string
 	contractVerifications []string
+	askRelevanceDecisions []string
 	textResponses         []string
 	requests              []llm.StructuredResponseRequest
 	verificationRequests  []llm.StructuredResponseRequest
@@ -1917,6 +2003,17 @@ func (languageModel *sequenceLanguageModel) GenerateResponse(_ context.Context, 
 }
 
 func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_failure_notice_review" {
+		return llm.StructuredResponse{Content: defaultFailureNoticeReviewResponse(request)}, nil
+	}
+	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_ask_relevance" {
+		if len(languageModel.askRelevanceDecisions) > 0 {
+			decision := languageModel.askRelevanceDecisions[0]
+			languageModel.askRelevanceDecisions = languageModel.askRelevanceDecisions[1:]
+			return llm.StructuredResponse{Content: decision}, nil
+		}
+		return llm.StructuredResponse{Content: `{"isRequired":true,"reason":"test default allows the proposed question"}`}, nil
+	}
 	if strings.TrimSpace(request.StructuredOutputSchema.Name) == "blueclaw_result_verifier" {
 		languageModel.verificationRequests = append(languageModel.verificationRequests, request)
 		index := len(languageModel.verificationRequests) - 1
@@ -1939,6 +2036,25 @@ func (languageModel *sequenceLanguageModel) GenerateStructuredResponse(_ context
 		index = len(languageModel.contents) - 1
 	}
 	return llm.StructuredResponse{Content: languageModel.contents[index]}, nil
+}
+
+func defaultFailureNoticeReviewResponse(request llm.StructuredResponseRequest) string {
+	candidate := ""
+	for _, message := range request.Messages {
+		_, candidateText, isFound := strings.Cut(message.Content, "Candidate notice:\n")
+		if isFound {
+			candidate = strings.TrimSpace(candidateText)
+		}
+	}
+	document, errorValue := json.Marshal(map[string]string{
+		"decision": "send",
+		"message":  candidate,
+		"reason":   "test semantic review accepted the grounded candidate",
+	})
+	if errorValue != nil {
+		return `{"decision":"reject","message":"","reason":"test serialization failed"}`
+	}
+	return string(document)
 }
 
 func defaultResultVerificationResponse(request llm.StructuredResponseRequest) string {
@@ -1990,7 +2106,10 @@ func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateRespons
 	return languageModel.reply, nil
 }
 
-func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel *structuredFailureTextRecoveryLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == "blueclaw_failure_notice_review" {
+		return llm.StructuredResponse{Content: defaultFailureNoticeReviewResponse(request)}, nil
+	}
 	return llm.StructuredResponse{}, languageModel.errorValue
 }
 
@@ -2017,7 +2136,10 @@ func (languageModel localRecoveryFallbackLanguageModel) GenerateResponse(context
 	return "", languageModel.errorValue
 }
 
-func (languageModel localRecoveryFallbackLanguageModel) GenerateStructuredResponse(context.Context, llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+func (languageModel localRecoveryFallbackLanguageModel) GenerateStructuredResponse(_ context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if request.StructuredOutputSchema.Name == "blueclaw_failure_notice_review" {
+		return llm.StructuredResponse{Content: defaultFailureNoticeReviewResponse(request)}, nil
+	}
 	return llm.StructuredResponse{}, languageModel.errorValue
 }
 

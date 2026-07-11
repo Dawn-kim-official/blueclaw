@@ -2381,7 +2381,7 @@ func TestConnectorRuntimeCreatesScheduledTaskFromNaturalLanguagePrompt(t *testin
 	languageModel := agenttest.NewActionScriptedLanguageModel(
 		`{"action":"tool.request","toolNames":["schedule.create"],"skillNames":["scheduled-task"],"executionStateUpdate":{}}`,
 		`{"action":"continue","toolName":"schedule.create","toolInput":{"name":"daily research brief","taskInstruction":"업계 뉴스를 조사해서 핵심만 보고해줘.","kind":"cron","cronExpression":"0 7 * * *","repeatPolicy":"unbounded","timeZone":"Asia/Seoul","platform":"spoofed","conversationID":"spoofed","replyTargetID":"spoofed"},"executionStateUpdate":{},"nextStepPlan":{"objective":"confirm schedule creation","expectedTools":[],"doneCriteria":["schedule is created"],"risk":"","workingSetReason":"schedule.create returns the created schedule"}}`,
-		connectorFinishMessage("매일 아침 7시에 조사해서 알려드릴게요."),
+		connectorFinishMessageWithEvidence("매일 아침 7시에 조사해서 알려드릴게요.", "obs-002", "schedule.create", 0),
 	)
 	connectorRuntime, adapter := newTestConnectorRuntime(t, languageModel)
 	useTestConnectorSkill(connectorRuntime, connectorScheduledTaskSkill())

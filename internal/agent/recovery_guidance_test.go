@@ -8,7 +8,7 @@ import (
 func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,
-		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"이샘플","message":"확인 부탁해"}}}`,
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"이샘플","message":"확인 부탁해"}},"recoveryForObservationID":"obs-001"}`,
 		finishMessageWithEvidence("sent", "obs-003", "message.send", 0),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{RecoveryAttemptLimit: 3})
@@ -17,7 +17,7 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
 		if callCount == 1 {
-			return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
+			return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", FailureCodes.Unavailable.String(), "mattermost_lookup", true, true), nil
 		}
 		return ToolSuccess(`{"dispatchID":"post-1"}`), nil
 	})
@@ -66,8 +66,8 @@ func TestRecoveryAttemptCountOnlyIncludesSpentInterventions(t *testing.T) {
 func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
-		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"}}`,
-		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"}}`,
+		`{"action":"continue","toolName":"file.read","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx"},"recoveryForObservationID":"obs-001"}`,
+		`{"action":"continue","toolName":"file.edit","toolInput":{"path":"home/sites/site-1/draft/app/src/App.tsx","oldText":"broken","newText":"fixed"},"recoveryForObservationID":"obs-001"}`,
 		finishMessageDocument("확인했습니다."),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{

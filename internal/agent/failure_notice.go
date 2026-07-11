@@ -154,20 +154,6 @@ func (generator FailureNoticeGenerator) Generate(ctx context.Context, report Fai
 	return buildRawErrorFailureNotice(report), status
 }
 
-func failureNoticeMessagePassesSafety(message string, report FailureReport) bool {
-	trimmedMessage := strings.TrimSpace(message)
-	if trimmedMessage == "" || len([]rune(trimmedMessage)) > failureNoticeMaximumCharacters {
-		return false
-	}
-	if containsInternalDiagnosticLeak(trimmedMessage) {
-		return false
-	}
-	if finishMessageNonDeliverableArtifactLocator(trimmedMessage) != "" {
-		return false
-	}
-	return true
-}
-
 func (generator FailureNoticeGenerator) GenerateIntakeNotice(ctx context.Context, report IntakeReport) FailureNotice {
 	failureReport := normalizeFailureReport(FailureReport{
 		Phase:             "task_intake",
@@ -288,21 +274,6 @@ func (generator FailureNoticeGenerator) generateLocalFailureNotice(ctx context.C
 }
 
 func prepareFailureNoticeWithGenerator(generator FailureNoticeGenerator, ctx context.Context, reply string, source string, report FailureReport) (FailureNotice, string, bool) {
-	if !failureNoticeRequiresStructuredReview(report) {
-		notice := buildFailureNotice(reply, source, report)
-		if notice.IsSendable {
-			return notice, source, true
-		}
-		if !textExceedsCharacterBudget(reply, failureNoticeMaximumCharacters) {
-			return FailureNotice{}, "", false
-		}
-		compressedReply, errorValue := generator.generateRecoveryText(ctx, buildFailureNoticeCompressionPrompt(report, reply, failureNoticeMaximumCharacters))
-		if errorValue != nil || strings.TrimSpace(compressedReply) == "" {
-			return FailureNotice{}, "", false
-		}
-		compressedNotice := buildFailureNotice(compressedReply, source, report)
-		return compressedNotice, compressedNotice.Source, compressedNotice.IsSendable
-	}
 	reviewedReply, reviewedSource, hasReviewedReply := generator.reviewFailureNotice(ctx, report, reply, source)
 	if !hasReviewedReply {
 		return FailureNotice{}, "", false
@@ -312,10 +283,6 @@ func prepareFailureNoticeWithGenerator(generator FailureNoticeGenerator, ctx con
 		return notice, reviewedSource, true
 	}
 	return FailureNotice{}, "", false
-}
-
-func failureNoticeRequiresStructuredReview(report FailureReport) bool {
-	return strings.TrimSpace(report.Phase) == "stall"
 }
 
 func (generator FailureNoticeGenerator) reviewFailureNotice(ctx context.Context, report FailureReport, candidate string, source string) (string, string, bool) {
@@ -328,7 +295,7 @@ func (generator FailureNoticeGenerator) reviewFailureNotice(ctx context.Context,
 			{Role: "system", Content: "Review a candidate user-facing failure notice for Blueclaw. Use semantic judgment, not keyword matching."},
 			{Role: "system", Content: responseLanguageInstruction(report.ResponseLanguage)},
 			{Role: "system", Content: "Return send only when the candidate is grounded in the compact failure context and is appropriate to show the user. Return rewrite when the candidate is unrelated, meta, generic, misleading, or missing the failure situation; then write the corrected notice. Return reject only when the context is insufficient to write safely."},
-			{Role: "system", Content: "Keep the message concise. Do not expose provider errors, stack traces, internal service URLs, internal filesystem paths, tokens, serialized reply status, or false artifact delivery claims."},
+			{Role: "system", Content: failureNoticeReviewInstruction(report)},
 			{Role: "user", Content: strings.Join([]string{
 				"Compact failure context:",
 				marshalEventBody(report),
@@ -361,6 +328,14 @@ func (generator FailureNoticeGenerator) reviewFailureNotice(ctx context.Context,
 		return message, source, true
 	}
 	return "", "", false
+}
+
+func failureNoticeReviewInstruction(report FailureReport) string {
+	instruction := "Keep the message concise. Do not expose provider errors, stack traces, internal service URLs, internal filesystem paths, tokens, serialized reply status, or false artifact delivery claims."
+	if report.ArtifactRequired && !report.HasAttachments {
+		instruction += " The requested artifact was not delivered. The notice must say that plainly and must not offer chat text, an outline, copy-paste, or an external authoring tool as a substitute for the missing artifact."
+	}
+	return instruction
 }
 
 func buildRawErrorFailureNotice(report FailureReport) FailureNotice {
@@ -549,18 +524,8 @@ func buildFailureNotice(message string, source string, report FailureReport) Fai
 		Source:            strings.TrimSpace(source),
 		Language:          strings.TrimSpace(report.ResponseLanguage),
 		DiagnosticEventID: strings.TrimSpace(report.DiagnosticEventID),
-		IsSendable:        failureNoticeMessageIsSendableForReport(trimmedMessage, report),
+		IsSendable:        failureNoticeMessageIsSendable(trimmedMessage),
 	}
-}
-
-func failureNoticeMessageIsSendableForReport(message string, report FailureReport) bool {
-	if !failureNoticeMessageIsSendable(message) {
-		return false
-	}
-	if report.ArtifactRequired && offersChatTextAsArtifactSubstitute(message) {
-		return false
-	}
-	return true
 }
 
 func failureNoticeMessageIsSendable(message string) bool {
@@ -575,16 +540,6 @@ func failureNoticeMessageIsSendable(message string) bool {
 		return false
 	}
 	return !containsInternalDiagnosticLeak(trimmedMessage)
-}
-
-func offersChatTextAsArtifactSubstitute(message string) bool {
-	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
-	for _, fragment := range []string{"텍스트로", "글로 정리", "채팅으로", "이곳에 바로", "here in chat", "as text"} {
-		if strings.Contains(normalizedMessage, fragment) {
-			return true
-		}
-	}
-	return false
 }
 
 func containsInternalDiagnosticLeak(message string) bool {

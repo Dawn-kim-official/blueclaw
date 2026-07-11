@@ -33,12 +33,14 @@ type RecoveryBudget struct {
 }
 
 type AgentTurnRunner struct {
-	taskRunService        *task.TaskRunService
-	taskStepService       *task.TaskStepService
-	taskArtifactService   *task.TaskArtifactService
-	languageModel         llm.LanguageModelProvider
-	recoveryLanguageModel llm.LanguageModelProvider
-	options               TurnOptions
+	taskRunService            *task.TaskRunService
+	taskStepService           *task.TaskStepService
+	taskArtifactService       *task.TaskArtifactService
+	languageModel             llm.LanguageModelProvider
+	recoveryLanguageModel     llm.LanguageModelProvider
+	taskLanguageModelResolver func(TaskLevel) llm.LanguageModelProvider
+	llmCallObserver           llmCallObserver
+	options                   TurnOptions
 }
 
 type AgentTurnRequest struct {
@@ -121,47 +123,49 @@ type AgentCheckpoint struct {
 }
 
 type turnActionDocument struct {
-	Action                string                        `json:"action"`
-	Message               string                        `json:"message"`
-	ReplyParts            []AgentPart                   `json:"replyParts,omitempty"`
-	CompletionSummary     string                        `json:"completionSummary,omitempty"`
-	ToolName              string                        `json:"toolName"`
-	ToolInput             json.RawMessage               `json:"toolInput"`
-	ToolNames             []string                      `json:"toolNames"`
-	SkillNames            []string                      `json:"skillNames"`
-	RequestTools          []string                      `json:"requestTools"`
-	RequestSkills         []string                      `json:"requestSkills"`
-	Reason                string                        `json:"reason"`
-	Reply                 string                        `json:"reply"`
-	FailureResolution     string                        `json:"failureResolution"`
-	GoalStatus            string                        `json:"goalStatus"`
-	GoalSatisfied         *bool                         `json:"goalSatisfied"`
-	CompletionEvidenceIDs []string                      `json:"completionEvidenceIDs"`
-	CompletionEvidence    []completionEvidenceReference `json:"completionEvidence"`
-	QualityCriteria       []string                      `json:"qualityCriteria"`
-	QualityReview         []qualityReviewItem           `json:"qualityReview"`
-	RemainingWork         string                        `json:"remainingWork"`
-	UsedFailureFacts      failureReportFacts            `json:"usedFailureFacts"`
-	ExecutionStateUpdate  ExecutionState                `json:"executionStateUpdate"`
+	Action                   string                        `json:"action"`
+	Message                  string                        `json:"message"`
+	ReplyParts               []AgentPart                   `json:"replyParts,omitempty"`
+	CompletionSummary        string                        `json:"completionSummary,omitempty"`
+	ToolName                 string                        `json:"toolName"`
+	ToolInput                json.RawMessage               `json:"toolInput"`
+	ToolNames                []string                      `json:"toolNames"`
+	SkillNames               []string                      `json:"skillNames"`
+	RequestTools             []string                      `json:"requestTools"`
+	RequestSkills            []string                      `json:"requestSkills"`
+	Reason                   string                        `json:"reason"`
+	Reply                    string                        `json:"reply"`
+	FailureResolution        string                        `json:"failureResolution"`
+	RecoveryForObservationID string                        `json:"recoveryForObservationID"`
+	GoalStatus               string                        `json:"goalStatus"`
+	GoalSatisfied            *bool                         `json:"goalSatisfied"`
+	CompletionEvidenceIDs    []string                      `json:"completionEvidenceIDs"`
+	CompletionEvidence       []completionEvidenceReference `json:"completionEvidence"`
+	QualityCriteria          []string                      `json:"qualityCriteria"`
+	QualityReview            []qualityReviewItem           `json:"qualityReview"`
+	RemainingWork            string                        `json:"remainingWork"`
+	UsedFailureFacts         failureReportFacts            `json:"usedFailureFacts"`
+	ExecutionStateUpdate     ExecutionState                `json:"executionStateUpdate"`
 }
 
 type turnObservation struct {
-	ObservationID        string               `json:"observationID"`
-	Action               string               `json:"action"`
-	Tool                 string               `json:"tool,omitempty"`
-	Output               ToolOutput           `json:"output,omitempty"`
-	Failure              *ToolFailure         `json:"failure,omitempty"`
-	Summary              string               `json:"summary,omitempty"`
-	ImageRefs            []ToolResultImageRef `json:"imageRefs,omitempty"`
-	ToolInputKey         string               `json:"toolInputKey,omitempty"`
-	AttemptFingerprint   string               `json:"attemptFingerprint,omitempty"`
-	RecoveryAttemptKey   string               `json:"recoveryAttemptKey,omitempty"`
-	RecoveryStep         string               `json:"recoveryStep,omitempty"`
-	RecoveryAttemptSpent bool                 `json:"recoveryAttemptSpent,omitempty"`
-	RecoveryPacket       *RecoveryPacket      `json:"recoveryPacket,omitempty"`
-	Attachments          []FileAttachment     `json:"attachments,omitempty"`
-	RecoveryActions      []RecoveryAction     `json:"recoveryActions,omitempty"`
-	DurationMS           int64                `json:"durationMs"`
+	ObservationID            string               `json:"observationID"`
+	Action                   string               `json:"action"`
+	Tool                     string               `json:"tool,omitempty"`
+	Output                   ToolOutput           `json:"output,omitempty"`
+	Failure                  *ToolFailure         `json:"failure,omitempty"`
+	Summary                  string               `json:"summary,omitempty"`
+	ImageRefs                []ToolResultImageRef `json:"imageRefs,omitempty"`
+	ToolInputKey             string               `json:"toolInputKey,omitempty"`
+	AttemptFingerprint       string               `json:"attemptFingerprint,omitempty"`
+	RecoveryAttemptKey       string               `json:"recoveryAttemptKey,omitempty"`
+	RecoveryForObservationID string               `json:"recoveryForObservationID,omitempty"`
+	RecoveryStep             string               `json:"recoveryStep,omitempty"`
+	RecoveryAttemptSpent     bool                 `json:"recoveryAttemptSpent,omitempty"`
+	RecoveryPacket           *RecoveryPacket      `json:"recoveryPacket,omitempty"`
+	Attachments              []FileAttachment     `json:"attachments,omitempty"`
+	RecoveryActions          []RecoveryAction     `json:"recoveryActions,omitempty"`
+	DurationMS               int64                `json:"durationMs"`
 }
 
 type toolCallActionOutcome struct {
@@ -266,6 +270,10 @@ func NewAgentTurnRunnerWithRecoveryModel(taskRunService *task.TaskRunService, ta
 	}
 }
 
+func (agentTurnRunner *AgentTurnRunner) UseTaskLanguageModelResolver(resolver func(TaskLevel) llm.LanguageModelProvider) {
+	agentTurnRunner.taskLanguageModelResolver = resolver
+}
+
 func normalizeTurnOptions(options TurnOptions) TurnOptions {
 	taskLevelProfile := TaskLevelProfileForLevel(options.TaskLevel)
 	if options.TaskLevel == "" {
@@ -328,6 +336,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		record.ModelTier = string(agentTurnRunner.options.TaskLevel)
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "llm.call", marshalEventBody(record))
 	}
+	agentTurnRunner.llmCallObserver = observeRecord
 	agentTurnRunner.languageModel = observeLanguageModel(agentTurnRunner.languageModel, observeRecord)
 	if agentTurnRunner.recoveryLanguageModel == nil {
 		agentTurnRunner.recoveryLanguageModel = agentTurnRunner.languageModel
@@ -440,7 +449,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 		stepID := fmt.Sprintf("%s:turn-%03d", taskRun.TaskRunID, iteration)
 		agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusRunning, "agent turn iteration", "")
 
-		transition := agentTurnRunner.applyCompletionState(taskContext, taskRun.TaskRunID, stepID, request, toolUseRequirements, state.Observations, state.Attachments, state.QualityCriteria, state.LastModelMessage)
+		transition := agentTurnRunner.applyCompletionState(taskContext, taskRun.TaskRunID, request, toolUseRequirements, state.Observations, state.Attachments)
 		state.Observations = transition.Observations
 		state.Attachments = transition.Attachments
 		if transition.IsCompleted {
@@ -472,19 +481,42 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			return agentTurnRunner.failTurn(taskRun.TaskRunID, request, "llm action failed: "+actionError.Error(), state.Observations, state.Attachments, state.ExecutionState)
 		}
 
-		if message := strings.TrimSpace(actionDocument.Message); message != "" {
-			state.LastModelMessage = message
-		}
-
 		if !executionStateIsEmpty(actionDocument.ExecutionStateUpdate) {
 			state.ExecutionState = normalizeExecutionState(actionDocument.ExecutionStateUpdate)
 			agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.execution_state", marshalEventBody(state.ExecutionState))
 		}
-		if strings.TrimSpace(actionDocument.Action) == "continue" {
-			request = agentTurnRunner.applyInlineToolRequest(taskRun.TaskRunID, request, &state, actionDocument)
-		}
 		agentTurnRunner.appendEvent(taskRun.TaskRunID, "agent.action", marshalEventBody(actionDocument))
 		switch strings.TrimSpace(actionDocument.Action) {
+		case "skill.select":
+			requestArguments := requestToolsArguments{
+				SkillNames: append([]string{}, actionDocument.SkillNames...),
+				Reason:     actionDocument.Reason,
+			}
+			nextRequest, selectionResult := applySearchedSkillSelection(request, state.Observations, requestArguments)
+			addedNothing := toolRequestAddedNothing(request, nextRequest, selectionResult)
+			request = nextRequest
+			state.Request = nextRequest
+			observation := skillSelectionObservation(len(state.Observations)+1, requestArguments, selectionResult, addedNothing)
+			state.Observations = append(state.Observations, observation)
+			eventName := "agent.skill_selection.applied"
+			if addedNothing {
+				eventName = "agent.skill_selection.redundant"
+			} else if toolRequestResultFailed(selectionResult) {
+				eventName = "agent.skill_selection.failed"
+			}
+			agentTurnRunner.appendEvent(taskRun.TaskRunID, eventName, marshalEventBody(map[string]any{
+				"request": requestArguments,
+				"result":  selectionResult,
+				"source":  "model_action",
+			}))
+			if !toolRequestResultFailed(selectionResult) {
+				agentTurnRunner.applyDynamicSkillTaskLevelFloor(taskRun.TaskRunID, &request, &state, selectionResult.PinnedSkillNames)
+			}
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "skill.select", observation.ContentText())
+			if result, shouldStop := stopForRequestToolsNoProgress(stepID); shouldStop {
+				return result, nil
+			}
+			continue
 		case "tool.request":
 			requestArguments := requestToolsArguments{
 				ToolNames:  append([]string{}, actionDocument.ToolNames...),
@@ -501,7 +533,7 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "tool.request", observation.ContentText())
 				continue
 			}
-			nextRequest, selectionResult := applyToolRequest(request, requestArguments)
+			nextRequest, selectionResult := applyLegacyModelPaletteRequest(request, state.Observations, requestArguments)
 			addedNothing := toolRequestAddedNothing(request, nextRequest, selectionResult)
 			request = nextRequest
 			state.Request = nextRequest
@@ -568,11 +600,12 @@ func (agentTurnRunner *AgentTurnRunner) RunTurn(ctx context.Context, request Age
 			if cancelledResult, isCancelled := agentTurnRunner.cancelledTaskResult(taskRun.TaskRunID, state.Attachments); isCancelled {
 				return cancelledResult, nil
 			}
-			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "finish", reply)
 			completedTaskRun, completeError := agentTurnRunner.taskRunService.CompleteTaskRun(taskRun.TaskRunID, reply)
 			if completeError != nil {
-				return agentTurnRunner.cancelledTaskResultOrCurrent(taskRun.TaskRunID, state.Attachments), nil
+				agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusFailed, "finish persistence", RedactDiagnosticText(completeError.Error()))
+				return agentTurnRunner.completionPersistenceFailureResult(taskRun.TaskRunID, request, completeError, state.Observations, state.Attachments, state.ExecutionState), nil
 			}
+			agentTurnRunner.saveStep(taskRun.TaskRunID, stepID, task.TaskStatusCompleted, "finish", reply)
 			return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, nil
 		case "continue":
 			outcome := agentTurnRunner.handleToolCallAction(taskContext, taskRun.TaskRunID, stepID, iteration, iterationRequest, toolUseRequirements, &state, actionDocument, successfulToolCalls, stopForNoProgress)
@@ -666,7 +699,7 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 	if outcome := agentTurnRunner.rejectUnavailableToolCall(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
-	if outcome := agentTurnRunner.rejectUnrelatedAskAction(taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
+	if outcome := agentTurnRunner.rejectUnrelatedAskAction(ctx, taskRunID, stepID, request, state, actionDocument, stopForNoProgress); outcome.WasHandled {
 		return outcome
 	}
 	if !request.IsApprovalContinuation && toolRequiresRuntimeApproval(request.ToolSet, actionDocument.ToolName) {
@@ -696,6 +729,10 @@ func (agentTurnRunner *AgentTurnRunner) handleToolCallAction(ctx context.Context
 		return toolCallActionOutcome{Result: pausedResult, ShouldReturn: true, WasHandled: true}
 	}
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "continue "+actionDocument.ToolName, observation.ContentText())
+	if !observation.Failed() && observation.Tool == SkillSearchToolName {
+		result, shouldStop := stopForNoProgress(stepID)
+		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
+	}
 	if !observation.Failed() && isInspectionProgressTool(observation.Tool) && hasPendingObservedSuggestedNextTool(state.Observations) {
 		result, shouldStop := stopForNoProgress(stepID)
 		return toolCallActionOutcome{Result: result, ShouldReturn: shouldStop, WasHandled: true}
@@ -809,6 +846,40 @@ func (agentTurnRunner *AgentTurnRunner) cancelledTaskResultOrCurrent(taskRunID s
 	return AgentTurnResult{TaskRun: taskRun, ReplySuppressed: true, Attachments: attachments}
 }
 
+func (agentTurnRunner *AgentTurnRunner) recordCompletionPersistenceFailure(taskRunID string, errorValue error) {
+	agentTurnRunner.appendEvent(taskRunID, "agent.completion_persist_failed", marshalEventBody(map[string]string{
+		"error": RedactDiagnosticText(errorValue.Error()),
+	}))
+}
+
+func (agentTurnRunner *AgentTurnRunner) completionPersistenceFailureResult(taskRunID string, request AgentTurnRequest, errorValue error, observations []turnObservation, attachments []FileAttachment, executionState ExecutionState) AgentTurnResult {
+	agentTurnRunner.recordCompletionPersistenceFailure(taskRunID, errorValue)
+	reason := "task completion could not be persisted: " + RedactDiagnosticText(errorValue.Error())
+	failedTaskRun, failError := agentTurnRunner.taskRunService.FailTaskRun(taskRunID, reason)
+	if failError != nil {
+		failedTaskRun, _ = agentTurnRunner.taskRunService.FindTaskRun(taskRunID)
+		failedTaskRun.TaskRunID = taskRunID
+		failedTaskRun.Status = task.TaskStatusFailed
+		failedTaskRun.FailureReason = "task completion could not be persisted"
+	}
+	failureNotice, replyStatus, hasReply := agentTurnRunner.generateFailureNotice(taskRunID, request, reason, observations, attachments, executionState)
+	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
+	reply := rawFailureSummaryForUnavailableNotice(reason, observations)
+	if hasReply {
+		reply = failureNotice.SendableMessage()
+	}
+	failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, reply)
+	failedTaskRun.Status = task.TaskStatusFailed
+	failedTaskRun.Result = reply
+	return AgentTurnResult{
+		TaskRun:         failedTaskRun,
+		UserNotice:      reply,
+		FailureNotice:   failureNotice,
+		Attachments:     attachments,
+		RecoveryActions: recoveryActionsFromObservations(observations),
+	}
+}
+
 // sendLaunchNotice posts the intake's launch acknowledgement as a durable
 // (non-ephemeral) message the moment a longer task starts, so the requester gets
 // an immediate first reply with a rough ETA instead of silence until the final
@@ -841,6 +912,13 @@ func (agentTurnRunner *AgentTurnRunner) sendCheckpointMessage(ctx context.Contex
 		agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.skipped", marshalEventBody(map[string]any{
 			"toolName": actionDocument.ToolName,
 			"reason":   "task_level_xlow",
+		}))
+		return observations
+	}
+	if request.EstimatedMinutes > 0 && request.EstimatedMinutes <= 2 {
+		agentTurnRunner.appendEvent(taskRunID, "agent.checkpoint.skipped", marshalEventBody(map[string]any{
+			"toolName": actionDocument.ToolName,
+			"reason":   "short_task",
 		}))
 		return observations
 	}
@@ -1039,14 +1117,12 @@ func (agentTurnRunner *AgentTurnRunner) applyInlineToolRequest(taskRunID string,
 	if len(appendUniqueStrings(requestArguments.ToolNames)) == 0 && len(appendUniqueStrings(requestArguments.SkillNames)) == 0 {
 		return request
 	}
-	nextRequest, selectionResult := applyToolRequest(request, requestArguments)
-	state.Request = nextRequest
-	agentTurnRunner.appendEvent(taskRunID, "agent.tool_palette.applied", marshalEventBody(map[string]any{
+	agentTurnRunner.appendEvent(taskRunID, "agent.tool_palette.rejected_legacy", marshalEventBody(map[string]any{
 		"request": requestArguments,
-		"result":  selectionResult,
 		"source":  "continue_inline",
 	}))
-	return nextRequest
+	state.Request = request
+	return request
 }
 
 func pendingFileDeliveryToolNames(request AgentTurnRequest, observations []turnObservation) []string {
@@ -1368,7 +1444,7 @@ func (agentTurnRunner *AgentTurnRunner) blockTurnForStall(taskRunID string, step
 	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusBlocked, "no_progress_loop_stopped", reason)
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "stall", reason, replyStatus)
-		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
+		fallbackReply := rawFailureSummaryForUnavailableNotice(reason, state.Observations)
 		blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, fallbackReply)
 		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true
 	}
@@ -1402,7 +1478,7 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 	agentTurnRunner.appendEvent(taskRunID, "agent.failure_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "failure", reason, replyStatus)
-		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
+		fallbackReply := rawFailureSummaryForUnavailableNotice(reason, observations)
 		failedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, failedTaskRun, fallbackReply)
 		return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
@@ -1411,11 +1487,12 @@ func (agentTurnRunner *AgentTurnRunner) failTurn(taskRunID string, request Agent
 	return AgentTurnResult{TaskRun: failedTaskRun, UserNotice: reply, FailureNotice: failureNotice, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 }
 
-func deterministicFailureFallbackReply(responseLanguage string) string {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(responseLanguage)), "en") {
-		return "Sorry — a temporary system error interrupted this task before it could finish. Please try again in a moment."
-	}
-	return "죄송합니다. 일시적인 시스템 오류로 요청을 끝까지 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."
+func rawFailureSummaryForUnavailableNotice(reason string, observations []turnObservation) string {
+	return firstNonEmptyString(
+		latestSafeFailureSummary(observations, reason),
+		RedactDiagnosticText(reason),
+		FailureCodes.OperationFailed.String(),
+	)
 }
 
 type limitPressureWarning struct {
@@ -1517,12 +1594,12 @@ func (agentTurnRunner *AgentTurnRunner) finalizeOrStopForLimit(ctx context.Conte
 
 func (agentTurnRunner *AgentTurnRunner) finalizeLimitIfPossible(ctx context.Context, taskRunID string, request AgentTurnRequest, requirements []toolUseRequirement, observations []turnObservation, attachments []FileAttachment, criteria []qualityCriterion, executionState ExecutionState) limitFinalizationResult {
 	if ctx.Err() == nil {
-		transition := agentTurnRunner.applyCompletionState(ctx, taskRunID, taskRunID+":completion", request, requirements, observations, attachments, criteria, "")
+		transition := agentTurnRunner.applyCompletionState(ctx, taskRunID, request, requirements, observations, attachments)
 		if transition.IsCompleted {
 			return limitFinalizationResult{Result: transition.Result, IsCompleted: true, Observations: observations, Attachments: attachments}
 		}
 		if transition.DidTransition {
-			transition = agentTurnRunner.applyCompletionState(ctx, taskRunID, taskRunID+":completion", request, requirements, transition.Observations, transition.Attachments, criteria, "")
+			transition = agentTurnRunner.applyCompletionState(ctx, taskRunID, request, requirements, transition.Observations, transition.Attachments)
 			if transition.IsCompleted {
 				return limitFinalizationResult{Result: transition.Result, IsCompleted: true, Observations: transition.Observations, Attachments: transition.Attachments}
 			}
@@ -1569,6 +1646,49 @@ func (agentTurnRunner *AgentTurnRunner) budgetEscalationCount(taskRunID string) 
 		}
 	}
 	return count
+}
+
+type skillTaskLevelEscalatedEventBody struct {
+	PreviousTaskLevel TaskLevel `json:"previousTaskLevel"`
+	NewTaskLevel      TaskLevel `json:"newTaskLevel"`
+	SkillNames        []string  `json:"skillNames"`
+}
+
+func (agentTurnRunner *AgentTurnRunner) applyDynamicSkillTaskLevelFloor(taskRunID string, request *AgentTurnRequest, state *agentTaskState, skillNames []string) {
+	previousTaskLevel := TaskLevelProfileForLevel(agentTurnRunner.options.TaskLevel).TaskLevel
+	newTaskLevel := LargerTaskLevel(previousTaskLevel, taskLevelFloorForSelectedSkillNames(skillNames))
+	if newTaskLevel == previousTaskLevel {
+		return
+	}
+	agentTurnRunner.promoteCurrentTurnTaskLevel(newTaskLevel, request, state)
+	agentTurnRunner.appendEvent(taskRunID, "agent.skill_task_level_escalated", marshalEventBody(skillTaskLevelEscalatedEventBody{
+		PreviousTaskLevel: previousTaskLevel,
+		NewTaskLevel:      newTaskLevel,
+		SkillNames:        appendUniqueStrings(skillNames),
+	}))
+}
+
+func (agentTurnRunner *AgentTurnRunner) promoteCurrentTurnTaskLevel(taskLevel TaskLevel, request *AgentTurnRequest, state *agentTaskState) {
+	taskLevelProfile := TaskLevelProfileForLevel(taskLevel)
+	agentTurnRunner.options.TaskLevel = taskLevelProfile.TaskLevel
+	agentTurnRunner.options.MaxIterationCount = maxInt(agentTurnRunner.options.MaxIterationCount, taskLevelProfile.MaxIterationCount)
+	agentTurnRunner.options.MaxToolCallCount = maxInt(agentTurnRunner.options.MaxToolCallCount, taskLevelProfile.MaxToolCallCount)
+	agentTurnRunner.options.MaxElapsedSecond = maxInt(agentTurnRunner.options.MaxElapsedSecond, int(taskLevelProfile.Duration.Seconds()))
+	request.TaskLevel = taskLevelProfile.TaskLevel
+	state.Request = *request
+	state.Options = agentTurnRunner.options
+	agentTurnRunner.useTaskLanguageModelForLevel(taskLevelProfile.TaskLevel)
+}
+
+func (agentTurnRunner *AgentTurnRunner) useTaskLanguageModelForLevel(taskLevel TaskLevel) {
+	if agentTurnRunner.taskLanguageModelResolver == nil {
+		return
+	}
+	languageModel := agentTurnRunner.taskLanguageModelResolver(taskLevel)
+	if languageModel == nil {
+		return
+	}
+	agentTurnRunner.languageModel = observeLanguageModel(languageModel, agentTurnRunner.llmCallObserver)
 }
 
 func (agentTurnRunner *AgentTurnRunner) escalateBudgetTier(taskRunID string, qualifyingEvents []qualifyingProgressEvent, usedIterationCount int, usedToolCallCount int) {
@@ -1637,7 +1757,10 @@ func (agentTurnRunner *AgentTurnRunner) finalizeSatisfiedTurn(ctx context.Contex
 		return AgentTurnResult{}, false
 	}
 	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
-	completedTaskRun, _ := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	completedTaskRun, errorValue := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
+	if errorValue != nil {
+		return agentTurnRunner.completionPersistenceFailureResult(taskRunID, request, errorValue, observations, nil, executionState), true
+	}
 	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(observations)}, true
 }
 
@@ -1747,11 +1870,13 @@ func (agentTurnRunner *AgentTurnRunner) completeTerminalNoToolsFinish(ctx contex
 		return AgentTurnResult{}, false, "finish message is empty"
 	}
 	reply = agentTurnRunner.prepareFinishMessageForPlatform(request, reply, completionGateResult.Attachments)
-	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_finish", reply)
 	completedTaskRun, errorValue := agentTurnRunner.taskRunService.CompleteTaskRun(taskRunID, reply)
 	if errorValue != nil {
-		return agentTurnRunner.cancelledTaskResultOrCurrent(taskRunID, state.Attachments), true, ""
+		agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusFailed, "terminal_no_tools_finish persistence", RedactDiagnosticText(errorValue.Error()))
+		result := agentTurnRunner.completionPersistenceFailureResult(taskRunID, request, errorValue, state.Observations, state.Attachments, state.ExecutionState)
+		return result, true, ""
 	}
+	agentTurnRunner.saveStep(taskRunID, stepID, task.TaskStatusCompleted, "terminal_no_tools_finish", reply)
 	return AgentTurnResult{TaskRun: completedTaskRun, FinishMessage: reply, Attachments: completionGateResult.Attachments, RecoveryActions: recoveryActionsFromObservations(state.Observations)}, true, ""
 }
 
@@ -1819,7 +1944,7 @@ func (agentTurnRunner *AgentTurnRunner) stopForLimit(taskRunID string, request A
 	agentTurnRunner.appendEvent(taskRunID, "agent.limit_reply", marshalEventBody(replyStatus))
 	if !hasReply {
 		agentTurnRunner.appendUnavailableReplyEvents(taskRunID, "limit", reason, replyStatus)
-		fallbackReply := deterministicFailureFallbackReply(request.ResponseLanguage)
+		fallbackReply := rawFailureSummaryForUnavailableNotice(reason, observations)
 		blockedTaskRun = persistTaskRunResult(agentTurnRunner.taskRunService, blockedTaskRun, fallbackReply)
 		return AgentTurnResult{TaskRun: blockedTaskRun, UserNotice: fallbackReply, RecoveryActions: recoveryActionsFromObservations(observations)}, nil
 	}
