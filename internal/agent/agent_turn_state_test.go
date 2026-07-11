@@ -520,3 +520,15 @@ func TestUserResumeClearsInheritedFailureDebt(t *testing.T) {
 		t.Fatalf("expected successful observation retained, got %+v", cleared)
 	}
 }
+
+func TestProducedSourcePathsRecoversSourceFilesFromDurableResults(t *testing.T) {
+	events := []task.TaskEvent{
+		toolResultTestEvent("tool.file.write.result", "obs-1", "file.write", `{"path":"tmp/deck/slides.html","sizeBytes":20}`, false),
+		toolResultTestEvent("tool.file.edit.result", "obs-2", "file.edit", `{"editedFiles":["tmp/deck/slides.html","tmp/deck/DESIGN.md"]}`, false),
+		toolResultTestEvent("tool.file.write.result", "obs-3", "file.write", `{"path":"tmp/deck/notes.md"}`, true),
+	}
+	paths := producedSourcePaths(events)
+	if len(paths) != 2 || paths[0] != "tmp/deck/slides.html" || paths[1] != "tmp/deck/DESIGN.md" {
+		t.Fatalf("expected deduped non-failed source paths, got %+v", paths)
+	}
+}

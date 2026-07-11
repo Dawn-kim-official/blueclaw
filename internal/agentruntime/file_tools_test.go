@@ -1668,6 +1668,26 @@ func TestApplyExactOrTolerantEditFailsWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestFileEditToleratesInlineWhitespaceDriftWithBytePreciseSpan(t *testing.T) {
+	content := "const total = compute(a,   b)\t+ 1;\nconst other = keep(x, y);\n"
+	updated, matchCount, applied := applyExactOrTolerantEdit(content, "compute(a, b) +", "sum(a, b) +")
+	if !applied {
+		t.Fatalf("expected inline-whitespace-tolerant match, applied=%v count=%d", applied, matchCount)
+	}
+	expected := "const total = sum(a, b) + 1;\nconst other = keep(x, y);\n"
+	if updated != expected {
+		t.Fatalf("expected byte-precise replacement, got %q", updated)
+	}
+}
+
+func TestFileEditWhitespaceToleranceStillRequiresUniqueMatch(t *testing.T) {
+	content := "call(a,  b)\ncall(a,   b)\n"
+	_, matchCount, applied := applyExactOrTolerantEdit(content, "call(a, b)", "call(z)")
+	if applied || matchCount < 2 {
+		t.Fatalf("whitespace-equivalent duplicates must not apply, applied=%v count=%d", applied, matchCount)
+	}
+}
+
 func TestFileEditMatchFailureGuidanceSuggestsClosestLines(t *testing.T) {
 	guidance := fileEditMatchFailureGuidance("export const Button = () => null;\n", "export const Buttons = () => null;", 0)
 	if !strings.Contains(guidance, "closest current lines") || !strings.Contains(guidance, "export const Button") {

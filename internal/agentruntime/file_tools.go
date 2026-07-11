@@ -1115,7 +1115,60 @@ func applyExactOrTolerantEdit(content string, oldText string, newText string) (s
 	} else if count > 1 {
 		return "", count, false
 	}
+	if updated, count, ok := applyWhitespaceTolerantEdit(content, oldText, newText); ok {
+		return updated, count, true
+	} else if count > 1 {
+		return "", count, false
+	}
 	return "", 0, false
+}
+
+// The final match layer tolerates inline whitespace drift the way apply_patch
+// does: runs of spaces and tabs collapse to one space in both the file and
+// oldText, so text that only differs by internal spacing still matches. The
+// match must still be unique, and its collapsed span is mapped back to the exact
+// original bytes so the replacement is byte-precise. Newlines are never
+// collapsed, so line structure still anchors the match.
+func applyWhitespaceTolerantEdit(content string, oldText string, newText string) (string, int, bool) {
+	normalizedOldText, _ := collapseInlineWhitespace(oldText)
+	if strings.TrimSpace(normalizedOldText) == "" {
+		return "", 0, false
+	}
+	normalizedContent, originalOffsets := collapseInlineWhitespace(content)
+	count := strings.Count(normalizedContent, normalizedOldText)
+	if count != 1 {
+		return "", count, false
+	}
+	normalizedStart := strings.Index(normalizedContent, normalizedOldText)
+	normalizedEnd := normalizedStart + len(normalizedOldText)
+	return content[:originalOffsets[normalizedStart]] + newText + content[originalOffsets[normalizedEnd]:], 1, true
+}
+
+// collapseInlineWhitespace collapses each run of ASCII spaces and tabs to a
+// single space and returns the normalized text plus a byte offset for every
+// normalized position (including the end), mapping normalized bytes back to the
+// original. Newlines and every other byte pass through unchanged.
+func collapseInlineWhitespace(value string) (string, []int) {
+	var builder strings.Builder
+	offsets := make([]int, 0, len(value)+1)
+	inWhitespaceRun := false
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character == ' ' || character == '\t' {
+			if inWhitespaceRun {
+				continue
+			}
+			inWhitespaceRun = true
+			offsets = append(offsets, index)
+			builder.WriteByte(' ')
+			continue
+		}
+		inWhitespaceRun = false
+		offsets = append(offsets, index)
+		builder.WriteByte(character)
+	}
+	offsets = append(offsets, len(value))
+	return builder.String(), offsets
 }
 
 func replacePartWithMissingLeadingWhitespace(content string, oldText string, newText string) (string, bool) {
