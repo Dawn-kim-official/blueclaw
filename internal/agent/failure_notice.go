@@ -104,7 +104,11 @@ func buildFailureReport(request AgentTurnRequest, taskRunID string, phase string
 
 func (generator FailureNoticeGenerator) Generate(ctx context.Context, report FailureReport) (FailureNotice, FailureNoticeGenerationStatus) {
 	report = normalizeFailureReport(report)
-	generationContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+	// A reasoning-tier model (the task's own tier) often needs well over the old
+	// 8s to write the failure explanation, and timing out there dropped the user
+	// to a generic "temporary error" instead of a real reason. Give it room; the
+	// raw-error notice still backstops a genuinely unavailable model.
+	generationContext, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	status := FailureNoticeGenerationStatus{}
 	if generator.LanguageModel == nil {
