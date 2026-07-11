@@ -88,8 +88,12 @@ printf '%s\n' "$before_schedules" >"$evidence_directory_path/schedules-before.js
 
 echo "scenario: stopping blueclaw $(date -u +%H:%M:%S)" >&2
 run_as_root systemctl stop blueclaw
+run_as_root e2fsck -p -E journal_only "$workspace_image" >/dev/null 2>&1 || true
 before_pg_version="$(run_as_root debugfs -R 'cat /.blueclaw/postgres/data/PG_VERSION' "$workspace_image" 2>/dev/null | tr -d '\r\n')"
-test -n "$before_pg_version"
+if [ -z "$before_pg_version" ]; then
+  echo "scenario: before PG_VERSION read failed after journal replay" >&2
+  exit 1
+fi
 
 run_as_root /usr/local/bin/blueclaw-supervisor sync-workspace --atomic \
   --workspace-image "$workspace_image" --source "$host_workspace/skills" --relative-target skills
