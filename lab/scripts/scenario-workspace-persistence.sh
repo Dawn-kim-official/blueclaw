@@ -23,13 +23,38 @@ run_as_root() {
 }
 
 wait_for_blueclaw() {
-  for _ in $(seq 1 300); do
-    if curl -fsS --max-time 3 "$blueclaw_url/admin/api/health" >/dev/null 2>&1; then
-      return
+  local wait_started attempt health_code consecutive_healthy_responses
+  wait_started=$(date +%s)
+  consecutive_healthy_responses=0
+  for attempt in $(seq 1 300); do
+    health_code=$(curl -sS -o /tmp/wait-health-body -w '%{http_code}' --max-time 3 "$blueclaw_url/admin/api/health" 2>/dev/null || echo 000)
+    if [ "$health_code" = 200 ]; then
+      consecutive_healthy_responses=$((consecutive_healthy_responses + 1))
+      if [ "$consecutive_healthy_responses" -eq 3 ]; then
+        echo "wait_for_blueclaw: healthy after $(( $(date +%s) - wait_started ))s" >&2
+        return
+      fi
+    else
+      consecutive_healthy_responses=0
+    fi
+    if [ $((attempt % 30)) -eq 0 ]; then
+      echo "wait_for_blueclaw: attempt=$attempt code=$health_code body=$(head -c 300 /tmp/wait-health-body 2>/dev/null)" >&2
     fi
     sleep 1
   done
+  echo "wait_for_blueclaw: timed out; last code=$health_code body=$(head -c 500 /tmp/wait-health-body 2>/dev/null)" >&2
   return 1
+}
+
+fetch_json() {
+  local label="$1" url="$2" http_code
+  http_code=$(curl -sS -o /tmp/fetch-json-body -w '%{http_code}' --max-time 10 "$url" 2>/dev/null || echo 000)
+  if [ "$http_code" != 200 ]; then
+    echo "$label: http=$http_code body=$(head -c 500 /tmp/fetch-json-body 2>/dev/null)" >&2
+    cp /tmp/fetch-json-body "$evidence_directory_path/$label-error.json" 2>/dev/null || true
+    return 1
+  fi
+  cat /tmp/fetch-json-body
 }
 
 requester_person_id="$(curl -fsS "$blueclaw_url/admin/api/policy" | jq -er '.people[0].personID')"
@@ -61,6 +86,7 @@ before_schedule_row_count="$(jq '.totalCount' <<<"$before_schedules")"
 printf '%s\n' "$before_detail" >"$evidence_directory_path/task-detail-before.json"
 printf '%s\n' "$before_schedules" >"$evidence_directory_path/schedules-before.json"
 
+echo "scenario: stopping blueclaw $(date -u +%H:%M:%S)" >&2
 run_as_root systemctl stop blueclaw
 before_pg_version="$(run_as_root debugfs -R 'cat /.blueclaw/postgres/data/PG_VERSION' "$workspace_image" 2>/dev/null | tr -d '\r\n')"
 test -n "$before_pg_version"
@@ -76,15 +102,17 @@ if [ "$after_sync_pg_version" != "$before_pg_version" ]; then
   exit 1
 fi
 
+echo "scenario: starting blueclaw $(date -u +%H:%M:%S)" >&2
 run_as_root systemctl start blueclaw
 wait_for_blueclaw
-after_detail="$(curl -fsS "$blueclaw_url/admin/api/task/detail?taskRunID=$task_run_id")"
+echo "scenario: fetching after evidence $(date -u +%H:%M:%S)" >&2
+after_detail="$(fetch_json after-detail "$blueclaw_url/admin/api/task/detail?taskRunID=$task_run_id")"
 after_detail_digest="$(jq -S . <<<"$after_detail" | sha256sum | awk '{print $1}')"
 after_task_run_row_count=1
 after_attempt_row_count="$(jq '[.taskRun.currentAttemptID | select(length > 0)] | length' <<<"$after_detail")"
 after_task_step_row_count="$(jq '.taskSteps | length' <<<"$after_detail")"
 after_task_event_row_count="$(jq '.taskEvents | length' <<<"$after_detail")"
-after_schedules="$(curl -fsS "$blueclaw_url/admin/api/task-schedules?includeExpired=true&pageSize=200")"
+after_schedules="$(fetch_json after-schedules "$blueclaw_url/admin/api/task-schedules?includeExpired=true&pageSize=200")"
 after_schedule_digest="$(jq -S 'del(.checkedAt)' <<<"$after_schedules" | sha256sum | awk '{print $1}')"
 after_schedule_row_count="$(jq '.totalCount' <<<"$after_schedules")"
 printf '%s\n' "$after_detail" >"$evidence_directory_path/task-detail-after.json"
