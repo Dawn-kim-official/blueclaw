@@ -30,8 +30,8 @@ type SupervisorService struct {
 }
 
 type guestExitState struct {
-	exited    chan struct{}
-	exitError error
+	exited           chan struct{}
+	exitErrorChannel chan error
 }
 
 type OutboundNetworkService interface {
@@ -93,11 +93,7 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 		return GuestInstance{}, errorValue
 	}
 
-	exitState := &guestExitState{exited: make(chan struct{})}
-	go func() {
-		exitState.exitError = command.Wait()
-		close(exitState.exited)
-	}()
+	exitState := newGuestExitState(command)
 
 	supervisorService.mutex.Lock()
 	supervisorService.commandByInstanceID[bootSpecification.InstanceID] = command
@@ -108,6 +104,29 @@ func (supervisorService *SupervisorService) BootGuest(bootContext context.Contex
 		InstanceID:        bootSpecification.InstanceID,
 		BootSpecification: bootSpecification,
 	}, nil
+}
+
+func newGuestExitState(command *exec.Cmd) *guestExitState {
+	exitState := &guestExitState{
+		exited:           make(chan struct{}),
+		exitErrorChannel: make(chan error, 1),
+	}
+	go func() {
+		exitState.exitErrorChannel <- command.Wait()
+		close(exitState.exited)
+	}()
+	return exitState
+}
+
+func (supervisorService *SupervisorService) GuestExitChannel(guestInstance GuestInstance) (<-chan error, error) {
+	supervisorService.mutex.RLock()
+	defer supervisorService.mutex.RUnlock()
+
+	exitState, isFound := supervisorService.exitByInstanceID[guestInstance.InstanceID]
+	if !isFound || exitState == nil {
+		return nil, errors.New("guest exit state was not found")
+	}
+	return exitState.exitErrorChannel, nil
 }
 
 func (supervisorService *SupervisorService) StopGuest(guestInstance GuestInstance) error {
@@ -159,25 +178,24 @@ func (supervisorService *SupervisorService) WaitForGuestHealth(healthContext con
 		healthCheckInterval = 200 * time.Millisecond
 	}
 
-	supervisorService.mutex.RLock()
-	exitState := supervisorService.exitByInstanceID[guestInstance.InstanceID]
-	supervisorService.mutex.RUnlock()
+	guestExitChannel, errorValue := supervisorService.GuestExitChannel(guestInstance)
+	if errorValue != nil {
+		return errorValue
+	}
 
 	var lastError error
 	for {
-		if exitState != nil {
-			select {
-			case <-exitState.exited:
-				return fmt.Errorf(
-					"firecracker exited before guest became healthy: %v; stderr tail: %s",
-					exitState.exitError,
-					readLogTail(filepath.Join(guestInstance.BootSpecification.LogDirectoryPath, "stderr.log")),
-				)
-			default:
-			}
+		select {
+		case guestExitError := <-guestExitChannel:
+			return fmt.Errorf(
+				"firecracker exited before guest became healthy: %v; stderr tail: %s",
+				guestExitError,
+				readLogTail(filepath.Join(guestInstance.BootSpecification.LogDirectoryPath, "stderr.log")),
+			)
+		default:
 		}
 
-		errorValue := supervisorService.GuestHealthClient.CheckHealth(
+		errorValue = supervisorService.GuestHealthClient.CheckHealth(
 			healthContext,
 			guestInstance.BootSpecification.VSockUnixSocketPath,
 			guestInstance.BootSpecification.HealthPortOrService,

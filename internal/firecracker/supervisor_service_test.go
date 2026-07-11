@@ -286,11 +286,7 @@ func TestWaitForGuestHealthFailsFastWhenFirecrackerExits(t *testing.T) {
 	if errorValue := command.Start(); errorValue != nil {
 		t.Fatalf("expected process fixture: %v", errorValue)
 	}
-	exitState := &guestExitState{exited: make(chan struct{})}
-	go func() {
-		exitState.exitError = command.Wait()
-		close(exitState.exited)
-	}()
+	exitState := newGuestExitState(command)
 
 	supervisorService := NewSupervisorService(config.FirecrackerConfiguration{}, WorkspaceVolumeService{}, neverReadyGuestHealthClient{})
 	supervisorService.commandByInstanceID[instanceID] = command
@@ -313,5 +309,29 @@ func TestWaitForGuestHealthFailsFastWhenFirecrackerExits(t *testing.T) {
 	}
 	if time.Since(startedAt) > 3*time.Second {
 		t.Fatalf("expected fail-fast, took %v", time.Since(startedAt))
+	}
+}
+
+func TestGuestExitChannelReportsFirecrackerExit(t *testing.T) {
+	instanceID := "exitinstance"
+	command := exec.Command("false")
+	if errorValue := command.Start(); errorValue != nil {
+		t.Fatalf("expected process fixture: %v", errorValue)
+	}
+
+	supervisorService := NewSupervisorService(config.FirecrackerConfiguration{}, WorkspaceVolumeService{}, readyGuestHealthClient{})
+	supervisorService.exitByInstanceID[instanceID] = newGuestExitState(command)
+	guestExitChannel, errorValue := supervisorService.GuestExitChannel(GuestInstance{InstanceID: instanceID})
+	if errorValue != nil {
+		t.Fatalf("expected guest exit channel: %v", errorValue)
+	}
+
+	select {
+	case guestExitError := <-guestExitChannel:
+		if guestExitError == nil {
+			t.Fatal("expected failed process exit")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("expected guest exit notification")
 	}
 }

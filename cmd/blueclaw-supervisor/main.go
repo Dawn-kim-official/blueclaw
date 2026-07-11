@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -50,12 +51,18 @@ func main() {
 		firecracker.VSockGuestHealthClient{},
 	)
 
-	guestInstance, errorValue := supervisorService.BootGuest(interruptContext)
+	guestProcessContext := context.Background()
+	guestInstance, errorValue := supervisorService.BootGuest(guestProcessContext)
 	if errorValue != nil {
 		log.Fatal(errorValue)
 	}
+	guestExitChannel, errorValue := supervisorService.GuestExitChannel(guestInstance)
+	if errorValue != nil {
+		_ = supervisorService.StopGuest(guestInstance)
+		log.Fatal(errorValue)
+	}
 
-	listenerContext, stopListenerProxies := context.WithCancel(interruptContext)
+	listenerContext, stopListenerProxies := context.WithCancel(context.Background())
 	defer stopListenerProxies()
 	for _, listenerProxyConfiguration := range runtimeConfiguration.Firecracker.GuestListenerProxies {
 		listenerProxyConfiguration := listenerProxyConfiguration
@@ -92,20 +99,43 @@ func main() {
 	}()
 
 	select {
-	case errorValue = <-proxyErrorChannel:
-		_ = supervisorService.StopGuest(guestInstance)
-		log.Fatal(errorValue)
-	case <-time.After(200 * time.Millisecond):
+	case <-interruptContext.Done():
+		prepareGuestShutdown(runtimeConfiguration.Firecracker.HostHTTPListenAddress)
+		errorValue = stopGuestRuntime(supervisorService, guestInstance, stopProxy, stopListenerProxies)
+		if errorValue != nil {
+			log.Fatal(errorValue)
+		}
+	case guestExitError := <-guestExitChannel:
+		shutdownError := stopGuestRuntime(supervisorService, guestInstance, stopProxy, stopListenerProxies)
+		log.Fatal(runtimeFailureError("firecracker exited unexpectedly", guestExitError, shutdownError))
+	case proxyError := <-proxyErrorChannel:
+		shutdownError := stopGuestRuntime(supervisorService, guestInstance, stopProxy, stopListenerProxies)
+		log.Fatal(runtimeFailureError("host HTTP proxy stopped unexpectedly", proxyError, shutdownError))
 	}
+}
 
-	<-interruptContext.Done()
-	prepareGuestShutdown(runtimeConfiguration.Firecracker.HostHTTPListenAddress)
+func stopGuestRuntime(
+	supervisorService *firecracker.SupervisorService,
+	guestInstance firecracker.GuestInstance,
+	stopProxy context.CancelFunc,
+	stopListenerProxies context.CancelFunc,
+) error {
 	stopProxy()
 	stopListenerProxies()
-	errorValue = supervisorService.StopGuest(guestInstance)
-	if errorValue != nil {
-		log.Fatal(errorValue)
+	return supervisorService.StopGuest(guestInstance)
+}
+
+func runtimeFailureError(failureDescription string, failureError error, shutdownError error) error {
+	if failureError == nil && shutdownError == nil {
+		return errors.New(failureDescription)
 	}
+	if failureError == nil {
+		return fmt.Errorf("%s; shutdown failed: %w", failureDescription, shutdownError)
+	}
+	if shutdownError == nil {
+		return fmt.Errorf("%s: %w", failureDescription, failureError)
+	}
+	return fmt.Errorf("%s: %v; shutdown failed: %w", failureDescription, failureError, shutdownError)
 }
 
 func restoreWorkspace(arguments []string) error {
