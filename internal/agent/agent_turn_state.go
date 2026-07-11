@@ -177,7 +177,7 @@ func cleanRestartedAgentTaskState(request AgentTurnRequest, options TurnOptions,
 	state := buildInitialAgentTaskState(scrubRestoredGoalContext(request), options, taskRun.TaskRunID)
 	state.Status = taskRun.Status
 	durableObservations := durableDeliveryObservations(events)
-	state.Observations = append(durableObservations, regroundingObservation(len(durableObservations)+1))
+	state.Observations = append(durableObservations, regroundingObservation(len(durableObservations)+1, producedSourcePaths(events)))
 	state.Attachments = attachmentsFromObservations(state.Observations)
 	return state
 }
@@ -200,6 +200,49 @@ func durableDeliveryObservations(events []task.TaskEvent) []turnObservation {
 	return durable
 }
 
+// producedSourcePaths recovers the workspace paths the model was writing or
+// editing before the restart, taken from the small result of each successful
+// file.write/file.edit (path only, never the file body, so no stale content is
+// carried forward). Surfacing them structurally lets the restart continue the
+// exact same source in place instead of guessing what it was building.
+func producedSourcePaths(events []task.TaskEvent) []string {
+	const maxSourcePaths = 8
+	seen := map[string]bool{}
+	paths := []string{}
+	addPath := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] || len(paths) >= maxSourcePaths {
+			return
+		}
+		seen[path] = true
+		paths = append(paths, path)
+	}
+	for _, observation := range observationsFromTaskEvents(events) {
+		if observation.Failed() {
+			continue
+		}
+		switch strings.TrimSpace(observation.Tool) {
+		case "file.write":
+			var result struct {
+				Path string `json:"path"`
+			}
+			if json.Unmarshal([]byte(observation.Output.Content), &result) == nil {
+				addPath(result.Path)
+			}
+		case "file.edit":
+			var result struct {
+				EditedFiles []string `json:"editedFiles"`
+			}
+			if json.Unmarshal([]byte(observation.Output.Content), &result) == nil {
+				for _, path := range result.EditedFiles {
+					addPath(path)
+				}
+			}
+		}
+	}
+	return paths
+}
+
 func isDurableDeliveryObservation(observation turnObservation) bool {
 	if len(observation.Attachments) > 0 {
 		return true
@@ -212,8 +255,11 @@ func isDurableDeliveryObservation(observation turnObservation) bool {
 	}
 }
 
-func regroundingObservation(index int) turnObservation {
+func regroundingObservation(index int, sourcePaths []string) turnObservation {
 	message := "The previous attempt on this task stalled without finishing, and its working notes were cleared to avoid repeating the same mistakes. Your file edits on disk are preserved. Re-ground before acting: read the deliverable source you were producing on disk and any build or review output saved beside it, then continue that same workflow — improve the existing source in place rather than recreating it from scratch. If a build, review, or quality score already exists on disk, treat it as your target and iterate toward it. For a website task, resolve the current site with site.status (empty input resolves the conversation's site). Do not trust earlier tool outputs; verify the current state first."
+	if len(sourcePaths) > 0 {
+		message += " The source files you were producing are: " + strings.Join(sourcePaths, ", ") + ". Read these first and keep improving them in place."
+	}
 	observation := newContentObservation(nextObservationID(index), "policy", "", marshalEventBody(map[string]string{
 		"regrounded": "true",
 		"directive":  message,
