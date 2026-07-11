@@ -1745,7 +1745,7 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 	languageModel := &sequenceLanguageModel{
 		contents: []string{
 			`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/app/a","content":"one"}}`,
-			`{"action":"continue","toolName":"file.patch","toolInput":{"path":"tmp/app/a","patch":"two"}}`,
+			`{"action":"continue","toolName":"file.edit","toolInput":{"edits":[{"path":"tmp/app/a","oldText":"one","newText":"two"}]}}`,
 			`{"action":"continue","toolName":"file.edit","toolInput":{"path":"tmp/app/a","oldText":"one","newText":"two"}}`,
 			`{"action":"continue","toolName":"site.build","toolInput":{"siteID":"site-1"}}`,
 			finishMessageDocument("done"),
@@ -1756,8 +1756,8 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 		MaxIterationCount: 2,
 		MaxToolCallCount:  10,
 	})
-	toolRegistry := newTestToolSet([]string{"file.write", "file.patch", "file.edit", "site.build"})
-	for _, toolName := range []string{"file.write", "file.patch", "file.edit", "site.build"} {
+	toolRegistry := newTestToolSet([]string{"file.write", "file.edit", "site.build"})
+	for _, toolName := range []string{"file.write", "file.edit", "site.build"} {
 		toolRegistry.RegisterTool(ToolDefinition{Name: toolName}, func(context.Context, ToolInvocation) (ToolResult, error) {
 			return ToolSuccess(`{"ok":true}`), nil
 		})
@@ -1768,7 +1768,7 @@ func TestAgentTurnRunnerEscalationIsOneDirectionalAndPersisted(t *testing.T) {
 		ConversationID:    "conversation-1",
 		Prompt:            "keep building",
 		ToolSet:           toolRegistry,
-		PinnedToolNames:   []string{"file.write", "file.patch", "file.edit", "site.build"},
+		PinnedToolNames:   []string{"file.write", "file.edit", "site.build"},
 	})
 
 	if errorValue != nil {

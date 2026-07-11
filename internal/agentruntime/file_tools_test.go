@@ -735,9 +735,9 @@ func TestFileEditReplacesSingleExactMatch(t *testing.T) {
 	editResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.edit",
 		Input: agent.MarshalToolInput(map[string]any{
-			"path":    "tmp/source.ts",
-			"oldText": "Old",
-			"newText": "New",
+			"edits": []map[string]string{
+				{"path": "tmp/source.ts", "oldText": "Old", "newText": "New"},
+			},
 		}),
 	})
 	if errorValue != nil {
@@ -769,9 +769,9 @@ func TestFileEditRejectsAmbiguousExactMatch(t *testing.T) {
 	editResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
 		ToolName: "file.edit",
 		Input: agent.MarshalToolInput(map[string]any{
-			"path":    "tmp/source.ts",
-			"oldText": "same",
-			"newText": "changed",
+			"edits": []map[string]string{
+				{"path": "tmp/source.ts", "oldText": "same", "newText": "changed"},
+			},
 		}),
 	})
 	if errorValue != nil {
@@ -806,7 +806,7 @@ func TestFilePatchAppliesMultipleExactEdits(t *testing.T) {
 	})
 
 	patchResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.patch",
+		ToolName: "file.edit",
 		Input: agent.MarshalToolInput(map[string]any{
 			"edits": []map[string]string{
 				{"path": "tmp/one.ts", "oldText": "alpha", "newText": "ALPHA"},
@@ -818,7 +818,7 @@ func TestFilePatchAppliesMultipleExactEdits(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if patchResult.Failed() {
-		t.Fatalf("expected file.patch success, got %s", patchResult.ContentText())
+		t.Fatalf("expected file.edit success, got %s", patchResult.ContentText())
 	}
 	assertTestFileContent(t, firstPath, "ALPHA")
 	assertTestFileContent(t, secondPath, "BETA")
@@ -838,7 +838,7 @@ func TestFilePatchValidationIsAllOrNothing(t *testing.T) {
 	})
 
 	patchResult, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
-		ToolName: "file.patch",
+		ToolName: "file.edit",
 		Input: agent.MarshalToolInput(map[string]any{
 			"edits": []map[string]string{
 				{"path": "tmp/one.ts", "oldText": "alpha", "newText": "ALPHA"},
@@ -850,7 +850,7 @@ func TestFilePatchValidationIsAllOrNothing(t *testing.T) {
 		t.Fatal(errorValue)
 	}
 	if !patchResult.Failed() {
-		t.Fatalf("expected file.patch failure, got %s", patchResult.ContentText())
+		t.Fatalf("expected file.edit failure, got %s", patchResult.ContentText())
 	}
 	if !strings.Contains(patchResult.ContentText(), `"editIndex":1`) || !strings.Contains(patchResult.ContentText(), `"matchCount":0`) {
 		t.Fatalf("expected failing edit metadata, got %s", patchResult.ContentText())
@@ -1668,9 +1668,32 @@ func TestApplyExactOrTolerantEditFailsWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestFileEditToleratesInlineWhitespaceDriftWithBytePreciseSpan(t *testing.T) {
+	content := "const total = compute(a,   b)\t+ 1;\nconst other = keep(x, y);\n"
+	updated, matchCount, applied := applyExactOrTolerantEdit(content, "compute(a, b) +", "sum(a, b) +")
+	if !applied {
+		t.Fatalf("expected inline-whitespace-tolerant match, applied=%v count=%d", applied, matchCount)
+	}
+	expected := "const total = sum(a, b) + 1;\nconst other = keep(x, y);\n"
+	if updated != expected {
+		t.Fatalf("expected byte-precise replacement, got %q", updated)
+	}
+}
+
+func TestFileEditWhitespaceToleranceStillRequiresUniqueMatch(t *testing.T) {
+	content := "call(a,  b)\ncall(a,   b)\n"
+	_, matchCount, applied := applyExactOrTolerantEdit(content, "call(a, b)", "call(z)")
+	if applied || matchCount < 2 {
+		t.Fatalf("whitespace-equivalent duplicates must not apply, applied=%v count=%d", applied, matchCount)
+	}
+}
+
 func TestFileEditMatchFailureGuidanceSuggestsClosestLines(t *testing.T) {
 	guidance := fileEditMatchFailureGuidance("export const Button = () => null;\n", "export const Buttons = () => null;", 0)
-	if !strings.Contains(guidance, "closest existing lines") || !strings.Contains(guidance, "export const Button") {
+	if !strings.Contains(guidance, "closest current lines") || !strings.Contains(guidance, "export const Button") {
 		t.Fatalf("expected closest-line suggestion, got %q", guidance)
+	}
+	if strings.Contains(guidance, "file.write") {
+		t.Fatalf("edit-failure guidance must not nudge a full rewrite, got %q", guidance)
 	}
 }

@@ -50,7 +50,7 @@ func progressEvents(observations []turnObservation) []progressEvent {
 				recordSuccess(progressEvent{Kind: "attachment", Key: attachment.DevicePath})
 			}
 		}
-		if observation.Action == "continue" && (observation.Tool == "file.write" || observation.Tool == "file.edit" || observation.Tool == "file.patch") && !observation.Failed() {
+		if observation.Action == "continue" && (observation.Tool == "file.write" || observation.Tool == "file.edit") && !observation.Failed() {
 			recordSuccess(progressEvent{Kind: "file_rewrite", Key: observation.ToolInputKey + ":" + observation.Output.Content})
 		}
 	}
@@ -122,7 +122,7 @@ func qualifyingDurableProgressEvent(observation turnObservation) (qualifyingProg
 		return qualifyingProgressEvent{}, false
 	}
 	switch toolName {
-	case "file.write", "file.edit", "file.patch":
+	case "file.write", "file.edit":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "file_change", Tool: toolName}, true
 	case "site.publish":
 		return qualifyingProgressEvent{ObservationID: observation.ObservationID, Kind: "site_publish", Tool: toolName}, true

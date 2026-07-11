@@ -93,7 +93,7 @@ func TestAgentTurnRunnerAllowsInspectionAfterAdjacentRecoveryBudgetExhausted(t *
 				FailureClass:          failureClassQuality,
 				RetryPolicy:           retryPolicyAfterPrecondition,
 				RequiredPreconditions: []string{"source_changed"},
-				RecoveryHints:         []RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file.read", "file.edit", "file.patch", "file.write"}}},
+				RecoveryHints:         []RecoveryHint{{Action: "edit_resource", ToolNames: []string{"file.read", "file.edit"}}},
 			},
 		}, nil
 	})

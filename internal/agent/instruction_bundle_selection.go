@@ -135,7 +135,7 @@ func artifactSkillCanRecoverIntakeRefusal(classification IntakeClassification, a
 	}
 	for _, toolName := range allowedTools {
 		switch strings.TrimSpace(toolName) {
-		case "terminal.run", "file.write", "file.edit", "file.patch", FileDeliverToolName:
+		case "terminal.run", "file.write", "file.edit", FileDeliverToolName:
 			return true
 		}
 	}
