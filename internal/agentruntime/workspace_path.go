@@ -139,9 +139,6 @@ func (resolver WorkspacePathResolver) resolveHome(value string, scope WorkspaceS
 		return ResolvedWorkspacePath{}, errors.New("only the requester home (~ or ~/<path>) is supported")
 	}
 	suffix := filepath.Clean(strings.TrimPrefix(value, "~/"))
-	if suffix == ".." || strings.HasPrefix(suffix, "../") {
-		return ResolvedWorkspacePath{}, errors.New("relative path traversal is not supported")
-	}
 	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), filepath.ToSlash(suffix), workspacePathKindWorkspace, false)
 }
 
@@ -149,11 +146,8 @@ func (resolver WorkspacePathResolver) resolveHome(value string, scope WorkspaceS
 // shell would, so ~/documents and documents name the same file. There is no virtual
 // tmp/ or artifacts/ vocabulary; a path is just a real path under the home directory.
 func (resolver WorkspacePathResolver) resolveRelativeToHome(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
-	cleanPath := filepath.Clean(value)
-	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
-		return ResolvedWorkspacePath{}, errors.New("relative path traversal is not supported")
-	}
-	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, cleanPath), filepath.ToSlash(cleanPath), workspacePathKindWorkspace, false)
+	suffix := filepath.Clean(value)
+	return resolver.resolvedPath(filepath.Join(scope.RequesterRootPath, suffix), filepath.ToSlash(suffix), workspacePathKindWorkspace, false)
 }
 
 func (resolver WorkspacePathResolver) resolveAbsolute(value string, scope WorkspaceScope) (ResolvedWorkspacePath, error) {
@@ -205,6 +199,9 @@ func (resolver WorkspacePathResolver) resolvedPath(concretePath string, virtualP
 	}
 	if relativePath == ".." || strings.HasPrefix(relativePath, "../") {
 		return ResolvedWorkspacePath{}, errors.New("path must stay under the workspace root")
+	}
+	if segments := strings.Split(filepath.ToSlash(relativePath), "/"); len(segments) >= 1 && segments[0] == ".blueclaw" {
+		return ResolvedWorkspacePath{}, errors.New("/workspace/.blueclaw is not available for model tool work")
 	}
 	return ResolvedWorkspacePath{
 		ConcretePath:      cleanPath,
