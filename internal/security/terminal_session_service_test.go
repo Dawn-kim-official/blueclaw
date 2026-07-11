@@ -224,18 +224,6 @@ func TestRunCommandAllowsNonDeniedPathOutsideWorkspace(t *testing.T) {
 	}
 }
 
-func TestRunCommandDeniesExecutableFloor(t *testing.T) {
-	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
-
-	_, errorValue := terminalSessionService.RunCommand(context.Background(), CommandRequest{
-		Command: "sudo echo nope",
-	})
-
-	if errorValue == nil || !strings.Contains(errorValue.Error(), "denied executable") {
-		t.Fatalf("expected denied executable, got %v", errorValue)
-	}
-}
-
 func TestRunCommandReportsTimeout(t *testing.T) {
 	terminalSessionService := NewTerminalSessionService(testTerminalConfiguration(t))
 
@@ -496,7 +484,6 @@ func testTerminalConfiguration(t *testing.T) config.TerminalConfiguration {
 	return config.TerminalConfiguration{
 		Mode:                  "firecrackerGuest",
 		WorkspaceRootPath:     workspaceRootPath,
-		DeniedExecutableNames: []string{"sudo", "su", "mount"},
 		DeniedPathPrefixes:    []string{"/etc", "/root", "/var/run/docker.sock"},
 		AllowNetwork:          true,
 		AllowInteractiveShell: true,

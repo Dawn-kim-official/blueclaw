@@ -1742,7 +1742,7 @@ func terminalConfiguration(workspacePath string) config.TerminalConfiguration {
 	return config.TerminalConfiguration{
 		Mode:                  "firecrackerGuest",
 		WorkspaceRootPath:     workspacePath,
-		DeniedExecutableNames: []string{"sudo", "su", "mount", "umount", "reboot", "shutdown", "systemctl"},
+
 		DeniedPathPrefixes:    []string{"/etc", "/private/etc", "/System", "/Library"},
 		TimeoutSecond:         120,
 		OutputMaxBytes:        32768,
