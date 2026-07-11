@@ -43,6 +43,13 @@ func TestSupervisorBootGuestWithFakeJailer(t *testing.T) {
 	if errorValue = os.WriteFile(rootfsImagePath, []byte("rootfs"), 0o600); errorValue != nil {
 		t.Fatalf("expected fake rootfs to be written: %v", errorValue)
 	}
+	workspaceImagePath := filepath.Join(workspacePath, "workspace.ext4")
+	workspaceDocument := make([]byte, 4096)
+	workspaceDocument[1080] = 0x53
+	workspaceDocument[1081] = 0xef
+	if errorValue = os.WriteFile(workspaceImagePath, workspaceDocument, 0o600); errorValue != nil {
+		t.Fatalf("expected fake workspace to be written: %v", errorValue)
+	}
 
 	jailerScript := "#!/bin/sh\nprintf '%s\n' \"$@\" > \"" + jailerOutputPath + "\"\nsleep 5\n"
 	errorValue = os.WriteFile(jailerPath, []byte(jailerScript), 0o700)
@@ -56,7 +63,7 @@ func TestSupervisorBootGuestWithFakeJailer(t *testing.T) {
 			JailerPath:             jailerPath,
 			KernelImagePath:        kernelImagePath,
 			RootfsImagePath:        rootfsImagePath,
-			WorkspaceImagePath:     filepath.Join(workspacePath, "workspace.ext4"),
+			WorkspaceImagePath:     workspaceImagePath,
 			VCPUCount:              4,
 			MemoryMiB:              8192,
 			VSockCID:               52,
@@ -65,7 +72,7 @@ func TestSupervisorBootGuestWithFakeJailer(t *testing.T) {
 			HostHTTPListenAddress:  "127.0.0.1:8080",
 			LogDirectoryPath:       artifactDirectoryPath,
 		},
-		firecracker.WorkspaceVolumeService{ImageSizeByte: 1024 * 1024, FormatterPath: writeFakeExt4Formatter(t, workspacePath)},
+		firecracker.WorkspaceVolumeService{},
 		fakeGuestHealthClient{},
 	)
 
@@ -95,26 +102,6 @@ func TestSupervisorBootGuestWithFakeJailer(t *testing.T) {
 	if len(jailerOutputDocument) == 0 {
 		t.Fatal("expected fake jailer to receive arguments")
 	}
-}
-
-func writeFakeExt4Formatter(t *testing.T, workspacePath string) string {
-	t.Helper()
-	formatterPath := filepath.Join(workspacePath, "mkfs.ext4")
-	formatterDocument := `#!/usr/bin/env bash
-set -euo pipefail
-target="${@: -1}"
-python3 - "$target" <<'PY'
-import sys
-path = sys.argv[1]
-with open(path, "r+b") as file:
-    file.seek(1080)
-    file.write(bytes([0x53, 0xef]))
-PY
-`
-	if errorValue := os.WriteFile(formatterPath, []byte(formatterDocument), 0o755); errorValue != nil {
-		t.Fatalf("expected fake formatter to be written: %v", errorValue)
-	}
-	return formatterPath
 }
 
 func waitForFile(documentPath string) ([]byte, error) {
