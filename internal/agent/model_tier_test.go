@@ -170,6 +170,48 @@ func TestTaskLanguageModelForLevelSelectsClient(t *testing.T) {
 	}
 }
 
+func TestTaskLanguageModelResolverRoutesCodingShapeToCodingModel(t *testing.T) {
+	kernel := &AgentKernel{
+		languageModel:           labeledLanguageModel{label: "low"},
+		highTaskLanguageModel:   labeledLanguageModel{label: "high"},
+		mediumTaskLanguageModel: labeledLanguageModel{label: "medium"},
+		xLowTaskLanguageModel:   labeledLanguageModel{label: "xlow"},
+		codingTaskLanguageModel: labeledLanguageModel{label: "coding"},
+	}
+	codingResolver := kernel.taskLanguageModelResolverForShape(TaskShapeCodingTask)
+	codingCases := map[TaskLevel]string{
+		TaskLevelXLow:   "xlow",
+		TaskLevelLow:    "low",
+		TaskLevelMedium: "coding",
+		TaskLevelHigh:   "coding",
+		TaskLevelXHigh:  "coding",
+		TaskLevelMax:    "coding",
+	}
+	for taskLevel, expectedLabel := range codingCases {
+		response, _ := codingResolver(taskLevel).GenerateResponse(context.Background(), "")
+		if response != expectedLabel {
+			t.Fatalf("coding shape at %q: expected %q client, got %q", taskLevel, expectedLabel, response)
+		}
+	}
+	maintenanceResolver := kernel.taskLanguageModelResolverForShape(TaskShapeMaintenanceTask)
+	response, _ := maintenanceResolver(TaskLevelMedium).GenerateResponse(context.Background(), "")
+	if response != "medium" {
+		t.Fatalf("non-coding shape must keep level routing, got %q", response)
+	}
+}
+
+func TestTaskLanguageModelResolverFallsBackToLevelWhenCodingModelUnset(t *testing.T) {
+	kernel := &AgentKernel{
+		languageModel:           labeledLanguageModel{label: "low"},
+		mediumTaskLanguageModel: labeledLanguageModel{label: "medium"},
+	}
+	resolver := kernel.taskLanguageModelResolverForShape(TaskShapeCodingTask)
+	response, _ := resolver(TaskLevelMedium).GenerateResponse(context.Background(), "")
+	if response != "medium" {
+		t.Fatalf("expected level fallback without a coding model, got %q", response)
+	}
+}
+
 func TestTaskLanguageModelForLevelFallsBackToBaseWhenUnset(t *testing.T) {
 	kernel := &AgentKernel{languageModel: labeledLanguageModel{label: "low"}}
 	for _, taskLevel := range []TaskLevel{TaskLevelMedium, TaskLevelHigh, TaskLevelXHigh, TaskLevelMax} {

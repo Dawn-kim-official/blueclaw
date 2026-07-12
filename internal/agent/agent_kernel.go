@@ -382,15 +382,16 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 	}
 	turnOptions := agentKernel.turnOptionsForIntakeDecision(intakeDecision)
 
+	taskLanguageModelResolver := agentKernel.taskLanguageModelResolverForShape(intakeDecision.TaskShape)
 	agentTurnRunner := NewAgentTurnRunnerWithRecoveryModel(
 		agentKernel.taskRunService,
 		agentKernel.taskStepService,
 		agentKernel.taskArtifactService,
-		agentKernel.taskLanguageModelForLevel(intakeDecision.TaskLevel),
+		taskLanguageModelResolver(intakeDecision.TaskLevel),
 		agentKernel.languageModel,
 		turnOptions,
 	)
-	agentTurnRunner.UseTaskLanguageModelResolver(agentKernel.taskLanguageModelForLevel)
+	agentTurnRunner.UseTaskLanguageModelResolver(taskLanguageModelResolver)
 	result, errorValue := agentTurnRunner.RunTurn(responseContext, turnRequest)
 	result.TurnRoute = turnDecision.Route
 	result.ToolNames = toolNamesForEvent(turnRequest.ToolSet)
@@ -715,6 +716,19 @@ func artifactTaskLevelFloor(request AgentRequest, intakeDecision IntakeDecision)
 func promoteArtifactTaskLevel(request AgentRequest, intakeDecision IntakeDecision) IntakeDecision {
 	intakeDecision.TaskLevel = LargerTaskLevel(intakeDecision.TaskLevel, artifactTaskLevelFloor(request, intakeDecision))
 	return intakeDecision
+}
+
+func (agentKernel *AgentKernel) taskLanguageModelResolverForShape(taskShape TaskShape) func(TaskLevel) llm.LanguageModelProvider {
+	return func(taskLevel TaskLevel) llm.LanguageModelProvider {
+		if codingTaskLanguageModelApplies(taskShape, taskLevel) && agentKernel.codingTaskLanguageModel != nil {
+			return agentKernel.codingTaskLanguageModel
+		}
+		return agentKernel.taskLanguageModelForLevel(taskLevel)
+	}
+}
+
+func codingTaskLanguageModelApplies(taskShape TaskShape, taskLevel TaskLevel) bool {
+	return taskShape == TaskShapeCodingTask && taskLevelRank(taskLevel) >= taskLevelRank(TaskLevelMedium)
 }
 
 func (agentKernel *AgentKernel) taskLanguageModelForLevel(taskLevel TaskLevel) llm.LanguageModelProvider {
