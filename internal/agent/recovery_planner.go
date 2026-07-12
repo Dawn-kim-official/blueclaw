@@ -55,6 +55,13 @@ func failureClassForObservation(observation turnObservation) string {
 	if observation.Failure != nil && strings.TrimSpace(observation.Failure.FailureClass) != "" {
 		return strings.TrimSpace(observation.Failure.FailureClass)
 	}
+	if typedFailureClass := failureClassFromTypedFailure(observation); typedFailureClass != failureClassUnknown {
+		return typedFailureClass
+	}
+	return failureClassFromFailureText(observation)
+}
+
+func failureClassFromTypedFailure(observation turnObservation) string {
 	if observation.Failure == nil {
 		return failureClassUnknown
 	}
@@ -89,6 +96,28 @@ func failureClassForObservation(observation turnObservation) string {
 		return failureClassNetwork
 	}
 	return failureClassUnknown
+}
+
+func failureClassFromFailureText(observation turnObservation) string {
+	combinedText := strings.ToLower(strings.TrimSpace(observation.FailureCode() + " " + observation.FailureStage() + " " + observation.FailureSummary() + " " + observation.ContentText()))
+	switch {
+	case strings.Contains(combinedText, "quality") || strings.Contains(combinedText, "build-quality") || strings.Contains(combinedText, "visual") || strings.Contains(combinedText, "overflow"):
+		return failureClassQuality
+	case strings.Contains(combinedText, "workspace") || strings.Contains(combinedText, "directory") || strings.Contains(combinedText, "cwd") || strings.Contains(combinedText, "getcwd"):
+		return failureClassWorkspace
+	case strings.Contains(combinedText, "modulenotfound") || strings.Contains(combinedText, "module not found") || strings.Contains(combinedText, "dependency") || strings.Contains(combinedText, "package"):
+		return failureClassDependency
+	case strings.Contains(combinedText, "permission") || strings.Contains(combinedText, "access_denied") || strings.Contains(combinedText, "denied"):
+		return failureClassPermission
+	case strings.Contains(combinedText, "schema") || strings.Contains(combinedText, "json") || strings.Contains(combinedText, "invalid_input"):
+		return failureClassSchema
+	case strings.Contains(combinedText, "rate_limited") || strings.Contains(combinedText, "too_many"):
+		return failureClassProviderLimit
+	case strings.Contains(combinedText, "network") || strings.Contains(combinedText, "timeout") || strings.Contains(combinedText, "connection"):
+		return failureClassNetwork
+	default:
+		return failureClassUnknown
+	}
 }
 
 func retryPolicyForObservation(observation turnObservation) string {

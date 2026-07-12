@@ -158,8 +158,31 @@ func CanonicalFailureCode(code FailureCode) string {
 	case "":
 		return FailureCodes.OperationFailed.String()
 	default:
-		return FailureCodes.OperationFailed.String()
+		return classifyFailureCodeText(trimmedCode)
 	}
+}
+
+func classifyFailureCodeText(code string) string {
+	normalizedCode := strings.ToLower(strings.TrimSpace(code))
+	if strings.Contains(normalizedCode, "unavailable") {
+		return FailureCodes.Unavailable.String()
+	}
+	if strings.Contains(normalizedCode, "not_found") || strings.Contains(normalizedCode, "not.found") {
+		return FailureCodes.NotFound.String()
+	}
+	if strings.Contains(normalizedCode, "denied") || strings.Contains(normalizedCode, "permission") || strings.Contains(normalizedCode, "unauthorized") {
+		return FailureCodes.AccessDenied.String()
+	}
+	if strings.Contains(normalizedCode, "invalid") {
+		return FailureCodes.InvalidInput.String()
+	}
+	if strings.Contains(normalizedCode, "conflict") || strings.Contains(normalizedCode, "duplicate") {
+		return FailureCodes.Conflict.String()
+	}
+	if strings.Contains(normalizedCode, "rate_limited") || strings.Contains(normalizedCode, "too_many") {
+		return FailureCodes.RateLimited.String()
+	}
+	return FailureCodes.OperationFailed.String()
 }
 
 type ToolFailure struct {

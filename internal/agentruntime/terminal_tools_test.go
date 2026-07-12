@@ -176,6 +176,46 @@ func TestTerminalRunPathGuardrailFailureIsRecoverable(t *testing.T) {
 	}
 }
 
+func TestTerminalRunCommandNotFoundEmitsRuntimePathFailure(t *testing.T) {
+	workspacePath := t.TempDir()
+	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName:       "default",
+		RequesterPersonID: "person-1",
+		PersonAccess:      policy.PersonAccess{PersonID: "person-1", Circles: []string{"staff"}},
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "terminal.run",
+		Input: agent.MarshalToolInput(map[string]any{
+			"command": "definitely-missing-runtime-path-executable --version",
+		}),
+	})
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected terminal.run runtime path failure, got %+v", result)
+	}
+	if result.Failure.Stage != "terminal_runtime_path" {
+		t.Fatalf("expected terminal_runtime_path stage, got %+v", result.Failure)
+	}
+	if !result.Failure.Retryable || result.Failure.SafeRetry {
+		t.Fatalf("expected retryable non-safe-retry runtime path failure, got %+v", result.Failure)
+	}
+	failureDocument := string(result.Output.Data)
+	for _, expectedText := range []string{
+		"terminal_runtime_path",
+		"actualPATH",
+		security.CanonicalRuntimePATH,
+		"do not change site source",
+	} {
+		if !strings.Contains(failureDocument, expectedText) {
+			t.Fatalf("expected runtime path failure document to contain %q, got %q", expectedText, failureDocument)
+		}
+	}
+}
+
 func TestTerminalRunDefaultsToPrivateScopeForDirectMessage(t *testing.T) {
 	workspacePath := t.TempDir()
 	toolCatalogBuilder := newTerminalToolTestCatalogBuilder(workspacePath)

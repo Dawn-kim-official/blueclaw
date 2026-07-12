@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -17,7 +18,7 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
 		callCount++
 		if callCount == 1 {
-			return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", FailureCodes.Unavailable.String(), "mattermost_lookup", true, true), nil
+			return structuredFailureToolResult("temporary user lookup timeout", "temporary user lookup timeout", "mattermost_unavailable", "mattermost_lookup", true, true), nil
 		}
 		return ToolSuccess(`{"dispatchID":"post-1"}`), nil
 	})
@@ -42,6 +43,38 @@ func TestAgentTurnRunnerAllowsCorrectedRetryAfterSafeFailure(t *testing.T) {
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.recovery_attempt", "corrected_retry") {
 		t.Fatal("expected corrected retry event")
+	}
+}
+
+func TestTerminalGetcwdFailureRecoveryGuidanceUsesSiteAppWorkspace(t *testing.T) {
+	observation := newFailureObservation("obs-001", "continue", "terminal.run", "CouldntReadCurrentDirectory", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
+	guidance := recoveryGuidanceContent(observation, "")
+
+	for _, expectedText := range []string{
+		"could not read its current working directory",
+		"site.status",
+		"appWorkspacePath",
+		"~/documents",
+		"not source subdirectories like app/src",
+	} {
+		if !strings.Contains(guidance, expectedText) {
+			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
+		}
+	}
+}
+
+func TestTerminalPythonModuleNotFoundRecoveryGuidanceUsesSkillRuntime(t *testing.T) {
+	observation := newFailureObservation("obs-001", "continue", "terminal.run", "ModuleNotFoundError: No module named 'pptx'", FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
+	guidance := recoveryGuidanceContent(observation, "")
+
+	for _, expectedText := range []string{
+		"/workspace/skills/presentation/scripts/skill_runtime.py",
+		"do not probe or install python-pptx with system Python",
+		"/workspace/skills/presentation/scripts/build.sh",
+	} {
+		if !strings.Contains(guidance, expectedText) {
+			t.Fatalf("expected recovery guidance to contain %q, got %q", expectedText, guidance)
+		}
 	}
 }
 

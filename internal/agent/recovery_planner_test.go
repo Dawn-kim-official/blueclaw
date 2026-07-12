@@ -53,3 +53,31 @@ func TestRecoveryPacketSchemaFailureRetriesSameToolWithFixedInput(t *testing.T) 
 		t.Fatalf("expected guidance to retry the same tool with corrected input, got %+v", packet.MustDoNext)
 	}
 }
+
+func TestFailureClassificationPrefersTypedFailureOverText(t *testing.T) {
+	observation := newFailureObservation("obs-001", "continue", "message.send", "upstream timeout while sending", FailurePermissionDenied, FailureCodes.AccessDenied, "message_send")
+
+	if failureClass := failureClassForObservation(observation); failureClass != failureClassPermission {
+		t.Fatalf("expected typed permission class to win over timeout text, got %q", failureClass)
+	}
+}
+
+func TestFailureClassificationFallsBackToLegacyFailureText(t *testing.T) {
+	tests := []struct {
+		content              string
+		expectedFailureClass string
+	}{
+		{content: "deck failed the build-quality gate", expectedFailureClass: failureClassQuality},
+		{content: "shell-init: error retrieving current directory: getcwd failed", expectedFailureClass: failureClassWorkspace},
+		{content: "ModuleNotFoundError: No module named 'pptx'", expectedFailureClass: failureClassDependency},
+		{content: "EACCES: permission was refused for target", expectedFailureClass: failureClassPermission},
+		{content: "upstream request timeout", expectedFailureClass: failureClassNetwork},
+	}
+
+	for _, test := range tests {
+		observation := newFailureObservation("obs-001", "continue", "terminal.run", test.content, FailureExternalService, FailureCodes.OperationFailed, "terminal_run")
+		if failureClass := failureClassForObservation(observation); failureClass != test.expectedFailureClass {
+			t.Fatalf("expected %q for %q, got %q", test.expectedFailureClass, test.content, failureClass)
+		}
+	}
+}

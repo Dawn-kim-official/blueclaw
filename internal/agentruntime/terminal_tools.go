@@ -185,6 +185,9 @@ func (toolCatalogBuilder *ToolCatalogBuilder) runTerminalTool(toolContext contex
 		if security.IsCommandPathGuardrailError(errorValue) {
 			return terminalPathGuardrailFailure(commandResult, content), nil
 		}
+		if runtimePathFailure := terminalRuntimePathFailure(input, commandResult, content); runtimePathFailure != nil {
+			return *runtimePathFailure, nil
+		}
 		return agent.ToolFailureWithOutput(agent.FailureExternalService, agent.FailureCodes.OperationFailed, "terminal_run", content, json.RawMessage(content)), nil
 	}
 	return agent.ToolSuccess(content), nil
@@ -248,6 +251,27 @@ func terminalPathGuardrailFailure(commandResult security.CommandResult, content 
 	result.Failure.Retryable = true
 	result.Failure.SafeRetry = true
 	return result
+}
+
+func terminalRuntimePathFailure(commandRequest security.CommandRequest, commandResult security.CommandResult, content string) *agent.ToolResult {
+	combinedText := strings.ToLower(commandResult.Stderr + "\n" + commandResult.Stdout + "\n" + content)
+	if !strings.Contains(combinedText, "not found in $path") && !strings.Contains(combinedText, "command not found") && !strings.Contains(combinedText, "executable file not found") {
+		return nil
+	}
+	document := json.RawMessage(marshalToolResult(map[string]any{
+		"failureClass":      "terminal_runtime_path",
+		"command":           commandRequest.Command,
+		"actualPATH":        commandRequest.EnvironmentVariables["PATH"],
+		"canonicalPATH":     security.CanonicalRuntimePATH,
+		"executionUser":     commandRequest.ExecutionIdentity.UserName,
+		"workingDirectory":  commandRequest.WorkingDirectoryPath,
+		"commandResult":     commandResult,
+		"recommendedAction": "Fix Blueclaw runtime PATH propagation; do not change site source or ask the user to use external hosting.",
+	}))
+	result := agent.ToolFailureWithOutput(agent.FailureDependencyUnavailable, agent.FailureCode("terminal_runtime_path"), "terminal_runtime_path", "terminal runtime PATH did not expose a managed executable", document)
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = false
+	return &result
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) sessionTerminalTool(toolContext context.Context, input terminalSessionToolInput, handlerContext toolHandlerContext) (agent.ToolResult, error) {

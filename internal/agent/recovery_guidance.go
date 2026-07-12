@@ -104,6 +104,9 @@ func recoveryGuidanceContent(observation turnObservation, originalInstruction st
 	if terminalRecoveryGuidance := terminalPathRecoveryGuidance(observation); terminalRecoveryGuidance != "" {
 		parts = append(parts, terminalRecoveryGuidance)
 	}
+	if terminalDependencyGuidance := terminalPythonDependencyRecoveryGuidance(observation); terminalDependencyGuidance != "" {
+		parts = append(parts, terminalDependencyGuidance)
+	}
 	if browserGuidance := browserPublicFetchRecoveryGuidance(observation); browserGuidance != "" {
 		parts = append(parts, browserGuidance)
 	}
@@ -144,6 +147,42 @@ func terminalPathRecoveryGuidance(observation turnObservation) string {
 		return "Recovery route: retry terminal.run in ~/documents/ for document work, saving finished documents as ~/documents/<name>.<ext>. Do not call /opt/blueclaw, /tmp, or runtime-internal paths directly. For built-in artifact skills, execute /workspace/skills/<skill>/scripts/skill_runtime.py and let the wrapper choose dependencies."
 	case "terminal_working_directory_access":
 		return "Recovery route: retry terminal.run with workingDirectoryPath set to ~/documents or another ~ path, use relative paths inside the command, then deliver accepted output with file.deliver."
+	default:
+		if terminalCurrentDirectoryRecoveryNeeded(observation) {
+			return "Recovery route: the command could not read its current working directory. Retry terminal.run with an existing workspace directory such as ~/documents. For site projects, use site.status and run builds from the appWorkspacePath it returns, not source subdirectories like app/src; run scripts with relative paths from that app directory."
+		}
+		return ""
+	}
+}
+
+func terminalCurrentDirectoryRecoveryNeeded(observation turnObservation) bool {
+	summary := strings.ToLower(observation.FailureSummary() + " " + observation.ContentText())
+	for _, fragment := range []string{
+		"couldntreadcurrentdirectory",
+		"could not read current directory",
+		"couldn't read current directory",
+		"getcwd",
+		"chdir",
+	} {
+		if strings.Contains(summary, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
+func terminalPythonDependencyRecoveryGuidance(observation turnObservation) string {
+	if strings.TrimSpace(observation.Tool) != "terminal.run" || strings.TrimSpace(observation.FailureStage()) != "terminal_run" {
+		return ""
+	}
+	summary := observation.FailureSummary()
+	switch {
+	case strings.Contains(summary, "ModuleNotFoundError: No module named 'pptx'"):
+		return "Recovery route: do not probe or install python-pptx with system Python. Use the presentation skill wrapper instead: work in ~/documents, then run python3 /workspace/skills/presentation/scripts/skill_runtime.py python /workspace/skills/presentation/scripts/validate_pptx.py deck.pptx, or use /workspace/skills/presentation/scripts/build.sh after writing DESIGN.md and presentation.md."
+	case strings.Contains(summary, "ModuleNotFoundError: No module named 'docx'"):
+		return "Recovery route: do not probe or install python-docx with system Python. Use python3 /workspace/skills/docx/scripts/skill_runtime.py python /workspace/skills/docx/scripts/create_docx.py document.json document.docx from ~/documents."
+	case strings.Contains(summary, "ModuleNotFoundError: No module named 'openpyxl'"):
+		return "Recovery route: do not probe or install openpyxl with system Python. Use python3 /workspace/skills/xlsx/scripts/skill_runtime.py python /workspace/skills/xlsx/scripts/create_xlsx.py workbook.json workbook.xlsx from ~/documents."
 	default:
 		return ""
 	}

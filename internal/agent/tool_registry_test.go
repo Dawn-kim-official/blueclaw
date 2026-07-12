@@ -53,6 +53,27 @@ func TestFailureCodeCollapsesUnknownCodesToOperationFailed(t *testing.T) {
 	}
 }
 
+func TestFailureCodeCanonicalizesUnknownCodesBySubstring(t *testing.T) {
+	tests := []struct {
+		code         string
+		expectedCode string
+	}{
+		{code: "mattermost_unavailable", expectedCode: FailureCodes.Unavailable.String()},
+		{code: "recipient_not_found", expectedCode: FailureCodes.NotFound.String()},
+		{code: "channel_post_denied", expectedCode: FailureCodes.AccessDenied.String()},
+		{code: "calendar_invalid_range", expectedCode: FailureCodes.InvalidInput.String()},
+		{code: "event_duplicate", expectedCode: FailureCodes.Conflict.String()},
+		{code: "provider_too_many_requests", expectedCode: FailureCodes.RateLimited.String()},
+	}
+
+	for _, test := range tests {
+		result := ToolFailureResult(FailureExternalService, FailureCode(test.code), "stage", "failed")
+		if result.FailureCode() != test.expectedCode {
+			t.Fatalf("expected %q to canonicalize to %q, got %+v", test.code, test.expectedCode, result)
+		}
+	}
+}
+
 func TestToolSetDescriptionsAndActionSchemaOnlyShowExposedKernelTools(t *testing.T) {
 	toolSet := NewToolSet([]string{"visible.tool", "denied.tool"})
 	toolSet.RegisterTool(ToolDefinition{Name: "visible.tool", Description: "Visible"}, func(context.Context, ToolInvocation) (ToolResult, error) {
