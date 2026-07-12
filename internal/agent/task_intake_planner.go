@@ -174,6 +174,7 @@ type IntakeDecision struct {
 	ClarificationOptions      []ClarificationOption `json:"clarificationOptions,omitempty"`
 	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
 	siteNormalizationReport   siteRequirementNormalizationReport
+	launchNoticeReaskReport   launchNoticeReaskReport
 }
 
 type ClarificationOption struct {
@@ -207,6 +208,7 @@ type TurnDecision struct {
 	BusyInstruction           string                `json:"busyInstruction,omitempty"`
 	UsedDeterministicFallback bool                  `json:"usedDeterministicFallback"`
 	siteNormalizationReport   siteRequirementNormalizationReport
+	launchNoticeReaskReport   launchNoticeReaskReport
 }
 
 func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
@@ -229,6 +231,7 @@ func (turnDecision TurnDecision) IntakeDecision() IntakeDecision {
 		ClarificationOptions:      append([]ClarificationOption{}, turnDecision.ClarificationOptions...),
 		UsedDeterministicFallback: turnDecision.UsedDeterministicFallback,
 		siteNormalizationReport:   turnDecision.siteNormalizationReport,
+		launchNoticeReaskReport:   turnDecision.launchNoticeReaskReport,
 	}
 }
 
@@ -284,8 +287,19 @@ func (turnRouter TurnRouter) Plan(ctx context.Context, request AgentRequest) Tur
 }
 
 func (turnRouter TurnRouter) planWithLanguageModel(ctx context.Context, request AgentRequest) (TurnDecision, error) {
+	turnDecision, errorValue := turnRouter.requestTurnDecision(ctx, request, turnRouter.buildMessages(request))
+	if errorValue != nil {
+		return TurnDecision{}, errorValue
+	}
+	if launchNoticeStatesTimeEstimate(turnDecision.LaunchNotice) {
+		turnDecision = turnRouter.reviseLaunchNoticeOnce(ctx, request, turnDecision)
+	}
+	return turnDecision, nil
+}
+
+func (turnRouter TurnRouter) requestTurnDecision(ctx context.Context, request AgentRequest, messages []llm.Message) (TurnDecision, error) {
 	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: turnRouter.buildMessages(request),
+		Messages: messages,
 		StructuredOutputSchema: llm.StructuredOutputSchema{
 			Name:               "blueclaw_turn_router",
 			Document:           turnRouterSchema(request),
@@ -314,24 +328,42 @@ func (turnRouter TurnRouter) ReaskRequiredEvidence(ctx context.Context, request 
 		Role:    "system",
 		Content: requiredEvidenceReaskInstruction,
 	})
-	structuredResponse, errorValue := turnRouter.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
-		Messages: messages,
-		StructuredOutputSchema: llm.StructuredOutputSchema{
-			Name:               "blueclaw_turn_router",
-			Document:           turnRouterSchema(request),
-			IsStrictlyEnforced: true,
-		},
-	})
-	if errorValue != nil {
-		return TurnDecision{}, errorValue
-	}
+	return turnRouter.requestTurnDecision(ctx, request, messages)
+}
 
-	var turnDecision TurnDecision
-	errorValue = json.Unmarshal([]byte(structuredResponse.Content), &turnDecision)
-	if errorValue != nil {
-		return TurnDecision{}, errorValue
+func (turnRouter TurnRouter) reviseLaunchNoticeOnce(ctx context.Context, request AgentRequest, turnDecision TurnDecision) TurnDecision {
+	originalLaunchNotice := strings.TrimSpace(turnDecision.LaunchNotice)
+	messages := append(turnRouter.buildMessages(request), llm.Message{
+		Role:    "system",
+		Content: launchNoticeReaskInstruction,
+	})
+	revisedDecision, errorValue := turnRouter.requestTurnDecision(ctx, request, messages)
+	revisedLaunchNotice := strings.TrimSpace(revisedDecision.LaunchNotice)
+	if errorValue != nil || launchNoticeStatesTimeEstimate(revisedLaunchNotice) {
+		turnDecision.LaunchNotice = ""
+		turnDecision.launchNoticeReaskReport = launchNoticeReaskReport{
+			WasAttempted:         true,
+			OriginalLaunchNotice: originalLaunchNotice,
+			RevisedLaunchNotice:  revisedLaunchNotice,
+			Reason:               launchNoticeReaskFailureReason(errorValue),
+		}
+		return turnDecision
 	}
-	return turnDecision, nil
+	turnDecision.LaunchNotice = revisedLaunchNotice
+	turnDecision.launchNoticeReaskReport = launchNoticeReaskReport{
+		WasAttempted:         true,
+		DidRewrite:           true,
+		OriginalLaunchNotice: originalLaunchNotice,
+		RevisedLaunchNotice:  revisedLaunchNotice,
+	}
+	return turnDecision
+}
+
+func launchNoticeReaskFailureReason(errorValue error) string {
+	if errorValue != nil {
+		return errorValue.Error()
+	}
+	return "revised launchNotice still stated a time estimate; suppressed"
 }
 
 func (turnRouter TurnRouter) buildMessages(request AgentRequest) []llm.Message {
@@ -512,6 +544,9 @@ func (turnRouter TurnRouter) normalizeDecision(decision TurnDecision, defaultDec
 	decision = promoteFileArtifactClassification(decision, request)
 	decision = normalizeTaskfulConsumeRoute(decision, request)
 	decision.UserFacingReply = taskIntakeOnlyUserFacingReply(decision)
+	if launchNoticeStatesTimeEstimate(decision.LaunchNotice) {
+		decision.LaunchNotice = ""
+	}
 	return decision
 }
 

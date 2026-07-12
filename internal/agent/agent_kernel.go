@@ -403,6 +403,9 @@ func (agentKernel *AgentKernel) RunAgentRequest(responseContext context.Context,
 		if requiredEvidenceReask.WasAttempted {
 			agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, requiredEvidenceReaskEventName, marshalEventBody(requiredEvidenceReask))
 		}
+		if turnDecision.launchNoticeReaskReport.WasAttempted {
+			agentKernel.AppendTaskEvent(result.TaskRun.TaskRunID, launchNoticeReaskEventName, marshalEventBody(turnDecision.launchNoticeReaskReport))
+		}
 		agentKernel.appendSiteRequirementNormalizationReports(result.TaskRun.TaskRunID, siteNormalizationReports)
 		agentKernel.appendGoalLifecycleEvent(result.TaskRun, turnRequest.ActiveGoal)
 	}

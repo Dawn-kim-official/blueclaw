@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -399,6 +400,192 @@ func TestAgentKernelRecordsSiteRequirementNormalizationEvent(t *testing.T) {
 	}
 	if taskEventsContain(taskEvents, "agent.intake", `"site-public-link"`) {
 		t.Fatalf("expected agent intake event not to include unverified site result, got %+v", taskEvents)
+	}
+}
+
+func TestTaskIntakePlannerRewritesLaunchNoticeThatStatesTimeEstimate(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"launchNotice":"요청하신 IR 덱 디자인 개선 및 내용 보충 작업을 시작했습니다. 약 10분 정도 소요될 수 있습니다.","requestedOutputFormats":null,"reason":"design improvement","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"launchNotice":"요청하신 작업을 시작했습니다.","requestedOutputFormats":null,"reason":"design improvement","userFacingReply":""}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := newTestToolSet([]string{"web.search"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "IR 덱 디자인 개선해줘",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.LaunchNotice != "요청하신 작업을 시작했습니다." {
+		t.Fatalf("expected rewritten launch notice to be adopted, got %q", decision.LaunchNotice)
+	}
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected exactly one retry call, got %d", len(languageModel.requests))
+	}
+	if !strings.Contains(joinedMessageContent(languageModel.requests[1].Messages), launchNoticeReaskInstruction) {
+		t.Fatal("expected retry request to carry the corrective launch notice instruction")
+	}
+	if !decision.launchNoticeReaskReport.WasAttempted || !decision.launchNoticeReaskReport.DidRewrite {
+		t.Fatalf("expected reask report to record a successful rewrite, got %+v", decision.launchNoticeReaskReport)
+	}
+}
+
+func TestTaskIntakePlannerSuppressesLaunchNoticeWhenRetryStillStatesTimeEstimate(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"launchNotice":"약 10분 정도 소요될 수 있습니다.","requestedOutputFormats":null,"reason":"design improvement","userFacingReply":""}`,
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"launchNotice":"약 2시간 정도 걸립니다.","requestedOutputFormats":null,"reason":"design improvement","userFacingReply":""}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := newTestToolSet([]string{"web.search"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "IR 덱 디자인 개선해줘",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.LaunchNotice != "" {
+		t.Fatalf("expected launch notice to be suppressed after a still-violating retry, got %q", decision.LaunchNotice)
+	}
+	if len(languageModel.requests) != 2 {
+		t.Fatalf("expected exactly one retry call, got %d", len(languageModel.requests))
+	}
+	if !decision.launchNoticeReaskReport.WasAttempted || decision.launchNoticeReaskReport.DidRewrite {
+		t.Fatalf("expected reask report to record suppression, not a rewrite, got %+v", decision.launchNoticeReaskReport)
+	}
+}
+
+func TestTaskIntakePlannerDoesNotRetryWhenLaunchNoticeIsClean(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"route":"start_task","classification":"bounded_task","taskShape":"research_task","level":"medium","estimatedMinutes":10,"launchNotice":"요청하신 작업을 시작했습니다.","requestedOutputFormats":null,"reason":"design improvement","userFacingReply":""}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := newTestToolSet([]string{"web.search"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "IR 덱 디자인 개선해줘",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.LaunchNotice != "요청하신 작업을 시작했습니다." {
+		t.Fatalf("expected clean launch notice to be preserved, got %q", decision.LaunchNotice)
+	}
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected no retry call for a clean launch notice, got %d", len(languageModel.requests))
+	}
+	if decision.launchNoticeReaskReport.WasAttempted {
+		t.Fatalf("expected no reask report when launch notice is already clean, got %+v", decision.launchNoticeReaskReport)
+	}
+}
+
+type launchNoticeKernelTestLanguageModel struct {
+	initialDecision    TurnDecision
+	reaskDecision      TurnDecision
+	turnRouterRequests []llm.StructuredResponseRequest
+}
+
+func (model *launchNoticeKernelTestLanguageModel) GenerateResponse(context.Context, string) (string, error) {
+	return "", errors.New("intake model only serves structured routing")
+}
+
+func (model *launchNoticeKernelTestLanguageModel) GenerateStructuredResponse(_ context.Context, structuredResponseRequest llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	if structuredResponseRequest.StructuredOutputSchema.Name != "blueclaw_turn_router" {
+		return llm.StructuredResponse{Content: `{"queries":[]}`}, nil
+	}
+	model.turnRouterRequests = append(model.turnRouterRequests, structuredResponseRequest)
+	decision := model.initialDecision
+	if turnRouterRequestIsLaunchNoticeReask(structuredResponseRequest) {
+		decision = model.reaskDecision
+	}
+	document, errorValue := json.Marshal(decision)
+	if errorValue != nil {
+		return llm.StructuredResponse{}, errorValue
+	}
+	return llm.StructuredResponse{Content: string(document)}, nil
+}
+
+func turnRouterRequestIsLaunchNoticeReask(structuredResponseRequest llm.StructuredResponseRequest) bool {
+	for _, message := range structuredResponseRequest.Messages {
+		if strings.Contains(message.Content, launchNoticeReaskInstruction) {
+			return true
+		}
+	}
+	return false
+}
+
+func launchNoticeKernelTestDecision(launchNotice string) TurnDecision {
+	return TurnDecision{
+		Route:            TurnRouteStartTask,
+		Classification:   IntakeClassificationBoundedTask,
+		TaskShape:        TaskShapeResearchTask,
+		TaskLevel:        TaskLevelLow,
+		EstimatedMinutes: 5,
+		LaunchNotice:     launchNotice,
+		ResponseLanguage: "ko",
+		Reason:           "design improvement",
+	}
+}
+
+func TestAgentKernelRecordsLaunchNoticeReaskEventWhenRewritten(t *testing.T) {
+	intakeLanguageModel := &launchNoticeKernelTestLanguageModel{
+		initialDecision: launchNoticeKernelTestDecision("약 10분 정도 소요될 수 있습니다."),
+		reaskDecision:   launchNoticeKernelTestDecision("작업을 시작했습니다."),
+	}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finishMessageDocument("완료했습니다."),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "IR 덱 디자인 개선해줘",
+		ToolSet:           newTestToolSet([]string{"web.search"}),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected task to run: %v", errorValue)
+	}
+
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, launchNoticeReaskEventName, `"didRewrite":true`) {
+		t.Fatalf("expected launch notice reask event reporting rewrite, got %+v", taskEvents)
+	}
+	if len(intakeLanguageModel.turnRouterRequests) != 2 {
+		t.Fatalf("expected exactly one retry call to the intake model, got %d", len(intakeLanguageModel.turnRouterRequests))
+	}
+	if !taskEventsContain(taskEvents, "agent.intake", `"launchNotice":"작업을 시작했습니다."`) {
+		t.Fatalf("expected the final intake decision to carry the rewritten launch notice, got %+v", taskEvents)
+	}
+}
+
+func TestAgentKernelSuppressesLaunchNoticeWhenRetryStillStatesEstimate(t *testing.T) {
+	intakeLanguageModel := &launchNoticeKernelTestLanguageModel{
+		initialDecision: launchNoticeKernelTestDecision("약 10분 정도 소요될 수 있습니다."),
+		reaskDecision:   launchNoticeKernelTestDecision("약 2시간 정도 걸릴 것 같습니다."),
+	}
+	replyLanguageModel := &sequenceLanguageModel{contents: []string{
+		finishMessageDocument("완료했습니다."),
+	}}
+	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
+
+	result, errorValue := services.kernel.RunAgentRequest(context.Background(), AgentRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "IR 덱 디자인 개선해줘",
+		ToolSet:           newTestToolSet([]string{"web.search"}),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected task to run despite a suppressed launch notice: %v", errorValue)
+	}
+
+	taskEvents := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+	if !taskEventsContain(taskEvents, launchNoticeReaskEventName, `"wasAttempted":true`) {
+		t.Fatalf("expected launch notice reask event, got %+v", taskEvents)
+	}
+	if taskEventsContain(taskEvents, launchNoticeReaskEventName, `"didRewrite":true`) {
+		t.Fatalf("expected suppression rather than a rewrite, got %+v", taskEvents)
+	}
+	if !taskEventsContain(taskEvents, "agent.intake", `"launchNotice":""`) {
+		t.Fatalf("expected the final intake decision to carry an empty launch notice, got %+v", taskEvents)
 	}
 }
 
