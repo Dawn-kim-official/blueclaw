@@ -30,6 +30,22 @@ func baseToolNames(toolSet *ToolSet) []string {
 			toolNames = appendUniqueStrings(toolNames, toolName)
 		}
 	}
+	if toolSet.isPermanentlyNarrowed {
+		return toolNames
+	}
+	return appendUniqueStrings(toolNames, registeredKernelToolNames(toolSet)...)
+}
+
+func registeredKernelToolNames(toolSet *ToolSet) []string {
+	toolNames := []string{}
+	for _, kernelToolName := range KernelToolNames() {
+		if kernelToolName == CapabilityInvokeToolName {
+			continue
+		}
+		if toolSet.IsRegistered(kernelToolName) {
+			toolNames = appendUniqueStrings(toolNames, kernelToolName)
+		}
+	}
 	return toolNames
 }
 
@@ -75,6 +91,16 @@ func exposedToolIDsForFiltering(exposedToolIDs []string) []string {
 func toolSetForAgentTurn(toolSet *ToolSet, instructionBundle InstructionBundle) *ToolSet {
 	filteredToolSet, _ := toolSetForAgentTurnWithExposure(toolSet, instructionBundle)
 	return filteredToolSet
+}
+
+func toolSetForAgentStepWithExposure(toolSet *ToolSet, instructionBundle InstructionBundle, pinnedToolNames []string) (*ToolSet, ToolExposureEvent) {
+	filteredToolSet, exposureEvent := toolSetForAgentTurnWithExposure(toolSet, instructionBundle)
+	pinnedGroup := filterGroupTools(toolSet, toolExposureGroup{Name: "pinned tools", ToolIDs: pinnedToolNames})
+	if len(pinnedGroup.ToolIDs) == 0 {
+		return filteredToolSet, exposureEvent
+	}
+	exposureEvent.ExposedToolIDs = stableUniqueToolIDs(append(exposureEvent.ExposedToolIDs, pinnedGroup.ToolIDs...))
+	return filteredToolSet.withAllowedToolNamesPreservingBase(exposureEvent.ExposedToolIDs), exposureEvent
 }
 
 func filterGroupTools(toolSet *ToolSet, group toolExposureGroup) toolExposureGroup {

@@ -294,6 +294,7 @@ type ToolSet struct {
 	allowedToolNameByName map[string]bool
 	baseToolNameByName    map[string]bool
 	boundToolByName       map[string]BoundTool
+	isPermanentlyNarrowed bool
 }
 
 func NewToolSet(allowedToolNames []string) *ToolSet {
@@ -504,6 +505,7 @@ func (toolSet *ToolSet) WithAllowedToolNames(toolNames []string) *ToolSet {
 		return nil
 	}
 	filteredToolSet := NewToolSet(toolNames)
+	filteredToolSet.isPermanentlyNarrowed = true
 	for toolName, boundTool := range toolSet.boundToolByName {
 		filteredToolSet.boundToolByName[toolName] = boundTool
 	}
@@ -518,6 +520,7 @@ func (toolSet *ToolSet) withAllowedToolNamesPreservingBase(toolNames []string) *
 		allowedToolNameByName: toolNameSet(toolNames),
 		baseToolNameByName:    copyToolNameSet(toolSet.baseToolNameByName),
 		boundToolByName:       map[string]BoundTool{},
+		isPermanentlyNarrowed: toolSet.isPermanentlyNarrowed,
 	}
 	for toolName, boundTool := range toolSet.boundToolByName {
 		filteredToolSet.boundToolByName[toolName] = boundTool

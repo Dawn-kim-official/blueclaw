@@ -1075,9 +1075,10 @@ func (agentTurnRunner *AgentTurnRunner) nextAction(ctx context.Context, taskRunI
 func (agentTurnRunner *AgentTurnRunner) requestForStep(_ context.Context, request AgentTurnRequest, state agentTaskState) AgentTurnRequest {
 	plannedRequest := requestWithStepWorkingSetTools(request, state.Observations)
 	instructionBundle := instructionBundleFromTurnRequest(plannedRequest)
-	filteredToolSet, exposureEvent := toolSetForAgentTurnWithExposure(
+	filteredToolSet, exposureEvent := toolSetForAgentStepWithExposure(
 		plannedRequest.ToolSet,
 		instructionBundle,
+		plannedRequest.PinnedToolNames,
 	)
 	iterationRequest := plannedRequest
 	iterationRequest.ToolSet = filteredToolSet
