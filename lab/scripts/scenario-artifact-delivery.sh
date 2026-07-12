@@ -27,7 +27,7 @@ trap cleanup EXIT
 
 runtime_configuration=/root/.blueclaw/config/runtime.json
 for model_field in model lowModel mediumModel highModel xhighModel maxModel codingModel visionModel; do
-  configured_model="$(jq -er --arg field "$model_field" '.llm.capability[$field]' "$runtime_configuration")"
+  configured_model="$(printf '%s\n' "$sudo_password" | sudo -S jq -er --arg field "$model_field" '.llm.capability[$field]' "$runtime_configuration" 2>/dev/null)"
   if [ "$configured_model" != "$blueclaw_test_model" ]; then
     echo "artifact-delivery: $model_field is $configured_model, expected $blueclaw_test_model" >&2
     exit 1
