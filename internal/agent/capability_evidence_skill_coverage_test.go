@@ -23,7 +23,7 @@ func TestCapabilityEvidenceSkillCoverageFindsDocumentingSkill(t *testing.T) {
 	toolSet := newHiddenTestCapabilityToolSet([]string{"web.search"})
 	skillInstructions := []SkillInstruction{webSearchTestSkillInstruction()}
 
-	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(toolSet, skillInstructions, []string{"web.search"})
+	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(toolSet, skillInstructions, []string{"web.search"})
 
 	if len(undocumentedOperationNames) != 0 {
 		t.Fatalf("expected web.search to be documented, got undocumented=%+v", undocumentedOperationNames)
@@ -37,7 +37,7 @@ func TestCapabilityEvidenceSkillCoverageReportsUndocumentedOperation(t *testing.
 	toolSet := newHiddenTestCapabilityToolSet([]string{"site.archive"})
 	skillInstructions := []SkillInstruction{webSearchTestSkillInstruction()}
 
-	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(toolSet, skillInstructions, []string{"site.archive"})
+	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(toolSet, skillInstructions, []string{"site.archive"})
 
 	if len(coveringSkillNames) != 0 {
 		t.Fatalf("expected no skill to cover site.archive, got %+v", coveringSkillNames)
@@ -47,10 +47,10 @@ func TestCapabilityEvidenceSkillCoverageReportsUndocumentedOperation(t *testing.
 	}
 }
 
-func TestRequiredEvidenceSkillCoverageKeepsConfiguredBaseToolWithoutSkill(t *testing.T) {
+func TestCapabilityEvidenceSkillCoverageKeepsConfiguredBaseToolWithoutSkill(t *testing.T) {
 	toolSet := newTestCapabilityToolSet([]string{"message.send"})
 
-	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(toolSet, nil, []string{"message.send"})
+	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(toolSet, nil, []string{"message.send"})
 
 	if len(coveringSkillNames) != 0 || len(undocumentedOperationNames) != 0 {
 		t.Fatalf("expected configured base evidence to remain reachable without a skill, got covering=%+v undocumented=%+v", coveringSkillNames, undocumentedOperationNames)
@@ -61,7 +61,7 @@ func TestCapabilityEvidenceSkillCoverageIgnoresStructurallyInvalidEvidence(t *te
 	toolSet := newTestToolSet([]string{"calendar.add", CapabilityInvokeToolName})
 	skillInstructions := []SkillInstruction{webSearchTestSkillInstruction()}
 
-	coveringSkillNames, undocumentedOperationNames := requiredEvidenceSkillCoverage(toolSet, skillInstructions, []string{"calendar.create"})
+	coveringSkillNames, undocumentedOperationNames := capabilityEvidenceSkillCoverage(toolSet, skillInstructions, []string{"calendar.create"})
 
 	if len(coveringSkillNames) != 0 || len(undocumentedOperationNames) != 0 {
 		t.Fatalf("expected a structurally invalid evidence tool to be left for the existing invalid-evidence gate, got covering=%+v undocumented=%+v", coveringSkillNames, undocumentedOperationNames)

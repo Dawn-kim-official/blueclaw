@@ -155,6 +155,73 @@ func TestAgentTurnRunnerRejectsMessageSendWithoutExternalSendIntent(t *testing.T
 	}
 }
 
+func TestAgentTurnRunnerAllowsMessageSendForExplicitPromptSendIntent(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"회의는 3시입니다."}}}`,
+		finishMessageWithEvidence("샘플에게 DM을 보냈습니다.", "obs-001", "message.send", 0),
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 3})
+	toolRegistry := newTestCapabilityToolSet([]string{"message.send"})
+	sendCallCount := 0
+	toolRegistry.RegisterTool(ToolDefinition{Name: "message.send"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		sendCallCount++
+		return ToolSuccess("sent"), nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		Prompt:            "샘플에게 DM 보내줘",
+		ToolSet:           toolRegistry,
+		PinnedToolNames:   toolRegistry.ListToolNames(),
+	})
+	if errorValue != nil {
+		t.Fatalf("expected explicit send request to complete: %v", errorValue)
+	}
+	if sendCallCount != 1 {
+		t.Fatalf("expected one DM send from explicit prompt intent, got %d", sendCallCount)
+	}
+	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.external_send_intent_rejected", "") {
+		t.Fatal("explicit prompt send intent must not be rejected when intake omitted structured evidence")
+	}
+}
+
+func TestUnrequestedPlatformMessageSendObservationAcceptsGoalInstructionIntent(t *testing.T) {
+	request := AgentTurnRequest{
+		Prompt:     "계속 진행해줘",
+		ActiveGoal: ActiveGoal{OriginalInstruction: "결과를 정국에게 DM으로 전달해줘"},
+	}
+	actionDocument := turnActionDocument{
+		Action:    "continue",
+		ToolName:  "capability.invoke",
+		ToolInput: json.RawMessage(`{"operation":"message.send","input":{"targetType":"directMessage","personHint":"정국"}}`),
+	}
+
+	_, isBlocked := unrequestedPlatformMessageSendObservation(request, actionDocument, "obs-001")
+
+	if isBlocked {
+		t.Fatal("goal instruction send intent must authorize message.send")
+	}
+}
+
+func TestPromptLooksLikePlatformMessageSendRequestDetectsSendWording(t *testing.T) {
+	sendPrompts := []string{"샘플에게 DM 보내줘", "결과를 채널에 전달해줘", "send the summary to Dongha"}
+	for _, prompt := range sendPrompts {
+		if !promptLooksLikePlatformMessageSendRequest(prompt) {
+			t.Fatalf("expected send intent in %q", prompt)
+		}
+	}
+}
+
+func TestPromptLooksLikePlatformMessageSendRequestIgnoresPlainQuestion(t *testing.T) {
+	plainPrompts := []string{"", "휴게소 가야해?", "오늘 일정 알려줘"}
+	for _, prompt := range plainPrompts {
+		if promptLooksLikePlatformMessageSendRequest(prompt) {
+			t.Fatalf("expected no send intent in %q", prompt)
+		}
+	}
+}
+
 func TestAgentTurnRunnerRejectsRepeatedFailedFingerprint(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
 		`{"action":"continue","toolName":"capability.invoke","toolInput":{"operation":"message.send","input":{"targetType":"directMessage","personHint":"샘플","message":"확인 부탁해"}}}`,

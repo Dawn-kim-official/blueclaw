@@ -159,15 +159,27 @@ func skillMatchesArtifactContract(skillInstruction SkillInstruction, contract ar
 	case artifactContractKindFile:
 		return skillSupportsFileDelivery(skillInstruction) && skillMentionsArtifactFormat(skillInstruction, contract.Format)
 	case artifactContractKindSlides:
-		return skillSupportsFileDelivery(skillInstruction) &&
-			(skillMentionsArtifactFormat(skillInstruction, "pptx") || skillMentionsArtifactFormat(skillInstruction, "ppt"))
+		return skillSupportsFileDelivery(skillInstruction) && skillTextContainsAny(skillContractSearchText(skillInstruction), []string{
+			"slide", "slides", "deck", "presentation", "presentations", "ppt", "pptx", "powerpoint",
+			"슬라이드", "발표", "발표자료", "프레젠테이션", "프리젠테이션", "피피티", "파워포인트",
+		})
 	default:
 		return false
 	}
 }
 
 func skillSupportsSiteArtifact(skillInstruction SkillInstruction) bool {
-	return skillSupportsToolPrefix(skillInstruction, "site.")
+	if skillSupportsToolPrefix(skillInstruction, "site.") {
+		return true
+	}
+	text := skillContractSearchText(skillInstruction)
+	return skillTextContainsAny(text, []string{
+		"website", "web app", "webpage", "homepage", "landing page", "site", "prototype", "public url",
+		"웹사이트", "웹 앱", "웹앱", "홈페이지", "사이트", "프로토타입",
+	}) && skillTextContainsAny(text, []string{
+		"create", "build", "publish", "deploy", "update", "fix", "restore", "delete", "make",
+		"생성", "제작", "배포", "게시", "수정", "개선", "삭제", "복구",
+	})
 }
 
 func skillSupportsFileDelivery(skillInstruction SkillInstruction) bool {
@@ -177,7 +189,8 @@ func skillSupportsFileDelivery(skillInstruction SkillInstruction) bool {
 		skillHasEvidenceTool(skillInstruction, FileDeliverToolName) ||
 		skillHasEvidenceTool(skillInstruction, ArtifactDeliverToolName) ||
 		skillHasEvidenceTool(skillInstruction, FileAttachToolName) ||
-		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0
+		len(skillInstruction.Completion.RequiredAttachmentSuffixes) > 0 ||
+		skillTextContainsAny(skillContractSearchText(skillInstruction), []string{"attach", "attachment", "deliverable", "file artifact", "첨부", "파일"})
 }
 
 func skillSupportsToolPrefix(skillInstruction SkillInstruction, prefix string) bool {
@@ -234,19 +247,17 @@ func skillMentionsArtifactFormat(skillInstruction SkillInstruction, format strin
 func artifactFormatTokens(format string) []string {
 	switch strings.TrimPrefix(strings.ToLower(strings.TrimSpace(format)), ".") {
 	case "docx":
-		return []string{"docx", ".docx"}
+		return []string{"docx", ".docx", "word", "워드"}
 	case "pptx":
-		return []string{"pptx", ".pptx"}
-	case "ppt":
-		return []string{"ppt", ".ppt"}
+		return []string{"pptx", ".pptx", "ppt", "powerpoint", "slides", "slide deck", "피피티", "파워포인트", "발표자료"}
 	case "xlsx":
-		return []string{"xlsx", ".xlsx"}
+		return []string{"xlsx", ".xlsx", "xlsm", "excel", "spreadsheet", "엑셀", "스프레드시트"}
 	case "csv":
-		return []string{"csv", ".csv"}
+		return []string{"csv", ".csv", "spreadsheet", "table", "표"}
 	case "pdf":
 		return []string{"pdf", ".pdf"}
 	case "html":
-		return []string{"html", ".html"}
+		return []string{"html", ".html", "web page", "webpage"}
 	default:
 		return []string{strings.TrimPrefix(strings.ToLower(strings.TrimSpace(format)), ".")}
 	}
@@ -265,6 +276,15 @@ func skillContractSearchText(skillInstruction SkillInstruction) string {
 		strings.Join(skillInstruction.Completion.RequiredEvidenceTools, " "),
 		strings.Join(skillInstruction.AllowedTools, " "),
 	}, " "))
+}
+
+func skillTextContainsAny(text string, values []string) bool {
+	for _, value := range values {
+		if strings.Contains(text, strings.ToLower(strings.TrimSpace(value))) {
+			return true
+		}
+	}
+	return false
 }
 
 func appendUniqueArtifactContractRequirements(requirements []artifactContractRequirement, requirement artifactContractRequirement) []artifactContractRequirement {

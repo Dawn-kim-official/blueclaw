@@ -27,7 +27,24 @@ func isApprovalRequiredObservation(observation turnObservation) bool {
 	if !observation.Failed() {
 		return false
 	}
-	return observation.FailureCode() == FailureCodes.ApprovalRequired.String() && strings.EqualFold(observation.FailureStage(), "authorization")
+	if observation.FailureCode() == FailureCodes.ApprovalRequired.String() && strings.EqualFold(observation.FailureStage(), "authorization") {
+		return true
+	}
+	normalizedText := approvalObservationText(observation)
+	if strings.Contains(normalizedText, "approval_required") {
+		return true
+	}
+	return strings.EqualFold(observation.FailureStage(), "authorization") && strings.Contains(normalizedText, "requires approval")
+}
+
+func approvalObservationText(observation turnObservation) string {
+	return strings.ToLower(strings.Join([]string{
+		observation.FailureCode(),
+		observation.FailureStage(),
+		observation.FailureSummary(),
+		observation.ContentText(),
+		string(observation.Output.Data),
+	}, " "))
 }
 
 func (agentTurnRunner *AgentTurnRunner) requestHeldCallApproval(ctx context.Context, taskRunID string, stepID string, request AgentTurnRequest, state *agentTaskState, actionDocument turnActionDocument) toolCallActionOutcome {

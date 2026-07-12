@@ -676,6 +676,9 @@ func unrequestedPlatformMessageSendObservation(request AgentTurnRequest, actionD
 	if requestRequiresPlatformMessageSend(request) {
 		return turnObservation{}, false
 	}
+	if promptLooksLikePlatformMessageSendRequest(request.Prompt) || promptLooksLikePlatformMessageSendRequest(request.ActiveGoal.OriginalInstruction) {
+		return turnObservation{}, false
+	}
 	deliveryType := platformMessageSendDeliveryType(toolInput)
 	message := "message.send is only for explicit platform delivery requests. The latest user message does not ask to send a separate platform message; answer in the current conversation with finish.message instead."
 	if deliveryType != "" {
@@ -695,6 +698,23 @@ func requestRequiresPlatformMessageSend(request AgentTurnRequest) bool {
 	}
 	for _, toolName := range outcomeContractRequiredToolNames(request.ActiveGoal.OutcomeContract) {
 		if ToolNamesMatch(toolName, "message.send") {
+			return true
+		}
+	}
+	return false
+}
+
+func promptLooksLikePlatformMessageSendRequest(prompt string) bool {
+	normalizedPrompt := strings.ToLower(strings.TrimSpace(prompt))
+	if normalizedPrompt == "" {
+		return false
+	}
+	sendIntentMarkers := []string{
+		"dm", "direct message", "send", "notify", "post", "forward",
+		"보내", "전송", "디엠", "dm해", "전달", "공지", "올려",
+	}
+	for _, marker := range sendIntentMarkers {
+		if strings.Contains(normalizedPrompt, marker) {
 			return true
 		}
 	}

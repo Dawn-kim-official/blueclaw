@@ -23,7 +23,7 @@ func TestSkillTaskLevelFloorRaisesBoundedTaskLevel(t *testing.T) {
 		TaskShape:      TaskShapeResearchTask,
 		TaskLevel:      TaskLevelLow,
 	}
-	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), IntakeOptions{
+	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), nil, IntakeOptions{
 		DefaultTaskLevel:    TaskLevelLow,
 		SkillTaskLevelFloor: TaskLevelMedium,
 	})
@@ -37,7 +37,7 @@ func TestSkillTaskLevelFloorKeepsHigherTaskLevel(t *testing.T) {
 		Classification: IntakeClassificationBoundedTask,
 		TaskLevel:      TaskLevelHigh,
 	}
-	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), IntakeOptions{
+	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), nil, IntakeOptions{
 		SkillTaskLevelFloor: TaskLevelMedium,
 	})
 	if promoted.TaskLevel != TaskLevelHigh {
@@ -52,7 +52,7 @@ func TestSkillTaskLevelFloorIgnoresSkillsWithoutCompletionContract(t *testing.T)
 		Classification: IntakeClassificationBoundedTask,
 		TaskLevel:      TaskLevelLow,
 	}
-	promoted := promoteIntakeDecisionForSelectedSkills(decision, bundle, IntakeOptions{
+	promoted := promoteIntakeDecisionForSelectedSkills(decision, bundle, nil, IntakeOptions{
 		SkillTaskLevelFloor: TaskLevelMedium,
 	})
 	if promoted.TaskLevel != TaskLevelLow {
@@ -65,7 +65,7 @@ func TestSkillTaskLevelFloorDisabledWhenUnset(t *testing.T) {
 		Classification: IntakeClassificationBoundedTask,
 		TaskLevel:      TaskLevelLow,
 	}
-	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), IntakeOptions{})
+	promoted := promoteIntakeDecisionForSelectedSkills(decision, namedSkillBundle("spreadsheet"), nil, IntakeOptions{})
 	if promoted.TaskLevel != TaskLevelLow {
 		t.Fatalf("expected low task level without a floor, got %q", promoted.TaskLevel)
 	}
@@ -79,6 +79,7 @@ func TestVisualDeliverableSkillsFloorAtXHigh(t *testing.T) {
 		belowFloor := promoteIntakeDecisionForSelectedSkills(
 			IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskLevel: TaskLevelLow},
 			namedSkillBundle(skillName),
+			nil,
 			IntakeOptions{DefaultTaskLevel: TaskLevelLow, SkillTaskLevelFloor: TaskLevelHigh},
 		)
 		if belowFloor.TaskLevel != TaskLevelXHigh {
@@ -88,6 +89,7 @@ func TestVisualDeliverableSkillsFloorAtXHigh(t *testing.T) {
 		noGenericFloor := promoteIntakeDecisionForSelectedSkills(
 			IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskLevel: TaskLevelLow},
 			namedSkillBundle(skillName),
+			nil,
 			IntakeOptions{DefaultTaskLevel: TaskLevelLow},
 		)
 		if noGenericFloor.TaskLevel != TaskLevelXHigh {

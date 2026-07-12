@@ -93,6 +93,7 @@ func TestVisualSkillNameFloorDoesNotRequireCompletionMetadata(t *testing.T) {
 	promotedDecision := promoteIntakeDecisionForSelectedSkills(
 		IntakeDecision{Classification: IntakeClassificationBoundedTask, TaskLevel: TaskLevelLow},
 		instructionBundle,
+		nil,
 		IntakeOptions{},
 	)
 	if promotedDecision.TaskLevel != TaskLevelXHigh {

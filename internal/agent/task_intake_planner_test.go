@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -88,30 +87,14 @@ func TestTaskIntakePlannerUsesStructuredModelDecision(t *testing.T) {
 	}
 }
 
-func TestIntakeToolDescriptionsUseOnlyBaseAndSelectedSkillTools(t *testing.T) {
-	toolSet := newExposureTestToolSet(map[string]json.RawMessage{
-		"schedule.create":     json.RawMessage(`{"type":"object"}`),
-		"mail.message.search": json.RawMessage(`{"type":"object"}`),
-	})
-	instructionBundle := InstructionBundle{
-		Skills: []SkillInstruction{
-			{Name: "scheduled-task", AllowedTools: []string{"schedule.create"}},
-		},
-		SkillDecisions: []SkillSelectionDecision{
-			{Name: "scheduled-task", Status: "selected"},
-		},
-	}
+func TestIntakeToolDescriptionsIncludeEvidenceOperationsWithoutSelectedSkills(t *testing.T) {
+	toolSet := newTestToolSet([]string{TerminalRunToolName, "schedule.create", "mail.message.search"})
 
-	descriptions := intakeToolDescriptions(toolSetForAgentTurn(toolSet, instructionBundle))
+	descriptions := intakeToolDescriptions(toolSet)
 
-	for _, expectedToolName := range []string{TerminalRunToolName, "schedule.create"} {
+	for _, expectedToolName := range []string{TerminalRunToolName, "schedule.create", "mail.message.search"} {
 		if !strings.Contains(descriptions, expectedToolName) {
 			t.Fatalf("expected intake descriptions to include %s, got %s", expectedToolName, descriptions)
-		}
-	}
-	for _, hiddenToolName := range []string{CapabilityInvokeToolName, "mail.message.search"} {
-		if strings.Contains(descriptions, hiddenToolName) {
-			t.Fatalf("expected intake descriptions to hide %s, got %s", hiddenToolName, descriptions)
 		}
 	}
 }
@@ -177,7 +160,7 @@ func TestTaskIntakePlannerPassesPriorTaskContext(t *testing.T) {
 	}
 }
 
-func TestTaskIntakePlannerFallbackDoesNotInferPriorOutcomeRecovery(t *testing.T) {
+func TestTaskIntakePlannerFallbackRecoversPriorDocxDelivery(t *testing.T) {
 	planner := NewTaskIntakePlanner(nil, IntakeOptions{})
 	toolRegistry := newTestToolSet([]string{"conversation.history", "file.read", "file.write", "terminal.run", "file.promote", "file.deliver"})
 
@@ -196,14 +179,14 @@ func TestTaskIntakePlannerFallbackDoesNotInferPriorOutcomeRecovery(t *testing.T)
 		},
 	})
 
-	if decision.PriorTaskReference != PriorTaskReferenceNone {
-		t.Fatalf("deterministic fallback must not infer a prior outcome reference, got %+v", decision)
+	if decision.PriorTaskReference != PriorTaskReferenceOutcomeRecovery {
+		t.Fatalf("expected deterministic fallback to recover prior outcome, got %+v", decision)
 	}
-	if len(decision.RequestedOutputFormats) != 0 {
-		t.Fatalf("deterministic fallback must not infer output formats, got %+v", decision.RequestedOutputFormats)
+	if strings.Join(decision.RequestedOutputFormats, ",") != "docx" {
+		t.Fatalf("expected docx output format, got %+v", decision.RequestedOutputFormats)
 	}
-	if len(decision.InitialToolNames) != 0 {
-		t.Fatalf("deterministic fallback must not infer initial tools, got %+v", decision.InitialToolNames)
+	if !slices.Contains(decision.InitialToolNames, "file.deliver") {
+		t.Fatalf("expected file.deliver to be prepared, got %+v", decision.InitialToolNames)
 	}
 }
 
@@ -855,8 +838,8 @@ func TestAgentKernelPromotesSelectedScheduledSkillOverIntakeRefusal(t *testing.T
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.intake", "bounded_task") {
 		t.Fatal("expected selected scheduled skill to promote intake")
 	}
-	if result.FinishMessage != "1분 간격으로 10번 보내도록 예약했습니다." {
-		t.Fatalf("expected model-authored final reply, got %q", result.FinishMessage)
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "schedule.create") {
+		t.Fatal("expected schedule evidence to finalize completion")
 	}
 }
 
@@ -1143,6 +1126,26 @@ func TestTaskIntakePlannerKeepsDestructiveArtifactWorkApprovalGated(t *testing.T
 
 	if decision.Classification != IntakeClassificationNeedsConfirmation {
 		t.Fatalf("expected destructive request to stay approval gated, got %+v", decision)
+	}
+}
+
+func TestTaskIntakePlannerKeepsSyntheticConnectorVerificationQuick(t *testing.T) {
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"classification":"bounded_task","taskShape":"research_task","level":"medium","requestedOutputFormats":null,"responseLanguage":"en","reason":"contains verify","userFacingReply":""}`,
+	}}
+	planner := NewTaskIntakePlanner(languageModel, IntakeOptions{IsEnabled: true})
+	toolRegistry := newTestToolSet([]string{"web.search", "mail.message.search"})
+
+	decision := planner.Plan(context.Background(), AgentRequest{
+		Prompt:  "verify invited 1778564495",
+		ToolSet: toolRegistry,
+	})
+
+	if decision.Classification != IntakeClassificationQuickReply {
+		t.Fatalf("expected quick connector probe, got %+v", decision)
+	}
+	if decision.TaskLevel != TaskLevelXLow {
+		t.Fatalf("expected xlow task level, got %+v", decision)
 	}
 }
 
@@ -1465,8 +1468,7 @@ func TestAgentKernelPromotedQuickReplyRejectsUnverifiedFinishAndCompletesOnRealE
 	}}
 	replyLanguageModel := &sequenceLanguageModel{contents: []string{
 		finishMessageDocument("deck created too early"),
-		`{"action":"continue","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
-		finishMessageWithEvidence("deck attached: deck.pptx", "obs-002", "file.deliver", 0),
+		`{"action":"continue","message":"deck attached: deck.pptx","toolName":"file.deliver","toolInput":{"path":"deck.pptx"}}`,
 	}}
 	services := newKernelIntakeTestServices(replyLanguageModel, intakeLanguageModel)
 	services.kernel.UseSkillRetriever(NewEmbeddingSkillRetriever(keywordEmbeddingProvider{}, ""))
