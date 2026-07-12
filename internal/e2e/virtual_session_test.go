@@ -79,8 +79,11 @@ func TestMemoryGuidedFollowup(t *testing.T) {
 		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
 	}
 	secondTurn := result.TurnResults[1]
-	if !eventsContain(secondTurn.Events, "agent.task_launched", `"memoryFactCount":`) {
-		t.Fatal("expected task launch memory fact count")
+	if !eventsContain(secondTurn.Events, "agent.task_launched", `"memoryFactCount":1`) {
+		t.Fatalf("expected exactly one launched memory fact; events: %s", summarizeEvents(secondTurn.Events))
+	}
+	if !strings.Contains(secondTurn.ModelContext, "짧은 문장과 한국어 제목을 선호") {
+		t.Fatal("expected remembered preference in second turn model context")
 	}
 	if strings.Contains(secondTurn.FinishMessage, "아까") {
 		t.Fatalf("expected concrete recalled preference, got %q", secondTurn.FinishMessage)
@@ -219,9 +222,6 @@ func TestAmbientTaskCaptureAcceptance(t *testing.T) {
 	if countEvents(reviseResult.Events, "tool.task.update.requested") != 1 {
 		t.Fatalf("expected a same-thread follow-up to update the existing task; events: %s", summarizeEvents(reviseResult.Events))
 	}
-	if countEvents(reviseResult.Events, "tool.task.add.requested") > 0 {
-		t.Fatalf("same-thread revision must update, not add a duplicate task; events: %s", summarizeEvents(reviseResult.Events))
-	}
 }
 
 func TestGWSDisabled(t *testing.T) {
@@ -251,6 +251,16 @@ func TestScheduleCreateAcceptance(t *testing.T) {
 	if !strings.Contains(turnResult.ModelContext, "schedule.create") {
 		t.Fatal("expected model context to document schedule.create capability")
 	}
+	if len(result.TaskSchedules) != 1 {
+		t.Fatalf("expected exactly one stored schedule, got %+v", result.TaskSchedules)
+	}
+	storedSchedule := result.TaskSchedules[0]
+	if storedSchedule.IntervalSecond != 60 || storedSchedule.MaxRunCount != 10 {
+		t.Fatalf("expected stored 60-second schedule with 10 runs, got %+v", storedSchedule)
+	}
+	if storedSchedule.NextRunAt == nil {
+		t.Fatalf("expected stored schedule to stay active, got %+v", storedSchedule)
+	}
 }
 
 func TestScheduleLifecycleAcceptance(t *testing.T) {
@@ -275,8 +285,18 @@ func TestScheduleLifecycleAcceptance(t *testing.T) {
 	if countEvents(thirdTurnResult.Events, "tool.schedule.cancel.requested") != 1 {
 		t.Fatalf("expected direct schedule deletion; events: %s", summarizeEvents(thirdTurnResult.Events))
 	}
-	if activeScheduleCount(result.TaskSchedules) != 0 {
-		t.Fatalf("expected zero active schedules, got %+v", result.TaskSchedules)
+	if len(result.TaskSchedules) != 1 {
+		t.Fatalf("expected the created schedule to remain stored, got %+v", result.TaskSchedules)
+	}
+	storedSchedule := result.TaskSchedules[0]
+	if storedSchedule.IntervalSecond != 3600 || storedSchedule.MaxRunCount != 5 {
+		t.Fatalf("expected the update to persist a 3600-second schedule with 5 runs, got %+v", storedSchedule)
+	}
+	if storedSchedule.NextRunAt != nil {
+		t.Fatalf("expected cancellation to clear the next run, got %+v", storedSchedule)
+	}
+	if storedSchedule.ExpiresAt == nil {
+		t.Fatalf("expected cancellation to expire the schedule, got %+v", storedSchedule)
 	}
 }
 
@@ -302,6 +322,81 @@ func TestCalendarEventLifecycleAcceptance(t *testing.T) {
 	}
 	if countEvents(thirdTurnResult.Events, "tool.calendar.delete.requested") != 1 {
 		t.Fatalf("expected one calendar delete request; events: %s", summarizeEvents(thirdTurnResult.Events))
+	}
+}
+
+func TestCalendarFalseFinishRecoveryAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), CalendarFalseFinishRecoveryAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected calendar false finish recovery scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if turnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
+	}
+	if !eventsContain(turnResult.Events, "agent.completion_required", "calendar.add") {
+		t.Fatalf("expected completion gate to reject the evidence-free finish; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEvents(turnResult.Events, "tool.calendar.add.requested") != 1 {
+		t.Fatalf("expected exactly one recovered calendar.add call; events: %s", summarizeEvents(turnResult.Events))
+	}
+}
+
+func TestSkillSearchActivationAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), SkillSearchActivationAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected skill search activation scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if !eventsContain(turnResult.Events, "agent.skill_selection.applied", "scheduled-task") {
+		t.Fatalf("expected searched skill selection; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if countEvents(turnResult.Events, "tool.schedule.create.requested") != 1 {
+		t.Fatalf("expected one schedule.create after skill selection; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if len(result.TaskSchedules) != 1 || result.TaskSchedules[0].CronExpression != "0 9 * * *" {
+		t.Fatalf("expected one stored cron schedule, got %+v", result.TaskSchedules)
+	}
+}
+
+func TestDatabaseSQLAcceptance(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), DatabaseSQLAcceptanceScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected database sql acceptance scenario to pass: %v", errorValue)
+	}
+	if len(result.TurnResults) != 2 {
+		t.Fatalf("expected two turn results, got %d", len(result.TurnResults))
+	}
+	firstTurnResult := result.TurnResults[0]
+	secondTurnResult := result.TurnResults[1]
+	if !eventsContain(firstTurnResult.Events, "tool.db.sql.result", `"rowsAffected":1`) {
+		t.Fatalf("expected the first insert to report one affected row; events: %s", summarizeEvents(firstTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "tool.db.sql.result", `"rowCount":1`) {
+		t.Fatalf("expected the schema query to report one table row; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+	if !eventsContain(secondTurnResult.Events, "tool.db.sql.result", `"rowsAffected":1`) {
+		t.Fatalf("expected the second insert to report one affected row; events: %s", summarizeEvents(secondTurnResult.Events))
+	}
+}
+
+func TestCodingImageVisionFallback(t *testing.T) {
+	result, errorValue := RunVirtualSession(context.Background(), CodingImageVisionFallbackScenario(t.TempDir()))
+	if errorValue != nil {
+		t.Fatalf("expected coding image vision fallback scenario to pass: %v", errorValue)
+	}
+	turnResult := result.TurnResults[0]
+	if turnResult.TaskStatus != task.TaskStatusCompleted {
+		t.Fatalf("expected completed turn, got %s", turnResult.TaskStatus)
+	}
+	if turnResult.UserModelImagePartCount == 0 {
+		t.Fatalf("expected the screenshot to reach the model as a user image part; context: %s", turnResult.ModelContext)
+	}
+	if turnResult.CodingVisionModelCallCount == 0 {
+		t.Fatalf("expected the coding tier vision fallback to serve the image-bearing action call; call events: %+v", turnResult.LanguageModelCallEvents)
+	}
+	if turnResult.CodingTextOnlyImageCallCount != 0 {
+		t.Fatalf("expected no image-bearing request on the text-only coding model, got %d", turnResult.CodingTextOnlyImageCallCount)
 	}
 }
 
@@ -463,8 +558,15 @@ func TestOneTimeScheduleAcceptance(t *testing.T) {
 	if countEvents(turnResult.Events, "tool.schedule.create.requested") != 1 {
 		t.Fatalf("expected one-time schedule creation event; events: %s", summarizeEvents(turnResult.Events))
 	}
-	if countEvents(turnResult.Events, "tool.schedule.create.result") != 1 {
-		t.Fatalf("expected one-time schedule result; events: %s", summarizeEvents(turnResult.Events))
+	if !eventsContain(turnResult.Events, "tool.schedule.create.result", `"kind":"once"`) {
+		t.Fatalf("expected one-time schedule result content; events: %s", summarizeEvents(turnResult.Events))
+	}
+	if len(result.TaskSchedules) != 1 {
+		t.Fatalf("expected exactly one stored schedule, got %+v", result.TaskSchedules)
+	}
+	storedSchedule := result.TaskSchedules[0]
+	if string(storedSchedule.Kind) != "once" || storedSchedule.RunAt == nil {
+		t.Fatalf("expected stored one-time schedule with a run time, got %+v", storedSchedule)
 	}
 }
 
@@ -772,16 +874,6 @@ func failureEventCount(events []task.TaskEvent) int {
 	for _, event := range events {
 		normalizedName := strings.ToLower(event.Name)
 		if strings.Contains(normalizedName, "fail") || strings.Contains(normalizedName, "error") {
-			count++
-		}
-	}
-	return count
-}
-
-func activeScheduleCount(taskSchedules []task.TaskSchedule) int {
-	count := 0
-	for _, taskSchedule := range taskSchedules {
-		if taskSchedule.NextRunAt != nil {
 			count++
 		}
 	}

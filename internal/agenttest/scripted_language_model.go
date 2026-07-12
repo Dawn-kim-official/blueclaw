@@ -54,6 +54,12 @@ func (languageModel *ScriptedLanguageModel) SetActionResponses(actionResponses .
 	languageModel.actionResponses = append([]string{}, actionResponses...)
 }
 
+func (languageModel *ScriptedLanguageModel) RemainingActionResponses() []string {
+	languageModel.mutex.Lock()
+	defer languageModel.mutex.Unlock()
+	return append([]string{}, languageModel.actionResponses...)
+}
+
 func (languageModel *ScriptedLanguageModel) EnqueueStructuredResponses(schemaName string, responses ...string) {
 	languageModel.mutex.Lock()
 	defer languageModel.mutex.Unlock()

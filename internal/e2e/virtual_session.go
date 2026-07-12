@@ -51,6 +51,7 @@ type VirtualSessionScenario struct {
 	InitialMemory             []memory.MemoryFact
 	RouterRequiredEvidence    []string
 	RouterTaskLevel           string
+	RouterTaskShape           string
 	CodingTierVisionFallback  bool
 	AddressingResponse        string
 	RouterSiteEvidence        string
@@ -90,6 +91,8 @@ type VirtualTurn struct {
 	ExpectedCheckpointReplies []string
 	ForbiddenEvents           []string
 	ExpectedTaskStatus        task.TaskStatus
+
+	AllowUnconsumedActionResponses bool
 }
 
 type VirtualEventCount struct {
@@ -112,18 +115,21 @@ type VirtualSessionResult struct {
 }
 
 type VirtualTurnResult struct {
-	TaskRunID               string
-	TaskStatus              task.TaskStatus
-	FailureReason           string
-	FinishMessage           string
-	ReplyTargetID           string
-	Attachments             []agent.FileAttachment
-	Events                  []task.TaskEvent
-	LanguageModelCallEvents []VirtualLanguageModelCallEvent
-	InformationalAssertions []VirtualInformationalAssertion
-	ModelContext            string
-	ModelImagePartCount     int
-	UserModelImagePartCount int
+	TaskRunID                    string
+	TaskStatus                   task.TaskStatus
+	FailureReason                string
+	FinishMessage                string
+	ReplyTargetID                string
+	Attachments                  []agent.FileAttachment
+	Events                       []task.TaskEvent
+	LanguageModelCallEvents      []VirtualLanguageModelCallEvent
+	InformationalAssertions      []VirtualInformationalAssertion
+	ModelContext                 string
+	ModelImagePartCount          int
+	UserModelImagePartCount      int
+	CodingVisionModelCallCount   int
+	CodingTextOnlyModelCallCount int
+	CodingTextOnlyImageCallCount int
 }
 
 type VirtualLanguageModelCallEvent struct {
@@ -155,6 +161,7 @@ type VirtualSessionHarness struct {
 	scriptedModel    *agenttest.ScriptedLanguageModel
 	requestRecorder  virtualLanguageModelRequestRecorder
 	callRecorder     virtualLanguageModelCallRecorder
+	codingTierProbe  *virtualCodingTierProbe
 	taskRunService   *task.TaskRunService
 	taskEventService *task.TaskEventService
 	scheduleStore    *virtualTaskScheduleRepository
@@ -163,6 +170,71 @@ type VirtualSessionHarness struct {
 	adapter          *virtualAdapter
 	history          []connectors.VisibleContextMessage
 	cleanup          func()
+}
+
+type virtualCodingTierProbe struct {
+	mutex                  sync.Mutex
+	visionCallCount        int
+	textOnlyCallCount      int
+	textOnlyImageCallCount int
+}
+
+type virtualCodingTierProbeCounts struct {
+	VisionCallCount        int
+	TextOnlyCallCount      int
+	TextOnlyImageCallCount int
+}
+
+func (probe *virtualCodingTierProbe) recordCall(isVision bool, request llm.StructuredResponseRequest) {
+	probe.mutex.Lock()
+	defer probe.mutex.Unlock()
+	if isVision {
+		probe.visionCallCount++
+		return
+	}
+	probe.textOnlyCallCount++
+	if structuredRequestContainsImagePart(request) {
+		probe.textOnlyImageCallCount++
+	}
+}
+
+func (probe *virtualCodingTierProbe) counts() virtualCodingTierProbeCounts {
+	if probe == nil {
+		return virtualCodingTierProbeCounts{}
+	}
+	probe.mutex.Lock()
+	defer probe.mutex.Unlock()
+	return virtualCodingTierProbeCounts{
+		VisionCallCount:        probe.visionCallCount,
+		TextOnlyCallCount:      probe.textOnlyCallCount,
+		TextOnlyImageCallCount: probe.textOnlyImageCallCount,
+	}
+}
+
+func structuredRequestContainsImagePart(request llm.StructuredResponseRequest) bool {
+	for _, message := range request.Messages {
+		for _, part := range message.Parts {
+			if part.Type == "image" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type virtualCodingTierProbeProvider struct {
+	probe    *virtualCodingTierProbe
+	isVision bool
+	delegate llm.LanguageModelProvider
+}
+
+func (provider virtualCodingTierProbeProvider) GenerateResponse(responseContext context.Context, prompt string) (string, error) {
+	return provider.delegate.GenerateResponse(responseContext, prompt)
+}
+
+func (provider virtualCodingTierProbeProvider) GenerateStructuredResponse(responseContext context.Context, request llm.StructuredResponseRequest) (llm.StructuredResponse, error) {
+	provider.probe.recordCall(provider.isVision, request)
+	return provider.delegate.GenerateStructuredResponse(responseContext, request)
 }
 
 type virtualLanguageModelRequestRecorder interface {
@@ -503,10 +575,12 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 	agentKernel := agent.NewAgentKernel(taskRunService, taskStepService)
 	agentKernel.UseTaskArtifactService(taskArtifactService)
 	agentKernel.UseLanguageModelProvider(languageModel)
+	var codingTierProbe *virtualCodingTierProbe
 	if scenario.CodingTierVisionFallback {
+		codingTierProbe = &virtualCodingTierProbe{}
 		codingTaskLanguageModel := llm.VisionFallbackProvider{
-			TextOnlyModel: imageRejectingLanguageModel{delegate: languageModel},
-			VisionModel:   languageModel,
+			TextOnlyModel: virtualCodingTierProbeProvider{probe: codingTierProbe, delegate: imageRejectingLanguageModel{delegate: languageModel}},
+			VisionModel:   virtualCodingTierProbeProvider{probe: codingTierProbe, isVision: true, delegate: languageModel},
 		}
 		agentKernel.UseTaskTierLanguageModels(languageModel, languageModel, languageModel, languageModel, languageModel, codingTaskLanguageModel)
 	}
@@ -570,6 +644,7 @@ func NewVirtualSessionHarness(scenario VirtualSessionScenario) (*VirtualSessionH
 		scriptedModel:    scriptedModel,
 		requestRecorder:  virtualRequestRecorder(languageModel),
 		callRecorder:     virtualCallRecorder(languageModel),
+		codingTierProbe:  codingTierProbe,
 		taskRunService:   taskRunService,
 		taskEventService: taskEventService,
 		scheduleStore:    scheduleStore,
@@ -916,10 +991,6 @@ if __name__ == "__main__":
     main()
 `
 
-type virtualCapabilityHTTPClient struct {
-	toolNameByName map[string]bool
-}
-
 func startVirtualCapabilityServer(toolNames []string) (capability.Client, func()) {
 	toolNameByName := map[string]bool{}
 	for _, toolName := range toolNames {
@@ -968,24 +1039,6 @@ func virtualCapabilityCatalogResponse(toolNameByName map[string]bool) string {
 		descriptors = append(descriptors, `{"name":`+quote(toolName)+`,"description":"Virtual capability `+toolName+`","inputSchema":{"type":"object"}}`)
 	}
 	return `{"capabilities":[` + strings.Join(descriptors, ",") + `]}`
-}
-
-func (client virtualCapabilityHTTPClient) Do(request *http.Request) (*http.Response, error) {
-	toolName := strings.TrimPrefix(request.URL.Path, "/v1/tools/")
-	toolName = strings.TrimSuffix(toolName, "/invoke")
-	if !client.toolNameByName[toolName] {
-		return virtualCapabilityHTTPResponse(http.StatusNotFound, "unknown virtual capability tool"), nil
-	}
-	requestBody, _ := io.ReadAll(request.Body)
-	return virtualCapabilityHTTPResponse(http.StatusOK, virtualCapabilityResponse(toolName, requestBody)), nil
-}
-
-func virtualCapabilityHTTPResponse(statusCode int, body string) *http.Response {
-	return &http.Response{
-		StatusCode: statusCode,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(body)),
-	}
 }
 
 func virtualCapabilityResponse(toolName string, requestBody []byte) string {
@@ -1112,11 +1165,25 @@ func (harness *VirtualSessionHarness) Run(ctx context.Context) (VirtualSessionRe
 		if errorValue := harness.assertTurnResult(virtualTurn, turnResult); errorValue != nil {
 			return result, fmt.Errorf("%s turn %d: %w", harness.scenario.Name, index+1, errorValue)
 		}
+		if errorValue := harness.assertScriptedActionResponsesConsumed(virtualTurn); errorValue != nil {
+			return result, fmt.Errorf("%s turn %d: %w", harness.scenario.Name, index+1, errorValue)
+		}
 		result.TurnResults = append(result.TurnResults, turnResult)
 		harness.rememberTurn(virtualTurn, turnResult)
 	}
 	result.TaskSchedules = harness.scheduleStore.TaskSchedules()
 	return result, nil
+}
+
+func (harness *VirtualSessionHarness) assertScriptedActionResponsesConsumed(virtualTurn VirtualTurn) error {
+	if harness.scriptedModel == nil || virtualTurn.AllowUnconsumedActionResponses {
+		return nil
+	}
+	remainingActionResponses := harness.scriptedModel.RemainingActionResponses()
+	if len(remainingActionResponses) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d scripted action responses were not consumed: %s", len(remainingActionResponses), strings.Join(remainingActionResponses, " | "))
 }
 
 func actionScriptedLanguageModelForScenario(scenario VirtualSessionScenario) *agenttest.ScriptedLanguageModel {
@@ -1141,11 +1208,18 @@ func scenarioDefaultResponses(scenario VirtualSessionScenario) map[string]string
 	if strings.TrimSpace(scenario.AddressingResponse) != "" {
 		defaultResponses["blueclaw_addressing_classification"] = strings.TrimSpace(scenario.AddressingResponse)
 	}
-	if len(scenario.InitialToolNames) == 0 && len(scenario.RouterRequiredEvidence) == 0 {
+	if !scenarioNeedsTurnRouterDefault(scenario) {
 		return defaultResponses
 	}
 	defaultResponses["blueclaw_turn_router"] = scenarioTurnRouterResponse(scenario, VirtualTurn{})
 	return defaultResponses
+}
+
+func scenarioNeedsTurnRouterDefault(scenario VirtualSessionScenario) bool {
+	return len(scenario.InitialToolNames) > 0 ||
+		len(scenario.RouterRequiredEvidence) > 0 ||
+		strings.TrimSpace(scenario.RouterTaskLevel) != "" ||
+		strings.TrimSpace(scenario.RouterTaskShape) != ""
 }
 
 func scenarioApprovalRouterResponse(approval string) string {
@@ -1183,10 +1257,14 @@ func scenarioTurnRouterResponse(scenario VirtualSessionScenario, virtualTurn Vir
 	if virtualTurnExpectsEvent(virtualTurn, "ask.resolved") {
 		route = "continue_task"
 	}
+	taskShape := strings.TrimSpace(scenario.RouterTaskShape)
+	if taskShape == "" {
+		taskShape = "maintenance_task"
+	}
 	routerDocument := map[string]any{
 		"route":                  route,
 		"classification":         "bounded_task",
-		"taskShape":              "maintenance_task",
+		"taskShape":              taskShape,
 		"level":                  string(taskLevel),
 		"requestedOutputFormats": nil,
 		"expectedResults":        []any{},
@@ -1226,6 +1304,7 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	if harness.callRecorder != nil {
 		modelCallStartIndex = harness.callRecorder.CallCount()
 	}
+	codingTierStartCounts := harness.codingTierProbe.counts()
 	messages := append([]connectors.VisibleContextMessage{}, harness.history...)
 	messages = append(messages, virtualTurn.ContextMessages...)
 	event := connectors.PlatformInboundEvent{
@@ -1275,18 +1354,22 @@ func (harness *VirtualSessionHarness) runTurn(ctx context.Context, index int, vi
 	if !isFound {
 		return VirtualTurnResult{}, errors.New("virtual turn task run not found")
 	}
+	codingTierEndCounts := harness.codingTierProbe.counts()
 	return VirtualTurnResult{
-		TaskRunID:               runtimeResult.TaskRunID,
-		TaskStatus:              taskRun.Status,
-		FailureReason:           taskRun.FailureReason,
-		FinishMessage:           outboundReply.Message,
-		ReplyTargetID:           outboundReplyTarget.ReplyTargetID,
-		Attachments:             outboundReply.Attachments,
-		Events:                  harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
-		LanguageModelCallEvents: harness.modelCallsSince(modelCallStartIndex),
-		ModelContext:            harness.modelContextSince(modelRequestStartIndex),
-		ModelImagePartCount:     harness.modelImagePartCountSince(modelRequestStartIndex),
-		UserModelImagePartCount: harness.userModelImagePartCountSince(modelRequestStartIndex),
+		TaskRunID:                    runtimeResult.TaskRunID,
+		TaskStatus:                   taskRun.Status,
+		FailureReason:                taskRun.FailureReason,
+		FinishMessage:                outboundReply.Message,
+		ReplyTargetID:                outboundReplyTarget.ReplyTargetID,
+		Attachments:                  outboundReply.Attachments,
+		Events:                       harness.taskEventService.ListTaskEvent(runtimeResult.TaskRunID),
+		LanguageModelCallEvents:      harness.modelCallsSince(modelCallStartIndex),
+		ModelContext:                 harness.modelContextSince(modelRequestStartIndex),
+		ModelImagePartCount:          harness.modelImagePartCountSince(modelRequestStartIndex),
+		UserModelImagePartCount:      harness.userModelImagePartCountSince(modelRequestStartIndex),
+		CodingVisionModelCallCount:   codingTierEndCounts.VisionCallCount - codingTierStartCounts.VisionCallCount,
+		CodingTextOnlyModelCallCount: codingTierEndCounts.TextOnlyCallCount - codingTierStartCounts.TextOnlyCallCount,
+		CodingTextOnlyImageCallCount: codingTierEndCounts.TextOnlyImageCallCount - codingTierStartCounts.TextOnlyImageCallCount,
 	}, nil
 }
 
@@ -1384,7 +1467,26 @@ func assertLooseTurnResult(virtualTurn VirtualTurn, turnResult VirtualTurnResult
 	case task.TaskStatusPlanned, task.TaskStatusRunning, task.TaskStatusInterrupted:
 		return fmt.Errorf("expected terminal or waiting task status, got %s", turnResult.TaskStatus)
 	}
+	if errorValue := assertTurnCountExpectations(virtualTurn, turnResult); errorValue != nil {
+		return errorValue
+	}
 	return assertStructuralTurnExpectations(virtualTurn, turnResult)
+}
+
+func assertTurnCountExpectations(virtualTurn VirtualTurn, turnResult VirtualTurnResult) error {
+	for toolName, expectedCount := range virtualTurn.ExpectedToolCallCounts {
+		actualCount := countRequestedToolCalls(turnResult.Events, toolName)
+		if actualCount != expectedCount {
+			return fmt.Errorf("expected %d requested %s calls, got %d; events: %s", expectedCount, toolName, actualCount, summarizeEvents(turnResult.Events))
+		}
+	}
+	for _, expectedEventCount := range virtualTurn.ExpectedEventCounts {
+		actualCount := countEventsWithFragment(turnResult.Events, expectedEventCount.Name, expectedEventCount.BodyFragment)
+		if actualCount != expectedEventCount.Count {
+			return fmt.Errorf("expected %d events %s containing %q, got %d; events: %s", expectedEventCount.Count, expectedEventCount.Name, expectedEventCount.BodyFragment, actualCount, summarizeEvents(turnResult.Events))
+		}
+	}
+	return nil
 }
 
 func informationalAssertionResults(virtualTurn VirtualTurn, turnResult VirtualTurnResult) []VirtualInformationalAssertion {
@@ -1422,17 +1524,8 @@ func assertTurnResult(workspacePath string, virtualTurn VirtualTurn, turnResult 
 			return fmt.Errorf("expected event %q; events: %s", eventName, summarizeEvents(turnResult.Events))
 		}
 	}
-	for toolName, expectedCount := range virtualTurn.ExpectedToolCallCounts {
-		actualCount := countRequestedToolCalls(turnResult.Events, toolName)
-		if actualCount != expectedCount {
-			return fmt.Errorf("expected %d requested %s calls, got %d; events: %s", expectedCount, toolName, actualCount, summarizeEvents(turnResult.Events))
-		}
-	}
-	for _, expectedEventCount := range virtualTurn.ExpectedEventCounts {
-		actualCount := countEventsWithFragment(turnResult.Events, expectedEventCount.Name, expectedEventCount.BodyFragment)
-		if actualCount != expectedEventCount.Count {
-			return fmt.Errorf("expected %d events %s containing %q, got %d; events: %s", expectedEventCount.Count, expectedEventCount.Name, expectedEventCount.BodyFragment, actualCount, summarizeEvents(turnResult.Events))
-		}
+	if errorValue := assertTurnCountExpectations(virtualTurn, turnResult); errorValue != nil {
+		return errorValue
 	}
 	for _, suffix := range virtualTurn.ExpectedAttachments {
 		attachment, isFound := findAttachmentWithSuffix(turnResult.Attachments, suffix)
@@ -1578,11 +1671,39 @@ func summarizeEvents(events []task.TaskEvent) string {
 
 func eventsContain(events []task.TaskEvent, name string, bodyFragment string) bool {
 	for _, event := range events {
-		if event.Name == name && strings.Contains(event.Body, bodyFragment) {
+		if event.Name == name && strings.Contains(eventFragmentMatchTarget(event), bodyFragment) {
 			return true
 		}
 	}
 	return false
+}
+
+func eventFragmentMatchTarget(event task.TaskEvent) string {
+	if !strings.HasPrefix(event.Name, "tool.") || !strings.HasSuffix(event.Name, ".result") {
+		return event.Body
+	}
+	return resultEventOutputText(event.Body)
+}
+
+func resultEventOutputText(body string) string {
+	var observation struct {
+		Output struct {
+			Content string          `json:"content"`
+			Data    json.RawMessage `json:"data"`
+		} `json:"output"`
+		Failure json.RawMessage `json:"failure"`
+	}
+	if json.Unmarshal([]byte(body), &observation) != nil {
+		return ""
+	}
+	parts := []string{observation.Output.Content}
+	if len(observation.Output.Data) > 0 {
+		parts = append(parts, string(observation.Output.Data))
+	}
+	if len(observation.Failure) > 0 {
+		parts = append(parts, string(observation.Failure))
+	}
+	return strings.Join(parts, "\n")
 }
 
 func countEvents(events []task.TaskEvent, name string) int {
@@ -1609,7 +1730,7 @@ func countEventsWithFragment(events []task.TaskEvent, name string, bodyFragment 
 		if event.Name != name {
 			continue
 		}
-		if bodyFragment != "" && !strings.Contains(event.Body, bodyFragment) {
+		if bodyFragment != "" && !strings.Contains(eventFragmentMatchTarget(event), bodyFragment) {
 			continue
 		}
 		count++

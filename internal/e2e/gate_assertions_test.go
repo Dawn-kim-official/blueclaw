@@ -96,6 +96,66 @@ func TestCheckpointReplyMalformedBodyDoesNotPanic(t *testing.T) {
 	}
 }
 
+func TestResultEventFragmentMatchingTargetsToolOutputOnly(t *testing.T) {
+	resultEvent := task.TaskEvent{
+		Name: "tool.alpha.result",
+		Body: `{"observationID":"obs-1","action":"continue","tool":"alpha","output":{"content":"real output token"},"toolInputKey":"alpha\u0000{\"query\":\"input-only-token\"}","durationMs":1}`,
+	}
+	events := []task.TaskEvent{resultEvent}
+	if countEventsWithFragment(events, "tool.alpha.result", "input-only-token") != 0 {
+		t.Fatal("result-event fragment matching must not match the canonicalized tool input")
+	}
+	if countEventsWithFragment(events, "tool.alpha.result", "real output token") != 1 {
+		t.Fatal("result-event fragment matching must match the observation output content")
+	}
+	if eventsContain(events, "tool.alpha.result", "input-only-token") {
+		t.Fatal("eventsContain must not match the canonicalized tool input for result events")
+	}
+	if !eventsContain(events, "tool.alpha.result", "real output token") {
+		t.Fatal("eventsContain must match the observation output content for result events")
+	}
+
+	failedResultEvent := task.TaskEvent{
+		Name: "tool.alpha.result",
+		Body: `{"observationID":"obs-2","action":"continue","tool":"alpha","output":{"content":"requires approval"},"failure":{"kind":"policy_blocked","code":"approval_required"},"toolInputKey":"alpha\u0000{}","durationMs":1}`,
+	}
+	if !eventsContain([]task.TaskEvent{failedResultEvent}, "tool.alpha.result", "approval_required") {
+		t.Fatal("result-event fragment matching must still cover the tool failure payload")
+	}
+
+	requestedEvent := task.TaskEvent{
+		Name: "tool.alpha.requested",
+		Body: `{"observationID":"obs-1","toolName":"alpha","input":{"query":"input-only-token"}}`,
+	}
+	if countEventsWithFragment([]task.TaskEvent{requestedEvent}, "tool.alpha.requested", "input-only-token") != 1 {
+		t.Fatal("requested-event fragment matching must keep matching the tool input")
+	}
+}
+
+func TestLooseModeEnforcesCountExpectations(t *testing.T) {
+	turnResult := VirtualTurnResult{
+		TaskStatus:    task.TaskStatusCompleted,
+		FinishMessage: "최종 답변",
+		Events: []task.TaskEvent{
+			gateNamedEvent("tool.alpha.requested"),
+			{Name: "tool.alpha.result", Body: `{"observationID":"obs-1","action":"continue","tool":"alpha","output":{"content":"alpha output"},"durationMs":1}`},
+		},
+	}
+	passingTurn := VirtualTurn{
+		ExpectedToolCallCounts: map[string]int{"alpha": 1},
+		ExpectedEventCounts:    []VirtualEventCount{{Name: "tool.alpha.result", BodyFragment: "alpha output", Count: 1}},
+	}
+	if errorValue := assertLooseTurnResult(passingTurn, turnResult); errorValue != nil {
+		t.Fatalf("expected loose mode to accept satisfied counts: %v", errorValue)
+	}
+	if assertLooseTurnResult(VirtualTurn{ExpectedToolCallCounts: map[string]int{"alpha": 2}}, turnResult) == nil {
+		t.Fatal("expected loose mode to enforce expected tool call counts")
+	}
+	if assertLooseTurnResult(VirtualTurn{ExpectedEventCounts: []VirtualEventCount{{Name: "tool.alpha.result", BodyFragment: "missing", Count: 1}}}, turnResult) == nil {
+		t.Fatal("expected loose mode to enforce expected event counts")
+	}
+}
+
 func TestLooseModeStillEnforcesStructuralFields(t *testing.T) {
 	turnResult := VirtualTurnResult{
 		TaskStatus:    task.TaskStatusCompleted,
