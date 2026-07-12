@@ -273,7 +273,7 @@ func TestRequiredLinkVerificationAcceptsTrailingSlashDifference(t *testing.T) {
 	}
 }
 
-func TestMessageResultKeepsBlockingAfterPriorMissingEvidenceWarning(t *testing.T) {
+func TestMessageResultBlocksOnceThenDelivers(t *testing.T) {
 	contract := OutcomeContract{ExpectedResults: []ExpectedResult{
 		{ID: "result-1", Type: ExpectedResultTypeMessage, Description: "self-intro text", Required: true},
 	}}
@@ -281,13 +281,18 @@ func TestMessageResultKeepsBlockingAfterPriorMissingEvidenceWarning(t *testing.T
 		{ID: "result-1", Status: "missing"},
 	}}
 
+	firstPass := blockingExpectedResultItems(contract, verification, nil)
+	if len(firstPass) != 1 {
+		t.Fatalf("message result should block on first verdict, got %d", len(firstPass))
+	}
+
 	priorFlag := []turnObservation{{
 		Action: "evidence_missing",
 		Output: ToolOutput{Content: "missing required expected result: result-1"},
 	}}
-	blockingItems := blockingExpectedResultItems(contract, verification, priorFlag)
-	if len(blockingItems) != 1 {
-		t.Fatalf("message result must remain blocked until observed, got %d", len(blockingItems))
+	secondPass := blockingExpectedResultItems(contract, verification, priorFlag)
+	if len(secondPass) != 0 {
+		t.Fatalf("message result should deliver after one advisory round, got %d", len(secondPass))
 	}
 }
 

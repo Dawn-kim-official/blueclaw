@@ -923,10 +923,9 @@ func TestAgentTurnRunnerTerminalNoToolsRepairsInvalidOutputWithoutReopeningTools
 	assertTerminalNoToolsSchemasExcludeToolActions(t, languageModel.requests)
 }
 
-func TestAgentTurnRunnerRequestsFinalReplyAfterSimpleBrowserOpen(t *testing.T) {
+func TestAgentTurnRunnerAutoCompletesSimpleBrowserOpen(t *testing.T) {
 	languageModel := &sequenceLanguageModel{contents: []string{
-		capabilityInvokeAction("continue", "브라우저를 여는 중입니다.", "browser.open", `{"url":"https://www.google.com"}`),
-		finishMessageWithEvidence("브라우저를 열었습니다.", "obs-001", "browser.open", 0),
+		capabilityInvokeAction("continue", "브라우저를 열었습니다. 완료했습니다.", "browser.open", `{"url":"https://www.google.com"}`),
 	}}
 	services := newTurnRunnerTestServices(languageModel, TurnOptions{})
 	toolRegistry := newTestCapabilityToolSet([]string{"browser.open"})
@@ -949,11 +948,11 @@ func TestAgentTurnRunnerRequestsFinalReplyAfterSimpleBrowserOpen(t *testing.T) {
 	if !strings.Contains(result.FinishMessage, "완료") && !strings.Contains(result.FinishMessage, "열") {
 		t.Fatalf("expected browser-open completion reply, got %q", result.FinishMessage)
 	}
-	if len(languageModel.requests) != 2 {
-		t.Fatalf("expected explicit final model call after browser.open, got %d", len(languageModel.requests))
+	if len(languageModel.requests) != 1 {
+		t.Fatalf("expected no extra model calls after browser.open, got %d", len(languageModel.requests))
 	}
-	if taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "") {
-		t.Fatal("expected no automatic completion state finalization")
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_finalized", "evidenceCount") {
+		t.Fatal("expected completion state finalization event")
 	}
 }
 
