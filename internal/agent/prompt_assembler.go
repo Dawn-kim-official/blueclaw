@@ -281,7 +281,12 @@ func buildWorkspaceContextDescription(request AgentTurnRequest) string {
 	if strings.TrimSpace(request.WorkspaceDefaultPath) == "" {
 		return ""
 	}
+	conversationDefaultDirectory := strings.TrimSpace(request.WorkspaceDefaultPath)
+	if strings.HasPrefix(conversationDefaultDirectory, "/workspace/private/people/") {
+		conversationDefaultDirectory = "~"
+	}
 	lines := []string{
+		"This conversation's default directory is " + conversationDefaultDirectory + "; relative tool paths resolve from your home (~), so use explicit paths when working under the default directory.",
 		"Terminal commands run as the requester POSIX identity; ~ is your Linux home ($HOME) and your private workspace, and the same ~ path works in a tool path field and in a shell command.",
 		"Do all document work — build, edit, and deliver — directly in ~/documents/; save finished documents (Word, PDF, Excel, slides) as ~/documents/<name>.<ext> so a later edit or delete task finds them with ls ~/documents.",
 		"A concrete POSIX path under your home also resolves, so open one you see in ls output instead of giving up.",

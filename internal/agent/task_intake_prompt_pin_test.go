@@ -46,3 +46,17 @@ func TestTaskIntakePromptPinsEstimateAndLaunchNoticeGuidance(t *testing.T) {
 		}
 	})
 }
+
+func TestWorkspaceContextStatesConversationDefaultDirectory(t *testing.T) {
+	circleDescription := buildWorkspaceContextDescription(AgentTurnRequest{WorkspaceDefaultPath: "/workspace/circles/staff"})
+	if !strings.Contains(circleDescription, "This conversation's default directory is /workspace/circles/staff") {
+		t.Fatalf("workspace context must state the concrete conversation default directory so the agent knows where it is working (2026-07-12 IR deck incident: relative writes landed outside the conversation directory unnoticed); got %q", circleDescription)
+	}
+	privateDescription := buildWorkspaceContextDescription(AgentTurnRequest{WorkspaceDefaultPath: "/workspace/private/people/person-1"})
+	if !strings.Contains(privateDescription, "This conversation's default directory is ~") {
+		t.Fatalf("workspace context must state the private default directory as ~; got %q", privateDescription)
+	}
+	if strings.Contains(privateDescription, "/workspace/private/people/") {
+		t.Fatalf("workspace context must not expose concrete private paths; got %q", privateDescription)
+	}
+}
