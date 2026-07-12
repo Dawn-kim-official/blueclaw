@@ -136,7 +136,7 @@ func TestFailureNoticeGeneratorFallsBackToRedactedRawError(t *testing.T) {
 	}
 }
 
-func TestStallRawFailureNoticeDeliveredWhenModelFails(t *testing.T) {
+func TestStallControlPhraseNotDeliveredWhenModelFails(t *testing.T) {
 	notice, status := (FailureNoticeGenerator{LanguageModel: failingLanguageModel{}}).Generate(context.Background(), FailureReport{
 		Phase:             "stall",
 		StopReason:        "stopped after repeated model actions without workspace, tool, artifact, attachment, or new failure progress, including after stall guidance",
@@ -147,8 +147,22 @@ func TestStallRawFailureNoticeDeliveredWhenModelFails(t *testing.T) {
 	if status.Source != "raw_error" {
 		t.Fatalf("expected raw error fallback for stall, got %+v", status)
 	}
-	if !stallNoticeCanReachUser(notice) {
-		t.Fatalf("expected compact raw stall notice to reach the user, got %q", notice.SendableMessage())
+	if stallNoticeCanReachUser(notice, status.Source) {
+		t.Fatalf("expected stall control phrase not to reach the user, got %q", notice.SendableMessage())
+	}
+}
+
+func TestFailureNoticeRejectsChatTextSubstituteForRequiredArtifact(t *testing.T) {
+	message := "파일 생성 단계가 중단되었습니다. 준비된 발표 자료의 전체 기획안을 텍스트로 이곳에 바로 정리해 드릴까요?"
+
+	substituteNotice := buildFailureNotice(message, "generated", FailureReport{ArtifactRequired: true, ResponseLanguage: ResponseLanguageKorean})
+	if substituteNotice.IsSendable {
+		t.Fatalf("expected chat text substitute for required artifact to be rejected, got %q", substituteNotice.SendableMessage())
+	}
+
+	plainNotice := buildFailureNotice(message, "generated", FailureReport{ResponseLanguage: ResponseLanguageKorean})
+	if !plainNotice.IsSendable {
+		t.Fatalf("expected notice without required artifact to stay sendable, got %+v", plainNotice)
 	}
 }
 

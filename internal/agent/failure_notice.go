@@ -530,8 +530,18 @@ func buildFailureNotice(message string, source string, report FailureReport) Fai
 		Source:            strings.TrimSpace(source),
 		Language:          strings.TrimSpace(report.ResponseLanguage),
 		DiagnosticEventID: strings.TrimSpace(report.DiagnosticEventID),
-		IsSendable:        failureNoticeMessageIsSendable(trimmedMessage),
+		IsSendable:        failureNoticeMessageIsSendableForReport(trimmedMessage, report),
 	}
+}
+
+func failureNoticeMessageIsSendableForReport(message string, report FailureReport) bool {
+	if !failureNoticeMessageIsSendable(message) {
+		return false
+	}
+	if report.ArtifactRequired && offersChatTextAsArtifactSubstitute(message) {
+		return false
+	}
+	return true
 }
 
 func failureNoticeMessageIsSendable(message string) bool {
@@ -546,6 +556,16 @@ func failureNoticeMessageIsSendable(message string) bool {
 		return false
 	}
 	return !containsInternalDiagnosticLeak(trimmedMessage)
+}
+
+func offersChatTextAsArtifactSubstitute(message string) bool {
+	normalizedMessage := strings.ToLower(strings.TrimSpace(message))
+	for _, fragment := range []string{"텍스트로", "글로 정리", "채팅으로", "이곳에 바로", "here in chat", "as text"} {
+		if strings.Contains(normalizedMessage, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsInternalDiagnosticLeak(message string) bool {

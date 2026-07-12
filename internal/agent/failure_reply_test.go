@@ -469,7 +469,7 @@ func TestAgentTurnRunnerReportsRawLimitErrorWhenGenerationKeepsLeakingDiagnostic
 	if errorValue != nil {
 		t.Fatalf("expected limit result, got error: %v", errorValue)
 	}
-	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "max_iterations") {
+	if result.ReplySuppressed || !strings.Contains(result.UserNotice, "Progress was saved") {
 		t.Fatalf("expected raw limit reply, got reply=%q suppressed=%v", result.UserNotice, result.ReplySuppressed)
 	}
 	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.limit_reply", "raw_error") {
