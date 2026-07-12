@@ -25,11 +25,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-configured_models="$(systemctl show blueclaw --property=Environment --value)"
-if ! grep -Fq "$blueclaw_test_model" <<<"$configured_models"; then
-  echo "artifact-delivery: Blueclaw is not pinned to $blueclaw_test_model" >&2
-  exit 1
-fi
+runtime_configuration=/root/.blueclaw/config/runtime.json
+for model_field in model lowModel mediumModel highModel xhighModel maxModel codingModel visionModel; do
+  configured_model="$(jq -er --arg field "$model_field" '.llm.capability[$field]' "$runtime_configuration")"
+  if [ "$configured_model" != "$blueclaw_test_model" ]; then
+    echo "artifact-delivery: $model_field is $configured_model, expected $blueclaw_test_model" >&2
+    exit 1
+  fi
+done
 
 requester_person_id="$(curl -fsS "$blueclaw_url/admin/api/policy" | jq -er '.people[0].personID')"
 task_response="$(curl -fsS --max-time 900 -H 'Content-Type: application/json' \
