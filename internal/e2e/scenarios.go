@@ -119,12 +119,15 @@ func ToolPermissionHidesSkillScenario(artifactDirectoryPath string) VirtualSessi
 	return VirtualSessionScenario{
 		Name:                  "tool_permission_hides_skill",
 		ArtifactDirectoryPath: artifactDirectoryPath,
-		Skills:                []agent.SkillInstruction{presentationSkill()},
+		Skills:                []agent.SkillInstruction{websiteSkill()},
 		AllowedTools:          []string{"memory.search", "file.write"},
 		Turns: []VirtualTurn{{
-			Prompt: "피피티 만들어줘",
+			Prompt: "웹사이트 만들어줘",
 			ActionResponses: []string{
-				actionFinishMessage("현재 profile에서는 필요한 도구가 없어 슬라이드 생성 skill을 실행하지 않았습니다."),
+				actionFinishMessage("현재 profile에서는 필요한 도구가 없어 웹사이트 생성 skill을 실행하지 않았습니다."),
+			},
+			ExpectedEventCounts: []VirtualEventCount{
+				{Name: "agent.instructions_loaded", BodyFragment: `"reason":"missing_allowed_tools"`, Count: 1},
 			},
 			ExpectedReplyFragments: []string{"필요한 도구"},
 		}},
@@ -1427,11 +1430,11 @@ func presentationSkill() agent.SkillInstruction {
 		Description: "Create local presentation decks with PPTX, PDF, HTML, and notes attachments.",
 		Category:    "document-generation",
 		Tags:        []string{"slides", "pptx", "presentation"},
-		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh for html-only requests, promote build outputs with file.promote, then file.attach only promoted generated files. Do not use Google Workspace unless a google tool is explicitly available.",
+		Prompt:      "Write Stitch-compatible DESIGN.md and Marp presentation.md directly under tmp/<deck-slug> from the user request. Treat presentation.md as the deck source of truth and iterate on it when needed. Use Paperlogy/Freesentation/Pretendard/Noto Sans KR font guidance, choose layouts from the content intent, include design-source: DESIGN.md, run NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh with workingDirectoryPath tmp/<deck-slug> for a full deck or FORMATS=html NAME=<deck-slug> /workspace/skills/presentation/scripts/build.sh for html-only requests, then deliver only generated build outputs with file.deliver. Do not use Google Workspace unless a google tool is explicitly available.",
 		Activation: agent.SkillActivation{
 			Keywords: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		},
-		AllowedTools: []string{"file.write", "terminal.run", "file.promote", "file.attach"},
+		AllowedTools: []string{"file.write", "terminal.run", "file.deliver"},
 		TriggerHints: []string{"피피티", "파워포인트", "발표자료", "pptx", "google slides", "구글 슬라이드"},
 		Source: agent.InstructionSource{
 			Path:      "skills/presentation/SKILL.md",
