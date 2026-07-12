@@ -726,6 +726,70 @@ func TestAgentTurnRunnerAttachesPrivateTmpArtifactAfterBudgetExhaustedFail(t *te
 	}
 }
 
+func TestAgentTurnRunnerSalvagesPrivateTmpArtifactAfterRecoverableFailStalls(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	privateTmpDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "tmp", "yeomyeonggeori-ir")
+	artifactPath := filepath.Join(privateTmpDirectoryPath, "slides.html")
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/yeomyeonggeori-ir/slides.html","content":"<html><body>IR deck</body></html>"}}`,
+		`{"action":"continue","toolName":"terminal.run","toolInput":{"command":"grep quality"}}`,
+		`{"action":"fail","reason":"quality review failed"}`,
+		`{"action":"fail","reason":"quality review failed"}`,
+		`{"action":"fail","reason":"quality review failed"}`,
+		`{"action":"fail","reason":"quality review failed"}`,
+		`{"action":"fail","reason":"quality review failed"}`,
+		`{"action":"fail","reason":"quality review failed"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 20})
+	toolRegistry := newTestToolSet([]string{"file.write", "terminal.run", "file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		if errorValue := os.MkdirAll(privateTmpDirectoryPath, 0700); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		writeAgentTestFile(t, artifactPath, "<html><body>IR deck</body></html>")
+		return ToolSuccess(`{"path":"tmp/yeomyeonggeori-ir/slides.html","sizeBytes":34}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "terminal.run"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		return ToolFailureResult(FailureUnknown, FailureCodes.OperationFailed, "terminal_run", "grep exited with status 1"), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var request struct {
+			Path string `json:"path"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		return ToolResult{
+			Output:      ToolOutput{Content: "file attached"},
+			Attachments: []FileAttachment{{DevicePath: request.Path, Filename: filepath.Base(request.Path)}},
+		}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "IR 슬라이드 만들어줘",
+		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
+		WorkspaceRootPath:          workspaceRootPath,
+		TurnStartedAt:              time.Now().Add(-time.Minute),
+		RequiredEvidenceTools:      []string{"file.deliver"},
+		RequiredAttachmentSuffixes: []string{".html"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected stalled recovery to salvage the artifact: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		t.Fatalf("expected completed task with salvaged artifact, got %s", result.TaskRun.Status)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "slides.html" {
+		t.Fatalf("expected slides.html attachment, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_transition", "attach_existing_artifacts") {
+		t.Fatal("expected stalled recovery to enter completion-state attachment transition")
+	}
+}
+
 func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")
