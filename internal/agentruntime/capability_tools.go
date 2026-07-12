@@ -140,7 +140,11 @@ func (toolCatalogBuilder *ToolCatalogBuilder) invokeCapabilityOperation(toolCont
 		content = string(response.Result)
 	}
 	isError := response.IsError || response.Status == "error" || response.Status == "denied"
-	return capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry), nil
+	result := capabilityToolResult(content, response.Result, isError, response.Message, response.ErrorCode, response.FailureStage, response.Retryable, response.SafeRetry)
+	if isError && firstNonEmptyString(response.ErrorCode, capabilityResultString(response.Result, "errorCode")) == "invalid_workspace_path" {
+		result = toolCatalogBuilder.withWorkspacePathFacts(result, request, capabilityInputPathValue(rawInput))
+	}
+	return result, nil
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) registerGenericCapabilityTool(toolRegistry *agent.ToolSet, request ToolCatalogRequest) {
@@ -846,8 +850,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) prepareCapabilityToolInput(toolCon
 		return toolCatalogBuilder.enrichSitePublishInput(toolContext, request, toolInput)
 	}
 	if capabilityToolNeedsWorkspacePath(toolName) {
-		input, errorValue := toolCatalogBuilder.resolveCapabilityWorkspacePathInput(toolContext, toolName, request, toolInput)
-		return input, nil, errorValue
+		return toolCatalogBuilder.resolveCapabilityWorkspacePathInput(toolContext, toolName, request, toolInput)
 	}
 	return toolInput, nil, nil
 }
@@ -861,42 +864,78 @@ func capabilityToolNeedsWorkspacePath(toolName string) bool {
 	}
 }
 
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, error) {
+func (toolCatalogBuilder *ToolCatalogBuilder) resolveCapabilityWorkspacePathInput(toolContext context.Context, toolName string, request ToolCatalogRequest, toolInput json.RawMessage) (json.RawMessage, *agent.ToolResult, error) {
 	inputDocument := map[string]any{}
 	if len(toolInput) > 0 {
 		if errorValue := json.Unmarshal(toolInput, &inputDocument); errorValue != nil {
-			return nil, errorValue
+			return nil, nil, errorValue
 		}
 	}
 	path, _ := inputDocument["path"].(string)
 	if materialID, _ := inputDocument["materialID"].(string); strings.TrimSpace(materialID) != "" {
 		material, errorValue := resolveReadableAttachmentMaterial(toolContext, request, materialID)
 		if errorValue != nil {
-			return nil, errorValue
+			return nil, nil, errorValue
 		}
 		if errorValue := validateAttachmentMaterialTool(toolName, material); errorValue != nil {
-			return nil, errorValue
+			return nil, nil, errorValue
 		}
 		path = material.Path
 		delete(inputDocument, "materialID")
 	}
-	resolvedPath, errorValue := toolCatalogBuilder.resolveReadableCapabilityPath(request, path)
-	if errorValue != nil {
-		return nil, errorValue
-	}
-	inputDocument["path"] = toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath)
-	return json.Marshal(inputDocument)
-}
-
-func (toolCatalogBuilder *ToolCatalogBuilder) resolveReadableCapabilityPath(request ToolCatalogRequest, path string) (ResolvedWorkspacePath, error) {
 	resolvedPath, errorValue := NewWorkspacePathResolver(toolCatalogBuilder.workspaceRootPath).Resolve(path, WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, ""))
 	if errorValue != nil {
-		return ResolvedWorkspacePath{}, errorValue
+		failure := toolCatalogBuilder.workspacePathFailure(request, path, errorValue.Error())
+		return nil, &failure, nil
 	}
 	if !toolCatalogBuilder.canAccessWorkspacePath(request.PersonAccess, access.ActionRead, resolvedPath.ConcretePath) {
-		return ResolvedWorkspacePath{}, errors.New("current account cannot read this file")
+		return nil, nil, errors.New("current account cannot read this file")
 	}
-	return resolvedPath, nil
+	inputDocument["path"] = toolCatalogBuilder.agentWorkspacePath(resolvedPath.ConcretePath)
+	document, marshalError := json.Marshal(inputDocument)
+	return document, nil, marshalError
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) workspacePathFailure(request ToolCatalogRequest, pathReceived string, summary string) agent.ToolResult {
+	document := json.RawMessage(marshalToolResult(toolCatalogBuilder.workspacePathFacts(request, pathReceived)))
+	result := agent.ToolFailureWithOutput(agent.FailureInvalidInput, agent.FailureCode("invalid_workspace_path"), "invalid_workspace_path", summary, document)
+	result.Failure.Retryable = true
+	result.Failure.SafeRetry = true
+	return result
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) withWorkspacePathFacts(result agent.ToolResult, request ToolCatalogRequest, pathReceived string) agent.ToolResult {
+	document := map[string]any{}
+	if len(result.Output.Data) > 0 {
+		if errorValue := json.Unmarshal(result.Output.Data, &document); errorValue != nil {
+			document = map[string]any{}
+		}
+	}
+	for key, value := range toolCatalogBuilder.workspacePathFacts(request, pathReceived) {
+		document[key] = value
+	}
+	result.Output.Data = json.RawMessage(marshalToolResult(document))
+	return result
+}
+
+func (toolCatalogBuilder *ToolCatalogBuilder) workspacePathFacts(request ToolCatalogRequest, pathReceived string) map[string]any {
+	scope := WorkspaceScopeForRequest(toolCatalogBuilder.workspaceRootPath, request, "")
+	conversationScope := ConversationScopeForRequest(toolCatalogBuilder.workspaceRootPath, request)
+	return map[string]any{
+		"failureClass":         "invalid_workspace_path",
+		"pathReceived":         pathReceived,
+		"requesterRootPath":    toolCatalogBuilder.agentWorkspacePath(scope.RequesterRootPath),
+		"defaultDirectoryPath": toolCatalogBuilder.agentWorkspacePath(conversationScope.DefaultDirectoryPath),
+	}
+}
+
+func capabilityInputPathValue(toolInput json.RawMessage) string {
+	inputDocument := map[string]any{}
+	if len(toolInput) == 0 || json.Unmarshal(toolInput, &inputDocument) != nil {
+		return ""
+	}
+	path, _ := inputDocument["path"].(string)
+	return path
 }
 
 func (toolCatalogBuilder *ToolCatalogBuilder) handleCapabilityToolSuccess(toolContext context.Context, toolName string, request ToolCatalogRequest, result *json.RawMessage) (*agent.ToolResult, error) {

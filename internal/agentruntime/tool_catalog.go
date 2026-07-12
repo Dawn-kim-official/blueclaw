@@ -523,7 +523,7 @@ func (toolCatalogBuilder *ToolCatalogBuilder) resolveAgentWorkspaceEnvironment(e
 
 func (toolCatalogBuilder *ToolCatalogBuilder) agentWorkspacePath(path string) string {
 	relativePath, errorValue := filepath.Rel(toolCatalogBuilder.workspaceRootPath, path)
-	if errorValue != nil || relativePath == "." || strings.HasPrefix(relativePath, "../") || relativePath == ".." {
+	if errorValue != nil || strings.HasPrefix(relativePath, "../") || relativePath == ".." {
 		return path
 	}
 	return filepath.ToSlash(filepath.Join("/workspace", relativePath))

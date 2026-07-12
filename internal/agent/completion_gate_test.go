@@ -671,6 +671,61 @@ func TestAgentTurnRunnerAutoAttachesRequiredWorkspaceArtifacts(t *testing.T) {
 	}
 }
 
+func TestAgentTurnRunnerAttachesPrivateTmpArtifactAfterBudgetExhaustedFail(t *testing.T) {
+	workspaceRootPath := t.TempDir()
+	privateTmpDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "tmp", "yeomyeonggeori-ir")
+	artifactPath := filepath.Join(privateTmpDirectoryPath, "slides.html")
+
+	languageModel := &sequenceLanguageModel{contents: []string{
+		`{"action":"continue","toolName":"file.write","toolInput":{"path":"tmp/yeomyeonggeori-ir/slides.html","content":"<html><body>IR deck</body></html>"}}`,
+		`{"action":"fail","reason":"budget exhausted before delivery"}`,
+	}}
+	services := newTurnRunnerTestServices(languageModel, TurnOptions{MaxIterationCount: 4})
+	toolRegistry := newTestToolSet([]string{"file.write", "file.deliver"})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.write"}, func(context.Context, ToolInvocation) (ToolResult, error) {
+		if errorValue := os.MkdirAll(privateTmpDirectoryPath, 0700); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		writeAgentTestFile(t, artifactPath, "<html><body>IR deck</body></html>")
+		return ToolSuccess(`{"path":"tmp/yeomyeonggeori-ir/slides.html","sizeBytes":34}`), nil
+	})
+	toolRegistry.RegisterTool(ToolDefinition{Name: "file.deliver"}, func(_ context.Context, invocation ToolInvocation) (ToolResult, error) {
+		var request struct {
+			Path string `json:"path"`
+		}
+		if errorValue := json.Unmarshal(invocation.Input, &request); errorValue != nil {
+			return ToolResult{}, errorValue
+		}
+		attachments := []FileAttachment{{DevicePath: request.Path, Filename: filepath.Base(request.Path)}}
+		return ToolResult{Output: ToolOutput{Content: "file attached"}, Attachments: attachments}, nil
+	})
+
+	result, errorValue := services.runner.RunTurn(context.Background(), AgentTurnRequest{
+		RequesterPersonID:          "person-1",
+		ConversationID:             "conversation-1",
+		Prompt:                     "IR 슬라이드 만들어줘",
+		ToolSet:                    toolRegistry,
+		PinnedToolNames:            toolRegistry.ListToolNames(),
+		WorkspaceRootPath:          workspaceRootPath,
+		TurnStartedAt:              time.Now().Add(-time.Minute),
+		RequiredEvidenceTools:      []string{"file.deliver"},
+		RequiredAttachmentSuffixes: []string{".html"},
+	})
+	if errorValue != nil {
+		t.Fatalf("expected private tmp artifact to be salvaged: %v", errorValue)
+	}
+	if result.TaskRun.Status != task.TaskStatusCompleted {
+		events := services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID)
+		t.Fatalf("expected completed task with salvaged tmp artifact, got %s events=%+v", result.TaskRun.Status, events)
+	}
+	if len(result.Attachments) != 1 || result.Attachments[0].Filename != "slides.html" {
+		t.Fatalf("expected slides.html attachment, got %+v", result.Attachments)
+	}
+	if !taskEventsContain(services.taskEventService.ListTaskEvent(result.TaskRun.TaskRunID), "agent.completion_state_transition", "attach_existing_artifacts") {
+		t.Fatal("expected completion state to attach the private tmp artifact")
+	}
+}
+
 func TestAgentTurnRunnerCompletesAfterRequiredArtifactsExist(t *testing.T) {
 	workspaceRootPath := t.TempDir()
 	artifactDirectoryPath := filepath.Join(workspaceRootPath, "private", "people", "person-1", "artifacts", "deck")

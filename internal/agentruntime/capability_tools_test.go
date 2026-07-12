@@ -135,6 +135,95 @@ func TestImageReadResolvesAttachmentMaterialID(t *testing.T) {
 	}
 }
 
+func TestImageReadInvalidAbsolutePathFailureCarriesWorkspacePathFacts(t *testing.T) {
+	httpClient := &recordingHTTPClient{}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(t.TempDir())
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "image.read",
+		PolicyResource: "tool:image.read",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+		RequesterPersonID:       "person-1",
+		ConversationID:          "conversation-1",
+		ConversationType:        "O",
+		ConversationChannelName: "circle-staff",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "image.read",
+		Input:    agent.MarshalToolInput(map[string]string{"path": "/root/pictures/photo.png"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() || result.Failure.Stage != "invalid_workspace_path" {
+		t.Fatalf("expected invalid_workspace_path failure, got %+v", result.Failure)
+	}
+	if httpClient.requestBody != "" {
+		t.Fatalf("expected no capability call for unresolvable path, got %s", httpClient.requestBody)
+	}
+	facts := string(result.Output.Data)
+	for _, expectedFact := range []string{
+		`"pathReceived":"/root/pictures/photo.png"`,
+		`"requesterRootPath":"/workspace/private/people/person-1"`,
+		`"defaultDirectoryPath":"/workspace/circles/staff"`,
+	} {
+		if !strings.Contains(facts, expectedFact) {
+			t.Fatalf("expected fact %s, got %s", expectedFact, facts)
+		}
+	}
+}
+
+func TestImageReadCapabilityInvalidWorkspacePathFailureCarriesFacts(t *testing.T) {
+	httpClient := &recordingHTTPClient{responseBody: `{"status":"error","isError":true,"message":"path does not point to a regular file","errorCode":"invalid_workspace_path","failureStage":"path_validation","result":{"status":"error","errorCode":"invalid_workspace_path"}}`}
+	toolCatalogBuilder := newFileToolTestCatalogBuilder(t.TempDir())
+	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{Endpoint: "http://capability.local", HTTPClient: httpClient}, []CapabilityToolDescriptor{{
+		Name:           "image.read",
+		PolicyResource: "tool:image.read",
+		InputSchema:    json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`),
+	}})
+	toolRegistry := toolCatalogBuilder.BuildToolSet(ToolCatalogRequest{
+		ProfileName: "default",
+		PersonAccess: policy.PersonAccess{
+			PersonID: "person-1",
+			Circles:  []string{"staff"},
+		},
+		RequesterPersonID: "person-1",
+		ConversationID:    "conversation-1",
+		ConversationType:  "D",
+	})
+
+	result, errorValue := toolRegistry.Invoke(context.Background(), agent.ToolInvocation{
+		ToolName: "image.read",
+		Input:    agent.MarshalToolInput(map[string]string{"path": "~/pictures/missing.png"}),
+	})
+
+	if errorValue != nil {
+		t.Fatal(errorValue)
+	}
+	if !result.Failed() {
+		t.Fatalf("expected capability failure, got %s", result.ContentText())
+	}
+	facts := string(result.Output.Data)
+	for _, expectedFact := range []string{
+		`"failureClass":"invalid_workspace_path"`,
+		`"pathReceived":"~/pictures/missing.png"`,
+		`"requesterRootPath":"/workspace/private/people/person-1"`,
+		`"defaultDirectoryPath":"/workspace/private/people/person-1"`,
+	} {
+		if !strings.Contains(facts, expectedFact) {
+			t.Fatalf("expected fact %s, got %s", expectedFact, facts)
+		}
+	}
+}
+
 func TestDocumentReadRejectsImageMaterialID(t *testing.T) {
 	toolCatalogBuilder := newFileToolTestCatalogBuilder(t.TempDir())
 	toolCatalogBuilder.UseCapabilityToolDescriptors(capability.Client{}, []CapabilityToolDescriptor{{

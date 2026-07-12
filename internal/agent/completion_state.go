@@ -482,21 +482,14 @@ func workspaceArtifactsBySuffix(workspaceRootPath string, suffixes []string, min
 func shouldSkipArtifactDirectory(workspaceRootPath string, path string) bool {
 	relativePath := relativeWorkspacePath(workspaceRootPath, path)
 	switch relativePath {
-	case "skills", ".git", ".cache", ".blueclaw", "node_modules", "tmp":
+	case "skills", ".git", ".cache", ".blueclaw", "node_modules":
 		return true
 	default:
 		return strings.HasPrefix(relativePath, "skills"+string(os.PathSeparator)) ||
 			strings.HasPrefix(relativePath, ".git"+string(os.PathSeparator)) ||
 			strings.HasPrefix(relativePath, ".blueclaw"+string(os.PathSeparator)) ||
-			strings.HasPrefix(relativePath, "tmp"+string(os.PathSeparator)) ||
-			isPrivateTmpArtifactDirectory(relativePath) ||
 			strings.HasPrefix(relativePath, "node_modules"+string(os.PathSeparator))
 	}
-}
-
-func isPrivateTmpArtifactDirectory(relativePath string) bool {
-	parts := strings.Split(filepath.ToSlash(relativePath), "/")
-	return len(parts) >= 4 && parts[0] == "private" && parts[1] == "people" && parts[3] == "tmp"
 }
 
 func appendArtifactCandidates(candidatesBySuffix map[string][]CompletionArtifact, workspaceRootPath string, path string, directoryEntry os.DirEntry, suffixes []string, minimumModifiedAt time.Time) error {
