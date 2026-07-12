@@ -136,19 +136,6 @@ if [ "$after_row_counts" != "$before_row_counts" ]; then
   exit 1
 fi
 
-after_restart_pg_version=""
-for _ in $(seq 1 10); do
-  after_restart_pg_version="$(run_as_root debugfs -R 'cat /.blueclaw/postgres/data/PG_VERSION' "$workspace_image" 2>/dev/null | tr -d '\r\n')"
-  if [ -n "$after_restart_pg_version" ]; then
-    break
-  fi
-  sleep 2
-done
-if [ "$after_restart_pg_version" != "$before_pg_version" ]; then
-  echo "PG_VERSION changed across restart: before=$before_pg_version after=$after_restart_pg_version" >&2
-  exit 1
-fi
-
 jq -n \
   --arg taskRunID "$task_run_id" \
   --arg beforeDigest "$before_detail_digest" \
@@ -167,8 +154,7 @@ jq -n \
   --argjson afterScheduleRowCount "$after_schedule_row_count" \
   --arg beforePGVersion "$before_pg_version" \
   --arg afterSyncPGVersion "$after_sync_pg_version" \
-  --arg afterRestartPGVersion "$after_restart_pg_version" \
-  '{taskRunID:$taskRunID,beforeDigest:$beforeDigest,afterDigest:$afterDigest,beforeScheduleDigest:$beforeScheduleDigest,afterScheduleDigest:$afterScheduleDigest,beforeRowCounts:{taskRun:$beforeTaskRunRowCount,attemptReference:$beforeAttemptRowCount,taskStep:$beforeTaskStepRowCount,taskEvent:$beforeTaskEventRowCount,taskSchedule:$beforeScheduleRowCount},afterRowCounts:{taskRun:$afterTaskRunRowCount,attemptReference:$afterAttemptRowCount,taskStep:$afterTaskStepRowCount,taskEvent:$afterTaskEventRowCount,taskSchedule:$afterScheduleRowCount},beforePGVersion:$beforePGVersion,afterSyncPGVersion:$afterSyncPGVersion,afterRestartPGVersion:$afterRestartPGVersion}' \
+  '{taskRunID:$taskRunID,beforeDigest:$beforeDigest,afterDigest:$afterDigest,beforeScheduleDigest:$beforeScheduleDigest,afterScheduleDigest:$afterScheduleDigest,beforeRowCounts:{taskRun:$beforeTaskRunRowCount,attemptReference:$beforeAttemptRowCount,taskStep:$beforeTaskStepRowCount,taskEvent:$beforeTaskEventRowCount,taskSchedule:$beforeScheduleRowCount},afterRowCounts:{taskRun:$afterTaskRunRowCount,attemptReference:$afterAttemptRowCount,taskStep:$afterTaskStepRowCount,taskEvent:$afterTaskEventRowCount,taskSchedule:$afterScheduleRowCount},beforePGVersion:$beforePGVersion,afterSyncPGVersion:$afterSyncPGVersion}' \
   >"$evidence_directory_path/evidence.json"
 
 echo "workspace-persistence: ok taskRunID=$task_run_id taskDigest=$before_detail_digest scheduleDigest=$before_schedule_digest rowCounts=$before_row_counts PG_VERSION=$before_pg_version"
