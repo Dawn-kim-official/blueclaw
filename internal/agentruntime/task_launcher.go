@@ -66,6 +66,7 @@ type TaskLaunchRequest struct {
 	ScheduledRun               agent.ScheduledRunContext
 	PrecomputedTurnDecision    *agent.TurnDecision
 	AmbientDuty                agent.AmbientDutyContext
+	IsAddressedToBot           bool
 	PinnedToolNames            []string
 	PinnedSkillNames           []string
 	HistoryProvider            HistoryProvider
@@ -253,10 +254,21 @@ func (buildToolSetLaunchStep) Run(_ context.Context, execution *taskLaunchExecut
 	toolSet := execution.Launcher.toolCatalogBuilder.BuildToolSet(
 		execution.Launcher.toolCatalogRequestForLaunch(execution.Request, execution.NormalizedProfileName),
 	)
-	if execution.Request.AmbientDuty.IsMatch {
+	if isAmbientCaptureLaunch(execution.Request) {
 		return toolSet.WithAllowedToolNames(ambientCaptureAllowedToolNames()), nil
 	}
 	return toolSet, nil
+}
+
+func isAmbientCaptureLaunch(request TaskLaunchRequest) bool {
+	return request.AmbientDuty.IsMatch && !request.IsAddressedToBot
+}
+
+func ambientCaptureDutyForLaunch(request TaskLaunchRequest) agent.AmbientDutyContext {
+	if !isAmbientCaptureLaunch(request) {
+		return agent.AmbientDutyContext{}
+	}
+	return request.AmbientDuty
 }
 
 func ambientCaptureAllowedToolNames() []string {
@@ -397,7 +409,7 @@ func (taskLauncher *TaskLauncher) agentTurnRequestForLaunch(request TaskLaunchRe
 		PriorTask:               request.PriorTask,
 		ScheduledRun:            request.ScheduledRun,
 		PrecomputedTurnDecision: request.PrecomputedTurnDecision,
-		AmbientDuty:             request.AmbientDuty,
+		AmbientDuty:             ambientCaptureDutyForLaunch(request),
 		MemoryFacts:             memoryFacts,
 		ToolSet:                 toolSet,
 		PinnedToolNames:         append([]string{}, request.PinnedToolNames...),
@@ -414,8 +426,9 @@ func (taskLauncher *TaskLauncher) appendAmbientDutyLaunchEvent(taskRunID string,
 		return
 	}
 	taskLauncher.agentKernel.AppendTaskEvent(taskRunID, "agent.ambient_duty_launch", marshalToolResult(map[string]any{
-		"dutyName":   ambientDuty.Name,
-		"confidence": ambientDuty.Confidence,
+		"dutyName":         ambientDuty.Name,
+		"confidence":       ambientDuty.Confidence,
+		"isAddressedToBot": request.IsAddressedToBot,
 	}))
 }
 

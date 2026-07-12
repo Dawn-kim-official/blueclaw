@@ -1017,6 +1017,7 @@ func (connectorRuntime *ConnectorRuntime) processInboundEventWithReplySender(ctx
 		PriorTask:                 priorTask,
 		PrecomputedTurnDecision:   precomputedTurnDecision,
 		AmbientDuty:               addressingLaunch.AmbientDuty,
+		IsAddressedToBot:          addressingLaunch.IsAddressedToBot,
 		CheckpointSender:          connectorRuntime.checkpointSenderForTurn(platform, event, replyTarget, sendReply),
 		AccessibleConversationIDs: []string{event.ConversationID},
 		IsBlockedContinuation:     activeGoal.Status == agent.ActiveGoalStatusBlocked && hasActiveGoal,

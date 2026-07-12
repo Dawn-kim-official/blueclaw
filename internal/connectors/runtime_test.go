@@ -3695,7 +3695,7 @@ func (languageModel *addressingTestLanguageModel) GenerateStructuredResponse(_ c
 		if languageModel.addressingError != nil {
 			return llm.StructuredResponse{}, languageModel.addressingError
 		}
-		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot) || languageModel.dutyMatch) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
+		return llm.StructuredResponse{Content: `{"target":` + strconv.Quote(languageModel.addressingTarget) + `,"shouldRespond":` + strconv.FormatBool(languageModel.addressingTarget == string(agent.AddressingTargetBot)) + `,"reactionEmoji":` + strconv.Quote(languageModel.reactionEmoji) + `,"dutyMatch":` + strconv.FormatBool(languageModel.dutyMatch) + `,"dutyName":` + strconv.Quote(languageModel.dutyName) + `,"dutyConfidence":` + strconv.FormatFloat(languageModel.dutyConfidence, 'f', -1, 64) + `}`}, nil
 	}
 	return llm.StructuredResponse{Content: connectorFinishMessage(languageModel.reply)}, nil
 }
@@ -4261,5 +4261,44 @@ func TestResolveInboundEngagementReactAndRespond(t *testing.T) {
 	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", event)
 	if !decision.ShouldLaunch || decision.ReactionEmoji != "+1" {
 		t.Fatalf("expected react-and-respond (launch + emoji), got %+v", decision)
+	}
+}
+
+func TestResolveInboundEngagementMarksMentionedDutyMatchAsAddressed(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetBot), dutyMatch: true, dutyName: "team_flow_update", dutyConfidence: 0.8}
+	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
+	event := testChannelInboundEvent("message-1")
+	event.Context.Addressing.BotMentioned = true
+
+	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", event)
+	if !decision.ShouldLaunch || !decision.IsAddressedToBot {
+		t.Fatalf("expected mentioned duty match to launch as addressed, got %+v", decision)
+	}
+	if !decision.AmbientDuty.IsMatch {
+		t.Fatalf("expected duty annotation to remain for observability, got %+v", decision)
+	}
+}
+
+func TestResolveInboundEngagementMarksUnaddressedDutyMatchAsAmbient(t *testing.T) {
+	languageModel := &addressingTestLanguageModel{addressingTarget: string(agent.AddressingTargetHuman), dutyMatch: true, dutyName: "team_flow_update", dutyConfidence: 0.8}
+	connectorRuntime, _ := newTestConnectorRuntime(t, languageModel)
+
+	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", testChannelInboundEvent("message-1"))
+	if !decision.ShouldLaunch || decision.IsAddressedToBot {
+		t.Fatalf("expected unaddressed duty match to launch as ambient capture, got %+v", decision)
+	}
+	if !decision.AmbientDuty.IsMatch {
+		t.Fatalf("expected duty match, got %+v", decision)
+	}
+}
+
+func TestResolveInboundEngagementMarksDirectMessageAsAddressed(t *testing.T) {
+	connectorRuntime, _ := newTestConnectorRuntime(t, nil)
+	event := testInboundEvent("message-1")
+	event.Context.ConversationType = "D"
+
+	decision := connectorRuntime.resolveInboundEngagement(context.Background(), "mattermost", event)
+	if !decision.ShouldLaunch || !decision.IsAddressedToBot {
+		t.Fatalf("expected direct message to launch as addressed, got %+v", decision)
 	}
 }

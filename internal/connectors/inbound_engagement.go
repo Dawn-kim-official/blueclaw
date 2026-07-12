@@ -11,10 +11,11 @@ import (
 const ambientDutyLaunchConfidenceThreshold = 0.7
 
 type inboundEngagementDecision struct {
-	ShouldLaunch  bool
-	ReactionEmoji string
-	IgnoreReason  string
-	AmbientDuty   agent.AmbientDutyContext
+	ShouldLaunch     bool
+	IsAddressedToBot bool
+	ReactionEmoji    string
+	IgnoreReason     string
+	AmbientDuty      agent.AmbientDutyContext
 }
 
 func shouldIgnoreUninvitedAddressing(event PlatformInboundEvent) bool {
@@ -23,7 +24,7 @@ func shouldIgnoreUninvitedAddressing(event PlatformInboundEvent) bool {
 
 func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.Context, platform string, event PlatformInboundEvent) inboundEngagementDecision {
 	if !isMultiPersonConversation(event) {
-		return inboundEngagementDecision{ShouldLaunch: true}
+		return inboundEngagementDecision{ShouldLaunch: true, IsAddressedToBot: true}
 	}
 	botMentioned := event.Context.Addressing.BotMentioned
 	if event.Context.AttachmentsOnly && !botMentioned {
@@ -41,7 +42,7 @@ func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.C
 	if errorValue != nil {
 		connectorRuntime.logger.Warn("connector."+platform+".addressing.classifier_failed", slog.String("messageID", event.MessageID), slog.String("error", errorValue.Error()))
 		if botMentioned {
-			return inboundEngagementDecision{ShouldLaunch: true}
+			return inboundEngagementDecision{ShouldLaunch: true, IsAddressedToBot: true}
 		}
 		return inboundEngagementDecision{IgnoreReason: "addressing_classifier_failed dutyMatch=false"}
 	}
@@ -51,9 +52,10 @@ func (connectorRuntime *ConnectorRuntime) resolveInboundEngagement(ctx context.C
 		return inboundEngagementDecision{IgnoreReason: "addressing_" + string(addressingDecision.Target) + " dutyMatch=false"}
 	}
 	return inboundEngagementDecision{
-		ShouldLaunch:  shouldLaunch,
-		ReactionEmoji: addressingDecision.ReactionEmoji,
-		AmbientDuty:   ambientDuty,
+		ShouldLaunch:     shouldLaunch,
+		IsAddressedToBot: botMentioned || addressingDecision.ShouldRespond,
+		ReactionEmoji:    addressingDecision.ReactionEmoji,
+		AmbientDuty:      ambientDuty,
 	}
 }
 

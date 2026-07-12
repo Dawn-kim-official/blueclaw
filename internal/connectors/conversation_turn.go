@@ -22,6 +22,7 @@ type ConversationTurn struct {
 	PriorTask                 agent.PriorTaskContext
 	PrecomputedTurnDecision   *agent.TurnDecision
 	AmbientDuty               agent.AmbientDutyContext
+	IsAddressedToBot          bool
 	CheckpointSender          agent.AgentCheckpointSender
 	AccessibleConversationIDs []string
 	IsBlockedContinuation     bool
@@ -63,6 +64,7 @@ func (connectorRuntime *ConnectorRuntime) buildTaskLaunchRequest(turn Conversati
 		PriorTask:                  turn.PriorTask,
 		PrecomputedTurnDecision:    turn.PrecomputedTurnDecision,
 		AmbientDuty:                turn.AmbientDuty,
+		IsAddressedToBot:           turn.IsAddressedToBot,
 		HistoryProvider:            connectorHistoryProvider{adapter: turn.Adapter},
 		AttachmentMaterialResolver: attachmentMaterialResolver,
 		PersonAccess:               turn.PersonAccess,
