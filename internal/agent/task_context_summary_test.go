@@ -42,6 +42,33 @@ func TestTaskContextCompactionTriggersOnlyOverBudget(t *testing.T) {
 	}
 }
 
+func TestTaskContextCompactionUsesRecoveryModel(t *testing.T) {
+	observations := numberedContextSummaryObservations(12, 2000, "history")
+	summaryResponse := `{"goal":"ship","completedSteps":["rolled summary"],"artifacts":[],"keyDecisions":[],"exhaustedRecoveryRoutes":[],"activeFailureDebt":[],"nextPlan":["finish"]}`
+	actionModel := &sequenceLanguageModel{contents: []string{finishMessageDocument("done")}}
+	compactionModel := &sequenceLanguageModel{contents: []string{summaryResponse}}
+	services := newTurnRunnerTestServices(actionModel, TurnOptions{ContextWindowTokens: 1000})
+	services.runner.recoveryLanguageModel = compactionModel
+
+	_, errorValue := services.runner.nextAction(context.Background(), "task-1", AgentTurnRequest{Prompt: "ship"}, nil, observations, ExecutionState{}, TaskContextSummary{}, true)
+
+	if errorValue != nil {
+		t.Fatalf("expected compaction with recovery model to succeed: %v", errorValue)
+	}
+	if len(compactionModel.requests) != 1 || compactionModel.requests[0].StructuredOutputSchema.Name != "blueclaw_task_context_summary" {
+		t.Fatalf("expected recovery model to compact context, got %+v", compactionModel.requests)
+	}
+	if len(actionModel.requests) != 1 || actionModel.requests[0].StructuredOutputSchema.Name == "blueclaw_task_context_summary" {
+		t.Fatalf("expected task model to receive only the action request, got %+v", actionModel.requests)
+	}
+}
+
+func TestCompactionTriggerTokenThresholdUsesThirtyPercent(t *testing.T) {
+	if threshold := compactionTriggerTokenThreshold(1_000_000); threshold != 300_000 {
+		t.Fatalf("expected 30%% compaction threshold, got %d", threshold)
+	}
+}
+
 func TestTaskContextCompactionReplacesOldPromptObservationsOnly(t *testing.T) {
 	observations := numberedContextSummaryObservations(12, 2000, "OLD_MARKER")
 	summaryResponse := `{"goal":"ship","completedSteps":["rolled summary"],"artifacts":["/workspace/site/index.html"],"keyDecisions":[],"exhaustedRecoveryRoutes":[],"activeFailureDebt":[],"nextPlan":["finish"]}`

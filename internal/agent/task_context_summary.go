@@ -212,7 +212,7 @@ func completionEvidenceObservationIDs(events []task.TaskEvent) map[string]bool {
 
 func (agentTurnRunner *AgentTurnRunner) generateTaskContextSummary(ctx context.Context, request AgentTurnRequest, currentSummary TaskContextSummary, observations []turnObservation) (TaskContextSummary, bool) {
 	maxTokens := taskContextSummaryMaxTokens
-	structuredResponse, errorValue := agentTurnRunner.languageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
+	structuredResponse, errorValue := agentTurnRunner.recoveryLanguageModel.GenerateStructuredResponse(ctx, llm.StructuredResponseRequest{
 		Messages: []llm.Message{{
 			Role:    "system",
 			Content: taskContextSummaryInstruction(),
@@ -307,7 +307,7 @@ func compactionTriggerTokenThreshold(contextWindowTokens int) int {
 	if contextWindowTokens <= 0 {
 		return defaultCompactionTriggerTokens
 	}
-	threshold := contextWindowTokens * 6 / 10
+	threshold := contextWindowTokens * 3 / 10
 	if threshold <= 0 {
 		return defaultCompactionTriggerTokens
 	}

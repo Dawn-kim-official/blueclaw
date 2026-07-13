@@ -56,7 +56,7 @@ func capabilityModelName(runtimeConfiguration config.RuntimeConfiguration) strin
 
 const (
 	defaultMaxModelName    = "google/gemini-3.5-flash"
-	defaultXHighModelName  = "openai/gpt-5.6-luna"
+	defaultXHighModelName  = "minimax/minimax-m3"
 	defaultHighModelName   = "google/gemini-3-flash-preview"
 	defaultMediumModelName = "google/gemini-3.1-flash-lite"
 	defaultLowModelName    = "xiaomi/mimo-v2.5"
